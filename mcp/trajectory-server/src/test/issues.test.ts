@@ -1,11 +1,15 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
-import { issueTools } from '../tools/issues.js';
+import { issueTools, objectiveSimilarity } from '../tools/issues.js';
 import { configTools } from '../tools/config.js';
 import { makeSpawnFn } from './sync-issue.test.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
+
+// Mandatory tagging (#93/#777): a valid issue_create must carry one
+// classification + one priority label. Shared so existing cases stay valid.
+const VALID_LABELS = ['Bug', 'Priority: High'];
 
 async function call(
   handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
@@ -21,6 +25,23 @@ function parseResult(result: RawResult) {
   return JSON.parse(result.content[0].text);
 }
 
+// Issue-scoped sync (#155/#146) resolves the issue's repo to a `repos` row and
+// reads that row's `remotes` to pick the explicit gh --repo / glab -R target.
+// Register a single repo so the sole-repo fallback resolves and the remotes are
+// available; with exactly one repos row the issue inherits it at create time.
+function registerSoleRepo(
+  db: ReturnType<typeof tempDB>,
+  remotes: Array<{ name?: string; provider: string; url: string }> = [
+    { name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' },
+    { name: 'origin', provider: 'gitlab', url: 'https://gitlab.com/owner/repo.git' },
+  ],
+): void {
+  db.run(
+    `INSERT INTO repos (name, path, remotes) VALUES ('app', '/tmp/app', ?)`,
+    [JSON.stringify(remotes)],
+  );
+}
+
 describe('issueTools', () => {
   it('create then get returns the created issue', async () => {
     const db = tempDB();
@@ -29,6 +50,7 @@ describe('issueTools', () => {
     const createResult = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'Build feature X',
+      labels: VALID_LABELS,
       description: '# Requirements\n- Do X',
     });
     const created = parseResult(createResult);
@@ -56,6 +78,7 @@ describe('issueTools', () => {
     const createResult = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'Test redaction',
+      labels: VALID_LABELS,
       description: 'secret description',
     });
     const created = parseResult(createResult);
@@ -80,6 +103,7 @@ describe('issueTools', () => {
     const createResult = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'Resume test',
+      labels: VALID_LABELS,
     });
     const issue = parseResult(createResult);
 
@@ -114,6 +138,7 @@ describe('issueTools', () => {
     const createResult = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'Close test',
+      labels: VALID_LABELS,
     });
     const issue = parseResult(createResult);
 
@@ -139,6 +164,7 @@ describe('issueTools', () => {
     const createResult = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'Phase test',
+      labels: VALID_LABELS,
     });
     const issue = parseResult(createResult);
 
@@ -184,6 +210,7 @@ describe('issueTools', () => {
 describe('issueTools — gh_iid + gl_iid tri-source', () => {
   it('issue_create with issue_sync=gh populates gh_iid from remote', async () => {
     const db = tempDB();
+    registerSoleRepo(db);
     const cfgTools = configTools(db);
     await call(cfgTools.handlers, 'config_set', {
       agent: 'bro',
@@ -195,6 +222,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
     const result = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'tri-source gh create',
+      labels: VALID_LABELS,
       _spawnFn: makeSpawnFn([{
         status: 0,
         stdout: 'https://github.com/owner/repo/issues/77\n',
@@ -222,6 +250,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
 
   it('issue_create with issue_sync=glab populates gl_iid from remote', async () => {
     const db = tempDB();
+    registerSoleRepo(db);
     const cfgTools = configTools(db);
     await call(cfgTools.handlers, 'config_set', {
       agent: 'bro',
@@ -233,6 +262,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
     const result = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'tri-source glab create',
+      labels: VALID_LABELS,
       _spawnFn: makeSpawnFn([{
         status: 0,
         stdout: 'https://gitlab.com/owner/repo/-/issues/55\n',
@@ -265,6 +295,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
     const createResult = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'tri-source close gh',
+      labels: VALID_LABELS,
     });
     const issue = parseResult(createResult);
 
@@ -292,6 +323,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
     const createResult = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'tri-source close gl',
+      labels: VALID_LABELS,
     });
     const issue = parseResult(createResult);
 
@@ -327,6 +359,7 @@ describe('issueTools — remote sync', () => {
     const result = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'Test off sync',
+      labels: VALID_LABELS,
     });
     const created = parseResult(result);
     assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
@@ -349,6 +382,7 @@ describe('issueTools — remote sync', () => {
     const result = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'Test gh sync failure fallback',
+      labels: VALID_LABELS,
       _spawnFn: makeSpawnFn([{ status: 1, stdout: '', stderr: 'simulated gh auth error' }]),
     });
     const created = parseResult(result);
@@ -373,6 +407,7 @@ describe('issueTools — remote sync', () => {
     const result = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'Test glab sync failure fallback',
+      labels: VALID_LABELS,
       _spawnFn: makeSpawnFn([{ status: 1, stdout: '', stderr: 'simulated glab auth error' }]),
     });
     const created = parseResult(result);
@@ -397,6 +432,7 @@ describe('issueTools — remote sync', () => {
     const result = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'Test auto with no remote',
+      labels: VALID_LABELS,
       _spawnFn: makeSpawnFn([{ status: 1, stdout: '', stderr: 'simulated no-remote failure' }]),
     });
     const created = parseResult(result);
@@ -414,6 +450,7 @@ describe('issueTools — remote sync', () => {
     const createResult = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'Close without remote',
+      labels: VALID_LABELS,
     });
     const issue = parseResult(createResult);
 
@@ -435,6 +472,7 @@ describe('issueTools — remote sync', () => {
     const createResult = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'Close with remote',
+      labels: VALID_LABELS,
     });
     const issue = parseResult(createResult);
 
@@ -472,6 +510,7 @@ describe('issueTools — remote sync', () => {
 
   it('issue_create with successful sync bumps updated_at (regression: Bug 2)', async () => {
     const db = tempDB();
+    registerSoleRepo(db);
     const cfgTools = configTools(db);
     await call(cfgTools.handlers, 'config_set', {
       agent: 'bro',
@@ -485,6 +524,7 @@ describe('issueTools — remote sync', () => {
     const result = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'updated_at regression',
+      labels: VALID_LABELS,
       _spawnFn: makeSpawnFn([{
         status: 0,
         stdout: 'https://github.com/owner/repo/issues/42\n',
@@ -526,6 +566,7 @@ describe('issueTools — remote sync', () => {
     const createResult = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'Retry test off',
+      labels: VALID_LABELS,
     });
     const issue = parseResult(createResult);
 
@@ -547,13 +588,14 @@ describe('issueTools — remote sync', () => {
     const createResult = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'Phase regression test issue',
+      labels: VALID_LABELS,
     });
     const issue = parseResult(createResult);
     assert.ok(!createResult.isError);
 
     db.run(
       `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
-       VALUES (?, 'feat/task-a', 'main', '', 'task a', 'completed', 0, '', '', datetime('now'), datetime('now'))`,
+       VALUES (?, 'feat/task-a', 'main', '', 'task a', 'completed', 0, '', NULL, datetime('now'), datetime('now'))`,
       [issue.id],
     );
 
@@ -577,18 +619,19 @@ describe('issueTools — remote sync', () => {
     const createResult = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'Phase tasks regression test',
+      labels: VALID_LABELS,
     });
     const issue = parseResult(createResult);
     assert.ok(!createResult.isError);
 
     db.run(
       `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
-       VALUES (?, 'feat/task-b', 'main', '', 'task b', 'completed', 0, '', '', datetime('now'), datetime('now'))`,
+       VALUES (?, 'feat/task-b', 'main', '', 'task b', 'completed', 0, '', NULL, datetime('now'), datetime('now'))`,
       [issue.id],
     );
     db.run(
       `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
-       VALUES (?, 'feat/task-c', 'main', '', 'task c', 'pending', 0, '', '', datetime('now'), datetime('now'))`,
+       VALUES (?, 'feat/task-c', 'main', '', 'task c', 'pending', 0, '', NULL, datetime('now'), datetime('now'))`,
       [issue.id],
     );
 
@@ -610,13 +653,14 @@ describe('issueTools — remote sync', () => {
     const createResult = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'Closed-task phase regression test',
+      labels: VALID_LABELS,
     });
     const issue = parseResult(createResult);
     assert.ok(!createResult.isError);
 
     db.run(
       `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
-       VALUES (?, 'feat/task-closed', 'main', '', 'closed task', 'closed', 0, '', '', datetime('now'), datetime('now'))`,
+       VALUES (?, 'feat/task-closed', 'main', '', 'closed task', 'closed', 0, '', NULL, datetime('now'), datetime('now'))`,
       [issue.id],
     );
 
@@ -640,6 +684,7 @@ describe('issueTools — remote sync', () => {
     const createResult = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'Zero-task phase null-check test',
+      labels: VALID_LABELS,
     });
     const issue = parseResult(createResult);
     assert.ok(!createResult.isError);
@@ -661,22 +706,20 @@ describe('issueTools — remote sync', () => {
 describe('issueTools — issue-sync hardening (#314)', () => {
   it('blank remote URL in remotes config → sync skipped with diagnostic', async () => {
     const db = tempDB();
+    registerSoleRepo(db, [{ name: 'origin', provider: 'github', url: '' }]);
     const cfgTools = configTools(db);
     await call(cfgTools.handlers, 'config_set', {
       agent: 'bro',
       key: 'issue_sync',
       value: 'gh',
     });
-    db.run(
-      `INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('remotes', ?)`,
-      [JSON.stringify([{ name: 'origin', provider: 'github', url: '' }])],
-    );
     const tools = issueTools(db);
 
     const noCallSpawn = makeSpawnFn([]);
     const result = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'blank URL sync skip test',
+      labels: VALID_LABELS,
       _spawnFn: noCallSpawn,
     });
     const issue = parseResult(result);
@@ -691,6 +734,7 @@ describe('issueTools — issue-sync hardening (#314)', () => {
 
   it('read-back returns PR url → no gh_iid persisted, diagnostic surfaced (#314)', async () => {
     const db = tempDB();
+    registerSoleRepo(db);
     const cfgTools = configTools(db);
     await call(cfgTools.handlers, 'config_set', {
       agent: 'bro',
@@ -702,6 +746,7 @@ describe('issueTools — issue-sync hardening (#314)', () => {
     const result = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'verify_failed PR test',
+      labels: VALID_LABELS,
       _spawnFn: makeSpawnFn([
         {
           status: 0,
@@ -737,7 +782,7 @@ describe('issue_link (#336)', () => {
     const db = tempDB();
     const tools = issueTools(db);
 
-    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'manual mirror' });
+    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'manual mirror', labels: VALID_LABELS });
     const issue = parseResult(createResult);
 
     const linkResult = await call(tools.handlers, 'issue_link', {
@@ -766,7 +811,7 @@ describe('issue_link (#336)', () => {
     const db = tempDB();
     const tools = issueTools(db);
 
-    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'double link test' });
+    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'double link test', labels: VALID_LABELS });
     const issue = parseResult(createResult);
 
     await call(tools.handlers, 'issue_link', { agent: 'bro', issue_id: String(issue.id), backend: 'github', iid: 42 });
@@ -785,7 +830,7 @@ describe('issue_link (#336)', () => {
     const db = tempDB();
     const tools = issueTools(db);
 
-    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'force link test' });
+    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'force link test', labels: VALID_LABELS });
     const issue = parseResult(createResult);
 
     await call(tools.handlers, 'issue_link', { agent: 'bro', issue_id: String(issue.id), backend: 'github', iid: 42 });
@@ -804,7 +849,7 @@ describe('issue_link (#336)', () => {
     const db = tempDB();
     const tools = issueTools(db);
 
-    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'audit test' });
+    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'audit test', labels: VALID_LABELS });
     const issue = parseResult(createResult);
 
     await call(tools.handlers, 'issue_link', { agent: 'bro', issue_id: String(issue.id), backend: 'gitlab', iid: 77 });
@@ -824,7 +869,7 @@ describe('issue_link (#336)', () => {
     const db = tempDB();
     const tools = issueTools(db);
 
-    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'role guard test' });
+    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'role guard test', labels: VALID_LABELS });
     const issue = parseResult(createResult);
 
     const result = await call(tools.handlers, 'issue_link', {
@@ -839,6 +884,7 @@ describe('issue_link (#336)', () => {
 describe('issue_sync_retry — partial create only missing backend (#345)', () => {
   it('returns already_synced when all backends have iids set', async () => {
     const db = tempDB();
+    registerSoleRepo(db);
     const cfgTools = configTools(db);
     await call(cfgTools.handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'both' });
     const tools = issueTools(db);
@@ -846,6 +892,7 @@ describe('issue_sync_retry — partial create only missing backend (#345)', () =
     const createResult = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'already synced test',
+      labels: VALID_LABELS,
       _spawnFn: makeSpawnFn([
         { status: 1, stdout: '', stderr: 'simulated gh create failure' },
         { status: 1, stdout: '', stderr: 'simulated glab create failure' },
@@ -870,6 +917,7 @@ describe('issue_sync_retry — partial create only missing backend (#345)', () =
 
   it('gh_iid preserved after retry when gh already synced', async () => {
     const db = tempDB();
+    registerSoleRepo(db);
     const cfgTools = configTools(db);
     await call(cfgTools.handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'both' });
     const tools = issueTools(db);
@@ -877,6 +925,7 @@ describe('issue_sync_retry — partial create only missing backend (#345)', () =
     const createResult = await call(tools.handlers, 'issue_create', {
       agent: 'bro',
       objective: 'partial sync gh done',
+      labels: VALID_LABELS,
       _spawnFn: makeSpawnFn([
         { status: 1, stdout: '', stderr: 'simulated gh create failure' },
         { status: 1, stdout: '', stderr: 'simulated glab create failure' },
@@ -903,12 +952,73 @@ describe('issue_sync_retry — partial create only missing backend (#345)', () =
   });
 });
 
+describe('issue_sync_retry — milestone + valid labels (#1028)', () => {
+  it('retry create carries the persisted milestone and a valid label set', async () => {
+    const db = tempDB();
+    registerSoleRepo(db);
+    db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v0.10.0', 'app', 'open')`);
+    const cfgTools = configTools(db);
+    await call(cfgTools.handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'gh' });
+    const tools = issueTools(db);
+
+    // Create with the initial gh create failing so gh_iid stays null → retryable.
+    const createResult = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'retry milestone + labels',
+      labels: VALID_LABELS,
+      milestone: 'v0.10.0',
+      _spawnFn: makeSpawnFn([{ status: 1, stdout: '', stderr: 'simulated gh create failure' }]),
+    });
+    const issue = parseResult(createResult);
+    assert.ok(!createResult.isError, `create should succeed locally: ${issue.error}`);
+
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    const spawnFn = (cmd: string, args: string[]) => {
+      calls.push({ cmd, args });
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return { status: 0, stdout: '{"number":88,"url":"https://github.com/owner/repo/issues/88"}', stderr: '' };
+      }
+      return { status: 0, stdout: 'https://github.com/owner/repo/issues/88\n', stderr: '' };
+    };
+
+    const retryResult = await call(tools.handlers, 'issue_sync_retry', {
+      agent: 'bro',
+      issue_id: String(issue.id),
+      _spawnFn: spawnFn,
+    });
+    const data = parseResult(retryResult);
+    assert.ok(!retryResult.isError, `retry should not error: ${JSON.stringify(data)}`);
+
+    const createCall = calls.find((c) => c.args[0] === 'issue' && c.args[1] === 'create');
+    assert.ok(createCall !== undefined, 'gh issue create must run on retry');
+
+    const mIdx = createCall.args.indexOf('--milestone');
+    assert.ok(mIdx >= 0, 'retry create must include --milestone (not undefined)');
+    assert.equal(createCall.args[mIdx + 1], 'v0.10.0');
+
+    // A valid label set: at least one classification + one priority default,
+    // never labels:[] (which a tagging-enforced remote would reject).
+    const labelValues: string[] = [];
+    for (let i = 0; i < createCall.args.length; i++) {
+      if (createCall.args[i] === '--label') labelValues.push(createCall.args[i + 1]!);
+    }
+    assert.ok(labelValues.length >= 2, `retry create must supply labels, got: ${JSON.stringify(labelValues)}`);
+    assert.ok(labelValues.includes('Bug'), 'default classification label present');
+    assert.ok(
+      labelValues.some((l) => l.startsWith('Priority: ')),
+      `a priority label present, got: ${JSON.stringify(labelValues)}`,
+    );
+
+    db.close();
+  });
+});
+
 describe('issue_create sync_skipped audit marker (#336)', () => {
   it('writes sync_skipped audit row when issue_sync=off', async () => {
     const db = tempDB();
     const tools = issueTools(db);
 
-    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'off sync test' });
+    const createResult = await call(tools.handlers, 'issue_create', { agent: 'bro', objective: 'off sync test', labels: VALID_LABELS });
     const issue = parseResult(createResult);
     assert.ok(!createResult.isError);
 
@@ -918,6 +1028,631 @@ describe('issue_create sync_skipped audit marker (#336)', () => {
     );
     assert.ok(auditRow, 'sync_skipped audit row must exist when issue_sync=off');
     assert.equal(auditRow.event_type, 'sync_skipped');
+
+    db.close();
+  });
+});
+
+describe('issue_create mandatory tagging (#93/#777)', () => {
+  it('accepts a classification + priority label', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'tagged correctly',
+      labels: ['Feature', 'Priority: Medium'],
+    });
+    const issue = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
+    assert.equal(issue.objective, 'tagged correctly');
+    assert.equal(issue.status, 'open');
+
+    db.close();
+  });
+
+  it('rejects when no priority label is present', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'missing priority',
+      labels: ['Bug'],
+    });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'must reject when no priority label');
+    assert.match(data.error, /missing_required_labels/);
+    assert.match(data.error, /priority label/);
+
+    db.close();
+  });
+
+  it('rejects when only a priority label and no classification', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'missing classification',
+      labels: ['Priority: High'],
+    });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'must reject when no classification label');
+    assert.match(data.error, /missing_required_labels/);
+    assert.match(data.error, /classification label/);
+
+    db.close();
+  });
+
+  it('rejects when labels arg is omitted entirely', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'no labels at all',
+    });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'must reject when labels omitted (fail closed)');
+    assert.match(data.error, /missing_required_labels/);
+
+    db.close();
+  });
+
+  it('accepts the generic default classification + priority labels when config is unset', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    for (const classification of ['Bug', 'Feature', 'Improvement', 'Docs', 'Test', 'Chore']) {
+      const result = await call(tools.handlers, 'issue_create', {
+        agent: 'bro',
+        objective: `generic ${classification}`,
+        labels: [classification, 'Priority: Low'],
+      });
+      assert.ok(!result.isError, `default classification ${classification} must be accepted`);
+    }
+
+    db.close();
+  });
+
+  it('rejects a TMB-specific legacy label that is no longer in the generic default', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'legacy doctrine label',
+      labels: ['Doctrine', 'Priority: High'],
+    });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'Doctrine is no longer a shipped default classification');
+    assert.match(data.error, /missing_required_labels/);
+    assert.match(data.error, /classification label/);
+
+    db.close();
+  });
+
+  it('honors a project-configured classification set via plugin_config', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+    const cfg = configTools(db);
+
+    await call(cfg.handlers, 'config_set', {
+      agent: 'bro',
+      key: 'issue_classification_labels',
+      value: ['Doctrine', 'Roundtable'],
+    });
+
+    const accepted = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'configured classification accepted',
+      labels: ['Doctrine', 'Priority: High'],
+    });
+    assert.ok(!accepted.isError, 'configured classification label must be accepted');
+
+    const rejected = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'default classification rejected once overridden',
+      labels: ['Bug', 'Priority: High'],
+    });
+    const data = parseResult(rejected);
+    assert.ok(rejected.isError, 'Bug is not in the configured set, so it must be rejected');
+    assert.match(data.error, /Doctrine, Roundtable/);
+
+    db.close();
+  });
+
+  it('honors a project-configured priority set via plugin_config', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+    const cfg = configTools(db);
+
+    await call(cfg.handlers, 'config_set', {
+      agent: 'bro',
+      key: 'issue_priority_labels',
+      value: ['P0', 'P1', 'P2'],
+    });
+
+    const accepted = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'configured priority accepted',
+      labels: ['Bug', 'P1'],
+    });
+    assert.ok(!accepted.isError, 'configured priority label must be accepted');
+
+    const rejected = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'default priority rejected once overridden',
+      labels: ['Bug', 'Priority: High'],
+    });
+    const data = parseResult(rejected);
+    assert.ok(rejected.isError, 'Priority: High is not in the configured set, so it must be rejected');
+    assert.match(data.error, /P0, P1, P2/);
+
+    db.close();
+  });
+});
+
+describe('issueTools — milestone (#83/#763)', () => {
+  it('issue_create persists the milestone on the row', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'milestone-bound issue',
+      labels: VALID_LABELS,
+      milestone: 'v0.10.0',
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+    assert.equal(created.milestone, 'v0.10.0', 'milestone returned on created issue');
+
+    const row = db.get<{ milestone: string | null }>(
+      'SELECT milestone FROM issues WHERE id = ?',
+      [created.id],
+    );
+    assert.equal(row?.milestone, 'v0.10.0', 'milestone persisted on the row');
+
+    db.close();
+  });
+
+  it('issue_create without milestone leaves it NULL', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'no milestone issue',
+      labels: VALID_LABELS,
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+
+    const row = db.get<{ milestone: string | null }>(
+      'SELECT milestone FROM issues WHERE id = ?',
+      [created.id],
+    );
+    assert.equal(row?.milestone, null, 'milestone NULL when omitted');
+
+    db.close();
+  });
+
+  it('issue_create passes the milestone to the gh sync command', async () => {
+    const db = tempDB();
+    registerSoleRepo(db);
+    db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v0.10.0', 'app', 'open')`);
+    const cfgTools = configTools(db);
+    await call(cfgTools.handlers, 'config_set', {
+      agent: 'bro',
+      key: 'issue_sync',
+      value: 'gh',
+    });
+    const tools = issueTools(db);
+
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    const spawnFn = (cmd: string, args: string[]) => {
+      calls.push({ cmd, args });
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return { status: 0, stdout: '{"number":7,"url":"https://github.com/owner/repo/issues/7"}', stderr: '' };
+      }
+      return { status: 0, stdout: 'https://github.com/owner/repo/issues/7\n', stderr: '' };
+    };
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'sync milestone to gh',
+      labels: VALID_LABELS,
+      milestone: 'v0.10.0',
+      _spawnFn: spawnFn,
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+
+    const createCall = calls.find((c) => c.args[1] === 'create');
+    assert.ok(createCall !== undefined, 'gh issue create must have been called');
+    const mIdx = createCall.args.indexOf('--milestone');
+    assert.ok(mIdx >= 0, 'gh create must include --milestone');
+    assert.equal(createCall.args[mIdx + 1], 'v0.10.0');
+
+    db.close();
+  });
+});
+
+describe('issueTools — per-repo open-milestone default (#15)', () => {
+  it('defaults milestone to the issue repo\'s sole OPEN milestone when omitted', async () => {
+    const db = tempDB();
+    registerSoleRepo(db);
+    db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v0.10.0', 'app', 'open')`);
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'omitted milestone defaults to the sole open milestone',
+      labels: VALID_LABELS,
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+
+    const row = db.get<{ milestone: string | null }>(
+      'SELECT milestone FROM issues WHERE id = ?',
+      [created.id],
+    );
+    assert.equal(row?.milestone, 'v0.10.0', 'sole open milestone applied');
+
+    db.close();
+  });
+
+  it('explicit milestone arg overrides the per-repo default and upserts (name, repo)', async () => {
+    const db = tempDB();
+    registerSoleRepo(db);
+    db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v0.10.0', 'app', 'open')`);
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'explicit milestone wins over the per-repo default',
+      labels: VALID_LABELS,
+      milestone: 'v0.11.0',
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+
+    const row = db.get<{ milestone: string | null }>(
+      'SELECT milestone FROM issues WHERE id = ?',
+      [created.id],
+    );
+    assert.equal(row?.milestone, 'v0.11.0', 'explicit arg wins');
+    const ms = db.get<{ name: string }>(
+      `SELECT name FROM milestones WHERE name = 'v0.11.0' AND repo = 'app'`,
+    );
+    assert.ok(ms, 'explicit milestone (name, repo) row upserted');
+
+    db.close();
+  });
+
+  it('stays NULL when the repo has zero open milestones', async () => {
+    const db = tempDB();
+    registerSoleRepo(db);
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'no open milestone stays null',
+      labels: VALID_LABELS,
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+
+    const row = db.get<{ milestone: string | null }>(
+      'SELECT milestone FROM issues WHERE id = ?',
+      [created.id],
+    );
+    assert.equal(row?.milestone, null, 'zero open milestones → null');
+
+    db.close();
+  });
+
+  it('stays NULL when the repo has more than one open milestone (ambiguous)', async () => {
+    const db = tempDB();
+    registerSoleRepo(db);
+    db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v0.10.0', 'app', 'open')`);
+    db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v0.11.0', 'app', 'open')`);
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'two open milestones is ambiguous → null',
+      labels: VALID_LABELS,
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+
+    const row = db.get<{ milestone: string | null }>(
+      'SELECT milestone FROM issues WHERE id = ?',
+      [created.id],
+    );
+    assert.equal(row?.milestone, null, '>1 open milestones → null');
+
+    db.close();
+  });
+
+  it('ignores a non-open milestone and does not create a row on the default path', async () => {
+    const db = tempDB();
+    registerSoleRepo(db);
+    db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v0.9.0', 'app', 'closed')`);
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'closed milestone is not a default',
+      labels: VALID_LABELS,
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+
+    const row = db.get<{ milestone: string | null }>(
+      'SELECT milestone FROM issues WHERE id = ?',
+      [created.id],
+    );
+    assert.equal(row?.milestone, null, 'a closed milestone is not auto-defaulted');
+    const count = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM milestones`);
+    assert.equal(count?.n, 1, 'default path created no new milestones row');
+
+    db.close();
+  });
+
+  it('stays NULL when no repo is registered (null repo)', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'null repo yields null milestone',
+      labels: VALID_LABELS,
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+
+    const row = db.get<{ milestone: string | null; repo: string | null }>(
+      'SELECT milestone, repo FROM issues WHERE id = ?',
+      [created.id],
+    );
+    assert.equal(row?.repo, null, 'no repos registered → null repo');
+    assert.equal(row?.milestone, null, 'null repo → null milestone');
+
+    db.close();
+  });
+});
+
+describe('issueTools — explicit-milestone auto-create (#985)', () => {
+  it('auto-creates the milestones row for an explicit unknown milestone (no FK error)', async () => {
+    const db = tempDB();
+    registerSoleRepo(db);
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'explicit unknown milestone auto-created',
+      labels: VALID_LABELS,
+      milestone: 'v9.9.9',
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, `Expected no FK error, got: ${created.error}`);
+
+    const row = db.get<{ milestone: string | null; repo: string | null }>(
+      'SELECT milestone, repo FROM issues WHERE id = ?',
+      [created.id],
+    );
+    assert.equal(row?.milestone, 'v9.9.9', 'explicit milestone persisted');
+    assert.equal(row?.repo, 'app');
+    const ms = db.get<{ name: string; repo: string }>(
+      `SELECT name, repo FROM milestones WHERE name = 'v9.9.9' AND repo = 'app'`,
+    );
+    assert.ok(ms, 'milestones row auto-created for the explicit milestone');
+
+    db.close();
+  });
+
+  it('reuses an existing milestones row (no duplicate, no error)', async () => {
+    const db = tempDB();
+    registerSoleRepo(db);
+    db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v0.10.0', 'app', 'open')`);
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'explicit existing milestone reused',
+      labels: VALID_LABELS,
+      milestone: 'v0.10.0',
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+
+    const row = db.get<{ milestone: string | null }>(
+      'SELECT milestone FROM issues WHERE id = ?',
+      [created.id],
+    );
+    assert.equal(row?.milestone, 'v0.10.0', 'explicit milestone persisted');
+    const count = db.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM milestones WHERE name = 'v0.10.0' AND repo = 'app'`,
+    );
+    assert.equal(count?.n, 1, 'existing milestones row reused — no duplicate');
+
+    db.close();
+  });
+
+  it('leaves milestone NULL (no row created) when omitted with no active config', async () => {
+    const db = tempDB();
+    registerSoleRepo(db);
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'omitted milestone unchanged',
+      labels: VALID_LABELS,
+    });
+    const created = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
+
+    const row = db.get<{ milestone: string | null }>(
+      'SELECT milestone FROM issues WHERE id = ?',
+      [created.id],
+    );
+    assert.equal(row?.milestone, null, 'milestone stays NULL when omitted');
+    const count = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM milestones`);
+    assert.equal(count?.n, 0, 'no milestones row created for an omitted milestone');
+
+    db.close();
+  });
+});
+
+describe('issue_create dedup (#91/#775)', () => {
+  it('objectiveSimilarity is a deterministic pure function pinning threshold behavior', () => {
+    // Identical (ignoring case/punctuation) → 1.
+    assert.equal(objectiveSimilarity('Fix the parser bug', 'fix the parser bug!'), 1);
+    // Disjoint token sets → 0.
+    assert.equal(objectiveSimilarity('apples oranges', 'rockets planets'), 0);
+    // Token-set Jaccard: {a,b,c} vs {a,b,c,d} → 3/4 = 0.75 (>= 0.6).
+    assert.equal(objectiveSimilarity('alpha beta gamma', 'alpha beta gamma delta'), 0.75);
+    // {a,b} vs {a,b,c,d,e} → 2/5 = 0.4 (< 0.6).
+    assert.equal(objectiveSimilarity('alpha beta', 'alpha beta gamma delta epsilon'), 0.4);
+  });
+
+  it('a closely-matching objective returns duplicate:true and does NOT insert', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const first = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'Add dedup pre-check to issue_create',
+      labels: VALID_LABELS,
+    });
+    const firstIssue = parseResult(first);
+    assert.ok(!first.isError);
+
+    const dup = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'Add a dedup pre-check to issue_create!',
+      labels: VALID_LABELS,
+    });
+    const dupResult = parseResult(dup);
+    assert.ok(!dup.isError);
+    assert.equal(dupResult.duplicate, true);
+    assert.equal(dupResult.duplicate_of, firstIssue.id);
+    assert.equal(dupResult.matched_objective, 'Add dedup pre-check to issue_create');
+    assert.ok(dupResult.similarity >= 0.6);
+
+    const count = db.get<{ n: number }>('SELECT COUNT(*) as n FROM issues WHERE id > 0');
+    assert.equal(count?.n, 1, 'duplicate must not have inserted a second row');
+
+    db.close();
+  });
+
+  it('allow_duplicate:true bypasses the check and creates normally', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const first = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'Add dedup pre-check to issue_create',
+      labels: VALID_LABELS,
+    });
+    assert.ok(!first.isError);
+
+    const second = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'Add dedup pre-check to issue_create',
+      labels: VALID_LABELS,
+      allow_duplicate: true,
+    });
+    const secondIssue = parseResult(second);
+    assert.ok(!second.isError);
+    assert.ok(!('duplicate' in secondIssue), 'allow_duplicate must create, not report a duplicate');
+    assert.equal(secondIssue.status, 'open');
+
+    const count = db.get<{ n: number }>('SELECT COUNT(*) as n FROM issues WHERE id > 0');
+    assert.equal(count?.n, 2, 'allow_duplicate must insert a second row');
+
+    db.close();
+  });
+
+  it('a clearly-distinct objective creates normally (no false positive)', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const first = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'Add dedup pre-check to issue_create',
+      labels: VALID_LABELS,
+    });
+    assert.ok(!first.isError);
+
+    const distinct = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'Upgrade the kuzu world-model graph schema migration',
+      labels: VALID_LABELS,
+    });
+    const distinctIssue = parseResult(distinct);
+    assert.ok(!distinct.isError);
+    assert.ok(!('duplicate' in distinctIssue), 'distinct objective must not be flagged a duplicate');
+    assert.equal(distinctIssue.status, 'open');
+
+    const count = db.get<{ n: number }>('SELECT COUNT(*) as n FROM issues WHERE id > 0');
+    assert.equal(count?.n, 2, 'distinct objective must insert a second row');
+
+    db.close();
+  });
+
+  it('a closed issue does not block a matching objective', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const first = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'Add dedup pre-check to issue_create',
+      labels: VALID_LABELS,
+    });
+    const firstIssue = parseResult(first);
+    await call(tools.handlers, 'issue_close', { agent: 'bro', issue_id: String(firstIssue.id) });
+
+    const reopened = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'Add dedup pre-check to issue_create',
+      labels: VALID_LABELS,
+    });
+    const reopenedIssue = parseResult(reopened);
+    assert.ok(!reopened.isError);
+    assert.ok(!('duplicate' in reopenedIssue), 'a closed match must not block a new open issue');
+
+    db.close();
+  });
+
+  it('scopes dedup to the same repo — an equal objective in a different repo is not a duplicate (#1039)', async () => {
+    const db = tempDB();
+    db.run(`INSERT INTO repos (name, path) VALUES ('frontend', '/tmp/frontend')`);
+    db.run(`INSERT INTO repos (name, path) VALUES ('backend', '/tmp/backend')`);
+    const tools = issueTools(db);
+
+    const a = await call(tools.handlers, 'issue_create', {
+      agent: 'bro', objective: 'Add dedup pre-check to issue_create', labels: VALID_LABELS, repo: 'frontend',
+    });
+    assert.ok(!a.isError, `first create errored: ${JSON.stringify(parseResult(a))}`);
+
+    // Same objective in a DIFFERENT repo is distinct work — must not dedup.
+    const other = await call(tools.handlers, 'issue_create', {
+      agent: 'bro', objective: 'Add dedup pre-check to issue_create', labels: VALID_LABELS, repo: 'backend',
+    });
+    const otherIssue = parseResult(other);
+    assert.ok(!other.isError);
+    assert.ok(!('duplicate' in otherIssue), 'same objective in a different repo must not dedup');
+
+    // Same objective in the SAME repo still dedups.
+    const same = await call(tools.handlers, 'issue_create', {
+      agent: 'bro', objective: 'Add dedup pre-check to issue_create', labels: VALID_LABELS, repo: 'frontend',
+    });
+    assert.equal(parseResult(same).duplicate, true, 'same objective in the same repo dedups');
 
     db.close();
   });

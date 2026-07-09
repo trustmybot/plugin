@@ -31,6 +31,7 @@ echo init > README.md && git add . && git commit -qm init
 
 DB="$WORKSPACE/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$DB")"
+INNER_ROOT=$(git -C "$INNER_REPO" rev-parse --show-toplevel)
 sqlite3 "$DB" "
   CREATE TABLE tasks (
     id INTEGER PRIMARY KEY,
@@ -42,6 +43,12 @@ sqlite3 "$DB" "
     key TEXT PRIMARY KEY,
     value_json TEXT NOT NULL
   );
+  CREATE TABLE repos (
+    name TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    protected_branches TEXT
+  );
+  INSERT INTO repos (name, path) VALUES ('inner', '$INNER_ROOT');
   INSERT INTO tasks (id, branch_id, status, repo)
     VALUES (1, 'fix/123-with-repo', 'pending', 'inner');
   INSERT INTO tasks (id, branch_id, status, repo)
@@ -86,19 +93,29 @@ esac
 assert_not_contains "$stdout_only" '"continue"' "stdout must not contain JSON"
 assert_not_contains "$stdout_only" 'tmb worktree-create' "informational text must be on stderr"
 
-test_case "no-match + no default repo + workspace not git: exit non-zero with stderr reason"
-# feat/888-unknown not in tasks; workspace root is not a git repo; no tmb_default_repo
+# A second registered repo so the single-repo fallback is NOT silently in play
+# for the no-match / NULL-repo cases — they must resolve to the workspace root
+# (which is not a git repo) and fail loudly, proving no name-keyed default is used.
+SIBLING_REPO="$WORKSPACE/sibling"
+mkdir -p "$SIBLING_REPO"
+git init -q -b main "$SIBLING_REPO"
+git -C "$SIBLING_REPO" config user.email t@t.io && git -C "$SIBLING_REPO" config user.name t
+echo init > "$SIBLING_REPO/README.md"
+git -C "$SIBLING_REPO" add . && git -C "$SIBLING_REPO" commit -qm init
+SIBLING_ROOT=$(git -C "$SIBLING_REPO" rev-parse --show-toplevel)
+
+test_case "no-match + multi-repo (no single-repo fallback) + workspace not git: exit non-zero with stderr reason"
+# feat/888-unknown not in tasks; two repos registered → no single-repo fallback;
+# workspace root is not a git repo → loud failure.
+sqlite3 "$DB" "INSERT INTO repos (name, path) VALUES ('sibling', '$SIBLING_ROOT');"
 no_match_exit=0
 echo "$(input_event 'feat/888-unknown')" | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null || no_match_exit=$?
 if [ "$no_match_exit" -ne 0 ]; then _pass; else _fail "expected non-zero when workspace root is not a git repo"; fi
 no_match_stderr=$(run_hook_stderr "$(input_event 'feat/888-unknown')")
 assert_contains "$no_match_stderr" 'not a git work tree' "stderr explains why creation failed"
+sqlite3 "$DB" "DELETE FROM repos WHERE name='sibling';"
 
-test_case "no-match with tmb_default_repo set: worktree created, bare path on stdout"
-sqlite3 "$DB" "
-  INSERT OR REPLACE INTO plugin_config (key, value_json)
-    VALUES ('tmb_default_repo', '\"inner\"');
-"
+test_case "no-match + single-repo fallback (one registered repo): worktree created, bare path on stdout"
 git -C "$INNER_REPO" branch feat/777-nomatch HEAD 2>/dev/null || true
 no_match_path=$(echo "$(input_event 'feat/777-nomatch')" | bash "$HOOK" 2>/dev/null)
 case "$no_match_path" in
@@ -106,42 +123,34 @@ case "$no_match_path" in
   *)   _fail "stdout is not an absolute path: '$no_match_path'" ;;
 esac
 assert_contains "$no_match_path" '777-nomatch' "path contains slug"
-NOMATCH_WT="$WORKSPACE/.claude/worktrees/777-nomatch"
+NOMATCH_WT="$INNER_ROOT/.claude/worktrees/777-nomatch"
 if [ -d "$NOMATCH_WT" ]; then _pass; else _fail "worktree not created at $NOMATCH_WT"; fi
-sqlite3 "$DB" "DELETE FROM plugin_config WHERE key='tmb_default_repo';"
 
-test_case "no-match with tmb_default_repo set: branch auto-created when missing"
-sqlite3 "$DB" "
-  INSERT OR REPLACE INTO plugin_config (key, value_json)
-    VALUES ('tmb_default_repo', '\"inner\"');
-"
+test_case "no-match + single-repo fallback: branch auto-created when missing"
 # feat/666-autocreate does not exist as a branch in inner repo
 autocreate_path=$(echo "$(input_event 'feat/666-autocreate')" | bash "$HOOK" 2>/dev/null)
 case "$autocreate_path" in
   /*)  _pass "stdout is absolute path" ;;
   *)   _fail "stdout is not an absolute path: '$autocreate_path'" ;;
 esac
-AUTOCREATE_WT="$WORKSPACE/.claude/worktrees/666-autocreate"
+AUTOCREATE_WT="$INNER_ROOT/.claude/worktrees/666-autocreate"
 if [ -d "$AUTOCREATE_WT" ]; then _pass; else _fail "worktree not created at $AUTOCREATE_WT"; fi
 if git -C "$INNER_REPO" show-ref --verify --quiet "refs/heads/feat/666-autocreate" 2>/dev/null; then
   _pass "branch auto-created in inner repo"
 else
   _fail "branch feat/666-autocreate not auto-created"
 fi
-sqlite3 "$DB" "DELETE FROM plugin_config WHERE key='tmb_default_repo';"
 
-test_case "repo=NULL, no tmb_default_repo, workspace root is not a git repo: exit 1 with clear error"
+test_case "repo=NULL + multi-repo (no single-repo fallback) + workspace not git: exit 1 with clear error"
+sqlite3 "$DB" "INSERT INTO repos (name, path) VALUES ('sibling', '$SIBLING_ROOT');"
 null_repo_exit=0
 echo "$(input_event 'feat/456-no-repo')" | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null || null_repo_exit=$?
 if [ "$null_repo_exit" -ne 0 ]; then _pass; else _fail "expected non-zero exit"; fi
 null_repo_stderr=$(run_hook_stderr "$(input_event 'feat/456-no-repo')")
 assert_contains "$null_repo_stderr" 'not a git work tree' "unroutable null repo → loud error"
+sqlite3 "$DB" "DELETE FROM repos WHERE name='sibling';"
 
-test_case "repo=NULL, tmb_default_repo set: worktree created in default repo, bare path on stdout"
-sqlite3 "$DB" "
-  INSERT OR REPLACE INTO plugin_config (key, value_json)
-    VALUES ('tmb_default_repo', '\"inner\"');
-"
+test_case "repo=NULL + single-repo fallback: worktree created in the sole repo, bare path on stdout"
 git -C "$INNER_REPO" branch feat/456-no-repo HEAD 2>/dev/null || true
 no_repo_path=$(echo "$(input_event 'feat/456-no-repo')" | bash "$HOOK" 2>/dev/null)
 case "$no_repo_path" in
@@ -149,8 +158,7 @@ case "$no_repo_path" in
   *)   _fail "stdout is not an absolute path: '$no_repo_path'" ;;
 esac
 assert_contains "$no_repo_path" '456-no-repo' "path contains slug"
-if [ -d "$WORKSPACE/.claude/worktrees/456-no-repo" ]; then _pass; else _fail "worktree not created"; fi
-sqlite3 "$DB" "DELETE FROM plugin_config WHERE key='tmb_default_repo';"
+if [ -d "$INNER_ROOT/.claude/worktrees/456-no-repo" ]; then _pass; else _fail "worktree not created"; fi
 
 test_case "branch matching task with repo set: stdout is bare absolute path"
 task_path=$(echo "$(input_event 'fix/123-with-repo')" | bash "$HOOK" 2>/dev/null)
@@ -161,17 +169,17 @@ esac
 assert_not_contains "$task_path" '"continue"' "stdout must not contain JSON"
 assert_contains "$task_path" '123-with-repo' "path contains slug"
 
-WORKTREE_PATH="$WORKSPACE/.claude/worktrees/123-with-repo"
+WORKTREE_PATH="$INNER_ROOT/.claude/worktrees/123-with-repo"
 if [ -d "$WORKTREE_PATH" ]; then
   _pass
 else
   _fail "worktree directory not created at $WORKTREE_PATH"
 fi
 
-test_case "worktree path is workspace-rooted, not repo-rooted, when workspace != repo"
-REPO_ROOTED_PATH="$INNER_REPO/.claude/worktrees/123-with-repo"
-if [ -d "$REPO_ROOTED_PATH" ]; then
-  _fail "worktree must NOT be created inside inner repo at $REPO_ROOTED_PATH"
+test_case "#169: worktree path is repo-rooted (inside the inner repo), not workspace-rooted, when workspace != repo"
+WS_ROOTED_PATH="$WORKSPACE/.claude/worktrees/123-with-repo"
+if [ -d "$WS_ROOTED_PATH" ]; then
+  _fail "worktree must NOT be created at the workspace root $WS_ROOTED_PATH — it is repo-rooted"
 else
   _pass
 fi
@@ -212,8 +220,11 @@ echo init > "$SINGLE/README.md"
 git -C "$SINGLE" add . && git -C "$SINGLE" commit -qm init
 SDB="$SINGLE/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$SDB")"
+SINGLE_ROOT=$(git -C "$SINGLE" rev-parse --show-toplevel)
 sqlite3 "$SDB" "
   CREATE TABLE tasks (id INTEGER PRIMARY KEY, branch_id TEXT NOT NULL, status TEXT, repo TEXT);
+  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, protected_branches TEXT);
+  INSERT INTO repos (name, path) VALUES ('single', '$SINGLE_ROOT');
   INSERT INTO tasks (id, branch_id, status, repo) VALUES (1, 'fix/789-single', 'pending', NULL);
 "
 git -C "$SINGLE" branch fix/789-single HEAD
@@ -254,6 +265,7 @@ git -C "$MR_REPO" add . && git -C "$MR_REPO" commit -qm init
 
 MR_DB="$MR_WORKSPACE/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$MR_DB")"
+MR_REPO_ROOT=$(git -C "$MR_REPO" rev-parse --show-toplevel)
 sqlite3 "$MR_DB" "
   CREATE TABLE tasks (
     id INTEGER PRIMARY KEY,
@@ -265,12 +277,14 @@ sqlite3 "$MR_DB" "
     key TEXT PRIMARY KEY,
     value_json TEXT NOT NULL
   );
+  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, protected_branches TEXT);
+  INSERT INTO repos (name, path) VALUES ('plugin', '$MR_REPO_ROOT');
   INSERT INTO tasks (id, branch_id, status, repo)
     VALUES (10, 'fix/330-subdir', 'pending', 'plugin');
 "
 git -C "$MR_REPO" branch fix/330-subdir HEAD
 
-MR_WT="$MR_WORKSPACE/.claude/worktrees/330-subdir"
+MR_WT="$MR_REPO_ROOT/.claude/worktrees/330-subdir"
 
 test_case "#330: multi-repo (session dir is parent of repo subdir): bare path on stdout"
 mr_path=$(echo "$(input_event 'fix/330-subdir')" | TRAJECTORY_DB_PATH="$MR_DB" bash "$HOOK" 2>/dev/null)
@@ -282,14 +296,17 @@ assert_not_contains "$mr_path" '"continue"' "stdout must not contain JSON"
 assert_contains "$mr_path" '330-subdir' "path contains slug"
 if [ -d "$MR_WT" ]; then _pass; else _fail "worktree not created at $MR_WT"; fi
 
+test_case "#330/#169: stdout path is exactly the repo-rooted worktree path (fails pre-fix)"
+assert_eq "$MR_WT" "$mr_path" "hook must emit the repo-rooted path, not the workspace-rooted one"
+
 test_case "#330: subdir-repo worktree HEAD is on the named branch"
 MR_HB=$(git -C "$MR_WT" rev-parse --abbrev-ref HEAD 2>/dev/null)
 if [ "$MR_HB" = "fix/330-subdir" ]; then _pass; else _fail "expected HEAD on fix/330-subdir, got '$MR_HB'"; fi
 
-test_case "#330: worktree is workspace-rooted (not inside inner repo)"
-MR_INNER_WT="$MR_REPO/.claude/worktrees/330-subdir"
-if [ -d "$MR_INNER_WT" ]; then
-  _fail "worktree must NOT be created inside inner repo at $MR_INNER_WT"
+test_case "#330/#169: worktree is repo-rooted (inside the inner repo, not at the workspace root)"
+MR_WS_WT="$MR_WORKSPACE/.claude/worktrees/330-subdir"
+if [ -d "$MR_WS_WT" ]; then
+  _fail "worktree must NOT be created at the workspace root $MR_WS_WT — it is repo-rooted"
 else
   _pass
 fi

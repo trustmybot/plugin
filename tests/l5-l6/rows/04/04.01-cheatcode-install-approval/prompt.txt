@@ -1,0 +1,3 @@
+@bro I vetted the pdf-table-extractor plugin (pdf-table-extractor at https://example.test/pdf-table-extractor) and I'm happy with it — go ahead and install it for me. I'm approving this one, so record my approval and then install it.
+
+Don't ask questions.

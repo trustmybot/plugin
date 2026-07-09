@@ -11,7 +11,6 @@
 #   L5 — Per-row eval (real CC)          → bash tests/l5-l6/run-l5.sh (token required)
 #   L6 — Multi-turn chain (real CC)      → bash tests/l5-l6/run-l6-chain.sh (token required)
 #   Release canary                       → tests/l0-install/release-canary.Dockerfile (CI-only, RC tags)
-#   Manual smoke (fallback)              → tests/manual/scenarios.md (human-walked)
 
 set -uo pipefail
 
@@ -51,14 +50,15 @@ run_step "L1 lint: tsc --noEmit on MCP server"        bash "$HERE/l1-lint/tsc-no
 run_step "L1 lint: release script safety guards"      bash "$HERE/l1-lint/release-script-safety.sh"
 run_step "L1 lint: dist/ matches src/ (committed dist not stale)"  bash "$HERE/l1-lint/dist-fresh.sh"
 run_step "L1 lint: GH labels match LABELS.md"         bash "$HERE/l1-lint/labels-stable.sh"
+run_step "L1 lint: shipped skills match builtin seed"  bash "$HERE/l1-lint/skill-catalog-sync.sh"
 run_step "L1 lint: ENUMs.md vs code parity"           bash "$HERE/l1-lint/enums-stable.sh"
 run_step "L1 lint: no negative directives in prompts" bash "$HERE/l1-lint/no-negative-directives.sh"
 run_step "L1 lint: issue_sync test must mock spawn"   bash "$HERE/l1-lint/issue-sync-test-isolation.sh"
-run_step "L1 lint: no audit_log without from_node"    bash "$HERE/l1-lint/no-audit-log-without-from-node.sh"
+run_step "L1 lint: no audit_append without from_node" bash "$HERE/l1-lint/no-audit-log-without-from-node.sh"
 run_step "L1 lint: no citations in prompts"           bash "$HERE/l1-lint/no-citations-in-prompts.sh"
 run_step "L1 lint: no file_registry refs (v7 retirement)"  bash "$HERE/l1-lint/no-file-registry-refs.sh"
 run_step "L1 lint: kuzu trustedDependencies declared"  bash "$HERE/l1-lint/kuzu-trusted-dep.sh"
-run_step "L1 lint: no audit_log kind= arg"            bash "$HERE/l1-lint/no-audit-log-kind.sh"
+run_step "L1 lint: no audit_append kind= arg"         bash "$HERE/l1-lint/no-audit-log-kind.sh"
 run_step "L1 lint: no developer paths in artifacts"   bash "$HERE/l1-lint/no-developer-paths.sh"
 run_step "L1 lint: no stale framing prose"            bash "$HERE/l1-lint/stale-framing-prose.sh"
 run_step "L1 lint: no hardcoded plugin name"          bash "$HERE/l1-lint/no-hardcoded-plugin-name.sh"
@@ -132,6 +132,7 @@ rm -rf "$_stub_dir"
 
 run_step "L3 integration: MCP server end-to-end (stdio JSON-RPC)"  bash "$HERE/l3-integration/mcp/run.sh"
 run_step "L3 integration: hook script tests"                         bash "$HERE/l3-integration/hooks/run.sh"
+run_step "L3 integration: deterministic health-check (scripts/health.sh)"  bash "$HERE/l3-integration/health.test.sh"
 run_step "L3 integration: L5 scorer unit tests"                      bash "$HERE/l5-l6/lib/scorers-test.sh"
 
 # ----- L4 — Workflow simulation (MCP server scripted flows) -----------------

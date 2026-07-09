@@ -8,6 +8,7 @@ import { discussionTools } from '../tools/discussions.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
 import { reportTools } from '../tools/reports.js';
+import { embed } from '../embeddings/model.js';
 function parseResult(result) {
     return JSON.parse(result.content[0].text);
 }
@@ -46,6 +47,7 @@ describe('discussions + snapshot integration', () => {
     it('step 1: creates an issue', async () => {
         const issues = issueTools(db);
         const result = await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
             agent: 'bro',
             objective: 'discussion integration test issue',
             description: '# Goals\n- Prove the tools work',
@@ -366,6 +368,7 @@ describe('discussion_append verified_human gate (#145)', () => {
             return handler(args);
         }
         const result = await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
             agent: 'bro',
             objective: 'verified_human gate test issue',
             description: 'Isolated issue for gate tests.',
@@ -443,6 +446,7 @@ describe('discussion_append body size cap (#219)', () => {
         db = tempDB();
         const issues = issueTools(db);
         const result = await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
             agent: 'bro',
             objective: 'body size cap test issue',
             description: 'Isolated issue for body cap tests.',
@@ -489,8 +493,8 @@ describe('discussion_append default issue_id resolution (#506)', () => {
         const localDb = tempDB();
         const issues = issueTools(localDb);
         const disc = discussionTools(localDb);
-        const r1 = await call(issues.handlers, 'issue_create', { agent: 'bro', objective: 'older issue' });
-        await call(issues.handlers, 'issue_create', { agent: 'bro', objective: 'newer issue' });
+        const r1 = await call(issues.handlers, 'issue_create', { labels: ['Bug', 'Priority: High'], agent: 'bro', objective: 'older issue' });
+        await call(issues.handlers, 'issue_create', { labels: ['Bug', 'Priority: High'], agent: 'bro', objective: 'newer issue' });
         const newerIssue = parseResult(await call(issues.handlers, 'issue_list', { agent: 'bro' }));
         const newerIssueId = String(Math.max(...newerIssue.map((x) => x.id)));
         const result = await call(disc.handlers, 'discussion_append', {
@@ -523,7 +527,7 @@ describe('discussion_append default issue_id resolution (#506)', () => {
         const localDb = tempDB();
         const issues = issueTools(localDb);
         const disc = discussionTools(localDb);
-        await call(issues.handlers, 'issue_create', { agent: 'bro', objective: 'explicit issue' });
+        await call(issues.handlers, 'issue_create', { labels: ['Bug', 'Priority: High'], agent: 'bro', objective: 'explicit issue' });
         const issueList = parseResult(await call(issues.handlers, 'issue_list', { agent: 'bro' }));
         const firstId = String(issueList[0].id);
         const result = await call(disc.handlers, 'discussion_append', {
@@ -545,6 +549,7 @@ describe('issue_get_with_discussions swe redaction (#344)', () => {
         const issues = issueTools(localDb);
         const disc = discussionTools(localDb);
         const createResult = await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
             agent: 'bro',
             objective: 'Redaction test issue',
             description: 'TOP SECRET: this description must be hidden from swe.',
@@ -568,6 +573,7 @@ describe('issue_get_with_discussions swe redaction (#344)', () => {
         const issues = issueTools(localDb);
         const disc = discussionTools(localDb);
         const createResult = await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
             agent: 'bro',
             objective: 'Redaction test for bro',
             description: 'Full description visible to bro.',
@@ -590,6 +596,7 @@ describe('discussion_append awaits embedAndStore (#537)', () => {
         const issues = issueTools(localDb);
         const disc = discussionTools(localDb);
         const issueResult = await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
             agent: 'bro',
             objective: 'embed-await test issue',
         });
@@ -614,6 +621,7 @@ describe('discussion_append awaits embedAndStore (#537)', () => {
         const issues = issueTools(localDb);
         const disc = discussionTools(localDb);
         const issueResult = await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
             agent: 'bro',
             objective: 'embed-failure test issue',
         });
@@ -637,6 +645,95 @@ describe('discussion_append awaits embedAndStore (#537)', () => {
         const d2 = parseResult(r2);
         assert.equal(d2.kind, 'decision');
         localDb.close();
+    });
+    it('still routes through the shared insert+embed path (#986): an embedding row appears when a model is available', async () => {
+        const localDb = tempDB();
+        const issues = issueTools(localDb);
+        const disc = discussionTools(localDb);
+        const issueResult = await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
+            agent: 'bro',
+            objective: 'append-still-embeds test issue',
+        });
+        const issue = parseResult(issueResult);
+        const result = await call(disc.handlers, 'discussion_append', {
+            agent: 'bro',
+            issue_id: String(issue.id),
+            author: 'bro',
+            kind: 'decision',
+            body: 'discussion_append must remain indexed for semantic search',
+        });
+        assert.ok(!result.isError, 'discussion_append must succeed');
+        const row = parseResult(result);
+        const probe = await embed('model availability probe');
+        const deadline = Date.now() + 5000;
+        let embCount = 0;
+        do {
+            embCount = localDb.get('SELECT COUNT(*) AS n FROM discussions_embeddings WHERE discussion_id = ?', [row.id])?.n ?? 0;
+            if (embCount >= 1)
+                break;
+            await new Promise((r) => setTimeout(r, 50));
+        } while (Date.now() < deadline);
+        if (probe === null) {
+            assert.equal(embCount, 0, 'no model → append degrades to FTS-only, tool still ok');
+        }
+        else {
+            assert.equal(embCount, 1, 'append must embed its discussion via the shared helper');
+        }
+        localDb.close();
+    });
+});
+describe('issue_get_with_discussions compact DESC pagination (#1019)', () => {
+    let db;
+    let issueId;
+    before(async () => {
+        db = tempDB();
+        const issues = issueTools(db);
+        const created = await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
+            agent: 'bro',
+            objective: 'compact pagination test issue',
+            description: 'Isolated issue for pagination.',
+        });
+        issueId = String(parseResult(created).id);
+        const disc = discussionTools(db);
+        for (let i = 1; i <= 5; i++) {
+            const r = await call(disc.handlers, 'discussion_append', {
+                agent: 'bro',
+                issue_id: issueId,
+                author: 'bro',
+                kind: 'note',
+                body: `pagination-note-${i}`,
+            });
+            assert.ok(!r.isError, `append ${i} must succeed: ${JSON.stringify(parseResult(r))}`);
+        }
+    });
+    after(() => {
+        db.close();
+    });
+    it('page 2 is non-empty and disjoint from page 1', async () => {
+        const disc = discussionTools(db);
+        const page1 = parseResult(await call(disc.handlers, 'issue_get_with_discussions', {
+            agent: 'bro',
+            issue_id: issueId,
+            last_n: 2,
+        }));
+        assert.ok(Array.isArray(page1.discussions), 'page 1 must have a discussions array');
+        assert.equal(page1.discussions.length, 2, 'page 1 must return last_n=2 rows');
+        assert.ok(page1.next_cursor, 'page 1 must expose a next_cursor when more rows remain');
+        const page2 = parseResult(await call(disc.handlers, 'issue_get_with_discussions', {
+            agent: 'bro',
+            issue_id: issueId,
+            last_n: 2,
+            cursor: page1.next_cursor,
+        }));
+        assert.ok(Array.isArray(page2.discussions), 'page 2 must have a discussions array');
+        assert.ok(page2.discussions.length > 0, 'page 2 must be non-empty (regression: DESC cursor)');
+        const bodies1 = new Set(page1.discussions.map((d) => d.body));
+        const bodies2 = new Set(page2.discussions.map((d) => d.body));
+        for (const b of bodies2) {
+            assert.ok(!bodies1.has(b), `page 2 body "${b}" must not repeat page 1`);
+        }
     });
 });
 //# sourceMappingURL=discussions.test.js.map

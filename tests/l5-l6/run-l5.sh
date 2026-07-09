@@ -21,8 +21,6 @@ PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 FILTER="${1:-}"
 export PLUGIN_ROOT
 
-export TMB_HEADLESS=1
-
 if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
   printf "❌ CLAUDE_CODE_OAUTH_TOKEN not set.\n"
   printf "   For local runs: export CLAUDE_CODE_OAUTH_TOKEN=...\n"
@@ -55,8 +53,15 @@ FAIL=0
 FAILED_ROWS=()
 RUN_BASE="$(date +%s)-$$"
 
-for row_dir in "$HERE/rows"/*/; do
+# Discover LEAF row dirs across the family-folder layout. A row dir is a leaf
+# that contains a row marker (prompt.txt / fixture.txt); family container dirs
+# (rows/NN/ holding only subdirs) are skipped. Rows live one or two levels deep:
+#   rows/23-bulk-cleanup/            (flat, standalone)
+#   rows/NN/NN-name/, rows/NN/NN.MM-name/  (family folders)
+for row_dir in "$HERE/rows"/*/ "$HERE/rows"/*/*/; do
   [ -d "$row_dir" ] || continue
+  # Skip family container dirs — only leaves carry a prompt/fixture marker.
+  [ -f "$row_dir/prompt.txt" ] || [ -f "$row_dir/fixture.txt" ] || continue
   row_name=$(basename "$row_dir")
 
   if [ -n "$FILTER" ] && [[ "$row_name" != *"$FILTER"* ]]; then

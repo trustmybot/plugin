@@ -1,6 +1,0 @@
-[
-  "mcp__plugin_tmb_trajectory-server__issue_create",
-  "mcp__plugin_tmb_trajectory-server__task_create_batch",
-  "mcp__plugin_tmb_trajectory-server__discussion_append",
-  "mcp__plugin_tmb_trajectory-server__audit_log"
-]

@@ -16,6 +16,7 @@ test('bro (planner) — simple task workflow: issue → discussion → tasks →
     agent: 'bro',
     objective: 'Implement hello-world endpoint',
     description: 'Full spec: add /hello returning 200 OK with {msg:"hello"}.',
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(issue.ok, true, `issue_create: ${JSON.stringify(issue)}`);
   const issueId = issue.data.id;
@@ -45,14 +46,8 @@ test('bro (planner) — simple task workflow: issue → discussion → tasks →
         '',
         'Add handler, test, commit.',
         '',
-        '## Files',
-        '- src/routes/hello.ts',
-        '',
         '## Success Criteria',
         '- GET /hello returns 200 with {msg:"hello"}',
-        '',
-        '## Verification',
-        '- bun test src/routes/hello.test.ts',
       ].join('\n'),
     }],
   });
@@ -93,13 +88,14 @@ test('bro (planner) — difficult-task flow: issue + ADR-style discussion thread
     agent: 'bro',
     objective: 'Introduce new auth module',
     description: 'Refactor session handling into its own module with OIDC support.',
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(issue.ok, true);
   const issueId = issue.data.id;
 
   // Multi-round alignment loop — bro surfaces concerns to the Human.
   const questions = [
-    { kind: 'note', body: 'Triage: difficult — touches docs/trustmybot/architecture/.' },
+    { kind: 'note', body: 'Difficult — cross-cutting change touching the auth module.' },
     { kind: 'question', body: 'Is OIDC fine, or do you need SAML compat?' },
     { kind: 'answer', body: 'OIDC only is fine.' },
     { kind: 'decision', body: 'Going with OIDC. New module at src/auth/.' },

@@ -58,7 +58,7 @@ MISSING=""
 
 [ -z "$MISSING" ] && exit 0
 
-CTX="[tmb roundtable-cleanup] roundtable_id=$RT_ID closed but the following capture surfaces are missing:$MISSING. Re-call the relevant tools (discussion_append for analysis/decision, roundtable_vote, roundtable_summarize, audit_log) so the trajectory is auditable."
+CTX="[tmb roundtable-cleanup] roundtable_id=$RT_ID closed but the following capture surfaces are missing:$MISSING. Re-call the relevant tools (discussion_append for analysis/decision, roundtable_vote, roundtable_summarize, audit_append) so the trajectory is auditable."
 
 jq -nc --arg ctx "$CTX" '{
   hookSpecificOutput: {

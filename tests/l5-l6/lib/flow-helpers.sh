@@ -55,18 +55,19 @@ l5_preserve_trajectory() {
 # loaded via --plugin-dir. Pipes JSONL to <dir>/trajectory.jsonl; echoes a
 # slim summary to stderr for log triage. Always returns 0 so scoring proceeds.
 #
-# `--dangerously-skip-permissions` is required: in headless `-p` mode
+# `--dangerously-skip-permissions` is required: in non-interactive `-p` mode
 # claude blocks every tool call (Bash, Edit, MCP) until a human approves
 # them, and there is no human in the loop here. The scratch dir is a
 # fresh mktemp-d, so there's nothing to harm.
 # Shared header injected before every test prompt. The "Don't call AUQ"
-# instruction is the cheap first line of defense against AUQ firing in
-# tests (the auq-headless-deny.sh PreToolUse hook is the second). Skips
-# the SDK + API-key cost we'd otherwise need to answer AUQ programmatically;
-# AUQ rendering / option labels are exercised separately in manual smoke.
+# instruction is how the harness suppresses AUQ in tests: bro takes a
+# sensible default instead of asking, so there's no human in the loop to
+# answer and no SDK + API-key cost to answer AUQ programmatically. AUQ
+# rendering / option labels aren't exercised here — that surface is covered
+# by the L1 auq-shape lint.
 _l5_test_prompt_prefix() {
   cat <<'EOF'
-[TEST MODE] Do not call AskUserQuestion. Apply documented defaults from skills/CLAUDE.md and continue; when a skill's documented behavior is to hold for the Human (e.g. concerns-protocol Path A), recording the note and holding IS the documented default — do not push past it. The Human is not in the loop here. TEST MODE does NOT bypass routing hints from PreToolUse / UserPromptSubmit hooks — when a hook injects a `[tmb consultant-spawn enforcement]` or similar enforcement context, follow it exactly as you would in production. The ceremony (e.g. `/tmb:agent-create`) is the test purpose.
+[TEST MODE] Do not call AskUserQuestion. Apply sensible defaults and continue; where a skill's normal flow is to hold for the Human (e.g. concerns-protocol), record the note and hold — don't push past it. The Human is not in the loop here. TEST MODE does NOT bypass routing hints from PreToolUse / UserPromptSubmit hooks — when a hook injects a `[tmb consultant-spawn enforcement]` or similar enforcement context, follow it exactly as you would in production. The ceremony (e.g. `/tmb:agent-create`) is the test purpose.
 
 EOF
 }
@@ -136,6 +137,8 @@ l5_run_claude() {
 #   5. files                — filesystem assertions (opt-in via outcome-files.json)
 #   6. coherence            — table-shape invariants (opt-in via outcome-coherence.json) — catches empty-table doctrine violations
 #   7. git                  — git-state invariants (opt-in via outcome-git.json) — catches base-branch contamination + worktree-on-wrong-branch
+#   8. usage                — skill/plugin usage from the stream-json run log (opt-in via outcome-usage.json) — replaces skill_invocations (#118/#119)
+#   9. materialized         — on-disk consuming-agent materialization (opt-in via outcome-materialized.json) — proves a targeted cheatcode install copied the agent md + skill header (#95)
 l5_score_flow() {
   local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
   local total_fail=0
@@ -147,6 +150,8 @@ l5_score_flow() {
   l5_score_files                "$scorer_dir" "$project"                   || total_fail=$((total_fail + 1))
   l5_score_coherence            "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
   l5_score_git                  "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
+  l5_score_usage                "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
+  l5_score_materialized         "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
 
   return "$total_fail"
 }

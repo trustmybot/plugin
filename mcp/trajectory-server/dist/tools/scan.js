@@ -1,10 +1,12 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { WorldModelGraph } from '../graph-db.js';
+import { classifyUrl } from '../utils/classify-url.js';
+import { frameUntrusted } from '../utils/untrusted.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -154,46 +156,6 @@ export function detectStructuralChange(db, currentRepos, currentTopDirs) {
             return true;
     return false;
 }
-// Returns true when a repo should be deprioritized as a default: version-tag-like
-// names (e.g. v0.7.1-rc.1) and paths containing bench/release copies.
-function isDeprioritizedRepo(name, path) {
-    if (/^v[0-9]+\.[0-9]+/.test(name))
-        return true;
-    if (path.includes('/bench-worktrees/') || path.includes('/marketplace'))
-        return true;
-    return false;
-}
-// Pick the repo whose path encloses (or equals) the scan session_dir. This is
-// the cwd-aware default for `tmb_default_repo`. Resolution order:
-//   1. cwd-enclosing repo (session_dir is inside the repo root)
-//   2. largest ordinary working repo by file_count (deprioritized: version-named
-//      or bench/marketplace-pathed repos lose to any ordinary candidate)
-//   3. largest deprioritized repo when no ordinary candidate exists
-//   4. repos[0] as a last resort when file counts are all zero or unavailable
-// Returns '' for an empty list.
-// onGuessed is called with the chosen name + all candidates when resolution
-// falls through to heuristic (no enclosing repo).
-export function preferredDefaultRepo(repos, sessionDir, onGuessed) {
-    if (repos.length === 0)
-        return '';
-    const norm = (p) => p.replace(/\/+$/, '');
-    const sd = norm(sessionDir);
-    const enclosing = repos.find((r) => {
-        const rp = norm(r.path);
-        return sd === rp || sd.startsWith(rp + '/');
-    });
-    if (enclosing)
-        return enclosing.name;
-    // No enclosing repo — pick the largest by file_count, ordinary repos first.
-    const withCounts = repos.map((r) => ({ name: r.name, path: r.path, file_count: r.file_count ?? 0 }));
-    const ordinary = withCounts.filter((r) => !isDeprioritizedRepo(r.name, r.path));
-    const pool = ordinary.length > 0 ? ordinary : withCounts;
-    const largest = pool.reduce((best, cur) => (cur.file_count > best.file_count ? cur : best));
-    const chosen = largest.file_count > 0 ? largest.name : repos[0].name;
-    const candidatesForAudit = withCounts.map(({ name, file_count }) => ({ name, file_count }));
-    onGuessed?.(chosen, candidatesForAudit);
-    return chosen;
-}
 // Directory-level world model population (v0.7 world-model). For each unique
 // dir implied by the scanned file set, the summary comes from <dir>/README.md
 // when present (author-curated, high-trust, summary_source='readme'). Dirs with
@@ -257,14 +219,18 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames) {
     }
     return `${leaf}/ — ${parts.length > 0 ? parts.join('; ') : 'empty directory'}`;
 }
-function readReadmeSummary(absDirPath) {
+export function readReadmeSummary(absDirPath) {
     for (const candidate of README_CANDIDATES) {
         const readmePath = join(absDirPath, candidate);
         if (!existsSync(readmePath))
             continue;
         try {
             const raw = readFileSync(readmePath, 'utf8');
-            return raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
+            const clipped = raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
+            // A README is remotely-sourced text — frame it as untrusted data so any
+            // agent that later reads this world-model summary treats it as content,
+            // not instructions (#1036).
+            return frameUntrusted('readme', clipped);
         }
         catch {
             // Unreadable — fall through.
@@ -325,6 +291,36 @@ function persistDirectoriesGraph(graph, out, now) {
     }
     return { dirs_upserted, dirs_readme_summarized, dirs_structural_summarized };
 }
+// Read a repo's actual git remotes as {name, provider, url}[]. Mirrors
+// onboard.ts probeGit: `git -C <path> remote` then `git -C <path> remote
+// get-url <name>`. A repo with no remote → []. Any error degrades to [] so
+// one unreadable repo never throws the whole scan.
+function readRepoRemotes(path) {
+    try {
+        const opts = { encoding: 'utf8', timeout: 3000 };
+        const listR = spawnSync('git', ['-C', path, 'remote'], opts);
+        if (listR.status !== 0)
+            return [];
+        const names = (listR.stdout ?? '')
+            .split('\n')
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0);
+        const remotes = [];
+        for (const name of names) {
+            const urlR = spawnSync('git', ['-C', path, 'remote', 'get-url', name], opts);
+            if (urlR.status !== 0)
+                continue;
+            const url = (urlR.stdout ?? '').trim();
+            if (!url)
+                continue;
+            remotes.push({ name, provider: classifyUrl(url), url });
+        }
+        return remotes;
+    }
+    catch {
+        return [];
+    }
+}
 // Persist repos[] + directories[] from a scan output. Transactional.
 // File-level state lives entirely in the directories rows (file_count) and
 // the world model. Per-file md5/summary state was retired in schema v7
@@ -345,24 +341,36 @@ function persistScan(db, graph, out, sessionDir) {
     let repos_upserted = 0;
     let repos_retired = 0;
     let dirs_retired = 0;
+    const retired = [];
     db.transaction(() => {
         for (const r of out.repos) {
-            db.run(`INSERT INTO repos (name, path, file_count, last_scanned_at)
-         VALUES (?, ?, ?, ?)
+            const remotesJson = JSON.stringify(readRepoRemotes(r.path));
+            db.run(`INSERT INTO repos (name, path, file_count, last_scanned_at, remotes)
+         VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(name) DO UPDATE SET
            path = excluded.path,
            file_count = excluded.file_count,
-           last_scanned_at = excluded.last_scanned_at`, [r.name, r.path, r.file_count, now]);
+           last_scanned_at = excluded.last_scanned_at,
+           remotes = excluded.remotes`, [r.name, r.path, r.file_count, now, remotesJson]);
             repos_upserted++;
         }
         for (const r of toRetire) {
-            db.run(`DELETE FROM repos WHERE name = ?`, [r.name]);
-            repos_retired++;
+            try {
+                db.run(`DELETE FROM repos WHERE name = ?`, [r.name]);
+                repos_retired++;
+                retired.push(r);
+            }
+            catch {
+                // ON DELETE RESTRICT FK: the repo is still referenced (tasks/issues
+                // point at it). Keep its row and skip retiring it rather than failing
+                // the whole scan. SQLite rolls back only this statement, so the
+                // surrounding transaction stays open for the remaining repos.
+            }
         }
     });
-    // Retire kuzu nodes for vanished repos (prune all their dirs).
+    // Retire kuzu nodes for repos actually removed above (prune all their dirs).
     if (graph) {
-        for (const r of toRetire) {
+        for (const r of retired) {
             const n = graph.pruneDirectories(r.name, new Set());
             dirs_retired += n;
         }
@@ -490,73 +498,71 @@ export function scanTools(db, graph, dbPath = '', graphOpenError = null) {
                 if (existing && pidAlive(existing.pid)) {
                     return err(`scan already running (pid ${existing.pid}, started ${existing.started_at})`);
                 }
+                let acquired = false;
+                let acquireThrew = false;
                 try {
-                    acquireLock(lockPath);
+                    acquired = acquireLock(lockPath);
                 }
                 catch {
+                    // wx write failed: raced another acquirer, or the lock dir is absent.
+                    acquireThrew = true;
+                }
+                if (!acquired) {
                     const recheck = readLock(lockPath);
                     if (recheck && pidAlive(recheck.pid)) {
+                        // A live lock appeared between the pre-check and the acquire — we
+                        // lost the race. Never fall through to a concurrent scan (#1018c).
                         return err(`scan already running (pid ${recheck.pid}, started ${recheck.started_at})`);
                     }
+                    if (!acquireThrew) {
+                        // acquireLock returned false with no live lock present — treat as a
+                        // lost lock rather than silently double-scanning.
+                        return err('scan lock could not be acquired');
+                    }
+                    // Threw with no live lock (missing lock dir / dead leftover): proceed
+                    // best-effort lock-less, as there is no concurrent scan to guard.
                 }
             }
-            let out;
             try {
-                out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
-            }
-            catch (e) {
-                if (lockPath)
-                    releaseLock(lockPath);
-                throw e;
-            }
-            const stats = persistScan(db, graph, out, sessionDir);
-            if (lockPath)
-                releaseLock(lockPath);
-            // #2881: structural-change detection vs previous deep_scan_completed
-            // audit. The flag rides in the audit content_json so downstream
-            // tooling (the scan-side renderer pass, manual diagnostic queries)
-            // can decide whether the scan changed the project shape.
-            const topDirs = new Set(out.files.map((f) => f.path.split('/')[0]).filter(Boolean));
-            const structuralChange = detectStructuralChange(db, out.repos, topDirs);
-            // Emit deep_scan_completed audit row. Attach to the system issue
-            // (id=-1) — this is a session-level event, not work-issue scoped.
-            db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'deep_scan_completed', ?, ?, ?)`, [
-                `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} — source=${source}${structuralChange ? ', structural-change' : ''}`,
-                JSON.stringify({
-                    ...stats,
+                const out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
+                const stats = persistScan(db, graph, out, sessionDir);
+                // #2881: structural-change detection vs previous deep_scan_completed
+                // audit. The flag rides in the audit content_json so downstream
+                // tooling (the scan-side renderer pass, manual diagnostic queries)
+                // can decide whether the scan changed the project shape.
+                const topDirs = new Set(out.files.map((f) => f.path.split('/')[0]).filter(Boolean));
+                const structuralChange = detectStructuralChange(db, out.repos, topDirs);
+                // Emit deep_scan_completed audit row. Attach to the system issue
+                // (id=-1) — this is a session-level event, not work-issue scoped.
+                db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (-1, NULL, 'bro', 'deep_scan_completed', ?, ?, ?)`, [
+                    `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} — source=${source}${structuralChange ? ', structural-change' : ''}`,
+                    JSON.stringify({
+                        ...stats,
+                        session_dir: out.session_dir,
+                        scanned_at: out.scanned_at,
+                        source,
+                        structural_change: structuralChange,
+                        repos_seen: out.repos.map((r) => r.name),
+                        top_dirs: Array.from(topDirs).sort(),
+                    }),
+                    nowISO(),
+                ]);
+                return ok({
                     session_dir: out.session_dir,
                     scanned_at: out.scanned_at,
+                    repos: out.repos.map((r) => ({ name: r.name, file_count: r.file_count })),
                     source,
                     structural_change: structuralChange,
-                    repos_seen: out.repos.map((r) => r.name),
-                    top_dirs: Array.from(topDirs).sort(),
-                }),
-                nowISO(),
-            ]);
-            // Set tmb_default_repo on first scan. Resolution order: cwd-enclosing
-            // repo → largest repo by file_count → repos[0]. A guessed default
-            // (no enclosing repo) emits an audit row so a wrong guess is visible.
-            const existing = db.get(`SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`);
-            if (!existing && out.repos.length > 0) {
-                const defaultRepo = preferredDefaultRepo(out.repos, sessionDir, (chosen, candidates) => {
-                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-                 VALUES (-1, NULL, 'bro', 'default_repo_guessed', ?, ?, ?)`, [
-                        `tmb_default_repo guessed as '${chosen}' (no enclosing repo) — largest by file_count among ${candidates.length} candidates`,
-                        JSON.stringify({ chosen, candidates, session_dir: sessionDir }),
-                        nowISO(),
-                    ]);
+                    ...stats,
                 });
-                db.run(`INSERT INTO plugin_config (key, value_json) VALUES (?, ?)`, ['tmb_default_repo', JSON.stringify(defaultRepo)]);
             }
-            return ok({
-                session_dir: out.session_dir,
-                scanned_at: out.scanned_at,
-                repos: out.repos.map((r) => ({ name: r.name, file_count: r.file_count })),
-                source,
-                structural_change: structuralChange,
-                ...stats,
-            });
+            finally {
+                // Release the lock whether runScan or persistScan threw or not, so a
+                // failed scan never wedges future runs behind a stale lock.
+                if (lockPath)
+                    releaseLock(lockPath);
+            }
         })),
         repos_list: requireRoles('repos_list', ['bro', 'swe', 'pr-reviewer'], wrap(async () => {
             const rows = db.all(`SELECT name, path, file_count, last_scanned_at FROM repos ORDER BY name`);

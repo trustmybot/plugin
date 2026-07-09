@@ -20,6 +20,7 @@ test('issue_create returns a single id (no issue_string_id ghost field)', async 
     agent: 'bro',
     objective: 'smoke',
     description: 'x',
+    labels: ['Feature', 'Priority: Medium'],
   });
 
   assert.equal(result.ok, true, `issue_create: ${JSON.stringify(result)}`);
@@ -39,6 +40,7 @@ test('discussion_append chronology: answer rows have a preceding question row', 
     agent: 'bro',
     objective: 'chronology test',
     description: 'x',
+    labels: ['Feature', 'Priority: Medium'],
   });
   const issueId = issue.data.id;
 
@@ -94,6 +96,7 @@ test('task_create_batch — rejects when issue has 0 question rows and no waiver
     agent: 'bro',
     objective: 'gate test — no questions seeded',
     description: 'x',
+    labels: ['Feature', 'Priority: Medium'],
   });
   const issueId = issue.data.id;
 
@@ -125,6 +128,7 @@ test('task_create_batch — accepts when a kind=question row exists', async (t) 
     agent: 'bro',
     objective: 'gate test — questions seeded',
     description: 'x',
+    labels: ['Feature', 'Priority: Medium'],
   });
   const issueId = issue.data.id;
 
@@ -167,6 +171,7 @@ test('task_create_batch — accepts with waiver + reason ≥10 chars', async (t)
     agent: 'bro',
     objective: 'typo fix',
     description: 'x',
+    labels: ['Feature', 'Priority: Medium'],
   });
   const issueId = issue.data.id;
 
@@ -195,6 +200,7 @@ test('task_create_batch — rejects waiver with missing/short reason', async (t)
     agent: 'bro',
     objective: 'trivial',
     description: 'x',
+    labels: ['Feature', 'Priority: Medium'],
   });
   const issueId = issue.data.id;
 
@@ -250,6 +256,7 @@ test('task_create_batch — registry_cold_gate rejects when no deep_scan_complet
     agent: 'bro',
     objective: 'gated',
     description: 'gate test',
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(issue.ok, true);
 
@@ -275,10 +282,11 @@ test('task_create_batch — registry_cold_gate clears after a deep_scan_complete
     agent: 'bro',
     objective: 'unlock',
     description: 'gate clear test',
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(issue.ok, true);
 
-  const seed = await call(client, 'audit_log', {
+  const seed = await call(client, 'audit_append', {
     agent: 'bro',
     issue_id: '-1',
     from_node: 'bro',
@@ -315,6 +323,7 @@ test('task_create_batch — waive_registry_gate accepts an explicit reason ≥10
     agent: 'bro',
     objective: 'waive',
     description: 'waive test',
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(issue.ok, true);
 
@@ -344,6 +353,7 @@ test('task_create_batch — waive_registry_gate rejects too-short reason', async
     agent: 'bro',
     objective: 'waive-bad',
     description: 'waive too short',
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(issue.ok, true);
 
@@ -372,6 +382,7 @@ test('task_create_batch — intent_gate rejects when no kind=intent discussion e
     agent: 'bro',
     objective: 'intent-gate test',
     description: 'x',
+    labels: ['Feature', 'Priority: Medium'],
   });
   const issueId = issue.data.id;
 
@@ -382,7 +393,7 @@ test('task_create_batch — intent_gate rejects when no kind=intent discussion e
   await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, kind: 'answer', author: 'human', body: 'argparse', verified_human: true,
   });
-  await call(client, 'audit_log', {
+  await call(client, 'audit_append', {
     agent: 'bro', issue_id: issueId, from_node: 'bro',
     event_type: 'branch_id_proposed', branch_id: 'feat/x', summary: 'proposed',
   });
@@ -408,6 +419,7 @@ test('task_create_batch — decision_gate rejects when no kind=decision discussi
     agent: 'bro',
     objective: 'decision-gate universal test',
     description: 'x',
+    labels: ['Feature', 'Priority: Medium'],
   });
   const issueId = issue.data.id;
 
@@ -417,7 +429,7 @@ test('task_create_batch — decision_gate rejects when no kind=decision discussi
   await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, kind: 'answer', author: 'human', body: 'argparse', verified_human: true,
   });
-  await call(client, 'audit_log', {
+  await call(client, 'audit_append', {
     agent: 'bro', issue_id: issueId, from_node: 'bro',
     event_type: 'branch_id_proposed', branch_id: 'feat/x', summary: 'proposed',
   });
@@ -443,6 +455,7 @@ test('task_create_batch — decision_gate clears when a kind=decision discussion
     agent: 'bro',
     objective: 'decision-gate clear test',
     description: 'x',
+    labels: ['Feature', 'Priority: Medium'],
   });
   const issueId = issue.data.id;
 
@@ -452,7 +465,7 @@ test('task_create_batch — decision_gate clears when a kind=decision discussion
   await call(client, 'discussion_append', {
     agent: 'bro', issue_id: issueId, kind: 'answer', author: 'human', body: 'argparse', verified_human: true,
   });
-  await call(client, 'audit_log', {
+  await call(client, 'audit_append', {
     agent: 'bro', issue_id: issueId, from_node: 'bro',
     event_type: 'branch_id_proposed', branch_id: 'feat/x', summary: 'proposed',
   });
@@ -482,6 +495,7 @@ test('roundtable_create — slash-invoke gate rejects when no /roundtable was ty
     agent: 'bro',
     objective: 'roundtable gate test',
     description: 'x',
+    labels: ['Feature', 'Priority: Medium'],
   });
   const issueId = issue.data.id;
 
@@ -503,10 +517,11 @@ test('roundtable_create — slash-invoke gate clears after a /roundtable audit l
     agent: 'bro',
     objective: 'roundtable gate clear test',
     description: 'x',
+    labels: ['Feature', 'Priority: Medium'],
   });
   const issueId = issue.data.id;
 
-  await call(client, 'audit_log', {
+  await call(client, 'audit_append', {
     agent: 'bro',
     issue_id: '-1',
     from_node: 'system',
@@ -532,6 +547,7 @@ test('roundtable_create — waive_slash_gate accepts an explicit reason ≥10 ch
     agent: 'bro',
     objective: 'waive test',
     description: 'x',
+    labels: ['Feature', 'Priority: Medium'],
   });
   const issueId = issue.data.id;
 

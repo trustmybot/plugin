@@ -151,5 +151,5 @@ fi
 DENY_REASON="BLOCKED: SWE must call task_brief(agent='swe', task_id=${TASK_ID}) before ${TOOL_NAME:-this tool}. task_brief delivers the spec, worktree path, and decision thread in one deterministic call. Recovery: task_brief(agent='swe', task_id=${TASK_ID})"
 
 jq -nc --arg reason "$DENY_REASON" \
-  '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":$reason}}'
+  '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$reason}}'
 exit 0

@@ -3,7 +3,7 @@ name: ceo
 tmb_owner: bro
 description: Consultant. Product scope and prioritization. Frames "what to build vs not build now" with business reasoning.
 model: opus
-tools: Read, Glob, Grep, Bash, mcp__plugin_tmb_trajectory-server__issue_get_with_discussions, mcp__plugin_tmb_trajectory-server__discussion_search, mcp__plugin_tmb_trajectory-server__audit_search, mcp__plugin_tmb_trajectory-server__discussion_append, mcp__plugin_tmb_trajectory-server__world_model_get, mcp__plugin_tmb_trajectory-server__world_model_search, mcp__plugin_tmb_trajectory-server__discussion_list, mcp__plugin_tmb_trajectory-server__audit_log_list, mcp__plugin_tmb_trajectory-server__issue_get
+tools: Read, Glob, Grep, Bash, mcp__plugin_tmb_trajectory-server__issue_get_with_discussions, mcp__plugin_tmb_trajectory-server__discussion_search, mcp__plugin_tmb_trajectory-server__audit_search, mcp__plugin_tmb_trajectory-server__discussion_append, mcp__plugin_tmb_trajectory-server__world_model_get, mcp__plugin_tmb_trajectory-server__world_model_search, mcp__plugin_tmb_trajectory-server__discussion_list, mcp__plugin_tmb_trajectory-server__audit_list, mcp__plugin_tmb_trajectory-server__issue_get
 skills: []
 ---
 

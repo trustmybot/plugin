@@ -14,6 +14,31 @@ set -uo pipefail
 # shellcheck source=tests/l5-l6/lib/timeout-shim.sh
 source "$(dirname "${BASH_SOURCE[0]}")/timeout-shim.sh"
 
+# _l5_throwaway_db_dir — holds the mktemp dir backing the smoke's throwaway
+# trajectory DB so the EXIT trap can remove it. Empty until first use.
+_L5_SMOKE_DB_DIR=""
+
+# _l5_smoke_isolate_db — point the MCP server (spawned directly OR via
+# `claude --plugin-dir`) at a FRESH throwaway trajectory DB. Without this the
+# server's resolveDbPath walk-up adopts a PARENT PROJECT's live trajectory.db,
+# so the smoke (a server-CODE health check) would mutate / migrate a real DB.
+# Idempotent: reuses the same throwaway across all smokes in one process.
+_l5_smoke_isolate_db() {
+  if [ -n "$_L5_SMOKE_DB_DIR" ]; then return 0; fi
+  _L5_SMOKE_DB_DIR=$(mktemp -d "${TMPDIR:-/tmp}/l5-smoke-db.XXXXXX")
+  mkdir -p "$_L5_SMOKE_DB_DIR/.claude/tmb"
+  export TRAJECTORY_DB_PATH="$_L5_SMOKE_DB_DIR/.claude/tmb/trajectory.db"
+  trap '_l5_smoke_cleanup_db' EXIT
+}
+
+# _l5_smoke_cleanup_db — remove the throwaway DB dir created above.
+_l5_smoke_cleanup_db() {
+  if [ -n "$_L5_SMOKE_DB_DIR" ] && [ -d "$_L5_SMOKE_DB_DIR" ]; then
+    rm -rf "$_L5_SMOKE_DB_DIR"
+    _L5_SMOKE_DB_DIR=""
+  fi
+}
+
 # l5_smoke_mcp <plugin_dir> — verifies the plugin tree at <plugin_dir> can
 # spawn the MCP trajectory server and respond to tools/list. Returns 0 if
 # response contains a tools list within 10s, 1 otherwise.
@@ -22,6 +47,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/timeout-shim.sh"
 # parse error in applySchema, any startup exception in the MCP server.
 l5_smoke_mcp() {
   local plugin_dir="$1"
+  _l5_smoke_isolate_db
   local mcp_entry="$plugin_dir/mcp/trajectory-server/dist/index.js"
   if [ ! -f "$mcp_entry" ]; then
     printf "  ✗ MCP smoke: entrypoint missing at %s\n" "$mcp_entry" >&2
@@ -64,6 +90,7 @@ l5_smoke_claude_auth() {
 # plugin without bro engaging. Smaller than the L5 flow runs. ~30s budget.
 l5_smoke_claude_plugin_load() {
   local plugin_dir="$1"
+  _l5_smoke_isolate_db
   local out
   out=$(_l5_timeout 60 claude --plugin-dir "$plugin_dir" --dangerously-skip-permissions -p "say hi in one word" 2>&1 || true)
   if [ -z "$out" ]; then

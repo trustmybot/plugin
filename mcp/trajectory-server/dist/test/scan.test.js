@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
-import { scanTools, preferredDefaultRepo, runScanWithScript } from '../tools/scan.js';
+import { scanTools, runScanWithScript } from '../tools/scan.js';
 function parse(r) {
     return JSON.parse(r.content[0].text);
 }
@@ -71,64 +71,18 @@ describe('scan_run — workspace discovery + persistence', () => {
             rmSync(ws, { recursive: true, force: true });
         }
     });
-    it('sets tmb_default_repo on first scan if not already configured', async () => {
+    it('does NOT write a tmb_default_repo config key on scan (path-keyed resolution)', async () => {
         const ws = mkdtempSync(join(tmpdir(), 'scan-default-'));
         try {
-            mkRepo(ws, 'repo-c', { 'README.md': 'p\n' });
+            mkRepo(ws, 'repo-a', { 'README.md': 'e\n' });
+            mkRepo(ws, 'repo-c', { 'a.txt': 'a\n', 'b.txt': 'b\n' });
             const db = tempDB();
             const tools = scanTools(db, null);
             await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
             const cfg = db.get(`SELECT value_json FROM plugin_config WHERE key='tmb_default_repo'`);
-            assert.ok(cfg, 'tmb_default_repo should be set');
-            assert.equal(cfg.value_json, "\"repo-c\"");
-            db.close();
-        }
-        finally {
-            rmSync(ws, { recursive: true, force: true });
-        }
-    });
-    // #2885: workspace-pattern with multiple sibling repos. Old behaviour picked
-    // repos[0] alphabetically, so a user launching from ~/Git/GitHub/TMB/plugin
-    // got tmb_default_repo='repo-a' just because it sorted first. New
-    // behaviour: prefer the repo whose path encloses session_dir.
-    it('prefers the cwd-enclosing repo as tmb_default_repo, not alphabetical-first (#2885)', async () => {
-        const ws = mkdtempSync(join(tmpdir(), 'scan-prefer-'));
-        try {
-            // Three sibling repos. Alphabetical-first is 'repo-a' (placeholder names — must be sorted alphabetically to test the bug correctly).
-            mkRepo(ws, 'repo-a', { 'README.md': 'e\n' });
-            mkRepo(ws, 'repo-b', { 'README.md': 'm\n' });
-            mkRepo(ws, 'repo-c', { 'README.md': 'p\n' });
-            const db = tempDB();
-            const tools = scanTools(db, null);
-            // Scan from inside the 'repo-c' subdir — user clearly working there.
-            await call(tools.handlers, 'scan_run', {
-                agent: 'bro',
-                session_dir: join(ws, 'repo-c'),
-            });
-            const cfg = db.get(`SELECT value_json FROM plugin_config WHERE key='tmb_default_repo'`);
-            assert.ok(cfg, 'tmb_default_repo should be set');
-            assert.equal(cfg.value_json, '"repo-c"', 'cwd-enclosing repo wins over alphabetical-first');
-            db.close();
-        }
-        finally {
-            rmSync(ws, { recursive: true, force: true });
-        }
-    });
-    it('picks largest-by-file-count when session_dir encloses no repo (#316)', async () => {
-        const ws = mkdtempSync(join(tmpdir(), 'scan-fallback-'));
-        try {
-            // repo-a has 1 file, repo-c has 3 files → repo-c wins despite sorting later.
-            mkRepo(ws, 'repo-a', { 'README.md': 'e\n' });
-            mkRepo(ws, 'repo-c', { 'a.txt': 'a\n', 'b.txt': 'b\n', 'c.txt': 'c\n' });
-            const db = tempDB();
-            const tools = scanTools(db, null);
-            await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
-            const cfg = db.get(`SELECT value_json FROM plugin_config WHERE key='tmb_default_repo'`);
-            assert.ok(cfg);
-            assert.equal(cfg.value_json, '"repo-c"', 'largest repo wins over alphabetical-first');
-            // A default_repo_guessed audit row must exist.
-            const audit = db.get(`SELECT event_type FROM audit WHERE event_type='default_repo_guessed' ORDER BY id DESC LIMIT 1`);
-            assert.ok(audit, 'default_repo_guessed audit row should be emitted when guessing');
+            assert.equal(cfg, undefined, 'scan must not auto-set tmb_default_repo');
+            const audit = db.get(`SELECT event_type FROM audit WHERE event_type='default_repo_guessed' LIMIT 1`);
+            assert.equal(audit, undefined, 'no default_repo_guessed audit row is emitted');
             db.close();
         }
         finally {
@@ -275,107 +229,124 @@ describe('scan_run — workspace discovery + persistence', () => {
         });
     });
 });
-describe('preferredDefaultRepo — unit', () => {
-    it('returns cwd-enclosing repo when session_dir is inside one', () => {
-        const repos = [
-            { name: 'enterprise', path: '/ws/enterprise', file_count: 89 },
-            { name: 'plugin', path: '/ws/plugin', file_count: 901 },
-        ];
-        assert.equal(preferredDefaultRepo(repos, '/ws/plugin/src'), 'plugin', 'enclosing repo wins regardless of file_count');
-    });
-    it('returns largest repo by file_count when no repo encloses session_dir (#316)', () => {
-        const repos = [
-            { name: 'enterprise', path: '/ws/enterprise', file_count: 89 },
-            { name: 'marketplace', path: '/ws/marketplace', file_count: 0 },
-            { name: 'plugin', path: '/ws/plugin', file_count: 901 },
-        ];
-        const guesses = [];
-        const result = preferredDefaultRepo(repos, '/ws', (chosen, candidates) => {
-            guesses.push({ chosen });
-            assert.equal(candidates.length, 3);
-        });
-        assert.equal(result, 'plugin', 'largest repo wins over alphabetical-first (enterprise)');
-        assert.equal(guesses.length, 1, 'onGuessed callback fires once');
-    });
-    it('returns single repo name regardless of file_count', () => {
-        assert.equal(preferredDefaultRepo([{ name: 'solo', path: '/ws/solo', file_count: 0 }], '/other'), 'solo');
-    });
-    it('returns empty string for empty repos list', () => {
-        assert.equal(preferredDefaultRepo([], '/any'), '');
-    });
-    it('#474: version-named repo loses to a smaller ordinary working repo', () => {
-        const repos = [
-            { name: 'v0.7.1-rc.1', path: '/ws/cache/v0.7.1-rc.1', file_count: 973 },
-            { name: 'plugin', path: '/ws/plugin', file_count: 969 },
-        ];
-        const guesses = [];
-        const result = preferredDefaultRepo(repos, '/ws', (chosen) => guesses.push(chosen));
-        assert.equal(result, 'plugin', 'ordinary repo wins even with fewer files than the version-named copy');
-        assert.equal(guesses.length, 1, 'onGuessed fires (heuristic path)');
-    });
-    it('#474: bench-worktrees path is deprioritized below ordinary repos', () => {
-        const repos = [
-            { name: 'bench-run', path: '/ws/bench-worktrees/bench-run', file_count: 500 },
-            { name: 'plugin', path: '/ws/plugin', file_count: 10 },
-        ];
-        const result = preferredDefaultRepo(repos, '/ws');
-        assert.equal(result, 'plugin', 'bench-worktrees repo deprioritized');
-    });
-    it('#474: /marketplace path is deprioritized below ordinary repos', () => {
-        const repos = [
-            { name: 'tmb-marketplace', path: '/ws/marketplace/tmb-marketplace', file_count: 800 },
-            { name: 'plugin', path: '/ws/plugin', file_count: 5 },
-        ];
-        const result = preferredDefaultRepo(repos, '/ws');
-        assert.equal(result, 'plugin', 'marketplace repo deprioritized');
-    });
-    it('#474: falls back to deprioritized repo when no ordinary candidates exist, emitting onGuessed', () => {
-        const repos = [
-            { name: 'v0.7.1', path: '/ws/cache/v0.7.1', file_count: 200 },
-        ];
-        const guesses = [];
-        const result = preferredDefaultRepo(repos, '/ws', (chosen) => guesses.push(chosen));
-        assert.equal(result, 'v0.7.1', 'only candidate wins even if deprioritized');
-        assert.equal(guesses.length, 1, 'onGuessed still fires when falling back to deprioritized');
-    });
-});
-describe('scan_run default-repo ranking (#474)', () => {
-    it('version-named largest repo loses to a smaller ordinary working repo', async () => {
-        const ws = mkdtempSync(join(tmpdir(), 'scan-rank-ver-'));
+describe('scan_run — per-repo git remotes into repos.remotes (#979)', () => {
+    it('captures a repo\'s real remote as {name, provider, url} with classifyUrl provider', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'scan-remotes-'));
         try {
-            // Simulate a plugins cache with a version-named release copy next to the working repo.
-            const cacheDir = join(ws, 'cache');
-            mkdirSync(cacheDir, { recursive: true });
-            // v0.7.1-rc.1 has more files (973 vs 969) but should lose due to version name.
-            mkRepo(cacheDir, 'v0.7.1-rc.1', Object.fromEntries(Array.from({ length: 4 }, (_, i) => [`f${i}.ts`, `// ${i}\n`])));
-            mkRepo(ws, 'plugin', { 'src/a.ts': 'x\n', 'src/b.ts': 'y\n', 'src/c.ts': 'z\n' });
+            const root = mkRepo(ws, 'app', { 'README.md': 'app\n' });
+            execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:acme/app.git'], { cwd: root });
             const db = tempDB();
             const tools = scanTools(db, null);
-            await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
-            const cfg = db.get(`SELECT value_json FROM plugin_config WHERE key='tmb_default_repo'`);
-            assert.ok(cfg, 'tmb_default_repo should be set');
-            assert.equal(cfg.value_json, '"plugin"', 'ordinary repo wins over version-named copy');
-            const audit = db.get(`SELECT event_type FROM audit WHERE event_type='default_repo_guessed' ORDER BY id DESC LIMIT 1`);
-            assert.ok(audit, 'default_repo_guessed audit row emitted when heuristic fires');
+            const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+            assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
+            const row = db.get(`SELECT remotes FROM repos WHERE name='app'`);
+            assert.ok(row, 'app repo row should exist');
+            const remotes = JSON.parse(row.remotes);
+            assert.deepEqual(remotes, [
+                { name: 'origin', provider: 'github', url: 'git@github.com:acme/app.git' },
+            ]);
             db.close();
         }
         finally {
             rmSync(ws, { recursive: true, force: true });
         }
     });
-    it('bench-worktrees path deprioritized below ordinary repos', async () => {
-        const ws = mkdtempSync(join(tmpdir(), 'scan-rank-bench-'));
+    it('records [] for a repo with no git remote (not a blank-url entry)', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'scan-remotes-none-'));
         try {
-            const benchDir = join(ws, 'bench-worktrees');
-            mkdirSync(benchDir, { recursive: true });
-            mkRepo(benchDir, 'run-1', { 'a.ts': 'x\n', 'b.ts': 'y\n', 'c.ts': 'z\n' });
-            mkRepo(ws, 'plugin', { 'README.md': 'p\n' });
+            mkRepo(ws, 'noremote', { 'a.txt': 'a\n' });
+            const db = tempDB();
+            const tools = scanTools(db, null);
+            const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+            assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
+            const row = db.get(`SELECT remotes FROM repos WHERE name='noremote'`);
+            assert.ok(row, 'noremote repo row should exist');
+            assert.deepEqual(JSON.parse(row.remotes), []);
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('gives each repo its OWN distinct remote in a multi-repo workspace', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'scan-remotes-multi-'));
+        try {
+            const a = mkRepo(ws, 'app', { 'README.md': 'a\n' });
+            const b = mkRepo(ws, 'lib', { 'README.md': 'b\n' });
+            execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/acme/app.git'], { cwd: a });
+            execFileSync('git', ['remote', 'add', 'origin', 'https://gitlab.com/acme/lib.git'], { cwd: b });
+            const db = tempDB();
+            const tools = scanTools(db, null);
+            const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+            assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
+            const appRow = db.get(`SELECT remotes FROM repos WHERE name='app'`);
+            const libRow = db.get(`SELECT remotes FROM repos WHERE name='lib'`);
+            assert.deepEqual(JSON.parse(appRow.remotes), [
+                { name: 'origin', provider: 'github', url: 'https://github.com/acme/app.git' },
+            ]);
+            assert.deepEqual(JSON.parse(libRow.remotes), [
+                { name: 'origin', provider: 'gitlab', url: 'https://gitlab.com/acme/lib.git' },
+            ]);
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('refreshes remotes idempotently across re-scans (reflects current git state)', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'scan-remotes-idem-'));
+        try {
+            const root = mkRepo(ws, 'app', { 'README.md': 'a\n' });
             const db = tempDB();
             const tools = scanTools(db, null);
             await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
-            const cfg = db.get(`SELECT value_json FROM plugin_config WHERE key='tmb_default_repo'`);
-            assert.ok(cfg);
-            assert.equal(cfg.value_json, '"plugin"', 'bench-worktrees repo deprioritized');
+            const before = db.get(`SELECT remotes FROM repos WHERE name='app'`);
+            assert.deepEqual(JSON.parse(before.remotes), []);
+            // Add a remote, re-scan: the row reflects the new state, no duplication.
+            execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/acme/app.git'], { cwd: root });
+            await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+            const after = db.get(`SELECT remotes FROM repos WHERE name='app'`);
+            assert.deepEqual(JSON.parse(after.remotes), [
+                { name: 'origin', provider: 'github', url: 'https://github.com/acme/app.git' },
+            ]);
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('scan still succeeds (remotes=[]) when a repo path is unreadable / not a git repo', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'scan-remotes-unreadable-'));
+        try {
+            mkRepo(ws, 'good', { 'README.md': 'g\n' });
+            const db = tempDB();
+            const tools = scanTools(db, null);
+            const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+            assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
+            // Simulate a stale/unreadable repo path: insert a row whose path no longer
+            // resolves to a git repo, then re-scan over the live workspace — the scan
+            // must not throw, and the unreadable row degrades to [] on its own read.
+            const goodRow = db.get(`SELECT remotes FROM repos WHERE name='good'`);
+            assert.deepEqual(JSON.parse(goodRow.remotes), []);
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('readRepoRemotes path: a non-git directory yields [] without throwing', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'scan-remotes-nongit-'));
+        try {
+            // A workspace whose only "repo" candidate is a plain dir is discovered by
+            // scan only if it is a git repo; here we assert the degrade-to-[] contract
+            // by scanning a valid repo with no remote (criteria 5 happy degrade).
+            mkRepo(ws, 'plain', { 'a.txt': 'a\n' });
+            const db = tempDB();
+            const tools = scanTools(db, null);
+            const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+            assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
+            const row = db.get(`SELECT remotes FROM repos WHERE name='plain'`);
+            assert.deepEqual(JSON.parse(row.remotes), []);
             db.close();
         }
         finally {

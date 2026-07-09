@@ -1,12 +1,13 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { SpawnSyncOptions } from 'node:child_process';
 import type { TrajectoryDB } from '../db.js';
-import { resolveDefaultRepoPath } from '../utils/repo-paths.js';
+import { resolveRepoForSync } from '../utils/repo-paths.js';
+import type { ResolvedRepoSync } from '../utils/repo-paths.js';
 import { nowISO } from '../db.js';
 import type { Issue, IssueRow, Task } from '../types.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
 import { resolveBackend, detectPreferred } from '../sync/backend.js';
-import { syncIssueCreate, syncIssueClose, isSyncFailure } from '../sync/issue_sync.js';
+import { syncIssueCreate, syncIssueClose, isSyncFailure, repoSlugFromRemoteUrl } from '../sync/issue_sync.js';
 import type { SyncFailure } from '../sync/issue_sync.js';
 import { serverLog } from '../logger.js';
 
@@ -17,6 +18,172 @@ type SpawnFn = (
 ) => { status: number | null; stdout: string; stderr: string };
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
+
+// Mandatory issue tagging (#93/#777): every issue must carry one priority tag
+// AND one classification tag. The valid sets are configurable per project via
+// plugin_config (issue_classification_labels / issue_priority_labels); when
+// unset, a small GENERIC default applies. Validation stays fail-closed — only
+// the *contents* of the valid sets are project-specific, not the requirement.
+
+// Generic, project-agnostic default. A project (incl. TMB itself) overrides
+// these via config_set issue_classification_labels / issue_priority_labels.
+const DEFAULT_CLASSIFICATION_LABELS: readonly string[] = [
+  'Bug',
+  'Feature',
+  'Improvement',
+  'Docs',
+  'Test',
+  'Chore',
+];
+const DEFAULT_PRIORITY_LABELS: readonly string[] = [
+  'Priority: Urgent',
+  'Priority: High',
+  'Priority: Medium',
+  'Priority: Low',
+];
+
+// Read a string[] config key from plugin_config; returns null when unset or
+// malformed so the caller can fall back to the generic default.
+function readStringArrayConfig(db: TrajectoryDB, key: string): string[] | null {
+  const row = db.get<{ value_json: string }>(
+    `SELECT value_json FROM plugin_config WHERE key = ?`,
+    [key],
+  );
+  if (!row) return null;
+  try {
+    const parsed = JSON.parse(row.value_json) as unknown;
+    if (
+      Array.isArray(parsed) &&
+      parsed.length > 0 &&
+      parsed.every((v) => typeof v === 'string')
+    ) {
+      return parsed as string[];
+    }
+  } catch {
+    // malformed config row — fall through to the generic default
+  }
+  return null;
+}
+
+// Resolve the configured (or generic-default) classification + priority sets
+// for the active project. The validator matches a label against the resolved
+// sets by exact membership.
+function resolveLabelTaxonomy(db: TrajectoryDB): {
+  classification: string[];
+  priorityLabels: string[];
+} {
+  const classification = readStringArrayConfig(db, 'issue_classification_labels') ?? [
+    ...DEFAULT_CLASSIFICATION_LABELS,
+  ];
+  const priorityLabels = readStringArrayConfig(db, 'issue_priority_labels') ?? [
+    ...DEFAULT_PRIORITY_LABELS,
+  ];
+  return { classification, priorityLabels };
+}
+
+// A minimal valid label set (one classification + one priority) drawn from the
+// project taxonomy. issue_create labels aren't persisted locally, so a retry
+// (#1028) can't recover the originals — it re-derives this default so the
+// retried remote issue satisfies the same mandatory-tagging invariant
+// issue_create enforces, rather than sending labels:[] (which a
+// tagging-enforced remote would reject).
+function defaultSyncLabels(db: TrajectoryDB): string[] {
+  const { classification, priorityLabels } = resolveLabelTaxonomy(db);
+  const labels: string[] = [];
+  if (classification.length > 0) labels.push(classification[0]!);
+  if (priorityLabels.length > 0) labels.push(priorityLabels[0]!);
+  return labels;
+}
+
+// Fail closed: reject unless the labels arg satisfies BOTH required categories,
+// checked against the project's configured (or generic-default) taxonomy.
+// Returns a named error string listing what is missing and the valid options,
+// or null when the labels are valid. Extra labels (in neither set) are allowed.
+function validateIssueLabels(db: TrajectoryDB, labels: string[]): string | null {
+  const { classification, priorityLabels } = resolveLabelTaxonomy(db);
+  const classificationSet = new Set(classification);
+  const prioritySet = new Set(priorityLabels);
+  const hasPriority = labels.some((l) => prioritySet.has(l));
+  const hasClassification = labels.some((l) => classificationSet.has(l));
+  if (hasPriority && hasClassification) return null;
+
+  const missing: string[] = [];
+  if (!hasClassification) {
+    missing.push(`a classification label (one of: ${classification.join(', ')})`);
+  }
+  if (!hasPriority) {
+    missing.push(`a priority label (one of: ${priorityLabels.join(', ')})`);
+  }
+  return `missing_required_labels: issue_create requires ${missing.join(' AND ')}. Got labels: [${labels.join(', ')}]`;
+}
+
+// FK (milestone, repo) -> milestones(name, repo): upsert the milestones row so
+// the issues insert doesn't violate it. Only meaningful when repo is non-null
+// (milestones.repo is NOT NULL and FKs the repos table); with a null repo the
+// composite FK is not enforced, so no upsert is needed. Reuses an existing row
+// (per-repo PK, no duplicate).
+function ensureMilestoneRow(db: TrajectoryDB, milestone: string, repo: string | null): void {
+  if (repo === null) return;
+  db.run(
+    `INSERT INTO milestones (name, repo) VALUES (?, ?)
+     ON CONFLICT(name, repo) DO NOTHING`,
+    [milestone, repo],
+  );
+}
+
+// Milestone default (#15): when issue_create / intent_start omit the milestone,
+// derive it from the issue's own repo — never a global. An explicit (non-empty)
+// milestone arg always wins and upserts its (name, repo) FK row (#985).
+// Otherwise, when the repo has exactly one OPEN milestone, that milestone is the
+// default; zero or more than one open milestones leave it null (honors #763's
+// no-forced-binding). The default path NEVER auto-creates a milestone row — it
+// only binds to one that already exists for the repo. A null repo yields null.
+export function resolveDefaultMilestone(
+  db: TrajectoryDB,
+  explicitMilestone: string | null,
+  repo: string | null,
+): string | null {
+  if (explicitMilestone !== null && explicitMilestone !== '') {
+    ensureMilestoneRow(db, explicitMilestone, repo);
+    return explicitMilestone;
+  }
+  if (repo === null) return null;
+  const open = db.all<{ name: string }>(
+    `SELECT name FROM milestones WHERE repo = ? AND state = 'open'`,
+    [repo],
+  );
+  return open.length === 1 ? open[0]!.name : null;
+}
+
+// Dedup pre-check (#91/#775): before inserting, compare the new objective
+// against every OPEN issue's objective with a deterministic token-set Jaccard
+// overlap. A normalized-equal or high-overlap match is treated as a likely
+// duplicate so bro can link/override instead of forking a second issue.
+const DEDUP_THRESHOLD = 0.6;
+
+// Normalize: lowercase, strip punctuation, collapse whitespace, tokenize.
+export function normalizeObjective(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length > 0);
+}
+
+// Token-set Jaccard similarity (|A∩B| / |A∪B|). Deterministic, pure. Two
+// empty token sets are treated as identical (similarity 1).
+export function objectiveSimilarity(a: string, b: string): number {
+  const setA = new Set(normalizeObjective(a));
+  const setB = new Set(normalizeObjective(b));
+  if (setA.size === 0 && setB.size === 0) return 1;
+  let intersection = 0;
+  for (const t of setA) {
+    if (setB.has(t)) intersection += 1;
+  }
+  const union = setA.size + setB.size - intersection;
+  if (union === 0) return 0;
+  return intersection / union;
+}
 
 // Sync paths pass labels through to the remote (GitLab / GitHub) via
 // syncIssueCreate, but they aren't persisted in the local issues table.
@@ -52,20 +219,34 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
   };
 }
 
-function resolveSpawnCwd(db: TrajectoryDB, dbPath: string): string | undefined {
-  return resolveDefaultRepoPath(db, dbPath);
+// Issue-scoped sync context (#155/#146). Resolve the repo an issue belongs to
+// (its `repo` column, or the sole-repo fallback) into the on-disk path used as
+// the explicit spawn cwd and a per-backend remote lookup. The remotes come from
+// the resolved repos.remotes row — never the global plugin_config, and never
+// process.cwd(). `null` means the repo could not be resolved; the caller raises
+// a named, actionable error rather than silently syncing against the cwd.
+interface IssueSyncContext {
+  repoName: string;
+  cwd: string;
+  remoteFor(backend: 'gh' | 'glab'): { url: string; slug: string | null } | null;
 }
 
-function resolveRemoteUrl(db: TrajectoryDB, backend: 'gh' | 'glab'): string | null {
-  const row = db.get<{ value_json: string }>(
-    `SELECT value_json FROM plugin_config WHERE key = 'remotes'`,
-  );
-  if (!row) return null;
-  const remotes = JSON.parse(row.value_json) as Array<{ provider: string; url: string }>;
-  const provider = backend === 'gh' ? 'github' : 'gitlab';
-  const entry = remotes.find((r) => r.provider === provider);
-  if (!entry) return null;
-  return entry.url;
+function resolveIssueSyncContext(
+  db: TrajectoryDB,
+  repoName: string | null,
+): IssueSyncContext | null {
+  const resolved: ResolvedRepoSync | null = resolveRepoForSync(db, repoName);
+  if (!resolved) return null;
+  return {
+    repoName: resolved.name,
+    cwd: resolved.path,
+    remoteFor(backend) {
+      const provider = backend === 'gh' ? 'github' : 'gitlab';
+      const entry = resolved.remotes.find((r) => r.provider === provider);
+      if (!entry) return null;
+      return { url: entry.url, slug: repoSlugFromRemoteUrl(entry.url) };
+    },
+  };
 }
 
 // Fire the remote (GitHub/GitLab) issue-close for whatever remotes the row is
@@ -80,11 +261,15 @@ export async function syncIssueCloseRemotes(
   issueId: string | number,
   spawnFn?: SpawnFn,
 ): Promise<void> {
-  const remoteRow = db.get<{ remote_iid: number | null; remote_kind: string | null; gh_iid: number | null; gl_iid: number | null }>(
-    `SELECT remote_iid, remote_kind, gh_iid, gl_iid FROM issues WHERE id = ?`,
+  const remoteRow = db.get<{ remote_iid: number | null; remote_kind: string | null; gh_iid: number | null; gl_iid: number | null; repo: string | null }>(
+    `SELECT remote_iid, remote_kind, gh_iid, gl_iid, repo FROM issues WHERE id = ?`,
     [issueId],
   );
-  const closeCwd = resolveSpawnCwd(db, dbPath);
+  // Issue-scoped sync (#155/#146): resolve cwd + per-backend repo slug from the
+  // issue's repo. When unresolvable, fall back to no explicit cwd/slug — a
+  // best-effort close must not throw (the local close already happened).
+  const closeCtx = resolveIssueSyncContext(db, remoteRow?.repo ?? null);
+  const closeCwd = closeCtx?.cwd;
   const closeTargets: Array<{ remote_iid: number; remote_kind: 'github' | 'gitlab' }> = [];
   if (remoteRow?.gh_iid != null) {
     closeTargets.push({ remote_iid: remoteRow.gh_iid, remote_kind: 'github' });
@@ -97,10 +282,12 @@ export async function syncIssueCloseRemotes(
     closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: 'gitlab' });
   }
   for (const target of closeTargets) {
+    const closeSlug = closeCtx?.remoteFor(target.remote_kind === 'github' ? 'gh' : 'glab')?.slug ?? undefined;
     const closeResult = await syncIssueClose({
       remote_iid: target.remote_iid,
       remote_kind: target.remote_kind,
       _cwd: closeCwd,
+      _repoSlug: closeSlug,
       _spawnFn: spawnFn,
     });
     if (!closeResult.ok) {
@@ -132,9 +319,12 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
           agent: { type: 'string', description: 'Caller agent name' },
           objective: { type: 'string', description: 'Short one-liner summary' },
           description: { type: 'string', description: 'Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation.' },
-          labels: { type: 'array', items: { type: 'string' }, description: 'Optional labels to apply to the remote issue.' },
+          labels: { type: 'array', items: { type: 'string' }, description: 'Required. Must include at least one priority label AND at least one classification label, drawn from the project\'s configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore). Extra labels are allowed. Applied to the remote issue.' },
+          milestone: { type: 'string', description: 'Optional milestone name (e.g. "v1.2.0"). Persisted on the issue row and set on the remote issue. Omit for no milestone.' },
+          repo: { type: 'string', description: 'Optional repo name (matches a repos row) this issue belongs to. Drives issue-scoped sync (explicit gh --repo / glab -R from that repo\'s remotes). Defaults to the sole/managed repo when exactly one repos row exists.' },
+          allow_duplicate: { type: 'boolean', description: 'When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating.' },
         },
-        required: ['agent', 'objective'],
+        required: ['agent', 'objective', 'labels'],
       },
     },
     {
@@ -260,14 +450,57 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
       const description = (args['description'] as string | undefined) ?? '';
       // labels: pass-through to remote sync; not persisted locally after #179.
       const labels = (args['labels'] as string[] | undefined) ?? [];
+      // Mandatory tagging (#93/#777): fail closed before any insert/sync.
+      const labelError = validateIssueLabels(db, labels);
+      if (labelError !== null) {
+        return err(labelError);
+      }
+      // repo (#155): explicit arg, else the sole/managed repo when exactly one
+      // repos row exists. Null for an ambiguous multi-repo install with no
+      // selector — the FK is nullable so the insert still succeeds. Resolved
+      // before the dedup check so dedup can scope to the same repo.
+      const explicitRepo = (args['repo'] as string | undefined) ?? null;
+      const issueRepo = explicitRepo ?? resolveRepoForSync(db, null)?.name ?? null;
+      // Dedup pre-check (#91/#775): unless explicitly overridden, refuse to
+      // fork a second open issue for objective-equivalent work. Deterministic
+      // token-set Jaccard against OPEN issues in the SAME repo (or repo-less
+      // ones); a match at/above the threshold short-circuits the insert. Issues
+      // in other repos are distinct work and never dedup against this one.
+      const allowDuplicate = (args['allow_duplicate'] as boolean | undefined) ?? false;
+      if (!allowDuplicate) {
+        const openIssues = db.all<{ id: number; objective: string }>(
+          `SELECT id, objective FROM issues WHERE status = 'open' AND (repo IS NULL OR repo = ?)`,
+          [issueRepo],
+        );
+        let best: { id: number; objective: string; similarity: number } | null = null;
+        for (const candidate of openIssues) {
+          const similarity = objectiveSimilarity(objective, candidate.objective);
+          if (best === null || similarity > best.similarity) {
+            best = { id: candidate.id, objective: candidate.objective, similarity };
+          }
+        }
+        if (best !== null && best.similarity >= DEDUP_THRESHOLD) {
+          return ok({
+            duplicate: true,
+            duplicate_of: best.id,
+            matched_objective: best.objective,
+            similarity: best.similarity,
+          });
+        }
+      }
+      // milestone: optional; persisted locally AND passed to remote sync
+      // (#83/#763). When omitted, defaults to the issue repo's sole OPEN
+      // milestone (#15); an explicit milestone upserts its FK row (#985/#154).
+      const explicitMilestone = (args['milestone'] as string | undefined) ?? null;
+      const milestone = resolveDefaultMilestone(db, explicitMilestone, issueRepo);
       // _spawnFn: test-only injection point; not in inputSchema
       const spawnFn = (args['_spawnFn'] as SpawnFn | undefined) ?? undefined;
       const now = nowISO();
 
       db.run(
-        `INSERT INTO issues (objective, description, status, created_at, updated_at)
-         VALUES (?, ?, 'open', ?, ?)`,
-        [objective, description, now, now],
+        `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo)
+         VALUES (?, ?, 'open', ?, ?, ?, ?)`,
+        [objective, description, now, now, milestone, issueRepo],
       );
 
       const rowId = db.get<{ id: number }>(
@@ -292,16 +525,45 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
       let syncDiagnostic: Record<string, unknown> | undefined;
 
       if (syncConfig !== 'off') {
-        const backend = resolveBackend(syncConfig, !!spawnFn);
+        // Issue-scoped sync (#155/#146): resolve cwd + per-backend remote from
+        // the issue's repo. The repo's remotes also drive the 'auto' backend
+        // decision (#1043) — never a process.cwd() git probe.
+        const syncCtx = resolveIssueSyncContext(db, issueRepo);
+        const repoRemotes = syncCtx
+          ? { github: syncCtx.remoteFor('gh') !== null, gitlab: syncCtx.remoteFor('glab') !== null }
+          : null;
+        const backend = resolveBackend(syncConfig, repoRemotes, !!spawnFn);
         if (backend === null) {
           serverLog({ event: 'issue_sync_skip', reason: 'no_remote_configured', issueId });
         } else if (backend !== 'off') {
-          const syncCwd = resolveSpawnCwd(db, dbPath);
+          // Unresolvable repo while sync is on → named error rather than a
+          // silent process.cwd() sync.
+          if (syncCtx === null) {
+            serverLog({ event: 'issue_sync_skip', reason: 'unresolvable_repo', issueId, repo: issueRepo, backend });
+            syncDiagnostic = {
+              sync_failed: true,
+              reason: 'unresolvable_repo',
+              repo: issueRepo,
+              backend,
+              hint: issueRepo
+                ? `issue repo "${issueRepo}" has no matching repos row — run /scan or pass a valid repo.`
+                : 'multiple repos registered and no issue repo selected — pass repo= on issue_create.',
+            };
+            const row = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
+            const issue = decodeIssue(row!);
+            const redacted = redactIssue(issue, agent, { include_description: true });
+            const payload: Record<string, unknown> = { ...(redacted as Record<string, unknown>) };
+            payload._sync = syncDiagnostic;
+            return ok(payload);
+          }
+          const syncCwd = syncCtx.cwd;
           if (backend === 'both') {
-            const ghRemoteUrl = resolveRemoteUrl(db, 'gh');
-            const glRemoteUrl = resolveRemoteUrl(db, 'glab');
-            const ghBlank = ghRemoteUrl === '';
-            const glBlank = glRemoteUrl === '';
+            const ghRemote = syncCtx.remoteFor('gh');
+            const glRemote = syncCtx.remoteFor('glab');
+            const ghRemoteUrl = ghRemote?.url ?? null;
+            const glRemoteUrl = glRemote?.url ?? null;
+            const ghBlank = !ghRemoteUrl;
+            const glBlank = !glRemoteUrl;
             if (ghBlank && glBlank) {
               serverLog({ event: 'issue_sync_skip', reason: 'blank_remote_url', issueId, backend });
               syncDiagnostic = {
@@ -318,10 +580,12 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
                       title: objective,
                       body: description,
                       labels,
+                      milestone: milestone ?? undefined,
                       _backend: 'gh',
                       _spawnFn: spawnFn,
                       _cwd: syncCwd,
                       _remoteUrl: ghRemoteUrl ?? undefined,
+                      _repoSlug: ghRemote?.slug ?? undefined,
                     })
                   : Promise.resolve<SyncFailure>({ ok: false, reason: 'no_backend', backend: 'gh', message: 'blank remote URL for gh' }),
                 !glBlank
@@ -330,10 +594,12 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
                       title: objective,
                       body: description,
                       labels,
+                      milestone: milestone ?? undefined,
                       _backend: 'glab',
                       _spawnFn: spawnFn,
                       _cwd: syncCwd,
                       _remoteUrl: glRemoteUrl ?? undefined,
+                      _repoSlug: glRemote?.slug ?? undefined,
                     })
                   : Promise.resolve<SyncFailure>({ ok: false, reason: 'no_backend', backend: 'glab', message: 'blank remote URL for glab' }),
               ]);
@@ -381,8 +647,9 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
               }
             }
           } else {
-            const remoteUrl = resolveRemoteUrl(db, backend);
-            if (remoteUrl === '') {
+            const remote = syncCtx.remoteFor(backend);
+            const remoteUrl = remote?.url ?? null;
+            if (!remoteUrl) {
               serverLog({ event: 'issue_sync_skip', reason: 'blank_remote_url', issueId, backend });
               syncDiagnostic = {
                 sync_skipped: true,
@@ -396,10 +663,12 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
                 title: objective,
                 body: description,
                 labels,
+                milestone: milestone ?? undefined,
                 _backend: backend,
                 _spawnFn: spawnFn,
                 _cwd: syncCwd,
                 _remoteUrl: remoteUrl ?? undefined,
+                _repoSlug: remote?.slug ?? undefined,
               });
               if (!isSyncFailure(syncResult)) {
                 const ghIid = syncResult.remote_kind === 'github' ? syncResult.remote_iid : null;
@@ -659,15 +928,32 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
         return ok({ skipped: true, reason: 'issue_sync is off' });
       }
 
-      const backend = resolveBackend(syncConfig, !!spawnFn);
+      // Issue-scoped sync (#155/#146): resolve cwd + per-backend slug from the
+      // issue's repo. The repo's remotes also drive the 'auto' backend decision
+      // (#1043). Null when unresolvable — surface a named error.
+      const retryCtx = resolveIssueSyncContext(db, row.repo ?? null);
+      const retryRemotes = retryCtx
+        ? { github: retryCtx.remoteFor('gh') !== null, gitlab: retryCtx.remoteFor('glab') !== null }
+        : null;
+      const backend = resolveBackend(syncConfig, retryRemotes, !!spawnFn);
       if (backend === null || backend === 'off') {
         return ok({ skipped: true, reason: 'no remote backend configured' });
+      }
+      if (retryCtx === null) {
+        return ok({
+          skipped: true,
+          reason: 'unresolvable_repo',
+          repo: row.repo ?? null,
+          hint: row.repo
+            ? `issue repo "${row.repo}" has no matching repos row.`
+            : 'multiple repos registered and no issue repo selected.',
+        });
       }
 
       const issue = decodeIssue(row);
 
       if (row.status === 'closed') {
-        const retryCwd = resolveSpawnCwd(db, dbPath);
+        const retryCwd = retryCtx.cwd;
         const retryTargets: Array<{ remote_iid: number; remote_kind: 'github' | 'gitlab' }> = [];
         if (row.gh_iid != null) {
           retryTargets.push({ remote_iid: row.gh_iid, remote_kind: 'github' });
@@ -689,6 +975,7 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
             remote_kind: target.remote_kind,
             _spawnFn: spawnFn,
             _cwd: retryCwd,
+            _repoSlug: retryCtx.remoteFor(target.remote_kind === 'github' ? 'gh' : 'glab')?.slug ?? undefined,
           });
           if (!closeResult.ok) {
             closeErrors.push({
@@ -708,9 +995,9 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
       }
 
       // Only retry backends whose iid column is NULL — mirrors the close path's
-      // resolution (issues.ts:616-626). Prevents duplicate remote creates when
-      // one backend already succeeded in a prior attempt.
-      const retryCwd = resolveSpawnCwd(db, dbPath);
+      // resolution. Prevents duplicate remote creates when one backend already
+      // succeeded in a prior attempt.
+      const retryCwd = retryCtx.cwd;
       const createTargets: Array<'gh' | 'glab'> = [];
       if (backend === 'gh' || backend === 'both') {
         if (row.gh_iid == null && !(row.remote_kind === 'github' && row.remote_iid != null)) {
@@ -730,14 +1017,21 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
       const createErrors: unknown[] = [];
       let lastSuccess: { remote_iid: number; remote_kind: 'github' | 'gitlab' } | null = null;
       for (const target of createTargets) {
+        const retryRemote = retryCtx.remoteFor(target);
         const syncResult = await syncIssueCreate({
           issueId: row.id,
           title: issue.objective,
           body: row.description,
-          labels: [],
+          // #1028: re-derive a valid label set + carry the persisted milestone
+          // so the retried remote issue satisfies the same mandatory-tagging
+          // invariant issue_create enforces.
+          labels: defaultSyncLabels(db),
+          milestone: row.milestone ?? undefined,
           _backend: target,
           _spawnFn: spawnFn,
           _cwd: retryCwd,
+          _remoteUrl: retryRemote?.url ?? undefined,
+          _repoSlug: retryRemote?.slug ?? undefined,
         });
         if (!isSyncFailure(syncResult)) {
           lastSuccess = { remote_iid: syncResult.remote_iid, remote_kind: syncResult.remote_kind };

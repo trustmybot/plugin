@@ -4,7 +4,7 @@
 # and emits soft `additionalContext` when the basename violates the
 # language convention. Existing files are never re-named by this hook.
 #
-# Conventions (from the retired tmb_naming-conventions skill):
+# Conventions:
 #   Python (.py)   → snake_case.py
 #   TS/JS module   → kebab-case.ts / .js / .mjs / .cjs
 #   React (.tsx/.jsx) basename starting with uppercase → PascalCase.tsx

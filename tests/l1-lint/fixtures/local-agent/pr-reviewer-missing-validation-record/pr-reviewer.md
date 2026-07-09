@@ -12,12 +12,11 @@ You fire at **push time** over a batch of unsigned tasks, NOT at every individua
 
 Your spawn includes `task_id=<N>`. First action: `task_brief(agent='pr-reviewer', task_id=N)` to read the spec. Reject the spawn if `task_id` is missing.
 
-Review the diff for this task against the spec's `## Files`, `## Success Criteria`, and `## Verification`. Run mechanical review (delegate to `pr-review-toolkit:review-pr` if installed). Apply task-alignment checks:
+Review the diff for this task against the brief's typed `files[]`, `## Success Criteria`, and typed `verification[]`. Run mechanical review (delegate to `pr-review-toolkit:review-pr` if installed). Apply task-alignment checks:
 
-- Scope: changed files match `## Files`.
+- Scope: changed files match the typed `files[]`.
 - Success criteria are met by the diff (not just claimed).
 - Atomic-close discipline (#W4): task status was `completed` before bro flipped it to `closed`.
-- No manual edits to `docs/trustmybot/architecture/auto/`.
 
 
 Return to bro. Bro reports outcome to the Human; on pass the push proceeds, on fail bro re-spawns swe with feedback.

@@ -33,7 +33,6 @@ mask_session_start_prescan() {
         -e 's/Plugin version:.*/Plugin version: __VOLATILE__/' \
         -e 's/Top-level dirs:.*/Top-level dirs: __VOLATILE__/' \
         -e 's/Stacks detected:.*/Stacks detected: __VOLATILE__/' \
-        -e 's/Architecture docs:.*/Architecture docs: __VOLATILE__/' \
         -e 's/World model:.*/World model: __VOLATILE__/' \
         -e 's/Git branch:.*/Git branch: __VOLATILE__/' \
         -e 's/Open issues:.*/Open issues: __VOLATILE__/' \
@@ -74,6 +73,10 @@ mask_mcp_health_check() {
 # ---------------------------------------------------------------------------
 
 TMPDIR_ROOT=$(mktemp -d)
+# Sandbox HOME so hooks (mcp-health-check et al.) touch a throwaway state/log
+# dir, never the developer's real ~/.claude/tmb.
+export HOME="$TMPDIR_ROOT/home"
+mkdir -p "$HOME"
 trap 'rm -rf "$TMPDIR_ROOT"' EXIT
 
 # --- session-start-prescan setup ---

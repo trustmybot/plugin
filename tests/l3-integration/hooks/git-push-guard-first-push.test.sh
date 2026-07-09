@@ -53,12 +53,19 @@ setup_first_push_repo() {
   FEATURE_SHA=$(cat "$dir/.feature_sha")
 }
 
-# Apply schema to a fresh trajectory.db inside the repo.
+# Apply schema to a fresh trajectory.db inside the repo and register the repo
+# (post-#987: the push guard resolves the per-repo target_branch from the repos
+# row matching the git-toplevel — repos is the sole source of truth).
 setup_db() {
   local repo="$1"
   local db="$repo/.claude/tmb/trajectory.db"
   mkdir -p "$(dirname "$db")"
   sqlite3 "$db" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+  local git_root
+  git_root=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null || echo "$repo")
+  sqlite3 "$db" "
+    INSERT OR REPLACE INTO repos (name, path) VALUES ('repo', '$git_root');
+  " >/dev/null
   echo "$db"
 }
 
@@ -77,17 +84,16 @@ insert_task() {
 sign_task() {
   local db="$1" task_id="$2"
   sqlite3 "$db" "
-    INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, created_at)
-      VALUES ($task_id, 1, 'pr-reviewer', 'pass', 'MCP available: yes' || char(10) || 'LGTM', datetime('now'));
+    INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at)
+      VALUES ($task_id, 1, 'pr-reviewer', 'pass', 1, 'LGTM', datetime('now'));
   " >/dev/null
 }
 
-# Set pr_target in plugin_config.
+# Set the per-repo target_branch on the registered repos row (the sole source).
 set_pr_target() {
   local db="$1" target="$2"
   sqlite3 "$db" "
-    INSERT OR REPLACE INTO plugin_config (key, value_json)
-      VALUES ('pr_target', '\"$target\"');
+    UPDATE repos SET target_branch = '$target' WHERE name = 'repo';
   " >/dev/null
 }
 
@@ -143,17 +149,44 @@ out=$(run_hook "git push -u origin feat/my-feature" "/nonexistent.db")
 assert_not_contains "$out" '"permissionDecision":"deny"' "missing DB must not block first push"
 cleanup
 
-test_case "first-push: schema-default pr_target='main' is used when not overridden in plugin_config"
-# Schema seeds pr_target='main'. The test repo has origin/dev but no origin/main,
-# so git log origin/main..HEAD returns empty → no commits to gate → allowed.
-# This verifies the hook reads pr_target from config rather than hard-coding 'dev'.
+test_case "first-push (H4): target_branch='main' but origin/main missing → FAIL CLOSED, unsigned task BLOCKED"
+# repos.target_branch='main'. The test repo has origin/dev but no origin/main,
+# and origin/HEAD is unset, so no base ref resolves. Pre-H4 the hook computed an
+# empty `origin/main..HEAD` set and exited 0 — letting the unsigned commit BYPASS
+# the pr-reviewer gate. Post-H4 it fails closed (gates the whole branch history),
+# so the unsigned task is blocked.
 setup_first_push_repo
 db=$(setup_db "$REPO_PATH")
-# do NOT set pr_target — schema default 'main' is used; origin/main doesn't exist in test repo
+set_pr_target "$db" "main"
 insert_task "$db" 1 "$FEATURE_SHA"
 out=$(run_hook "git push -u origin feat/my-feature" "$db")
-# origin/main doesn't exist so git log fails gracefully, PUSH_SHAS empty, exits 0
-assert_not_contains "$out" '"permissionDecision":"deny"' "when origin/pr_target doesn't exist, hook allows (no range to check)"
+assert_contains "$out" '"permissionDecision":"deny"' "unresolved base must fail closed, not bypass the gate"
+assert_contains "$out" "task_id=1" "block message must list the unsigned task"
+cleanup
+
+test_case "first-push (H4): unresolvable base but SIGNED task → ALLOWED (gate satisfied, not a blanket block)"
+# Same main-only/unresolved-base setup, but the task carries a pass verdict.
+# Fail-closed must still ALLOW when every gated commit is signed.
+setup_first_push_repo
+db=$(setup_db "$REPO_PATH")
+set_pr_target "$db" "main"
+insert_task "$db" 1 "$FEATURE_SHA"
+sign_task   "$db" 1
+out=$(run_hook "git push -u origin feat/my-feature" "$db")
+assert_not_contains "$out" '"permissionDecision":"deny"' "signed task must pass even when the base is unresolved"
+cleanup
+
+test_case "first-push (H4): multi-repo 'cd <repo> && git push' scopes the base resolution to the cd target"
+# The command cd's into the repo; the hook must compute the first-push set in
+# that repo (origin/dev exists there) and block the unsigned task.
+setup_first_push_repo
+db=$(setup_db "$REPO_PATH")
+set_pr_target "$db" "dev"
+insert_task "$db" 1 "$FEATURE_SHA"
+# Run from a DIFFERENT cwd; the cd prefix names the real repo.
+out=$( (cd "$(mktemp -d)" && echo "$(jq -cn --arg c "cd $REPO_PATH && git push -u origin feat/my-feature" '{tool_input:{command:$c}}')" | TRAJECTORY_DB_PATH="$db" bash "$HOOK" 2>&1 || true) )
+assert_contains "$out" '"permissionDecision":"deny"' "cd target must be resolved for the first-push base"
+assert_contains "$out" "task_id=1" "block message must list the unsigned task"
 cleanup
 
 summarize

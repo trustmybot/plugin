@@ -84,8 +84,8 @@ insert_task() {
 sign_task() {
   local db="$1" task_id="$2"
   sqlite3 "$db" "
-    INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, created_at)
-      VALUES ($task_id, 1, 'pr-reviewer', 'pass', 'MCP available: yes' || char(10) || 'LGTM', datetime('now'));
+    INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, feedback, created_at)
+      VALUES ($task_id, 1, 'pr-reviewer', 'pass', 1, 'LGTM', datetime('now'));
   " >/dev/null
 }
 
@@ -471,6 +471,48 @@ test_case "positive: 'make build || git push' — IS_PUSH triggers (SWE blocked)
 setup_repo
 out=$(run_hook_as_swe "make build || git push" "/nonexistent.db" "tmb:swe")
 assert_contains "$out" '"permissionDecision":"deny"' "|| git push must be detected as a push and blocked for SWE"
+cleanup
+
+# ----- #1016: whitespace-tolerant / wrapper-form push detection --------------
+# The old literal `case` substrings failed OPEN (exit 0, no block) on these
+# forms. The SWE-identity path gives a definitive BLOCK when IS_PUSH fires.
+
+test_case "#1016: 'git  push' (double space) — IS_PUSH triggers (SWE blocked)"
+setup_repo
+out=$(run_hook_as_swe "git  push origin main" "/nonexistent.db" "tmb:swe")
+assert_contains "$out" '"permissionDecision":"deny"' "double-space git push must not fail open"
+cleanup
+
+test_case "#1016: leading-whitespace '   git push' — IS_PUSH triggers (SWE blocked)"
+setup_repo
+out=$(run_hook_as_swe "   git push origin main" "/nonexistent.db" "tmb:swe")
+assert_contains "$out" '"permissionDecision":"deny"' "leading-whitespace git push must not fail open"
+cleanup
+
+test_case "#1016: 'bash -c \"git push origin main\"' wrapper — IS_PUSH triggers (SWE blocked)"
+setup_repo
+out=$(run_hook_as_swe 'bash -c "git push origin main"' "/nonexistent.db" "tmb:swe")
+assert_contains "$out" '"permissionDecision":"deny"' "bash -c wrapped push must not fail open"
+cleanup
+
+test_case "#1016: 'eval \"git push origin main\"' wrapper — IS_PUSH triggers (SWE blocked)"
+setup_repo
+out=$(run_hook_as_swe 'eval "git push origin main"' "/nonexistent.db" "tmb:swe")
+assert_contains "$out" '"permissionDecision":"deny"' "eval wrapped push must not fail open"
+cleanup
+
+test_case "#1016: double-space force push still delegated to git-guards (allowed here)"
+setup_repo
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "$SHA1"
+out=$(run_hook "git  push  --force origin main" "$db")
+assert_not_contains "$out" '"permissionDecision":"deny"' "double-space force push exits before the unsigned gate"
+cleanup
+
+test_case "#1016: false-positive — 'bash -c \"echo git push\"' is NOT a push"
+setup_repo
+out=$(run_hook_as_swe 'bash -c "echo git push done"' "/nonexistent.db" "tmb:swe")
+assert_not_contains "$out" '"permissionDecision":"deny"' "echo of git push inside a wrapper must not fire"
 cleanup
 
 summarize

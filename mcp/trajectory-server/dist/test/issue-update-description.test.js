@@ -12,6 +12,7 @@ function parseResult(result) {
 }
 async function seedIssue(handlers, description = 'short desc') {
     const result = await call(handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro',
         objective: 'seed issue',
         description,

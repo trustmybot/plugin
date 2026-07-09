@@ -15,21 +15,28 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/swe-atomic-close.sh"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
+# Step out of the plugin checkout before any git work so a stray bare git call
+# can never touch the caller's branch, then assert the move stuck. Every commit
+# below targets its sandbox via `git -C "$REPO"`; this is belt-and-suspenders.
+cd "$TMPDIR"
+assert_not_in_plugin_repo "$PLUGIN_ROOT"
+
 # ---- Fixture: bare git remote (plays the role of origin) -----------------
 REMOTE="$TMPDIR/remote.git"
 git init -q --bare "$REMOTE"
 
 # ---- Fixture: main repo (bro's checkout) + detached-HEAD worktree --------
+# Every git write targets the sandbox via `git -C "$REPO"` so cwd never leaks
+# the bootstrap commit onto the caller's branch.
 REPO="$TMPDIR/repo"
 git init -q -b dev "$REPO"
-cd "$REPO"
-git config user.email t@t.io
-git config user.name t
-git remote add origin "$REMOTE"
-echo init > README.md
-git add .
-git commit -qm init
-git push -q origin dev
+git -C "$REPO" config user.email t@t.io
+git -C "$REPO" config user.name t
+git -C "$REPO" remote add origin "$REMOTE"
+echo init > "$REPO/README.md"
+git -C "$REPO" add .
+git -C "$REPO" commit -qm init
+git -C "$REPO" push -q origin dev
 
 DB="$REPO/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$DB")"
@@ -85,13 +92,13 @@ export TRAJECTORY_DB_PATH="$DB"
 # the branch ref so SWE's commits advance it directly.
 # Slug = everything after the last '/' in branch_id.
 WT_PATH="$REPO/.claude/worktrees/test-branch"
-git branch fix/test-branch HEAD
-git worktree add -q "$WT_PATH" fix/test-branch
+git -C "$REPO" branch fix/test-branch HEAD
+git -C "$REPO" worktree add -q "$WT_PATH" fix/test-branch
 
 # Worktree for task 44 (needs_validation, slug = nv-branch).
 WT_NV_PATH="$REPO/.claude/worktrees/nv-branch"
-git branch fix/nv-branch HEAD
-git worktree add -q "$WT_NV_PATH" fix/nv-branch
+git -C "$REPO" branch fix/nv-branch HEAD
+git -C "$REPO" worktree add -q "$WT_NV_PATH" fix/nv-branch
 
 swe_input() {
   jq -n '{subagent_type: "swe"}'
@@ -290,8 +297,10 @@ echo '  ok'
 echo '--- Test: transcript parsed → agent_runs has real token/duration values ---'
 
 TRANSCRIPT="$TMPDIR/synthetic-transcript.jsonl"
-# Two assistant messages: known usage + one tool_use block; timestamps 1500ms apart.
+# Spawn-prompt user turn carrying task_id=42 (authoritative attribution), then
+# two assistant messages: known usage + one tool_use block; timestamps 1500ms apart.
 cat > "$TRANSCRIPT" <<'JSONL'
+{"timestamp":"2026-04-01T00:00:00.000Z","message":{"role":"user","content":[{"type":"text","text":"task_id=42 branch_id=fix/test-branch do the work"}]}}
 {"timestamp":"2026-04-01T00:00:00.000Z","message":{"role":"assistant","usage":{"input_tokens":100,"output_tokens":50},"content":[{"type":"tool_use","id":"t1","name":"bash","input":{}}]}}
 {"timestamp":"2026-04-01T00:00:01.500Z","message":{"role":"assistant","usage":{"input_tokens":200,"output_tokens":75},"content":[]}}
 JSONL
@@ -828,17 +837,23 @@ txfirst_status_601=$(sqlite3 "$TXFIRST_DB" "SELECT status FROM tasks WHERE id=60
 assert_eq "pending" "$txfirst_status_601" "task 601 untouched when transcript resolves task 600"
 
 # ========================================================
-# Workspace-above-repo layout: DB two levels above the repo.
-# Reproduces the completion deadlock: WT at <ws>/.claude/worktrees/<slug>,
-# repo at <ws>/inner-repo (REPO_ROOT != WS_ROOT).
+# Nested-repo layout (#169): workspace=$WS, repo=$WS/plugin, repos.path=$WS/plugin,
+# tasks.repo='plugin'. The worktree is REPO-ROOTED at
+# $WS/plugin/.claude/worktrees/<slug>, NOT $WS/.claude/worktrees/<slug>.
+# Pre-fix (WS_ROOT-primary) the hook resolved the workspace path and could not
+# locate the worktree → task stuck pending. This case must fail against the
+# pre-fix code and pass with the repo-rooted resolver.
 # ========================================================
 
-echo '--- Test: workspace-above-repo: worktree at WS_ROOT, not REPO_ROOT → auto-completed ---'
+echo '--- Test: nested-repo: worktree repo-rooted under <ws>/plugin → auto-completed ---'
 
-WS_ROOT_DIR="$TMPDIR/ws-above"
-INNER_REPO="$WS_ROOT_DIR/inner-repo"
+WS_ROOT_DIR="$TMPDIR/nested-ws"
+INNER_REPO="$WS_ROOT_DIR/plugin"
 WS_DB="$WS_ROOT_DIR/.claude/tmb/trajectory.db"
-WS_WT="$WS_ROOT_DIR/.claude/worktrees/ws-task"
+# Repo-rooted worktree: hangs off the inner repo, NOT the workspace root.
+WS_WT="$INNER_REPO/.claude/worktrees/ws-task"
+# Workspace-rooted path that the pre-fix code would (wrongly) look for.
+WS_WRONG_WT="$WS_ROOT_DIR/.claude/worktrees/ws-task"
 
 mkdir -p "$INNER_REPO"
 mkdir -p "$(dirname "$WS_DB")"
@@ -849,6 +864,7 @@ git -C "$INNER_REPO" config user.name t
 echo base > "$INNER_REPO/base.txt"
 git -C "$INNER_REPO" add .
 git -C "$INNER_REPO" commit -qm "base"
+INNER_REPO_ROOT=$(git -C "$INNER_REPO" rev-parse --show-toplevel)
 
 sqlite3 "$WS_DB" "
   CREATE TABLE tasks (
@@ -891,16 +907,17 @@ sqlite3 "$WS_DB" "
     key TEXT PRIMARY KEY,
     value_json TEXT NOT NULL DEFAULT '\"\"'
   );
-  INSERT INTO tasks (id, branch_id, parent_branch_id, status, updated_at)
-    VALUES (700, 'fix/ws-task', 'dev', 'pending', datetime('now', '+1 second'));
+  INSERT INTO repos (name, path) VALUES ('plugin', '$INNER_REPO_ROOT');
+  INSERT INTO tasks (id, branch_id, parent_branch_id, status, repo, updated_at)
+    VALUES (700, 'fix/ws-task', 'dev', 'pending', 'plugin', datetime('now', '+1 second'));
   INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
 "
 
-# Worktree lives at the WS root, not inside the inner repo.
+# Worktree is REPO-ROOTED inside the inner repo (the canonical layout).
 git -C "$INNER_REPO" branch fix/ws-task HEAD
 git -C "$INNER_REPO" worktree add -q "$WS_WT" fix/ws-task
 
-# SWE commits in the workspace-level worktree.
+# SWE commits in the repo-rooted worktree.
 (cd "$WS_WT" && echo "$RANDOM" >> ws-work.txt && git add ws-work.txt && git commit -qm "feat: ws work")
 WS_WT_HEAD=$(git -C "$WS_WT" rev-parse HEAD)
 
@@ -908,12 +925,109 @@ ws_swe_input() {
   jq -n '{agent_type: "tmb:swe", hook_event_name: "SubagentStop"}'
 }
 
-test_case "workspace-above-repo: worktree at WS_ROOT → pending task auto-completed (deadlock fix)"
+test_case "nested-repo: repo-rooted worktree under <ws>/plugin → no workspace-rooted path exists"
+# The workspace-rooted path the pre-fix code targeted must NOT exist, so a hook
+# that resolves it would fail to auto-close.
+if [ ! -d "$WS_WRONG_WT" ]; then _pass; else _fail "workspace-rooted path unexpectedly exists: $WS_WRONG_WT"; fi
+
+test_case "nested-repo: repo-rooted worktree → pending task auto-completed (#169 repo-rooted resolver)"
 out=$(run_hook_in_dir "$INNER_REPO" "$(ws_swe_input)" "$WS_DB")
 assert_eq "" "$out" "no additionalContext on auto-close"
 ws_status=$(sqlite3 "$WS_DB" "SELECT status FROM tasks WHERE id=700;")
-assert_eq "completed" "$ws_status" "task 700 auto-closed via workspace-root worktree path"
+assert_eq "completed" "$ws_status" "task 700 auto-closed via repo-rooted worktree path"
 ws_sha=$(sqlite3 "$WS_DB" "SELECT commit_sha FROM tasks WHERE id=700;")
-assert_eq "$WS_WT_HEAD" "$ws_sha" "commit_sha written from WS_ROOT worktree HEAD"
+assert_eq "$WS_WT_HEAD" "$ws_sha" "commit_sha written from repo-rooted worktree HEAD"
+
+# ========================================================
+# EMPTY parent_branch_id + attached-worktree commit → auto-completed (#18).
+# The attached-worktree model advances the feature ref directly, so
+# WT_HEAD == refs/heads/<branch>; with parent_branch_id NULL the legacy
+# comparisons never fire. The empty-parent fallback resolves the repo base
+# (repos.target_branch, else default branch) and counts commits ahead.
+# ========================================================
+
+echo '--- Test: empty parent_branch_id + attached-worktree commit → auto-completed ---'
+
+EP_REPO="$TMPDIR/empty-parent-repo"
+git init -q -b dev "$EP_REPO"
+git -C "$EP_REPO" config user.email t@t.io
+git -C "$EP_REPO" config user.name t
+echo base > "$EP_REPO/base.txt"
+git -C "$EP_REPO" add .
+git -C "$EP_REPO" commit -qm "base"
+EP_REPO_ROOT=$(git -C "$EP_REPO" rev-parse --show-toplevel)
+
+EP_DB="$EP_REPO/.claude/tmb/trajectory.db"
+mkdir -p "$(dirname "$EP_DB")"
+sqlite3 "$EP_DB" "
+  CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL DEFAULT 1, branch_id TEXT NOT NULL, parent_branch_id TEXT, title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, spec_body TEXT NOT NULL DEFAULT '', commit_sha TEXT, repo TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), completed_at TEXT);
+  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, target_branch TEXT, branching_model TEXT, protected_branches TEXT, remotes TEXT, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT '');
+  CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, issue_id INTEGER, agent_type TEXT NOT NULL DEFAULT 'swe', tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, tokens_total INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_creation_tokens INTEGER NOT NULL DEFAULT 0, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, completed_at TEXT NOT NULL DEFAULT (datetime('now')));
+  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '\"\"');
+  INSERT INTO repos (name, path, target_branch) VALUES ('empty-parent-repo', '$EP_REPO_ROOT', 'dev');
+  INSERT INTO tasks (id, branch_id, parent_branch_id, status, repo, updated_at)
+    VALUES (800, 'fix/ep-task', NULL, 'pending', 'empty-parent-repo', datetime('now', '+1 second'));
+  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
+"
+
+# Attached worktree owns the feature ref — SWE's commit advances refs/heads/fix/ep-task
+# directly, so WT_HEAD == the local feature ref tip.
+EP_WT="$EP_REPO/.claude/worktrees/ep-task"
+git -C "$EP_REPO" branch fix/ep-task HEAD
+git -C "$EP_REPO" worktree add -q "$EP_WT" fix/ep-task
+(cd "$EP_WT" && echo "$RANDOM" >> ep-work.txt && git add ep-work.txt && git commit -qm "feat: ep work")
+EP_WT_HEAD=$(git -C "$EP_WT" rev-parse HEAD)
+
+ep_swe_input() {
+  jq -n '{agent_type: "tmb:swe", hook_event_name: "SubagentStop"}'
+}
+
+test_case "empty parent_branch_id + attached-worktree commit → auto-completed"
+out=$(run_hook_in_dir "$EP_REPO" "$(ep_swe_input)" "$EP_DB")
+assert_eq "" "$out" "no additionalContext on auto-close"
+ep_status=$(sqlite3 "$EP_DB" "SELECT status FROM tasks WHERE id=800;")
+assert_eq "completed" "$ep_status" "task 800 auto-closed despite empty parent_branch_id"
+ep_sha=$(sqlite3 "$EP_DB" "SELECT commit_sha FROM tasks WHERE id=800;")
+assert_eq "$EP_WT_HEAD" "$ep_sha" "commit_sha written from attached-worktree HEAD"
+
+# ========================================================
+# EMPTY parent_branch_id + attached-worktree NO commit ahead → warn-no-commits.
+# Guards the fallback against false positives: worktree HEAD == base tip.
+# ========================================================
+
+echo '--- Test: empty parent_branch_id + no commit ahead → warn-no-commits ---'
+
+EP2_REPO="$TMPDIR/empty-parent-nocommit-repo"
+git init -q -b dev "$EP2_REPO"
+git -C "$EP2_REPO" config user.email t@t.io
+git -C "$EP2_REPO" config user.name t
+echo base > "$EP2_REPO/base.txt"
+git -C "$EP2_REPO" add .
+git -C "$EP2_REPO" commit -qm "base"
+EP2_REPO_ROOT=$(git -C "$EP2_REPO" rev-parse --show-toplevel)
+
+EP2_DB="$EP2_REPO/.claude/tmb/trajectory.db"
+mkdir -p "$(dirname "$EP2_DB")"
+sqlite3 "$EP2_DB" "
+  CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL DEFAULT 1, branch_id TEXT NOT NULL, parent_branch_id TEXT, title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, spec_body TEXT NOT NULL DEFAULT '', commit_sha TEXT, repo TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), completed_at TEXT);
+  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, target_branch TEXT, branching_model TEXT, protected_branches TEXT, remotes TEXT, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT '');
+  CREATE TABLE agent_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, issue_id INTEGER, agent_type TEXT NOT NULL DEFAULT 'swe', tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, tokens_total INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_creation_tokens INTEGER NOT NULL DEFAULT 0, tool_uses INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER NOT NULL DEFAULT 0, completed_at TEXT NOT NULL DEFAULT (datetime('now')));
+  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '\"\"');
+  INSERT INTO repos (name, path, target_branch) VALUES ('empty-parent-nocommit-repo', '$EP2_REPO_ROOT', 'dev');
+  INSERT INTO tasks (id, branch_id, parent_branch_id, status, repo, updated_at)
+    VALUES (801, 'fix/ep2-task', NULL, 'pending', 'empty-parent-nocommit-repo', datetime('now', '+1 second'));
+  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"dev\"');
+"
+
+# Worktree at the base tip — no SWE commits yet.
+EP2_WT="$EP2_REPO/.claude/worktrees/ep2-task"
+git -C "$EP2_REPO" branch fix/ep2-task HEAD
+git -C "$EP2_REPO" worktree add -q "$EP2_WT" fix/ep2-task
+
+test_case "empty parent_branch_id + no commit ahead → warn-no-commits, task stays pending"
+out=$(run_hook_in_dir "$EP2_REPO" "$(ep_swe_input)" "$EP2_DB")
+assert_contains "$out" "stopped without committing" "warn body present"
+ep2_status=$(sqlite3 "$EP2_DB" "SELECT status FROM tasks WHERE id=801;")
+assert_eq "pending" "$ep2_status" "task 801 stays pending (no false-positive auto-close)"
 
 summarize

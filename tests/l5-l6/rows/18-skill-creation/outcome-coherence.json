@@ -1,5 +1,0 @@
-{
-  "expected_writes": {
-    "audit WHERE event_type IN ('tmb_skill_created','headless_creator_blocked')": ">=1"
-  }
-}

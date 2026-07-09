@@ -1,14 +1,16 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { tempDB } from './helpers.js';
-import { compositeTools, parseFilesDirs } from '../tools/composites.js';
+import { compositeTools, filesToDirs, scopeCheckCommit } from '../tools/composites.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
 import { discussionTools } from '../tools/discussions.js';
 import { auditTools } from '../tools/audit.js';
+import { embed } from '../embeddings/model.js';
 function parse(r) {
     return JSON.parse(r.content[0].text);
 }
@@ -66,7 +68,7 @@ describe('branch_id_propose', () => {
         assert.equal(r.isError, true);
     });
 });
-describe('task_retry_batch', () => {
+describe('task_retry', () => {
     it('clones a failed task with corrected spec, links rationale + audit', async () => {
         const db = tempDB();
         const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
@@ -75,6 +77,7 @@ describe('task_retry_batch', () => {
         const discussions = discussionTools(db);
         const audit = auditTools(db);
         const issueResult = parse(await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
             agent: 'bro',
             objective: 'composite retry test',
             description: 'desc',
@@ -89,7 +92,7 @@ describe('task_retry_batch', () => {
             kind: 'question',
             body: 'scope?',
         });
-        await call(audit.handlers, 'audit_log', {
+        await call(audit.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: issueId,
             kind: 'event',
@@ -118,7 +121,7 @@ describe('task_retry_batch', () => {
             task_id: failedId,
             status: 'failed',
         });
-        const retry = await call(composites.handlers, 'task_retry_batch', {
+        const retry = await call(composites.handlers, 'task_retry', {
             agent: 'bro',
             failed_task_id: failedId,
             new_branch_id: 'fix/initial-v2',
@@ -142,12 +145,13 @@ describe('task_retry_batch', () => {
         const discussions = discussionTools(db);
         const audit = auditTools(db);
         const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
             agent: 'bro', objective: 'test', description: 'x',
         }))['id']));
         await call(discussions.handlers, 'discussion_append', {
             agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
         });
-        await call(audit.handlers, 'audit_log', {
+        await call(audit.handlers, 'audit_append', {
             agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
             from_node: 'bro', branch_id: 'fix/x', summary: 's',
         });
@@ -158,7 +162,7 @@ describe('task_retry_batch', () => {
             tasks: [{ branch_id: 'fix/x', description: 'd', spec_body: 's' }],
         }));
         const id = String(created[0].id);
-        const r = await call(composites.handlers, 'task_retry_batch', {
+        const r = await call(composites.handlers, 'task_retry', {
             agent: 'bro',
             failed_task_id: id,
             new_branch_id: 'fix/x-v2',
@@ -171,18 +175,20 @@ describe('task_retry_batch', () => {
     });
     it('#474: repo override lands on the new task; omitted repo inherits from failed task', async () => {
         const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('plugin', '/tmp/plugin')`);
         const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
         const tasks = taskTools(db);
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
         const discussions = discussionTools(db);
         const audit = auditTools(db);
         const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
             agent: 'bro', objective: 'repo override test', description: 'x',
         }))['id']));
         await call(discussions.handlers, 'discussion_append', {
             agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
         });
-        await call(audit.handlers, 'audit_log', {
+        await call(audit.handlers, 'audit_append', {
             agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
             from_node: 'bro', branch_id: 'fix/base', summary: 's',
         });
@@ -197,7 +203,7 @@ describe('task_retry_batch', () => {
         const failedId = String(created[0].id);
         await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: failedId, status: 'failed' });
         // With repo override: new task carries the override ('plugin').
-        const retryWithOverride = await call(composites.handlers, 'task_retry_batch', {
+        const retryWithOverride = await call(composites.handlers, 'task_retry', {
             agent: 'bro', failed_task_id: failedId, new_branch_id: 'fix/base-v2',
             corrected_spec_body: 'fixed', retry_rationale: 'wrong repo; switch to plugin', description: 'd',
             repo: 'plugin',
@@ -208,7 +214,7 @@ describe('task_retry_batch', () => {
         assert.equal(newTask.repo, 'plugin', 'repo override lands on new task');
         // Without repo override: new task inherits 'plugin' from the previous task.
         await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: String(newId), status: 'failed' });
-        const retryInherited = await call(composites.handlers, 'task_retry_batch', {
+        const retryInherited = await call(composites.handlers, 'task_retry', {
             agent: 'bro', failed_task_id: String(newId), new_branch_id: 'fix/base-v3',
             corrected_spec_body: 'fixed again', retry_rationale: 'another attempt', description: 'd',
         });
@@ -221,7 +227,7 @@ describe('task_retry_batch', () => {
     it('#474: repo override rejects ".." in path', async () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const r = await call(composites.handlers, 'task_retry_batch', {
+        const r = await call(composites.handlers, 'task_retry', {
             agent: 'bro', failed_task_id: '1', new_branch_id: 'fix/x-v2',
             corrected_spec_body: 's', retry_rationale: 'r', description: 'd',
             repo: '../etc/passwd',
@@ -232,7 +238,7 @@ describe('task_retry_batch', () => {
     it('#474: repo override rejects leading "/"', async () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const r = await call(composites.handlers, 'task_retry_batch', {
+        const r = await call(composites.handlers, 'task_retry', {
             agent: 'bro', failed_task_id: '1', new_branch_id: 'fix/x-v2',
             corrected_spec_body: 's', retry_rationale: 'r', description: 'd',
             repo: '/absolute/path',
@@ -248,13 +254,14 @@ describe('task_retry_batch', () => {
         const discussions = discussionTools(db);
         const audit = auditTools(db);
         const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
             agent: 'bro', objective: 'retry cap test', description: 'x',
         }))['id']));
         await call(discussions.handlers, 'discussion_append', {
             agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
         });
         const mkBranch = async (branch) => {
-            await call(audit.handlers, 'audit_log', {
+            await call(audit.handlers, 'audit_append', {
                 agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
                 from_node: 'bro', branch_id: branch, summary: 's',
             });
@@ -273,7 +280,7 @@ describe('task_retry_batch', () => {
         const retryFrom = async (failedId, newBranch) => {
             await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: failedId, status: 'failed' });
             await mkBranch(newBranch);
-            const r = await call(composites.handlers, 'task_retry_batch', {
+            const r = await call(composites.handlers, 'task_retry', {
                 agent: 'bro', failed_task_id: failedId, new_branch_id: newBranch,
                 corrected_spec_body: 's', retry_rationale: 'new approach', description: 'd',
             });
@@ -286,7 +293,7 @@ describe('task_retry_batch', () => {
         const id3 = await retryFrom(id2, 'fix/cap-v4');
         await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: id3, status: 'failed' });
         await mkBranch('fix/cap-v5');
-        const denied = await call(composites.handlers, 'task_retry_batch', {
+        const denied = await call(composites.handlers, 'task_retry', {
             agent: 'bro', failed_task_id: id3, new_branch_id: 'fix/cap-v5',
             corrected_spec_body: 's', retry_rationale: 'fourth retry', description: 'd',
         });
@@ -305,12 +312,13 @@ describe('bro_atomic_close', () => {
         const discussions = discussionTools(db);
         const audit = auditTools(db);
         const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
             agent: 'bro', objective: 'test', description: 'x',
         }))['id']));
         await call(discussions.handlers, 'discussion_append', {
             agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
         });
-        await call(audit.handlers, 'audit_log', {
+        await call(audit.handlers, 'audit_append', {
             agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
             from_node: 'bro', branch_id: 'fix/x', summary: 's',
         });
@@ -381,12 +389,13 @@ describe('bro_atomic_close', () => {
         const audit = auditTools(db);
         try {
             const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+                labels: ['Bug', 'Priority: High'],
                 agent: 'bro', objective: 'closed_at regression', description: 'x',
             }))['id']));
             await call(discussions.handlers, 'discussion_append', {
                 agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
             });
-            await call(audit.handlers, 'audit_log', {
+            await call(audit.handlers, 'audit_append', {
                 agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
                 from_node: 'bro', branch_id: 'fix/closed-at', summary: 's',
             });
@@ -409,6 +418,7 @@ describe('bro_atomic_close', () => {
                 commit_sha: 'abc1234',
                 verification_summary: 'ok',
                 close_issue_if_last_task: true,
+                waive_scope_gate: true,
             });
             assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
             assert.equal(parse(r)['issue_closed'], true);
@@ -444,6 +454,7 @@ describe('bro_atomic_close', () => {
         };
         try {
             const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+                labels: ['Bug', 'Priority: High'],
                 agent: 'bro', objective: 'remote close mirror', description: 'x',
             }))['id']));
             // Simulate an issue already synced to a GitHub remote (iid 42).
@@ -451,7 +462,7 @@ describe('bro_atomic_close', () => {
             await call(discussions.handlers, 'discussion_append', {
                 agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
             });
-            await call(audit.handlers, 'audit_log', {
+            await call(audit.handlers, 'audit_append', {
                 agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
                 from_node: 'bro', branch_id: 'fix/remote-close', summary: 's',
             });
@@ -467,7 +478,7 @@ describe('bro_atomic_close', () => {
             });
             const r = await call(composites.handlers, 'bro_atomic_close', {
                 agent: 'bro', task_id: taskId, commit_sha: 'abc1234', verification_summary: 'ok',
-                close_issue_if_last_task: true, _spawnFn: spawnFn,
+                close_issue_if_last_task: true, waive_scope_gate: true, _spawnFn: spawnFn,
             });
             assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
             assert.equal(parse(r)['issue_closed'], true);
@@ -482,46 +493,399 @@ describe('bro_atomic_close', () => {
         }
     });
 });
-describe('headless_intent_start', () => {
-    it('writes audit + note + intent in one transaction', async () => {
+describe('scopeCheckCommit (#157)', () => {
+    it('covers exact paths and dir-prefix entries; flags the rest', () => {
+        const ws = mkdtempSync(join(tmpdir(), 'scopecheck-'));
+        const git = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+        try {
+            git(ws, 'init', '-q', '-b', 'main');
+            git(ws, 'config', 'user.email', 't@t.t');
+            git(ws, 'config', 'user.name', 't');
+            writeFileSync(join(ws, 'seed.txt'), 'seed\n');
+            git(ws, 'add', '.');
+            git(ws, 'commit', '-q', '-m', 'base');
+            git(ws, 'update-ref', 'refs/remotes/origin/dev', git(ws, 'rev-parse', 'HEAD'));
+            mkdirSync(join(ws, 'src'), { recursive: true });
+            mkdirSync(join(ws, 'dist'), { recursive: true });
+            writeFileSync(join(ws, 'src', 'a.ts'), 'a\n');
+            writeFileSync(join(ws, 'dist', 'index.js'), 'i\n');
+            writeFileSync(join(ws, 'rogue.ts'), 'r\n');
+            git(ws, 'add', '.');
+            git(ws, 'commit', '-q', '-m', 'work');
+            const sha = git(ws, 'rev-parse', 'HEAD');
+            const res = scopeCheckCommit(ws, 'origin/dev', sha, ['src/a.ts', 'dist/']);
+            assert.equal(res.checked, true);
+            assert.deepEqual(res.outOfScope, ['rogue.ts'], 'dist/ covers dist/index.js; rogue.ts is out');
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('returns checked:false with a reason when the repo/commit is unresolvable', () => {
+        const ws = mkdtempSync(join(tmpdir(), 'scopecheck-nogit-'));
+        try {
+            const res = scopeCheckCommit(ws, 'origin/dev', 'deadbeef', ['src/a.ts']);
+            assert.equal(res.checked, false);
+            assert.ok(typeof res.reason === 'string' && res.reason.length > 0);
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+});
+describe('bro_atomic_close — scope gate (#157)', () => {
+    // Build a real repo with an origin/dev ref, a base commit, and a work commit
+    // that changes `changedFiles`. Returns the work commit SHA + a DB seeded with
+    // a completed task whose typed files[] is `taskFiles`.
+    async function setup(taskFiles, changedFiles, opts = {}) {
+        const withRemote = opts.withRemote !== false;
+        const ws = mkdtempSync(join(tmpdir(), 'bac-scope-'));
+        const repoRoot = join(ws, 'app');
+        mkdirSync(repoRoot, { recursive: true });
+        mkdirSync(join(ws, '.claude', 'tmb'), { recursive: true });
+        const dbPath = join(ws, '.claude', 'tmb', 'trajectory.db');
+        const git = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+        git(repoRoot, 'init', '-q', '-b', 'dev');
+        git(repoRoot, 'config', 'user.email', 't@t.t');
+        git(repoRoot, 'config', 'user.name', 't');
+        writeFileSync(join(repoRoot, 'seed.txt'), 'seed\n');
+        git(repoRoot, 'add', '.');
+        git(repoRoot, 'commit', '-q', '-m', 'base');
+        // A remoteless repo (withRemote:false) exercises the local-<base> fallback:
+        // the scope gate must diff against the local parent ref, not origin/dev.
+        if (withRemote)
+            git(repoRoot, 'update-ref', 'refs/remotes/origin/dev', git(repoRoot, 'rev-parse', 'HEAD'));
+        // Put the work commit on a feature branch so the local `dev` ref stays at
+        // the base — the remoteless fallback then diffs a real parent...work range.
+        git(repoRoot, 'checkout', '-q', '-b', 'feat/work');
+        for (const rel of changedFiles) {
+            const abs = join(repoRoot, rel);
+            mkdirSync(join(abs, '..'), { recursive: true });
+            writeFileSync(abs, `${rel}\n`);
+        }
+        git(repoRoot, 'add', '.');
+        git(repoRoot, 'commit', '-q', '-m', 'work');
+        const sha = git(repoRoot, 'rev-parse', 'HEAD');
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [repoRoot]);
+        const issues = issueTools(db, dbPath);
+        const tasks = taskTools(db);
+        const composites = compositeTools(db, dbPath);
+        const discussions = discussionTools(db);
+        const audit = auditTools(db);
+        const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
+            agent: 'bro', objective: 'scope gate', description: 'x',
+        }))['id']));
+        await call(discussions.handlers, 'discussion_append', {
+            agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
+        });
+        await call(audit.handlers, 'audit_append', {
+            agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
+            from_node: 'bro', branch_id: 'feat/scope', summary: 's',
+        });
+        const created = parseBatch(await call(tasks.handlers, 'task_create_batch', {
+            agent: 'bro', issue_id: issueId,
+            waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            waive_spec_shape: true, waive_spec_shape_reason: 'unit-test placeholder spec; shape not under test',
+            tasks: [{ branch_id: 'feat/scope', description: 'd', spec_body: 's', repo: 'app' }],
+        }));
+        const taskId = String(created[0].id);
+        db.run(`UPDATE tasks SET parent_branch_id='dev', files=? WHERE id=?`, [JSON.stringify(taskFiles), taskId]);
+        await call(tasks.handlers, 'task_update_status', {
+            agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha.slice(0, 12),
+        });
+        return {
+            db, composites, taskId, issueId, sha,
+            cleanup: () => { db.close(); rmSync(ws, { recursive: true, force: true }); },
+        };
+    }
+    it('closes when every changed file is within files[]', async () => {
+        const { db, composites, taskId, sha, cleanup } = await setup(['src/a.ts'], ['src/a.ts']);
+        try {
+            const r = await call(composites.handlers, 'bro_atomic_close', {
+                agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+            });
+            assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+            const row = db.get(`SELECT status FROM tasks WHERE id = ?`, [taskId]);
+            assert.equal(row.status, 'closed');
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('a dir-prefix files[] entry (dist/) covers files beneath it (dist/index.js)', async () => {
+        const { db, composites, taskId, sha, cleanup } = await setup(['dist/'], ['dist/index.js']);
+        try {
+            const r = await call(composites.handlers, 'bro_atomic_close', {
+                agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+            });
+            assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+            const row = db.get(`SELECT status FROM tasks WHERE id = ?`, [taskId]);
+            assert.equal(row.status, 'closed');
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('refuses to close an out-of-scope commit, names the path, leaves the task open', async () => {
+        const { db, composites, taskId, sha, cleanup } = await setup(['src/a.ts'], ['src/a.ts', 'rogue.ts']);
+        try {
+            const r = await call(composites.handlers, 'bro_atomic_close', {
+                agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+            });
+            assert.equal(r.isError, true);
+            assert.match(parse(r)['error'], /rogue\.ts/);
+            assert.match(parse(r)['error'], /waive_scope_gate=true/);
+            const row = db.get(`SELECT status FROM tasks WHERE id = ?`, [taskId]);
+            assert.equal(row.status, 'completed', 'task stays open when the gate rejects');
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('waive_scope_gate=true closes an out-of-scope commit and logs the waive', async () => {
+        const { db, composites, taskId, issueId, sha, cleanup } = await setup(['src/a.ts'], ['src/a.ts', 'rogue.ts']);
+        try {
+            const r = await call(composites.handlers, 'bro_atomic_close', {
+                agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+                waive_scope_gate: true,
+            });
+            assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+            const row = db.get(`SELECT status FROM tasks WHERE id = ?`, [taskId]);
+            assert.equal(row.status, 'closed');
+            const waive = db.get(`SELECT COUNT(*) AS c FROM audit WHERE issue_id = ? AND event_type = 'scope_gate_waived'`, [issueId]);
+            assert.equal(waive.c, 1, 'waive audit note recorded');
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('fails closed when the repo/commit cannot be resolved (no git checkout)', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'bac-nogit-'));
+        const notARepo = join(ws, 'notgit');
+        mkdirSync(notARepo, { recursive: true });
+        mkdirSync(join(ws, '.claude', 'tmb'), { recursive: true });
+        const dbPath = join(ws, '.claude', 'tmb', 'trajectory.db');
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [notARepo]);
+        const issues = issueTools(db, dbPath);
+        const tasks = taskTools(db);
+        const composites = compositeTools(db, dbPath);
+        const discussions = discussionTools(db);
+        const audit = auditTools(db);
+        try {
+            const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+                labels: ['Bug', 'Priority: High'], agent: 'bro', objective: 'fail closed', description: 'x',
+            }))['id']));
+            await call(discussions.handlers, 'discussion_append', {
+                agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
+            });
+            await call(audit.handlers, 'audit_append', {
+                agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
+                from_node: 'bro', branch_id: 'feat/fc', summary: 's',
+            });
+            const created = parseBatch(await call(tasks.handlers, 'task_create_batch', {
+                agent: 'bro', issue_id: issueId,
+                waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
+                waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+                waive_spec_shape: true, waive_spec_shape_reason: 'unit-test placeholder spec; shape not under test',
+                tasks: [{ branch_id: 'feat/fc', description: 'd', spec_body: 's', repo: 'app' }],
+            }));
+            const taskId = String(created[0].id);
+            db.run(`UPDATE tasks SET parent_branch_id='dev', files=? WHERE id=?`, [JSON.stringify(['src/a.ts']), taskId]);
+            await call(tasks.handlers, 'task_update_status', {
+                agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abcdef1',
+            });
+            const r = await call(composites.handlers, 'bro_atomic_close', {
+                agent: 'bro', task_id: taskId, commit_sha: 'abcdef1', verification_summary: 'ok',
+            });
+            assert.equal(r.isError, true, 'fail-closed: unresolvable repo/commit must not silently close');
+            assert.match(parse(r)['error'], /cannot resolve/);
+            assert.match(parse(r)['error'], /waive_scope_gate=true/);
+            const row = db.get(`SELECT status FROM tasks WHERE id = ?`, [taskId]);
+            assert.equal(row.status, 'completed', 'task stays open on fail-closed');
+        }
+        finally {
+            db.close();
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('remoteless repo: scope gate diffs against the local parent ref and still closes (#1063)', async () => {
+        // No origin/dev exists — resolveBaseRef falls back to local dev, so the gate
+        // computes its three-dot diff against the local parent ref rather than
+        // fail-closing.
+        const { db, composites, taskId, sha, cleanup } = await setup(['src/a.ts'], ['src/a.ts'], { withRemote: false });
+        try {
+            const r = await call(composites.handlers, 'bro_atomic_close', {
+                agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+            });
+            assert.ok(!r.isError, `remoteless close must pass via the local base fallback, got: ${JSON.stringify(parse(r))}`);
+            const row = db.get(`SELECT status FROM tasks WHERE id = ?`, [taskId]);
+            assert.equal(row.status, 'closed');
+        }
+        finally {
+            cleanup();
+        }
+    });
+});
+describe('task_recover', () => {
+    async function seedPendingTask() {
         const db = tempDB();
         const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const tasks = taskTools(db);
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const discussions = discussionTools(db);
+        const audit = auditTools(db);
         const issueId = String((parse(await call(issues.handlers, 'issue_create', {
-            agent: 'bro', objective: 'headless test', description: 'x',
+            labels: ['Bug', 'Priority: High'],
+            agent: 'bro', objective: 'recover test', description: 'x',
         }))['id']));
-        const r = await call(composites.handlers, 'headless_intent_start', {
-            agent: 'bro',
-            issue_id: Number(issueId),
-            branch_id: 'feat/headless-test',
-            intent_verbatim: 'add export feature',
-            fallback_summary: 'defaults applied: base_branch=dev',
+        await call(discussions.handlers, 'discussion_append', {
+            agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
+        });
+        await call(audit.handlers, 'audit_append', {
+            agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
+            from_node: 'bro', branch_id: 'fix/recover', summary: 's',
+        });
+        const created = parseBatch(await call(tasks.handlers, 'task_create_batch', {
+            agent: 'bro', issue_id: issueId,
+            waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test', waive_spec_shape: true, waive_spec_shape_reason: 'unit-test placeholder spec; shape not under test',
+            tasks: [{ branch_id: 'fix/recover', description: 'd', spec_body: 's' }],
+        }));
+        const taskId = String(created[0].id);
+        return { db, composites, tasks, issueId, taskId };
+    }
+    it('recover-with-commit: advances a pending task to closed + writes task_recovered + bro_verification_pass', async () => {
+        const { db, composites, taskId } = await seedPendingTask();
+        const r = await call(composites.handlers, 'task_recover', {
+            agent: 'bro', task_id: taskId, commit_sha: 'abc1234', verification_summary: 'verified independently',
         });
         assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
         const out = parse(r);
-        assert.deepEqual(out['written'], ['audit', 'note', 'intent']);
-        const auditRows = db.all(`SELECT event_type FROM audit WHERE issue_id = ?`, [issueId]);
-        assert.ok(auditRows.some((a) => a.event_type === 'headless_fallback'));
-        const discussions = db.all(`SELECT kind, body FROM discussions WHERE issue_id = ?`, [issueId]);
-        assert.ok(discussions.some((d) => d.kind === 'note' && d.body.includes('Headless fallback')));
-        assert.ok(discussions.some((d) => d.kind === 'intent' && d.body.includes('add export feature')));
+        assert.equal(out['recovered'], true);
+        assert.equal(out['action'], 'closed');
+        assert.equal(out['commit_sha'], 'abc1234');
+        const row = db.get('SELECT status, commit_sha FROM tasks WHERE id = ?', [taskId]);
+        assert.equal(row.status, 'closed');
+        assert.equal(row.commit_sha, 'abc1234');
+        const recovered = db.get("SELECT COUNT(*) AS c FROM audit WHERE event_type = 'task_recovered'");
+        assert.equal(recovered.c, 1);
+        const pass = db.get("SELECT COUNT(*) AS c FROM audit WHERE event_type = 'bro_verification_pass'");
+        assert.equal(pass.c, 1);
+    });
+    it('idempotent-already-closed: re-call on a closed task returns a no-op naming the status', async () => {
+        const { db, composites, taskId } = await seedPendingTask();
+        const first = parse(await call(composites.handlers, 'task_recover', {
+            agent: 'bro', task_id: taskId, commit_sha: 'abc1234', verification_summary: 'ok',
+        }));
+        assert.equal(first['recovered'], true);
+        const r = await call(composites.handlers, 'task_recover', {
+            agent: 'bro', task_id: taskId, commit_sha: 'abc1234', verification_summary: 'ok',
+        });
+        assert.ok(!r.isError, 'idempotent re-call must not error');
+        const out = parse(r);
+        assert.equal(out['recovered'], false);
+        assert.equal(out['action'], 'noop');
+        assert.equal(out['status'], 'closed');
+        // No duplicate audit rows on re-call.
+        const recovered = db.get("SELECT COUNT(*) AS c FROM audit WHERE event_type = 'task_recovered'");
+        assert.equal(recovered.c, 1);
+    });
+    it('re-dispatch-no-commit: pending with no commit returns re-dispatch without changing status', async () => {
+        const { db, composites, taskId } = await seedPendingTask();
+        const r = await call(composites.handlers, 'task_recover', {
+            agent: 'bro', task_id: taskId,
+        });
+        assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+        const out = parse(r);
+        assert.equal(out['recovered'], false);
+        assert.equal(out['action'], 're-dispatch');
+        assert.match(out['reason'], /re-dispatch SWE/);
+        const row = db.get('SELECT status FROM tasks WHERE id = ?', [taskId]);
+        assert.equal(row.status, 'pending', 'status must be unchanged');
     });
     it('rejects non-bro caller', async () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const r = await call(composites.handlers, 'headless_intent_start', {
-            agent: 'swe', issue_id: 1, branch_id: 'feat/x', intent_verbatim: 'do thing',
+        const r = await call(composites.handlers, 'task_recover', {
+            agent: 'swe', task_id: '1', commit_sha: 'abc1234',
         });
         assert.equal(r.isError, true);
         assert.equal(parse(r)['error'], 'forbidden');
     });
-    it('rejects empty intent_verbatim', async () => {
+});
+describe('intent_start — per-repo milestone default + repo param (#15)', () => {
+    it('defaults the created issue milestone to the sole repo\'s sole OPEN milestone', async () => {
         const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
+        db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v0.10.0', 'app', 'open')`);
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const r = await call(composites.handlers, 'headless_intent_start', {
-            agent: 'bro', issue_id: 1, branch_id: 'feat/x', intent_verbatim: '   ',
+        const r = await call(composites.handlers, 'intent_start', {
+            agent: 'bro',
+            objective: 'intent default milestone',
+            intent_verbatim: 'do the thing',
+            branch_id: 'feat/intent-default-ms',
         });
-        assert.equal(r.isError, true);
+        assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+        const issueId = parse(r)['issue_id'];
+        const row = db.get('SELECT milestone, repo FROM issues WHERE id = ?', [issueId]);
+        assert.equal(row?.milestone, 'v0.10.0', 'intent_start applies the sole open milestone');
+        assert.equal(row?.repo, 'app', 'sole repo bound when repo omitted');
+        db.close();
+    });
+    it('stays NULL when the repo has no open milestone', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'intent_start', {
+            agent: 'bro',
+            objective: 'intent no milestone',
+            intent_verbatim: 'do the thing',
+            branch_id: 'feat/intent-no-ms',
+        });
+        assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+        const issueId = parse(r)['issue_id'];
+        const row = db.get('SELECT milestone FROM issues WHERE id = ?', [issueId]);
+        assert.equal(row?.milestone, null, 'no open milestone → null');
+        db.close();
+    });
+    it('binds issues.repo to an explicit repo arg and resolves its milestone', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('frontend', '/tmp/frontend')`);
+        db.run(`INSERT INTO repos (name, path) VALUES ('backend', '/tmp/backend')`);
+        db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v2.0.0', 'backend', 'open')`);
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'intent_start', {
+            agent: 'bro',
+            objective: 'intent explicit repo',
+            intent_verbatim: 'do the thing',
+            branch_id: 'feat/intent-explicit-repo',
+            repo: 'backend',
+        });
+        assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+        const issueId = parse(r)['issue_id'];
+        const row = db.get('SELECT milestone, repo FROM issues WHERE id = ?', [issueId]);
+        assert.equal(row?.repo, 'backend', 'explicit repo bound on the issue');
+        assert.equal(row?.milestone, 'v2.0.0', 'milestone resolved from the explicit repo');
+        db.close();
+    });
+    it('returns a named error for an explicit repo with no matching repos row', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'intent_start', {
+            agent: 'bro',
+            objective: 'intent unknown repo',
+            intent_verbatim: 'do the thing',
+            branch_id: 'feat/intent-unknown-repo',
+            repo: 'ghost',
+        });
+        assert.ok(r.isError, 'unknown repo must be a named error');
+        assert.match(parse(r)['error'], /repo "ghost" has no matching repos row/);
+        db.close();
     });
 });
 describe('bro_verification_fail_record', () => {
@@ -533,12 +897,13 @@ describe('bro_verification_fail_record', () => {
         const discussions = discussionTools(db);
         const audit = auditTools(db);
         const issueId = String((parse(await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
             agent: 'bro', objective: 'fail record test', description: 'x',
         }))['id']));
         await call(discussions.handlers, 'discussion_append', {
             agent: 'bro', issue_id: issueId, author: 'bro', kind: 'question', body: 'q',
         });
-        await call(audit.handlers, 'audit_log', {
+        await call(audit.handlers, 'audit_append', {
             agent: 'bro', issue_id: issueId, kind: 'event', event_type: 'branch_id_proposed',
             from_node: 'bro', branch_id: 'fix/fail-rec', summary: 's',
         });
@@ -592,11 +957,11 @@ describe('bro_verification_fail_record', () => {
         assert.match(parse(r)['error'], /No task/);
     });
 });
-describe('pr_review_worktree', () => {
+describe('pr_monitor_worktree', () => {
     it('rejects non-pr-reviewer caller', async () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const r = await call(composites.handlers, 'pr_review_worktree', {
+        const r = await call(composites.handlers, 'pr_monitor_worktree', {
             agent: 'bro', commit_sha: 'abc1234', repo_path: '/tmp', command: 'echo ok',
         });
         assert.equal(r.isError, true);
@@ -605,7 +970,7 @@ describe('pr_review_worktree', () => {
     it('rejects malformed commit_sha', async () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const r = await call(composites.handlers, 'pr_review_worktree', {
+        const r = await call(composites.handlers, 'pr_monitor_worktree', {
             agent: 'pr-reviewer', commit_sha: 'not-a-sha', repo_path: '/tmp', command: 'echo ok',
         });
         assert.equal(r.isError, true);
@@ -614,7 +979,7 @@ describe('pr_review_worktree', () => {
     it('rejects relative repo_path', async () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const r = await call(composites.handlers, 'pr_review_worktree', {
+        const r = await call(composites.handlers, 'pr_monitor_worktree', {
             agent: 'pr-reviewer', commit_sha: 'abc1234', repo_path: 'relative/path', command: 'echo ok',
         });
         assert.equal(r.isError, true);
@@ -623,18 +988,18 @@ describe('pr_review_worktree', () => {
     it('rejects empty command', async () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const r = await call(composites.handlers, 'pr_review_worktree', {
+        const r = await call(composites.handlers, 'pr_monitor_worktree', {
             agent: 'pr-reviewer', commit_sha: 'abc1234', repo_path: '/tmp', command: '   ',
         });
         assert.equal(r.isError, true);
         assert.match(parse(r)['error'], /non-empty/);
     });
 });
-describe('reap_and_review_prep', () => {
+describe('worktree_commits_fetch', () => {
     it('rejects non-bro caller', async () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const r = await call(composites.handlers, 'reap_and_review_prep', {
+        const r = await call(composites.handlers, 'worktree_commits_fetch', {
             agent: 'swe', task_ids: ['1'], repo_path: '/tmp',
         });
         assert.equal(r.isError, true);
@@ -643,7 +1008,7 @@ describe('reap_and_review_prep', () => {
     it('rejects empty task_ids', async () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const r = await call(composites.handlers, 'reap_and_review_prep', {
+        const r = await call(composites.handlers, 'worktree_commits_fetch', {
             agent: 'bro', task_ids: [], repo_path: '/tmp',
         });
         assert.equal(r.isError, true);
@@ -652,7 +1017,7 @@ describe('reap_and_review_prep', () => {
     it('rejects relative repo_path', async () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const r = await call(composites.handlers, 'reap_and_review_prep', {
+        const r = await call(composites.handlers, 'worktree_commits_fetch', {
             agent: 'bro', task_ids: ['1'], repo_path: 'relative',
         });
         assert.equal(r.isError, true);
@@ -661,7 +1026,7 @@ describe('reap_and_review_prep', () => {
     it('surfaces a missing task as isError with the raw id preserved (#283)', async () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const r = await call(composites.handlers, 'reap_and_review_prep', {
+        const r = await call(composites.handlers, 'worktree_commits_fetch', {
             agent: 'bro', task_ids: ['99999'], repo_path: '/tmp',
         });
         // A failed reap must not read as success (#283): isError + all_reaped=false.
@@ -671,6 +1036,95 @@ describe('reap_and_review_prep', () => {
         assert.equal(out.reaped[0].reaped, false);
         assert.equal(out.reaped[0].task_id, '99999', 'raw tid preserved, not NaN');
         assert.match(out.reaped[0].error, /No task/);
+    });
+    it('no-ops (no fetch) when the branch ref already resolves to the commit_sha in the main checkout (#156)', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'reap-noop-'));
+        const repoRoot = join(ws, 'app');
+        mkdirSync(repoRoot, { recursive: true });
+        const git = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+        try {
+            git(repoRoot, 'init', '-q', '-b', 'main');
+            git(repoRoot, 'config', 'user.email', 't@t.t');
+            git(repoRoot, 'config', 'user.name', 't');
+            writeFileSync(join(repoRoot, 'a.txt'), 'one\n');
+            git(repoRoot, 'add', '.');
+            git(repoRoot, 'commit', '-q', '-m', 'base');
+            // Create the feature branch ref pointing at a real commit in the MAIN
+            // checkout — as if SWE's commit had already landed on the shared ref.
+            git(repoRoot, 'branch', 'fix/already-reaped');
+            const sha = git(repoRoot, 'rev-parse', 'refs/heads/fix/already-reaped');
+            const db = tempDB();
+            db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [repoRoot]);
+            db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+              VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+            db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, commit_sha, repo, created_at, updated_at)
+         VALUES (1, 'fix/already-reaped', 't', 'd', 'completed', 's', ?, 'app', datetime('now'), datetime('now'))`, [sha]);
+            const taskId = String(db.get('SELECT last_insert_rowid() AS id').id);
+            const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+            const r = await call(composites.handlers, 'worktree_commits_fetch', {
+                agent: 'bro', task_ids: [taskId], repo_path: repoRoot,
+            });
+            assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+            const out = parse(r);
+            assert.equal(out.all_reaped, true);
+            assert.equal(out.reaped[0].reaped, true);
+            // The ref still points at the same SHA — the no-op did not move it, and no
+            // worktree existed to fetch from (it would have errored if it tried).
+            assert.equal(git(repoRoot, 'rev-parse', 'refs/heads/fix/already-reaped'), sha);
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('reaps from a linked worktree under the REPO root via update-ref (worktree .git is a file, not a remote) (#156)', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'reap-wt-'));
+        const repoRoot = join(ws, 'app');
+        mkdirSync(repoRoot, { recursive: true });
+        const git = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+        try {
+            git(repoRoot, 'init', '-q', '-b', 'main');
+            git(repoRoot, 'config', 'user.email', 't@t.t');
+            git(repoRoot, 'config', 'user.name', 't');
+            writeFileSync(join(repoRoot, 'a.txt'), 'one\n');
+            git(repoRoot, 'add', '.');
+            git(repoRoot, 'commit', '-q', '-m', 'base');
+            // Create the feature branch + a linked worktree UNDER THE REPO ROOT, then
+            // commit inside the worktree (the commit only lives on the worktree's
+            // branch ref). The main checkout has NO such ref yet.
+            const slug = 'wt-feature';
+            const branch = `fix/${slug}`;
+            const wtPath = join(repoRoot, '.claude', 'worktrees', slug);
+            git(repoRoot, 'worktree', 'add', '-q', '-b', branch, wtPath, 'main');
+            writeFileSync(join(wtPath, 'b.txt'), 'two\n');
+            git(wtPath, 'add', '.');
+            git(wtPath, 'commit', '-q', '-m', 'swe work');
+            const sha = git(wtPath, 'rev-parse', 'HEAD');
+            // Detach the worktree's branch so the main checkout's branch ref is the
+            // only place the reap can set it — and prove update-ref (not fetch-from-
+            // worktree) is what makes the SHA visible on refs/heads/<branch>.
+            git(wtPath, 'checkout', '-q', '--detach');
+            git(repoRoot, 'branch', '-q', '-D', branch);
+            const db = tempDB();
+            db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [repoRoot]);
+            db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+              VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+            db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, commit_sha, repo, created_at, updated_at)
+         VALUES (1, ?, 't', 'd', 'completed', 's', ?, 'app', datetime('now'), datetime('now'))`, [branch, sha]);
+            const taskId = String(db.get('SELECT last_insert_rowid() AS id').id);
+            const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+            const r = await call(composites.handlers, 'worktree_commits_fetch', {
+                agent: 'bro', task_ids: [taskId], repo_path: repoRoot,
+            });
+            assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+            const out = parse(r);
+            assert.equal(out.all_reaped, true);
+            assert.equal(out.reaped[0].reaped, true);
+            // The branch ref now resolves to the worktree commit in the main checkout.
+            assert.equal(git(repoRoot, 'rev-parse', `refs/heads/${branch}`), sha);
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
     });
 });
 describe('intent_start (#426)', () => {
@@ -724,7 +1178,7 @@ describe('intent_start (#426)', () => {
     it('rolls back all writes when the transaction fails mid-way', async () => {
         const db = tempDB();
         const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        // Poison the audit table so the 4th write (audit_log) throws.
+        // Poison the audit table so the 4th write (audit_append) throws.
         db.run(`DROP TABLE audit`);
         const r = await call(composites.handlers, 'intent_start', {
             agent: 'bro',
@@ -739,153 +1193,25 @@ describe('intent_start (#426)', () => {
         db.close();
     });
 });
-describe('headless_fallback_record (#426)', () => {
-    it('writes audit + note atomically; defaults to most recent open issue', async () => {
-        const db = tempDB();
-        const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const issueId = Number((parse(await call(issues.handlers, 'issue_create', {
-            agent: 'bro', objective: 'headless fallback target', description: 'x',
-        }))['id']));
-        const r = await call(composites.handlers, 'headless_fallback_record', {
-            agent: 'bro',
-            question: 'Should we use feat/ or fix/ prefix?',
-            chosen_default: 'feat/',
-            skill: 'tmb_planning',
-        });
-        assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
-        const out = parse(r);
-        assert.equal(out.issue_id, issueId);
-        assert.deepEqual(out.written, ['audit', 'note']);
-        const auditRows = db.all(`SELECT event_type, content_json FROM audit WHERE issue_id = ?`, [issueId]);
-        const fallbackRow = auditRows.find((a) => a.event_type === 'headless_fallback');
-        assert.ok(fallbackRow, 'headless_fallback audit row must exist');
-        const content = JSON.parse(fallbackRow.content_json);
-        assert.equal(content.skill, 'tmb_planning');
-        assert.equal(content.chosen_default, 'feat/');
-        const notes = db.all(`SELECT kind, body FROM discussions WHERE issue_id = ? AND kind = 'note'`, [issueId]);
-        assert.ok(notes.some((n) => n.body.includes('tmb_planning') && n.body.includes('feat/')));
-        db.close();
-    });
-    it('falls back to system issue (-1) when no open issue exists', async () => {
-        const db = tempDB();
-        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const r = await call(composites.handlers, 'headless_fallback_record', {
-            agent: 'bro',
-            question: 'Which base branch?',
-            chosen_default: 'dev',
-            skill: 'tmb_recovery',
-        });
-        assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
-        const out = parse(r);
-        assert.equal(out.issue_id, -1, 'must target system issue when no open issues exist');
-        db.close();
-    });
-    it('respects explicit issue_id override', async () => {
-        const db = tempDB();
-        const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        await call(issues.handlers, 'issue_create', { agent: 'bro', objective: 'issue A', description: 'x' });
-        const issueB = Number((parse(await call(issues.handlers, 'issue_create', {
-            agent: 'bro', objective: 'issue B', description: 'x',
-        }))['id']));
-        // Pass an explicit issue_id pointing to B even though there's a newer issue.
-        const r = await call(composites.handlers, 'headless_fallback_record', {
-            agent: 'bro',
-            question: 'Which branch?',
-            chosen_default: 'fix/',
-            skill: 'tmb_recovery',
-            issue_id: issueB,
-        });
-        assert.ok(!r.isError);
-        const out = parse(r);
-        assert.equal(out.issue_id, issueB);
-        db.close();
-    });
-    it('rolls back when the second write (note) fails', async () => {
-        const db = tempDB();
-        const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const issueId = Number((parse(await call(issues.handlers, 'issue_create', {
-            agent: 'bro', objective: 'rollback test', description: 'x',
-        }))['id']));
-        // Poison discussions so the second write throws mid-transaction.
-        db.run(`DROP TABLE discussions`);
-        const r = await call(composites.handlers, 'headless_fallback_record', {
-            agent: 'bro',
-            question: 'Which branch?',
-            chosen_default: 'feat/',
-            skill: 'tmb_planning',
-            issue_id: issueId,
-        });
-        assert.equal(r.isError, true);
-        // The audit row must also be absent (rolled back).
-        const auditRows = db.all(`SELECT id FROM audit WHERE issue_id = ? AND event_type = 'headless_fallback'`, [issueId]);
-        assert.equal(auditRows.length, 0, 'transaction must roll back: no audit row must survive');
-        db.close();
-    });
-    it('rejects non-bro caller', async () => {
-        const db = tempDB();
-        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        const r = await call(composites.handlers, 'headless_fallback_record', {
-            agent: 'swe', question: 'q', chosen_default: 'x', skill: 'tmb_planning',
-        });
-        assert.equal(r.isError, true);
-        assert.equal(parse(r)['error'], 'forbidden');
-    });
-});
-describe('intent_start + headless_intent_start non-duplication (#426)', () => {
-    it('calling intent_start then headless_intent_start on same issue produces no duplicate intent rows', async () => {
-        const db = tempDB();
-        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
-        // First: intent_start (interactive path) creates the issue + intent row.
-        const r1 = await call(composites.handlers, 'intent_start', {
-            agent: 'bro',
-            objective: 'dup guard test',
-            intent_verbatim: 'add CSV export',
-            branch_id: 'feat/dup-guard-test',
-        });
-        assert.ok(!r1.isError);
-        const { issue_id } = parse(r1);
-        // Second: headless_intent_start on the same issue with the same verbatim.
-        const r2 = await call(composites.handlers, 'headless_intent_start', {
-            agent: 'bro',
-            issue_id,
-            branch_id: 'feat/dup-guard-test',
-            intent_verbatim: 'add CSV export',
-            fallback_summary: 'headless retry',
-        });
-        assert.ok(!r2.isError);
-        // The written array must NOT include 'intent' (it was de-duped).
-        const out2 = parse(r2);
-        assert.ok(!out2.written.includes('intent'), `intent must not be re-written; got: ${JSON.stringify(out2.written)}`);
-        // Exactly one intent row with this verbatim must exist.
-        const intentRows = db.all(`SELECT id FROM discussions
-        WHERE issue_id = ? AND kind = 'intent' AND body = ?`, [issue_id, 'Human intent verbatim: "add CSV export"']);
-        assert.equal(intentRows.length, 1, 'exactly one intent row must exist after both calls');
-        db.close();
-    });
-});
-describe('parseFilesDirs (#300)', () => {
-    it('derives unique dirs from a spec ## Files section', () => {
-        const spec = [
-            '## Description', 'do a thing', '',
-            '## Files',
-            '- `src/api/handler.ts` — edit',
-            '- `src/api/util.ts` — add',
-            '- `docs/guide.md` — update',
-            '- `README.md` — touch',
-            '',
-            '## Success Criteria', '- `src/other.ts` must not be listed (wrong section)',
-        ].join('\n');
-        assert.deepEqual(parseFilesDirs(spec).sort(), ['', 'docs', 'src/api']);
+describe('filesToDirs (#300)', () => {
+    it('derives unique dirs from a typed files[] array', () => {
+        const files = [
+            'src/api/handler.ts',
+            'src/api/util.ts',
+            'docs/guide.md',
+            'README.md',
+        ];
+        assert.deepEqual(filesToDirs(files).sort(), ['', 'docs', 'src/api']);
     });
 });
 function seedTask(db, opts) {
+    if (opts.repo) {
+        db.run(`INSERT OR IGNORE INTO repos (name, path) VALUES (?, ?)`, [opts.repo, `/tmp/${opts.repo}`]);
+    }
     db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
      VALUES (1, 'brief test obj', 'd', 'open', datetime('now'), datetime('now'))`);
-    db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, commit_sha, repo, created_at, updated_at)
-     VALUES (1, 'fix/1-brief', 'brief task', 'd', 'open', ?, 'abc123def', ?, datetime('now'), datetime('now'))`, [opts.spec, opts.repo ?? null]);
+    db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, files, commit_sha, repo, created_at, updated_at)
+     VALUES (1, 'fix/1-brief', 'brief task', 'd', 'open', ?, ?, 'abc123def', ?, datetime('now'), datetime('now'))`, [opts.spec, JSON.stringify(opts.files ?? []), opts.repo ?? null]);
     const row = db.get('SELECT last_insert_rowid() AS id');
     db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
      VALUES (1, 'bro', 'decision', 'Use approach B', datetime('now'))`);
@@ -908,9 +1234,9 @@ describe('task_brief (#300)', () => {
         assert.ok(disc.some((d) => d.kind === 'decision' && d.body === 'Use approach B'));
         db.close();
     });
-    it('populates scope_world_model from the spec dirs via the graph', async () => {
+    it('populates scope_world_model from the typed files[] dirs via the graph', async () => {
         const db = tempDB();
-        const id = seedTask(db, { repo: 'app', spec: SPEC });
+        const id = seedTask(db, { repo: 'app', spec: SPEC, files: ['src/api/handler.ts'] });
         // Stub graph: only allDirectoriesForRepo is exercised by task_brief.
         const stubGraph = {
             allDirectoriesForRepo: () => [
@@ -963,6 +1289,534 @@ describe('task_brief (#300)', () => {
         assert.match(truncatedNote.body, /truncated; discussion_search\(issue_id=1\)/);
         const noteCount = disc.filter((d) => d.kind === 'note').length;
         assert.ok(noteCount <= 8, `non-full kinds capped to last 8 (got ${noteCount})`);
+        db.close();
+    });
+});
+describe('task_provision (#157)', () => {
+    const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- works'].join('\n');
+    // Build a real git repo with an `origin/main` remote-tracking ref. The repos
+    // row carries target_branch='main' (the sole source of truth, #980), so the
+    // composite branches from origin/main unless an explicit `base` is passed.
+    function makeRepo() {
+        const ws = mkdtempSync(join(tmpdir(), 'plan-task-'));
+        const repoRoot = join(ws, 'app');
+        mkdirSync(repoRoot, { recursive: true });
+        const git = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+        git(repoRoot, 'init', '-q', '-b', 'main');
+        git(repoRoot, 'config', 'user.email', 't@t.t');
+        git(repoRoot, 'config', 'user.name', 't');
+        writeFileSync(join(repoRoot, 'a.txt'), 'one\n');
+        git(repoRoot, 'add', '.');
+        git(repoRoot, 'commit', '-q', '-m', 'base');
+        // Fabricate the remote-tracking ref the composite branches from.
+        git(repoRoot, 'update-ref', 'refs/remotes/origin/main', git(repoRoot, 'rev-parse', 'HEAD'));
+        return { ws, repoRoot, git };
+    }
+    function seedIssue(db, repoRoot) {
+        db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('app', ?, 'main')`, [repoRoot]);
+        db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+            VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+    }
+    it('happy path: writes decision + task + branch + worktree and returns the spawn-ready shape', async () => {
+        const { ws, repoRoot, git } = makeRepo();
+        try {
+            const db = tempDB();
+            seedIssue(db, repoRoot);
+            const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+            const r = await call(composites.handlers, 'task_provision', {
+                agent: 'bro',
+                issue_id: 1,
+                branch_id: 'feat/the-thing',
+                decision_body: 'Chosen approach: build X because Y; trade-off Z.',
+                task: {
+                    title: 'Do X',
+                    description: 'implement X',
+                    spec_body: SPEC,
+                    files: ['src/x.ts'],
+                    verification: ['bun run build'],
+                    repo: 'app',
+                },
+            });
+            assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+            const out = parse(r);
+            assert.equal(typeof out['task_id'], 'number');
+            assert.equal(out['branch_id'], 'feat/the-thing');
+            assert.equal(out['repo'], 'app');
+            assert.equal(out['slug'], 'the-thing');
+            assert.equal(out['git_setup'], 'created');
+            assert.equal(out['worktree_path'], join(repoRoot, '.claude', 'worktrees', 'the-thing'));
+            assert.equal(out['diagnostic'], undefined);
+            // Decision discussion written.
+            const decision = db.get(`SELECT body, author FROM discussions WHERE issue_id = 1 AND kind = 'decision' LIMIT 1`);
+            assert.ok(decision);
+            assert.match(decision.body, /Chosen approach/);
+            assert.equal(decision.author, 'bro');
+            // Task row written with typed fields.
+            const task = db.get(`SELECT id, status, files, verification, repo, parent_branch_id FROM tasks WHERE id = ?`, [out['task_id']]);
+            assert.ok(task);
+            assert.equal(task.status, 'pending');
+            assert.deepEqual(JSON.parse(task.files), ['src/x.ts']);
+            assert.deepEqual(JSON.parse(task.verification), ['bun run build']);
+            // parent_branch_id persisted = the resolved base (repos.target_branch='main' when no explicit base).
+            assert.equal(task.parent_branch_id, 'main', 'parent_branch_id = defaulted base (repos.target_branch)');
+            // planning_complete audit + bro agent_run row written.
+            const audit = db.get(`SELECT COUNT(*) AS c FROM audit WHERE issue_id = 1 AND event_type = 'planning_complete'`);
+            assert.equal(audit.c, 1);
+            const run = db.get(`SELECT COUNT(*) AS c FROM agent_runs WHERE task_id = ? AND agent_type = 'bro'`, [out['task_id']]);
+            assert.equal(run.c, 1);
+            // Branch ref + worktree created on disk.
+            assert.equal(git(repoRoot, 'rev-parse', '--verify', 'refs/heads/feat/the-thing').length, 40);
+            const wtList = git(repoRoot, 'worktree', 'list', '--porcelain');
+            assert.match(wtList, /the-thing/);
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('persists parent_branch_id = explicit base passed to task_provision', async () => {
+        const { ws, repoRoot, git } = makeRepo();
+        try {
+            // Fabricate an origin/dev remote-tracking ref so an explicit base='dev' resolves.
+            git(repoRoot, 'update-ref', 'refs/remotes/origin/dev', git(repoRoot, 'rev-parse', 'HEAD'));
+            const db = tempDB();
+            seedIssue(db, repoRoot);
+            const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+            const r = await call(composites.handlers, 'task_provision', {
+                agent: 'bro',
+                issue_id: 1,
+                branch_id: 'feat/explicit-base',
+                base: 'dev',
+                decision_body: 'approach: branch from dev; trade-off none.',
+                task: {
+                    description: 'd',
+                    spec_body: SPEC,
+                    files: ['src/x.ts'],
+                    verification: ['true'],
+                    repo: 'app',
+                },
+            });
+            assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+            const out = parse(r);
+            const task = db.get(`SELECT parent_branch_id FROM tasks WHERE id = ?`, [out['task_id']]);
+            assert.ok(task);
+            assert.equal(task.parent_branch_id, 'dev', 'parent_branch_id = explicit base passed');
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('idempotent re-run reuses the existing branch + worktree (git_setup: reused)', async () => {
+        const { ws, repoRoot } = makeRepo();
+        try {
+            const db = tempDB();
+            seedIssue(db, repoRoot);
+            // Two issues sharing one branch_id: the (issue_id, branch_id) UNIQUE
+            // constraint means a re-run must use a DIFFERENT issue. The git setup,
+            // keyed on branch_id/slug, is what must be idempotent.
+            db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+              VALUES (2, 'o2', 'd', 'open', datetime('now'), datetime('now'))`);
+            const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+            const baseArgs = {
+                agent: 'bro',
+                branch_id: 'feat/reuse-me',
+                decision_body: 'approach: reuse path; trade-off none.',
+                task: {
+                    description: 'd',
+                    spec_body: SPEC,
+                    files: ['src/x.ts'],
+                    verification: ['true'],
+                    repo: 'app',
+                },
+            };
+            const first = parse(await call(composites.handlers, 'task_provision', { ...baseArgs, issue_id: 1 }));
+            assert.equal(first['git_setup'], 'created');
+            const second = parse(await call(composites.handlers, 'task_provision', { ...baseArgs, issue_id: 2 }));
+            assert.equal(second['git_setup'], 'reused', 'existing branch + worktree reused, not error');
+            assert.equal(second['worktree_path'], first['worktree_path']);
+            assert.notEqual(second['task_id'], first['task_id']);
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('atomicity: base-unresolvable git failure leaves NO task row; retry with a valid base + same branch_id succeeds', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'plan-task-nobase-'));
+        try {
+            const db = tempDB();
+            // A real git repo but WITHOUT the origin/<base> remote-tracking ref, so
+            // the base pre-validation fails and the branch is never created.
+            const repoRoot = join(ws, 'app');
+            mkdirSync(repoRoot, { recursive: true });
+            const git = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+            git(repoRoot, 'init', '-q', '-b', 'main');
+            git(repoRoot, 'config', 'user.email', 't@t.t');
+            git(repoRoot, 'config', 'user.name', 't');
+            writeFileSync(join(repoRoot, 'a.txt'), 'one\n');
+            git(repoRoot, 'add', '.');
+            git(repoRoot, 'commit', '-q', '-m', 'base');
+            db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [repoRoot]);
+            db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+              VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+            const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+            const baseTaskArgs = {
+                agent: 'bro',
+                issue_id: 1,
+                branch_id: 'feat/atomic',
+                decision_body: 'approach: x; trade-off y.',
+                task: {
+                    description: 'd',
+                    spec_body: SPEC,
+                    files: ['src/x.ts'],
+                    verification: ['true'],
+                    repo: 'app',
+                },
+            };
+            // base 'no-such-base' has no origin/ ref → error, nothing persisted.
+            const r = await call(composites.handlers, 'task_provision', {
+                ...baseTaskArgs,
+                base: 'no-such-base',
+            });
+            assert.ok(r.isError, 'unresolvable base must be a tool error');
+            assert.match(parse(r)['error'], /does not resolve|No task row was created/);
+            // No task row, no decision, no branch ref — the (issue_id, branch_id) slot is free.
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM tasks WHERE issue_id = 1`).c, 0, 'no orphan task row after base-unresolvable git failure');
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM discussions WHERE issue_id = 1 AND kind = 'decision'`).c, 0, 'no orphan decision after git failure');
+            // Retry with a valid base (origin/main, fabricated here) + SAME branch_id succeeds.
+            git(repoRoot, 'update-ref', 'refs/remotes/origin/main', git(repoRoot, 'rev-parse', 'HEAD'));
+            const retry = await call(composites.handlers, 'task_provision', {
+                ...baseTaskArgs,
+                base: 'main',
+            });
+            assert.ok(!retry.isError, `retry with a valid base must succeed: ${JSON.stringify(parse(retry))}`);
+            const out = parse(retry);
+            assert.equal(out['branch_id'], 'feat/atomic');
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM tasks WHERE issue_id = 1`).c, 1, 'retry creates exactly one task row');
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('atomicity: repo-unresolvable git failure leaves NO task row; retry with a valid repo + same branch_id succeeds', async () => {
+        const { ws, repoRoot } = makeRepo();
+        try {
+            const db = tempDB();
+            // Multi-repo workspace: register only 'app' (target_branch='main' so the
+            // base resolves on retry). The first call names a repo that does not
+            // resolve to a repos.path.
+            db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('app', ?, 'main')`, [repoRoot]);
+            db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+              VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+            const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+            const baseTaskArgs = {
+                agent: 'bro',
+                issue_id: 1,
+                branch_id: 'feat/repo-atomic',
+                decision_body: 'approach: x; trade-off y.',
+                task: {
+                    description: 'd',
+                    spec_body: SPEC,
+                    files: ['src/x.ts'],
+                    verification: ['true'],
+                },
+            };
+            // repo 'ghost' resolves to the literal name 'ghost' (no repos.path) — git
+            // commands run against a non-existent dir and fail. Nothing persisted.
+            const r = await call(composites.handlers, 'task_provision', {
+                ...baseTaskArgs,
+                task: { ...baseTaskArgs.task, repo: 'ghost' },
+            });
+            assert.ok(r.isError, 'unresolvable repo must be a tool error');
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM tasks WHERE issue_id = 1`).c, 0, 'no orphan task row after repo-unresolvable git failure');
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM discussions WHERE issue_id = 1 AND kind = 'decision'`).c, 0, 'no orphan decision after git failure');
+            // Retry with a valid repo + SAME branch_id succeeds.
+            const retry = await call(composites.handlers, 'task_provision', {
+                ...baseTaskArgs,
+                task: { ...baseTaskArgs.task, repo: 'app' },
+            });
+            assert.ok(!retry.isError, `retry with a valid repo must succeed: ${JSON.stringify(parse(retry))}`);
+            const out = parse(retry);
+            assert.equal(out['repo'], 'app');
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM tasks WHERE issue_id = 1`).c, 1, 'retry creates exactly one task row');
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('remoteless repo: base falls back to the local branch, branch created from local ref (#1063)', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'plan-task-local-'));
+        try {
+            const repoRoot = join(ws, 'app');
+            mkdirSync(repoRoot, { recursive: true });
+            const git = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+            // A repo with NO remotes at all: only a local `dev` branch exists.
+            git(repoRoot, 'init', '-q', '-b', 'dev');
+            git(repoRoot, 'config', 'user.email', 't@t.t');
+            git(repoRoot, 'config', 'user.name', 't');
+            writeFileSync(join(repoRoot, 'a.txt'), 'one\n');
+            git(repoRoot, 'add', '.');
+            git(repoRoot, 'commit', '-q', '-m', 'base');
+            const localDevSha = git(repoRoot, 'rev-parse', 'refs/heads/dev');
+            const db = tempDB();
+            db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('app', ?, 'dev')`, [repoRoot]);
+            db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+              VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+            const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+            const r = await call(composites.handlers, 'task_provision', {
+                agent: 'bro',
+                issue_id: 1,
+                branch_id: 'feat/local-base',
+                base: 'dev',
+                decision_body: 'approach: branch from local dev; trade-off none.',
+                task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+            });
+            assert.ok(!r.isError, `remoteless provision must succeed via the local fallback: ${JSON.stringify(parse(r))}`);
+            // Task row created + the new branch points at the LOCAL dev ref.
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM tasks WHERE issue_id = 1`).c, 1);
+            assert.equal(git(repoRoot, 'rev-parse', 'refs/heads/feat/local-base'), localDevSha, 'branch created from the local dev ref when no origin exists');
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('origin/<base> wins over a diverging local branch (origin preference unchanged, #1063)', async () => {
+        const { ws, repoRoot, git } = makeRepo();
+        try {
+            // origin/main was fabricated at the base commit in makeRepo. Advance the
+            // LOCAL main past it so the two diverge; the branch must follow origin.
+            const originMainSha = git(repoRoot, 'rev-parse', 'refs/remotes/origin/main');
+            writeFileSync(join(repoRoot, 'a.txt'), 'two\n');
+            git(repoRoot, 'add', '.');
+            git(repoRoot, 'commit', '-q', '-m', 'local advance');
+            const localMainSha = git(repoRoot, 'rev-parse', 'refs/heads/main');
+            assert.notEqual(originMainSha, localMainSha, 'precondition: origin/main and local main diverge');
+            const db = tempDB();
+            seedIssue(db, repoRoot);
+            const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+            const r = await call(composites.handlers, 'task_provision', {
+                agent: 'bro',
+                issue_id: 1,
+                branch_id: 'feat/prefers-origin',
+                base: 'main',
+                decision_body: 'approach: branch from origin/main; trade-off none.',
+                task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+            });
+            assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+            assert.equal(git(repoRoot, 'rev-parse', 'refs/heads/feat/prefers-origin'), originMainSha, 'branch follows origin/main, not the diverged local main');
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('neither origin/<base> nor local <base> resolves: error names both forms, no task row (#1063)', async () => {
+        const { ws, repoRoot } = makeRepo();
+        try {
+            const db = tempDB();
+            seedIssue(db, repoRoot);
+            const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+            const r = await call(composites.handlers, 'task_provision', {
+                agent: 'bro',
+                issue_id: 1,
+                branch_id: 'feat/no-base',
+                base: 'ghost-base',
+                decision_body: 'approach: x; trade-off y.',
+                task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+            });
+            assert.ok(r.isError, 'an unresolvable base must be a tool error');
+            const msg = parse(r)['error'];
+            assert.match(msg, /origin\/ghost-base/, 'error names the tried origin form');
+            assert.match(msg, /local 'ghost-base'/, 'error names the tried local form');
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM tasks WHERE issue_id = 1`).c, 0, 'no orphan task row when neither base ref resolves');
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('rejects a non-bro caller', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'task_provision', {
+            agent: 'swe',
+            issue_id: 1,
+            branch_id: 'feat/nope',
+            decision_body: 'x',
+            task: { description: 'd', spec_body: SPEC, files: ['a'], verification: ['true'] },
+        });
+        assert.equal(r.isError, true);
+        db.close();
+    });
+    it('world-model-cold + no waiver: registry_cold_violation with zero side effects (#44)', async () => {
+        const { ws, repoRoot, git } = makeRepo();
+        try {
+            const db = tempDB({ seedScan: false });
+            seedIssue(db, repoRoot);
+            const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+            const r = await call(composites.handlers, 'task_provision', {
+                agent: 'bro',
+                issue_id: 1,
+                branch_id: 'feat/cold-thing',
+                decision_body: 'approach: x; trade-off y.',
+                task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+            });
+            assert.ok(r.isError, 'a cold world model with no waiver must be a tool error');
+            const out = parse(r);
+            assert.equal(out['error'], 'registry_cold_violation');
+            assert.match(out['message'], /task_provision/, 'message names the tool');
+            assert.match(out['message'], /\/scan|scan_run/, 'message points at /scan or scan_run');
+            // No side effects: no task row, no discussion row, no branch ref.
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM tasks WHERE issue_id = 1`).c, 0, 'no task row');
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM discussions WHERE issue_id = 1`).c, 0, 'no discussion row');
+            let branchExists = true;
+            try {
+                git(repoRoot, 'rev-parse', '--verify', '--quiet', 'refs/heads/feat/cold-thing');
+            }
+            catch {
+                branchExists = false;
+            }
+            assert.equal(branchExists, false, 'no branch ref created');
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('world-model-cold + waiver ≥10 chars: proceeds and records registry_gate_waived (#44)', async () => {
+        const { ws, repoRoot } = makeRepo();
+        try {
+            const db = tempDB({ seedScan: false });
+            seedIssue(db, repoRoot);
+            const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+            const r = await call(composites.handlers, 'task_provision', {
+                agent: 'bro',
+                issue_id: 1,
+                branch_id: 'feat/waived-thing',
+                decision_body: 'approach: x; trade-off y.',
+                waive_registry_gate: true,
+                waive_registry_gate_reason: 'scan cannot run in this sandbox',
+                task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+            });
+            assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+            assert.equal(typeof parse(r)['task_id'], 'number');
+            const waived = db.get(`SELECT COUNT(*) AS c FROM audit WHERE issue_id = 1 AND event_type = 'registry_gate_waived'`);
+            assert.equal(waived.c, 1, 'registry_gate_waived audit row recorded');
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('world-model-cold + waiver <10 chars: rejected the same as task_create_batch (#44)', async () => {
+        const { ws, repoRoot } = makeRepo();
+        try {
+            const db = tempDB({ seedScan: false });
+            seedIssue(db, repoRoot);
+            const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+            const r = await call(composites.handlers, 'task_provision', {
+                agent: 'bro',
+                issue_id: 1,
+                branch_id: 'feat/short-reason',
+                decision_body: 'approach: x; trade-off y.',
+                waive_registry_gate: true,
+                waive_registry_gate_reason: 'too short',
+                task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+            });
+            assert.ok(r.isError, 'a short waiver reason must be a tool error');
+            assert.match(parse(r)['error'], /waive_registry_gate_reason must be a string ≥10 chars/);
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM tasks WHERE issue_id = 1`).c, 0, 'no task row');
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('warm world model (deep_scan_completed present): behavior unchanged, proceeds (#44)', async () => {
+        const { ws, repoRoot } = makeRepo();
+        try {
+            const db = tempDB(); // default seeds a deep_scan_completed audit row
+            seedIssue(db, repoRoot);
+            const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+            const r = await call(composites.handlers, 'task_provision', {
+                agent: 'bro',
+                issue_id: 1,
+                branch_id: 'feat/warm-thing',
+                decision_body: 'approach: x; trade-off y.',
+                task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+            });
+            assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+            assert.equal(typeof parse(r)['task_id'], 'number');
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM audit WHERE event_type = 'registry_gate_waived'`).c, 0, 'no waiver audit row on the warm path');
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+});
+describe('composite discussions route through insertDiscussion + embedAndStore (#986)', () => {
+    // The embed is fired non-blocking after the row is written, so it lands a few
+    // event-loop turns later. Poll briefly for the embedding row to appear.
+    async function waitForEmbeddings(db, expected, timeoutMs = 5000) {
+        const deadline = Date.now() + timeoutMs;
+        let n = 0;
+        do {
+            n = db.get('SELECT COUNT(*) AS n FROM discussions_embeddings')?.n ?? 0;
+            if (n >= expected)
+                return n;
+            await new Promise((r) => setTimeout(r, 50));
+        } while (Date.now() < deadline);
+        return n;
+    }
+    it('intent_start: composite-written intent + note become embedded (semantic discussion_search visible)', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'intent_start', {
+            agent: 'bro',
+            objective: 'composite embed test',
+            intent_verbatim: 'make composite discussions searchable',
+            branch_id: 'feat/composite-embed-test',
+        });
+        assert.ok(!r.isError, `intent_start must succeed: ${JSON.stringify(parse(r))}`);
+        const issueId = parse(r)['issue_id'];
+        // The discussion rows themselves always land (transaction committed).
+        const discCount = db.get('SELECT COUNT(*) AS n FROM discussions WHERE issue_id = ?', [issueId])?.n ?? 0;
+        assert.equal(discCount, 2, 'intent_start writes one intent + one note discussion');
+        // The embed is the gap #986 closes. Assert the embedding rows appear when a
+        // model is available; in a model-less CI embed() returns null so the path is
+        // a graceful no-op (composite still succeeded above).
+        const probe = await embed('model availability probe');
+        const embCount = await waitForEmbeddings(db, probe === null ? 0 : 2);
+        if (probe === null) {
+            assert.equal(embCount, 0, 'no model → embed degrades to FTS-only, composite still ok');
+        }
+        else {
+            assert.ok(embCount >= 2, `composite discussions must be embedded so semantic search can find them (got ${embCount})`);
+        }
+        db.close();
+    });
+    it('embed failure is non-fatal: the composite transaction still commits', async () => {
+        // After a first embed attempt the model loader latches loadFailed when no
+        // model is present, so subsequent embed() calls return null. Either way the
+        // composite must succeed and its discussion rows must persist — an embed
+        // failure must never roll back the transaction.
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'intent_start', {
+            agent: 'bro',
+            objective: 'embed non-fatal test',
+            intent_verbatim: 'embed failure must not roll back',
+            branch_id: 'feat/embed-non-fatal',
+        });
+        assert.ok(!r.isError, `composite must commit even if embedding fails: ${JSON.stringify(parse(r))}`);
+        const issueId = parse(r)['issue_id'];
+        const discCount = db.get('SELECT COUNT(*) AS n FROM discussions WHERE issue_id = ?', [issueId])?.n ?? 0;
+        assert.equal(discCount, 2, 'discussion rows persist regardless of embed outcome');
         db.close();
     });
 });

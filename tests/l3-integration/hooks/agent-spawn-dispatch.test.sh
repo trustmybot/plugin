@@ -101,6 +101,24 @@ assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
 assert_contains "$out" "missing required anchors" "prompt-shape wording present"
 rm -rf "$TMPDIR"
 
+# ----- tests: shape hook enforces attempt_n + subagent_session_id anchors ----
+
+SHAPE_HOOK="$PLUGIN_ROOT/scripts/hooks/pr-reviewer-spawn-prompt-shape.sh"
+
+test_case "pr-reviewer spawn with legacy four anchors but no attempt_n/subagent_session_id is denied"
+prompt="task_id=42 commit_sha=abc123 branch_id=fix/foo repo=plugin"
+payload=$(jq -n --arg p "$prompt" '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",prompt:$p}}')
+out=$(printf '%s' "$payload" | bash "$SHAPE_HOOK" 2>/dev/null || true)
+assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
+assert_contains "$out" "attempt_n" "missing attempt_n named"
+assert_contains "$out" "subagent_session_id" "missing subagent_session_id named"
+
+test_case "pr-reviewer spawn with all six anchors passes shape check silently"
+prompt="task_id=42 commit_sha=abc123 branch_id=fix/foo repo=plugin attempt_n=1 subagent_session_id=sess-xyz"
+payload=$(jq -n --arg p "$prompt" '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",prompt:$p}}')
+out=$(printf '%s' "$payload" | bash "$SHAPE_HOOK" 2>/dev/null || true)
+assert_eq "" "$out" "silent pass — all six anchors present"
+
 # ----- tests: pr-reviewer-no-worktree short-circuits before shape check -----
 
 test_case "pr-reviewer with isolation=worktree is denied before shape check (hook order preserved)"
@@ -155,68 +173,28 @@ assert_eq "" "$out" "silent no-op for non-Agent tool"
 
 # ----- tests: context union -------------------------------------------------
 
-test_case "context union: dispatcher merges additionalContext from stub hooks"
-# Validate the union path by pointing at a temp hook directory with a stub
-# hook that emits additionalContext rather than a deny.
+test_case "context union: real dispatcher merges additionalContext from gate hooks"
+# Drive the REAL dispatcher (copied verbatim) against stub gate hooks named
+# exactly as the dispatcher expects. SCRIPT_DIR resolves to the temp dir, so the
+# shipped union logic is exercised — no reimplemented dispatcher.
 TMPDIR=$(mktemp -d)
 STUB_HOOKS_DIR="$TMPDIR/hooks"
 mkdir -p "$STUB_HOOKS_DIR"
+cp "$DISPATCHER" "$STUB_HOOKS_DIR/agent-spawn-dispatch.sh"
 
-# Stub hook A: emits additionalContext "part-A"
-cat > "$STUB_HOOKS_DIR/hook-a.sh" <<'EOF'
+# First and last gate in the dispatcher's fixed order emit additionalContext;
+# the union must carry both, separated.
+cat > "$STUB_HOOKS_DIR/require-task-spec.sh" <<'EOF'
 #!/usr/bin/env bash
 jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:"part-A"}}'
 EOF
-chmod +x "$STUB_HOOKS_DIR/hook-a.sh"
-
-# Stub hook B: emits additionalContext "part-B"
-cat > "$STUB_HOOKS_DIR/hook-b.sh" <<'EOF'
+cat > "$STUB_HOOKS_DIR/pr-reviewer-after-atomic-close.sh" <<'EOF'
 #!/usr/bin/env bash
 jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:"part-B"}}'
 EOF
-chmod +x "$STUB_HOOKS_DIR/hook-b.sh"
+chmod +x "$STUB_HOOKS_DIR/require-task-spec.sh" "$STUB_HOOKS_DIR/pr-reviewer-after-atomic-close.sh"
 
-# Stub dispatcher referencing only the two stubs (not the real hooks).
-cat > "$STUB_HOOKS_DIR/test-dispatch.sh" <<'DISPATCH'
-#!/usr/bin/env bash
-set -uo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INPUT=$(cat 2>/dev/null) || exit 0
-command -v jq >/dev/null 2>&1 || exit 0
-HOOKS=("$SCRIPT_DIR/hook-a.sh" "$SCRIPT_DIR/hook-b.sh")
-CONTEXT_PARTS=()
-for hook in "${HOOKS[@]}"; do
-  [ -x "$hook" ] || continue
-  OUT=$(printf '%s' "$INPUT" | bash "$hook" 2>/dev/null) || true
-  [ -n "$OUT" ] || continue
-  DECISION=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null)
-  if [ "$DECISION" = "deny" ]; then
-    printf '%s\n' "$OUT"
-    exit 0
-  fi
-  CTX=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null)
-  [ -n "$CTX" ] && CONTEXT_PARTS+=("$CTX")
-done
-if [ "${#CONTEXT_PARTS[@]}" -gt 0 ]; then
-  MERGED=""
-  for part in "${CONTEXT_PARTS[@]}"; do
-    if [ -n "$MERGED" ]; then
-      MERGED="${MERGED}
-
----
-
-${part}"
-    else
-      MERGED="$part"
-    fi
-  done
-  jq -nc --arg ctx "$MERGED" '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:$ctx}}'
-fi
-exit 0
-DISPATCH
-chmod +x "$STUB_HOOKS_DIR/test-dispatch.sh"
-
-out=$(printf '{}' | bash "$STUB_HOOKS_DIR/test-dispatch.sh" 2>/dev/null || true)
+out=$(printf '{}' | bash "$STUB_HOOKS_DIR/agent-spawn-dispatch.sh" 2>/dev/null || true)
 assert_contains "$out" "part-A" "first context part present"
 assert_contains "$out" "part-B" "second context part present"
 assert_contains "$out" "additionalContext" "result wrapped in additionalContext"
@@ -224,62 +202,27 @@ rm -rf "$TMPDIR"
 
 # ----- tests: deny short-circuits context collection -----------------------
 
-test_case "deny in first hook short-circuits; second hook context not emitted"
+test_case "deny in first gate short-circuits real dispatcher; later context not emitted"
 TMPDIR=$(mktemp -d)
 STUB_HOOKS_DIR="$TMPDIR/hooks"
 mkdir -p "$STUB_HOOKS_DIR"
+cp "$DISPATCHER" "$STUB_HOOKS_DIR/agent-spawn-dispatch.sh"
 
-cat > "$STUB_HOOKS_DIR/deny-hook.sh" <<'EOF'
+# First gate denies; a later gate emits context that must never be reached.
+cat > "$STUB_HOOKS_DIR/require-task-spec.sh" <<'EOF'
 #!/usr/bin/env bash
 jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",denyReason:"BLOCKED: first hook denied"}}'
 EOF
-chmod +x "$STUB_HOOKS_DIR/deny-hook.sh"
-
-cat > "$STUB_HOOKS_DIR/context-hook.sh" <<'EOF'
+cat > "$STUB_HOOKS_DIR/require-feature-branch-active.sh" <<'EOF'
 #!/usr/bin/env bash
 jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:"should-not-appear"}}'
 EOF
-chmod +x "$STUB_HOOKS_DIR/context-hook.sh"
+chmod +x "$STUB_HOOKS_DIR/require-task-spec.sh" "$STUB_HOOKS_DIR/require-feature-branch-active.sh"
 
-cat > "$STUB_HOOKS_DIR/test-dispatch.sh" <<'DISPATCH'
-#!/usr/bin/env bash
-set -uo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INPUT=$(cat 2>/dev/null) || exit 0
-command -v jq >/dev/null 2>&1 || exit 0
-HOOKS=("$SCRIPT_DIR/deny-hook.sh" "$SCRIPT_DIR/context-hook.sh")
-CONTEXT_PARTS=()
-for hook in "${HOOKS[@]}"; do
-  [ -x "$hook" ] || continue
-  OUT=$(printf '%s' "$INPUT" | bash "$hook" 2>/dev/null) || true
-  [ -n "$OUT" ] || continue
-  DECISION=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null)
-  if [ "$DECISION" = "deny" ]; then
-    printf '%s\n' "$OUT"
-    exit 0
-  fi
-  CTX=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null)
-  [ -n "$CTX" ] && CONTEXT_PARTS+=("$CTX")
-done
-if [ "${#CONTEXT_PARTS[@]}" -gt 0 ]; then
-  MERGED=""
-  for part in "${CONTEXT_PARTS[@]}"; do
-    [ -n "$MERGED" ] && MERGED="${MERGED}
-
----
-
-${part}" || MERGED="$part"
-  done
-  jq -nc --arg ctx "$MERGED" '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:$ctx}}'
-fi
-exit 0
-DISPATCH
-chmod +x "$STUB_HOOKS_DIR/test-dispatch.sh"
-
-out=$(printf '{}' | bash "$STUB_HOOKS_DIR/test-dispatch.sh" 2>/dev/null || true)
+out=$(printf '{}' | bash "$STUB_HOOKS_DIR/agent-spawn-dispatch.sh" 2>/dev/null || true)
 assert_contains "$out" '"permissionDecision":"deny"' "deny present"
 assert_contains "$out" "first hook denied" "deny reason from first hook"
-assert_not_contains "$out" "should-not-appear" "second hook context not emitted"
+assert_not_contains "$out" "should-not-appear" "later gate context not emitted"
 rm -rf "$TMPDIR"
 
 summarize

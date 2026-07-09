@@ -14,13 +14,37 @@
 // rules live here, not in the skill.
 
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import os from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { SUBPROCESS_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
 import type { Provider } from '../utils/classify-url.js';
+import { resolveSoleRepoPath } from '../utils/repo-paths.js';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { writeUserSettingsEnforcementShim } from './onboard-hooks-shim.js';
+
+// Resolve the installed plugin's source root: prefer CLAUDE_PLUGIN_ROOT (must
+// have .claude-plugin/plugin.json), else walk up from this module until that
+// manifest is found — correct for both the tsc layout (dist/tools/onboard.js)
+// and the esbuild bundle (dist/index.js). Returns null if unresolvable so the
+// enforcement shim can skip gracefully.
+function resolvePluginRoot(): string | null {
+  const env = process.env['CLAUDE_PLUGIN_ROOT'];
+  if (env && existsSync(join(env, '.claude-plugin', 'plugin.json'))) return env;
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (;;) {
+    if (existsSync(join(dir, '.claude-plugin', 'plugin.json'))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -83,6 +107,39 @@ function probeGit(cwd: string): {
   };
 }
 
+// Whether a branch ref exists in the repo at `cwd`. Mirrors the hooks'
+// rev-parse --verify probe (resolve-repo.sh): a missing ref means that repo
+// cannot run a model whose long-lived target is that branch.
+function branchExists(cwd: string, branch: string): boolean {
+  const r = spawnSync('git', ['-C', cwd, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], {
+    encoding: 'utf8',
+    timeout: 3000,
+  });
+  return r.status === 0;
+}
+
+// The repo's real default branch — same resolution order as the hooks'
+// tmb_repo_default_branch (resolve-repo.sh): origin/HEAD's target → first of
+// main/master/dev that exists → the checked-out HEAD → 'main'.
+function repoDefaultBranch(cwd: string): string {
+  const opts = { encoding: 'utf8' as const, timeout: 3000 };
+  const head = spawnSync('git', ['-C', cwd, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], opts);
+  if (head.status === 0) {
+    const b = (head.stdout ?? '').trim().replace(/^origin\//, '');
+    if (b) return b;
+  }
+  for (const cand of ['main', 'master', 'dev']) {
+    const r = spawnSync('git', ['-C', cwd, 'show-ref', '--verify', '--quiet', `refs/heads/${cand}`], opts);
+    if (r.status === 0) return cand;
+  }
+  const cur = spawnSync('git', ['-C', cwd, 'symbolic-ref', '--short', 'HEAD'], opts);
+  if (cur.status === 0) {
+    const b = (cur.stdout ?? '').trim();
+    if (b) return b;
+  }
+  return 'main';
+}
+
 function probeCli(cmd: string): { installed: boolean; authed: boolean } {
   const which = spawnSync('command', ['-v', cmd], { encoding: 'utf8', timeout: AUTH_PROBE_TIMEOUT_MS, shell: true });
   const installed = which.status === 0 && (which.stdout ?? '').trim().length > 0;
@@ -115,6 +172,58 @@ function writeConfig(db: TrajectoryDB, key: string, value: unknown): void {
      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
     [key, JSON.stringify(value)],
   );
+}
+
+// Read the four repo-scoped policy keys from the repos table — the sole source
+// of truth (#980). onboard applies policy workspace-wide (every repos row gets
+// the same values), so the representative first row reflects current state.
+// Returns null for each field on an empty repos table or a NULL column.
+function readRepoPolicy(db: TrajectoryDB): {
+  branching_model: string | null;
+  pr_target: string | null;
+  protected_branches: unknown;
+  remotes: unknown;
+} {
+  const row = db.get<{
+    target_branch: string | null;
+    branching_model: string | null;
+    protected_branches: string | null;
+    remotes: string | null;
+  }>(
+    `SELECT target_branch, branching_model, protected_branches, remotes
+       FROM repos ORDER BY name LIMIT 1`,
+  );
+  const parseJson = (s: string | null): unknown => {
+    if (!s) return null;
+    try {
+      return JSON.parse(s);
+    } catch {
+      return null;
+    }
+  };
+  return {
+    branching_model: row?.branching_model ?? null,
+    pr_target: row?.target_branch ?? null,
+    protected_branches: parseJson(row?.protected_branches ?? null),
+    remotes: parseJson(row?.remotes ?? null),
+  };
+}
+
+interface RepoPolicyRow {
+  name: string;
+  target_branch: string | null;
+  branching_model: string | null;
+}
+
+// Read one repos row by name for the per-repo onboard path. Returns null when
+// no such repo is registered — callers surface a validation error so the
+// per-repo path never writes blind.
+function readRepoRow(db: TrajectoryDB, repo: string): RepoPolicyRow | null {
+  const row = db.get<RepoPolicyRow>(
+    `SELECT name, target_branch, branching_model FROM repos WHERE name = ?`,
+    [repo],
+  );
+  return row ?? null;
 }
 
 function readOnboardedFlag(db: TrajectoryDB): boolean {
@@ -406,6 +515,11 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
             description:
               "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only — issue_sync).",
           },
+          repo: {
+            type: 'string',
+            description:
+              "Optional. Scope the branching + pr_target questions to a single repos row (Keep options seed from that repo's target_branch/branching_model). Only valid with round='main', shape='remote'. Must match an existing repos.name. Omit for workspace-wide questions.",
+          },
         },
         required: ['round'],
       },
@@ -434,19 +548,39 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
             enum: ['auto', 'off'],
             description: 'Required when shape=remote. Always "off" on local.',
           },
+          repo: {
+            type: 'string',
+            description:
+              "Optional. Scope the write to a single repos row: only that row's target_branch/branching_model/protected_branches are updated; other repos rows, remotes, issue_sync, and the onboarded marker are NOT touched. Must match an existing repos.name. Omit for the workspace-wide apply.",
+          },
         },
         required: ['shape'],
       },
     },
   ];
 
+  // The probe must run inside the sole (registered) repo's git tree, not the workspace
+  // root. In a multi-repo workspace the trajectory.db lives above the repos,
+  // so the stripped workspace path is not a git repo at all (#675) — git
+  // probes there report in_git:false and detect no remotes, persisting blank
+  // remote URLs that silently disable issue-sync. Prefer the authoritative
+  // single-repo path (path-keyed resolution); fall back to the legacy
+  // workspace-root derivation only when it can't be resolved.
+  const probeDir = (): string => {
+    const fromSoleRepo = resolveSoleRepoPath(db);
+    if (fromSoleRepo) return fromSoleRepo;
+    const workspaceRoot = dbPath
+      ? dbPath.replace(/\.claude\/[^/]+\/trajectory\.db$/, '').replace(/\/$/, '')
+      : process.cwd();
+    return workspaceRoot || process.cwd();
+  };
+
   const handlers: Record<string, Fn> = {
     onboard_state_get: requireRoles(
       'onboard_state_get',
       ['bro'],
       wrapHandler(async () => {
-        const cwd = dbPath ? dbPath.replace(/\.claude\/[^/]+\/trajectory\.db$/, '').replace(/\/$/, '') : process.cwd();
-        const git = probeGit(cwd || process.cwd());
+        const git = probeGit(probeDir());
         const gh = probeCli('gh');
         const glab = probeCli('glab');
 
@@ -457,13 +591,14 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
         // on cold restart (#95).
         const first_run = !onboarded;
 
+        const policy = readRepoPolicy(db);
         return ok({
           first_run,
           current: {
-            branching_model: readConfig(db, 'branching_model'),
-            pr_target: readConfig(db, 'pr_target'),
-            protected_branches: readConfig(db, 'protected_branches'),
-            remotes: readConfig(db, 'remotes'),
+            branching_model: policy.branching_model,
+            pr_target: policy.pr_target,
+            protected_branches: policy.protected_branches,
+            remotes: policy.remotes,
             issue_sync: readConfig(db, 'issue_sync'),
           },
           probe: {
@@ -485,19 +620,44 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
       wrapHandler(async (args) => {
         const shape = args['shape'] as 'local' | 'remote' | undefined;
         const round = args['round'] as 'shape' | 'main' | 'sync';
+        const repo = args['repo'] as string | undefined;
 
-        const cwd = dbPath ? dbPath.replace(/\.claude\/[^/]+\/trajectory\.db$/, '').replace(/\/$/, '') : process.cwd();
-        const git = probeGit(cwd || process.cwd());
+        const git = probeGit(probeDir());
 
         if (round === 'shape') {
           return ok({ questions: [shapeQuestion(git.origin_kind)] });
         }
 
+        // Per-repo path: branching + pr_target questions seeded from THAT repos
+        // row. Only valid on round='main', shape='remote'. The Keep options
+        // reflect the repo's current target_branch/branching_model; the remote
+        // provider question (git-derived) and issue_sync (global, sync round)
+        // stay out of the per-repo path.
+        if (repo !== undefined) {
+          if (round !== 'main') {
+            throw new Error(`repo param is only valid with round='main' (got '${round}')`);
+          }
+          if (shape !== 'remote') {
+            throw new Error(`repo param requires shape='remote' (got '${String(shape)}')`);
+          }
+          const repoRow = readRepoRow(db, repo);
+          if (!repoRow) {
+            throw new Error(`unknown repo '${repo}' — no matching repos row`);
+          }
+          const isReonboardRepo = repoRow.branching_model !== null;
+          const repoQuestions: BuiltQuestion[] = [
+            branchingQuestion(repoRow.branching_model, isReonboardRepo),
+            prTargetQuestion(repoRow.target_branch, repoRow.branching_model, isReonboardRepo),
+          ];
+          return ok({ questions: repoQuestions });
+        }
+
         // Re-onboard means /onboard already ran in this project — identity row exists.
         const isReonboard = readOnboardedFlag(db);
-        const currentBranching = readConfig(db, 'branching_model') as string | null;
-        const currentPrTarget = readConfig(db, 'pr_target') as string | null;
-        const currentRemotes = readConfig(db, 'remotes');
+        const policy = readRepoPolicy(db);
+        const currentBranching = policy.branching_model;
+        const currentPrTarget = policy.pr_target;
+        const currentRemotes = policy.remotes;
         const currentSync = readConfig(db, 'issue_sync') as string | null;
 
         const gh = probeCli('gh');
@@ -540,6 +700,67 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
           throw new Error(`shape must be 'local' or 'remote' (got '${shape}')`);
         }
 
+        // Per-repo path: write branching_model + derived protected_branches +
+        // target_branch to ONLY this repos row. Other repos rows, remotes,
+        // issue_sync, and the onboarded marker are untouched. Keep sentinels
+        // read from the repos row, not the global config.
+        const repo = args['repo'] as string | undefined;
+        if (repo !== undefined) {
+          const repoRow = readRepoRow(db, repo);
+          if (!repoRow) {
+            throw new Error(`unknown repo '${repo}' — no matching repos row`);
+          }
+
+          const rawBranchingRepo = args['branching_model'] as string | undefined;
+          let branchingRepo: string | undefined;
+          if (rawBranchingRepo !== undefined) {
+            const resolved = resolveOption(rawBranchingRepo, BRANCHING_OPTIONS);
+            if (resolved === KEEP_SENTINEL) {
+              branchingRepo = repoRow.branching_model ?? undefined;
+            } else if (resolved !== null) {
+              branchingRepo = resolved;
+            } else {
+              branchingRepo = rawBranchingRepo;
+            }
+          } else {
+            branchingRepo = repoRow.branching_model ?? undefined;
+          }
+          branchingRepo = branchingRepo ?? 'github-flow';
+          if (branchingRepo !== 'github-flow' && branchingRepo !== 'gitflow') {
+            throw new Error(`branching_model must be 'github-flow' or 'gitflow' (got '${branchingRepo}')`);
+          }
+
+          const rawPrTargetRepo = args['pr_target'] as string | undefined;
+          let prTargetRepo: string;
+          if (rawPrTargetRepo !== undefined) {
+            const resolved = resolveOption(rawPrTargetRepo, PR_TARGET_OPTIONS);
+            if (resolved === KEEP_SENTINEL) {
+              prTargetRepo = repoRow.target_branch ?? derivePrTargetDefault(branchingRepo);
+            } else {
+              prTargetRepo = resolved ?? rawPrTargetRepo;
+            }
+          } else {
+            prTargetRepo = repoRow.target_branch ?? derivePrTargetDefault(branchingRepo);
+          }
+
+          const protectedRepo = deriveProtectedBranches(branchingRepo, prTargetRepo);
+
+          db.run(
+            `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`,
+            [prTargetRepo, branchingRepo, JSON.stringify(protectedRepo), repo],
+          );
+
+          return ok({
+            ok: true,
+            applied: {
+              repo,
+              branching_model: branchingRepo,
+              pr_target: prTargetRepo,
+              protected_branches: protectedRepo,
+            },
+          });
+        }
+
         // Resolve branching_model — accept wire value or human-readable label.
         // Keep sentinel → omit (use existing value or local default).
         const rawBranching = args['branching_model'] as string | undefined;
@@ -547,7 +768,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
         if (rawBranching !== undefined) {
           const resolved = resolveOption(rawBranching, BRANCHING_OPTIONS);
           if (resolved === KEEP_SENTINEL) {
-            branching_model = (readConfig(db, 'branching_model') as string | null) ?? undefined;
+            branching_model = readRepoPolicy(db).branching_model ?? undefined;
           } else if (resolved !== null) {
             branching_model = resolved;
           } else {
@@ -568,7 +789,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
         if (rawPrTarget !== undefined) {
           const resolved = resolveOption(rawPrTarget, PR_TARGET_OPTIONS);
           if (resolved === KEEP_SENTINEL) {
-            pr_target = (readConfig(db, 'pr_target') as string | null) ?? derivePrTargetDefault(branching_model);
+            pr_target = readRepoPolicy(db).pr_target ?? derivePrTargetDefault(branching_model);
           } else {
             pr_target = resolved ?? rawPrTarget;
           }
@@ -578,10 +799,11 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
 
         let remotes: Array<{ name: string; provider: Provider; url: string }> = [];
         let issue_sync: 'auto' | 'off' = 'off';
+        let warning: string | undefined;
+        let remoteList: string[] = [];
         if (shape === 'remote') {
           const rawRemote = args['remote'];
           // Accept array (canonical, post-multiSelect) or string (legacy/single).
-          let remoteList: string[];
           if (Array.isArray(rawRemote)) {
             remoteList = rawRemote.filter((s): s is string => typeof s === 'string');
           } else if (typeof rawRemote === 'string') {
@@ -619,22 +841,38 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
           if (issue_sync !== 'auto' && issue_sync !== 'off') {
             throw new Error(`issue_sync must be 'auto' or 'off' (got '${String(issue_sync)}')`);
           }
+        }
 
-          const cwd = dbPath ? dbPath.replace(/\.claude\/[^/]+\/trajectory\.db$/, '').replace(/\/$/, '') : process.cwd();
-          const git = probeGit(cwd || process.cwd());
-          const findUrl = (p: Provider): string =>
-            git.detected_remotes.find((r) => r.provider === p)?.url ?? '';
-          // Stable order: github first, then gitlab. The first entry uses
-          // name='origin'; if both are present the second uses provider name.
+        // Build the chosen-provider remotes from a given repo's own git tree.
+        // Stable order: github first, then gitlab. The first entry uses
+        // name='origin'; if both are present the second uses the provider name.
+        const remotesForPath = (
+          path: string,
+        ): Array<{ name: string; provider: Provider; url: string }> => {
+          const detected = probeGit(path).detected_remotes;
+          const findUrl = (p: Provider): string => detected.find((r) => r.provider === p)?.url ?? '';
+          const out: Array<{ name: string; provider: Provider; url: string }> = [];
           const wantedGh = remoteList.includes('github');
           const wantedGl = remoteList.includes('gitlab');
-          if (wantedGh) remotes.push({ name: 'origin', provider: 'github', url: findUrl('github') });
+          if (wantedGh) out.push({ name: 'origin', provider: 'github', url: findUrl('github') });
           if (wantedGl) {
-            remotes.push({
-              name: wantedGh ? 'gitlab' : 'origin',
-              provider: 'gitlab',
-              url: findUrl('gitlab'),
-            });
+            out.push({ name: wantedGh ? 'gitlab' : 'origin', provider: 'gitlab', url: findUrl('gitlab') });
+          }
+          return out;
+        };
+
+        // The `applied` payload reflects the managed (probe) repo's resolution
+        // for backward compatibility with the single-repo summary that callers
+        // already consume.
+        if (shape === 'remote') {
+          remotes = remotesForPath(probeDir());
+          // Defensive: if the origin remote's URL is still blank after the
+          // probe, issue-sync will silently skip (blank_remote_url). Surface a
+          // warning so the operator can fix the repo's git remote rather than
+          // discover the silent skip later (#675).
+          const origin = remotes.find((r) => r.name === 'origin');
+          if (origin && origin.url.length === 0) {
+            warning = `remote URL not detected for ${origin.provider}; issues will not sync — check the repo's git remote`;
           }
         }
 
@@ -645,20 +883,64 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
           // The legacy `identity` table is dropped by the v1→v2 migration in db.ts on first boot after upgrade.
           writeConfig(db, 'onboarded', true);
 
-          writeConfig(db, 'branching_model', branching_model);
-          writeConfig(db, 'pr_target', pr_target);
-          writeConfig(db, 'protected_branches', protected_branches);
-          writeConfig(db, 'remotes', remotes);
           writeConfig(db, 'issue_sync', issue_sync);
 
-          db.run(
-            `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?`,
-            [pr_target, branching_model, JSON.stringify(protected_branches)],
+          // The repos table is the sole source of truth for the four repo-scoped
+          // keys (#980). Reconcile each repo against ITS OWN git tree rather than
+          // blasting the managed repo's policy onto every row (#13): a sibling
+          // that lacks the chosen long-lived target branch cannot run the chosen
+          // gitflow model, so it is downgraded to github-flow + its real default
+          // branch. Remotes are probed from each repo's own path so scan-captured
+          // per-repo remotes (#979) survive. A repo whose git tree can't be probed
+          // falls back to the chosen policy as-is (no worse than before).
+          const rows = db.all<{ name: string; path: string }>(
+            `SELECT name, path FROM repos`,
           );
+          for (const row of rows) {
+            let effModel = branching_model;
+            let effTarget = pr_target;
+            let effRemotes = shape === 'remote' ? remotes : [];
+            try {
+              // Only reconcile against a repo that is actually a git tree. A
+              // non-git path (or a probe failure) keeps the chosen policy as-is
+              // — no worse than before, and single-repo behavior stays identical.
+              if (probeGit(row.path).in_git) {
+                if (effModel === 'gitflow' && !branchExists(row.path, pr_target)) {
+                  effModel = 'github-flow';
+                  effTarget = repoDefaultBranch(row.path);
+                }
+                if (shape === 'remote') {
+                  effRemotes = remotesForPath(row.path);
+                }
+              }
+            } catch {
+              // Git probe threw — keep the chosen policy and managed-repo
+              // remotes; onboarding must not fail.
+              effModel = branching_model;
+              effTarget = pr_target;
+              effRemotes = shape === 'remote' ? remotes : [];
+            }
+            const effProtected = deriveProtectedBranches(effModel, effTarget);
+            db.run(
+              `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?, remotes = ? WHERE name = ?`,
+              [effTarget, effModel, JSON.stringify(effProtected), JSON.stringify(effRemotes), row.name],
+            );
+          }
         });
+
+        // Best-effort: write TMB PreToolUse hooks into the user settings.json so
+        // enforcement fires in non-interactive `claude -p` runs under a
+        // marketplace install (plugin hooks don't fire there). A failure must
+        // NOT fail onboarding.
+        try {
+          writeUserSettingsEnforcementShim({ pluginRoot: resolvePluginRoot(), homeDir: os.homedir() });
+        } catch {
+          // Shim is best-effort; onboarding still succeeds.
+        }
 
         return ok({
           ok: true,
+          ...(warning ? { warning } : {}),
           applied: {
             onboarded: true,
             branching_model,
@@ -666,6 +948,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = ''): {
             protected_branches,
             remotes,
             issue_sync,
+            ...(warning ? { warning } : {}),
           },
         });
       }),

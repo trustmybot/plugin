@@ -46,9 +46,9 @@ Source: `CLAUDE.md` (no `agents/bro.md` — bro is a persona on main Claude).
 
 1. `session-start-prescan.sh` (auto hook — inventory) → decide
 2. `branch_id_propose` MCP composite (open MCP issue + propose `branch_id`)
-3. `tmb_planning` skill — cold-start judgment + spec authoring (defaults table + ADR when the change touches `docs/trustmybot/architecture/`, schema, public API, or external side effects)
-4. **bro pre-creates the task branch** from `origin/<pr_target>` — `git fetch origin && git branch <task.branch_id> origin/<pr_target>`
-5. `task_create_batch(emit_planning_complete=true)` + spawn SWE [batched]
+3. `tmb_planning` skill — cold-start judgment + spec authoring (defaults table + a `kind=decision` discussion when the change is architectural: new boundary/module, public API, schema, strategic stack, external side effects)
+4. `task_provision(issue_id, branch_id, decision_body, task, base?)` MCP composite — one DB transaction: writes the `kind='decision'` discussion + creates the task (with `planning_complete`); then the git side-effects after commit (branch ref + worktree, idempotent/fail-soft). Returns the spawn-ready shape (`task_id`, `branch_id`, `worktree_path`, `git_setup`).
+5. spawn SWE against the provisioned branch + worktree
 6. SWE returns
 7. **bro verification (V1/V2/V3)**:
    - V1 — files match the spec's `## Files`
@@ -59,12 +59,12 @@ Source: `CLAUDE.md` (no `agents/bro.md` — bro is a persona on main Claude).
 ### Server-enforced privileges (Layer 1)
 
 Bro is the only agent allowed to call:
-- `task_create_batch`
+- `task_provision`
 - `task_update_status` (shared with SWE; bro writes `closed`, SWE writes `completed`/`failed`)
 - `issue_create`, `issue_close`, `issue_resume`
 - `discussion_append` for `kind='intent'`
 - `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_finalize_decisions`, `roundtable_summarize`
-- `pr_comments_get` (shared with pr-reviewer)
+- `pr_monitor_comments_get` (shared with pr-reviewer)
 - `issue_sync_retry`
 - `onboard_state_get`, `onboard_get_questions`, `onboard_apply` (write `plugin_config('onboarded')` and the related policy keys)
 - `scan_run` (single scan-side tool)
@@ -76,7 +76,7 @@ Bro is the only agent allowed to call:
 | `activation-routine.sh` | UserPromptSubmit | Inject onboarded marker + pending issue as context |
 | `session-start-prescan.sh` | SessionStart | Inject project inventory (git state, stacks, world-model warmth); emit the active `Plugin version:` line, plus a "restart to apply" note when a newer version sits in the marketplace cache (#602) |
 | `ensure-gitignore.sh` | SessionStart | Ensure `.claude/` is gitignored |
-| `no-source-edit-from-main.sh` | PreToolUse Edit/Write | Deny bro source edits outside SWE worktree, scoped to the managed repo: Rule 1 only guards the `tmb_default_repo` subtree, so absolute edits to sibling repos in a multi-repo workspace are allowed; an empty or `.` `tmb_default_repo` guards the whole tree (#592) |
+| `no-source-edit-from-main.sh` | PreToolUse Edit/Write | Deny bro source edits outside SWE worktree, scoped by registration: Rule 1 only guards registered repo subtrees (a `repos` row matched by path), so absolute edits to unregistered sibling repos in a multi-repo workspace are allowed (#592) |
 | `no-worktree-branch-create.sh` | PreToolUse Bash | Deny `git worktree add -b/-B/--detach` (branch authority is bro's pre-creation; attached worktrees only) |
 | `branch-up-to-date-with-remote.sh` | PreToolUse Bash | Deny worktree-add to a branch behind `origin/<pr_target>` |
 | `cleanup-worktree-on-task-close.sh` | PostToolUse `task_update_status` | Remove worktree after bro closes task |
@@ -84,7 +84,7 @@ Bro is the only agent allowed to call:
 
 ### Universal rules
 
-- **Bro never edits source code** — every code change goes through SWE (Layer 2 hook enforces). The guard is scoped to the managed repo (`tmb_default_repo`): sibling repos in a multi-repo workspace are outside Rule 1's scope, while an empty/`.` default guards the whole tree (#592).
+- **Bro never edits source code** — every code change goes through SWE (Layer 2 hook enforces). The guard is scoped by registration: a code edit is guarded only when its path resolves to a registered `repos` row, so unregistered sibling repos in a multi-repo workspace are outside Rule 1's scope (#592). See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md).
 - **Voice**: relaxed tone, action-first, no padding.
 
 ---
@@ -115,8 +115,8 @@ Batch in one response:
 
 - `task_get` (all agents)
 - `task_update_status` for `completed`/`failed` (bro owns `closed`)
-- `audit_log`
-- `discussion_append` for `kind='note'/'concern'`
+- `audit_append`
+- `discussion_append` for `kind='note'`
 
 ### Hooks fired against SWE actions
 
@@ -131,7 +131,7 @@ Batch in one response:
 
 - Push (any `git push`)
 - Edit outside the worktree
-- Author the spec body (server enforces — bro-only on `task_create_batch`)
+- Author the spec body (server enforces — bro-only on `task_provision`)
 - Bypass any PreToolUse hook block — STOP and surface the hook output to bro instead
 
 ---
@@ -145,7 +145,7 @@ Frontmatter: `model: opus`, `tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tm
 - Fires at **push time** over a batch of unsigned tasks (NOT per individual task close).
 - Bro spawns one pr-reviewer per unsigned `task_id=<N>` (parallel siblings when the push contains multiple).
 - First action: `task_get(agent='pr-reviewer', task_id=N)`. Reject spawn if `task_id` missing.
-- **MCP availability self-test** — first line of `validation_record.feedback` is `MCP available: yes` or `MCP available: no — honor-system fallback`. Schema CHECK enforces (`validation_attempts.feedback`); push-gate parses this prefix.
+- **MCP availability self-test** — pass the typed `mcp_available` boolean to `validation_record` (`true` = MCP up, `false` = honor-system fallback). It lands in the `validation_attempts.mcp_available` column; the push-gate reads the typed field from the row.
 
 ### Review work
 
@@ -159,8 +159,8 @@ For each task, diff against the spec's `## Files`, `## Success Criteria`, `## Ve
 
 - `validation_record` — pr-reviewer is the **only** writer
 - `issue_snapshot_md` (shared with consultants)
-- `pr_comments_get` (shared with bro)
-- `audit_log`, `discussion_append`
+- `pr_monitor_comments_get` (shared with bro)
+- `audit_append`, `discussion_append`
 
 ### Hooks fired against pr-reviewer actions
 
@@ -181,9 +181,9 @@ Templates in `templates/agents/<name>.md`, instantiated per-project on demand vi
 
 ### Server-enforced constraints (Layer 1)
 
-Consultants **cannot write workflow state**: `task_create_batch`, `task_update_status`, `issue_create`, `issue_close`, `validation_record` all return `forbidden`.
+Consultants **cannot write workflow state**: `task_provision`, `task_update_status`, `issue_create`, `issue_close`, `validation_record` all return `forbidden`.
 
-They **can write analyses**: `discussion_append(kind='analysis'|'concern')`, `audit_log`. Architect specifically also gets `issue_snapshot_md`.
+They **can write analyses**: `discussion_append(kind='analysis')`, `audit_append`. Architect specifically also gets `issue_snapshot_md`.
 
 ### Spawn pattern
 
@@ -198,11 +198,11 @@ Source of truth: `mcp/trajectory-server/src/middleware/agent-scope.ts` `requireR
 | Tool | bro | swe | pr-reviewer | consultants |
 |---|:---:|:---:|:---:|:---:|
 | `issue_create` / `issue_close` | ✓ | | | |
-| `task_create_batch` | ✓ | | | |
+| `task_provision` | ✓ | | | |
 | `task_update_status(closed)` | ✓ | | | |
 | `task_update_status(completed/failed)` | ✓ | ✓ | | |
 | `validation_record` | | | ✓ | |
 | `world_model_get` / `world_model_search` | ✓ | ✓ | ✓ | |
 | `onboard_*` (state_get/get_questions/apply) | ✓ | | | |
-| `discussion_append` | any kind | note/concern | any | analysis/concern |
-| `audit_log`, `task_get` | ✓ | ✓ | ✓ | ✓ |
+| `discussion_append` | any kind | note | any | analysis |
+| `audit_append`, `task_get` | ✓ | ✓ | ✓ | ✓ |

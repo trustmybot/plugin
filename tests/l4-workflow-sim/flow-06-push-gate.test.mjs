@@ -24,6 +24,7 @@ test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer sign
   // Setup: 2 closed tasks ready to push (simulating Flow 2 already ran twice)
   const issue = await call(client, 'issue_create', {
     agent: 'bro', objective: 'Two things', description: 'd',
+    labels: ['Feature', 'Priority: Medium'],
   });
   const issueId = issue.data.id;
 
@@ -38,8 +39,8 @@ test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer sign
     waive_decision_gate: true,
     waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
     tasks: [
-      { branch_id: 'feat/a', title: 'A', description: 'd', spec_body: '## Files\n- src/a.js\n## Success Criteria\n- A works\n## Verification\n```\nbun test tests/a\n```' },
-      { branch_id: 'feat/b', title: 'B', description: 'd', spec_body: '## Files\n- src/b.js\n## Success Criteria\n- B works\n## Verification\n```\nbun test tests/b\n```' },
+      { branch_id: 'feat/a', title: 'A', description: 'd', spec_body: '## Success Criteria\n- A works' },
+      { branch_id: 'feat/b', title: 'B', description: 'd', spec_body: '## Success Criteria\n- B works' },
     ],
   });
   assert.equal(batch.ok, true, JSON.stringify(batch));
@@ -52,8 +53,10 @@ test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer sign
     await call(client, 'task_update_status', {
       agent: 'swe', task_id: id, status: 'completed', commit_sha: sha,
     });
-    await call(client, 'task_update_status', {
-      agent: 'bro', task_id: id, status: 'closed',
+    await call(client, 'bro_atomic_close', {
+      agent: 'bro', task_id: id, commit_sha: sha,
+      verification_summary: 'V1/V2/V3 verified; closing pre-push.',
+      waive_scope_gate: true,
     });
   }
 
@@ -76,16 +79,16 @@ test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer sign
 
   // 3. pr-reviewer signs off task A
   const recordA = await call(client, 'validation_record', {
-    agent: 'pr-reviewer', task_id: taskA, attempt_n: 1, verdict: 'pass',
-    feedback: 'MCP available: yes\nGate 2 review: tests pass; diff matches spec; LGTM.',
+    agent: 'pr-reviewer', task_id: taskA, attempt_n: 1, verdict: 'pass', mcp_available: true,
+    feedback: 'Gate 2 review: tests pass; diff matches spec; LGTM.',
     subagent_session_id: 'flow06-session-A',
   });
   assert.equal(recordA.ok, true, `pr-reviewer→A: ${JSON.stringify(recordA)}`);
 
   // 4. pr-reviewer signs off task B
   const recordB = await call(client, 'validation_record', {
-    agent: 'pr-reviewer', task_id: taskB, attempt_n: 1, verdict: 'pass',
-    feedback: 'MCP available: yes\nGate 2 review: clean.',
+    agent: 'pr-reviewer', task_id: taskB, attempt_n: 1, verdict: 'pass', mcp_available: true,
+    feedback: 'Gate 2 review: clean.',
     subagent_session_id: 'flow06-session-B',
   });
   assert.equal(recordB.ok, true);
@@ -106,7 +109,7 @@ test('Flow 6 fail-path — pr-reviewer FAIL verdict triggers retry signal in nex
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
-  const issue = await call(client, 'issue_create', { agent: 'bro', objective: 'X', description: 'd' });
+  const issue = await call(client, 'issue_create', { agent: 'bro', objective: 'X', description: 'd', labels: ['Feature', 'Priority: Medium'] });
   const issueId = issue.data.id;
   const batch = await call(client, 'task_create_batch', {
     agent: 'bro', issue_id: issueId,
@@ -118,7 +121,7 @@ test('Flow 6 fail-path — pr-reviewer FAIL verdict triggers retry signal in nex
     waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
     waive_decision_gate: true,
     waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
-    tasks: [{ branch_id: 'fix/x', title: 't', description: 'd', spec_body: '## Files\n- src/x.js\n## Success Criteria\n- x fixed\n## Verification\n```\nbun test tests/x\n```' }],
+    tasks: [{ branch_id: 'fix/x', title: 't', description: 'd', spec_body: '## Success Criteria\n- x fixed' }],
   });
   const taskId = Array.isArray(batch.data) ? batch.data[0]?.id : batch.data.tasks?.[0]?.id;
 
@@ -126,20 +129,25 @@ test('Flow 6 fail-path — pr-reviewer FAIL verdict triggers retry signal in nex
     agent: 'swe', task_id: taskId, status: 'completed',
     commit_sha: 'ccc3333333333333333333333333333333333333',
   });
-  await call(client, 'task_update_status', { agent: 'bro', task_id: taskId, status: 'closed' });
+  await call(client, 'bro_atomic_close', {
+    agent: 'bro', task_id: taskId,
+    commit_sha: 'ccc3333333333333333333333333333333333333',
+    verification_summary: 'V1/V2/V3 verified; closing pre-push.',
+    waive_scope_gate: true,
+  });
 
   // attempt 1: FAIL
   const fail1 = await call(client, 'validation_record', {
-    agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'fail',
-    feedback: 'MCP available: yes\nTests reference removed module; please fix.',
+    agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'fail', mcp_available: true,
+    feedback: 'Tests reference removed module; please fix.',
     subagent_session_id: 'flow06-fail-session-1',
   });
   assert.equal(fail1.ok, true);
 
   // attempt 2: pass after fix
   const pass2 = await call(client, 'validation_record', {
-    agent: 'pr-reviewer', task_id: taskId, attempt_n: 2, verdict: 'pass',
-    feedback: 'MCP available: yes\nFixed; LGTM.',
+    agent: 'pr-reviewer', task_id: taskId, attempt_n: 2, verdict: 'pass', mcp_available: true,
+    feedback: 'Fixed; LGTM.',
     subagent_session_id: 'flow06-pass-session-2',
   });
   assert.equal(pass2.ok, true);

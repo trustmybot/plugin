@@ -1,0 +1,2201 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, rmSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { tempDB } from './helpers.js';
+import { TrajectoryDB } from '../db.js';
+import { cheatcodeTools, projectRootFromDbPath } from '../tools/cheatcode.js';
+import { sep } from 'node:path';
+
+// The plugin root on disk — four levels up from dist/test, the same walk the
+// tool's script resolution uses. Carries .claude-plugin/plugin.json, whose
+// version the builtin-version backfill (#111) reads.
+const PLUGIN_ROOT = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  '..',
+  '..',
+);
+
+// The real cheatcode-uninstall.sh on disk — same resolution the tool uses
+// (dist/test → ../../../../scripts). Run directly so the mcp-deregister branch
+// is exercised on the real dispatch, not a fixtured shortcut.
+const UNINSTALL_SCRIPT = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  '..',
+  '..',
+  'scripts',
+  'cheatcode-uninstall.sh',
+);
+
+const INSTALL_SCRIPT = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  '..',
+  '..',
+  'scripts',
+  'cheatcode-install.sh',
+);
+
+// Run the script with a PATH that has jq/bash coreutils but NO `claude`, so the
+// teardown adapters take their soft-degrade branch deterministically. This lets
+// us assert which dispatch branch (plugin marketplace vs mcp deregister) ran by
+// its method + error note, without touching the network or a real CLI.
+function runUninstallScript(candidate: { name: string; kind: string; source_url: string }): {
+  removed: boolean;
+  method: string;
+  error: string | null;
+} {
+  const r = spawnSync('bash', [UNINSTALL_SCRIPT, '--candidate', JSON.stringify(candidate)], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: '/usr/bin:/bin' },
+  });
+  assert.equal(r.status, 0, `script exited non-zero: ${r.stderr}`);
+  return JSON.parse(r.stdout);
+}
+
+type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
+
+function parse(r: RawResult): Record<string, unknown> {
+  return JSON.parse(r.content[0].text);
+}
+
+async function call(
+  handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<RawResult> {
+  const h = handlers[name];
+  assert.ok(h, `handler not found: ${name}`);
+  return h(args) as unknown as RawResult;
+}
+
+// cheatcode_install is fail-closed behind a server-side approval gate (#1023):
+// it only runs when a matching cheatcode_approved audit row exists for the
+// candidate's source_url. Seed that approval (via the real cheatcode_approve
+// handler) then invoke install — the default path for tests that aren't
+// exercising the gate itself.
+async function callInstall(
+  handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
+  args: Record<string, unknown>,
+): Promise<RawResult> {
+  const candidate = args['candidate'];
+  if (candidate && typeof candidate === 'object') {
+    await call(handlers, 'cheatcode_approve', { agent: 'bro', candidate });
+  }
+  return call(handlers, 'cheatcode_install', args);
+}
+
+// Mixed-tier fixture. The curated (tier 2) candidate is given STRICTLY MORE
+// relevance than the official (tier 1) one, so a tier-blind ranker would float
+// it to the top. Tier dominance (200 base vs 100) must keep official first.
+const FIXTURE = JSON.stringify([
+  {
+    name: 'curated-pdf',
+    kind: 'skill',
+    source_url: 'https://example.test/curated-pdf',
+    description: 'extract pdf table data from documents',
+    registry: 'pulsemcp',
+    tier: 2,
+  },
+  {
+    name: 'official-pdf',
+    kind: 'skill',
+    source_url: 'https://example.test/official-pdf',
+    description: 'pdf tooling',
+    registry: 'mcp-official',
+    tier: 1,
+  },
+  {
+    name: 'unrelated-thing',
+    kind: 'mcp',
+    source_url: 'https://example.test/unrelated',
+    description: 'manages kubernetes clusters',
+    registry: 'mcp-official',
+    tier: 1,
+  },
+]);
+
+describe('cheatcode_search', () => {
+  function withFixture(): { dir: string; path: string; cleanup: () => void } {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-'));
+    const path = join(dir, 'candidates.json');
+    writeFileSync(path, FIXTURE);
+    return { dir, path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+
+  it('ranks official (tier 1) above curated (tier 2) even when curated is more relevant', async () => {
+    const db = tempDB();
+    const { path, cleanup } = withFixture();
+    process.env['TMB_CHEATCODE_SEARCH_FIXTURE'] = path;
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await call(tools.handlers, 'cheatcode_search', {
+        agent: 'bro',
+        capability_query: 'pdf table extraction',
+      });
+      const out = parse(r);
+      const candidates = out['candidates'] as Array<{
+        name: string;
+        score: number;
+        signals: { registry: string; tier: number; relevance: number };
+      }>;
+      assert.ok(candidates.length >= 2, 'at least two candidates returned');
+      for (let i = 1; i < candidates.length; i++) {
+        assert.ok(
+          candidates[i - 1].score >= candidates[i].score,
+          `score order violated at index ${i}`,
+        );
+      }
+      // official-pdf (tier 1, relevance 1) must beat curated-pdf (tier 2, relevance 2):
+      // tier dominance (200 base) outweighs the curated candidate's extra relevance.
+      assert.equal(candidates[0].name, 'official-pdf');
+      assert.equal(candidates[0].signals.tier, 1);
+      const official = candidates.find((c) => c.name === 'official-pdf')!;
+      const curated = candidates.find((c) => c.name === 'curated-pdf')!;
+      assert.ok(curated.signals.relevance > official.signals.relevance, 'curated is more relevant');
+      assert.ok(official.score > curated.score, 'official still outscores curated by tier');
+      assert.equal(official.signals.registry, 'mcp-official');
+      assert.equal(curated.signals.registry, 'pulsemcp');
+    } finally {
+      delete process.env['TMB_CHEATCODE_SEARCH_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('filters candidates by kind', async () => {
+    const db = tempDB();
+    const { path, cleanup } = withFixture();
+    process.env['TMB_CHEATCODE_SEARCH_FIXTURE'] = path;
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await call(tools.handlers, 'cheatcode_search', {
+        agent: 'bro',
+        capability_query: 'pdf',
+        kind: 'skill',
+      });
+      const out = parse(r);
+      const candidates = out['candidates'] as Array<{ kind: string }>;
+      assert.ok(candidates.every((c) => c.kind === 'skill'), 'all candidates are skills');
+      assert.equal(out['kind'], 'skill');
+    } finally {
+      delete process.env['TMB_CHEATCODE_SEARCH_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('writes a cheatcode_search audit row', async () => {
+    const db = tempDB();
+    const { path, cleanup } = withFixture();
+    process.env['TMB_CHEATCODE_SEARCH_FIXTURE'] = path;
+    try {
+      const tools = cheatcodeTools(db);
+      await call(tools.handlers, 'cheatcode_search', {
+        agent: 'bro',
+        capability_query: 'pdf table extraction',
+      });
+      const row = db.get<{ event_type: string; content_json: string }>(
+        `SELECT event_type, content_json FROM audit WHERE event_type = 'cheatcode_search' ORDER BY id DESC LIMIT 1`,
+      );
+      assert.ok(row, 'cheatcode_search audit row exists');
+      const content = JSON.parse(row!.content_json);
+      assert.equal(content.query, 'pdf table extraction');
+      assert.ok(typeof content.candidate_count === 'number');
+    } finally {
+      delete process.env['TMB_CHEATCODE_SEARCH_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('rejects a non-bro caller', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const r = await call(tools.handlers, 'cheatcode_search', {
+      agent: 'swe',
+      capability_query: 'pdf',
+    });
+    assert.equal(r.isError, true);
+    const out = parse(r);
+    assert.equal(out['error'], 'forbidden');
+  });
+});
+
+// Vet fixtures stub the network exactly as TMB_CHEATCODE_VET_FIXTURE intends:
+// the {repo, contents} object stands in for the best-effort GitHub responses.
+const VET_OFFICIAL = JSON.stringify({
+  repo: {
+    stargazers_count: 1200,
+    forks_count: 80,
+    pushed_at: '2026-05-01T00:00:00Z',
+    archived: false,
+    license: { spdx_id: 'MIT' },
+    owner: { login: 'anthropics', type: 'Organization' },
+  },
+  contents: ['README.md', 'LICENSE'],
+});
+
+const VET_EXEC = JSON.stringify({
+  repo: {
+    stargazers_count: 9000,
+    forks_count: 800,
+    pushed_at: '2026-06-01T00:00:00Z',
+    archived: false,
+    license: { spdx_id: 'Apache-2.0' },
+    owner: { login: 'someorg', type: 'Organization' },
+  },
+  contents: ['README.md', 'hooks', 'scripts'],
+});
+
+const VET_ARCHIVED = JSON.stringify({
+  repo: {
+    stargazers_count: 50,
+    forks_count: 2,
+    pushed_at: '2022-01-01T00:00:00Z',
+    archived: true,
+    license: { spdx_id: 'MIT' },
+    owner: { login: 'x', type: 'User' },
+  },
+});
+
+const VET_EMPTY = JSON.stringify({});
+
+type VetCand = { name: string; kind: string; source_url: string; tier?: number };
+type VetResult = {
+  candidate: VetCand;
+  signals: {
+    reputation: { registry_tier: number | null; stars: number | null; forks: number | null };
+    maintenance: { pushed_at: string | null; archived: boolean; active: boolean | null };
+    license: string | null;
+    maintainer: { login: string | null; type: string | null };
+    security_surface: { code_execution: boolean; network: boolean; fs_writes: boolean };
+  };
+  trust_tier: string;
+  rationale: string;
+  capabilities: string[];
+};
+
+describe('cheatcode_vet', () => {
+  function withFixture(body: string): { path: string; cleanup: () => void } {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-vet-'));
+    const path = join(dir, 'signals.json');
+    writeFileSync(path, body);
+    return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+
+  async function vet(body: string, candidate: VetCand): Promise<VetResult> {
+    const db = tempDB();
+    const { path, cleanup } = withFixture(body);
+    process.env['TMB_CHEATCODE_VET_FIXTURE'] = path;
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await call(tools.handlers, 'cheatcode_vet', { agent: 'bro', candidate });
+      assert.notEqual(r.isError, true, `vet errored: ${r.content[0]?.text}`);
+      return parse(r) as unknown as VetResult;
+    } finally {
+      delete process.env['TMB_CHEATCODE_VET_FIXTURE'];
+      cleanup();
+    }
+  }
+
+  it('classifies an official tier-1 candidate with no exec surface as trusted', async () => {
+    const out = await vet(VET_OFFICIAL, {
+      name: 'official-pdf',
+      kind: 'skill',
+      source_url: 'https://github.com/anthropics/pdf',
+      tier: 1,
+    });
+    assert.equal(out.trust_tier, 'trusted');
+    assert.deepEqual(out.capabilities, []);
+    assert.equal(out.signals.reputation.registry_tier, 1);
+    assert.equal(out.signals.reputation.stars, 1200);
+    assert.equal(out.signals.license, 'MIT');
+    assert.equal(out.signals.maintainer.login, 'anthropics');
+  });
+
+  it('orders tiers: trusted > caution > untrusted > unknown by signal strength', async () => {
+    const trusted = await vet(VET_OFFICIAL, {
+      name: 'a',
+      kind: 'skill',
+      source_url: 'https://github.com/anthropics/pdf',
+      tier: 1,
+    });
+    const caution = await vet(VET_EXEC, {
+      name: 'b',
+      kind: 'skill',
+      source_url: 'https://github.com/someorg/hooky',
+    });
+    const untrusted = await vet(VET_ARCHIVED, {
+      name: 'c',
+      kind: 'skill',
+      source_url: 'https://github.com/x/old',
+      tier: 2,
+    });
+    const unknown = await vet(VET_EMPTY, {
+      name: 'd',
+      kind: 'skill',
+      source_url: 'https://gitlab.com/x/y',
+    });
+    assert.equal(trusted.trust_tier, 'trusted');
+    assert.equal(caution.trust_tier, 'caution');
+    assert.equal(untrusted.trust_tier, 'untrusted');
+    assert.equal(unknown.trust_tier, 'unknown');
+  });
+
+  it('flags code_execution for a candidate that ships hooks/scripts and never trusts it on popularity', async () => {
+    const out = await vet(VET_EXEC, {
+      name: 'hooky',
+      kind: 'skill',
+      source_url: 'https://github.com/someorg/hooky',
+    });
+    assert.ok(out.capabilities.includes('code_execution'), 'code_execution flagged');
+    assert.equal(out.signals.security_surface.code_execution, true);
+    assert.notEqual(out.trust_tier, 'trusted', 'popular code-executing cheatcode is never trusted');
+    assert.equal(out.trust_tier, 'caution');
+  });
+
+  it('degrades to unknown on an empty/failed signal set and never throws', async () => {
+    const out = await vet(VET_EMPTY, {
+      name: 'mystery',
+      kind: 'skill',
+      source_url: 'https://gitlab.com/x/y',
+    });
+    assert.equal(out.trust_tier, 'unknown');
+    assert.equal(out.signals.reputation.stars, null);
+    assert.equal(out.signals.maintainer.login, null);
+  });
+
+  it('is deterministic: identical input yields identical output', async () => {
+    const cand: VetCand = { name: 'hooky', kind: 'skill', source_url: 'https://github.com/someorg/hooky' };
+    const a = await vet(VET_EXEC, cand);
+    const b = await vet(VET_EXEC, cand);
+    assert.deepEqual(a, b);
+  });
+
+  it('writes a cheatcode_vet audit row carrying the candidate + tier', async () => {
+    const db = tempDB();
+    const { path, cleanup } = withFixture(VET_OFFICIAL);
+    process.env['TMB_CHEATCODE_VET_FIXTURE'] = path;
+    try {
+      const tools = cheatcodeTools(db);
+      await call(tools.handlers, 'cheatcode_vet', {
+        agent: 'bro',
+        candidate: { name: 'official-pdf', kind: 'skill', source_url: 'https://github.com/anthropics/pdf', tier: 1 },
+      });
+      const row = db.get<{ event_type: string; content_json: string }>(
+        `SELECT event_type, content_json FROM audit WHERE event_type = 'cheatcode_vet' ORDER BY id DESC LIMIT 1`,
+      );
+      assert.ok(row, 'cheatcode_vet audit row exists');
+      const content = JSON.parse(row!.content_json);
+      assert.equal(content.candidate.name, 'official-pdf');
+      assert.equal(content.trust_tier, 'trusted');
+      assert.ok(Array.isArray(content.capabilities));
+    } finally {
+      delete process.env['TMB_CHEATCODE_VET_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('rejects a non-bro caller', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const r = await call(tools.handlers, 'cheatcode_vet', {
+      agent: 'swe',
+      candidate: { name: 'x', kind: 'skill', source_url: 'https://github.com/x/y' },
+    });
+    assert.equal(r.isError, true);
+    const out = parse(r);
+    assert.equal(out['error'], 'forbidden');
+  });
+});
+
+// Install fixtures stub the marketplace exactly as TMB_CHEATCODE_INSTALL_FIXTURE
+// intends: the {installed, version} object stands in for the marketplace call.
+const INSTALL_OK = JSON.stringify({ installed: true, version: '1.2.3' });
+
+describe('cheatcode_install', () => {
+  function withFixture(body: string): { path: string; cleanup: () => void } {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-install-'));
+    const path = join(dir, 'install.json');
+    writeFileSync(path, body);
+    return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+
+  // Offline proof of the marketplace-ref fix (#108), un-fixtured per #109: run
+  // the REAL script with a stubbed `claude` on PATH that records every argv to a
+  // file. The script must register the source URL as a marketplace, then install
+  // by <name>@<marketplace> — and must NEVER pass the bare URL to `plugin install`.
+  it('marketplace install: registers the URL then installs name@marketplace, never the bare URL', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-stub-'));
+    const argvLog = join(dir, 'argv.log');
+    const fakeClaude = join(dir, 'claude');
+    // The stub records its argv (one call per line, args tab-joined) and emits a
+    // marketplace name on `marketplace add` so name resolution from the add
+    // output succeeds. Exits 0 for every invocation.
+    writeFileSync(
+      fakeClaude,
+      [
+        '#!/usr/bin/env bash',
+        `printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}`,
+        `if [ "$1" = "plugin" ] && [ "$2" = "marketplace" ] && [ "$3" = "add" ]; then`,
+        `  echo "Adding marketplace…Marketplace 'stub-mkt' added"`,
+        'fi',
+        'exit 0',
+        '',
+      ].join('\n'),
+    );
+    chmodSync(fakeClaude, 0o755);
+    try {
+      const url = 'https://github.com/x/pdf-plugin.git';
+      const r = spawnSync(
+        'bash',
+        [
+          INSTALL_SCRIPT,
+          '--candidate',
+          JSON.stringify({ name: 'pdf-plugin', kind: 'plugin', source_url: url }),
+        ],
+        {
+          encoding: 'utf8',
+          // Prepend the stub dir so its `claude` shadows any real CLI, while
+          // keeping the inherited PATH so jq/timeout still resolve. No
+          // TMB_CHEATCODE_INSTALL_FIXTURE and a CWD with no default fixture file,
+          // so the live marketplace adapter actually runs against the stub.
+          env: {
+            ...process.env,
+            PATH: `${dir}:${process.env['PATH'] ?? ''}`,
+            TMB_CHEATCODE_INSTALL_FIXTURE: '',
+          },
+          cwd: dir,
+        },
+      );
+      assert.equal(r.status, 0, `script exited non-zero: ${r.stderr}`);
+      const out = JSON.parse(r.stdout);
+      assert.equal(out.installed, true, 'stubbed install reports installed');
+
+      const calls = readFileSync(argvLog, 'utf8').trim().split('\n');
+      const addCall = calls.find((c) => c.startsWith('plugin marketplace add '));
+      const installCall = calls.find((c) => /^plugin install /.test(c));
+      assert.ok(addCall, `expected a 'plugin marketplace add' call; calls:\n${calls.join('\n')}`);
+      assert.ok(addCall!.includes(url), `marketplace add carries the source URL: ${addCall}`);
+      assert.ok(installCall, `expected a 'plugin install' call; calls:\n${calls.join('\n')}`);
+      assert.ok(
+        installCall!.startsWith('plugin install pdf-plugin@'),
+        `install uses name@marketplace, got: ${installCall}`,
+      );
+      // The load-bearing invariant: the bare URL is NEVER passed to install.
+      assert.ok(
+        !calls.some((c) => c === `plugin install ${url}` || c.startsWith(`plugin install ${url} `)),
+        `no call installs the bare URL; calls:\n${calls.join('\n')}`,
+      );
+      // The add must precede the install.
+      assert.ok(
+        calls.indexOf(addCall!) < calls.indexOf(installCall!),
+        'marketplace add runs before install',
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // Offline proof of the mcp dispatch split (#120): an mcp-kind repo has no
+  // marketplace manifest, so it must route to `claude mcp add` (mcp_register),
+  // NEVER to `plugin marketplace add` / `plugin install`. Run the REAL script
+  // with a stubbed `claude` on PATH that records every argv; whether the add
+  // succeeds or soft-degrades, the load-bearing invariant is that no plugin
+  // marketplace call is made for the mcp kind.
+  it('mcp kind routes to claude mcp add, never plugin marketplace add/install', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-stub-mcp-'));
+    const argvLog = join(dir, 'argv.log');
+    const fakeClaude = join(dir, 'claude');
+    writeFileSync(
+      fakeClaude,
+      [
+        '#!/usr/bin/env bash',
+        `printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}`,
+        'exit 0',
+        '',
+      ].join('\n'),
+    );
+    chmodSync(fakeClaude, 0o755);
+    try {
+      const url = 'https://github.com/x/pdf-mcp.git';
+      const r = spawnSync(
+        'bash',
+        [
+          INSTALL_SCRIPT,
+          '--candidate',
+          JSON.stringify({ name: 'pdf-mcp', kind: 'mcp', source_url: url }),
+        ],
+        {
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            PATH: `${dir}:${process.env['PATH'] ?? ''}`,
+            TMB_CHEATCODE_INSTALL_FIXTURE: '',
+          },
+          cwd: dir,
+        },
+      );
+      assert.equal(r.status, 0, `script exited non-zero: ${r.stderr}`);
+      const out = JSON.parse(r.stdout);
+      assert.equal(out.method, 'mcp-register', 'mcp kind emits the mcp-register method');
+
+      const calls = readFileSync(argvLog, 'utf8').trim().split('\n').filter(Boolean);
+      // The add is attempted via `claude mcp add` (or, had the CLI been absent, a
+      // clean soft-degrade — but here the stub is present so the add fires).
+      assert.ok(
+        calls.some((c) => c.startsWith('mcp add ')),
+        `expected a 'claude mcp add' call; calls:\n${calls.join('\n')}`,
+      );
+      // The load-bearing invariant: mcp kind NEVER touches the plugin marketplace.
+      assert.ok(
+        !calls.some((c) => c.startsWith('plugin marketplace add ') || /^plugin install /.test(c)),
+        `mcp kind must not call plugin marketplace add/install; calls:\n${calls.join('\n')}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // Soft-degrade proof: no `claude` CLI on PATH, mcp kind, no fixture. The script
+  // must not crash — it reports a clean not-installed result with a follow-up note.
+  it('mcp kind soft-degrades when the claude CLI is absent', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-mcp-degrade-'));
+    // A PATH carrying only the dirs that hold jq/bash coreutils, minus any claude.
+    const minimalPath = (process.env['PATH'] ?? '')
+      .split(':')
+      .filter((p) => !existsSync(join(p, 'claude')))
+      .join(':');
+    try {
+      const r = spawnSync(
+        'bash',
+        [
+          INSTALL_SCRIPT,
+          '--candidate',
+          JSON.stringify({ name: 'pdf-mcp', kind: 'mcp', source_url: 'https://github.com/x/pdf-mcp.git' }),
+        ],
+        {
+          encoding: 'utf8',
+          env: { ...process.env, PATH: minimalPath, TMB_CHEATCODE_INSTALL_FIXTURE: '' },
+          cwd: dir,
+        },
+      );
+      assert.equal(r.status, 0, `script exited non-zero: ${r.stderr}`);
+      const out = JSON.parse(r.stdout);
+      assert.equal(out.method, 'mcp-register');
+      assert.equal(out.installed, false, 'no CLI → not installed');
+      assert.equal(out.version, null);
+      assert.ok(out.error && /run-command|follow-up/i.test(out.error), `degrade note: ${out.error}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('writes one cheatcodes row + its attachment row in a single transaction', async () => {
+    const db = tempDB();
+    const { path, cleanup } = withFixture(INSTALL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf', tier: 1 },
+        trust_tier: 'trusted',
+      });
+      assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
+      const out = parse(r);
+      assert.equal(out['installed'], true);
+
+      const codes = db.all<{ id: number; name: string; trust_tier: string; version: string; status: string }>(
+        `SELECT id, name, trust_tier, version, status FROM cheatcodes WHERE origin != 'builtin'`,
+      );
+      assert.equal(codes.length, 1, 'exactly one cheatcodes row');
+      assert.equal(codes[0].name, 'pdf-plugin');
+      assert.equal(codes[0].trust_tier, 'trusted');
+      assert.equal(codes[0].version, '1.2.3');
+      assert.equal(codes[0].status, 'installed');
+
+      const atts = db.all<{ cheatcode_id: number; target: string; artifact: string }>(
+        `SELECT cheatcode_id, target, artifact FROM cheatcode_attachments`,
+      );
+      assert.ok(atts.length >= 1, 'at least one attachment row');
+      assert.equal(atts[0].cheatcode_id, codes[0].id, 'attachment FKs the cheatcode');
+      assert.equal(atts[0].target, 'plugin');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('defaults install scope to local, persisting project-local on the unified row (#101)', async () => {
+    const db = tempDB();
+    const { path, cleanup } = withFixture(INSTALL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
+      });
+      assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
+      const out = parse(r);
+      assert.equal(out['scope'], 'project-local', 'response echoes the mapped placement scope');
+
+      const row = db.get<{ scope: string; origin: string }>(`SELECT scope, origin FROM cheatcodes WHERE origin != 'builtin' LIMIT 1`);
+      assert.equal(row!.scope, 'project-local', 'local install maps to project-local placement');
+      assert.equal(row!.origin, 'external', 'a raw repo-URL install carries origin=external (#152)');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('persists scope=global when requested', async () => {
+    const db = tempDB();
+    const { path, cleanup } = withFixture(INSTALL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
+        scope: 'global',
+      });
+      assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
+      assert.equal(parse(r)['scope'], 'global');
+
+      const row = db.get<{ scope: string }>(`SELECT scope FROM cheatcodes WHERE origin != 'builtin' LIMIT 1`);
+      assert.equal(row!.scope, 'global', 'global install persists global placement');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('routes two install candidates to distinct per-agent attachment targets', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+
+    // The fixture carries the attachment target: feature-dev → swe,
+    // code-review → pr-reviewer. The script passes it through, the handler
+    // records it on cheatcode_attachments.target.
+    const featureDev = withFixture(
+      JSON.stringify({
+        installed: true,
+        version: '1.0.0',
+        attachments: [{ target: 'swe', artifact: 'marketplace-plugin:feature-dev' }],
+      }),
+    );
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = featureDev.path;
+    let featureId: number;
+    try {
+      const r = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'feature-dev', kind: 'plugin', source_url: 'https://github.com/x/feature-dev' },
+      });
+      assert.notEqual(r.isError, true, `feature-dev install errored: ${r.content[0]?.text}`);
+      featureId = parse(r)['cheatcode_id'] as number;
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      featureDev.cleanup();
+    }
+
+    const codeReview = withFixture(
+      JSON.stringify({
+        installed: true,
+        version: '1.0.0',
+        attachments: [{ target: 'pr-reviewer', artifact: 'marketplace-plugin:code-review' }],
+      }),
+    );
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = codeReview.path;
+    let reviewId: number;
+    try {
+      const r = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'code-review', kind: 'plugin', source_url: 'https://github.com/x/code-review' },
+      });
+      assert.notEqual(r.isError, true, `code-review install errored: ${r.content[0]?.text}`);
+      reviewId = parse(r)['cheatcode_id'] as number;
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      codeReview.cleanup();
+    }
+
+    const featureTarget = db.get<{ target: string }>(
+      `SELECT target FROM cheatcode_attachments WHERE cheatcode_id = ?`,
+      [featureId],
+    );
+    const reviewTarget = db.get<{ target: string }>(
+      `SELECT target FROM cheatcode_attachments WHERE cheatcode_id = ?`,
+      [reviewId],
+    );
+    assert.equal(featureTarget!.target, 'swe', 'feature-dev routes to swe');
+    assert.equal(reviewTarget!.target, 'pr-reviewer', 'code-review routes to pr-reviewer');
+    assert.notEqual(featureTarget!.target, reviewTarget!.target, 'targets are distinct per candidate');
+  });
+
+  it('per-candidate keyed fixture routes two installs from ONE file to distinct targets', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+
+    // A SINGLE fixture file keyed by candidate name. Both installs read the same
+    // file; each candidate's own entry selects its attachment target.
+    const keyed = withFixture(
+      JSON.stringify({
+        'feature-dev': {
+          installed: true,
+          version: '1.0.0',
+          attachments: [{ target: 'swe', artifact: 'marketplace-plugin:feature-dev' }],
+        },
+        'code-review': {
+          installed: true,
+          version: '1.0.0',
+          attachments: [{ target: 'pr-reviewer', artifact: 'marketplace-plugin:code-review' }],
+        },
+      }),
+    );
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = keyed.path;
+    try {
+      const rf = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'feature-dev', kind: 'plugin', source_url: 'https://github.com/x/feature-dev' },
+      });
+      assert.notEqual(rf.isError, true, `feature-dev install errored: ${rf.content[0]?.text}`);
+      const featureId = parse(rf)['cheatcode_id'] as number;
+
+      const rr = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'code-review', kind: 'plugin', source_url: 'https://github.com/x/code-review' },
+      });
+      assert.notEqual(rr.isError, true, `code-review install errored: ${rr.content[0]?.text}`);
+      const reviewId = parse(rr)['cheatcode_id'] as number;
+
+      const featureTarget = db.get<{ target: string }>(
+        `SELECT target FROM cheatcode_attachments WHERE cheatcode_id = ?`,
+        [featureId],
+      );
+      const reviewTarget = db.get<{ target: string }>(
+        `SELECT target FROM cheatcode_attachments WHERE cheatcode_id = ?`,
+        [reviewId],
+      );
+      assert.equal(featureTarget!.target, 'swe', 'feature-dev entry routes to swe');
+      assert.equal(reviewTarget!.target, 'pr-reviewer', 'code-review entry routes to pr-reviewer');
+      assert.notEqual(featureTarget!.target, reviewTarget!.target, 'targets are distinct per candidate');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      keyed.cleanup();
+    }
+  });
+
+  it('is idempotent — re-installing the same candidate no-ops', async () => {
+    const db = tempDB();
+    const { path, cleanup } = withFixture(INSTALL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+    try {
+      const tools = cheatcodeTools(db);
+      const cand = { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf', tier: 1 };
+      await callInstall(tools.handlers, { agent: 'bro', candidate: cand });
+      const r2 = await callInstall(tools.handlers, { agent: 'bro', candidate: cand });
+      const out2 = parse(r2);
+      assert.equal(out2['idempotent'], true);
+      assert.equal(out2['installed'], false);
+
+      const n = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin != 'builtin'`);
+      assert.equal(n!.n, 1, 're-install did not duplicate the row');
+      const an = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcode_attachments`);
+      assert.equal(an!.n, 1, 're-install did not duplicate the attachment');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('orphan guard: a skill install with no target is hard-rejected before any row is written', async () => {
+    const db = tempDB();
+    const before = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin != 'builtin'`)!.n;
+    const tools = cheatcodeTools(db);
+    const r = await callInstall(tools.handlers, {
+      agent: 'bro',
+      candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
+    });
+    assert.equal(r.isError, true, 'no-target skill install is rejected');
+    const out = parse(r);
+    assert.match(out['error'] as string, /target agent/, 'error names the missing target requirement');
+
+    // No row, no attachment — the orphan never reaches the install.
+    assert.equal(
+      db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin != 'builtin'`)!.n,
+      before,
+      'no cheatcodes row written for a rejected orphan',
+    );
+    assert.equal(
+      db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcode_attachments`)!.n,
+      0,
+      'no attachment row written for a rejected orphan',
+    );
+    // No install audit row either — the script never forked.
+    assert.equal(
+      db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM audit WHERE event_type = 'cheatcode_install'`)!.n,
+      0,
+      'no install audit row for a rejected orphan',
+    );
+  });
+
+  it('mcp/plugin with no target still installs (exempt from the orphan guard)', async () => {
+    const db = tempDB();
+    const { path, cleanup } = withFixture(INSTALL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+    try {
+      const tools = cheatcodeTools(db);
+      const rMcp = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'serena-mcp', kind: 'mcp', source_url: 'https://github.com/x/serena' },
+      });
+      assert.notEqual(rMcp.isError, true, `mcp no-target install errored: ${rMcp.content[0]?.text}`);
+      assert.ok(typeof parse(rMcp)['cheatcode_id'] === 'number', 'mcp installs without a target');
+
+      const rPlugin = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
+      });
+      assert.notEqual(rPlugin.isError, true, `plugin no-target install errored: ${rPlugin.content[0]?.text}`);
+      assert.ok(typeof parse(rPlugin)['cheatcode_id'] === 'number', 'plugin installs without a target');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('writes cheatcode_install + cheatcode_installed audit rows', async () => {
+    const db = tempDB();
+    const { path, cleanup } = withFixture(INSTALL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+    try {
+      const tools = cheatcodeTools(db);
+      await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf', tier: 1 },
+      });
+      const install = db.get<{ event_type: string }>(
+        `SELECT event_type FROM audit WHERE event_type = 'cheatcode_install' ORDER BY id DESC LIMIT 1`,
+      );
+      const installed = db.get<{ content_json: string }>(
+        `SELECT content_json FROM audit WHERE event_type = 'cheatcode_installed' ORDER BY id DESC LIMIT 1`,
+      );
+      assert.ok(install, 'cheatcode_install audit row exists');
+      assert.ok(installed, 'cheatcode_installed audit row exists');
+      const content = JSON.parse(installed!.content_json);
+      assert.equal(content.name, 'pdf-plugin');
+      assert.ok(typeof content.cheatcode_id === 'number');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('rejects a non-bro caller', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const r = await callInstall(tools.handlers, {
+      agent: 'swe',
+      candidate: { name: 'x', kind: 'plugin', source_url: 'https://github.com/x/y' },
+    });
+    assert.equal(r.isError, true);
+    const out = parse(r);
+    assert.equal(out['error'], 'forbidden');
+  });
+
+  it('cheatcode_approve writes a per-candidate cheatcode_approved audit row', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const r = await call(tools.handlers, 'cheatcode_approve', {
+      agent: 'bro',
+      candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
+    });
+    assert.notEqual(r.isError, true);
+    const out = parse(r);
+    assert.equal(out['approved'], true);
+    const row = db.get<{ content_json: string }>(
+      `SELECT content_json FROM audit WHERE event_type = 'cheatcode_approved' ORDER BY id DESC LIMIT 1`,
+    );
+    assert.ok(row, 'cheatcode_approved audit row exists');
+    const content = JSON.parse(row!.content_json);
+    assert.equal(content.source_url, 'https://github.com/x/pdf');
+  });
+
+  it('cheatcode_approve rejects a non-bro caller', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const r = await call(tools.handlers, 'cheatcode_approve', {
+      agent: 'swe',
+      candidate: { name: 'x', kind: 'plugin', source_url: 'https://github.com/x/y' },
+    });
+    assert.equal(r.isError, true);
+    const out = parse(r);
+    assert.equal(out['error'], 'forbidden');
+  });
+
+  it('derives origin=marketplace from a marketplace-ref source (#152)', async () => {
+    const db = tempDB();
+    const { path, cleanup } = withFixture(INSTALL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await callInstall(tools.handlers, {
+        agent: 'bro',
+        // A <name>@<marketplace> ref — not a raw URL — is a marketplace source.
+        candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'pdf-plugin@some-marketplace' },
+      });
+      assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
+      const row = db.get<{ origin: string }>(
+        `SELECT origin FROM cheatcodes WHERE name = 'pdf-plugin' LIMIT 1`,
+      );
+      assert.equal(row!.origin, 'marketplace', 'a marketplace ref derives origin=marketplace');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('does not record a phantom row when a plugin install fails (#148)', async () => {
+    const db = tempDB();
+    // A plugin install the marketplace path could not complete: installed=false
+    // WITH an error note. The handler must surface the failure and write no row.
+    const { path, cleanup } = withFixture(
+      JSON.stringify({ installed: false, version: null, error: 'marketplace add failed (exit 1)' }),
+    );
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'broken-plugin', kind: 'plugin', source_url: 'https://github.com/x/broken' },
+      });
+      assert.equal(r.isError, true, 'a failed plugin install is surfaced as an error');
+      const n = db.get<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM cheatcodes WHERE name = 'broken-plugin'`,
+      );
+      assert.equal(n!.n, 0, 'no phantom installed=false row is recorded');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('blocks the install fail-closed when no approval is on record (#1023)', async () => {
+    const db = tempDB();
+    const { path, cleanup } = withFixture(INSTALL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+    try {
+      const tools = cheatcodeTools(db);
+      // Raw install with NO preceding cheatcode_approve — the server-side gate
+      // must refuse before the script forks.
+      const r = await call(tools.handlers, 'cheatcode_install', {
+        agent: 'bro',
+        candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
+      });
+      assert.equal(r.isError, true, 'unapproved install is rejected');
+      assert.match(parse(r)['error'] as string, /approval/i, 'error names the missing approval');
+
+      assert.equal(
+        db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin != 'builtin'`)!.n,
+        0,
+        'no cheatcodes row written for an unapproved install',
+      );
+      assert.equal(
+        db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM audit WHERE event_type = 'cheatcode_install'`)!.n,
+        0,
+        'no install audit row for an unapproved install',
+      );
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('installs once a matching cheatcode_approved audit row exists for the source_url (#1023)', async () => {
+    const db = tempDB();
+    const { path, cleanup } = withFixture(INSTALL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+    try {
+      const tools = cheatcodeTools(db);
+      const candidate = { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' };
+      const approved = await call(tools.handlers, 'cheatcode_approve', { agent: 'bro', candidate });
+      assert.notEqual(approved.isError, true, `approve errored: ${approved.content[0]?.text}`);
+
+      const r = await call(tools.handlers, 'cheatcode_install', { agent: 'bro', candidate });
+      assert.notEqual(r.isError, true, `approved install errored: ${r.content[0]?.text}`);
+      assert.equal(parse(r)['installed'], true, 'install proceeds once approved');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      cleanup();
+    }
+  });
+});
+
+// The shipped global agent md the plugin copies global→local at materialize
+// time. These must exist in the plugin repo for the copy to resolve.
+const GLOBAL_SWE_MD = join(PLUGIN_ROOT, 'agents', 'swe.md');
+const GLOBAL_PR_MD = join(PLUGIN_ROOT, 'agents', 'pr-reviewer.md');
+
+// A standalone-skill install fixture: no marketplace attachment, the
+// materialization is the consuming-agent edit. installed:false mirrors the
+// skill-proposed-pr path but the target drives the agent-md write.
+const INSTALL_SKILL_OK = JSON.stringify({ installed: false, version: null });
+
+describe('cheatcode_install materializes the consuming agent (#115)', () => {
+  // A temp PROJECT dir whose trajectory DB lives at <root>/.claude/tmb/trajectory.db
+  // — exactly the on-disk layout projectRootFromDbPath() walks. The DB path is
+  // what the materializer derives the project root from, so it MUST be on disk
+  // under a real .claude/ (not :memory:).
+  function tempProject(): { root: string; db: TrajectoryDB; cleanup: () => void } {
+    const root = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-project-'));
+    const dbDir = join(root, '.claude', 'tmb');
+    mkdirSync(dbDir, { recursive: true });
+    const db = new TrajectoryDB(join(dbDir, 'trajectory.db'));
+    db.run(
+      `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+       VALUES (-1, NULL, 'bro', 'deep_scan_completed', 'test fixture', '{}', datetime('now'))`,
+    );
+    return { root, db, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  }
+
+  function withFixture(body: string): { path: string; cleanup: () => void } {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-mat-fixture-'));
+    const path = join(dir, 'install.json');
+    writeFileSync(path, body);
+    return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+
+  // Snapshot the plugin's own shipped surfaces so every test can assert the
+  // materialization NEVER wrote into the plugin repo (it edits the user project).
+  function pluginRepoSnapshot(): { sweMd: string; prMd: string; claudeMd: string | null } {
+    const claudeMdPath = join(PLUGIN_ROOT, 'CLAUDE.md');
+    return {
+      sweMd: readFileSync(GLOBAL_SWE_MD, 'utf8'),
+      prMd: readFileSync(GLOBAL_PR_MD, 'utf8'),
+      claudeMd: existsSync(claudeMdPath) ? readFileSync(claudeMdPath, 'utf8') : null,
+    };
+  }
+
+  function assertPluginRepoUntouched(before: ReturnType<typeof pluginRepoSnapshot>): void {
+    const after = pluginRepoSnapshot();
+    assert.equal(after.sweMd, before.sweMd, 'plugin agents/swe.md untouched');
+    assert.equal(after.prMd, before.prMd, 'plugin agents/pr-reviewer.md untouched');
+    assert.equal(after.claudeMd, before.claudeMd, 'plugin CLAUDE.md untouched');
+  }
+
+  it('target=swe copies global swe.md into project .claude/agents and adds the skill to its skills: frontmatter', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(INSTALL_SKILL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    const snapshot = pluginRepoSnapshot();
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
+        target: 'swe',
+      });
+      assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
+      const out = parse(r);
+
+      const localSwe = join(root, '.claude', 'agents', 'swe.md');
+      assert.ok(existsSync(localSwe), 'project .claude/agents/swe.md materialized');
+      const body = readFileSync(localSwe, 'utf8');
+      const fm = body.match(/^---\n([\s\S]*?)\n---/)![1];
+      const skills = fm.match(/^skills:\s*\[(.*)\]\s*$/m)![1];
+      assert.ok(
+        skills.split(',').map((s) => s.trim()).includes('pdf-skill'),
+        `pdf-skill in skills: frontmatter, got: ${skills}`,
+      );
+      // The copy preserved the rest of the agent (its persona body + name field).
+      assert.ok(/^name:\s*swe\s*$/m.test(fm), 'frontmatter name preserved');
+      assert.ok(body.includes('SWE — Executor'), 'body preserved from the global copy');
+
+      // The result + attachment row report the materialized path.
+      const mat = out['materialized'] as { target: string; artifact: string; path: string } | null;
+      assert.ok(mat, 'materialized reported in result');
+      assert.equal(mat!.target, 'swe');
+      assert.equal(mat!.artifact, 'agent-md:.claude/agents/swe.md');
+      assert.equal(mat!.path, localSwe);
+
+      const att = db.get<{ target: string; artifact: string }>(
+        `SELECT target, artifact FROM cheatcode_attachments WHERE target = 'swe'`,
+      );
+      assert.ok(att, 'attachment row records the materialization');
+      assert.equal(att!.artifact, 'agent-md:.claude/agents/swe.md');
+
+      assertPluginRepoUntouched(snapshot);
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('re-install with target=swe is idempotent — no duplicate skills entry, no clobber', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(INSTALL_SKILL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    try {
+      const tools = cheatcodeTools(db);
+      const cand = { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' };
+      await callInstall(tools.handlers, { agent: 'bro', candidate: cand, target: 'swe' });
+
+      // Customize the materialized file, then re-install: the second call must
+      // no-op (idempotent install) and never clobber the customization.
+      const localSwe = join(root, '.claude', 'agents', 'swe.md');
+      const customized = readFileSync(localSwe, 'utf8') + '\n<!-- human customization -->\n';
+      writeFileSync(localSwe, customized);
+
+      const r2 = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: cand,
+        target: 'swe',
+      });
+      assert.equal(parse(r2)['idempotent'], true, 're-install no-ops');
+
+      const after = readFileSync(localSwe, 'utf8');
+      assert.equal(after, customized, 'customized file not clobbered on re-install');
+      const fm = after.match(/^---\n([\s\S]*?)\n---/)![1];
+      const skills = fm.match(/^skills:\s*\[(.*)\]\s*$/m)![1];
+      const occurrences = skills.split(',').map((s) => s.trim()).filter((s) => s === 'pdf-skill');
+      assert.equal(occurrences.length, 1, 'no duplicate pdf-skill entry');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('idempotent skills edit even on a pre-existing local agent md (edit in place, no global copy)', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(INSTALL_SKILL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    try {
+      // A pre-existing, customized local pr-reviewer.md without the skill.
+      const localPr = join(root, '.claude', 'agents');
+      mkdirSync(localPr, { recursive: true });
+      const seeded = '---\nname: pr-reviewer\nskills: [tmb_review]\n---\n\n# custom body\n';
+      writeFileSync(join(localPr, 'pr-reviewer.md'), seeded);
+
+      const tools = cheatcodeTools(db);
+      await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'sec-skill', kind: 'skill', source_url: 'https://github.com/x/sec-skill' },
+        target: 'pr-reviewer',
+      });
+      const body = readFileSync(join(localPr, 'pr-reviewer.md'), 'utf8');
+      assert.ok(body.includes('# custom body'), 'edited the existing local file in place');
+      const fm = body.match(/^---\n([\s\S]*?)\n---/)![1];
+      const skills = fm.match(/^skills:\s*\[(.*)\]\s*$/m)![1].split(',').map((s) => s.trim());
+      assert.ok(skills.includes('tmb_review'), 'preserved the original skill');
+      assert.ok(skills.includes('sec-skill'), 'added the new skill');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('target=bro materializes the project .claude/CLAUDE.md referencing the skill (idempotent)', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(INSTALL_SKILL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    const snapshot = pluginRepoSnapshot();
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
+        target: 'bro',
+      });
+      const out = parse(r);
+      const claudeMd = join(root, '.claude', 'CLAUDE.md');
+      assert.ok(existsSync(claudeMd), 'project .claude/CLAUDE.md materialized');
+      const body = readFileSync(claudeMd, 'utf8');
+      assert.ok(body.includes('pdf-skill'), 'CLAUDE.md references the installed skill');
+
+      const mat = out['materialized'] as { target: string; artifact: string } | null;
+      assert.ok(mat, 'materialized reported');
+      assert.equal(mat!.target, 'bro');
+      assert.equal(mat!.artifact, 'claude-md:.claude/CLAUDE.md');
+
+      const att = db.get<{ artifact: string }>(
+        `SELECT artifact FROM cheatcode_attachments WHERE target = 'bro'`,
+      );
+      assert.ok(att, 'bro materialization attachment row recorded');
+      assert.equal(att!.artifact, 'claude-md:.claude/CLAUDE.md');
+
+      // A second install of the same skill must not duplicate the reference line.
+      const before = body;
+      // Reset the (name, source_url) idempotency by installing a second skill
+      // referencing bro to prove de-dup of the SAME line: re-run via a fresh
+      // tools call on the same db — install is idempotent so the line is stable.
+      const r2 = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
+        target: 'bro',
+      });
+      assert.equal(parse(r2)['idempotent'], true);
+      assert.equal(readFileSync(claudeMd, 'utf8'), before, 'no duplicate CLAUDE.md line on re-install');
+
+      assertPluginRepoUntouched(snapshot);
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('kind=plugin target=swe materializes project .claude/agents/swe.md with the cheatcode in skills: (idempotent, plugin repo untouched)', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(JSON.stringify({ installed: true, version: '1.0.0' }));
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    const snapshot = pluginRepoSnapshot();
+    try {
+      const tools = cheatcodeTools(db);
+      const cand = { name: 'feature-dev', kind: 'plugin', source_url: 'https://github.com/x/feature-dev' };
+      const r = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: cand,
+        target: 'swe',
+      });
+      assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
+      const out = parse(r);
+
+      const localSwe = join(root, '.claude', 'agents', 'swe.md');
+      assert.ok(existsSync(localSwe), 'project .claude/agents/swe.md materialized for plugin-kind');
+      const body = readFileSync(localSwe, 'utf8');
+      const fm = body.match(/^---\n([\s\S]*?)\n---/)![1];
+      const skills = fm.match(/^skills:\s*\[(.*)\]\s*$/m)![1];
+      assert.ok(
+        skills.split(',').map((s) => s.trim()).includes('feature-dev'),
+        `feature-dev in skills: frontmatter, got: ${skills}`,
+      );
+      assert.ok(/^name:\s*swe\s*$/m.test(fm), 'frontmatter name preserved');
+      assert.ok(body.includes('SWE — Executor'), 'body preserved from the global copy');
+
+      const mat = out['materialized'] as { target: string; artifact: string; path: string } | null;
+      assert.ok(mat, 'materialized reported in result for plugin-kind');
+      assert.equal(mat!.target, 'swe');
+      assert.equal(mat!.artifact, 'agent-md:.claude/agents/swe.md');
+      assert.equal(mat!.path, localSwe);
+
+      const att = db.get<{ artifact: string }>(
+        `SELECT artifact FROM cheatcode_attachments WHERE target = 'swe' AND artifact LIKE 'agent-md:%'`,
+      );
+      assert.ok(att, 'attachment row records the materialization');
+      assert.equal(att!.artifact, 'agent-md:.claude/agents/swe.md');
+
+      // Re-install no-ops and never clobbers a human customization.
+      const customized = body + '\n<!-- human customization -->\n';
+      writeFileSync(localSwe, customized);
+      const r2 = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: cand,
+        target: 'swe',
+      });
+      assert.equal(parse(r2)['idempotent'], true, 're-install no-ops');
+      const after = readFileSync(localSwe, 'utf8');
+      assert.equal(after, customized, 'customized file not clobbered on re-install');
+      const afterSkills = after.match(/^---\n([\s\S]*?)\n---/)![1].match(/^skills:\s*\[(.*)\]\s*$/m)![1];
+      const occurrences = afterSkills.split(',').map((s) => s.trim()).filter((s) => s === 'feature-dev');
+      assert.equal(occurrences.length, 1, 'no duplicate feature-dev entry');
+
+      assertPluginRepoUntouched(snapshot);
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  // Stage a plugin cache manifest (.claude-plugin/plugin.json) and point the
+  // tool-detection override at it, so detectProvidedTools reads it without a
+  // real installed-plugins registry.
+  function withManifest(manifest: Record<string, unknown>): { path: string; cleanup: () => void } {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-manifest-'));
+    const path = join(dir, 'plugin.json');
+    writeFileSync(path, JSON.stringify(manifest));
+    return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+
+  it('kind=plugin providing a built-in tool (lsp) grants it to the agent tools: allowlist and writes no skills: entry (#149)', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(JSON.stringify({ installed: true, version: '1.0.0' }));
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    // An LSP-shaped manifest: an `lsp` declaration ⇒ the plugin provides `LSP`.
+    const mf = withManifest({ name: 'pyright-lsp', lsp: { command: 'pyright' } });
+    process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'] = mf.path;
+    const snapshot = pluginRepoSnapshot();
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'pyright-lsp', kind: 'plugin', source_url: 'https://github.com/x/pyright-lsp' },
+        target: 'swe',
+      });
+      assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
+
+      const localSwe = join(root, '.claude', 'agents', 'swe.md');
+      assert.ok(existsSync(localSwe), 'project .claude/agents/swe.md materialized');
+      const body = readFileSync(localSwe, 'utf8');
+      const fm = body.match(/^---\n([\s\S]*?)\n---/)![1];
+
+      // The provided tool lands in tools: (comma-separated string, not a [] array).
+      const toolsEntries = fm.match(/^tools:\s*(.*)$/m)![1].split(',').map((s) => s.trim());
+      assert.ok(toolsEntries.includes('LSP'), `LSP granted in tools:, got: ${fm.match(/^tools:\s*(.*)$/m)![1]}`);
+      // The cheatcode name is NOT written to skills: — that entry would be inert.
+      const skillsLine = fm.match(/^skills:\s*\[(.*)\]\s*$/m);
+      const skillsEntries = skillsLine ? skillsLine[1].split(',').map((s) => s.trim()) : [];
+      assert.ok(!skillsEntries.includes('pyright-lsp'), `pyright-lsp must NOT be in skills:, got: ${skillsLine?.[1] ?? '(none)'}`);
+      // The original allowlist tools are preserved.
+      assert.ok(toolsEntries.includes('Read') && toolsEntries.includes('Bash'), 'original tools preserved');
+
+      assertPluginRepoUntouched(snapshot);
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      delete process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      mf.cleanup();
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('kind=plugin with a manifest tools[] list grants every listed tool to tools:, none to skills: (#149)', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(JSON.stringify({ installed: true, version: '1.0.0' }));
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    const mf = withManifest({ name: 'multi-tool', tools: ['Alpha', 'Beta'] });
+    process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'] = mf.path;
+    try {
+      const tools = cheatcodeTools(db);
+      await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'multi-tool', kind: 'plugin', source_url: 'https://github.com/x/multi-tool' },
+        target: 'swe',
+      });
+      const body = readFileSync(join(root, '.claude', 'agents', 'swe.md'), 'utf8');
+      const fm = body.match(/^---\n([\s\S]*?)\n---/)![1];
+      const toolsEntries = fm.match(/^tools:\s*(.*)$/m)![1].split(',').map((s) => s.trim());
+      assert.ok(toolsEntries.includes('Alpha') && toolsEntries.includes('Beta'), 'both manifest tools granted');
+      assert.ok(!fm.includes('multi-tool'), 'cheatcode name not written into the frontmatter');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      delete process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      mf.cleanup();
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('kind=plugin with no provided tool in its manifest keeps the skills: path (#149)', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(JSON.stringify({ installed: true, version: '1.0.0' }));
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    // A skill-contributing plugin manifest: neither `lsp` nor `tools`.
+    const mf = withManifest({ name: 'feature-dev', description: 'workflow skills' });
+    process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'] = mf.path;
+    try {
+      const tools = cheatcodeTools(db);
+      await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'feature-dev', kind: 'plugin', source_url: 'https://github.com/x/feature-dev' },
+        target: 'swe',
+      });
+      const body = readFileSync(join(root, '.claude', 'agents', 'swe.md'), 'utf8');
+      const fm = body.match(/^---\n([\s\S]*?)\n---/)![1];
+      const skills = fm.match(/^skills:\s*\[(.*)\]\s*$/m)![1].split(',').map((s) => s.trim());
+      assert.ok(skills.includes('feature-dev'), 'skill-contributing plugin lands in skills:');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      delete process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      mf.cleanup();
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('a standalone skill still lands in skills:, never tools: (#149)', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(INSTALL_SKILL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    // A manifest override is present but kind=skill never consults it.
+    const mf = withManifest({ name: 'pdf-skill', lsp: { command: 'x' } });
+    process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'] = mf.path;
+    try {
+      const tools = cheatcodeTools(db);
+      await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
+        target: 'swe',
+      });
+      const body = readFileSync(join(root, '.claude', 'agents', 'swe.md'), 'utf8');
+      const fm = body.match(/^---\n([\s\S]*?)\n---/)![1];
+      const skills = fm.match(/^skills:\s*\[(.*)\]\s*$/m)![1].split(',').map((s) => s.trim());
+      assert.ok(skills.includes('pdf-skill'), 'standalone skill lands in skills:');
+      const toolsEntries = fm.match(/^tools:\s*(.*)$/m)![1].split(',').map((s) => s.trim());
+      assert.ok(!toolsEntries.includes('pdf-skill') && !toolsEntries.includes('LSP'), 'skill never granted as a tool');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      delete process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      mf.cleanup();
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('uninstalling a tool-contributing plugin removes its tool grant from tools: (#149)', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(JSON.stringify({ installed: true, version: '1.0.0' }));
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    const mf = withManifest({ name: 'pyright-lsp', lsp: { command: 'pyright' } });
+    process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'] = mf.path;
+    const unfxDir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-unfx-'));
+    const unfx = join(unfxDir, 'uninstall.json');
+    writeFileSync(unfx, JSON.stringify({ removed: true, error: null }));
+    process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = unfx;
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'pyright-lsp', kind: 'plugin', source_url: 'https://github.com/x/pyright-lsp' },
+        target: 'swe',
+      });
+      const id = parse(r)['cheatcode_id'] as number;
+      const localSwe = join(root, '.claude', 'agents', 'swe.md');
+      assert.ok(readFileSync(localSwe, 'utf8').includes('LSP'), 'LSP granted before uninstall');
+
+      await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro', cheatcode_id: id });
+      const after = readFileSync(localSwe, 'utf8');
+      const toolsEntries = after.match(/^tools:\s*(.*)$/m)![1].split(',').map((s) => s.trim());
+      assert.ok(!toolsEntries.includes('LSP'), 'LSP grant removed on uninstall');
+      assert.ok(toolsEntries.includes('Read'), 'original tools preserved through uninstall');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      delete process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'];
+      delete process.env['TMB_CHEATCODE_PLUGIN_MANIFEST'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      rmSync(unfxDir, { recursive: true, force: true });
+      mf.cleanup();
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('no target: a skill install is rejected and writes no agent md (orphan guard)', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const snapshot = pluginRepoSnapshot();
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
+      });
+      assert.equal(r.isError, true, 'no-target skill install is hard-rejected');
+      assert.match(parse(r)['error'] as string, /target agent/, 'error names the missing target');
+      assert.ok(!existsSync(join(root, '.claude', 'agents')), 'no agent md written');
+      assert.ok(!existsSync(join(root, '.claude', 'CLAUDE.md')), 'no CLAUDE.md written');
+      assertPluginRepoUntouched(snapshot);
+    } finally {
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      cleanup();
+    }
+  });
+});
+
+// Uninstall fixtures stub the marketplace exactly as TMB_CHEATCODE_UNINSTALL_FIXTURE
+// intends: the {removed} object stands in for the marketplace uninstall call.
+const UNINSTALL_OK = JSON.stringify({ removed: true, error: null });
+
+describe('cheatcode_uninstall', () => {
+  function withFixture(body: string): { path: string; cleanup: () => void } {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-uninstall-'));
+    const path = join(dir, 'uninstall.json');
+    writeFileSync(path, body);
+    return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+
+  // Install a plugin cheatcode and return its id, so uninstall has a real
+  // install (+ attachment) to reverse.
+  async function seedInstall(
+    tools: ReturnType<typeof cheatcodeTools>,
+    candidate: { name: string; kind: string; source_url: string; tier?: number },
+  ): Promise<number> {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-seed-'));
+    const path = join(dir, 'install.json');
+    writeFileSync(path, INSTALL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+    try {
+      const r = await callInstall(tools.handlers, { agent: 'bro', candidate });
+      assert.notEqual(r.isError, true, `seed install errored: ${r.content[0]?.text}`);
+      return parse(r)['cheatcode_id'] as number;
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('reverses the install in one transaction: deletes the cheatcodes + attachment rows and emits a cheatcode_uninstalled audit row', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const id = await seedInstall(tools, {
+      name: 'pdf-plugin',
+      kind: 'plugin',
+      source_url: 'https://github.com/x/pdf',
+      tier: 1,
+    });
+    assert.equal(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin != 'builtin'`)!.n, 1);
+    assert.equal(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcode_attachments`)!.n, 1);
+
+    const { path, cleanup } = withFixture(UNINSTALL_OK);
+    process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = path;
+    try {
+      const r = await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro', cheatcode_id: id });
+      assert.notEqual(r.isError, true, `uninstall errored: ${r.content[0]?.text}`);
+      const out = parse(r);
+      assert.equal(out['uninstalled'], true);
+      assert.equal(out['removed'], true);
+      assert.equal(out['method'], 'marketplace');
+
+      assert.equal(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin != 'builtin'`)!.n, 0, 'cheatcodes row deleted');
+      assert.equal(
+        db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcode_attachments`)!.n,
+        0,
+        'attachment row deleted',
+      );
+
+      const audit = db.get<{ content_json: string }>(
+        `SELECT content_json FROM audit WHERE event_type = 'cheatcode_uninstalled' ORDER BY id DESC LIMIT 1`,
+      );
+      assert.ok(audit, 'cheatcode_uninstalled audit row exists');
+      const content = JSON.parse(audit!.content_json);
+      assert.equal(content.cheatcode_id, id);
+      assert.equal(content.name, 'pdf-plugin');
+      assert.equal(content.removed, true);
+      assert.ok(Array.isArray(content.attachments), 'audit records what was reversed');
+    } finally {
+      delete process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('honesty gate: a failed teardown (removed:false) keeps the row as status=broken, returns uninstalled:false + error, still audits', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const id = await seedInstall(tools, {
+      name: 'broken-plugin',
+      kind: 'plugin',
+      source_url: 'https://github.com/x/broken',
+      tier: 1,
+    });
+
+    // Real failure signal — the marketplace teardown reported removed:false with
+    // an error. Not fixtured away (#109): the failure path is what's under test.
+    const { path, cleanup } = withFixture(
+      JSON.stringify({ removed: false, error: 'marketplace uninstall failed (exit 1)' }),
+    );
+    process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = path;
+    try {
+      const r = await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro', cheatcode_id: id });
+      assert.notEqual(r.isError, true, `uninstall errored: ${r.content[0]?.text}`);
+      const out = parse(r);
+      assert.equal(out['uninstalled'], false, 'reports honest failure, not success');
+      assert.equal(out['removed'], false);
+      assert.ok(out['error'], 'error surfaced to caller');
+
+      const row = db.get<{ status: string }>(`SELECT status FROM cheatcodes WHERE id = ?`, [id]);
+      assert.ok(row, 'cheatcodes row kept (not deleted) on failed teardown');
+      assert.equal(row!.status, 'broken', 'status flipped to broken');
+      assert.equal(
+        db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcode_attachments WHERE cheatcode_id = ?`, [id])!.n,
+        1,
+        'attachment row kept on failed teardown',
+      );
+
+      const audit = db.get<{ content_json: string }>(
+        `SELECT content_json FROM audit WHERE event_type = 'cheatcode_uninstalled' ORDER BY id DESC LIMIT 1`,
+      );
+      assert.ok(audit, 'cheatcode_uninstalled audit row still written on failure');
+      const content = JSON.parse(audit!.content_json);
+      assert.equal(content.cheatcode_id, id);
+      assert.equal(content.removed, false);
+      assert.ok(content.error, 'audit records the teardown error');
+    } finally {
+      delete process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('mcp kind dispatches to the claude mcp remove deregister path (method mcp-deregister), distinct from plugin marketplace', () => {
+    // Real script, no fixture, no `claude` on PATH → both adapters soft-degrade.
+    // The mcp branch must produce method 'mcp-deregister' with an mcp-flavoured
+    // error, while the plugin branch produces 'marketplace' — proving the
+    // dispatch split routes mcp to the deregister adapter, not marketplace.
+    const mcp = runUninstallScript({
+      name: 'serena',
+      kind: 'mcp',
+      source_url: 'https://github.com/x/serena',
+    });
+    assert.equal(mcp.method, 'mcp-deregister');
+    assert.equal(mcp.removed, false);
+    assert.ok(mcp.error && /mcp/i.test(mcp.error), `mcp branch error mentions mcp: ${mcp.error}`);
+
+    const plugin = runUninstallScript({
+      name: 'pdf-plugin',
+      kind: 'plugin',
+      source_url: 'https://github.com/x/pdf',
+    });
+    assert.equal(plugin.method, 'marketplace');
+    assert.equal(plugin.removed, false);
+    assert.notEqual(plugin.method, mcp.method, 'mcp and plugin take distinct branches');
+  });
+
+  it('is idempotent — uninstalling an absent install no-ops without error', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const r = await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro', cheatcode_id: 9999 });
+    assert.notEqual(r.isError, true, `absent uninstall errored: ${r.content[0]?.text}`);
+    const out = parse(r);
+    assert.equal(out['uninstalled'], false);
+    assert.equal(out['idempotent'], true);
+
+    // No audit row written for a no-op teardown.
+    const audit = db.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM audit WHERE event_type = 'cheatcode_uninstalled'`,
+    );
+    assert.equal(audit!.n, 0, 'no audit row for a no-op uninstall');
+  });
+
+  it('is idempotent — a second uninstall of the same cheatcode no-ops', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const id = await seedInstall(tools, {
+      name: 'pdf-plugin',
+      kind: 'plugin',
+      source_url: 'https://github.com/x/pdf',
+    });
+    const { path, cleanup } = withFixture(UNINSTALL_OK);
+    process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = path;
+    try {
+      const r1 = await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro', cheatcode_id: id });
+      assert.equal(parse(r1)['uninstalled'], true);
+      const r2 = await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro', cheatcode_id: id });
+      assert.notEqual(r2.isError, true);
+      assert.equal(parse(r2)['idempotent'], true);
+      assert.equal(parse(r2)['uninstalled'], false);
+    } finally {
+      delete process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('rejects a missing cheatcode_id', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const r = await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro' });
+    assert.equal(r.isError, true);
+    assert.ok(parse(r)['error']);
+  });
+
+  it('rejects a non-bro caller', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const r = await call(tools.handlers, 'cheatcode_uninstall', { agent: 'swe', cheatcode_id: 1 });
+    assert.equal(r.isError, true);
+    assert.equal(parse(r)['error'], 'forbidden');
+  });
+});
+
+describe('cheatcode_uninstall de-materializes the prompt surface', () => {
+  // A real on-disk PROJECT (mirrors the materialize describe) so the DB path
+  // resolves a project root and the materialized files actually land on disk.
+  function tempProject(): { root: string; db: TrajectoryDB; cleanup: () => void } {
+    const root = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-demat-'));
+    const dbDir = join(root, '.claude', 'tmb');
+    mkdirSync(dbDir, { recursive: true });
+    const db = new TrajectoryDB(join(dbDir, 'trajectory.db'));
+    return { root, db, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  }
+
+  function withInstallFixture(body: string): { path: string; cleanup: () => void } {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-demat-install-'));
+    const path = join(dir, 'install.json');
+    writeFileSync(path, body);
+    return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+
+  function withUninstallFixture(body: string): { path: string; cleanup: () => void } {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-demat-uninstall-'));
+    const path = join(dir, 'uninstall.json');
+    writeFileSync(path, body);
+    return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+
+  it('removes the skill from the consuming agent skills: header (agent-md) on a successful teardown', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withInstallFixture(INSTALL_SKILL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    const un = withUninstallFixture(UNINSTALL_OK);
+    process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = un.path;
+    try {
+      const tools = cheatcodeTools(db);
+      const rInstall = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
+        target: 'swe',
+      });
+      const id = parse(rInstall)['cheatcode_id'] as number;
+      const localSwe = join(root, '.claude', 'agents', 'swe.md');
+      assert.ok(
+        readFileSync(localSwe, 'utf8').match(/^skills:\s*\[(.*)\]\s*$/m)![1].includes('pdf-skill'),
+        'precondition: skill materialized into swe.md',
+      );
+
+      const r = await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro', cheatcode_id: id });
+      assert.notEqual(r.isError, true, `uninstall errored: ${r.content[0]?.text}`);
+      assert.equal(parse(r)['removed'], true);
+
+      const skills = readFileSync(localSwe, 'utf8').match(/^skills:\s*\[(.*)\]\s*$/m)![1];
+      assert.ok(
+        !skills.split(',').map((s) => s.trim()).includes('pdf-skill'),
+        `pdf-skill removed from skills: header, got: ${skills}`,
+      );
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      delete process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      fx.cleanup();
+      un.cleanup();
+      cleanup();
+    }
+  });
+
+  it('removes the materialized reference line from CLAUDE.md (claude-md, target=bro) on a successful teardown', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withInstallFixture(INSTALL_SKILL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    const un = withUninstallFixture(UNINSTALL_OK);
+    process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = un.path;
+    try {
+      const tools = cheatcodeTools(db);
+      const rInstall = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
+        target: 'bro',
+      });
+      const id = parse(rInstall)['cheatcode_id'] as number;
+      const claudeMd = join(root, '.claude', 'CLAUDE.md');
+      assert.ok(readFileSync(claudeMd, 'utf8').includes('pdf-skill'), 'precondition: CLAUDE.md references the skill');
+
+      const r = await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro', cheatcode_id: id });
+      assert.equal(parse(r)['removed'], true);
+
+      assert.ok(
+        !readFileSync(claudeMd, 'utf8').includes('pdf-skill'),
+        'materialized reference line removed from CLAUDE.md',
+      );
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      delete process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      fx.cleanup();
+      un.cleanup();
+      cleanup();
+    }
+  });
+
+  it('is fail-soft + idempotent: de-materialize no-ops when the entry is already absent', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withInstallFixture(INSTALL_SKILL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    const un = withUninstallFixture(UNINSTALL_OK);
+    process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = un.path;
+    try {
+      const tools = cheatcodeTools(db);
+      const rInstall = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
+        target: 'swe',
+      });
+      const id = parse(rInstall)['cheatcode_id'] as number;
+
+      // Human already pulled the entry by hand before uninstall runs.
+      const localSwe = join(root, '.claude', 'agents', 'swe.md');
+      const body = readFileSync(localSwe, 'utf8');
+      const stripped = body.replace(/^skills:\s*\[.*\]\s*$/m, 'skills: []');
+      writeFileSync(localSwe, stripped);
+
+      const r = await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro', cheatcode_id: id });
+      assert.notEqual(r.isError, true, `uninstall threw on absent entry: ${r.content[0]?.text}`);
+      assert.equal(parse(r)['removed'], true);
+      assert.equal(readFileSync(localSwe, 'utf8'), stripped, 'file unchanged when entry already absent');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      delete process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      fx.cleanup();
+      un.cleanup();
+      cleanup();
+    }
+  });
+
+  it('broken-flip path (removed:false) keeps the materialized surface intact', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withInstallFixture(INSTALL_SKILL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    const un = withUninstallFixture(
+      JSON.stringify({ removed: false, error: 'marketplace uninstall failed (exit 1)' }),
+    );
+    process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'] = un.path;
+    try {
+      const tools = cheatcodeTools(db);
+      const rInstall = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
+        target: 'swe',
+      });
+      const id = parse(rInstall)['cheatcode_id'] as number;
+      const localSwe = join(root, '.claude', 'agents', 'swe.md');
+      const before = readFileSync(localSwe, 'utf8');
+
+      const r = await call(tools.handlers, 'cheatcode_uninstall', { agent: 'bro', cheatcode_id: id });
+      assert.equal(parse(r)['removed'], false, 'teardown failed');
+
+      assert.equal(readFileSync(localSwe, 'utf8'), before, 'surface kept intact on the broken-flip path');
+      assert.ok(
+        readFileSync(localSwe, 'utf8').match(/^skills:\s*\[(.*)\]\s*$/m)![1].includes('pdf-skill'),
+        'skill still in skills: header (not de-materialized)',
+      );
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      delete process.env['TMB_CHEATCODE_UNINSTALL_FIXTURE'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      fx.cleanup();
+      un.cleanup();
+      cleanup();
+    }
+  });
+});
+
+describe('cheatcode_activate', () => {
+  async function seedInstall(
+    tools: ReturnType<typeof cheatcodeTools>,
+    candidate: { name: string; kind: string; source_url: string; tier?: number },
+  ): Promise<number> {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-act-seed-'));
+    const path = join(dir, 'install.json');
+    writeFileSync(path, INSTALL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+    try {
+      const r = await callInstall(tools.handlers, { agent: 'bro', candidate });
+      assert.notEqual(r.isError, true, `seed install errored: ${r.content[0]?.text}`);
+      return parse(r)['cheatcode_id'] as number;
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('returns activated for a skill-kind cheatcode (usable in-session)', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    // Skill kind with no fixture installs nothing at the marketplace but still
+    // records the cheatcodes row, which activate keys off.
+    const r0 = await callInstall(tools.handlers, {
+      agent: 'bro',
+      candidate: { name: 'pdf-skill', kind: 'skill', source_url: 'https://github.com/x/pdf-skill' },
+      target: 'swe',
+    });
+    const id = parse(r0)['cheatcode_id'] as number;
+
+    // The row starts at status='installed' (recorded, not yet confirmed loaded).
+    const before = db.get<{ status: string }>(`SELECT status FROM cheatcodes WHERE id = ?`, [id]);
+    assert.equal(before!.status, 'installed', 'a fresh install lands at status=installed');
+
+    const r = await call(tools.handlers, 'cheatcode_activate', { agent: 'bro', cheatcode_id: id });
+    assert.notEqual(r.isError, true, `activate errored: ${r.content[0]?.text}`);
+    const out = parse(r);
+    assert.equal(out['status'], 'activated');
+    assert.equal(out['reason'], null);
+    // (#151) activate advances a confirmed-loaded skill installed → active.
+    assert.equal(out['row_status'], 'active');
+    const after = db.get<{ status: string }>(`SELECT status FROM cheatcodes WHERE id = ?`, [id]);
+    assert.equal(after!.status, 'active', 'a skill activate reconciles the row to status=active');
+  });
+
+  it('returns restart_required + a reason for a plugin-kind cheatcode', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const id = await seedInstall(tools, {
+      name: 'pdf-plugin',
+      kind: 'plugin',
+      source_url: 'https://github.com/x/pdf',
+    });
+    const r = await call(tools.handlers, 'cheatcode_activate', { agent: 'bro', cheatcode_id: id });
+    assert.notEqual(r.isError, true, `activate errored: ${r.content[0]?.text}`);
+    const out = parse(r);
+    assert.equal(out['status'], 'restart_required');
+    // (#151) a plugin needs a cold start to load — the row stays 'installed'.
+    assert.equal(out['row_status'], 'installed');
+    const after = db.get<{ status: string }>(`SELECT status FROM cheatcodes WHERE id = ?`, [id]);
+    assert.equal(after!.status, 'installed', 'a plugin activate keeps status=installed until restart');
+    assert.ok(typeof out['reason'] === 'string' && (out['reason'] as string).length > 0, 'reason present');
+  });
+
+  it('returns restart_required + a reason for an mcp-kind cheatcode', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const id = await seedInstall(tools, {
+      name: 'pdf-mcp',
+      kind: 'mcp',
+      source_url: 'https://github.com/x/pdf-mcp',
+    });
+    const r = await call(tools.handlers, 'cheatcode_activate', { agent: 'bro', cheatcode_id: id });
+    const out = parse(r);
+    assert.equal(out['status'], 'restart_required');
+    assert.ok(typeof out['reason'] === 'string' && (out['reason'] as string).length > 0, 'reason present');
+  });
+
+  it('writes a cheatcode_activate audit row carrying the verdict', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const id = await seedInstall(tools, {
+      name: 'pdf-plugin',
+      kind: 'plugin',
+      source_url: 'https://github.com/x/pdf',
+    });
+    await call(tools.handlers, 'cheatcode_activate', { agent: 'bro', cheatcode_id: id });
+    const row = db.get<{ content_json: string }>(
+      `SELECT content_json FROM audit WHERE event_type = 'cheatcode_activate' ORDER BY id DESC LIMIT 1`,
+    );
+    assert.ok(row, 'cheatcode_activate audit row exists');
+    const content = JSON.parse(row!.content_json);
+    assert.equal(content.cheatcode_id, id);
+    assert.equal(content.status, 'restart_required');
+  });
+
+  it('errors on an unknown cheatcode_id (never silently throws)', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const r = await call(tools.handlers, 'cheatcode_activate', { agent: 'bro', cheatcode_id: 9999 });
+    assert.equal(r.isError, true);
+    assert.ok(parse(r)['error']);
+  });
+
+  it('rejects a non-bro caller', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const r = await call(tools.handlers, 'cheatcode_activate', { agent: 'swe', cheatcode_id: 1 });
+    assert.equal(r.isError, true);
+    assert.equal(parse(r)['error'], 'forbidden');
+  });
+});
+
+const INSTALL_OK_LIST = JSON.stringify({ installed: true, version: '1.2.3' });
+
+describe('cheatcode_list', () => {
+  function withFixture(body: string): { path: string; cleanup: () => void } {
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-cheatcode-list-'));
+    const path = join(dir, 'install.json');
+    writeFileSync(path, body);
+    return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+
+  it('returns the cheatcodes table rows ordered by id, including the seeded builtins', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const r = await call(tools.handlers, 'cheatcode_list', { agent: 'bro' });
+    assert.notEqual(r.isError, true, `list errored: ${r.content[0]?.text}`);
+    const rows = parse(r)['cheatcodes'] as Array<{
+      id: number;
+      name: string;
+      kind: string;
+      origin: string;
+      status: string;
+      description: string;
+    }>;
+    assert.ok(rows.length >= 1, 'at least the builtin skills are listed');
+    assert.ok(rows.some((c) => c.name === 'tmb_cheatcode' && c.origin === 'builtin'));
+    for (let i = 1; i < rows.length; i++) {
+      assert.ok(rows[i - 1].id <= rows[i].id, `id order violated at index ${i}`);
+    }
+  });
+
+  it('surfaces an installed plugin row with its version, status, and description', async () => {
+    const db = tempDB();
+    const { path, cleanup } = withFixture(INSTALL_OK_LIST);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+    try {
+      const tools = cheatcodeTools(db);
+      await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
+        trust_tier: 'trusted',
+      });
+      const r = await call(tools.handlers, 'cheatcode_list', { agent: 'bro' });
+      const rows = parse(r)['cheatcodes'] as Array<{
+        name: string;
+        origin: string;
+        version: string | null;
+        status: string;
+        description: string;
+      }>;
+      const installed = rows.find((c) => c.name === 'pdf-plugin');
+      assert.ok(installed, 'installed plugin row is listed');
+      assert.equal(installed!.origin, 'external');
+      assert.equal(installed!.version, '1.2.3');
+      assert.equal(installed!.status, 'installed');
+      assert.ok(installed!.description.length > 0, 'description is non-empty');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('filters by kind and by status', async () => {
+    const db = tempDB();
+    const { path, cleanup } = withFixture(INSTALL_OK_LIST);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
+    try {
+      const tools = cheatcodeTools(db);
+      await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
+      });
+      const byKind = parse(
+        await call(tools.handlers, 'cheatcode_list', { agent: 'bro', kind: 'plugin' }),
+      )['cheatcodes'] as Array<{ kind: string }>;
+      assert.ok(byKind.length >= 1, 'at least one plugin row');
+      assert.ok(byKind.every((c) => c.kind === 'plugin'), 'only plugin kind returned');
+
+      const byStatus = parse(
+        await call(tools.handlers, 'cheatcode_list', { agent: 'bro', status: 'installed' }),
+      )['cheatcodes'] as Array<{ status: string }>;
+      assert.ok(byStatus.every((c) => c.status === 'installed'), 'only installed status returned');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      cleanup();
+    }
+  });
+
+  it('rejects a non-bro caller', async () => {
+    const db = tempDB();
+    const tools = cheatcodeTools(db);
+    const r = await call(tools.handlers, 'cheatcode_list', { agent: 'swe' });
+    assert.equal(r.isError, true);
+    assert.equal(parse(r)['error'], 'forbidden');
+  });
+});
+
+describe('builtin cheatcode version backfill (#111)', () => {
+  it('stamps every builtin row with the plugin version when CLAUDE_PLUGIN_ROOT resolves', () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    try {
+      const db = new TrajectoryDB(':memory:');
+      const expected = JSON.parse(
+        readFileSync(join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'), 'utf8'),
+      ).version as string;
+      const builtins = db.all<{ name: string; version: string | null }>(
+        `SELECT name, version FROM cheatcodes WHERE origin = 'builtin'`,
+      );
+      assert.ok(builtins.length >= 1, 'builtin rows seeded');
+      for (const row of builtins) {
+        assert.equal(row.version, expected, `${row.name} carries the plugin version`);
+      }
+    } finally {
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+    }
+  });
+});
+
+describe('projectRootFromDbPath', () => {
+  const p = (...parts: string[]) => parts.join(sep);
+
+  it('resolves the inner project root when the project is nested under a .claude ancestor (#164 L6 layout)', () => {
+    // ~/.claude/tmb/l6-chain-runs/<run>/project/.claude/tmb/trajectory.db —
+    // .claude appears twice; the root must be the project dir adjacent to the
+    // DB (innermost .claude), not $HOME (the outer .claude).
+    const dbPath = p(
+      sep + 'Users', 'x', '.claude', 'tmb', 'l6-chain-runs', 'r', 'project', '.claude', 'tmb', 'trajectory.db',
+    );
+    assert.equal(
+      projectRootFromDbPath(dbPath),
+      p(sep + 'Users', 'x', '.claude', 'tmb', 'l6-chain-runs', 'r', 'project'),
+    );
+  });
+
+  it('resolves the project root for a normal single-.claude path', () => {
+    const dbPath = p(sep + 'Users', 'x', 'proj', '.claude', 'tmb', 'trajectory.db');
+    assert.equal(projectRootFromDbPath(dbPath), p(sep + 'Users', 'x', 'proj'));
+  });
+
+  it('returns null for :memory: and empty db paths', () => {
+    assert.equal(projectRootFromDbPath(':memory:'), null);
+    assert.equal(projectRootFromDbPath(''), null);
+  });
+});

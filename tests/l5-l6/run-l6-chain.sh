@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# L6 chain runner — drives ALL 13 journey rows sequentially through ONE
+# L6 chain runner — drives ALL 15 journey rows sequentially through ONE
 # cumulative trajectory DB. Rows live in tests/l5-l6/rows/ (canonical tree).
 # State carries across rows via DB; see tests/EVALUATION.md for the journey spec
 # and tests/l5-l6/l6-chain/chain-manifest.json for the step manifest.
-# Row dirs are resolved as $HERE/<manifest.row_dir> where row_dir = "rows/...".
+# Row dirs are resolved as $HERE/<manifest.row_dir> where row_dir = "rows/NN/...".
 #
 # Usage:
 #   bash tests/l5-l6/run-l6-chain.sh                         # auto-resume (or fresh if nothing to resume)
@@ -34,7 +34,6 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 export PLUGIN_ROOT
-export TMB_HEADLESS=1
 
 MANIFEST="$HERE/l6-chain/chain-manifest.json"
 

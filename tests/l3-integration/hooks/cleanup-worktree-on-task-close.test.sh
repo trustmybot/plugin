@@ -105,7 +105,7 @@ out=$(run_hook "$(input 'mcp__plugin_tmb-rc_trajectory-server__task_update_statu
 [ ! -d "$REPO/.claude/worktrees/bar" ] || { echo "FAIL: rc-channel match didn't fire"; exit 1; }
 echo "  rc-channel tool name handled"
 
-test_case "TMB workspace shape: workspace-rooted DB + tasks.repo=null + tmb_default_repo='plugin' → worktree removed"
+test_case "#169 nested-repo shape: workspace DB + tasks.repo=plugin + repo-rooted worktree → worktree removed"
 WORKSPACE_TMP=$(mktemp -d -t tmb-ws-XXXX)
 INNER="$WORKSPACE_TMP/plugin"
 mkdir -p "$INNER"
@@ -116,24 +116,29 @@ git -C "$INNER" config user.name t
 echo init > "$INNER/README.md"
 git -C "$INNER" add .
 git -C "$INNER" commit -qm init
+INNER_ROOT=$(git -C "$INNER" rev-parse --show-toplevel)
 WS_DB="$WORKSPACE_TMP/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$WS_DB")"
 sqlite3 "$WS_DB" "
   CREATE TABLE tasks (id INTEGER PRIMARY KEY, branch_id TEXT NOT NULL, repo TEXT, status TEXT);
-  INSERT INTO tasks (id, branch_id, repo, status) VALUES (20, 'fix/ws-test', NULL, 'completed');
+  INSERT INTO tasks (id, branch_id, repo, status) VALUES (20, 'fix/ws-test', 'plugin', 'completed');
 "
 sqlite3 "$WS_DB" "
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT, updated_at TEXT);
-  INSERT INTO plugin_config (key, value_json, updated_at) VALUES ('tmb_default_repo', '\"plugin\"', datetime('now'));
+  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, target_branch TEXT, protected_branches TEXT);
+  INSERT INTO repos (name, path) VALUES ('plugin', '$INNER_ROOT');
 "
+# Worktree is REPO-ROOTED under the inner repo (canonical), not at the workspace root.
+NESTED_WT="$INNER_ROOT/.claude/worktrees/ws-test"
 git -C "$INNER" branch fix/ws-test HEAD
-git -C "$INNER" worktree add -q "$WORKSPACE_TMP/.claude/worktrees/ws-test" fix/ws-test
-[ -d "$WORKSPACE_TMP/.claude/worktrees/ws-test" ] || { echo "FAIL: worktree not created"; exit 1; }
+git -C "$INNER" worktree add -q "$NESTED_WT" fix/ws-test
+[ -d "$NESTED_WT" ] || { echo "FAIL: worktree not created"; exit 1; }
+# The pre-migration workspace-rooted path must NOT exist in the repo-rooted world.
+[ ! -d "$WORKSPACE_TMP/.claude/worktrees/ws-test" ] || { echo "FAIL: unexpected workspace-rooted worktree"; exit 1; }
 out=$(echo "$(input 'mcp__plugin_tmb_trajectory-server__task_update_status' 'bro' 'closed' 20)" \
   | TRAJECTORY_DB_PATH="$WS_DB" bash "$HOOK" 2>&1 || true)
-assert_contains "$out" 'cleaned up worktree' "TMB workspace shape: worktree should be cleaned up"
-[ ! -d "$WORKSPACE_TMP/.claude/worktrees/ws-test" ] || { echo "FAIL: worktree still present in TMB workspace shape"; exit 1; }
-echo "  TMB workspace-rooted worktree removed successfully"
+assert_contains "$out" 'cleaned up worktree' "nested-repo shape: worktree should be cleaned up"
+[ ! -d "$NESTED_WT" ] || { echo "FAIL: repo-rooted worktree still present in nested-repo shape"; exit 1; }
+echo "  nested-repo repo-rooted worktree removed successfully"
 rm -rf "$WORKSPACE_TMP"
 cd "$REPO"
 
@@ -177,11 +182,11 @@ assert_eq "" "$out" "non-bro agent must be silent no-op for bro_atomic_close"
 [ -d "$REPO/.claude/worktrees/atomic2" ] || { echo "FAIL: worktree removed for non-bro agent"; exit 1; }
 
 # ---- #559: per-repo HEAD-reset target resolution -----------------------------
-# Set up plugin_config + repos table in the main DB for these cases.
+# Set up the repos table in the main DB for these cases. The hook resolves the
+# reset target from repos.target_branch (the sole source), defaulting to 'dev'
+# when the column is NULL.
 _REPO_REALPATH=$(git -C "$REPO" rev-parse --show-toplevel)
 sqlite3 "$DB" "
-  CREATE TABLE IF NOT EXISTS plugin_config (key TEXT PRIMARY KEY, value_json TEXT, updated_at TEXT);
-  INSERT OR REPLACE INTO plugin_config (key, value_json, updated_at) VALUES ('pr_target', '\"dev\"', datetime('now'));
   CREATE TABLE IF NOT EXISTS repos (
     name              TEXT PRIMARY KEY,
     path              TEXT NOT NULL,
@@ -210,7 +215,7 @@ AFTER_HEAD=$(git -C "$REPO" rev-parse --abbrev-ref HEAD)
 [ "$AFTER_HEAD" = "main" ] || { echo "FAIL: HEAD is '$AFTER_HEAD', expected 'main'"; exit 1; }
 echo "  HEAD reset to main (per-repo target_branch honored)"
 
-test_case "#559: registered repo with NULL target_branch → falls back to global pr_target='dev'"
+test_case "#559: registered repo with NULL target_branch → falls back to the default 'dev'"
 sqlite3 "$DB" "INSERT OR REPLACE INTO repos (name, path, target_branch) VALUES ('fixture', '${_REPO_REALPATH}', NULL);"
 git -C "$REPO" branch fix/per-repo-null HEAD
 git -C "$REPO" worktree add -q .claude/worktrees/per-repo-null fix/per-repo-null
@@ -223,7 +228,7 @@ out=$(echo "$(input 'mcp__plugin_tmb_trajectory-server__task_update_status' 'bro
 assert_contains "$out" 'cleaned up worktree' "worktree removed"
 AFTER_HEAD=$(git -C "$REPO" rev-parse --abbrev-ref HEAD)
 [ "$AFTER_HEAD" = "dev" ] || { echo "FAIL: HEAD is '$AFTER_HEAD', expected 'dev'"; exit 1; }
-echo "  HEAD reset to dev (global pr_target fallback honored)"
+echo "  HEAD reset to dev (NULL target_branch default fallback honored)"
 
 test_case "#559: TMB_KEEP_HEAD_ON_CLOSE=1 still skips the reset"
 sqlite3 "$DB" "INSERT OR REPLACE INTO repos (name, path, target_branch) VALUES ('fixture', '${_REPO_REALPATH}', 'main');"

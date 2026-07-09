@@ -6,7 +6,6 @@
 #
 # Allowed exceptions (intentional historical/retirement references):
 #  - docs/architecture/WORLD_MODEL.md — 'What was replaced' note
-#  - docs/architecture/manual/decisions/0001-world-model-as-bro-memory.md — ADR retiring file_registry
 #  - mcp/trajectory-server/src/db.ts — the migrateV6toV7 DROP TABLE itself
 #  - CHANGELOG.md — accurate history
 #  - tests/l1-lint/no-file-registry-refs.sh — this script itself
@@ -33,8 +32,6 @@ while IFS= read -r f; do
   [ -z "$f" ] && continue
   case "$f" in
     docs/architecture/WORLD_MODEL.md) continue;;
-    docs/architecture/manual/decisions/0001-world-model-as-bro-memory.md) continue;;
-    docs/architecture/manual/decisions/0002-graph-db-as-world-model.md) continue;;
     mcp/trajectory-server/src/db.ts) continue;;
     mcp/trajectory-server/src/test/schema.test.ts) continue;;
     mcp/trajectory-server/src/test/schema-upgrade.test.ts) continue;;

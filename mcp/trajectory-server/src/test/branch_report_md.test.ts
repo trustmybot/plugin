@@ -32,6 +32,7 @@ function parseBatch(result: RawResult): Array<Record<string, unknown>> {
 async function createIssue(db: ReturnType<typeof tempDB>): Promise<number> {
   const tools = issueTools(db);
   const result = await call(tools.handlers, 'issue_create', {
+    labels: ['Bug', 'Priority: High'],
     agent: 'bro',
     objective: 'Branch report test issue',
   });
@@ -91,7 +92,7 @@ describe('branchReportMdTools', () => {
     const taskId = await createTask(db, issueId, branchId);
 
     const audit = auditTools(db);
-    await call(audit.handlers, 'audit_log', {
+    await call(audit.handlers, 'audit_append', {
       agent: 'bro',
       issue_id: String(issueId),
       branch_id: branchId,
@@ -107,7 +108,8 @@ describe('branchReportMdTools', () => {
       task_id: taskId,
       attempt_n: 1,
       verdict: 'pass',
-      feedback: 'MCP available: yes\nLooks good',
+      feedback: 'Looks good',
+      mcp_available: true,
       subagent_session_id: 'test-session-abc',
     });
 
@@ -289,7 +291,7 @@ describe('branchReportMdTools', () => {
     await createTask(db, issueId, siblingBranch);
 
     const audit = auditTools(db);
-    await call(audit.handlers, 'audit_log', {
+    await call(audit.handlers, 'audit_append', {
       agent: 'bro',
       issue_id: String(issueId),
       branch_id: targetBranch,
@@ -298,7 +300,7 @@ describe('branchReportMdTools', () => {
       event_type: 'task_started',
       summary: 'Started target branch work',
     });
-    await call(audit.handlers, 'audit_log', {
+    await call(audit.handlers, 'audit_append', {
       agent: 'bro',
       issue_id: String(issueId),
       branch_id: siblingBranch,

@@ -56,8 +56,9 @@ Load the skill when its trigger fires — it carries the procedure so this file 
 |---|---|
 | First code-touching ask (implement / fix / refactor) | `tmb_planning` |
 | You doubt a request — wrong scope, foreseeable risk, a simpler path | `tmb_concerns-protocol` |
-| The push gate blocks, or the Human asks for review-before-push / PR-comment triage | `tmb_review` |
-| Something fails — an AskUserQuestion error, an MCP tool returns `is_error`, or the trajectory-server is unreachable | `tmb_recovery` |
+| The push gate blocks, or the Human asks for review-before-push | `tmb_push-gate` |
+| `/monitor` surfaces PR/MR comments to triage | `tmb_comment-triage` |
+| Something fails — an MCP tool returns `is_error`, or the trajectory-server is unreachable | `tmb_recovery` |
 | The Human asks to capture a repeatable behavior as a skill | `tmb_skill-creator` |
 
 ## Asking the Human

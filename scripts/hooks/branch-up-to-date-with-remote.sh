@@ -21,7 +21,7 @@
 #     hook honors this when present)
 #   - Bypass: TMB_ALLOW_STALE_BRANCH=1 (offline / disconnected work)
 #
-# pr_target read from plugin_config (defaults to "main").
+# pr_target read from the repos table (defaults to "main").
 
 set -uo pipefail
 
@@ -59,7 +59,12 @@ esac
 BRANCH=$(echo "$CMD" | awk '{print $NF}')
 [ -n "$BRANCH" ] || exit 0
 
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+# Resolve the repo from the command's `cd <repo> &&` / `git -C <repo>` target —
+# in a multi-repo workspace $PWD is the non-repo workspace root, so a bare
+# `git rev-parse --show-toplevel` on $PWD would mis-scope (or go inert).
+_CMD_CWD=$(tmb_cmd_cwd "$CMD" "$INPUT")
+REPO_ROOT=$(tmb_repo_git_root "$_CMD_CWD")
+[ -n "$REPO_ROOT" ] || exit 0
 DB_PATH="${TRAJECTORY_DB_PATH:-$REPO_ROOT/.claude/${PLUGIN_NAME}/trajectory.db}"
 [ -f "$DB_PATH" ] || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0
@@ -70,14 +75,9 @@ if ! tmb_repo_is_registered "$DB_PATH" "$REPO_ROOT"; then
   exit 0
 fi
 
-# Resolve per-repo target_branch, falling back to global pr_target.
+# Resolve per-repo target_branch from the repos table (the sole source).
 _REPO_ROW=$(tmb_repo_resolve "$DB_PATH" "$REPO_ROOT")
 PR_TARGET=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f1)
-
-if [ -z "$PR_TARGET" ]; then
-  PR_TARGET=$(sqlite3 "$DB_PATH" "SELECT json_extract(value_json, '$') FROM plugin_config WHERE key='pr_target' LIMIT 1;" 2>/dev/null || true)
-  PR_TARGET=$(echo "${PR_TARGET:-}" | tr -d '"')
-fi
 [ -n "$PR_TARGET" ] || PR_TARGET="main"
 
 if ! git -C "$REPO_ROOT" rev-parse --verify "$BRANCH" >/dev/null 2>&1; then

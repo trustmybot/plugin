@@ -33,13 +33,11 @@ Tools are registered in `src/tools/index.ts`, grouped by domain:
 | Family | File | Example tools |
 |---|---|---|
 | Issues | `tools/issues.ts` | `issue_create`, `issue_get`, `issue_resume`, `issue_close`, `issue_snapshot_md` |
-| Tasks | `tools/tasks.ts` | `task_create_batch`, `task_get`, `task_update_status`, `task_first_actionable` |
+| Tasks | `tools/tasks.ts` | `task_get`, `task_update_status`, `task_first_actionable` |
 | Discussions | `tools/discussions.ts` | `discussion_append`, `discussion_list` |
-| Audit | `tools/audit.ts` | `audit_log`, `audit_log_list` |
+| Audit | `tools/audit.ts` | `audit_append`, `audit_list` |
 | Validation | `tools/validation.ts` | `validation_record`, `validation_history` |
-| Skills | `tools/skills.ts` | `skill_register` (now takes `scope`), `skill_record_outcome`, `skill_record_invocation`, `skill_invocations_list` |
-| Rules (#2886) | `tools/rules.ts` | `rule_register`, `rule_list`, `rule_record_invocation`, `rule_invocations_list` |
-| Commands (#2886) | `tools/commands.ts` | `command_register`, `command_list` (4 plugin-shipped commands schema-seeded) |
+| Skills (builtin rows in the unified `cheatcodes` registry, #101) | `tools/skills.ts` | `skill_register` (takes `scope`), `skill_promote` |
 | Reports | `tools/reports.ts` | `issue_report_md` |
 | Config | `tools/config.ts` | `config_get`, `config_set`, `config_list` |
 | Onboard | `tools/onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` |
@@ -62,6 +60,6 @@ where `<type>` is one of `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `pe
 
 ## Schema
 
-Current baseline: `TARGET_SCHEMA_VERSION = 8` (see `src/db.ts`). `schema.sql` is applied on open via `CREATE TABLE IF NOT EXISTS` semantics. On open, the stored `schema_version` is compared against `TARGET_SCHEMA_VERSION` via `db.ts:runMigrations`; if behind, a `.bak` snapshot is written before any migration runs, then migrations execute in sequence and `schema_version` is updated on success. Rollback is via the `.bak` file. Migration correctness is covered by `src/test/schema-upgrade.test.ts`.
+Current baseline: `TARGET_SCHEMA_VERSION = 27` (see `src/db.ts`). `schema.sql` is applied on open via `CREATE TABLE IF NOT EXISTS` semantics. On open, the stored `schema_version` is compared against `TARGET_SCHEMA_VERSION` via `db.ts:runMigrations`; if behind, a `.bak` snapshot is written before any migration runs, then migrations execute in sequence and `schema_version` is updated on success. Rollback is via the `.bak` file. Migration correctness is covered by `src/test/schema-upgrade.test.ts`.
 
 `plugin_meta` tracks `schema_version` + `plugin_version`. `plugin_version` is synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — fresh and existing DBs auto-update without a migration; the schema placeholder `'0.0.0'` applies only when `CLAUDE_PLUGIN_ROOT` is unset (e.g. test runs).

@@ -9,6 +9,7 @@ import { startClient, call } from './harness.mjs';
 async function seedCompletedTask(client) {
   const issue = await call(client, 'issue_create', {
     agent: 'bro', objective: 'pr test', description: 'x',
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(issue.ok, true);
   const batch = await call(client, 'task_create_batch', {
@@ -23,14 +24,8 @@ async function seedCompletedTask(client) {
       spec_body: [
         '# Task: pr-test handler',
         '',
-        '## Files',
-        '- src/handler.ts',
-        '',
         '## Success Criteria',
         '- handler returns 200 with body "ok"',
-        '',
-        '## Verification',
-        '- bun test src/handler.test.ts',
       ].join('\n'),
     }],
   });
@@ -60,7 +55,8 @@ test('pr-reviewer — happy path: read task → record pass → history reflects
     task_id: taskId,
     attempt_n: 1,
     verdict: 'pass',
-    feedback: 'MCP available: yes\nLGTM — tests pass, no smells.',
+    mcp_available: true,
+    feedback: 'LGTM — tests pass, no smells.',
     subagent_session_id: 'integration-test-session-pass',
   });
   assert.equal(record.ok, true, `validation_record: ${JSON.stringify(record)}`);
@@ -86,7 +82,8 @@ test('pr-reviewer — fail path: record fail → bro sees it in history', async 
     task_id: taskId,
     attempt_n: 1,
     verdict: 'fail',
-    feedback: 'MCP available: yes\nmissing test for edge case X',
+    mcp_available: true,
+    feedback: 'missing test for edge case X',
     subagent_session_id: 'integration-test-session-fail',
   });
   assert.equal(fail.ok, true);
@@ -114,7 +111,8 @@ test('pr-reviewer — multiple attempts accumulate in history (retry loop)', asy
       task_id: taskId,
       attempt_n: n,
       verdict: 'fail',
-      feedback: `MCP available: yes\nattempt ${n} — still broken`,
+      mcp_available: true,
+      feedback: `attempt ${n} — still broken`,
       subagent_session_id: `integration-test-session-retry-${n}`,
     });
     assert.equal(fail.ok, true);
@@ -124,7 +122,8 @@ test('pr-reviewer — multiple attempts accumulate in history (retry loop)', asy
     task_id: taskId,
     attempt_n: 3,
     verdict: 'pass',
-    feedback: 'MCP available: yes\nfinally green',
+    mcp_available: true,
+    feedback: 'finally green',
     subagent_session_id: 'integration-test-session-retry-3',
   });
   assert.equal(pass.ok, true);

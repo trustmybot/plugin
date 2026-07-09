@@ -25,19 +25,30 @@ trap 'rm -rf "$TMPDIR"' EXIT
 
 DB="$TMPDIR/trajectory.db"
 
-# Fixture: remotes=[{name,provider,url:""}] — no usable url
+# repos schema (post-#987): repos.remotes is the sole source of truth. A single
+# registered repo lets tmb_repo_remotes resolve via the single-repo fallback
+# regardless of cwd/git-root.
+_repos_schema="CREATE TABLE repos (
+  name TEXT PRIMARY KEY, path TEXT NOT NULL,
+  file_count INTEGER NOT NULL DEFAULT 0,
+  last_scanned_at TEXT NOT NULL DEFAULT (datetime('now')),
+  target_branch TEXT, branching_model TEXT, protected_branches TEXT,
+  remotes TEXT
+);"
+
+# Fixture: a single repos row whose remotes have no usable url.
 sqlite3 "$DB" "
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '');
-  INSERT INTO plugin_config (key, value_json) VALUES
-    ('remotes', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"\"}]');
+  $_repos_schema
+  INSERT INTO repos (name, path, remotes) VALUES
+    ('repo', '/tmp/repo', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"\"}]');
 "
 
-# Fixture DB with a usable url
+# Fixture DB: a single repos row with a usable url.
 DB_WITH_REMOTE="$TMPDIR/trajectory-with-remote.db"
 sqlite3 "$DB_WITH_REMOTE" "
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '');
-  INSERT INTO plugin_config (key, value_json) VALUES
-    ('remotes', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"https://github.com/org/repo.git\"}]');
+  $_repos_schema
+  INSERT INTO repos (name, path, remotes) VALUES
+    ('repo', '/tmp/repo', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"https://github.com/org/repo.git\"}]');
 "
 
 input_bash() {
@@ -144,15 +155,13 @@ out_gl_r=$(run_hook "$(input_bash 'glab auth login')" "$DB_WITH_REMOTE")
 assert_eq "" "$out_gl_r" "glab allow when remote configured"
 
 # ============================================================================
-# Extra: remotes key absent (no row) → fail-open
+# Extra: no registered repo (empty repos table) → fail-open
 # ============================================================================
-test_case "remotes key absent: fail-open (allow)"
+test_case "no registered repo: fail-open (allow)"
 DB_NO_REMOTES="$TMPDIR/trajectory-no-remotes.db"
-sqlite3 "$DB_NO_REMOTES" "
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '');
-"
+sqlite3 "$DB_NO_REMOTES" "$_repos_schema"
 out_nr=$(echo "$(input_bash 'gh auth login')" | TRAJECTORY_DB_PATH="$DB_NO_REMOTES" bash "$HOOK" 2>/dev/null || true)
-assert_eq "" "$out_nr" "absent remotes key → allow"
+assert_eq "" "$out_nr" "no repos row → allow"
 
 # ============================================================================
 # Subshell-wrapped forms: (gh auth login) / (glab auth login) → deny
@@ -170,5 +179,33 @@ assert_contains "$out_sub_glab" '"permissionDecision":"deny"' "subshell glab aut
 
 test_case "subshell (glab auth login): deny reason mentions BLOCKED"
 assert_contains "$out_sub_glab" "BLOCKED" "BLOCKED in reason for subshell glab"
+
+# ============================================================================
+# Multi-repo (H6): the remotes are resolved from the command's cd/-C target, not
+# $PWD. Two REAL git repos are registered by their git-root path: a with-remote
+# repo and a no-remote repo. A `cd <no-remote> && gh auth login` must DENY even
+# when $PWD is the with-remote repo — proving cd-target scoping.
+# ============================================================================
+MR_DB="$TMPDIR/multirepo.db"
+WITH="$TMPDIR/with-remote"
+NORM="$TMPDIR/no-remote"
+git init -q -b main "$WITH"
+git init -q -b main "$NORM"
+_WITH_REAL=$(git -C "$WITH" rev-parse --show-toplevel)
+_NORM_REAL=$(git -C "$NORM" rev-parse --show-toplevel)
+sqlite3 "$MR_DB" "
+  $_repos_schema
+  INSERT INTO repos (name, path, remotes) VALUES
+    ('with', '$_WITH_REAL', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"https://github.com/org/with.git\"}]'),
+    ('norm', '$_NORM_REAL', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"\"}]');
+"
+
+test_case "(H6) cd into the no-remote sibling → deny (resolved from cd target, not \$PWD)"
+out_mr=$( (cd "$WITH" && echo "$(input_bash "cd $NORM && gh auth login")" | TRAJECTORY_DB_PATH="$MR_DB" bash "$HOOK" 2>/dev/null) || true)
+assert_contains "$out_mr" '"permissionDecision":"deny"' "no-remote sibling must deny even when \$PWD has a remote"
+
+test_case "(H6) cd into the with-remote sibling → allow (resolved from cd target, not \$PWD)"
+out_mr2=$( (cd "$NORM" && echo "$(input_bash "cd $WITH && gh auth login")" | TRAJECTORY_DB_PATH="$MR_DB" bash "$HOOK" 2>/dev/null) || true)
+assert_eq "" "$out_mr2" "with-remote sibling must allow even when \$PWD has no remote"
 
 summarize

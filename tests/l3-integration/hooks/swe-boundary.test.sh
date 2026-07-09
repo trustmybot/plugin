@@ -124,6 +124,19 @@ test_case "(a) SWE git push --force: NOT denied by this hook (delegated to git-g
 out=$(run_hook_swe "$(make_bash_input swe 'git push --force origin feat/my-feature')")
 assert_not_contains "$out" '"permissionDecision":"deny"' "force push should not be denied by swe-boundary (git-guards handles it)"
 
+# #1016: whitespace-tolerant / wrapper-form push detection must not fail open.
+test_case "(a) SWE 'git  push' (double space): DENIED"
+out=$(run_hook_swe "$(make_bash_input swe 'git  push origin feat/my-feature')")
+assert_contains "$out" '"permissionDecision":"deny"' "double-space SWE push must not fail open"
+
+test_case "(a) SWE 'bash -c \"git push ...\"' wrapper: DENIED"
+out=$(run_hook_swe "$(make_bash_input swe 'bash -c "git push origin feat/my-feature"')")
+assert_contains "$out" '"permissionDecision":"deny"' "wrapped SWE push must not fail open"
+
+test_case "(a) SWE 'eval \"git push ...\"' wrapper: DENIED"
+out=$(run_hook_swe "$(make_bash_input swe 'eval "git push origin feat/my-feature"')")
+assert_contains "$out" '"permissionDecision":"deny"' "eval-wrapped SWE push must not fail open"
+
 test_case "(a) bro git push: NOT denied (bro is the push agent)"
 out=$(run_hook_bro "$(make_bash_input bro 'git push origin dev')")
 assert_not_contains "$out" '"permissionDecision":"deny"' "bro push should not be denied"

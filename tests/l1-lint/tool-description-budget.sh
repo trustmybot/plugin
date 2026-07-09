@@ -15,7 +15,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 SERVER_DIST="$PLUGIN_ROOT/mcp/trajectory-server/dist/index.js"
 
-BUDGET_BYTES="${TMB_TOOL_DESC_BUDGET:-12280}"  # recalibrated post-merge: B5 issue_link + B6 validation docs + B15 compact-mode params landed after the diet baseline
+BUDGET_BYTES="${TMB_TOOL_DESC_BUDGET:-15000}"  # raised for v0.10.0 (issue label-config #903, cheatcode tools #883, milestone) — real trim tracked in #771
 
 if [ ! -f "$SERVER_DIST" ]; then
   echo "Building MCP server..."

@@ -54,20 +54,30 @@ run_hook() {
   fi
 }
 
-# Fixture DBs for no-remote tests
+# Fixture DBs for no-remote tests. Post-#987 the offline note resolves from
+# repos.remotes (sole source of truth); a single registered repo lets
+# tmb_repo_remotes resolve via the single-repo fallback regardless of cwd.
+_repos_schema="CREATE TABLE repos (
+  name TEXT PRIMARY KEY, path TEXT NOT NULL,
+  file_count INTEGER NOT NULL DEFAULT 0,
+  last_scanned_at TEXT NOT NULL DEFAULT (datetime('now')),
+  target_branch TEXT, branching_model TEXT, protected_branches TEXT,
+  remotes TEXT
+);"
+
 _DB_DIR=$(mktemp -d -p "$STUB_DIR")
 DB_NO_REMOTE="$_DB_DIR/no-remote.db"
 sqlite3 "$DB_NO_REMOTE" "
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '');
-  INSERT INTO plugin_config (key, value_json) VALUES
-    ('remotes', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"\"}]');
+  $_repos_schema
+  INSERT INTO repos (name, path, remotes) VALUES
+    ('repo', '/tmp/repo', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"\"}]');
 "
 
 DB_WITH_REMOTE="$_DB_DIR/with-remote.db"
 sqlite3 "$DB_WITH_REMOTE" "
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '');
-  INSERT INTO plugin_config (key, value_json) VALUES
-    ('remotes', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"https://github.com/org/repo.git\"}]');
+  $_repos_schema
+  INSERT INTO repos (name, path, remotes) VALUES
+    ('repo', '/tmp/repo', '[{\"name\":\"origin\",\"provider\":\"github\",\"url\":\"https://github.com/org/repo.git\"}]');
 "
 
 # ============================================================================

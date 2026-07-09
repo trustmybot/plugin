@@ -1,5 +1,0 @@
-{
-  "expected_writes": {
-    "skills WHERE scope = 'project-local'": ">=1"
-  }
-}

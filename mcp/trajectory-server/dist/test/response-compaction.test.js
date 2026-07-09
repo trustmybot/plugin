@@ -23,6 +23,7 @@ function parseBatch(result) {
 async function createIssue(db) {
     const tools = issueTools(db);
     const result = await call(tools.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro',
         objective: 'Compaction test issue',
     });
@@ -155,6 +156,7 @@ describe('issue_get_with_discussions compact default (#210)', () => {
         const db = tempDB();
         const issues = issueTools(db);
         const createResult = await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
             agent: 'bro',
             objective: 'Redaction compact test',
             description: 'SECRET: must be redacted from swe',
@@ -216,19 +218,19 @@ describe('fields projection — discussion_list (#210)', () => {
         db.close();
     });
 });
-describe('fields projection — audit_log_list (#210)', () => {
+describe('fields projection — audit_list (#210)', () => {
     it('fields projection returns only requested columns', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const audit = auditTools(db);
-        await call(audit.handlers, 'audit_log', {
+        await call(audit.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
             event_type: 'planning_complete',
             summary: 'Plan done',
         });
-        const result = await call(audit.handlers, 'audit_log_list', {
+        const result = await call(audit.handlers, 'audit_list', {
             agent: 'bro',
             issue_id: String(issueId),
             fields: ['id', 'event_type', 'summary'],
@@ -245,18 +247,18 @@ describe('fields projection — audit_log_list (#210)', () => {
         assert.ok(!('from_node' in row), 'from_node must NOT be present');
         db.close();
     });
-    it('audit_log_list bare-array shape preserved when no fields projection', async () => {
+    it('audit_list bare-array shape preserved when no fields projection', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const audit = auditTools(db);
-        await call(audit.handlers, 'audit_log', {
+        await call(audit.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
             event_type: 'bro_verification_pass',
             summary: 'Verified',
         });
-        const result = await call(audit.handlers, 'audit_log_list', {
+        const result = await call(audit.handlers, 'audit_list', {
             agent: 'bro',
             issue_id: String(issueId),
         });
@@ -270,7 +272,7 @@ describe('fields projection — audit_log_list (#210)', () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const audit = auditTools(db);
-        const result = await call(audit.handlers, 'audit_log_list', {
+        const result = await call(audit.handlers, 'audit_list', {
             agent: 'bro',
             issue_id: String(issueId),
             fields: ['id', 'bad_field'],
@@ -293,7 +295,8 @@ describe('fields projection — validation_history (#210)', () => {
             task_id: taskId,
             attempt_n: 1,
             verdict: 'pass',
-            feedback: 'MCP available: yes\nLooks good',
+            feedback: 'Looks good',
+            mcp_available: true,
             subagent_session_id: 'test-session-proj',
         });
         const result = await call(validation.handlers, 'validation_history', {
@@ -322,7 +325,8 @@ describe('fields projection — validation_history (#210)', () => {
             task_id: taskId,
             attempt_n: 1,
             verdict: 'pass',
-            feedback: 'MCP available: yes\nLooks good',
+            feedback: 'Looks good',
+            mcp_available: true,
             subagent_session_id: 'test-session-compat',
         });
         const result = await call(validation.handlers, 'validation_history', {
@@ -394,7 +398,7 @@ describe('issue_report_md summary mode (#210)', () => {
         await createTask(db, issueId);
         const audit = auditTools(db);
         for (let i = 1; i <= 8; i++) {
-            await call(audit.handlers, 'audit_log', {
+            await call(audit.handlers, 'audit_append', {
                 agent: 'bro',
                 issue_id: String(issueId),
                 from_node: 'bro',
@@ -425,12 +429,12 @@ describe('issue_report_md summary mode (#210)', () => {
         assert.ok(!md.includes('Audit event 1'), 'Event 1 must NOT be in summary');
         db.close();
     });
-    it('detail mode: returns full Tasks + Validation + Audit + Skills sections', async () => {
+    it('detail mode: returns full Tasks + Validation + Audit sections', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         await createTask(db, issueId);
         const audit = auditTools(db);
-        await call(audit.handlers, 'audit_log', {
+        await call(audit.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
@@ -450,7 +454,6 @@ describe('issue_report_md summary mode (#210)', () => {
         assert.ok(md.includes('## Tasks'), 'Detail must have Tasks section');
         assert.ok(md.includes('## Validation History'), 'Detail must have Validation History section');
         assert.ok(md.includes('## Audit Event Timeline'), 'Detail must have Audit Event Timeline section');
-        assert.ok(md.includes('## Skill Usage Summary'), 'Detail must have Skill Usage section');
         assert.ok(md.includes('Detail mode audit entry'), 'Audit entry must appear in detail report');
         db.close();
     });
@@ -463,7 +466,7 @@ describe('branch_report_md summary mode (#210)', () => {
         await createTask(db, issueId, branchId);
         const audit = auditTools(db);
         for (let i = 1; i <= 7; i++) {
-            await call(audit.handlers, 'audit_log', {
+            await call(audit.handlers, 'audit_append', {
                 agent: 'bro',
                 issue_id: String(issueId),
                 branch_id: branchId,

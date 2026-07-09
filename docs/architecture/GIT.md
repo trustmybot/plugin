@@ -36,6 +36,12 @@ A git branch can only be checked out in one worktree at a time. SWE's worktree o
 
 Routing SWE's commits through your local branch (rather than letting SWE push straight to origin) preserves the standard developer mental model: local commits → push → PR. Your local branch is always canonical; you can inspect, rebase, drop, or amend before anything reaches origin. Industry-standard PR flows assume this — bypassing it (CI bots that push straight to feature branches) is the unusual pattern that most teams disallow.
 
+## Per-repo branch protection + guard scoping
+
+Branch policy is **per-repo**, not global. Each registered repo's `repos` row carries its own `target_branch`, `branching_model`, and `protected_branches`; the git guards resolve the acting repo path-keyed (the command's git toplevel → matching `repos` row) and enforce that row's policy. The `repos` row is the sole source of truth — there is no global `plugin_config` fallback.
+
+Guard scoping is **registration-based**: a git op is enforced only when its git-root resolves to a registered `repos` row. When the command's git-root is an unregistered sibling tree, the guards no-op — TMB never enforces on a tree it doesn't manage. For a single-repo project the sole repo is the registered root, so the whole tree is guarded; `/scan` is the registration point. See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md) for the full resolution contract.
+
 ## Where files live, at a glance
 
 | Path | Belongs to | Lifetime |
@@ -92,7 +98,7 @@ plugin/
     ├── discussions.ts                                # discussion_append (intent + decision audit)
     ├── composites.ts                                 # branch_id_propose
     ├── scan.ts                                       # scan_run (Phase 1 of /scan)
-    └── audit.ts                                      # audit_log(planning_complete)
+    └── audit.ts                                      # audit_append(planning_complete)
 ```
 
 **SWE working**
@@ -124,14 +130,14 @@ plugin/
 ```text
 plugin/
 ├── CLAUDE.md                                          # bro verification protocol (V1/V2/V3)
-├── skills/tmb_review/SKILL.md                        # push-gate orchestration + review phases
+├── skills/tmb_push-gate/SKILL.md                    # bro push-gate orchestration
 ├── scripts/hooks/
 │   ├── git-push-guard.sh                             # blocks push without pass verdicts
 │   ├── branch-up-to-date-with-remote.sh              # verifies local branch is current
 │   └── post-task-close-rescan.sh                     # PostToolUse: backgrounds /scan to refresh the world model
 └── mcp/trajectory-server/src/tools/
     ├── composites.ts                                 # bro_atomic_close (audit + status + close in one txn)
-    ├── audit.ts                                      # audit_log(bro_verification_pass)
+    ├── audit.ts                                      # audit_append(bro_verification_pass)
     └── issues.ts                                     # issue_close
 ```
 
@@ -139,7 +145,8 @@ plugin/
 ```text
 plugin/
 ├── agents/pr-reviewer.md                             # pr-reviewer subagent
-├── skills/tmb_review/SKILL.md                        # reviewer phases + bro push-gate orchestration
+├── skills/tmb_review/SKILL.md                        # pr-reviewer diff-level review protocol
+├── skills/tmb_push-gate/SKILL.md                    # bro push-gate orchestration
 ├── scripts/hooks/git-push-guard.sh                   # final enforcement before origin push
 └── mcp/trajectory-server/src/
     ├── tools/validation.ts                           # validation_record (verdict write)
@@ -155,6 +162,6 @@ plugin/
 ├── scripts/hooks/cleanup-worktree-on-task-close.sh   # removes SWE worktree (already done at close)
 ├── scripts/maintenance/cleanup-stale-worktrees.sh    # periodic stale worktree GC
 └── mcp/trajectory-server/src/tools/
-    ├── audit.ts                                      # audit_log(post-merge state)
+    ├── audit.ts                                      # audit_append(post-merge state)
     └── scan.ts                                       # scan_run rerun via post-task-close-rescan hook refreshes the world model + emits deep_scan_completed audit
 ```

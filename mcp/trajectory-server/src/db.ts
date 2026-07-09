@@ -6,7 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog, serverLog } from './logger.js';
 
-const TARGET_SCHEMA_VERSION = 12;
+const TARGET_SCHEMA_VERSION = 27;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -35,6 +35,27 @@ export function resolvePluginName(env: NodeJS.ProcessEnv = process.env): string 
     // Fall through to the default below.
   }
   return 'tmb';
+}
+
+/**
+ * Resolve the plugin version from CLAUDE_PLUGIN_ROOT's manifest. Returns null
+ * when the env is unset or the manifest is unreadable / carries no version —
+ * the builtin-version backfill (#111) then leaves the column unchanged.
+ */
+export function resolvePluginVersion(env: NodeJS.ProcessEnv = process.env): string | null {
+  const root = env['CLAUDE_PLUGIN_ROOT'];
+  if (!root) return null;
+  try {
+    const manifest = JSON.parse(
+      readFileSync(join(root, '.claude-plugin', 'plugin.json'), 'utf8'),
+    );
+    if (typeof manifest.version === 'string' && manifest.version.length > 0) {
+      return manifest.version;
+    }
+  } catch {
+    // Fall through to null below.
+  }
+  return null;
 }
 
 /**
@@ -84,6 +105,12 @@ function findExistingDbUp(
     if (dir === home && startDir !== home) return null;
     const candidate = join(dir, '.claude', pluginName, 'trajectory.db');
     if (existsSync(candidate)) return candidate;
+    // Git-repo boundary: a dir containing a `.git` entry (a dir in a normal
+    // checkout, a FILE in a git worktree) is the repo root. Check it for the
+    // DB above, then STOP — never traverse above the repo root, so a spawned
+    // server (a worktree under another repo, an isolated subdir test) can't
+    // silently adopt a parent project's live DB.
+    if (existsSync(join(dir, '.git'))) break;
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
@@ -115,6 +142,7 @@ export class TrajectoryDB {
     this.db.exec('PRAGMA busy_timeout = 5000');
     this.legacyNoPluginMeta = this.applySchema();
     this.syncPluginVersion();
+    this.syncBuiltinVersions();
   }
 
   private applySchema(): boolean {
@@ -228,6 +256,26 @@ export class TrajectoryDB {
         .run(manifest.version);
     } catch {
       // Silent skip — leave existing value unchanged.
+    }
+  }
+
+  /**
+   * Backfill the builtin cheatcodes' `version` to the plugin version (#111).
+   * The schema-seed (schema.sql) and the v19→v20 migration both insert builtin
+   * skill rows with version NULL — the SKILL.md body is the source of truth, but
+   * the registry row should still record which plugin version shipped it so
+   * cheatcode_list surfaces a version for every row. Runs every startup against
+   * the resolved plugin version; a no-op when the version is unresolvable.
+   */
+  private syncBuiltinVersions(env: NodeJS.ProcessEnv = process.env): void {
+    const version = resolvePluginVersion(env);
+    if (!version) return;
+    try {
+      this.db
+        .prepare(`UPDATE cheatcodes SET version = ? WHERE origin = 'builtin'`)
+        .run(version);
+    } catch {
+      // Silent skip — a DB without the cheatcodes table leaves builtins untouched.
     }
   }
 
@@ -355,6 +403,36 @@ export type RepoRow = {
   target_branch: string | null;
   branching_model: string | null;
   protected_branches: string | null;
+  remotes: string | null;
+};
+
+export type CheatcodeRow = {
+  id: number;
+  name: string;
+  kind: 'skill' | 'mcp' | 'plugin';
+  origin: 'builtin' | 'marketplace' | 'external';
+  description: string;
+  source_url: string | null;
+  file_path: string | null;
+  version: string | null;
+  trust_tier: string | null;
+  scope: 'global' | 'template' | 'project-local';
+  // Lifecycle (#112): 'installed' = recorded but not confirmed loaded;
+  // 'active' = loaded/usable (builtins seed here); 'broken' = recorded but
+  // failed (e.g. a teardown that left the artifact on disk). No CHECK on the
+  // column — runtime reconciliation to active/broken is the health-check (#113).
+  status: 'installed' | 'active' | 'broken';
+  installed_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CheatcodeAttachmentRow = {
+  id: number;
+  cheatcode_id: number;
+  target: string;
+  artifact: string;
+  created_at: string;
 };
 
 /**
@@ -441,6 +519,51 @@ function runMigrations(
   }
   if (fromVersion < 12 && toVersion >= 12) {
     migrateV11toV12(db);
+  }
+  if (fromVersion < 13 && toVersion >= 13) {
+    migrateV12toV13(db);
+  }
+  if (fromVersion < 14 && toVersion >= 14) {
+    migrateV13toV14(db);
+  }
+  if (fromVersion < 15 && toVersion >= 15) {
+    migrateV14toV15(db);
+  }
+  if (fromVersion < 16 && toVersion >= 16) {
+    migrateV15toV16(db);
+  }
+  if (fromVersion < 17 && toVersion >= 17) {
+    migrateV16toV17(db);
+  }
+  if (fromVersion < 18 && toVersion >= 18) {
+    migrateV17toV18(db);
+  }
+  if (fromVersion < 19 && toVersion >= 19) {
+    migrateV18toV19(db);
+  }
+  if (fromVersion < 20 && toVersion >= 20) {
+    migrateV19toV20(db);
+  }
+  if (fromVersion < 21 && toVersion >= 21) {
+    migrateV20toV21(db);
+  }
+  if (fromVersion < 22 && toVersion >= 22) {
+    migrateV21toV22(db);
+  }
+  if (fromVersion < 23 && toVersion >= 23) {
+    migrateV22toV23(db);
+  }
+  if (fromVersion < 24 && toVersion >= 24) {
+    migrateV23toV24(db);
+  }
+  if (fromVersion < 25 && toVersion >= 25) {
+    migrateV24toV25(db);
+  }
+  if (fromVersion < 26 && toVersion >= 26) {
+    migrateV25toV26(db);
+  }
+  if (fromVersion < 27 && toVersion >= 27) {
+    migrateV26toV27(db);
   }
 }
 
@@ -546,52 +669,6 @@ function migrateV10toV11(db: DatabaseSync): void {
       if (!hasColumn(db, 'repos', 'protected_branches')) {
         db.exec('ALTER TABLE repos ADD COLUMN protected_branches TEXT');
       }
-
-      // Backfill per-repo config from global plugin_config so existing
-      // single-repo installs behave identically after the upgrade.
-      if (tableExists(db, 'plugin_config')) {
-        const prTargetRow = db
-          .prepare("SELECT value_json FROM plugin_config WHERE key = 'pr_target'")
-          .get() as { value_json: string } | undefined;
-        const branchingModelRow = db
-          .prepare("SELECT value_json FROM plugin_config WHERE key = 'branching_model'")
-          .get() as { value_json: string } | undefined;
-        const protectedBranchesRow = db
-          .prepare("SELECT value_json FROM plugin_config WHERE key = 'protected_branches'")
-          .get() as { value_json: string } | undefined;
-
-        const prTarget = prTargetRow?.value_json
-          ? (() => {
-              try {
-                const v = JSON.parse(prTargetRow.value_json) as unknown;
-                return typeof v === 'string' && v.length > 0 ? v : null;
-              } catch { return null; }
-            })()
-          : null;
-
-        const branchingModel = branchingModelRow?.value_json
-          ? (() => {
-              try {
-                const v = JSON.parse(branchingModelRow.value_json) as unknown;
-                return typeof v === 'string' && v.length > 0 ? v : null;
-              } catch { return null; }
-            })()
-          : null;
-
-        const protectedBranches = protectedBranchesRow?.value_json ?? null;
-
-        if (prTarget !== null || branchingModel !== null || protectedBranches !== null) {
-          db.prepare(`
-            UPDATE repos
-               SET target_branch     = COALESCE(target_branch, ?),
-                   branching_model   = COALESCE(branching_model, ?),
-                   protected_branches = COALESCE(protected_branches, ?)
-             WHERE target_branch IS NULL
-               AND branching_model IS NULL
-               AND protected_branches IS NULL
-          `).run(prTarget, branchingModel, protectedBranches);
-        }
-      }
     }
     db.exec('COMMIT');
   } catch (err) {
@@ -618,6 +695,944 @@ function migrateV11toV12(db: DatabaseSync): void {
       db.exec('ROLLBACK');
     } catch {
       // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// Typed Rails (#673): add typed files/verification task columns the enforcement
+// hooks read directly. Both are JSON arrays defaulting to '[]'; existing task
+// rows keep that empty default, so the hooks skip enforcement for pre-migration
+// tasks. See docs/architecture/TYPED_RAILS.md.
+function migrateV12toV13(db: DatabaseSync): void {
+  db.exec('BEGIN');
+  try {
+    if (tableExists(db, 'tasks')) {
+      if (!hasColumn(db, 'tasks', 'files')) {
+        db.exec("ALTER TABLE tasks ADD COLUMN files TEXT NOT NULL DEFAULT '[]'");
+      }
+      if (!hasColumn(db, 'tasks', 'verification')) {
+        db.exec("ALTER TABLE tasks ADD COLUMN verification TEXT NOT NULL DEFAULT '[]'");
+      }
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// Cheatcode install stage (#659): the cheatcodes catalog + its attachment
+// records. Both are net-new tables, so CREATE IF NOT EXISTS is enough — there is
+// no existing data to reshape. applySchema re-runs schema.sql after migrations
+// and would create them in the fresh-DB path too; creating them here keeps the
+// migration self-contained and idempotent regardless of starting shape.
+function migrateV13toV14(db: DatabaseSync): void {
+  db.exec('BEGIN');
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS cheatcodes (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          name         TEXT    NOT NULL,
+          kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
+          source_url   TEXT    NOT NULL,
+          version      TEXT,
+          trust_tier   TEXT,
+          status       TEXT    NOT NULL DEFAULT 'installed',
+          installed_at TEXT    NOT NULL,
+          UNIQUE(name, source_url)
+      )
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS cheatcode_attachments (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          cheatcode_id INTEGER NOT NULL REFERENCES cheatcodes(id) ON DELETE CASCADE,
+          target       TEXT    NOT NULL,
+          artifact     TEXT    NOT NULL,
+          created_at   TEXT    NOT NULL
+      )
+    `);
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode ON cheatcode_attachments(cheatcode_id)',
+    );
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// Cheatcode install scope (#659): record where each install lands. Adds the
+// cheatcodes.scope column (NOT NULL DEFAULT 'local') so existing rows adopt the
+// project-scoped default. ALTER ADD COLUMN can't carry the CHECK constraint that
+// schema.sql declares for fresh DBs, but applySchema re-runs schema.sql after
+// migrations and the column already matching name+default keeps both paths in
+// sync.
+function migrateV14toV15(db: DatabaseSync): void {
+  db.exec('BEGIN');
+  try {
+    if (tableExists(db, 'cheatcodes') && !hasColumn(db, 'cheatcodes', 'scope')) {
+      db.exec("ALTER TABLE cheatcodes ADD COLUMN scope TEXT NOT NULL DEFAULT 'local'");
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+function migrateV15toV16(db: DatabaseSync): void {
+  db.exec('BEGIN');
+  try {
+    // Drop the dead rules + rule_invocations registry (#97 schema audit):
+    // honor-system-only, 0 rows everywhere, zero readers. Drop the child
+    // junction table first so the FK to rules(name) is gone before rules.
+    // LINT-ALLOW: v15→v16 migration retires the dead rules registry (#97 schema audit).
+    db.exec('DROP TABLE IF EXISTS rule_invocations');
+    // LINT-ALLOW: v15→v16 migration retires the dead rules registry (#97 schema audit).
+    db.exec('DROP TABLE IF EXISTS rules');
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+function migrateV16toV17(db: DatabaseSync): void {
+  db.exec('BEGIN');
+  try {
+    // Drop the dead commands catalog (#97 schema audit): seed-only, read only
+    // by command_list; nothing routes on it (CC discovers commands/*.md
+    // directly), command_register was honor-system + unused. No junction/child
+    // table references it.
+    // LINT-ALLOW: v16→v17 migration retires the dead commands catalog (#97 schema audit).
+    db.exec('DROP TABLE IF EXISTS commands');
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+function migrateV17toV18(db: DatabaseSync): void {
+  if (
+    !tableExists(db, 'skills') ||
+    !(
+      hasColumn(db, 'skills', 'uses') ||
+      hasColumn(db, 'skills', 'successes') ||
+      hasColumn(db, 'skills', 'effectiveness')
+    )
+  ) {
+    return;
+  }
+
+  // Drop the dead skill effectiveness stats (#97 schema audit): the
+  // skills.uses/successes/effectiveness columns are 100% unpopulated, read only
+  // by reports.ts, and written only by the now-removed skill_record_outcome
+  // tool. Rebuild the skills table without them, preserving every other column
+  // (scope/trust_tier/status). The skill_invocations FK references skills(name)
+  // by value, so per SQLite's table-rebuild guidance foreign_keys is toggled
+  // OFF around the swap (it cannot change inside a transaction) and the FK is
+  // re-checked afterward. After the rename skills(name) still holds every
+  // referenced name, so the check passes.
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    // LINT-ALLOW: scratch table for SQLite-style column drop via rebuild.
+    db.exec('DROP TABLE IF EXISTS skills_new');
+    db.exec(`
+      CREATE TABLE skills_new (
+          id              INTEGER PRIMARY KEY AUTOINCREMENT,
+          name            TEXT    NOT NULL UNIQUE,
+          description     TEXT    NOT NULL,
+          file_path       TEXT    NOT NULL,
+          scope           TEXT    NOT NULL DEFAULT 'global'
+                            CHECK (scope IN ('global','template','project-local')),
+          trust_tier      TEXT    NOT NULL DEFAULT 'curated',
+          status          TEXT    NOT NULL DEFAULT 'active',
+          created_at      TEXT    NOT NULL,
+          updated_at      TEXT    NOT NULL
+      )
+    `);
+    db.exec(`
+      INSERT INTO skills_new (id, name, description, file_path, scope, trust_tier, status, created_at, updated_at)
+      SELECT id, name, description, file_path, scope, trust_tier, status, created_at, updated_at FROM skills
+    `);
+    // LINT-ALLOW: column-drop rebuild — data already copied into skills_new.
+    db.exec('DROP TABLE skills');
+    db.exec('ALTER TABLE skills_new RENAME TO skills');
+    const violations = db.prepare('PRAGMA foreign_key_check').all();
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV17toV18: foreign_key_check found ${violations.length} dangling reference(s) after skills rebuild`,
+      );
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+// Unify the skills table into cheatcodes (#101). One typed capability registry:
+// cheatcodes gains origin (builtin|installed) + file_path + description +
+// created_at/updated_at, the install scope enum (local,global) folds into the
+// skill placement enum (global,template,project-local) with local→project-local,
+// and the builtin/installed CHECKs are enforced. The dead `skills` table is
+// dropped after its rows migrate in as origin='builtin'.
+//
+// skill_invocations.skill_name FKs skills(name); we drop skills and reshape
+// cheatcodes, so the FK is repointed to cheatcodes(name) via a coordinated
+// rebuild. Per SQLite's table-rebuild guidance foreign_keys is toggled OFF
+// around the swap (it cannot change inside a transaction) and re-checked after.
+// Idempotent: a DB already at the unified shape (no skills table, cheatcodes has
+// origin) is left untouched.
+function migrateV18toV19(db: DatabaseSync): void {
+  const skillsPresent = tableExists(db, 'skills');
+  const cheatcodesUnified = tableExists(db, 'cheatcodes') && hasColumn(db, 'cheatcodes', 'origin');
+  // Already at the unified shape with nothing left to fold in → no-op.
+  if (cheatcodesUnified && !skillsPresent) {
+    return;
+  }
+
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    // (1) Bring cheatcodes to the unified shape. Two pre-v19 starting points:
+    //   - cheatcodes exists (pre-#101 install shape): rebuild it, mapping each
+    //     installed row's scope local→project-local / global→global. file_path
+    //     /description are absent pre-v19 so they take defaults / NULL; created_
+    //     at/updated_at adopt installed_at.
+    //   - cheatcodes absent (a DB seeded at v17 or earlier where the v13→v14
+    //     create never ran): create the unified table fresh — no rows to copy.
+    if (!cheatcodesUnified) {
+      // LINT-ALLOW: scratch table for the SQLite table-rebuild swap (#101).
+      db.exec('DROP TABLE IF EXISTS cheatcodes_new');
+      db.exec(`
+        CREATE TABLE cheatcodes_new (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            name         TEXT    NOT NULL UNIQUE,
+            kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
+            origin       TEXT    NOT NULL DEFAULT 'installed' CHECK (origin IN ('builtin','installed')),
+            description  TEXT    NOT NULL DEFAULT '',
+            source_url   TEXT,
+            file_path    TEXT,
+            version      TEXT,
+            trust_tier   TEXT,
+            scope        TEXT    NOT NULL DEFAULT 'project-local'
+                           CHECK (scope IN ('global','template','project-local')),
+            status       TEXT    NOT NULL DEFAULT 'installed',
+            installed_at TEXT    NOT NULL,
+            created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+            updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+            CHECK (kind != 'skill' OR file_path IS NOT NULL),
+            CHECK (origin != 'installed' OR source_url IS NOT NULL),
+            CHECK (origin != 'builtin' OR source_url IS NULL)
+        )
+      `);
+      if (tableExists(db, 'cheatcodes')) {
+        db.exec(`
+          INSERT INTO cheatcodes_new
+            (id, name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+          SELECT
+            id, name, kind, 'installed', '', source_url, NULL, version, trust_tier,
+            CASE scope WHEN 'local' THEN 'project-local' WHEN 'global' THEN 'global' ELSE 'project-local' END,
+            status, installed_at, installed_at, installed_at
+          FROM cheatcodes
+        `);
+        // LINT-ALLOW: table-rebuild swap — installed rows already copied (#101).
+        db.exec('DROP TABLE cheatcodes');
+      }
+      db.exec('ALTER TABLE cheatcodes_new RENAME TO cheatcodes');
+    }
+
+    // (2) Fold the skills rows in as origin='builtin' (kind='skill',
+    // source_url NULL per the builtin CHECK). installed_at adopts created_at.
+    if (tableExists(db, 'skills')) {
+      db.exec(`
+        INSERT OR IGNORE INTO cheatcodes
+          (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+        SELECT
+          name, 'skill', 'builtin', description, NULL, file_path, NULL, trust_tier, scope, status, created_at, created_at, updated_at
+        FROM skills
+      `);
+    }
+
+    // (3) Rebuild skill_invocations so its FK targets cheatcodes(name) instead
+    // of the dropped skills(name). Rows are copied verbatim. The agent_runs /
+    // tasks FKs are only declared when those parent tables already exist —
+    // migrations run before the final applySchema re-creates them, so on a DB
+    // seeded at v17 (which never had them) we keep the plain INTEGER columns
+    // that shape already used, matching pre-migration behaviour.
+    if (tableExists(db, 'skill_invocations')) {
+      const agentRunFk = tableExists(db, 'agent_runs') ? ' REFERENCES agent_runs(id)' : '';
+      const taskFk = tableExists(db, 'tasks') ? ' REFERENCES tasks(id)' : '';
+      // LINT-ALLOW: scratch table for the FK-repoint rebuild (#101).
+      db.exec('DROP TABLE IF EXISTS skill_invocations_new');
+      db.exec(`
+        CREATE TABLE skill_invocations_new (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            skill_name    TEXT    NOT NULL REFERENCES cheatcodes(name),
+            agent_name    TEXT    NOT NULL,
+            agent_run_id  INTEGER${agentRunFk},
+            task_id       INTEGER${taskFk},
+            invoked_at    TEXT    NOT NULL,
+            outcome       TEXT    NOT NULL DEFAULT 'completed'
+                            CHECK (outcome IN ('completed','failed','partial'))
+        )
+      `);
+      db.exec(`
+        INSERT INTO skill_invocations_new (id, skill_name, agent_name, agent_run_id, task_id, invoked_at, outcome)
+        SELECT id, skill_name, agent_name, agent_run_id, task_id, invoked_at, outcome FROM skill_invocations
+      `);
+      // LINT-ALLOW: FK-repoint rebuild — rows already copied (#101).
+      db.exec('DROP TABLE skill_invocations');
+      db.exec('ALTER TABLE skill_invocations_new RENAME TO skill_invocations');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill ON skill_invocations(skill_name)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_skill_invocations_task  ON skill_invocations(task_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_skill_invocations_agent_run ON skill_invocations(agent_run_id)');
+    }
+
+    // (4) Drop the now-empty skills registry.
+    // LINT-ALLOW: v18→v19 migration retires the skills table, folded into cheatcodes (#101).
+    db.exec('DROP TABLE IF EXISTS skills');
+
+    const violations = db.prepare('PRAGMA foreign_key_check').all();
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV18toV19: foreign_key_check found ${violations.length} dangling reference(s) after the skills→cheatcodes unification`,
+      );
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+// v19→v20: correct the builtin-skill seed drift carried forward by the #101
+// unification. The seed listed `tmb_agent-creator` (its skills/ dir was deleted
+// at v0.7.0 → a dangling catalog row) and omitted `tmb_cheatcode` (a shipped
+// skill whose invocations the skill-invocation-record.sh FK check silently
+// drops with no seed row). Pure row correction — no table/FK rebuild. The dead
+// name has no skill_invocations referencing it (the dir never shipped a row
+// before v18→v19 either), so the DELETE is safe; foreign_key_check verifies it.
+function migrateV19toV20(db: DatabaseSync): void {
+  if (!tableExists(db, 'cheatcodes')) {
+    return;
+  }
+  db.exec('BEGIN');
+  try {
+    // LINT-ALLOW: v19→v20 removes the dangling tmb_agent-creator builtin row (dir deleted v0.7.0, no invocations reference it) (#102).
+    db.exec("DELETE FROM cheatcodes WHERE name = 'tmb_agent-creator' AND origin = 'builtin'");
+    db.exec(`
+      INSERT OR IGNORE INTO cheatcodes
+        (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+      VALUES
+        ('tmb_cheatcode', 'skill', 'builtin',
+         'When bro hits a wall — a task leans on a capability the project lacks and a published skill / MCP toolkit / plugin would close the gap — name the gap, cheatcode_search for ranked candidates, judge the best fit, and recommend it for Human approval.',
+         NULL, 'skills/tmb_cheatcode/SKILL.md', NULL, 'curated', 'global', 'active',
+         datetime('now'), datetime('now'), datetime('now'))
+    `);
+    const violations = db.prepare('PRAGMA foreign_key_check').all();
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV19toV20: foreign_key_check found ${violations.length} dangling reference(s) after the builtin-skill seed correction`,
+      );
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v20→v21: retire skill_invocations (#118). TMB no longer records skill/plugin/
+// cheatcode usage in the trajectory DB — verification moved to the stream-json
+// log. Drop the table outright; no replacement. Its only FK referenced
+// cheatcodes(name), so dropping it leaves no dangling references in other tables.
+function migrateV20toV21(db: DatabaseSync): void {
+  // LINT-ALLOW: v20→v21 drops the unused skill_invocations table; no FK references (see comment above)
+  db.exec('DROP TABLE IF EXISTS skill_invocations');
+}
+
+function migrateV21toV22(db: DatabaseSync): void {
+  // #83/#763 — bind issues to a milestone. Nullable, append-only; existing
+  // rows get NULL (no backfill). tableExists handles partial-seed fixtures
+  // and hasColumn guards an idempotent re-run.
+  if (tableExists(db, 'issues') && !hasColumn(db, 'issues', 'milestone')) {
+    db.exec('ALTER TABLE issues ADD COLUMN milestone TEXT');
+  }
+}
+
+// v22→v23: the repos-centric schema (#155). repos(name) becomes the FK hub.
+//
+//   1. repos.remotes — new column so issue-scoped sync resolves the per-repo
+//      remote. Populated by scan_run (#979) from each repo's git remotes.
+//   2. milestones(name, repo→repos, state, PK(name,repo)) — GitHub-style
+//      per-repo milestones; backfilled from distinct issues.milestone values.
+//   3. repo FK on all work tables. issues + tasks are rebuilt (issues gains the
+//      composite issues.milestone→milestones FK which ALTER cannot add; tasks
+//      formalizes its existing plain `repo` column into a declared FK).
+//      audit / validation_attempts / discussions / agent_runs take a plain
+//      `ALTER ... ADD COLUMN repo REFERENCES repos(name)` — SQLite allows a
+//      nullable FK column via ADD COLUMN, and it leaves the FTS5/embeddings
+//      companions of discussions+audit untouched (the rowid mapping is stable),
+//      so no FTS teardown is needed for those two.
+//   4. Backfill repo on every table from its parent (tasks/pr_review_runs are
+//      already populated where applicable; discussions/audit/agent_runs/
+//      validation_attempts inherit from their parent issue/task).
+//
+// Single-repo installs resolve the "sole repo" — when exactly one repos row
+// exists, every NULL repo backfills to it. Multi-repo installs with ambiguous
+// parentage leave repo NULL (FK-exempt) rather than guess. foreign_keys is
+// toggled OFF around the table rebuilds (it cannot change inside a transaction)
+// and foreign_key_check re-validates before COMMIT.
+function migrateV22toV23(db: DatabaseSync): void {
+  // Resolve the sole repo name for single-repo backfill, when exactly one
+  // repos row exists. Multi-repo → undefined (leave NULLs; no guessing).
+  const soleRepo = (): string | null => {
+    if (!tableExists(db, 'repos')) return null;
+    const rows = db.prepare('SELECT name FROM repos').all() as Array<{ name: string }>;
+    return rows.length === 1 ? rows[0]!.name : null;
+  };
+
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    // (1) repos.remotes — the per-repo remote list column. scan_run populates
+    // it from each repo's actual git remotes (#979); migrateV26toV27 drains any
+    // residual global plugin_config('remotes') before that key is removed.
+    if (tableExists(db, 'repos')) {
+      if (!hasColumn(db, 'repos', 'remotes')) {
+        db.exec('ALTER TABLE repos ADD COLUMN remotes TEXT');
+      }
+    }
+
+    const sole = soleRepo();
+
+    // (2) milestones table. Created before the issues rebuild re-applies the
+    // composite milestone FK so the backfilled values resolve.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS milestones (
+          name   TEXT NOT NULL,
+          repo   TEXT NOT NULL REFERENCES repos(name) ON DELETE RESTRICT,
+          state  TEXT NOT NULL DEFAULT 'open',
+          PRIMARY KEY (name, repo)
+      )
+    `);
+
+    // (4a) Backfill issues.repo BEFORE the rebuild so the milestone backfill and
+    // the composite FK both see resolved repos. Single-repo only — leave
+    // multi-repo NULLs untouched.
+    if (tableExists(db, 'issues') && hasColumn(db, 'issues', 'milestone')) {
+      const issuesHasRepo = hasColumn(db, 'issues', 'repo');
+      if (!issuesHasRepo) {
+        db.exec('ALTER TABLE issues ADD COLUMN repo TEXT');
+      }
+      if (sole !== null) {
+        // Don't backfill the synthetic system issue (id = -1) — it belongs to no
+        // repo. Real issues adopt the sole repo.
+        db.prepare('UPDATE issues SET repo = ? WHERE repo IS NULL AND id <> -1').run(sole);
+      }
+
+      // (2b) milestones backfill from distinct (milestone, repo) pairs on issues.
+      db.exec(`
+        INSERT OR IGNORE INTO milestones (name, repo, state)
+        SELECT DISTINCT milestone, repo, 'open'
+          FROM issues
+         WHERE milestone IS NOT NULL AND repo IS NOT NULL
+      `);
+
+      // (3a/5) Rebuild issues to declare repo FK + the composite milestone FK
+      // that ALTER cannot add. Column order mirrors schema.sql.
+      // LINT-ALLOW: scratch table for the SQLite FK-formalize rebuild (#155).
+      db.exec('DROP TABLE IF EXISTS issues_new');
+      db.exec(`
+        CREATE TABLE issues_new (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            objective         TEXT    NOT NULL,
+            description       TEXT    NOT NULL DEFAULT '',
+            status            TEXT    NOT NULL DEFAULT 'open',
+            created_at        TEXT    NOT NULL,
+            updated_at        TEXT    NOT NULL,
+            closed_at         TEXT,
+            remote_iid        INTEGER,
+            remote_kind       TEXT CHECK(remote_kind IN ('github','gitlab')),
+            gh_iid            INTEGER,
+            gl_iid            INTEGER,
+            repo              TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+            milestone         TEXT,
+            FOREIGN KEY (milestone, repo) REFERENCES milestones(name, repo) ON DELETE RESTRICT
+        )
+      `);
+      // Older upgrade fixtures (seeded at v9–v17) carry leaner issues shapes
+      // that may omit columns added pre-v22 (closed_at, gh_iid, …). Build each
+      // SELECT term defensively so the rebuild works regardless of starting
+      // shape, mirroring migrateV1toV2/migrateV2toV3.
+      const issueCol = (name: string, expr = name): string =>
+        hasColumn(db, 'issues', name) ? expr : `NULL AS ${name}`;
+      db.exec(`
+        INSERT INTO issues_new
+          (id, objective, description, status, created_at, updated_at, closed_at,
+           remote_iid, remote_kind, gh_iid, gl_iid, repo, milestone)
+        SELECT
+           id, objective, description, status, created_at, updated_at,
+           ${issueCol('closed_at')},
+           ${issueCol('remote_iid')}, ${issueCol('remote_kind')},
+           ${issueCol('gh_iid')}, ${issueCol('gl_iid')},
+           repo, milestone
+          FROM issues
+      `);
+      // LINT-ALLOW: FK-formalize rebuild — rows already copied into issues_new (#155).
+      db.exec('DROP TABLE issues');
+      db.exec('ALTER TABLE issues_new RENAME TO issues');
+    }
+
+    // (3b/5) Rebuild tasks to formalize the existing plain `repo` column into a
+    // declared FK. Preserves every column including the Typed Rails files/
+    // verification and prompt_bearing. The tasks(issue_id) FK + the unique
+    // (issue_id, branch_id) index are recreated.
+    if (tableExists(db, 'tasks') && hasColumn(db, 'tasks', 'repo')) {
+      // LINT-ALLOW: scratch table for the SQLite FK-formalize rebuild (#155).
+      db.exec('DROP TABLE IF EXISTS tasks_new');
+      db.exec(`
+        CREATE TABLE tasks_new (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            issue_id          INTEGER NOT NULL REFERENCES issues(id),
+            branch_id         TEXT    NOT NULL,
+            parent_branch_id  TEXT,
+            title             TEXT    NOT NULL DEFAULT '',
+            description       TEXT    NOT NULL,
+            status            TEXT    NOT NULL DEFAULT 'pending',
+            attempts          INTEGER NOT NULL DEFAULT 0,
+            spec_body         TEXT    NOT NULL DEFAULT '',
+            commit_sha        TEXT,
+            repo              TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+            prompt_bearing    INTEGER NOT NULL DEFAULT 0,
+            files             TEXT    NOT NULL DEFAULT '[]',
+            verification      TEXT    NOT NULL DEFAULT '[]',
+            created_at        TEXT    NOT NULL,
+            updated_at        TEXT    NOT NULL,
+            completed_at      TEXT
+        )
+      `);
+      // Defensive SELECT terms for leaner fixtures (see the issues rebuild).
+      const taskCol = (name: string, fallback: string): string =>
+        hasColumn(db, 'tasks', name) ? name : `${fallback} AS ${name}`;
+      db.exec(`
+        INSERT INTO tasks_new
+          (id, issue_id, branch_id, parent_branch_id, title, description, status,
+           attempts, spec_body, commit_sha, repo, prompt_bearing, files,
+           verification, created_at, updated_at, completed_at)
+        SELECT
+           id, issue_id, branch_id,
+           ${taskCol('parent_branch_id', 'NULL')},
+           ${taskCol('title', "''")},
+           description, status, attempts,
+           ${taskCol('spec_body', "''")},
+           ${taskCol('commit_sha', 'NULL')},
+           repo,
+           ${taskCol('prompt_bearing', '0')},
+           ${taskCol('files', "'[]'")},
+           ${taskCol('verification', "'[]'")},
+           created_at, updated_at,
+           ${taskCol('completed_at', 'NULL')}
+          FROM tasks
+      `);
+      // LINT-ALLOW: FK-formalize rebuild — rows already copied into tasks_new (#155).
+      db.exec('DROP TABLE tasks');
+      db.exec('ALTER TABLE tasks_new RENAME TO tasks');
+      db.exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id)',
+      );
+    }
+
+    // (3c/4b) discussions / audit / agent_runs / validation_attempts: nullable
+    // FK column via ADD COLUMN, then backfill repo from the parent. ADD COLUMN
+    // with a REFERENCES clause is allowed by SQLite for a nullable column with no
+    // default — and leaves the FTS5/embeddings companions of discussions+audit
+    // intact, so no teardown is needed.
+    if (tableExists(db, 'discussions') && !hasColumn(db, 'discussions', 'repo')) {
+      db.exec('ALTER TABLE discussions ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT');
+      if (tableExists(db, 'issues')) {
+        db.exec(`
+          UPDATE discussions
+             SET repo = (SELECT i.repo FROM issues i WHERE i.id = discussions.issue_id)
+           WHERE repo IS NULL
+        `);
+      }
+    }
+    if (tableExists(db, 'audit') && !hasColumn(db, 'audit', 'repo')) {
+      db.exec('ALTER TABLE audit ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT');
+      if (tableExists(db, 'issues')) {
+        db.exec(`
+          UPDATE audit
+             SET repo = (SELECT i.repo FROM issues i WHERE i.id = audit.issue_id)
+           WHERE repo IS NULL
+        `);
+      }
+    }
+    if (tableExists(db, 'agent_runs') && !hasColumn(db, 'agent_runs', 'repo')) {
+      db.exec('ALTER TABLE agent_runs ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT');
+      // Prefer the task's repo; fall back to the issue's repo.
+      if (tableExists(db, 'tasks')) {
+        db.exec(`
+          UPDATE agent_runs
+             SET repo = (SELECT t.repo FROM tasks t WHERE t.id = agent_runs.task_id)
+           WHERE repo IS NULL AND task_id IS NOT NULL
+        `);
+      }
+      if (tableExists(db, 'issues')) {
+        db.exec(`
+          UPDATE agent_runs
+             SET repo = (SELECT i.repo FROM issues i WHERE i.id = agent_runs.issue_id)
+           WHERE repo IS NULL AND issue_id IS NOT NULL
+        `);
+      }
+    }
+    if (tableExists(db, 'validation_attempts') && !hasColumn(db, 'validation_attempts', 'repo')) {
+      db.exec('ALTER TABLE validation_attempts ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT');
+      if (tableExists(db, 'tasks')) {
+        db.exec(`
+          UPDATE validation_attempts
+             SET repo = (SELECT t.repo FROM tasks t WHERE t.id = validation_attempts.task_id)
+           WHERE repo IS NULL
+        `);
+      }
+    }
+
+    const violations = db.prepare('PRAGMA foreign_key_check').all();
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV22toV23: foreign_key_check found ${violations.length} dangling reference(s) after the repos-centric migration`,
+      );
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+// v23→v24: cheatcode registry data-integrity (#150) + origin provenance (#152).
+//
+//   (#150) Delete the rows the scan-ingest leaked. scripts/scan.sh used to
+//     line-split human-formatted `claude plugin list` stdout, inserting header
+//     words (Installed/Version/Scope/Status/Location), the ❯ glyph, and
+//     tokenized fragments as fake cheatcodes rows (all source_url='scan_discovered').
+//     A real plugin/mcp name matches ^[A-Za-z0-9._-]+$; anything else under
+//     'scan_discovered' is garbage and is deleted. The known header words pass
+//     the charset gate, so they are denylisted explicitly.
+//   (#152) origin becomes a provenance enum builtin|marketplace|external (was
+//     builtin|installed). The cheatcodes table is rebuilt with the new CHECK and
+//     every non-builtin row's origin is backfilled: typescript-lsp /
+//     mcp-server-dev / plugin-dev → marketplace; superpowers → external; any
+//     other acquired row is classified by its source_url shape (a <name>@<mkt>
+//     ref or a ./marketplace-relative path → marketplace, else external).
+//
+// Idempotent: a DB already at the new shape (origin CHECK admits 'marketplace')
+// skips the rebuild; the garbage delete is a no-op once the rows are gone.
+function migrateV23toV24(db: DatabaseSync): void {
+  if (!tableExists(db, 'cheatcodes')) return;
+
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    // (#150) Drop the scan-ingest garbage before the rebuild copies rows over.
+    // Charset gate + header-word denylist. Builtins (origin='builtin') are never
+    // 'scan_discovered', so this only touches leaked acquired rows.
+    db.exec(`
+      -- LINT-ALLOW: v23→v24 WHERE-scoped cleanup of leaked scan-ingest rows (#150).
+      DELETE FROM cheatcodes
+       WHERE source_url = 'scan_discovered'
+         AND (
+           name GLOB '*[^A-Za-z0-9._-]*'
+           OR name IN ('Installed','Version','Scope','Status','Location','Name','Source','Enabled')
+         )
+    `);
+
+    // (#152) Rebuild cheatcodes with the provenance enum CHECK. SQLite cannot
+    // ALTER a CHECK, so copy through a scratch table, mapping origin in the SELECT.
+    // LINT-ALLOW: scratch table for the SQLite CHECK-rebuild swap (#152).
+    db.exec('DROP TABLE IF EXISTS cheatcodes_new');
+    db.exec(`
+      CREATE TABLE cheatcodes_new (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          name         TEXT    NOT NULL UNIQUE,
+          kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
+          origin       TEXT    NOT NULL DEFAULT 'external' CHECK (origin IN ('builtin','marketplace','external')),
+          description  TEXT    NOT NULL DEFAULT '',
+          source_url   TEXT,
+          file_path    TEXT,
+          version      TEXT,
+          trust_tier   TEXT,
+          scope        TEXT    NOT NULL DEFAULT 'project-local'
+                         CHECK (scope IN ('global','template','project-local')),
+          status       TEXT    NOT NULL DEFAULT 'installed',
+          installed_at TEXT    NOT NULL,
+          created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+          updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+          CHECK (kind != 'skill' OR file_path IS NOT NULL),
+          CHECK (origin = 'builtin' OR source_url IS NOT NULL),
+          CHECK (origin != 'builtin' OR source_url IS NULL)
+      )
+    `);
+    db.exec(`
+      INSERT INTO cheatcodes_new
+        (id, name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+      SELECT
+        id, name, kind,
+        CASE
+          WHEN origin = 'builtin' THEN 'builtin'
+          WHEN name IN ('typescript-lsp','mcp-server-dev','plugin-dev') THEN 'marketplace'
+          WHEN name = 'superpowers' THEN 'external'
+          WHEN source_url LIKE '%@%' AND source_url NOT LIKE '%://%' AND source_url NOT LIKE '%@%:%' THEN 'marketplace'
+          WHEN source_url LIKE './%' THEN 'marketplace'
+          ELSE 'external'
+        END,
+        description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at
+      FROM cheatcodes
+    `);
+    // LINT-ALLOW: CHECK-rebuild swap — rows already copied (#152).
+    db.exec('DROP TABLE cheatcodes');
+    db.exec('ALTER TABLE cheatcodes_new RENAME TO cheatcodes');
+
+    const violations = db.prepare('PRAGMA foreign_key_check').all() as unknown[];
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV23toV24: foreign_key_check found ${violations.length} dangling reference(s) after the cheatcodes rebuild`,
+      );
+    }
+
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // original error wins
+    }
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+// v24→v25: split the dual-responsibility tmb_push-triage builtin skill into two
+// single-responsibility rows — tmb_push-gate (push-gate orchestration) and
+// tmb_comment-triage (PR/MR comment triage) (#161). They load on different
+// events, so the SKILL.md was split; the builtin seed follows. Idempotent: the
+// DELETE is a no-op once the old row is gone and INSERT OR IGNORE skips rows
+// already present. Mirrors migrateV19toV20's seed-correction shape.
+function migrateV24toV25(db: DatabaseSync): void {
+  if (!tableExists(db, 'cheatcodes')) {
+    return;
+  }
+  db.exec('BEGIN');
+  try {
+    // LINT-ALLOW: v24→v25 removes the split tmb_push-triage builtin row, replaced by two rows below (#161).
+    db.exec("DELETE FROM cheatcodes WHERE name = 'tmb_push-triage' AND origin = 'builtin'");
+    db.exec(`
+      INSERT OR IGNORE INTO cheatcodes
+        (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+      VALUES
+        ('tmb_push-gate', 'skill', 'builtin',
+         'Bro''s push-gate orchestration — reaping unsigned commits, spawning pr-reviewer per task, and the all-pass push + PR-create + post-merge cleanup path. Loaded by bro when the push hook blocks or the Human asks for review-before-push.',
+         NULL, 'skills/tmb_push-gate/SKILL.md', NULL, 'curated', 'global', 'active',
+         datetime('now'), datetime('now'), datetime('now')),
+        ('tmb_comment-triage', 'skill', 'builtin',
+         'Bro''s PR/MR comment triage — resolve the PR, fetch the comment threads, judge which are task-worthy, and dispatch SWE per ratified group. Loaded by bro when /monitor surfaces PR/MR comments.',
+         NULL, 'skills/tmb_comment-triage/SKILL.md', NULL, 'curated', 'global', 'active',
+         datetime('now'), datetime('now'), datetime('now'))
+    `);
+    const violations = db.prepare('PRAGMA foreign_key_check').all();
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV24toV25: foreign_key_check found ${violations.length} dangling reference(s) after the push-triage skill split`,
+      );
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v25→v26: typed pr-reviewer verdict (#157). Replace the magic-string
+// 'MCP available: yes/no' feedback prefix with a typed mcp_available column.
+// SQLite cannot ALTER-DROP the old feedback CHECK, so REBUILD validation_attempts:
+// create a scratch table with the identical columns minus the CHECK plus
+// mcp_available, copy rows backfilling availability from the old prefix, swap.
+function migrateV25toV26(db: DatabaseSync): void {
+  if (!tableExists(db, 'validation_attempts')) return;
+  if (hasColumn(db, 'validation_attempts', 'mcp_available')) return;
+
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    // LINT-ALLOW: scratch table for the SQLite CHECK-rebuild swap (#157).
+    db.exec('DROP TABLE IF EXISTS validation_attempts_new');
+    db.exec(`
+      CREATE TABLE validation_attempts_new (
+          id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id             INTEGER NOT NULL REFERENCES tasks(id),
+          attempt_n           INTEGER NOT NULL,
+          agent               TEXT    NOT NULL DEFAULT '',
+          verdict             TEXT    NOT NULL,
+          feedback            TEXT    NOT NULL DEFAULT '',
+          mcp_available       INTEGER NOT NULL DEFAULT 1,
+          subagent_session_id TEXT,
+          repo                TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          created_at          TEXT    NOT NULL,
+          UNIQUE(task_id, attempt_n)
+      )
+    `);
+    db.exec(`
+      INSERT INTO validation_attempts_new
+        (id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, repo, created_at)
+      SELECT
+        id, task_id, attempt_n, agent, verdict, feedback,
+        CASE WHEN feedback LIKE 'MCP available: no%' THEN 0 ELSE 1 END,
+        subagent_session_id, repo, created_at
+      FROM validation_attempts
+    `);
+    // LINT-ALLOW: CHECK-rebuild swap — rows already copied (#157).
+    db.exec('DROP TABLE validation_attempts');
+    db.exec('ALTER TABLE validation_attempts_new RENAME TO validation_attempts');
+
+    const violations = db.prepare('PRAGMA foreign_key_check').all() as unknown[];
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV25toV26: foreign_key_check found ${violations.length} dangling reference(s) after the validation_attempts rebuild`,
+      );
+    }
+
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // original error wins
+    }
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+// v26 -> v27: the repos table becomes the SOLE source of truth for the four
+// repo-scoped keys (target_branch/pr_target, branching_model,
+// protected_branches, remotes); they are removed from plugin_config (#980).
+// Before deleting the keys, drain each one into any repos row whose column is
+// still NULL so existing single-repo installs keep working state across the
+// upgrade. issue_sync, onboarded, and the label taxonomies stay in plugin_config.
+function migrateV26toV27(db: DatabaseSync): void {
+  if (!tableExists(db, 'plugin_config')) return;
+
+  db.exec('BEGIN');
+  try {
+    if (tableExists(db, 'repos')) {
+      const scalarFromConfig = (key: string): string | null => {
+        const row = db
+          .prepare('SELECT value_json FROM plugin_config WHERE key = ?')
+          .get(key) as { value_json: string } | undefined;
+        if (!row?.value_json) return null;
+        try {
+          const v = JSON.parse(row.value_json) as unknown;
+          return typeof v === 'string' && v.length > 0 ? v : null;
+        } catch {
+          return null;
+        }
+      };
+      const rawFromConfig = (key: string): string | null => {
+        const row = db
+          .prepare('SELECT value_json FROM plugin_config WHERE key = ?')
+          .get(key) as { value_json: string } | undefined;
+        return row?.value_json ?? null;
+      };
+
+      const prTarget = scalarFromConfig('pr_target');
+      const branchingModel = scalarFromConfig('branching_model');
+      const protectedBranches = rawFromConfig('protected_branches');
+      const remotes = rawFromConfig('remotes');
+
+      if (hasColumn(db, 'repos', 'target_branch') && prTarget !== null) {
+        db.prepare('UPDATE repos SET target_branch = ? WHERE target_branch IS NULL').run(prTarget);
+      }
+      if (hasColumn(db, 'repos', 'branching_model') && branchingModel !== null) {
+        db.prepare('UPDATE repos SET branching_model = ? WHERE branching_model IS NULL').run(
+          branchingModel,
+        );
+      }
+      if (hasColumn(db, 'repos', 'protected_branches') && protectedBranches !== null) {
+        db.prepare('UPDATE repos SET protected_branches = ? WHERE protected_branches IS NULL').run(
+          protectedBranches,
+        );
+      }
+      if (hasColumn(db, 'repos', 'remotes') && remotes !== null) {
+        db.prepare('UPDATE repos SET remotes = ? WHERE remotes IS NULL').run(remotes);
+      }
+    }
+
+    // v27 drains repo-scoped policy keys from plugin_config into the repos table;
+    // deleting the now-migrated global keys is the intended migration step (#980).
+    db.prepare(
+      // LINT-ALLOW: v27 migration intentionally removes the drained global policy keys (#980).
+      "DELETE FROM plugin_config WHERE key IN ('pr_target', 'branching_model', 'protected_branches', 'remotes')",
+    ).run();
+
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // original error wins
     }
     throw err;
   }

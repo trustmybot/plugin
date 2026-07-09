@@ -160,21 +160,21 @@ body=$(sqlite3 "$DB" "SELECT body FROM discussions WHERE issue_id=1 ORDER BY id 
 assert_eq "it's bro's note" "$body" "single-quote in body"
 
 # ---------------------------------------------------------------------------
-# tmb_fallback_audit_log
+# tmb_fallback_audit_append
 # ---------------------------------------------------------------------------
 
-test_case "audit_log happy path: row inserted"
-call_lib "tmb_fallback_audit_log 1 'fix/test' bro planning_complete 'done' '{}' bro" >/dev/null
+test_case "audit_append happy path: row inserted"
+call_lib "tmb_fallback_audit_append 1 'fix/test' bro planning_complete 'done' '{}' bro" >/dev/null
 count=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='planning_complete';")
-assert_eq "1" "$count" "audit_log row"
+assert_eq "1" "$count" "audit_append row"
 
-test_case "audit_log happy path: audit self-row written"
-count=$(audit_count_for "audit_log")
-assert_eq "1" "$count" "audit self-row after audit_log"
+test_case "audit_append happy path: audit self-row written"
+count=$(audit_count_for "audit_append")
+assert_eq "1" "$count" "audit self-row after audit_append"
 
-test_case "audit_log role rejection: unknown agent blocked"
-out=$(call_lib "tmb_fallback_audit_log 1 '' ghost planning_complete 'x' '{}' ghost" 2>&1 || true)
-assert_contains "$out" "not allowed for 'audit_log'" "role rejection"
+test_case "audit_append role rejection: unknown agent blocked"
+out=$(call_lib "tmb_fallback_audit_append 1 '' ghost planning_complete 'x' '{}' ghost" 2>&1 || true)
+assert_contains "$out" "not allowed for 'audit_append'" "role rejection"
 
 # ---------------------------------------------------------------------------
 # tmb_fallback_issue_close

@@ -75,8 +75,8 @@ export function auditTools(db) {
             },
         },
         {
-            name: 'audit_log',
-            description: 'Insert an audit lifecycle event (planning_complete, bro_verification_pass, headless_fallback, etc.). Both event_type and summary are required.',
+            name: 'audit_append',
+            description: 'Insert an audit lifecycle event (planning_complete, bro_verification_pass, branch_id_proposed, etc.). Both event_type and summary are required.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -92,7 +92,7 @@ export function auditTools(db) {
             },
         },
         {
-            name: 'audit_log_list',
+            name: 'audit_list',
             description: 'Paginated fetch of audit records for an issue. Without limit, returns up to 500 rows as a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=[\'id\',\'event_type\',\'summary\'] to return only requested columns (unknown fields return a named error).',
             inputSchema: {
                 type: 'object',
@@ -241,7 +241,7 @@ export function auditTools(db) {
                 response['warning'] = 'semantic_unavailable';
             return ok(response);
         }),
-        audit_log: requireRoles('audit_log', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrapHandler(async (args) => {
+        audit_append: requireRoles('audit_append', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrapHandler(async (args) => {
             requireArg(args, 'agent');
             const issueId = requireArg(args, 'issue_id');
             requireArg(args, 'from_node');
@@ -255,7 +255,7 @@ export function auditTools(db) {
             const contentJson = args['content_json'] ?? '{}';
             const byteLength = Buffer.byteLength(contentJson, 'utf8');
             if (byteLength > MAX_CONTENT_BYTES) {
-                return err(`content_json exceeds 1MB limit (${byteLength} bytes); truncate before calling audit_log`);
+                return err(`content_json exceeds 1MB limit (${byteLength} bytes); truncate before calling audit_append`);
             }
             db.run(`INSERT INTO audit
            (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
@@ -263,11 +263,11 @@ export function auditTools(db) {
             const row = db.get('SELECT * FROM audit WHERE rowid = last_insert_rowid()');
             if (row) {
                 const embedText = contentJson !== '{}' ? `${summary} ${contentJson}` : summary;
-                await embedAndStore(db, 'audit', row.id, embedText).catch((e) => console.error('[embeddings] audit_log embed failed:', e));
+                await embedAndStore(db, 'audit', row.id, embedText).catch((e) => console.error('[embeddings] audit_append embed failed:', e));
             }
             return ok(row);
         })),
-        audit_log_list: wrapHandler(async (args) => {
+        audit_list: wrapHandler(async (args) => {
             requireArg(args, 'agent');
             const issueId = requireArg(args, 'issue_id');
             const branchId = args['branch_id'] ?? null;

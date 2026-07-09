@@ -1,0 +1,8 @@
+{
+  "expected_writes": {
+    "audit WHERE event_type='deep_scan_completed'": ">=1",
+    "tasks": ">=1",
+    "repos": ">=1",
+    "agent_runs WHERE agent_type='bro'": ">=1"
+  }
+}

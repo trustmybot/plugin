@@ -16,6 +16,7 @@ async function seedIssue(client) {
     agent: 'bro',
     objective: 'search-tools test fixture',
     description: 'fixture for search integration tests',
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(r.ok, true, `seed issue: ${JSON.stringify(r)}`);
   return r.data.id;
@@ -256,12 +257,12 @@ test('audit_search — keyword: single match in summary', async (t) => {
   t.after(() => close());
 
   const issueId = await seedIssue(client);
-  await call(client, 'audit_log', {
+  await call(client, 'audit_append', {
     agent: 'bro', issue_id: issueId, from_node: 'bro',
     event_type: 'planning_complete',
     summary: 'completed planning for authentication module deployment',
   });
-  await call(client, 'audit_log', {
+  await call(client, 'audit_append', {
     agent: 'bro', issue_id: issueId, from_node: 'bro',
     event_type: 'swe_complete',
     summary: 'database migration committed',
@@ -280,11 +281,11 @@ test('audit_search — keyword: multiple matches + event_types filter', async (t
   t.after(() => close());
 
   const issueId = await seedIssue(client);
-  await call(client, 'audit_log', {
+  await call(client, 'audit_append', {
     agent: 'bro', issue_id: issueId, from_node: 'bro',
     event_type: 'planning_complete', summary: 'deployment plan for cache layer',
   });
-  await call(client, 'audit_log', {
+  await call(client, 'audit_append', {
     agent: 'swe', issue_id: issueId, from_node: 'swe',
     event_type: 'swe_complete', summary: 'deployment of cache layer committed',
   });
@@ -343,7 +344,7 @@ test('audit_search — semantic: model-available returns ranked results includin
   t.after(() => close());
 
   const issueId = await seedIssue(client);
-  await call(client, 'audit_log', {
+  await call(client, 'audit_append', {
     agent: 'bro', issue_id: issueId, from_node: 'bro',
     event_type: 'planning_complete',
     summary: 'authentication module planning completed with OIDC strategy',
@@ -377,7 +378,7 @@ test('audit_search — hybrid: keyword-matched rows appear in results', async (t
   t.after(() => close());
 
   const issueId = await seedIssue(client);
-  await call(client, 'audit_log', {
+  await call(client, 'audit_append', {
     agent: 'bro', issue_id: issueId, from_node: 'bro',
     event_type: 'planning_complete',
     summary: 'multistage build pipeline configured for rollout',
@@ -418,7 +419,7 @@ test('world_model_search — keyword: match by summary content', async (t) => {
   // server's MCP handler by piggy-backing on the world-model raw insert path
   // — the test fixture uses the same DB the server holds open.
   // We seed a `directories` row + verify world_model_search returns it.
-  await call(client, 'audit_log', {
+  await call(client, 'audit_append', {
     agent: 'bro', issue_id: '-1', from_node: 'bro',
     event_type: 'world_model_search_seed', summary: 'test fixture only',
   });

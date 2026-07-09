@@ -30,7 +30,7 @@ export function reportTools(db) {
     const definitions = [
         {
             name: 'issue_report_md',
-            description: 'Assemble a markdown narrative for an issue. mode="summary" (default) returns top metadata + last 5 audit events + counts (~500 tokens). mode="detail" returns the full report including all tasks, validation attempts, all audit events, and skill usage.',
+            description: 'Assemble a markdown narrative for an issue. mode="summary" (default) returns top metadata + last 5 audit events + counts (~500 tokens). mode="detail" returns the full report including all tasks, validation attempts, and all audit events.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -118,7 +118,6 @@ export function reportTools(db) {
                 validationAttempts = db.all('SELECT * FROM validation_attempts WHERE task_id IN (' + placeholders + ') ORDER BY task_id ASC, attempt_n ASC', taskIds);
             }
             const auditEntries = db.all(`SELECT * FROM audit WHERE issue_id = ? ORDER BY id ASC`, [issueId]);
-            const skillsUsed = db.all(`SELECT name as skill_name, uses, successes, effectiveness FROM skills WHERE uses > 0`);
             lines.push('## Tasks');
             lines.push('');
             if (tasks.length === 0) {
@@ -157,19 +156,6 @@ export function reportTools(db) {
                 }
             }
             lines.push('');
-            lines.push('## Skill Usage Summary');
-            lines.push('');
-            if (skillsUsed.length === 0) {
-                lines.push('_No skill usage recorded._');
-            }
-            else {
-                lines.push('| Skill | Uses | Successes | Effectiveness |');
-                lines.push('|-------|------|-----------|---------------|');
-                for (const s of skillsUsed) {
-                    const eff = s.effectiveness !== null ? s.effectiveness.toFixed(2) : '—';
-                    lines.push(`| ${s.skill_name} | ${s.uses} | ${s.successes} | ${eff} |`);
-                }
-            }
             return ok({ markdown: lines.join('\n'), mode: 'detail' });
         }),
         issue_snapshot_md: requireRoles('issue_snapshot_md', ['bro', 'pr-reviewer'], wrapHandler(async (args) => {

@@ -6,6 +6,7 @@
 # that fires wins (patterns are checked in priority order).
 #
 # Pattern classes handled:
+#   cheatcode-install — install of a named plugin/skill/mcp/cheatcode (or 'in <scope> scope')
 #   consultant-spawn — domain-expert keyword + question/advisory shape required
 #   search-grounding — decision-retrieval questions (decision-anchored only)
 #   concerns-protocol — doubt-class / weaken-gate phrases
@@ -14,7 +15,8 @@
 #   resume-intent    — keep-going / pick-up / continue phrases (DB query on match)
 #   adr-required     — architectural intent (two-token checks)
 #
-# Bypass env vars forwarded: TMB_DISABLE_SEARCH_HINT, TMB_DISABLE_CONCERNS_HINT,
+# Bypass env vars forwarded: TMB_DISABLE_CHEATCODE_INSTALL_HINT,
+# TMB_DISABLE_CONSULTANT_HINT, TMB_DISABLE_SEARCH_HINT, TMB_DISABLE_CONCERNS_HINT,
 # TMB_DISABLE_PUSH_INTENT_HINT, TMB_DISABLE_REONBOARD_HINT, TMB_DISABLE_RESUME_HINT,
 # TMB_DISABLE_ADR_HINT.
 #
@@ -23,7 +25,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/hooks/lib/query-task.sh
+# shellcheck source=scripts/hooks/lib/query-task.sh disable=SC1091
 . "$SCRIPT_DIR/lib/query-task.sh"
 
 INPUT=$(cat 2>/dev/null) || exit 0
@@ -31,6 +33,15 @@ command -v jq >/dev/null 2>&1 || exit 0
 
 PROMPT_RAW=$(printf '%s' "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)
 [ -n "$PROMPT_RAW" ] || exit 0
+
+# Synthetic-turn early-exit — harness-generated turns (subagent reports,
+# system notifications) carry embedded content ("bun install", plugin/mcp
+# paths) that trips the matchers, but no hint class applies to them: every
+# hint class describes HUMAN intent. Markers are case-sensitive as produced
+# by the harness. Exit before any matcher.
+case "$PROMPT_RAW" in
+  *"<task-notification>"*|*"[SYSTEM NOTIFICATION"*) exit 0 ;;
+esac
 
 LOWER=$(printf '%s' "$PROMPT_RAW" | tr '[:upper:]' '[:lower:]')
 
@@ -43,6 +54,26 @@ emit_context() {
     }
   }'
   exit 0
+}
+
+# Write a deterministic audit row recording that the consultant-spawn nudge
+# fired. Gates the 10-consultant L6 row on the enforcement mechanism (this row)
+# rather than bro's non-deterministic compliance with the advisory nudge.
+# Fail-open: DB/sqlite3 absent → silent skip; never blocks or crashes the hook.
+audit_consultant_spawn_nudged() {
+  local detail="$1"
+  command -v sqlite3 >/dev/null 2>&1 || return 0
+  local db
+  db=$(tmb_db_path 2>/dev/null || true)
+  [ -n "$db" ] || return 0
+  [ -f "$db" ] || return 0
+  local safe_detail
+  safe_detail=$(tmb_sql_quote "$(printf '%s' "$detail" | head -c 200)")
+  sqlite3 "$db" >/dev/null 2>&1 <<SQL || true
+INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+VALUES (-1, NULL, 'consultant-spawn-enforcement', 'consultant_spawn_nudged',
+        'Consultant-spawn nudge emitted: ${safe_detail}', '{}', datetime('now'));
+SQL
 }
 
 # ---------------------------------------------------------------------------
@@ -61,6 +92,81 @@ has_word() {
   esac
   return 1
 }
+
+# ---------------------------------------------------------------------------
+# 0. cheatcode-install — installing a NAMED external capability.
+#    Fires when the prompt installs a plugin/skill/mcp/cheatcode (the capability
+#    noun appears with 'install'), OR requests 'in (local|global) scope', OR
+#    installs/adds a capability TARGETED AT a known agent ("install <X> for swe",
+#    "add <X> to bro"). A capability ON an agent is the cheatcode-reuse path, so
+#    that target form routes to tmb_cheatcode (not tmb_planning, the build flow).
+#    Anchored on the capability noun / agent target so dependency installs
+#    (npm/pip/bun install, 'install dependencies') never match. Checked before
+#    consultant-spawn so an install directive routes to the cheatcode pipeline,
+#    NOT agent-create — while a bare role name (no install verb) still falls
+#    through to consultant-spawn.
+# ---------------------------------------------------------------------------
+if [ "${TMB_DISABLE_CHEATCODE_INSTALL_HINT:-0}" != "1" ]; then
+  cheatcode_install_match=""
+
+  # capability-on-agent: an install/add verb whose target is a known agent name
+  # ("for|to <agent>"), where agent ∈ {swe, pr-reviewer, bro} plus any active
+  # consultant role from the registry. This is the cheatcode-reuse path — a
+  # capability attached to an agent — so it loads tmb_cheatcode. Dependency
+  # installs never match: "for the build" / "to get the deps" carry no agent name.
+  capability_on_agent=""
+  case "$LOWER" in
+    *install*|*" add "*|"add "*)
+      AGENT_TARGETS="swe pr-reviewer bro"
+      DB=$(tmb_db_path 2>/dev/null || true)
+      if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
+        CONSULTANT_ROLES=$(sqlite3 "$DB" \
+          "SELECT name FROM agents WHERE kind='consultant' AND status='active';" \
+          2>/dev/null || true)
+        while IFS= read -r role; do
+          [ -n "$role" ] || continue
+          AGENT_TARGETS="$AGENT_TARGETS $(printf '%s' "$role" | tr '[:upper:]' '[:lower:]')"
+        done <<EOF
+$CONSULTANT_ROLES
+EOF
+      fi
+      for agent in $AGENT_TARGETS; do
+        case "$LOWER" in
+          *"for ${agent}"*|*"to ${agent}"*)
+            capability_on_agent="$agent"
+            break
+            ;;
+        esac
+      done
+      ;;
+  esac
+
+  if [ -n "$capability_on_agent" ]; then
+    CTX="[tmb cheatcode-routing] This installs a capability ONTO the \`${capability_on_agent}\` agent — that is the cheatcode-reuse path. Load \`tmb_cheatcode\`: search/vet/approve the capability (cheatcode_search → cheatcode_approve) then materialize it onto the agent. This is capability reuse, so it routes through the cheatcode pipeline rather than the build flow."
+    emit_context "$CTX"
+  fi
+
+  case "$LOWER" in
+    *"in local scope"*|*"in global scope"*)
+      cheatcode_install_match="in scope"
+      ;;
+    *install*)
+      # Word-bounded install intent: an `install`/`installing` token AND a
+      # capability object noun, EXCLUDING package-manager installs
+      # (npm/bun/pip/... install → dependencies, never a cheatcode).
+      if printf '%s' "$LOWER" | grep -qE '\b(install|installing)\b' \
+        && printf '%s' "$LOWER" | grep -qE '\b(plugin|plugins|skill|skills|mcp|cheatcode|cheatcodes)\b' \
+        && ! printf '%s' "$LOWER" | grep -qE '\b(npm|npx|bun|yarn|pnpm|pip|pipx|brew|apt|apt-get|cargo|gem)[[:space:]]+install(ing)?\b'; then
+        cheatcode_install_match="install capability"
+      fi
+      ;;
+  esac
+
+  if [ -n "$cheatcode_install_match" ]; then
+    CTX="[tmb cheatcode-install routing] This is a cheatcode install, NOT agent/consultant creation. Record the per-candidate approval (cheatcode_approve) then call cheatcode_install with the requested scope (default local). Do NOT call agent_resolve / /tmb:agent-create for these names."
+    emit_context "$CTX"
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # 1. consultant-spawn
@@ -147,9 +253,11 @@ EOF
   fi
 
   if [ -n "$NAMED_ROLE" ]; then
+    audit_consultant_spawn_nudged "named-role ${NAMED_ROLE}"
     CTX="[tmb consultant-spawn enforcement] The user's prompt names the \`${NAMED_ROLE}\` role. Invoke \`/tmb:agent-create ${NAMED_ROLE} <one-line restatement of the user question>\` — the command resolves the creation mode with agent_resolve, writes the agent file, registers it (the server audits the creation), and spawns the consultant in the same call. Bare \`Agent(subagent_type='${NAMED_ROLE}')\` without the command bypasses the registry; do NOT take that shortcut."
     emit_context "$CTX"
   elif [ -n "$DOMAIN" ]; then
+    audit_consultant_spawn_nudged "domain ${DOMAIN}"
     CTX="[tmb consultant-spawn enforcement] The user's prompt looks like a \`${DOMAIN}\` judgment call. Invoke \`/tmb:agent-create <role> <one-line restatement>\` with the role that fits this domain (architect / cto / pm / legal-reviewer / a custom from-scratch role). The slash command resolves the creation mode with agent_resolve, writes the agent file, registers it (the server audits the creation), and spawns the consultant. Answering directly from general knowledge bypasses the consultant gate."
     emit_context "$CTX"
   fi

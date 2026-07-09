@@ -45,13 +45,6 @@ interface ValidationAttempt {
   created_at: string;
 }
 
-interface SkillUsage {
-  skill_name: string;
-  uses: number;
-  successes: number;
-  effectiveness: number | null;
-}
-
 export function reportTools(db: TrajectoryDB): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
@@ -59,7 +52,7 @@ export function reportTools(db: TrajectoryDB): {
   const definitions: Tool[] = [
     {
       name: 'issue_report_md',
-      description: 'Assemble a markdown narrative for an issue. mode="summary" (default) returns top metadata + last 5 audit events + counts (~500 tokens). mode="detail" returns the full report including all tasks, validation attempts, all audit events, and skill usage.',
+      description: 'Assemble a markdown narrative for an issue. mode="summary" (default) returns top metadata + last 5 audit events + counts (~500 tokens). mode="detail" returns the full report including all tasks, validation attempts, and all audit events.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -174,10 +167,6 @@ export function reportTools(db: TrajectoryDB): {
         [issueId],
       );
 
-      const skillsUsed = db.all<SkillUsage>(
-        `SELECT name as skill_name, uses, successes, effectiveness FROM skills WHERE uses > 0`,
-      );
-
       lines.push('## Tasks');
       lines.push('');
       if (tasks.length === 0) {
@@ -215,19 +204,6 @@ export function reportTools(db: TrajectoryDB): {
         }
       }
       lines.push('');
-
-      lines.push('## Skill Usage Summary');
-      lines.push('');
-      if (skillsUsed.length === 0) {
-        lines.push('_No skill usage recorded._');
-      } else {
-        lines.push('| Skill | Uses | Successes | Effectiveness |');
-        lines.push('|-------|------|-----------|---------------|');
-        for (const s of skillsUsed) {
-          const eff = s.effectiveness !== null ? s.effectiveness.toFixed(2) : '—';
-          lines.push(`| ${s.skill_name} | ${s.uses} | ${s.successes} | ${eff} |`);
-        }
-      }
 
       return ok({ markdown: lines.join('\n'), mode: 'detail' });
     }),

@@ -29,8 +29,6 @@ mkdir -p .claude/tmb
 DB="$WORK/.claude/tmb/trajectory.db"
 _REPO_REALPATH=$(git rev-parse --show-toplevel)
 sqlite3 "$DB" "
-  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '');
-  INSERT INTO plugin_config (key, value_json) VALUES ('pr_target', '\"main\"');
   CREATE TABLE IF NOT EXISTS repos (
     name              TEXT PRIMARY KEY,
     path              TEXT    NOT NULL,
@@ -40,7 +38,7 @@ sqlite3 "$DB" "
     branching_model   TEXT,
     protected_branches TEXT
   );
-  INSERT INTO repos (name, path) VALUES ('fixture', '$_REPO_REALPATH');
+  INSERT INTO repos (name, path, target_branch) VALUES ('fixture', '$_REPO_REALPATH', 'main');
 "
 export TRAJECTORY_DB_PATH="$DB"
 
@@ -97,5 +95,37 @@ git remote remove origin
 out=$(run_hook "$(input 'git worktree add .claude/worktrees/y stale-branch')")
 git remote add origin "$ORIGIN"
 assert_eq "" "$out" "no origin = no check"
+
+# ---- multi-repo: a `cd <sibling> && git worktree add` resolves the SIBLING ----
+# In a workspace, $PWD is the first repo (or the non-repo root); the guard must
+# scope to the command's cd target. Set up a second registered repo whose
+# branch is behind its own origin, and confirm the cd-into-sibling worktree-add
+# is blocked against the SIBLING's origin/main — not $PWD's.
+SIB_ORIGIN="$TMPDIR/sib-origin.git"
+SIB="$TMPDIR/sib"
+git init -q --bare "$SIB_ORIGIN"
+git init -q -b main "$SIB"
+(
+  cd "$SIB"
+  git config user.email t@t.io && git config user.name t
+  git remote add origin "$SIB_ORIGIN"
+  echo init > README.md && git add . && git commit -qm init
+  git push -q -u origin main
+  git branch sib-stale HEAD
+  echo x > b.txt && git add b.txt && git commit -qm advance && git push -q origin main
+)
+_SIB_REAL=$(git -C "$SIB" rev-parse --show-toplevel)
+sqlite3 "$DB" "INSERT INTO repos (name, path, target_branch) VALUES ('sib', '$_SIB_REAL', 'main');"
+
+test_case "multi-repo: 'cd <sibling> && git worktree add <stale>' resolves the SIBLING and blocks"
+# Still cd'd in \$WORK (the first repo); the cd prefix must redirect to \$SIB.
+out=$(run_hook "$(input "cd $SIB && git worktree add .claude/worktrees/z sib-stale")")
+assert_contains "$out" '"permissionDecision":"deny"' "deny on the sibling's stale branch via cd target"
+assert_contains "$out" 'behind origin/main' "reason cites the sibling's gap"
+
+test_case "multi-repo: a fresh branch in the sibling passes (resolution is correct, not blanket-deny)"
+git -C "$SIB" branch sib-fresh origin/main
+out=$(run_hook "$(input "cd $SIB && git worktree add .claude/worktrees/z2 sib-fresh")")
+assert_eq "" "$out" "up-to-date sibling branch allowed"
 
 summarize

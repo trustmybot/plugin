@@ -7,25 +7,25 @@ import { serverLog } from '../logger.js';
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolve, dirname } from 'node:path';
+import { resolveSoleRepo } from '../utils/repo-paths.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
-// Extract directories implied by a spec's `## Files` section. Mirrors
-// parseFilesDirs in composites.ts — kept here to avoid a circular import
-// (composites.ts imports BRANCH_ID_RE from tasks.ts).
-function specFileDirs(specBody: string): Set<string> {
+// Directories implied by a task's typed `files[]` array. Mirrors filesToDirs in
+// composites.ts — kept here to avoid a circular import (composites.ts imports
+// BRANCH_ID_RE from tasks.ts). `filesJson` is the tasks.files JSON column.
+function taskFileDirs(filesJson: string | null | undefined): Set<string> {
   const dirs = new Set<string>();
-  let inFiles = false;
-  for (const line of specBody.split('\n')) {
-    const h2 = line.match(/^##\s+(.+)/);
-    if (h2) {
-      inFiles = /^files\b/i.test(h2[1]!.trim());
-      continue;
-    }
-    if (!inFiles) continue;
-    const m = line.match(/^\s*[-*]\s+`?([^`\s—|]+)/);
-    if (!m) continue;
-    const path = m[1]!.replace(/[`,.;]+$/, '');
+  if (!filesJson) return dirs;
+  let files: unknown;
+  try {
+    files = JSON.parse(filesJson);
+  } catch {
+    return dirs;
+  }
+  if (!Array.isArray(files)) return dirs;
+  for (const path of files) {
+    if (typeof path !== 'string') continue;
     const slash = path.lastIndexOf('/');
     dirs.add(slash >= 0 ? path.slice(0, slash) : '');
   }
@@ -67,6 +67,39 @@ function validateParentBranchId(branchId: string): void {
       `format: <type>/<slug> where <type> is one of feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert ` +
       `and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: dev, main, feat/user-login.`,
   );
+}
+
+// Typed Rails (#673): validate the per-task files[]/verification[] fields at the
+// MCP boundary. Flat schema (no oneOf/allOf/anyOf): each field, when present,
+// must be a non-empty array of non-empty strings. Throws a named error so the
+// model can retry with a corrected shape. Returns the normalized arrays
+// (omitted/undefined → empty array, which disables the corresponding hook).
+function validateTypedRailsFields(t: TaskInput): { files: string[]; verification: string[] } {
+  const checkStringArray = (value: unknown, field: 'files' | 'verification'): string[] => {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value)) {
+      throw new Error(
+        `typed_field_violation: task branch_id='${t.branch_id}' — '${field}' must be an array of strings, got ${typeof value}.`,
+      );
+    }
+    if (value.length === 0) {
+      throw new Error(
+        `typed_field_violation: task branch_id='${t.branch_id}' — '${field}' must be a non-empty array when provided (omit the field entirely to disable the ${field === 'files' ? 'scope fence' : 'verification gate'}).`,
+      );
+    }
+    for (const el of value) {
+      if (typeof el !== 'string' || el.trim().length === 0) {
+        throw new Error(
+          `typed_field_violation: task branch_id='${t.branch_id}' — every '${field}' entry must be a non-empty string.`,
+        );
+      }
+    }
+    return value as string[];
+  };
+  return {
+    files: checkStringArray(t.files, 'files'),
+    verification: checkStringArray(t.verification, 'verification'),
+  };
 }
 
 // Allowed target statuses for swe. SWE may only set running, completed, or
@@ -145,14 +178,17 @@ const VALID_STATUSES = new Set([
 // reject every outbound move; a same-status no-op is always allowed.
 //   - Into 'completed' only from a work state (running / needs_validation) —
 //     bro can't fabricate completion from pending or a terminal state.
-//   - Into 'closed' only from verified/terminal states, never from pending.
+//   - The only path from a verified work state (needs_validation / completed)
+//     into 'closed' is bro_atomic_close, so task_update_status must not offer
+//     those edges (else bro could close a task without the atomic close's
+//     side effects).
 //   - 'closed'→'escalated' is the push-gate pushback path (pr-reviewer FAILs
 //     after the task was closed; bro reopens the work).
 const BRO_TRANSITIONS: Record<string, Set<string>> = {
   pending: new Set(['running', 'failed', 'escalated']),
   running: new Set(['pending', 'needs_validation', 'completed', 'failed', 'escalated']),
-  needs_validation: new Set(['running', 'completed', 'failed', 'escalated', 'closed']),
-  completed: new Set(['needs_validation', 'failed', 'escalated', 'closed']),
+  needs_validation: new Set(['running', 'completed', 'failed', 'escalated']),
+  completed: new Set(['needs_validation', 'failed', 'escalated']),
   failed: new Set(['pending', 'running', 'escalated', 'closed']),
   escalated: new Set(['pending', 'running', 'failed', 'closed']),
   closed: new Set(['escalated']),
@@ -212,21 +248,29 @@ export function taskTools(db: TrajectoryDB): {
                 spec_body: {
                   type: 'string',
                   description:
-                    'Full markdown body SWE reads. Required for any task that will be SWE-executed. Max 8000 chars — over this, the architect should split into multiple tasks via depends_on, or cite existing code/conventions rather than restating them. See issue #55.',
+                    'Full markdown body SWE reads; required for any SWE-executed task, max 8000 chars (split via depends_on or cite existing code rather than exceeding it).',
                 },
                 repo: {
                   type: 'string',
                   description:
-                    'Optional relative path to the git repo for this task (e.g. "inner", "repos/backend"). ' +
-                    'Must not contain ".." or start with "/". Null/omitted for single-repo CC. ' +
-                    'Used by the WorktreeCreate hook to route worktree creation to the right repo.',
+                    'Optional relative path to this task\'s git repo (no ".." or leading "/"); omit for single-repo CC. Routes worktree creation.',
                 },
                 prompt_bearing: {
                   type: 'number',
                   description:
-                    'Set to 1 when this task intentionally modifies prompt-surface files ' +
-                    '(agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md, etc.). ' +
-                    'The swe-boundary hook checks this flag before blocking prompt-surface writes. Default 0.',
+                    'Set to 1 when this task intentionally edits prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md); the swe-boundary hook reads it. Default 0.',
+                },
+                files: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description:
+                    'Authoritative allowlist of paths SWE may edit for this task, read by the swe-scope-fence hook; an empty/omitted array disables scope enforcement.',
+                },
+                verification: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description:
+                    'Authoritative shell commands the swe-verification-gate hook runs in the worktree before SWE may complete the task; an empty/omitted array disables verification enforcement.',
                 },
               },
               required: ['branch_id', 'description'],
@@ -240,7 +284,7 @@ export function taskTools(db: TrajectoryDB): {
           emit_planning_complete: {
             type: 'boolean',
             description:
-              "Set true to atomically emit a planning_complete audit event in the same transaction as the task INSERTs. Eliminates the L5 03/12 failure mode where the LLM would create tasks but skip the closing audit_log call. The tmb_planning skill (Step 4) should set this to true.",
+              'Set true to emit a planning_complete audit event in the same transaction as the task INSERTs.',
           },
           planning_complete_summary: {
             type: 'string',
@@ -294,7 +338,7 @@ export function taskTools(db: TrajectoryDB): {
           waive_spec_shape: {
             type: 'boolean',
             description:
-              'Bypass the spec-section shape gate (## Files/## Success Criteria/## Verification, ≤200 lines).',
+              'Bypass the spec-section shape gate (## Success Criteria, ≤200 lines).',
           },
           waive_spec_shape_reason: {
             type: 'string',
@@ -379,7 +423,7 @@ export function taskTools(db: TrajectoryDB): {
       const waiverReason = (args['waive_scope_gate_reason'] ?? '') as string;
 
       // --- Spec-section shape gate (MCP-level enforcement) ---
-      // Each spec_body must contain the three required H2 sections and be ≤200 lines.
+      // Each spec_body must contain the ## Success Criteria H2 section and be ≤200 lines.
       // Waivable with waive_spec_shape_reason (≥10 chars, audited).
       const specShapeWaived = args['waive_spec_shape'] === true;
       const specShapeWaiverReason = (args['waive_spec_shape_reason'] ?? '') as string;
@@ -389,7 +433,7 @@ export function taskTools(db: TrajectoryDB): {
           return err('waive_spec_shape_reason must be a string ≥10 chars.');
         }
       } else {
-        const REQUIRED_H2 = ['## Files', '## Success Criteria', '## Verification'];
+        const REQUIRED_H2 = ['## Success Criteria'];
         for (const t of (args['tasks'] as TaskInput[])) {
           if (!t.spec_body) continue;
           const missing = REQUIRED_H2.filter(
@@ -408,8 +452,8 @@ export function taskTools(db: TrajectoryDB): {
                   error: 'spec_shape_violation',
                   message:
                     `Spec shape gate: task branch_id='${t.branch_id}' — ${parts.join('; ')}. ` +
-                    `Each spec_body must contain ## Files, ## Success Criteria, ## Verification (H2 headings) ` +
-                    `and be ≤200 lines. Add the missing sections or pass waive_spec_shape=true with ` +
+                    `Each spec_body must contain a ## Success Criteria (H2 heading) ` +
+                    `and be ≤200 lines. Add the missing section or pass waive_spec_shape=true with ` +
                     `waive_spec_shape_reason="<why>" (≥10 chars) for tasks without full specs.`,
                   branch_id: t.branch_id,
                   missing_sections: missing,
@@ -588,8 +632,8 @@ export function taskTools(db: TrajectoryDB): {
       // task_create_batch. Replaces the older simple/difficult triage gate +
       // decision-when-difficult gate combo. The audit trail is uniformly useful
       // — for trivial work the decision body can be one short sentence; for
-      // architectural work it's bro's planned rationale (and a sibling ADR
-      // file lands under docs/trustmybot/architecture/manual/decisions/).
+      // architectural work it's bro's planned rationale recorded as a
+      // kind='decision' discussion (discussion_append).
       const decisionGateWaived = args['waive_decision_gate'] === true;
       const decisionGateWaiverReason = (args['waive_decision_gate_reason'] ?? '') as string;
 
@@ -616,7 +660,7 @@ export function taskTools(db: TrajectoryDB): {
                   message:
                     `Decision gate: issue ${issueId} has zero kind='decision' discussions. ` +
                     `tmb_planning mandates discussion_append(kind='decision', body='<chosen approach: what, why, trade-offs>') ` +
-                    `before task_create_batch. For architectural changes also author an ADR at docs/trustmybot/architecture/manual/decisions/. ` +
+                    `before task_create_batch. For architectural changes, record the decision + rationale as a kind=decision discussion (discussion_append). ` +
                     `For trivial waives, pass waive_decision_gate=true with waive_decision_gate_reason="<why>".`,
                   issue_id: issueId,
                 }),
@@ -626,22 +670,12 @@ export function taskTools(db: TrajectoryDB): {
         }
       }
 
-      // Resolve the default repo once for all tasks so the branch-existence
-      // check can fire even when task.repo is omitted. (#360)
-      const defaultRepoRow = db.get<{ value_json: string }>(
-        `SELECT value_json FROM plugin_config WHERE key = 'tmb_default_repo'`,
-      );
-      let defaultRepoValue: string | null = null;
-      if (defaultRepoRow?.value_json) {
-        try {
-          const parsed = JSON.parse(defaultRepoRow.value_json) as unknown;
-          if (typeof parsed === 'string' && parsed.length > 0) {
-            defaultRepoValue = parsed;
-          }
-        } catch {
-          // malformed config row — leave null
-        }
-      }
+      // Resolve the sole (registered) repo once for all tasks so the branch-existence
+      // check can fire even when task.repo is omitted. (#360) Path-keyed
+      // resolution: the sole-repo fallback names the sole registered repo;
+      // multi-repo projects must pass task.repo explicitly (else null).
+      const soleRepoValue: string | null = resolveSoleRepo(db)?.name ?? null;
+      const repoCount = db.get<{ c: number }>('SELECT COUNT(*) AS c FROM repos')?.c ?? 0;
 
       // Pre-transaction: format-validate then branch-ensure against the
       // resolved repo (explicit > default). Order matters: bad format should
@@ -651,6 +685,30 @@ export function taskTools(db: TrajectoryDB): {
       for (const t of taskInputs) {
         if (!t.branch_id) throw new Error('Missing required arg: branch_id');
         validateBranchId(t.branch_id);
+        // Typed Rails (#673): reject bad files[]/verification[] shape before any
+        // side effects (branch auto-create / INSERT). Named error → model retries.
+        validateTypedRailsFields(t);
+
+        // #1027: validate everything that can reject a task BEFORE the git
+        // branch/worktree side effect below, so a validation failure persists
+        // nothing (no orphan auto-created branch, no post-side-effect FK error
+        // in the INSERT transaction).
+        if (t.parent_branch_id != null) validateParentBranchId(t.parent_branch_id);
+        if (!t.description) throw new Error('Missing required arg: description');
+        if (t.spec_body !== undefined) {
+          if (typeof t.spec_body !== 'string') {
+            throw new Error(`spec_body must be a string, got ${typeof t.spec_body}`);
+          }
+          if (t.spec_body.length > SPEC_BODY_MAX_BYTES) {
+            throw new Error(
+              `spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${t.spec_body.length}). ` +
+              `Split into multiple tasks via depends_on, or cite existing code/` +
+              `conventions rather than restating them inline. Very long specs ` +
+              `push SWE cold-start into the minutes range; see issue #55. ` +
+              `Override the limit via TMB_SPEC_BODY_MAX_BYTES.`,
+            );
+          }
+        }
 
         let effectiveRepoName: string | null = null;
         if (t.repo !== undefined && t.repo !== null && t.repo !== '') {
@@ -667,7 +725,15 @@ export function taskTools(db: TrajectoryDB): {
           }
           effectiveRepoName = repo;
         } else {
-          effectiveRepoName = defaultRepoValue;
+          // Multi-repo with no task.repo: don't silently default the base to
+          // 'main'. Mirror task_provision — require an explicit task.repo (#15).
+          if (repoCount > 1) {
+            throw new Error(
+              `task_create_batch: task branch_id='${t.branch_id}' omits repo but ${repoCount} repos are registered. ` +
+                `Pass task.repo=<name> — multi-repo workspaces scope every task by repo (mirrors task_provision).`,
+            );
+          }
+          effectiveRepoName = soleRepoValue;
         }
 
         if (effectiveRepoName) {
@@ -675,13 +741,18 @@ export function taskTools(db: TrajectoryDB): {
             `SELECT path FROM repos WHERE name = ?`,
             [effectiveRepoName],
           );
-          let repoPath: string;
-          if (reposRow) {
-            const rawPath = reposRow.path;
-            repoPath = rawPath.startsWith('/') ? rawPath : resolve(dbDir, rawPath);
-          } else {
-            repoPath = effectiveRepoName;
+          if (!reposRow) {
+            // #1027: tasks.repo is a FK to repos(name) ON DELETE RESTRICT.
+            // Reject an unregistered repo here, before ensureBranchInRepo, so we
+            // never auto-create a branch for a task whose INSERT would then FK-fail.
+            throw new Error(
+              `task_create_batch: task branch_id='${t.branch_id}' names repo='${effectiveRepoName}' ` +
+              `which is not registered (no repos row). Run /scan or pass a registered repo — ` +
+              `tasks.repo is a foreign key to repos(name).`,
+            );
           }
+          const rawPath = reposRow.path;
+          const repoPath = rawPath.startsWith('/') ? rawPath : resolve(dbDir, rawPath);
 
           const parentBranchId = (t.parent_branch_id as string | undefined | null) ?? null;
           const audit = ensureBranchInRepo(t.branch_id, repoPath, parentBranchId);
@@ -718,17 +789,17 @@ export function taskTools(db: TrajectoryDB): {
           if (t.repo !== undefined && t.repo !== null && t.repo !== '') {
             repoValue = t.repo as string;
           } else {
-            repoValue = defaultRepoValue;
+            repoValue = soleRepoValue;
           }
 
-          // Server-side parent_branch_id default: when omitted/null, resolve from
-          // the per-repo target_branch (v11) falling back to global pr_target.
-          // Fixes L5 92-base-branch where bro skipped reading config('pr_target')
-          // and tasks landed against main on gitflow projects with pr_target='dev'.
+          // Server-side parent_branch_id default: when omitted/null, resolve the
+          // base branch from the task's repos row (#155 — pr_target is drained
+          // out of plugin_config; the per-repo target_branch is the single source
+          // of truth). Final fallback is 'main'. Fixes L5 92-base-branch where
+          // tasks landed against main on gitflow projects with a 'dev' target.
           let parentBranchId: string | null = t.parent_branch_id ?? null;
           if (parentBranchId == null) {
-            // 1. Try per-repo target_branch from the task's repos row.
-            const taskRepoName = (t.repo as string | undefined | null) ?? defaultRepoValue;
+            const taskRepoName = (t.repo as string | undefined | null) ?? soleRepoValue;
             if (taskRepoName) {
               const repoTargetRow = db.get<{ target_branch: string | null }>(
                 `SELECT target_branch FROM repos WHERE name = ?`,
@@ -739,30 +810,16 @@ export function taskTools(db: TrajectoryDB): {
               }
             }
           }
-          if (parentBranchId == null) {
-            // 2. Fall back to global pr_target.
-            const prTargetRow = db.get<{ value_json: string }>(
-              `SELECT value_json FROM plugin_config WHERE key = 'pr_target'`,
-            );
-            if (prTargetRow?.value_json) {
-              try {
-                const prTarget = JSON.parse(prTargetRow.value_json) as unknown;
-                if (typeof prTarget === 'string' && prTarget.length > 0) {
-                  parentBranchId = prTarget;
-                }
-              } catch {
-                // malformed config row — leave as null and fall through
-              }
-            }
-            if (parentBranchId == null) parentBranchId = 'main';
-          }
+          if (parentBranchId == null) parentBranchId = 'main';
 
           const promptBearing = typeof t.prompt_bearing === 'number' && t.prompt_bearing === 1 ? 1 : 0;
+          const { files: typedFiles, verification: typedVerification } =
+            validateTypedRailsFields(t);
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, attempts, spec_body, repo, prompt_bearing, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?)`,
+                status, attempts, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)`,
             [
               issueId,
               t.branch_id,
@@ -772,6 +829,8 @@ export function taskTools(db: TrajectoryDB): {
               t.spec_body ?? '',
               repoValue,
               promptBearing,
+              JSON.stringify(typedFiles),
+              JSON.stringify(typedVerification),
               now,
               now,
             ],
@@ -813,7 +872,7 @@ export function taskTools(db: TrajectoryDB): {
         // Optional atomic audit emission: when emit_planning_complete=true, insert
         // the planning_complete event in the SAME transaction as the task creation.
         // This eliminates the L5 03/12 failure mode where the LLM would create
-        // tasks but skip the closing audit_log call. With this flag, the closing
+        // tasks but skip the closing audit_append call. With this flag, the closing
         // event is server-side and cannot be dropped between LLM turns.
         const emitPlanningComplete = args['emit_planning_complete'] === true;
         if (emitPlanningComplete && results.length > 0) {
@@ -935,7 +994,7 @@ export function taskTools(db: TrajectoryDB): {
       });
 
       // --- Gate 6: Parallel-overlap field ---
-      // Compute pairwise ## Files-section overlap across the batch and return
+      // Compute pairwise files[] overlap across the batch and return
       // parallel_groups (safe to run concurrently) + overlapping_pairs.
       // Pure response enrichment — no gating, no error on overlap.
       const parallelGroups: number[][] = [];
@@ -943,7 +1002,7 @@ export function taskTools(db: TrajectoryDB): {
       if (inserted.length > 1) {
         const taskFilePaths = inserted.map((t) => ({
           id: t.id,
-          paths: specFileDirs(t.spec_body ?? ''),
+          paths: taskFileDirs(t.files),
         }));
         const adjMatrix = new Map<number, Set<number>>();
         for (const t of taskFilePaths) adjMatrix.set(t.id, new Set());

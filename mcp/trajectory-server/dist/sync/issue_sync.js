@@ -75,14 +75,20 @@ function extractRemoteHostAndRepo(remoteUrl) {
         return { host: sshMatch[1], repoPath: sshMatch[2] };
     return null;
 }
-async function readBackVerify(backend, iid, spawnFn, spawnOpts) {
+async function readBackVerify(backend, iid, spawnFn, spawnOpts, repoSlug) {
     try {
         let result;
         if (backend === 'gh') {
-            result = spawnFn('gh', ['issue', 'view', String(iid), '--json', 'number,url'], spawnOpts);
+            const args = ['issue', 'view', String(iid), '--json', 'number,url'];
+            if (repoSlug)
+                args.push('--repo', repoSlug);
+            result = spawnFn('gh', args, spawnOpts);
         }
         else {
-            result = spawnFn('glab', ['issue', 'view', String(iid)], spawnOpts);
+            const args = ['issue', 'view', String(iid)];
+            if (repoSlug)
+                args.push('-R', repoSlug);
+            result = spawnFn('glab', args, spawnOpts);
         }
         if (result.status !== 0) {
             return { ok: false, reason: 'read_back_non_zero_exit' };
@@ -105,11 +111,22 @@ async function readBackVerify(backend, iid, spawnFn, spawnOpts) {
         return { ok: false, reason: 'read_back_error' };
     }
 }
+// Extract the `owner/repo` slug (the `--repo` / `-R` argument value) from a
+// configured remote URL, including the host so gh/glab target the exact repo
+// rather than inferring it from process.cwd(). Returns null when the URL can't
+// be parsed (the caller then omits the flag and falls back to _cwd).
+export function repoSlugFromRemoteUrl(remoteUrl) {
+    const parsed = extractRemoteHostAndRepo(remoteUrl);
+    if (!parsed)
+        return null;
+    const repoPath = parsed.repoPath.replace(/\.git$/, '');
+    return `${parsed.host}/${repoPath}`;
+}
 function isFailure(r) {
     return r.ok === false;
 }
 async function createOnBackend(backend, opts, spawnFn) {
-    const { title, body, labels = [] } = opts;
+    const { title, body, labels = [], milestone } = opts;
     const kind = backend === 'gh' ? 'github' : 'gitlab';
     const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' };
     if (opts._cwd) {
@@ -120,15 +137,27 @@ async function createOnBackend(backend, opts, spawnFn) {
     if (backend === 'gh') {
         cmd = 'gh';
         args = ['issue', 'create', '--title', title, '--body', body];
+        if (opts._repoSlug) {
+            args.push('--repo', opts._repoSlug);
+        }
         for (const label of labels) {
             args.push('--label', label);
+        }
+        if (milestone) {
+            args.push('--milestone', milestone);
         }
     }
     else {
         cmd = 'glab';
         args = ['issue', 'create', '--title', title, '--description', body];
+        if (opts._repoSlug) {
+            args.push('-R', opts._repoSlug);
+        }
         for (const label of labels) {
             args.push('--label', label);
+        }
+        if (milestone) {
+            args.push('--milestone', milestone);
         }
     }
     try {
@@ -193,7 +222,7 @@ async function createOnBackend(backend, opts, spawnFn) {
                 }
             }
         }
-        const verifyResult = await readBackVerify(backend, parsed.iid, spawnFn, spawnOpts);
+        const verifyResult = await readBackVerify(backend, parsed.iid, spawnFn, spawnOpts, opts._repoSlug);
         if (!verifyResult.ok) {
             syncLog({
                 event: 'issue_create_verify_failed',
@@ -279,10 +308,16 @@ export async function syncIssueClose(opts) {
     if (remote_kind === 'github') {
         cmd = 'gh';
         args = ['issue', 'close', String(remote_iid)];
+        if (opts._repoSlug) {
+            args.push('--repo', opts._repoSlug);
+        }
     }
     else {
         cmd = 'glab';
         args = ['issue', 'close', String(remote_iid)];
+        if (opts._repoSlug) {
+            args.push('-R', opts._repoSlug);
+        }
     }
     try {
         const result = spawnFn(cmd, args, spawnOpts);

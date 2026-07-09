@@ -10,10 +10,14 @@
 #   1. require-task-spec              — swe must cite a valid task_id
 #   2. require-feature-branch-active  — task's branch must already exist
 #   3. pr-reviewer-no-worktree        — pr-reviewer must not run in worktree
-#   4. pr-reviewer-spawn-prompt-shape — pr-reviewer prompt must have four anchors
+#   4. pr-reviewer-spawn-prompt-shape — pr-reviewer prompt must have six anchors
 #   5. pr-reviewer-after-atomic-close — pr-reviewer task must be status=closed
 #
 # Silent on success (no context gathered); emits deny verbatim on first block.
+#
+# After all gates pass, a final PREPARE step runs (ensure-swe-worktree.sh). It
+# ACTS — deterministically creates swe's worktree at the canonical slug — rather
+# than gates: it is non-blocking and fail-open, so it never denies a spawn.
 
 set -uo pipefail
 
@@ -46,6 +50,14 @@ for hook in "${HOOKS[@]}"; do
   CTX=$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null)
   [ -n "$CTX" ] && CONTEXT_PARTS+=("$CTX")
 done
+
+# PREPARE step — all gates passed. Deterministically create swe's worktree at
+# the canonical slug so the non-interactive `claude -p` path is isolated and the
+# verification gate finds the right slug. Fail-open: never denies the spawn.
+PREPARE="$SCRIPT_DIR/ensure-swe-worktree.sh"
+if [ -x "$PREPARE" ]; then
+  printf '%s' "$INPUT" | bash "$PREPARE" >/dev/null 2>&1 || true
+fi
 
 if [ "${#CONTEXT_PARTS[@]}" -gt 0 ]; then
   MERGED=""

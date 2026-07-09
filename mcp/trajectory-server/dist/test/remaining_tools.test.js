@@ -20,6 +20,7 @@ function parseBatch(result) {
 async function createIssue(db) {
     const tools = issueTools(db);
     const result = await call(tools.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro',
         objective: 'Test issue',
     });
@@ -42,11 +43,11 @@ async function createTask(db, issueId, branchId = 'feat/test-task') {
     return parseBatch(result)[0].id;
 }
 describe('auditTools', () => {
-    it('audit_log stores small content_json intact', async () => {
+    it('audit_append stores small content_json intact', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = auditTools(db);
-        const result = await call(tools.handlers, 'audit_log', {
+        const result = await call(tools.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
@@ -61,12 +62,12 @@ describe('auditTools', () => {
         assert.equal(row.content_json, JSON.stringify({ cmd: 'echo hi' }));
         db.close();
     });
-    it('audit_log rejects content_json > 1 MB with a named error', async () => {
+    it('audit_append rejects content_json > 1 MB with a named error', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = auditTools(db);
         const bigContent = JSON.stringify({ blob: 'x'.repeat(2_000_000) });
-        const result = await call(tools.handlers, 'audit_log', {
+        const result = await call(tools.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
@@ -80,13 +81,13 @@ describe('auditTools', () => {
         db.close();
     });
     // Slim contract — audit is event-only. `kind` and `is_truncated` are gone
-    // from the schema; the audit_log handler must not surface them on output
+    // from the schema; the audit_append handler must not surface them on output
     // rows. Verify both via PRAGMA + the returned row shape.
     it('audit table has no kind or is_truncated columns after the slim cleanup', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = auditTools(db);
-        const result = await call(tools.handlers, 'audit_log', {
+        const result = await call(tools.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
@@ -103,29 +104,29 @@ describe('auditTools', () => {
         assert.ok(!present.has('is_truncated'), 'audit.is_truncated must be dropped from the schema');
         db.close();
     });
-    it('audit_log returns ok and audit row exists even when embed returns null (no model in CI)', async () => {
+    it('audit_append returns ok and audit row exists even when embed returns null (no model in CI)', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = auditTools(db);
-        const result = await call(tools.handlers, 'audit_log', {
+        const result = await call(tools.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
             event_type: 'embed_await_test',
             summary: 'embedding await test',
         });
-        assert.ok(!result.isError, `audit_log must succeed: ${JSON.stringify(parseResult(result))}`);
+        assert.ok(!result.isError, `audit_append must succeed: ${JSON.stringify(parseResult(result))}`);
         const row = parseResult(result);
         assert.equal(row.event_type, 'embed_await_test');
         const auditRow = db.get('SELECT id FROM audit WHERE id = ?', [row.id]);
         assert.ok(auditRow, 'audit row must be persisted before tool returns');
         db.close();
     });
-    it('audit_log returns ok when embedAndStore rejects (embed error does not propagate)', async () => {
+    it('audit_append returns ok when embedAndStore rejects (embed error does not propagate)', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = auditTools(db);
-        const r1 = await call(tools.handlers, 'audit_log', {
+        const r1 = await call(tools.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
@@ -133,7 +134,7 @@ describe('auditTools', () => {
             summary: 'first call primes loadFailed state',
         });
         assert.ok(!r1.isError, 'first call must succeed');
-        const r2 = await call(tools.handlers, 'audit_log', {
+        const r2 = await call(tools.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
@@ -156,6 +157,7 @@ describe('validationTools', () => {
             attempt_n: 1,
             verdict: 'maybe',
             feedback: '# Notes',
+            mcp_available: true,
             subagent_session_id: 'test-session-abc',
         });
         assert.ok(result.isError, 'Expected error result');
@@ -187,7 +189,8 @@ describe('validationTools', () => {
             task_id: 9999,
             attempt_n: 1,
             verdict: 'pass',
-            feedback: 'MCP available: yes\n# Notes',
+            feedback: '# Notes',
+            mcp_available: true,
             subagent_session_id: 'test-session-abc',
         });
         assert.ok(result.isError);
@@ -205,7 +208,8 @@ describe('validationTools', () => {
             task_id: taskId,
             attempt_n: 3,
             verdict: 'fail',
-            feedback: 'MCP available: yes\n# Third attempt',
+            feedback: '# Third attempt',
+            mcp_available: true,
             subagent_session_id: 'session-3',
         });
         await call(tools.handlers, 'validation_record', {
@@ -213,7 +217,8 @@ describe('validationTools', () => {
             task_id: taskId,
             attempt_n: 1,
             verdict: 'fail',
-            feedback: 'MCP available: yes\n# First attempt',
+            feedback: '# First attempt',
+            mcp_available: true,
             subagent_session_id: 'session-1',
         });
         await call(tools.handlers, 'validation_record', {
@@ -221,7 +226,8 @@ describe('validationTools', () => {
             task_id: taskId,
             attempt_n: 2,
             verdict: 'pass',
-            feedback: 'MCP available: yes\n# Second attempt',
+            feedback: '# Second attempt',
+            mcp_available: true,
             subagent_session_id: 'session-2',
         });
         const result = await call(tools.handlers, 'validation_history', {
@@ -238,26 +244,23 @@ describe('validationTools', () => {
     });
 });
 describe('skillTools', () => {
-    it('skill_register then skill_record_outcome updates effectiveness', async () => {
+    it('skill_register returns a row without the dropped effectiveness stat columns', async () => {
         const db = tempDB();
         const tools = skillTools(db);
-        await call(tools.handlers, 'skill_register', {
+        const result = await call(tools.handlers, 'skill_register', {
             agent: 'bro',
             name: 'my-skill',
             description: 'A test skill',
             file_path: 'skills/my-skill.md',
             trust_tier: 'agent',
         });
-        const result = await call(tools.handlers, 'skill_record_outcome', {
-            agent: 'bro',
-            name: 'my-skill',
-            success: true,
-        });
         const row = parseResult(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(row)}`);
-        assert.equal(row.uses, 1);
-        assert.equal(row.successes, 1);
-        assert.equal(row.effectiveness, 1.0);
+        assert.equal(row.name, 'my-skill');
+        assert.equal(row.status, 'draft');
+        for (const dead of ['uses', 'successes', 'effectiveness']) {
+            assert.ok(!(dead in row), `skill row must not expose dropped column ${dead}`);
+        }
         db.close();
     });
     it('skill_promote rejects invalid transition', async () => {
@@ -395,8 +398,8 @@ describe('skill_register name validation gate', () => {
             trust_tier: 'agent',
         });
         assert.ok(!hyphenResult.isError, "tmb- (hyphen) prefix must be allowed — only tmb_ (underscore) is reserved");
-        // tmb_ (underscore) fails the name regex first (underscore not in [a-z0-9-]);
-        // the tmb_ prefix guard is defense-in-depth for future regex relaxations.
+        // tmb_ (underscore) fails the name regex (underscore not in [a-z0-9-]), so the
+        // tmb_ prefix reserved for plugin-shipped global skills can never be minted here.
         const underscoreResult = await call(tools.handlers, 'skill_register', {
             agent: 'bro',
             name: 'tmb_myskill',
@@ -430,7 +433,7 @@ describe('reportTools', () => {
         const issueId = await createIssue(db);
         await createTask(db, issueId);
         const audit = auditTools(db);
-        await call(audit.handlers, 'audit_log', {
+        await call(audit.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'swe',
@@ -450,7 +453,6 @@ describe('reportTools', () => {
         assert.ok(data.markdown.includes('## Tasks'), 'Missing Tasks section');
         assert.ok(data.markdown.includes('## Validation History'), 'Missing Validation History section');
         assert.ok(data.markdown.includes('## Audit Event Timeline'), 'Missing Audit Event Timeline section');
-        assert.ok(data.markdown.includes('## Skill Usage Summary'), 'Missing Skill Usage section');
         assert.ok(data.markdown.includes('SWE began work'), 'Audit event missing from report');
         db.close();
     });

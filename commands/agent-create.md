@@ -1,12 +1,12 @@
 ---
 name: agent-create
-description: Create or copy an agent into the project's .claude/agents/ directory and (optionally) spawn it on a consultant question. Self-contained — routing/enforcement comes from this command body + the prompt-intent-hints routing hook.
+description: Create or copy an agent into the project's .claude/agents/ directory and (optionally) spawn it on a consultant question.
 argument-hint: <kebab-case agent name> [optional consultant question]
 ---
 
 # /tmb:agent-create `<name>` [question]
 
-Explicit Human-typed (or hook-routed) entry point for agent creation + optional consultant spawn. User-created agents default to `kind='consultant'`.
+User-created agents default to `kind='consultant'`.
 
 ## Resolution
 
@@ -22,15 +22,11 @@ When `.claude/agents/<name>.md` already exists, read the `tmb_owner` field:
 
 ## Template-copy
 
-Show the template, ask for confirmation (interactive), then write verbatim. Template content is deterministic — reviewed at plugin release. If a follow-on question was provided, scope an issue and spawn via `Agent`.
+Show the template, ask for confirmation (interactive), then write verbatim. If a follow-on question was provided, scope an issue and spawn via `Agent`.
 
 ## From-scratch
 
 Gather the shape in one AskUserQuestion batch (up to 3 questions): role/title, core responsibilities, and the closest existing agent plus its gap. Read the top-level project files for stack context, then draft from `${CLAUDE_PLUGIN_ROOT}/templates/agents/template.md` — body cap 15 lines after frontmatter. Run the pre-write lint (`${CLAUDE_PLUGIN_ROOT}/scripts/prompt-author-lint.sh <draft-path>`) and surface its findings via AUQ. Show the full draft, and on approval write it with `tmb_owner: bro` in frontmatter.
-
-## Headless mode
-
-If `TMB_HEADLESS=1` or AskUserQuestion errors, HALT for any creation that needs Human input. The only auto-approved path is template-copy (content is deterministic). For collision or from-scratch, surface: "Cannot create agent headless — creation requires Human review."
 
 ## Edge case — code-writing consultant
 
@@ -43,7 +39,3 @@ If they confirm, add `isolation: worktree` to frontmatter and `Write, Edit` to t
 
 After creation completes, emit (interactive only):
 > *Agent landed at `.claude/agents/<name>.md` and registered. If your next `Agent` spawn can't find it, run `/reload-plugins`.*
-
-## Routing from naturalistic prompts
-
-When a Human asks an expertise question without typing the slash, the `prompt-intent-hints.sh` hook injects a routing hint reminding bro to use `/tmb:agent-create <inferred-role>`.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Hook: Enforce git workflow rules driven by plugin_config branching model.
+# Hook: Enforce git workflow rules driven by the repo's branching model.
 # 1. PR must target pr_target
-# 2. No direct commits to protected_branches
+# 2. No direct commits/merges/rebases to any shared workflow base
 # 3. No force push to protected_branches
 # 4. New branches must be based on latest pr_target
 set -euo pipefail
@@ -29,35 +29,10 @@ _cmd_needs_git_guard "$CMD" || exit 0
 # SWE runs in isolated worktrees and prefixes commands with `cd <worktree> &&`.
 # Without this awareness, `git branch --show-current` runs in CC's CWD (the
 # project root) and always returns the root branch — blocking every legitimate
-# worktree commit. The fix: parse the cd prefix and run git from there.
-#
-# Tries (in order):
-#   1. `cd <path> && ...` prefix in the command (SWE's worktree pattern)
-#   2. `--git-dir`/`-C <path>` git option in the command
-#   3. CC's hook payload `cwd` field (if/when CC populates it)
-#   4. Fallback: $PWD (CC's session CWD, usually the project root)
+# worktree commit. The shared tmb_cmd_cwd parses the `cd <path> &&` / `git -C
+# <path>` target (then the payload .cwd, then $PWD).
 cmd_cwd() {
-  local cmd="$1"
-  local cd_path
-  # Match leading: `cd /some/path &&` or `cd /some/path ;` or `cd /some/path\n`
-  cd_path=$(echo "$cmd" | sed -nE 's|^[[:space:]]*cd[[:space:]]+("([^"]+)"\|'"'"'([^'"'"']+)'"'"'\|([^[:space:]&;]+)).*|\2\3\4|p' | head -1)
-  if [ -n "$cd_path" ]; then
-    echo "$cd_path"
-    return
-  fi
-  # Try git -C <path>
-  cd_path=$(echo "$cmd" | grep -oE 'git -C [^[:space:]]+' | head -1 | awk '{print $3}' | tr -d "'\"")
-  if [ -n "$cd_path" ]; then
-    echo "$cd_path"
-    return
-  fi
-  # Try hook payload cwd (CC may add this in future)
-  cd_path=$(echo "$INPUT" | jq -r '.cwd // empty')
-  if [ -n "$cd_path" ]; then
-    echo "$cd_path"
-    return
-  fi
-  echo "$PWD"
+  tmb_cmd_cwd "$1" "$INPUT"
 }
 
 # Get the current branch in the dir the command will execute in.
@@ -97,106 +72,57 @@ cmd_effective_branch() {
 
 # --- Per-repo config resolution ---
 # Resolve the effective branching config from the repos row for the git
-# toplevel of the command's working directory, falling back to global
-# plugin_config for legacy single-repo installs.
+# toplevel of the command's working directory — the sole source of truth (#980).
 # If the cwd's git root is not a registered TMB repo, guard no-ops (exit 0).
 _CMD_CWD=$(cmd_cwd "$CMD")
 _GIT_ROOT=$(tmb_repo_git_root "$_CMD_CWD")
 _DB=$(tmb_db_path 2>/dev/null || true)
 
-# --- Managed-repo scope (#631, mirrors #592) ---
-# In a multi-repo workspace these guards (Rule 1 PR-target, Rule 2
-# no-direct-commit, Rule 4 branch-from-pr_target) must only fire for the managed
-# product repo, not its siblings (e.g. marketplace-rc, which is main-only and has
-# no dev branch). The DB lives at <workspace_root>/.claude/<plugin>/trajectory.db,
-# so the workspace root is three levels above _DB and the managed repo is
-# <workspace_root>/<tmb_default_repo>. When the command's git root is outside that
-# subtree it belongs to a sibling repo — the guards no-op (exit 0). When
-# tmb_default_repo is empty or '.' (the normal single-repo user project), the gate
-# is inert and the whole tree is guarded as before.
-if [ -n "$_DB" ] && [ -f "$_DB" ] && tmb_have_sqlite && [ -n "$_GIT_ROOT" ]; then
-  _DEFAULT_REPO=$(tmb_config_get "tmb_default_repo" "$_DB")
-  if [ -n "$_DEFAULT_REPO" ] && [ "$_DEFAULT_REPO" != "." ]; then
-    _WORKSPACE_ROOT=$(dirname "$(dirname "$(dirname "$_DB")")")
-    _MANAGED_ROOT="$_WORKSPACE_ROOT/$_DEFAULT_REPO"
-    # Canonicalize the managed root so it compares equal to git's already-
-    # canonical _GIT_ROOT (e.g. /tmp vs /private/tmp on macOS).
-    if [ -d "$_MANAGED_ROOT" ]; then
-      _MANAGED_ROOT=$(cd "$_MANAGED_ROOT" 2>/dev/null && pwd -P || echo "$_MANAGED_ROOT")
-    fi
-    if [ "$_GIT_ROOT" != "$_MANAGED_ROOT" ]; then
-      exit 0
-    fi
-  fi
+# H8: when the command's repo can't be resolved (no `cd`/`-C` target and $PWD is
+# not inside a git repo — the multi-repo workspace root), NO-OP. Enforcing a
+# guessed github-flow/main default policy on an unresolved repo is wrong: there
+# is no repo to apply a branching model to.
+if [ -z "$_GIT_ROOT" ]; then
+  exit 0
 fi
 
+# --- Managed-repo scope by REGISTRATION (#693, ADR: path-keyed repo resolution) ---
+# In a multi-repo workspace these guards (Rule 1 PR-target, Rule 2
+# no-direct-commit, Rule 4 branch-from-pr_target) must only fire for a REGISTERED
+# product repo, not its siblings (e.g. marketplace-rc, which is main-only and has
+# no dev branch). A git op is enforced iff its git-root resolves to a `repos` row
+# (matched by path); when the command's git root is an unregistered sibling tree
+# the guards no-op (exit 0). For single-repo user projects the sole repo IS the
+# registered root (recorded by /scan), so the whole tree is guarded as before.
 if [ -n "$_DB" ] && [ -f "$_DB" ] && tmb_have_sqlite && [ -n "$_GIT_ROOT" ]; then
   if ! tmb_repo_is_registered "$_DB" "$_GIT_ROOT"; then
     exit 0
   fi
   _REPO_ROW=$(tmb_repo_resolve "$_DB" "$_GIT_ROOT")
-  _REPO_TARGET=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f1)
-  _REPO_MODEL=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f2)
-  _REPO_PROTECTED=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f3)
+  PR_TARGET=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f1)
+  BRANCHING_MODEL=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f2)
+  PROTECTED_RAW=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f3)
 else
-  _REPO_TARGET=""
-  _REPO_MODEL=""
-  _REPO_PROTECTED=""
+  BRANCHING_MODEL=""
+  PR_TARGET=""
+  PROTECTED_RAW=""
 fi
 
-# Fetch global config as fallback for repos rows that lack per-repo values.
-_load_global_config() {
-  local db
-  db=$(tmb_db_path 2>/dev/null || true)
-  [ -n "$db" ] || return 0
-  tmb_have_sqlite || return 0
-  sqlite3 "$db" "
-    SELECT key, value_json
-      FROM plugin_config
-     WHERE key IN ('branching_model', 'pr_target', 'protected_branches');
-  " 2>/dev/null || true
-}
-_global_config_rows=$(_load_global_config)
-
-_gcfg_scalar() {
-  printf '%s\n' "$_global_config_rows" | awk -F'|' -v k="$1" '$1==k{print $2;exit}' \
-    | sed 's/^"//;s/"$//'
-}
-_gcfg_raw() {
-  printf '%s\n' "$_global_config_rows" | awk -F'|' -v k="$1" '$1==k{print $2;exit}'
-}
-
-# Effective values: per-repo wins, global is fallback.
-if [ -n "$_REPO_MODEL" ]; then
-  BRANCHING_MODEL="$_REPO_MODEL"
-else
-  BRANCHING_MODEL=$(_gcfg_scalar "branching_model")
-fi
-
+# Safe defaults — a registered-but-not-onboarded repo must NOT fail open.
+# When the repos row lacks policy, default to github-flow with main+dev
+# protected so protected-branch ops still DENY (never exit 0 here).
 if [ -z "$BRANCHING_MODEL" ]; then
-  echo "TMB: branching_model not configured — run bro onboarding" >&2
-  exit 0
+  BRANCHING_MODEL="github-flow"
 fi
-
-if [ -n "$_REPO_TARGET" ]; then
-  PR_TARGET="$_REPO_TARGET"
-else
-  PR_TARGET=$(_gcfg_scalar "pr_target")
+if [ -z "$PR_TARGET" ]; then
+  PR_TARGET="main"
 fi
-
-if [ -n "$_REPO_PROTECTED" ]; then
-  PROTECTED_RAW="$_REPO_PROTECTED"
-else
-  PROTECTED_RAW=$(_gcfg_raw "protected_branches")
-fi
-
-if [ -z "$PR_TARGET" ] || [ -z "$PROTECTED_RAW" ]; then
-  jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:"BLOCKED: TMB plugin_config keys pr_target or protected_branches are unset. Run bro onboarding or fix your config."}}'
-  exit 0
+if [ -z "$PROTECTED_RAW" ]; then
+  PROTECTED_RAW='["main","dev"]'
 fi
 
 if ! printf '%s' "$PROTECTED_RAW" | jq -e 'type == "array"' >/dev/null 2>&1; then
-  jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:"BLOCKED: TMB plugin_config key protected_branches is malformed JSON. Fix the config or re-run bro onboarding."}}'
+  jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:"BLOCKED: this repo'"'"'s protected_branches is malformed JSON. Fix the repos row or re-run bro onboarding."}}'
   exit 0
 fi
 
@@ -242,13 +168,17 @@ _RULE1_FORGE=$(_rule1_match "$CMD" || true)
 if [ -n "$_RULE1_FORGE" ]; then
   if [ "$_RULE1_FORGE" = "gh" ]; then
     # --- gh pr create ---
-    if echo "$CMD" | grep -qF -- "--base ${PR_TARGET}"; then
+    # Extract the --base value and compare at a token boundary (#1032). The old
+    # `grep -qF -- "--base dev"` substring-matched `--base dev-old` / `--base
+    # development` (false OK) and `--base main` matched `--base maintenance`.
+    BASE_BRANCH=$(echo "$CMD" | grep -oE -- '--base[= ][^[:space:]]+' | head -1 | sed -E 's/--base[= ]+//' | tr -d "'\"" || true)
+    if [ -n "$BASE_BRANCH" ] && [ "$BASE_BRANCH" = "$PR_TARGET" ]; then
       :  # OK — feature → pr_target (the standard path)
-    elif [ "$PR_TARGET" = "dev" ] && echo "$CMD" | grep -qF -- "--base main"; then
+    elif [ "$PR_TARGET" = "dev" ] && [ "$BASE_BRANCH" = "main" ]; then
       # Dual-tier exception: dev → main release merge.
       HEAD_BRANCH=$(echo "$CMD" | grep -oE -- '--head[= ][^[:space:]]+' | head -1 | sed -E 's/--head[= ]+//' | tr -d "'\"" || true)
       if [ -z "$HEAD_BRANCH" ]; then
-        HEAD_BRANCH=$(git branch --show-current 2>/dev/null || true)
+        HEAD_BRANCH=$(git -C "$_CMD_CWD" branch --show-current 2>/dev/null || true)
       fi
       if [ "$HEAD_BRANCH" != "dev" ]; then
         jq -nc --arg r "BLOCKED: only 'dev → main' is permitted as a release merge. Feature branches must PR to ${PR_TARGET}: gh pr create --base ${PR_TARGET} --head <branch>. Got --head=${HEAD_BRANCH}." \
@@ -273,7 +203,7 @@ if [ -n "$_RULE1_FORGE" ]; then
       SOURCE_BRANCH=$(echo "$CMD" | grep -oE -- '-s[= ][^[:space:]]+' | head -1 | sed -E 's/-s[= ]+//' | tr -d "'\"" || true)
     fi
     if [ -z "$SOURCE_BRANCH" ]; then
-      SOURCE_BRANCH=$(git branch --show-current 2>/dev/null || true)
+      SOURCE_BRANCH=$(git -C "$_CMD_CWD" branch --show-current 2>/dev/null || true)
     fi
 
     if [ "$TARGET_BRANCH" = "$PR_TARGET" ]; then
@@ -293,8 +223,21 @@ if [ -n "$_RULE1_FORGE" ]; then
   fi
 fi
 
-# --- Rule 2: No direct commits/merges/rebases to protected_branches (worktree-aware) ---
-# Uses cmd_effective_branch so detached-HEAD worktrees resolve via DB lookup.
+# --- Rule 2: local integration is PR-only; commits stay off shared bases (worktree-aware) ---
+# Enforcement splits by command class:
+#   - git merge / rebase / cherry-pick in the MAIN checkout are DENIED regardless
+#     of the current or target branch — integration is PR-only. A data-derived
+#     protected set can always miss a base the agent believes in (L6 step-10, twice),
+#     so this class is target-independent. Inside a .claude/worktrees/ checkout these
+#     are legitimate SWE mechanics and stay allowed.
+#   - git commit keeps the protected-set union gating: repos.protected_branches ∪
+#     the repo's target_branch (PR_TARGET) ∪ repos.pr_target (when that column
+#     exists) ∪ every task's parent_branch_id. Feature-branch commits pass; commits
+#     on a shared base are denied. Fail-soft: the DB-driven rows (pr_target,
+#     parent_branch_id) are added only when the DB is reachable; the
+#     protected_branches + target_branch fallbacks (both with safe defaults) keep the
+#     guard closed when it is not. Uses cmd_effective_branch so detached-HEAD
+#     worktrees resolve via DB lookup.
 # Match the git subcommand by word boundary to avoid false-positives on plumbing
 # (commit-tree, commit-graph) or "git commit" appearing inside argument text.
 # Only fire when 'git' is at the start of a shell statement (after ^, &&, ||, ;, or \n).
@@ -305,12 +248,80 @@ _rule2_match() {
   # Spaces around the separator are consumed to handle `cd /x && git commit`.
   printf '%s' "$cmd" | grep -qE '(^|[[:space:]]*([;&]|[|][|]|[&][&])[[:space:]]*)git[[:space:]]+(commit|merge|rebase|cherry-pick)([[:space:]]|$)'
 }
+
+# Return 0 when the matched Rule-2 subcommand is an integration command
+# (merge/rebase/cherry-pick) at a shell statement start. Integration bypasses the
+# PR gate, so in the main checkout it is denied outright regardless of target.
+_rule2_is_integration() {
+  printf '%s' "$1" | grep -qE '(^|[[:space:]]*([;&]|[|][|]|[&][&])[[:space:]]*)git[[:space:]]+(merge|rebase|cherry-pick)([[:space:]]|$)'
+}
+
+# Exit 0 when the command runs inside a LINKED worktree — its git toplevel differs
+# from the main checkout root (_GIT_ROOT). merge/rebase/cherry-pick are legitimate
+# SWE mechanics in a task worktree, so they stay allowed there; in the main checkout
+# the same commands are PR-only and denied.
+cmd_in_worktree() {
+  local wd top
+  wd=$(cmd_cwd "$1")
+  top=$(git -C "$wd" rev-parse --show-toplevel 2>/dev/null || true)
+  [ -n "$top" ] && [ "$top" != "$_GIT_ROOT" ]
+}
+
+# rule2_protected_bases
+# Print (one per line, deduped) every workflow base that must not accept a direct
+# commit/merge/rebase: protected_branches ∪ target_branch (PR_TARGET) ∪ pr_target
+# (when the column exists) ∪ DISTINCT tasks.parent_branch_id (this repo, plus
+# NULL-repo tasks for single-repo installs). DB rows are added only when the DB is
+# reachable; the protected_branches/target_branch fallbacks keep the set non-empty.
+rule2_protected_bases() {
+  {
+    printf '%s\n' "$PROTECTED_BRANCHES"
+    [ -n "$PR_TARGET" ] && printf '%s\n' "$PR_TARGET"
+    if [ -n "$_DB" ] && [ -f "$_DB" ] && tmb_have_sqlite; then
+      local root_sql repo_name repo_filter
+      root_sql=$(tmb_sql_quote "$_GIT_ROOT")
+      if [ -n "$(tmb_sqlite_ro "$_DB" "SELECT 1 FROM pragma_table_info('repos') WHERE name='pr_target' LIMIT 1;")" ]; then
+        tmb_sqlite_ro "$_DB" "SELECT pr_target FROM repos WHERE path = '${root_sql}' AND pr_target IS NOT NULL AND pr_target != '';"
+      fi
+      repo_name=$(tmb_sqlite_ro "$_DB" "SELECT name FROM repos WHERE path = '${root_sql}' LIMIT 1;")
+      if [ -n "$repo_name" ]; then
+        repo_filter="(repo = '$(tmb_sql_quote "$repo_name")' OR repo IS NULL)"
+      else
+        repo_filter="repo IS NULL"
+      fi
+      tmb_sqlite_ro "$_DB" "SELECT DISTINCT parent_branch_id FROM tasks WHERE parent_branch_id IS NOT NULL AND parent_branch_id != '' AND ${repo_filter};"
+    fi
+  } | grep -v '^[[:space:]]*$' | sort -u
+}
+
+rule2_recovery() {
+  # Shared recovery text for a Rule-2 deny: PR-into-pr_target when a remote
+  # exists, else leave-unmerged-and-surface-to-Human.
+  if [ -n "$(git -C "$_CMD_CWD" remote get-url origin 2>/dev/null || true)" ]; then
+    printf 'Push your feature branch and open a PR into %s: git push origin <branch> && gh pr create --base %s --head <branch>.' "$PR_TARGET" "$PR_TARGET"
+  else
+    printf 'This repo has no remote — leave the branch unmerged and surface it to the Human for integration.'
+  fi
+}
+
 if _rule2_match "$CMD"; then
-    BRANCH=$(cmd_effective_branch "$CMD")
-    if [ -n "$BRANCH" ] && branch_is_protected "$BRANCH"; then
-      jq -nc --arg r "BLOCKED: No direct commits to ${BRANCH}. Create a feature branch first." \
-        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
-      exit 0
+    if _rule2_is_integration "$CMD"; then
+      # merge/rebase/cherry-pick: allowed inside a task worktree, denied in the
+      # main checkout regardless of the target branch (integration is PR-only).
+      if ! cmd_in_worktree "$CMD"; then
+        jq -nc --arg r "BLOCKED: local merge/rebase/cherry-pick in the main checkout is not allowed — integration is PR-only. $(rule2_recovery)" \
+          '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+        exit 0
+      fi
+    else
+      # git commit: keep the protected-set union gating.
+      BRANCH=$(cmd_effective_branch "$CMD")
+      RULE2_PROTECTED=$(rule2_protected_bases || true)
+      if [ -n "$BRANCH" ] && printf '%s\n' "$RULE2_PROTECTED" | grep -qxF "$BRANCH"; then
+        jq -nc --arg r "BLOCKED: ${BRANCH} is a shared workflow base — no direct commits/merges/rebases. $(rule2_recovery)" \
+          '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+        exit 0
+      fi
     fi
 fi
 
@@ -332,28 +343,29 @@ _is_force_push() {
   # --follow-tags contains no force token; --force-with-lease is a force flag.
   printf '%s' "$clause" | grep -qE '(^|[[:space:]])(--force(-with-lease)?|-f)([[:space:]]|$)'
 }
-case "$CMD" in
-  *"git push"*)
-    if _is_force_push "$CMD"; then
-      PUSH_CLAUSE=$(_push_clause "$CMD")
-      if printf '%s' "$PUSH_CLAUSE" | grep -qE '\b(origin|upstream)\s+\S+'; then
-        PUSH_TARGET=$(printf '%s' "$PUSH_CLAUSE" | grep -oE '\b(origin|upstream)\s+\S+' | awk '{print $2}')
-        if branch_is_protected "$PUSH_TARGET"; then
-          jq -nc --arg r "BLOCKED: Force push to ${PUSH_TARGET} is forbidden. This is destructive and irreversible." \
-            '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
-          exit 0
-        fi
-      else
-        BRANCH=$(cmd_branch "$CMD")
-        if [ -n "$BRANCH" ] && branch_is_protected "$BRANCH"; then
-          jq -nc --arg r "BLOCKED: Force push to ${BRANCH} is forbidden. This is destructive and irreversible." \
-            '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
-          exit 0
-        fi
-      fi
+# The outer trigger is _is_force_push itself (which extracts the push clause via
+# _push_clause and token-matches force flags with grep -qE — already whitespace
+# tolerant). The old bare `case *"git push"*` gate was literal single-space and
+# failed open on `git  push --force origin main` (#1016): the force-push branch
+# never ran, so a double-spaced force-push to a protected branch slipped through.
+if _is_force_push "$CMD"; then
+  PUSH_CLAUSE=$(_push_clause "$CMD")
+  if printf '%s' "$PUSH_CLAUSE" | grep -qE '\b(origin|upstream)\s+\S+'; then
+    PUSH_TARGET=$(printf '%s' "$PUSH_CLAUSE" | grep -oE '\b(origin|upstream)\s+\S+' | awk '{print $2}')
+    if branch_is_protected "$PUSH_TARGET"; then
+      jq -nc --arg r "BLOCKED: Force push to ${PUSH_TARGET} is forbidden. This is destructive and irreversible." \
+        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+      exit 0
     fi
-    ;;
-esac
+  else
+    BRANCH=$(cmd_branch "$CMD")
+    if [ -n "$BRANCH" ] && branch_is_protected "$BRANCH"; then
+      jq -nc --arg r "BLOCKED: Force push to ${BRANCH} is forbidden. This is destructive and irreversible." \
+        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+      exit 0
+    fi
+  fi
+fi
 
 # --- Rule 4: New branches must be based on latest pr_target (worktree-aware) ---
 # Remote freshness check is skipped when the repo has no origin remote or
@@ -361,14 +373,24 @@ esac
 case "$CMD" in
   *"git checkout -b"*|*"git switch -c"*)
     BRANCH=$(cmd_effective_branch "$CMD")
-    if [ -n "$BRANCH" ] && [ "$BRANCH" != "$PR_TARGET" ]; then
-      jq -nc --arg r "BLOCKED: New branches must be created from ${PR_TARGET}. Currently on '${BRANCH}'. Run: git checkout ${PR_TARGET} && git pull origin ${PR_TARGET} first." \
+    # H3 (#13 hook-side self-defense): the configured PR_TARGET may name a branch
+    # that does not exist in this repo (e.g. /scan wrongly tagged a main-only repo
+    # as dev-target). Enforcing a non-existent base is wrong — fall back to the
+    # repo's real default branch for the Rule-4 base checks.
+    _RULE4_TARGET="$PR_TARGET"
+    if ! git -C "$_CMD_CWD" rev-parse --verify --quiet "$PR_TARGET" >/dev/null 2>&1 \
+       && ! git -C "$_CMD_CWD" rev-parse --verify --quiet "origin/$PR_TARGET" >/dev/null 2>&1; then
+      _DEFAULT_BRANCH=$(tmb_repo_default_branch "$_GIT_ROOT")
+      [ -n "$_DEFAULT_BRANCH" ] && _RULE4_TARGET="$_DEFAULT_BRANCH"
+    fi
+    if [ -n "$BRANCH" ] && [ "$BRANCH" != "$_RULE4_TARGET" ]; then
+      jq -nc --arg r "BLOCKED: New branches must be created from ${_RULE4_TARGET}. Currently on '${BRANCH}'. Run: git checkout ${_RULE4_TARGET} && git pull origin ${_RULE4_TARGET} first." \
         '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
       exit 0
     fi
     # Detached HEAD (BRANCH empty): guide to checkout -B rather than hard-deny.
     if [ -z "$BRANCH" ]; then
-      jq -nc --arg r "BLOCKED: Detached HEAD detected. Run: git checkout -B ${PR_TARGET} origin/${PR_TARGET} to reattach, then create your feature branch." \
+      jq -nc --arg r "BLOCKED: Detached HEAD detected. Run: git checkout -B ${_RULE4_TARGET} origin/${_RULE4_TARGET} to reattach, then create your feature branch." \
         '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
       exit 0
     fi
@@ -378,16 +400,16 @@ case "$CMD" in
       exit 0
     fi
     # timeout 5: portable guard against flaky networks stalling the hook.
-    git -C "$_CMD_CWD" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=5 fetch origin "$PR_TARGET" --quiet 2>/dev/null || true
+    git -C "$_CMD_CWD" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=5 fetch origin "$_RULE4_TARGET" --quiet 2>/dev/null || true
     # Use --verify: without it, `git rev-parse origin/main` prints the literal
     # string "origin/main" when the ref doesn't exist, then exits non-zero.
     # 2>/dev/null swallows the stderr so the literal-string stdout sneaks
     # through, making LOCAL/REMOTE non-empty even for refs that don't exist.
     # The "behind origin" check then false-fires on any repo without a remote.
-    LOCAL=$(git -C "$_CMD_CWD" rev-parse --verify "${PR_TARGET}" 2>/dev/null || true)
-    REMOTE=$(git -C "$_CMD_CWD" rev-parse --verify "origin/${PR_TARGET}" 2>/dev/null || true)
+    LOCAL=$(git -C "$_CMD_CWD" rev-parse --verify "${_RULE4_TARGET}" 2>/dev/null || true)
+    REMOTE=$(git -C "$_CMD_CWD" rev-parse --verify "origin/${_RULE4_TARGET}" 2>/dev/null || true)
     if [ -n "$LOCAL" ] && [ -n "$REMOTE" ] && [ "$LOCAL" != "$REMOTE" ]; then
-      jq -nc --arg r "BLOCKED: Local ${PR_TARGET} is behind origin/${PR_TARGET}. Run: git pull origin ${PR_TARGET} first." \
+      jq -nc --arg r "BLOCKED: Local ${_RULE4_TARGET} is behind origin/${_RULE4_TARGET}. Run: git pull origin ${_RULE4_TARGET} first." \
         '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
       exit 0
     fi

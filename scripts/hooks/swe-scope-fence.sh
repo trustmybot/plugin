@@ -1,30 +1,38 @@
 #!/usr/bin/env bash
-# Hook: SWE scope fence — deny edits outside the task's ## Files dirs.
+# Hook: SWE scope fence — deny edits outside the task's typed files[] dirs.
 #
 # Fires in SWE worktree contexts ($PWD inside .claude/worktrees/<slug>).
-# Resolves the active task by worktree slug → branch_id, parses the spec_body's
-# ## Files section into a dir allowlist, and DENY edits targeting paths outside
-# every allowed dir.
+# Resolves the active task by worktree slug → branch_id, reads the typed
+# `files` column (a JSON array, Typed Rails #673) into a dir allowlist, and
+# DENY edits targeting paths outside every allowed dir.
 #
 # Dir-granularity rules:
 #   - Each listed path contributes its containing directory.
 #   - A path at repo root (no slash) contributes just that file exactly.
 #   - A listed path that IS a directory contributes that directory itself.
-#   - tests/ paths: always allowed when ## Files lists any tests/ path's parent.
+#   - tests/ paths: always allowed when files[] lists any tests/ path's parent.
+#
+# Typed Rails (#673): the scope fence reads the typed `files` column directly.
+# A task with an empty files[] array (e.g. pre-migration tasks, or bro omitting
+# the field) skips enforcement.
+#
+# Toolchain PATH (#673 audit): this hook performs only path-string comparison
+# (jq/dirname/sqlite via libs) — it never execs user toolchains, so the
+# toolchain-PATH resolution in swe-verification-gate.sh is not needed here.
 #
 # Fail-open policy: passes through when:
 #   - not an SWE worktree context
-#   - task row or spec_body unresolvable
-#   - ## Files section absent or unparseable
+#   - task row unresolvable
+#   - typed files[] empty or unparseable
 #   - target is inside an allowed dir
 #
 # Fires on: PreToolUse — matcher: Edit|Write|MultiEdit|NotebookEdit
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/hooks/lib/query-task.sh
+# shellcheck source=scripts/hooks/lib/query-task.sh disable=SC1091
 . "$SCRIPT_DIR/lib/query-task.sh"
-# shellcheck source=scripts/hooks/lib/normalize-role.sh
+# shellcheck source=scripts/hooks/lib/normalize-role.sh disable=SC1091
 . "$SCRIPT_DIR/lib/normalize-role.sh"
 
 INPUT=$(cat)
@@ -57,57 +65,46 @@ tmb_have_sqlite || exit 0
 TASK_ID=$(tmb_resolve_task_id_for_target "$TARGET" "$INPUT" "$DB")
 [ -n "$TASK_ID" ] || exit 0
 
-SPEC_BODY=$(tmb_sqlite_ro "$DB" "
-  SELECT spec_body FROM tasks
+# Read the typed `files` column (JSON array of path-like strings, Typed Rails
+# #673). One path per line via jq; fail open if the column is absent, empty,
+# or not a JSON array.
+FILES_JSON=$(tmb_sqlite_ro "$DB" "
+  SELECT COALESCE(files, '[]') FROM tasks
    WHERE id = ${TASK_ID}
    LIMIT 1;
 " 2>/dev/null || true)
 
-# Fail open: no task row or no spec_body.
-[ -n "$SPEC_BODY" ] || exit 0
+# Fail open: no task row.
+[ -n "$FILES_JSON" ] || exit 0
 
-# Parse the ## Files section from spec_body.
-# Extract everything between "## Files" and the next "## " heading (or end of string).
-FILES_SECTION=$(echo "$SPEC_BODY" | awk '
-  /^## Files/ { in_section=1; next }
-  in_section && /^## / { in_section=0 }
-  in_section { print }
-' 2>/dev/null || true)
+# Parse the JSON array into path tokens (one per line). Empty array or invalid
+# JSON yields no lines → fail open below.
+FILE_PATHS=$(printf '%s' "$FILES_JSON" | jq -r '.[]?' 2>/dev/null || true)
 
-# Fail open: no ## Files section.
-[ -n "$FILES_SECTION" ] || exit 0
-
-# Parse paths from bullet lines: "- path/to/file — description" or "- path/to/file"
-# Extract the path token (first non-whitespace token after "- ").
+# Build the dir allowlist from the typed paths.
 ALLOWED_DIRS=()
 HAS_TESTS_DIR=""
 
-while IFS= read -r line; do
-  # Match bullet lines: lines starting with optional whitespace + "- "
-  case "$line" in
-    "- "*|"  - "*|"   - "*)
-      # Strip leading "- " or "  - " etc.
-      path_part=$(echo "$line" | sed -E 's/^[[:space:]]*-[[:space:]]+//')
-      # Take only the first token (path), strip any " — ..." or " - ..." description.
-      path_token=$(echo "$path_part" | sed -E 's/[[:space:]]+(—|-)[[:space:]].*//' | awk '{print $1}')
-      # Strip surrounding markdown backticks: `path/to/file` → path/to/file.
-      path_token=$(echo "$path_token" | sed -E 's/^`+//; s/`+$//')
-      # Skip empty or non-path tokens.
-      [ -n "$path_token" ] || continue
-      case "$path_token" in
-        */*) dir=$(dirname "$path_token") ;;
-        *)   dir="$path_token" ;;  # root-level file → exact path
-      esac
-      ALLOWED_DIRS+=("$dir")
-      case "$dir" in
-        tests/*|tests) HAS_TESTS_DIR="yes" ;;
-      esac
-      ;;
+while IFS= read -r path_token; do
+  # Strip a single trailing slash so a dir token like "tests/" maps to "tests"
+  # instead of collapsing to "." via dirname. Skips empty lines and a bare "/".
+  path_token="${path_token%/}"
+  [ -n "$path_token" ] || continue
+  case "$path_token" in
+    */*) dir=$(dirname "$path_token") ;;
+    *)   dir="$path_token" ;;  # root-level file → exact path
   esac
-done <<< "$FILES_SECTION"
+  ALLOWED_DIRS+=("$dir")
+  case "$dir" in
+    tests/*|tests) HAS_TESTS_DIR="yes" ;;
+  esac
+done <<< "$FILE_PATHS"
 
-# Fail open: no parseable paths.
-[ "${#ALLOWED_DIRS[@]}" -gt 0 ] || exit 0
+# Empty typed files[] → skip enforcement.
+if [ "${#ALLOWED_DIRS[@]}" -eq 0 ]; then
+  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"TMB: task has no typed files[] — scope fence skipped. Ask bro to set the task'"'"'s files[] field (Typed Rails #673) to enforce edit scope."}}'
+  exit 0
+fi
 
 # Normalize target to a repo-relative path for comparison (strip WORKTREE_ROOT).
 case "$TARGET" in
@@ -126,7 +123,7 @@ esac
 # Strip the worktree root to get a repo-relative path.
 case "$ABS_TARGET" in
   "${WORKTREE_ROOT}"/*)
-    REL_TARGET="${ABS_TARGET#${WORKTREE_ROOT}/}"
+    REL_TARGET="${ABS_TARGET#"${WORKTREE_ROOT}"/}"
     ;;
   *)
     # Target is outside the worktree entirely — swe-boundary.sh handles that deny.
@@ -143,7 +140,7 @@ for allowed in "${ALLOWED_DIRS[@]}"; do
   esac
 done
 
-# Special case: if ## Files lists any tests/ parent, allow any tests/ path.
+# Special case: if files[] lists any tests/ parent, allow any tests/ path.
 if [ "$HAS_TESTS_DIR" = "yes" ]; then
   case "$REL_TARGET" in
     tests/*|tests) exit 0 ;;
@@ -152,8 +149,8 @@ fi
 
 # Target is out of scope — deny with recovery instructions.
 DIRS_LIST=$(printf '%s\n' "${ALLOWED_DIRS[@]}" | sort -u | tr '\n' ' ')
-DENY_MSG="BLOCKED (scope fence): '${REL_TARGET}' is outside this task's ## Files dirs. Allowed: ${DIRS_LIST%. }. To edit files outside scope, ask bro to extend the spec ## Files (or file a follow-up task) — do not edit out of scope."
+DENY_MSG="BLOCKED (scope fence): '${REL_TARGET}' is outside this task's files[] dirs. Allowed: ${DIRS_LIST%. }. To edit files outside scope, ask bro to extend the task's typed files[] field (or file a follow-up task) — do not edit out of scope."
 
 jq -nc --arg r "$DENY_MSG" \
-  '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":$r}}'
+  '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
 exit 0

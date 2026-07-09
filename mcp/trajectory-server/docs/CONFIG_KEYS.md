@@ -2,26 +2,38 @@
 
 ## 1. Key Registry
 
+The four repo-scoped policy fields (`target_branch`/`pr_target`, `branching_model`, `protected_branches`, `remotes`) live **only on the `repos` table** — the sole source of truth (#980). They are NOT stored in `plugin_config`: there is no global key and no global fallback. `/onboard` applies policy workspace-wide by writing the chosen values onto every `repos` row; `scan_run` keeps `repos.remotes` in sync with each repo's actual git remotes (#979). All readers resolve the values per repo from the `repos` row. See §5.
+
+Only workspace-global keys live in `plugin_config`:
+
 | Key | Type | Allowed values | Default | Read by | Written by |
 |-----|------|----------------|---------|---------|------------|
-| `branching_model` | string | `github-flow` \| `gitflow` \| `custom` | `"github-flow"` (schema-seeded at DB init) | `git-guards.sh`, bro routing | `/onboard` |
-| `pr_target` | string | any valid branch name | `"main"` (schema-seeded at DB init) | `git-guards.sh` PR rule | `/onboard` |
-| `protected_branches` | string[] (JSON) | array of branch names | `["main"]` (schema-seeded at DB init) | `git-guards.sh` commit rule | `/onboard` |
-| `remotes` | object[] (JSON) | array of `{name, provider, url}` (`provider` ∈ `github` \| `gitlab` \| `bitbucket` \| `codeberg` \| `azuredev` \| `other`) | `[]` (schema-seeded at DB init) | `/onboard`, `tmb_review` push-gate section | bro onboarding (auto-detect or AUQ) |
 | `issue_sync` | string | `auto` \| `gh` \| `glab` \| `both` \| `off` | `"off"` (schema-seeded; safe default — no remote sync without opt-in) | `issue_create`, `issue_close`, `issue_sync_retry` | bro; overridden by `TMB_DISABLE_REMOTE_SYNC=1` env var |
-| `tmb_default_repo` | string | any relative path (no `..`, no leading `/`) — e.g. `"plugin"`, `"repos/backend"` | unset | `task_create_batch` (MCP), `require-feature-branch-active.sh`, `cleanup-worktree-on-task-close.sh` | bro via `config_set tmb_default_repo <inner>` |
 | `onboarded` | boolean (JSON) | `true` | unset until `/onboard` completes | `activation-routine.sh` (banner), `onboard.ts:onboard_state_get` | `onboard_apply` (writes `true` on first successful run); `db.ts:migrateV1toV2` (forward-migrates legacy `identity` marker) |
-| `pr_review_bots` | string[] (JSON) | array of bot login patterns | unset (falls back to `DEFAULT_BOT_PATTERNS` in `pr_comments.ts`) | `pr_comments_get` — merged with `DEFAULT_BOT_PATTERNS` for bot-comment filtering | bro via `config_set pr_review_bots '[\"bot-login\"]'` |
+| `pr_review_bots` | string[] (JSON) | array of bot login patterns | unset (falls back to `DEFAULT_BOT_PATTERNS` in `pr_monitor.ts`) | `pr_monitor_comments_get` — merged with `DEFAULT_BOT_PATTERNS` for bot-comment filtering | bro via `config_set pr_review_bots '[\"bot-login\"]'` |
+| `issue_classification_labels` | string[] (JSON) | array of classification label names | `["Bug","Feature","Improvement","Docs","Test","Chore"]` (schema-seeded generic default) | `issue_create` → `validateIssueLabels` (mandatory-tagging check) | project owner via `config_set issue_classification_labels '[...]'` |
+| `issue_priority_labels` | string[] (JSON) | array of priority label names | `["Priority: Urgent","Priority: High","Priority: Medium","Priority: Low"]` (schema-seeded generic default) | `issue_create` → `validateIssueLabels` (mandatory-tagging check) | project owner via `config_set issue_priority_labels '[...]'` |
+
+## 1a. Repo-scoped policy (on the `repos` table)
+
+| Column | Type | Allowed values | Read by | Written by |
+|--------|------|----------------|---------|------------|
+| `repos.branching_model` | string | `github-flow` \| `gitflow` \| `custom` | `git-guards.sh`, bro routing | `onboard_apply` (every repos row) |
+| `repos.target_branch` (`pr_target`) | string | any valid branch name | `git-guards.sh` PR rule, `git-push-guard.sh`, `branch-up-to-date-with-remote.sh`, `clean-merged-branch.sh`, `cleanup-worktree-on-task-close.sh`, `task_create_batch` (branch base) | `onboard_apply` (every repos row) |
+| `repos.protected_branches` | string[] (JSON) | array of branch names | `git-guards.sh` commit rule, `clean-merged-branch.sh` | `onboard_apply` (every repos row) |
+| `repos.remotes` | object[] (JSON) | array of `{name, provider, url}` (`provider` ∈ `github` \| `gitlab` \| `bitbucket` \| `codeberg` \| `azuredev` \| `other`) | issue-scoped sync, `substrate-preflight.sh`, `no-remote-auth-guard.sh`, `tmb_review` push-gate | `scan_run` (from git remotes, #979); `onboard_apply` (every repos row) |
+
+Shell hooks resolve the current repo via `scripts/hooks/lib/resolve-repo.sh` (`tmb_repo_git_root` + `tmb_repo_resolve` / `tmb_repo_remotes`) and read the matching `repos` row.
 
 ## 2. Default Derivation
 
-| `branching_model` value | `pr_target` default | `protected_branches` default |
+| `branching_model` value | `target_branch` default | `protected_branches` default |
 |-------------------------|---------------------|------------------------------|
 | `github-flow` | `main` | `["main"]` |
-| `gitflow` | `develop` | `["main", "develop"]` |
+| `gitflow` | `dev` | `["main", "dev"]` |
 | `custom` | (caller required) | (caller required) |
 
-`branching_model` sets sensible defaults for `pr_target` and `protected_branches` but does NOT override them once explicitly set.
+`branching_model` sets sensible defaults for `target_branch` and `protected_branches` but does NOT override them once explicitly set. `onboard_apply` derives and writes these onto the `repos` row(s).
 
 ## 3. Forward Compatibility
 
@@ -29,26 +41,21 @@ Additional keys can be added to `plugin_config` without schema migration; the ta
 
 ## 4. Reading-the-Config Policy
 
-The five schema-seeded keys (`branching_model`, `pr_target`, `protected_branches`, `remotes`, `issue_sync`) are present in every properly-initialised DB via `INSERT OR IGNORE`. Readers MUST treat a missing seeded key as "DB corruption or pre-seed install — trigger `/onboard`" — NOT as "silently default". Silent defaults hide configuration drift. Dynamic keys (`onboarded`, `pr_review_bots`, `tmb_default_repo`) may legitimately be absent until the triggering operation runs; readers of such keys must handle `NULL`/absent gracefully.
+The schema-seeded global keys (`issue_sync`, `issue_classification_labels`, `issue_priority_labels`) are present in every properly-initialised DB via `INSERT OR IGNORE`. The label-taxonomy keys fall back to a generic default in code (`validateIssueLabels`) when unset or malformed, so a pre-seed or label-less project can still create issues. Dynamic keys (`onboarded`, `pr_review_bots`) may legitimately be absent until the triggering operation runs; readers must handle `NULL`/absent gracefully. The repo-scoped policy fields live on the `repos` row (§1a) — readers resolve them per repo and treat an unset `branching_model`/`target_branch`/`protected_branches` as "this repo is not onboarded — trigger `/onboard`", never a silent global default.
 
-## 5. `tmb_default_repo` — Multi-repo workspace support
+## 5. Multi-repo workspace support (repos-centric, #155)
 
-**Purpose:** In a multi-repo workspace the trajectory DB lives at `<workspace>/.claude/<plugin>/trajectory.db` but the code git repo lives at `<workspace>/<inner>/`. Hooks and `task_create_batch` must know the relative path to the inner repo to run git commands correctly. Setting this key once covers all future tasks without needing to pass `repo=` on every `task_create_batch` call.
+**Purpose:** In a multi-repo workspace the trajectory DB lives at `<workspace>/.claude/<plugin>/trajectory.db` while each code git repo lives at `<workspace>/<inner>/`. Repo identity is carried by the `repos` table (one row per `/scan`-discovered repo), and every work-table row (issues, tasks, discussions, audit, agent_runs, validation_attempts) carries a `repo` column that is a real FK to `repos(name)`.
 
-**Example:**
+**Repo selection is per-row, not a single workspace-wide default:**
 
-```bash
-config_set tmb_default_repo plugin   # for a workspace where the code repo is at <ws>/plugin/
-```
+- `task_create_batch` accepts `repo=<name>` per task; when exactly one `repos` row exists it is the single-repo fallback. The value MUST match a `repos.name` row (the FK enforces it).
+- `issue_create` accepts `repo=<name>`, defaulting to the sole repo when exactly one is registered. Issue-scoped sync resolves the repo's on-disk path + `repos.remotes` to target the explicit `gh --repo` / `glab -R` — never `process.cwd()` (#146).
+- `issue_create` upserts the `milestones(name, repo)` row for an explicitly-passed milestone before inserting the issue, so the composite `issues.milestone` FK is satisfied; an existing row is reused (per-repo PK, no duplicate). When the milestone is omitted it defaults to the issue repo's sole OPEN milestone (zero or more than one open → null), and the default path never creates a milestone row. With a null repo the FK is not enforced and no row is created (#985/#154/#15).
+- Per-repo policy (`target_branch`, `branching_model`, `protected_branches`, `remotes`) lives on the `repos` row; readers resolve it from there.
+- `onboard_get_questions` and `onboard_apply` accept an optional `repo=<name>` param (`round='main'`, `shape='remote'`). When supplied, the branching + pr_target questions seed from that repos row's `branching_model`/`target_branch`, and `onboard_apply` writes `target_branch` + `branching_model` + derived `protected_branches` to **only that repos row** — other repos rows, `remotes`, `issue_sync`, and the global `onboarded` marker are untouched. Omitting `repo` preserves the workspace-wide apply (every repos row + the global `onboarded`/`issue_sync` markers). An unknown repo name is a validation error with no partial write.
 
-**Default:** unset (single-repo CC behavior — no repo field, no git routing by hooks).
-
-**When set:**
-- `task_create_batch` reads this value and uses it as `repo` for any task where `task.repo` is omitted or empty. Explicit `task.repo` wins — this is the fallback only.
-- `require-feature-branch-active.sh` reads this when `tasks.repo IS NULL` to resolve which git repo to check the active branch in.
-- `cleanup-worktree-on-task-close.sh` reads this when `tasks.repo IS NULL` to compute the inner repo root for `git worktree` commands.
-
-**Belt-and-suspenders:** setting this key means bro no longer needs to remember to pass `repo=` in `task_create_batch`; both the MCP layer and the hooks use the same single source of truth.
+**Default:** single-repo CC — exactly one `repos` row, adopted implicitly; no `repo=` needed.
 
 ## 6. Committed team config (optional, issue #32)
 

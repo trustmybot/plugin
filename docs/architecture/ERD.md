@@ -1,20 +1,23 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 11`). Persistent at `<cwd>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored. The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 27`). Persistent at `<cwd>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored. The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
-21 tables in three groups (post-MR !166 #2886 catalog enrichment + schema v8 embedding cache):
+Tables fall in three groups (capability catalog unified into `cheatcodes` in #101; embedding cache from schema v8):
 
 | Group | Tables | Keyed by |
 |---|---|---|
 | **Workflow** (per-issue) | `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes` | `issue_id` (directly or transitively) |
-| **Registries** (standalone) | `skills`, `rules`, `commands`, `agents`, `repos`, `plugin_config`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
+| **Registries** (standalone) | `cheatcodes`, `cheatcode_attachments`, `agents`, `repos`, `milestones`, `plugin_config`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
 
 The **world model** lives in a sibling kuzu graph database (`world-model.kuzu`), not in this SQLite file. See `docs/architecture/WORLD_MODEL.md`.
-| **Junctions** (catalog ↔ run) | `skill_invocations`, `rule_invocations` | FK to both `skills`/`rules` and `agent_runs` — bridges the catalog to per-run analytics |
+
+The `skills` table folded into `cheatcodes` (#101): builtin tmb_* skills are `origin='builtin'` rows in the unified `cheatcodes` registry, alongside the `origin='installed'` cheatcodes acquired via the install pipeline. Skill/plugin usage isn't recorded in the trajectory DB (#118) — verification lives in the stream-json session log.
 
 The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drift state rides in `audit(event_type='deep_scan_completed').content_json`; `scan_run` is the single scan-side surface.
+
+`issues.milestone` (#83) is a nullable `TEXT` column that, since schema v23 (#155), is a foreign key into a real `milestones(name, repo, state)` table. Milestones are GitHub-style and **per-repo**: the table's primary key is the composite `(name, repo)`, so the same milestone name can exist independently under each repo. The FK is the composite `issues.(milestone, repo) → milestones.(name, repo)` (`ON DELETE RESTRICT`), nullable so an issue need not carry a milestone. Milestone rows are seeded on demand by `issue_create` rather than pre-populated.
 
 ## Diagram
 
@@ -31,25 +34,47 @@ erDiagram
 
     roundtables ||--o{ roundtable_votes : "roundtable_id"
 
+    repos ||--o{ milestones : "name"
+    milestones ||--o{ issues : "(milestone, repo)"
+
     repos {
         TEXT  name PK
         TEXT  path
         INT   file_count
         TEXT  last_scanned_at
-        TEXT  target_branch "integration branch, e.g. main/dev"
+        TEXT  target_branch "integration branch, e.g. main/dev (sole source of truth, #980)"
         TEXT  branching_model "e.g. github-flow"
         TEXT  protected_branches "JSON array"
+        TEXT  remotes "JSON array of {name,provider,url}; set by scan_run"
+    }
+
+    milestones {
+        TEXT name PK "GitHub-style milestone label"
+        TEXT repo PK "FK → repos.name; PK is composite (name, repo)"
+        TEXT state "open|closed; default open"
     }
 
     %% World model — see WORLD_MODEL.md — lives in sibling kuzu graph DB, not here
 
-    skills {
+    cheatcodes {
         INT  id PK
         TEXT name UK
+        TEXT kind "skill|mcp|plugin"
+        TEXT origin "builtin|installed"
+        TEXT description
+        TEXT source_url "NULL for builtin"
+        TEXT file_path "set for skill kind"
+        TEXT version
         TEXT trust_tier
-        TEXT status
-        INT  uses
-        REAL effectiveness
+        TEXT scope "global|template|project-local"
+        TEXT status "installed|active|broken"
+    }
+
+    cheatcode_attachments {
+        INT  id PK
+        INT  cheatcode_id FK "→ cheatcodes.id CASCADE"
+        TEXT target
+        TEXT artifact
     }
 
     plugin_config {
@@ -70,6 +95,7 @@ erDiagram
         TEXT status
         INT  remote_iid
         TEXT remote_kind
+        TEXT milestone "nullable FK → milestones.name (composite with repo); #83/#155"
     }
 
     tasks {
@@ -200,6 +226,9 @@ erDiagram
 | `validation_attempts` | `task_id` | `tasks.id` | every validation attempt belongs to one task |
 | `agent_runs` | `task_id` | `tasks.id` | resource tracking per SWE spawn |
 | `agent_runs` | `issue_id` | `issues.id` | resource tracking scoped to issue |
+| `cheatcode_attachments` | `cheatcode_id` | `cheatcodes.id` | what an install wired, for exact uninstall (ON DELETE CASCADE) |
+| `milestones` | `repo` | `repos.name` | each milestone belongs to one repo (ON DELETE RESTRICT) |
+| `issues` | `(milestone, repo)` | `milestones.(name, repo)` | nullable composite FK — an issue's milestone is scoped to its repo (ON DELETE RESTRICT) |
 
 ## Soft references (no FK, by convention)
 
@@ -214,13 +243,15 @@ erDiagram
 
 | Table | Purpose |
 |---|---|
-| `skills` | Registry of curated + agent-created skills with effectiveness stats (`uses`, `successes`, `effectiveness`). Looked up by name. |
-| `repos` | One row per discovered git repo under the session dir. Written by `scan_run` (the `/scan` slash command's MCP backend). Workspace-pattern projects (multiple inner repos under a non-git workspace dir) are first-class — `tasks.repo` references `repos.name` by convention (no FK). Carries per-repo branching config (`target_branch`, `branching_model`, `protected_branches`) added in v11 — guards resolve policy from the repos row for the command's git toplevel; unregistered repos are no-op'd. |
+| `cheatcodes` | Unified capability registry (#101). One row per capability, split by `origin`: `'builtin'` = plugin-shipped tmb_* skills (was the `skills` table; `source_url` NULL, `file_path` set); `'installed'` = cheatcodes acquired via the discover → vet → install pipeline (`source_url` set). `kind` is `skill|mcp|plugin`; `scope` is the placement enum `global|template|project-local`. CHECKs enforce the shape (skill rows carry `file_path`, installed rows carry `source_url`, builtin rows do not). |
+| `cheatcode_attachments` | One row per artifact an install wired (plugin manifest, MCP registration, proposed skill-frontmatter PR). FK to `cheatcodes.id` ON DELETE CASCADE so `cheatcode_uninstall` reverses exactly what was installed. |
+| `repos` | One row per discovered git repo under the session dir. Written by `scan_run` (the `/scan` slash command's MCP backend). Workspace-pattern projects (multiple inner repos under a non-git workspace dir) are first-class — `tasks.repo` references `repos.name` by convention (no FK). Carries per-repo policy (`target_branch`, `branching_model`, `protected_branches`, `remotes`) — this row is the **sole source of truth** (#980): guards resolve policy path-keyed from the matched `repos` row for the command's git toplevel, and unregistered repos are no-op'd. `repos.remotes` is kept in sync with each repo's actual git remotes by `scan_run` (#979). There is no global `plugin_config` fallback. See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md). |
+| `milestones` | One row per GitHub-style milestone, scoped per repo (schema v23, #155). Primary key is the composite `(name, repo)` and `repo` FKs `repos.name` (ON DELETE RESTRICT), so the same milestone name lives independently under each repo. `state` is `open`/`closed`. `issues.milestone` is a nullable composite FK `(milestone, repo) → (name, repo)`; rows are seeded on demand by `issue_create`. |
 | _(world model)_ | Lives in the sibling kuzu graph DB at `<project>/.claude/tmb/world-model.kuzu/`, not in this SQLite file. Directory nodes + CONTAINS edges, populated by `scan_run` via `src/graph-db.ts`. See `docs/architecture/WORLD_MODEL.md`. |
-| `plugin_config` | KV for plugin settings (branching model, protected branches, PR target, issue_sync, remotes). See `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the canonical key list. |
-| `plugin_meta` | Schema + plugin version. Current `schema_version=11`. `plugin_version` is seeded as `'0.0.0'` and synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — so the row always reflects the running plugin version without a migration. |
+| `plugin_config` | KV for workspace-global plugin settings only: `issue_sync`, the issue label taxonomies, the `onboarded` marker, and `pr_review_bots`. The repo-scoped policy fields (`target_branch`, `branching_model`, `protected_branches`, `remotes`) are NOT here — they live on the `repos` row (#980, see `repos` above / [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md)). See `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the canonical key list. |
+| `plugin_meta` | Schema + plugin version. Current `schema_version=27`. `plugin_version` is seeded as `'0.0.0'` and synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — so the row always reflects the running plugin version without a migration. |
 | `agent_runs` | Per-spawn resource tracking (tokens, tool_uses, duration). Written by `swe-atomic-close.sh` SubagentStop hook. |
-| `pr_review_runs` | Per-PR monitor incremental-polling cursor (`last_fetched_at`, `last_comment_id`). Used by `/monitor` flow — `pr_comments_get` reads the cursor on entry and upserts it on exit so the next call only fetches new comments. UNIQUE index on `(pr_number, repo)`. |
+| `pr_review_runs` | Per-PR monitor incremental-polling cursor (`last_fetched_at`, `last_comment_id`). Used by `/monitor` flow — `pr_monitor_comments_get` reads the cursor on entry and upserts it on exit so the next call only fetches new comments. UNIQUE index on `(pr_number, repo)`. |
 | `debug_trajectory` | Deterministic-trajectory capture (only when `TMB_DEBUG_TRAJECTORY=1`). Used by L5 scoring. |
 | `eval_results` | Per-scorer results for L5/A-B prompt-eval runs. One row per (run_id, flow_name, scorer_name). |
 | `discussions_embeddings` | Embedding cache for `discussions` rows — one BLOB per discussion, keyed by `discussion_id` + `model_id`. Populated on write + background backfill; used by `discussion_search` semantic path. |
@@ -240,10 +271,10 @@ erDiagram
 
 ## How agents use this
 
-- **bro** (planner + task gate, CLAUDE.md persona on main Claude) — full write access for the workflow side: `onboard_state_get`/`onboard_apply` (which write `plugin_config('onboarded')`), `config_get`/`set`/`list`, `issue_create`/`get`/`resume`/`close`, `discussion_append` (kind='intent'/'note'/'question'/'answer'/'decision'), `task_create_batch`, `task_update_status` (closes tasks after verifying SWE's return), `audit_log`, `scan_run` (writes `repos` SQLite + Directory nodes / CONTAINS edges in kuzu, `deep_scan_completed` audit). Reads the world model via `world_model_get` / `world_model_search` (kuzu queries) as the cold-start navigation surface. Also reads `validation_history` to drive the retry loop (flow 8).
-- **swe** (executor, project-local subagent in worktree) — `task_get(id)` for spec → `audit_log` during work → `task_update_status('completed', commit_sha)` on success. Cannot write to `issues`, `validation_attempts`, or close tasks. Reads the world model when scoping unfamiliar parts of the codebase.
+- **bro** (planner + task gate, CLAUDE.md persona on main Claude) — full write access for the workflow side: `onboard_state_get`/`onboard_apply` (which write `plugin_config('onboarded')`), `config_get`/`set`/`list`, `issue_create`/`get`/`resume`/`close`, `discussion_append` (kind='intent'/'note'/'question'/'answer'/'decision'), `task_provision`, `task_update_status` (closes tasks after verifying SWE's return), `audit_append`, `scan_run` (writes `repos` SQLite + Directory nodes / CONTAINS edges in kuzu, `deep_scan_completed` audit). Reads the world model via `world_model_get` / `world_model_search` (kuzu queries) as the cold-start navigation surface. Also reads `validation_history` to drive the retry loop (flow 8).
+- **swe** (executor, project-local subagent in worktree) — `task_get(id)` for spec → `audit_append` during work → `task_update_status('completed', commit_sha)` on success. Cannot write to `issues`, `validation_attempts`, or close tasks. Reads the world model when scoping unfamiliar parts of the codebase.
 - **pr-reviewer** (push gate, project-local subagent) — `task_get(task_id)` for spec + commit → `validation_record(task_id, attempt_n, verdict, feedback, subagent_session_id)` to sign off. Only role permitted to write `validation_attempts`. Never writes to `tasks`; the close flip stays bro's call.
-- **consultants** (architect, cto, ceo, pm, project-local domain agents) — read-only on workflow tables (`issue_get_with_discussions`, `task_get`, `validation_history`); may write `discussion_append(kind='analysis'|'concern')` to record their position. Server-rejected on `task_create_batch`, `task_update_status`, `validation_record`, `issue_create` via `requireRoles`.
+- **consultants** (architect, cto, ceo, pm, project-local domain agents) — read-only on workflow tables (`issue_get_with_discussions`, `task_get`, `validation_history`); may write `discussion_append(kind='analysis')` to record their position. Server-rejected on `task_provision`, `task_update_status`, `validation_record`, `issue_create` via `requireRoles`.
 
 The decision chain (Human → bro → SWE, with pr-reviewer as push gate) is structurally enforced by `requireRoles` middleware inside each `tools/*.ts` family (see `middleware/agent-scope.ts` for `requireRoles`, `AgentRole` type, and the role-by-tool matrix).
 
@@ -260,40 +291,25 @@ The decision chain (Human → bro → SWE, with pr-reviewer as push gate) is str
 
 `schema.sql` is applied on open via `CREATE TABLE IF NOT EXISTS` and `INSERT OR IGNORE`. Forward migrations run automatically in `db.ts` via `runMigrations` — one `migrateVNtoVN+1` function per version step. A `.bak` snapshot is taken before migration. See `src/test/schema-upgrade.test.ts` for per-step round-trip tests.
 
-## Capability catalog — junction-based (#2886, landed)
+## Capability catalog + per-agent cost
 
-Before #2886 the `skills` table recorded only the **catalog** of available skills + aggregate counters (`uses`, `successes`, `failures`), with no per-invocation history — which agent on which task invoked which skill — and rules and slash commands had no table at all.
+The `cheatcodes` table is the unified capability catalog (#101): a **portable catalog** that's analytics-only in the Claude Code plugin (the file system stays authoritative for loading) but **load-bearing** in the enterprise LangGraph runtime (the catalog drives execution). Same schema, two read paths.
 
-#2886 closed this gap with three table additions + one schema enrichment, designed as a **portable catalog** that's analytics-only in the Claude Code plugin (file system stays authoritative for loading) but **load-bearing** in the enterprise LangGraph runtime (the catalog drives execution). Same schema, two read paths.
+### Catalog shape
 
-### Catalog tables
-
-| New / changed | Shape | Why |
+| Column | Shape | Why |
 |---|---|---|
-| `skills.scope` (column add) | `TEXT NOT NULL DEFAULT 'global' CHECK (scope IN ('global','template','project-local'))` | Match `agents.scope`. Distinguish schema-seeded `tmb_*` skills (global) from `.claude/skills/<name>/SKILL.md` (project-local). |
-| `rules` (new table) | name (UK), description, file_path, scope, severity (`advisory`/`warning`/`blocking`), tags, status, when_to_apply, invocations counter, violations counter, created_by, timestamps | First-class catalog for `.claude/rules/*.md`. Severity captures enforcement weight (some rules are advisory; some BLOCK). |
-| `commands` (new table) | name (UK), description, file_path, scope, args_schema (JSON), tags, status, invocations counter, created_by, timestamps | First-class catalog for slash commands (`/scan`, `/onboard`, `/monitor`, `/roundtable`). |
-
-### Junction tables — the load-bearing bridge
-
-| New | Shape | Why |
-|---|---|---|
-| `skill_invocations` | `(id, agent_run_id FK, task_id FK nullable, skill_name FK, invoked_at, outcome IN ('completed','failed','partial'))` indexed on `(skill_name)` + `(task_id)` | One row per skill load. Closes the "agent didn't use skill it should have" detection loop. Per-invocation outcome enables real effectiveness analytics (vs the current aggregate counters which lose temporal granularity). |
-| `rule_invocations` | `(id, agent_run_id FK, task_id FK nullable, rule_name FK, applied_at, outcome IN ('applied','violated','skipped'))` indexed on `(rule_name)` + `(task_id)` | Symmetric for rules. `outcome='violated'` is the per-instance record of rules getting tripped. |
-
-Indexes on both `(skill_name | rule_name)` and `(task_id)` make both query directions cheap: **forward** ("what did this run/task touch") and **reverse** ("which runs used skill X").
+| `cheatcodes.scope` | `TEXT NOT NULL DEFAULT 'project-local' CHECK (scope IN ('global','template','project-local'))` | Match `agents.scope`. Distinguish schema-seeded `tmb_*` skills (global) from `.claude/skills/<name>/SKILL.md` (project-local) and installed cheatcodes (project-local by default). |
 
 ### Bro as a first-class agent_run
 
-Before #2886 `agent_runs` only captured **subagent spawns** (SWE, pr-reviewer, consultants). Bro itself — the main process — had no row, so bro's skill/rule invocations had no `agent_run_id` to attribute to, AND there was no record of bro's token cost per session/task.
-
-#2886 adds bro to `agent_runs` at **per-task granularity**: one row per bro-driven task, parallel to SWE's row. Lets you compute total task cost = bro planning + SWE execution. Recorded by composites (`task_create_batch` opens the bro row, `bro_atomic_close` writes final tokens/duration) and a PostToolUse hook that accumulates bro's tokens from `transcript_path`.
+`agent_runs` captures **subagent spawns** (SWE, pr-reviewer, consultants) *and* bro itself — the main process — at **per-task granularity**: one row per bro-driven task, parallel to SWE's row. Lets you compute total task cost = bro planning + SWE execution. The bro row is recorded by composites (`task_provision` opens it, `bro_atomic_close` writes final tokens/duration) and a PostToolUse hook that accumulates bro's tokens from `transcript_path`.
 
 ### How this serves both runtimes
 
 | Runtime | What drives loading | What the DB is for |
 |---|---|---|
-| **Plugin (Claude Code)** | File system. CC reads `skills/<name>/SKILL.md`, `commands/<x>.md` directly. | Catalog + analytics overlay. Junction rows enable the "agent should have used skill Y but didn't" detector. |
+| **Plugin (Claude Code)** | File system. CC reads `skills/<name>/SKILL.md`, `commands/<x>.md` directly. | Catalog of available capabilities; per-task cost analytics via `agent_runs`. |
 | **Enterprise (LangGraph)** | The DB. LangGraph queries the catalog to discover + load capabilities at runtime. | Source of truth. The catalog IS the runtime. |
 
 Same schema, two read paths. Designed so the enterprise runtime can adopt this without schema churn.
@@ -301,29 +317,6 @@ Same schema, two read paths. Designed so the enterprise runtime can adopt this w
 ### Example queries this unlocks
 
 ```sql
--- "Which skills did SWE use on task #42, and at what cost?"
-SELECT si.skill_name, ar.tokens_total, ar.duration_ms
-FROM skill_invocations si
-JOIN agent_runs ar ON ar.id = si.agent_run_id
-WHERE si.task_id = 42 AND ar.agent_type LIKE 'tmb:swe%';
-
--- "Skills bro should have invoked but didn't" — left-join expected-per-task-type
-SELECT t.id, expected_skill
-FROM tasks t
-CROSS JOIN (SELECT 'tmb_planning' AS expected_skill UNION SELECT 'tmb_review') exp
-LEFT JOIN skill_invocations si
-  ON si.task_id = t.id AND si.skill_name = exp.expected_skill
-LEFT JOIN agent_runs ar ON ar.id = si.agent_run_id AND ar.agent_type = 'bro'
-WHERE si.id IS NULL;
-
--- "Rule effectiveness: applied vs violated"
-SELECT rule_name,
-       SUM(CASE WHEN outcome='applied' THEN 1 ELSE 0 END) AS applied,
-       SUM(CASE WHEN outcome='violated' THEN 1 ELSE 0 END) AS violated
-FROM rule_invocations
-GROUP BY rule_name
-ORDER BY violated DESC;
-
 -- "Total task cost = bro planning + SWE execution"
 SELECT t.id, t.branch_id,
        SUM(CASE WHEN ar.agent_type = 'bro' THEN ar.tokens_total ELSE 0 END) AS bro_tokens,
@@ -335,4 +328,4 @@ GROUP BY t.id, t.branch_id;
 
 ### Implementation status
 
-Landed in #2886. The schema additions (`rules`, `commands`, `skill_invocations`, `rule_invocations` tables + the `skills.scope` enrichment, with bundled `skills` / `commands` / `agents` rows seeded) are in `schema.sql` and created on DB open via `CREATE TABLE IF NOT EXISTS`. Shipped alongside: the bro `agent_run` composite (rows opened at `task_create_batch`, finalized at `bro_atomic_close`), the skill-invocation capture path, and the MCP tool surfaces (`skill_record_invocation`, `rule_register` / `rule_record_invocation`, `command_register`, plus the `skill_invocations_list` / `rule_invocations_list` readers).
+The catalog is unified into `cheatcodes` (#101). The bundled tmb_* skill seed (`origin='builtin'` rows in `cheatcodes`) is in `schema.sql` and created on DB open via `CREATE TABLE IF NOT EXISTS`. Skill/plugin usage verification lives in the stream-json session log (#118), not a DB junction table. The bro `agent_run` composite (rows opened at `task_provision`, finalized at `bro_atomic_close`) tracks per-task token cost.

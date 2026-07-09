@@ -1,7 +1,7 @@
 // Flow 2 — Simple Task (FLOWS.md §2)
 //
 // Trajectory: bro triages simple → issue_create → discussion (intent + triage) →
-// task_create_batch + audit_log(planning_complete) → SWE returns
+// task_create_batch + audit_append(planning_complete) → SWE returns
 // (task_update_status='completed') → bro verifies (no validation row at task close;
 // pr-reviewer fires only at push gate) → bro flips task to 'closed' → issue_close.
 //
@@ -21,6 +21,7 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
     agent: 'bro',
     objective: 'Add /hello endpoint',
     description: 'Single-file route, no architecture impact.',
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(issue.ok, true, `issue_create: ${JSON.stringify(issue)}`);
   const issueId = issue.data.id;
@@ -54,7 +55,7 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
       branch_id: 'feat/hello',
       title: 'Add /hello endpoint',
       description: 'Wire /hello → 200 OK {msg:"hello"}.',
-      spec_body: '## Files\n- app/routes.py\n## Verification\n```\ncurl localhost/hello\n```\n## Success Criteria\n- 200 OK',
+      spec_body: '## Success Criteria\n- 200 OK',
     }],
   });
   assert.equal(batch.ok, true, `task_create_batch: ${JSON.stringify(batch)}`);
@@ -62,17 +63,17 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
   const taskId = Array.isArray(batch.data) ? batch.data[0]?.id : batch.data.tasks?.[0]?.id;
   assert.ok(taskId, `no task id returned: ${JSON.stringify(batch.data)}`);
 
-  const planning = await call(client, 'audit_log', {
+  const planning = await call(client, 'audit_append', {
     agent: 'bro', issue_id: issueId, branch_id: 'feat/hello',
     from_node: 'bro',
     event_type: 'planning_complete', summary: 'Triage simple. Spec authored for task_id=' + taskId,
   });
-  assert.equal(planning.ok, true, `audit_log: ${JSON.stringify(planning)}`);
+  assert.equal(planning.ok, true, `audit_append: ${JSON.stringify(planning)}`);
 
   // 4. SWE picks up the task: read spec → mark running
   const taskRead = await call(client, 'task_get', { agent: 'swe', task_id: taskId, include_spec_body: true });
   assert.equal(taskRead.ok, true);
-  assert.match(taskRead.data.spec_body, /Files/);
+  assert.match(taskRead.data.spec_body, /Success Criteria/);
 
   const running = await call(client, 'task_update_status', {
     agent: 'swe', task_id: taskId, status: 'running',
@@ -96,12 +97,16 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
   assert.equal(preCloseValidations.data.length, 0,
     'simple-task close must NOT spawn pr-reviewer (push gate is amortized)');
 
-  const closed = await call(client, 'task_update_status', {
-    agent: 'bro', task_id: taskId, status: 'closed',
+  const closed = await call(client, 'bro_atomic_close', {
+    agent: 'bro', task_id: taskId,
+    commit_sha: 'aaaaaaa1111111111111111111111111111aaaaa',
+    verification_summary: 'V1 files match. V2 verification commands passed. V3 success criteria met.',
+    close_issue_if_last_task: true,
+    waive_scope_gate: true,
   });
   assert.equal(closed.ok, true);
 
-  // 7. bro closes the issue
+  // 7. bro closes the issue (idempotent — the composite already closed it as the last task)
   const issueClosed = await call(client, 'issue_close', {
     agent: 'bro', issue_id: issueId,
   });
@@ -116,7 +121,7 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
   assert.equal(finalTask.data.commit_sha, 'aaaaaaa1111111111111111111111111111aaaaa');
 
   // audit event recorded
-  const audit = await call(client, 'audit_log_list', { agent: 'bro', issue_id: issueId });
+  const audit = await call(client, 'audit_list', { agent: 'bro', issue_id: issueId });
   assert.equal(audit.ok, true);
   assert.ok(audit.data.some(e => e.event_type === 'planning_complete'),
     'planning_complete event must land in audit');

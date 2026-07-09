@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# L6 chain runner helpers. The chain walks all 13 journey rows sequentially
+# L6 chain runner helpers. The chain walks all 15 journey rows sequentially
 # against ONE cumulative trajectory DB. Each row fires a fresh `claude -p`
 # invocation — continuity is DB-driven, not LLM-session-driven. Bro's
 # tmb_recovery + state-aware MCPs (issue_state_get, task_first_actionable)
@@ -82,7 +82,6 @@ l6c_run_step() {
 
     (
       cd "$project" || exit 1
-      export TMB_HEADLESS=1
       export TMB_DEBUG_TRAJECTORY=1
       export CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN}"
 
@@ -157,6 +156,8 @@ l6c_score_step() {
   l5_score_files                "$row_dir" "$project"                   || fails=$((fails + 1))
   l5_score_coherence            "$project" "$step" "$row_dir" "$run_id" || fails=$((fails + 1))
   l5_score_git                  "$project" "$step" "$row_dir" "$run_id" || fails=$((fails + 1))
+  l5_score_usage                "$project" "$step" "$row_dir" "$run_id" || fails=$((fails + 1))
+  l5_score_materialized         "$project" "$step" "$row_dir" "$run_id" || fails=$((fails + 1))
 
   return "$fails"
 }

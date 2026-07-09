@@ -1,0 +1,4 @@
+[
+  {"tool": "mcp__plugin_tmb_trajectory-server__scan_run", "skip_if_pre_state_sql": "SELECT 1 FROM audit WHERE event_type='deep_scan_completed' LIMIT 1"},
+  "mcp__plugin_tmb_trajectory-server__task_provision"
+]

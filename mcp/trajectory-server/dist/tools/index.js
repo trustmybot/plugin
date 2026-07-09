@@ -4,19 +4,18 @@ import { taskTools } from './tasks.js';
 import { auditTools } from './audit.js';
 import { validationTools } from './validation.js';
 import { skillTools } from './skills.js';
-import { ruleTools } from './rules.js';
-import { commandTools } from './commands.js';
 import { agentTools } from './agents.js';
 import { reportTools } from './reports.js';
 import { configTools } from './config.js';
 import { branchReportMdTools } from './branch_report_md.js';
 import { statsTools } from './stats.js';
 import { roundtableTools } from './roundtable.js';
-import { prCommentsTools } from './pr_comments.js';
+import { prMonitorTools } from './pr_monitor.js';
 import { compositeTools } from './composites.js';
 import { onboardTools } from './onboard.js';
 import { scanTools } from './scan.js';
-import { worldModelTools } from './world-model.js';
+import { cheatcodeTools } from './cheatcode.js';
+import { worldModelTools } from './world_model.js';
 export let toolDefinitions = [];
 export let toolHandlers = {};
 function decorateWithAgent(tools) {
@@ -48,18 +47,17 @@ export function registerTools(server, db, dbPath = '', graph = null, graphOpenEr
     const audit = auditTools(db);
     const validation = validationTools(db);
     const skills = skillTools(db);
-    const rules = ruleTools(db);
-    const commands = commandTools(db);
     const agents = agentTools(db, dbPath);
     const reports = reportTools(db);
     const config = configTools(db);
     const branchReport = branchReportMdTools(db);
     const stats = statsTools(db);
     const roundtable = roundtableTools(db);
-    const prComments = prCommentsTools(db);
+    const prMonitor = prMonitorTools(db);
     const composites = compositeTools(db, dbPath, graph);
     const onboard = onboardTools(db, dbPath);
     const scan = scanTools(db, graph, dbPath, graphOpenError);
+    const cheatcode = cheatcodeTools(db);
     const worldModel = worldModelTools(db, graph);
     toolDefinitions = decorateWithAgent([
         ...discussions.definitions,
@@ -68,18 +66,17 @@ export function registerTools(server, db, dbPath = '', graph = null, graphOpenEr
         ...audit.definitions,
         ...validation.definitions,
         ...skills.definitions,
-        ...rules.definitions,
-        ...commands.definitions,
         ...agents.definitions,
         ...reports.definitions,
         ...config.definitions,
         ...branchReport.definitions,
         ...stats.definitions,
         ...roundtable.definitions,
-        ...prComments.definitions,
+        ...prMonitor.definitions,
         ...composites.definitions,
         ...onboard.definitions,
         ...scan.definitions,
+        ...cheatcode.definitions,
         ...worldModel.definitions,
     ]);
     toolHandlers = {
@@ -89,18 +86,17 @@ export function registerTools(server, db, dbPath = '', graph = null, graphOpenEr
         ...audit.handlers,
         ...validation.handlers,
         ...skills.handlers,
-        ...rules.handlers,
-        ...commands.handlers,
         ...agents.handlers,
         ...reports.handlers,
         ...config.handlers,
         ...branchReport.handlers,
         ...stats.handlers,
         ...roundtable.handlers,
-        ...prComments.handlers,
+        ...prMonitor.handlers,
         ...composites.handlers,
         ...onboard.handlers,
         ...scan.handlers,
+        ...cheatcode.handlers,
         ...worldModel.handlers,
     };
 }

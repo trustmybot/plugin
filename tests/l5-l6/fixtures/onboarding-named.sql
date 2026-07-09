@@ -6,7 +6,7 @@
 --   - plugin_config defaults (branching_model='github-flow', pr_target='main',
 --     protected_branches=["main"], remotes=[], issue_sync='off')
 --   - agents registry (swe, pr-reviewer, architect, cto, ceo, pm)
---   - system issue (id=-1) — parent FK for headless-recovery audit writes
+--   - system issue (id=-1) — parent FK for issue-less recovery audit writes
 --
 -- Filename retained for backward compat; the legacy "named vs anonymous"
 -- distinction no longer applies — the marker is plugin_config('onboarded': true).

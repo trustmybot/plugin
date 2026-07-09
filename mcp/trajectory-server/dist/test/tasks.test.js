@@ -1,20 +1,26 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempDB } from './helpers.js';
 import { taskTools } from '../tools/tasks.js';
 import { issueTools } from '../tools/issues.js';
 import { auditTools } from '../tools/audit.js';
-function makeGitSubdir(name) {
-    const dir = join(process.cwd(), name);
-    mkdirSync(dir, { recursive: true });
-    spawnSync('git', ['init'], { cwd: dir, stdio: 'pipe' });
-    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, stdio: 'pipe' });
-    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir, stdio: 'pipe' });
-    spawnSync('git', ['commit', '--allow-empty', '-m', 'init'], { cwd: dir, stdio: 'pipe' });
-    return { name, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+// Each git fixture is its OWN sandbox under the OS temp dir — never inside the
+// plugin tree / ambient cwd — so no git op can ever drift onto the caller's
+// branch. `dir` is the absolute sandbox; every git op below targets it via
+// `-C dir` or `cwd: dir`. `name` is the directory basename, kept for tests that
+// register a repo by name.
+function makeGitSubdir(label) {
+    const dir = mkdtempSync(join(tmpdir(), `tmb-${label}-`));
+    const name = dir.slice(dir.lastIndexOf('/') + 1);
+    spawnSync('git', ['-C', dir, 'init'], { stdio: 'pipe' });
+    spawnSync('git', ['-C', dir, 'config', 'user.email', 'test@example.com'], { stdio: 'pipe' });
+    spawnSync('git', ['-C', dir, 'config', 'user.name', 'Test'], { stdio: 'pipe' });
+    spawnSync('git', ['-C', dir, 'commit', '--allow-empty', '-m', 'init'], { stdio: 'pipe' });
+    return { name, dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 async function call(handlers, name, args) {
     return (await handlers[name](args));
@@ -26,11 +32,12 @@ function parseBatch(result) {
     const raw = JSON.parse(result.content[0].text);
     return (raw.tasks ?? raw);
 }
-async function createIssue(db) {
+async function createIssue(db, objective = 'Test issue') {
     const tools = issueTools(db);
     const result = await call(tools.handlers, 'issue_create', {
+        labels: ['Bug', 'Priority: High'],
         agent: 'bro',
-        objective: 'Test issue',
+        objective,
     });
     const data = parseResult(result);
     return data.id;
@@ -146,8 +153,9 @@ describe('taskTools', () => {
         await step('needs_validation'); // running → needs_validation
         const completed = await step('completed'); // needs_validation → completed
         assert.ok(completed.completed_at, 'completed sets completed_at');
-        const closed = await step('closed'); // completed → closed
-        assert.ok(closed.completed_at, 'closed preserves the completion stamp');
+        // 'closed' is reached only via bro_atomic_close (#1025); set it directly to
+        // exercise the one remaining task_update_status edge out of closed.
+        db.run("UPDATE tasks SET status = 'closed' WHERE id = ?", [Number(taskId)]);
         await step('escalated'); // closed → escalated (push-gate pushback)
         db.close();
     });
@@ -454,6 +462,110 @@ describe('taskTools', () => {
         assert.equal(task.spec_body, specBody);
         db.close();
     });
+    it('task_create_batch persists typed files[]/verification[] as JSON arrays', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const batchResult = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [
+                {
+                    branch_id: 'feat/typed-fields',
+                    description: 'Typed Rails fields',
+                    files: ['src/foo.ts', 'tests/foo.test.ts'],
+                    verification: ['npm test', 'npm run lint'],
+                },
+            ],
+        });
+        const inserted = parseBatch(batchResult);
+        assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+        const row = db.get('SELECT files, verification FROM tasks WHERE id = ?', [inserted[0].id]);
+        assert.deepEqual(JSON.parse(row.files), ['src/foo.ts', 'tests/foo.test.ts']);
+        assert.deepEqual(JSON.parse(row.verification), ['npm test', 'npm run lint']);
+        db.close();
+    });
+    it('task_create_batch defaults omitted files[]/verification[] to empty arrays', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const batchResult = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{ branch_id: 'feat/no-typed-fields', description: 'No typed fields' }],
+        });
+        const inserted = parseBatch(batchResult);
+        assert.ok(!batchResult.isError, `Expected no error: ${JSON.stringify(inserted)}`);
+        const row = db.get('SELECT files, verification FROM tasks WHERE id = ?', [inserted[0].id]);
+        assert.equal(row.files, '[]', 'omitted files[] defaults to empty array');
+        assert.equal(row.verification, '[]', 'omitted verification[] defaults to empty array');
+        db.close();
+    });
+    it('task_create_batch rejects non-array files with a named typed_field_violation', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [
+                { branch_id: 'feat/bad-files', description: 'Bad files', files: 'src/foo.ts' },
+            ],
+        });
+        const data = parseResult(result);
+        assert.ok(result.isError, 'Expected isError=true');
+        assert.match(data.error, /typed_field_violation/);
+        assert.match(data.error, /'files' must be an array/);
+        const count = db.get(`SELECT COUNT(*) AS c FROM tasks WHERE branch_id = 'feat/bad-files'`);
+        assert.equal(count?.c, 0, 'no task row may be written on a rejected shape');
+        db.close();
+    });
+    it('task_create_batch rejects an empty files[] array (provide commands or omit the field)', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{ branch_id: 'feat/empty-files', description: 'Empty files', files: [] }],
+        });
+        const data = parseResult(result);
+        assert.ok(result.isError, 'Expected isError=true');
+        assert.match(data.error, /typed_field_violation/);
+        assert.match(data.error, /non-empty array/);
+        db.close();
+    });
+    it('task_create_batch rejects a verification[] entry that is not a non-empty string', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [
+                {
+                    branch_id: 'feat/bad-verify',
+                    description: 'Bad verify entry',
+                    verification: ['npm test', '   '],
+                },
+            ],
+        });
+        const data = parseResult(result);
+        assert.ok(result.isError, 'Expected isError=true');
+        assert.match(data.error, /typed_field_violation/);
+        assert.match(data.error, /every 'verification' entry must be a non-empty string/);
+        db.close();
+    });
     it('task_create_batch without spec_body defaults to empty string', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
@@ -575,7 +687,7 @@ describe('taskTools', () => {
         assert.equal(parseResult(failedResult).status, 'failed');
         db.close();
     });
-    it('task_update_status lets bro close verified work and reopen for re-validation (#278)', async () => {
+    it('task_update_status blocks completed → closed (only bro_atomic_close closes) and allows reopen for re-validation (#278 #1025)', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = taskTools(db);
@@ -590,15 +702,16 @@ describe('taskTools', () => {
             ],
         });
         const tasks = parseBatch(batchResult);
-        // SWE completes task 0, then bro closes it (completed → closed).
+        // SWE completes task 0; bro may NOT close it via task_update_status —
+        // completed → closed is reserved for bro_atomic_close (#1025).
         await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: String(tasks[0].id), status: 'completed', commit_sha: 'abc1234' });
         const closedResult = await call(tools.handlers, 'task_update_status', {
             agent: 'bro',
             task_id: String(tasks[0].id),
             status: 'closed',
         });
-        assert.ok(!closedResult.isError, `Expected no error for completed → closed: ${JSON.stringify(parseResult(closedResult))}`);
-        assert.equal(parseResult(closedResult).status, 'closed');
+        assert.ok(closedResult.isError, 'completed → closed via task_update_status must be rejected');
+        assert.equal(parseResult(closedResult).status, undefined, 'no status flip on a rejected close');
         // Task 1: completed → needs_validation (bro reopens for re-validation).
         await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: String(tasks[1].id), status: 'completed', commit_sha: 'def5678' });
         const nvResult = await call(tools.handlers, 'task_update_status', {
@@ -633,6 +746,7 @@ describe('taskTools', () => {
     });
     it('task_create_batch stores repo and task_get returns it verbatim', async () => {
         const db = tempDB();
+        db.run("INSERT INTO repos (name, path) VALUES ('inner', '/tmp/inner')");
         const issueId = await createIssue(db);
         const tools = taskTools(db);
         const batchResult = await call(tools.handlers, 'task_create_batch', {
@@ -662,6 +776,7 @@ describe('taskTools', () => {
     });
     it('task_create_batch stores nested repo path', async () => {
         const db = tempDB();
+        db.run("INSERT INTO repos (name, path) VALUES ('repos/backend', '/tmp/backend')");
         const issueId = await createIssue(db);
         const tools = taskTools(db);
         const batchResult = await call(tools.handlers, 'task_create_batch', {
@@ -771,11 +886,11 @@ describe('taskTools', () => {
         db.close();
     });
     it('task_create_batch accepts task when branch exists in explicit repo (#102)', async () => {
-        const { name, cleanup } = makeGitSubdir('test-git-fixture-branch-exists');
+        const { name, dir: repoDir, cleanup } = makeGitSubdir('test-git-fixture-branch-exists');
         try {
-            const repoDir = join(process.cwd(), name);
-            spawnSync('git', ['branch', 'feat/my-feature'], { cwd: repoDir, stdio: 'pipe' });
+            spawnSync('git', ['-C', repoDir, 'branch', 'feat/my-feature'], { stdio: 'pipe' });
             const db = tempDB();
+            db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, [name, repoDir]);
             const issueId = await createIssue(db);
             const tools = taskTools(db);
             const result = await call(tools.handlers, 'task_create_batch', {
@@ -802,9 +917,8 @@ describe('taskTools', () => {
         }
     });
     it('task_create_batch auto-creates branch when missing from explicit repo (#529)', async () => {
-        const { name, cleanup } = makeGitSubdir('test-git-fixture-branch-missing');
+        const { dir: repoDir, cleanup } = makeGitSubdir('test-git-fixture-branch-missing');
         try {
-            const repoDir = join(process.cwd(), name);
             const db = tempDB();
             db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['fixture-missing', repoDir]);
             const issueId = await createIssue(db);
@@ -837,18 +951,16 @@ describe('taskTools', () => {
         }
     });
     it('task_create_batch uses subdir repo for branch ensure, auto-creates in repoB (#529)', async () => {
-        const { name: repoA, cleanup: cleanupA } = makeGitSubdir('test-git-fixture-repo-a');
-        const { name: repoB, cleanup: cleanupB } = makeGitSubdir('test-git-fixture-repo-b');
+        const { dir: repoADir, cleanup: cleanupA } = makeGitSubdir('test-git-fixture-repo-a');
+        const { dir: repoBDir, cleanup: cleanupB } = makeGitSubdir('test-git-fixture-repo-b');
         try {
-            const repoADir = join(process.cwd(), repoA);
-            const repoBDir = join(process.cwd(), repoB);
-            spawnSync('git', ['branch', 'feat/exists-in-a-only'], { cwd: repoADir, stdio: 'pipe' });
+            spawnSync('git', ['-C', repoADir, 'branch', 'feat/exists-in-a-only'], { stdio: 'pipe' });
             const db = tempDB();
             db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['repo-a', repoADir]);
             db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['repo-b', repoBDir]);
             const tools = taskTools(db);
-            const issueIdA = await createIssue(db);
-            const issueIdB = await createIssue(db);
+            const issueIdA = await createIssue(db, 'Subdir repo A branch ensure');
+            const issueIdB = await createIssue(db, 'Subdir repo B auto-create branch');
             const acceptedResult = await call(tools.handlers, 'task_create_batch', {
                 waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
                 waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
@@ -900,7 +1012,7 @@ describe('taskTools', () => {
         const issueId = await createIssue(db);
         const tools = taskTools(db);
         const audit = auditTools(db);
-        await call(audit.handlers, 'audit_log', {
+        await call(audit.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
@@ -919,12 +1031,12 @@ describe('taskTools', () => {
         assert.equal(data.error, 'branch_state_violation');
         db.close();
     });
-    it('task_create_batch defaults repo to tmb_default_repo config when task.repo omitted', async () => {
-        const { name: repoName, cleanup } = makeGitSubdir('test-default-repo-gate');
+    it('task_create_batch defaults repo to the sole registered repo when task.repo omitted (single-repo fallback)', async () => {
+        const { name: repoName, dir: repoDir, cleanup } = makeGitSubdir('test-sole-repo-gate');
         try {
-            spawnSync('git', ['-C', repoName, 'branch', 'feat/default-repo-test'], { stdio: 'pipe' });
+            spawnSync('git', ['-C', repoDir, 'branch', 'feat/sole-repo-test'], { stdio: 'pipe' });
             const db = tempDB();
-            db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', ?)`, [JSON.stringify(repoName)]);
+            db.run(`INSERT INTO repos (name, path) VALUES (?, ?)`, [repoName, repoDir]);
             const issueId = await createIssue(db);
             const tools = taskTools(db);
             const result = await call(tools.handlers, 'task_create_batch', {
@@ -933,24 +1045,45 @@ describe('taskTools', () => {
                 agent: 'bro',
                 issue_id: String(issueId),
                 tasks: [
-                    { branch_id: 'feat/default-repo-test', description: 'No repo arg' },
+                    { branch_id: 'feat/sole-repo-test', description: 'No repo arg' },
                 ],
             });
             const inserted = parseBatch(result);
             assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
-            assert.equal(inserted[0].repo, repoName, 'repo should default to tmb_default_repo config value');
+            assert.equal(inserted[0].repo, repoName, 'repo should default to the sole registered repo');
             db.close();
         }
         finally {
             cleanup();
         }
     });
-    it('task_create_batch auto-creates branch via default-repo when missing from tmb_default_repo (#529)', async () => {
-        const { name: repoName, cleanup } = makeGitSubdir('test-default-repo-autocreate');
+    it('task_create_batch returns a named error when task.repo is omitted and multiple repos are registered (#15)', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('a', '/ws/a')`);
+        db.run(`INSERT INTO repos (name, path) VALUES ('b', '/ws/b')`);
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [
+                { branch_id: 'feat/multi-repo-no-default', description: 'No repo, multi-repo' },
+            ],
+        });
+        assert.ok(result.isError, 'multi-repo with no task.repo must be a named error');
+        assert.match(parseResult(result).error, /omits repo but 2 repos are registered/);
+        // No task row was created — the error fires before any INSERT.
+        const count = db.get('SELECT COUNT(*) AS n FROM tasks WHERE issue_id = ?', [issueId]);
+        assert.equal(count?.n, 0, 'no task row persisted on the named error');
+        db.close();
+    });
+    it('task_create_batch auto-creates branch via the sole registered repo when the branch is missing (#529)', async () => {
+        const { dir: repoDir, cleanup } = makeGitSubdir('test-sole-repo-autocreate');
         try {
-            const repoDir = join(process.cwd(), repoName);
             const db = tempDB();
-            db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', ?)`, [JSON.stringify(repoDir)]);
+            db.run(`INSERT INTO repos (name, path) VALUES (?, ?)`, [repoDir, repoDir]);
             const issueId = await createIssue(db);
             const tools = taskTools(db);
             const result = await call(tools.handlers, 'task_create_batch', {
@@ -960,11 +1093,11 @@ describe('taskTools', () => {
                 waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
                 agent: 'bro',
                 issue_id: String(issueId),
-                tasks: [{ branch_id: 'feat/autocreated-via-default', description: 'Branch missing from default repo' }],
+                tasks: [{ branch_id: 'feat/autocreated-via-default', description: 'Branch missing from the sole (registered) repo' }],
             });
             assert.ok(!result.isError, `Expected auto-create success: ${JSON.stringify(parseResult(result))}`);
             const branchCheck = spawnSync('git', ['-C', repoDir, 'rev-parse', '--verify', 'feat/autocreated-via-default'], { encoding: 'utf8' });
-            assert.equal(branchCheck.status, 0, 'Branch must have been auto-created in default repo');
+            assert.equal(branchCheck.status, 0, 'Branch must have been auto-created in the sole (registered) repo');
             const auditRow = db.get(`SELECT event_type FROM audit WHERE event_type = 'tmb_branch_autocreated' LIMIT 1`);
             assert.ok(auditRow !== undefined, 'tmb_branch_autocreated audit row must exist');
             db.close();
@@ -973,7 +1106,7 @@ describe('taskTools', () => {
             cleanup();
         }
     });
-    it('task_create_batch defaults repo to null when task.repo omitted and tmb_default_repo not set', async () => {
+    it('task_create_batch defaults repo to null when task.repo omitted and no repos are registered', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = taskTools(db);
@@ -983,12 +1116,12 @@ describe('taskTools', () => {
             agent: 'bro',
             issue_id: String(issueId),
             tasks: [
-                { branch_id: 'feat/null-repo-back-compat', description: 'No repo, no config' },
+                { branch_id: 'feat/null-repo-back-compat', description: 'No repo, no registered repos' },
             ],
         });
         const inserted = parseBatch(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
-        assert.equal(inserted[0].repo, null, 'repo should be null when no config and no task.repo');
+        assert.equal(inserted[0].repo, null, 'repo should be null when no repos registered and no task.repo');
         db.close();
     });
     it('task_create_batch passes with branch_id_proposed audit event (#155)', async () => {
@@ -996,7 +1129,7 @@ describe('taskTools', () => {
         const issueId = await createIssue(db);
         const tools = taskTools(db);
         const audit = auditTools(db);
-        await call(audit.handlers, 'audit_log', {
+        await call(audit.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
@@ -1071,7 +1204,7 @@ describe('taskTools', () => {
         });
         const inserted = parseBatch(result);
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
-        const auditResult = await call(aTools.handlers, 'audit_log_list', {
+        const auditResult = await call(aTools.handlers, 'audit_list', {
             agent: 'bro',
             issue_id: String(issueId),
         });
@@ -1151,7 +1284,9 @@ describe('taskTools', () => {
         });
         const taskId = String(parseBatch(batchResult)[0].id);
         await call(tools.handlers, 'task_update_status', { agent: 'swe', task_id: taskId, status: 'completed' });
-        await call(tools.handlers, 'task_update_status', { agent: 'bro', task_id: taskId, status: 'closed' });
+        // 'closed' is reached only via bro_atomic_close (#1025); set it directly to
+        // put the task into the terminal state this test guards against.
+        db.run("UPDATE tasks SET status = 'closed' WHERE id = ?", [Number(taskId)]);
         for (const status of ['completed', 'running', 'failed']) {
             const result = await call(tools.handlers, 'task_update_status', {
                 agent: 'swe',
@@ -1186,7 +1321,7 @@ describe('taskTools', () => {
         assert.ok(types.includes('decision_gate_waived'), 'decision_gate_waived audit row must exist');
         db.close();
     });
-    it('task_create_batch spec-shape gate: rejects spec_body missing required H2 sections', async () => {
+    it('task_create_batch spec-shape gate: rejects spec_body missing ## Success Criteria', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = taskTools(db);
@@ -1200,15 +1335,36 @@ describe('taskTools', () => {
             tasks: [{
                     branch_id: 'feat/shape-test',
                     description: 'spec without required sections',
-                    spec_body: '## Files\nsome files here\n\n## Description\nno success criteria or verification',
+                    spec_body: '## Description\nno success criteria heading anywhere',
                 }],
         });
-        assert.ok(result.isError, 'Expected spec-shape gate to reject spec missing sections');
+        assert.ok(result.isError, 'Expected spec-shape gate to reject spec missing ## Success Criteria');
         const data = parseResult(result);
         assert.equal(data.error, 'spec_shape_violation');
         assert.ok(data.missing_sections.includes('## Success Criteria'), 'Must list missing Success Criteria');
-        assert.ok(data.missing_sections.includes('## Verification'), 'Must list missing Verification');
         assert.ok(data.message.includes('waive_spec_shape=true'), 'Error must teach waiver path');
+        db.close();
+    });
+    it('task_create_batch spec-shape gate: accepts spec_body without ## Files/## Verification', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+            waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{
+                    branch_id: 'feat/no-files-section',
+                    description: 'spec with only ## Success Criteria',
+                    spec_body: '## Description\ndo the thing\n\n## Success Criteria\n- it works',
+                    files: ['mcp/trajectory-server/src/tools/tasks.ts'],
+                    verification: ['bun test'],
+                }],
+        });
+        assert.ok(!result.isError, `Expected no error for spec with only ## Success Criteria: ${JSON.stringify(parseResult(result))}`);
         db.close();
     });
     it('task_create_batch spec-shape gate: rejects spec_body exceeding 200 lines', async () => {
@@ -1255,7 +1411,7 @@ describe('taskTools', () => {
         assert.ok(auditRow !== undefined, 'spec_shape_gate_waived audit row must be written when waived');
         db.close();
     });
-    it('task_create_batch spec-shape gate: accepts spec with all three required H2 sections and ≤200 lines', async () => {
+    it('task_create_batch spec-shape gate: still accepts a spec that includes ## Files/## Verification (backward-compat)', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = taskTools(db);
@@ -1285,7 +1441,7 @@ describe('taskTools', () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = taskTools(db);
-        const validSpec = '## Files\n- src/tools/tasks.ts\n\n## Success Criteria\n- pass\n\n## Verification\n- test';
+        const validSpec = '## Success Criteria\n- pass';
         const result = await call(tools.handlers, 'task_create_batch', {
             waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
             waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
@@ -1293,7 +1449,7 @@ describe('taskTools', () => {
             waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
             agent: 'bro',
             issue_id: String(issueId),
-            tasks: [{ branch_id: 'feat/parallel-single', description: 'single task', spec_body: validSpec }],
+            tasks: [{ branch_id: 'feat/parallel-single', description: 'single task', spec_body: validSpec, files: ['src/tools/tasks.ts'] }],
         });
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
         const raw = JSON.parse(result.content[0].text);
@@ -1306,8 +1462,7 @@ describe('taskTools', () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = taskTools(db);
-        const specA = '## Files\n- src/tools/tasks.ts\n\n## Success Criteria\n- pass\n\n## Verification\n- test';
-        const specB = '## Files\n- src/db/schema.sql\n\n## Success Criteria\n- pass\n\n## Verification\n- test';
+        const validSpec = '## Success Criteria\n- pass';
         const result = await call(tools.handlers, 'task_create_batch', {
             waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
             waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
@@ -1316,8 +1471,8 @@ describe('taskTools', () => {
             agent: 'bro',
             issue_id: String(issueId),
             tasks: [
-                { branch_id: 'feat/parallel-a', description: 'task a', spec_body: specA },
-                { branch_id: 'feat/parallel-b', description: 'task b', spec_body: specB },
+                { branch_id: 'feat/parallel-a', description: 'task a', spec_body: validSpec, files: ['src/tools/tasks.ts'] },
+                { branch_id: 'feat/parallel-b', description: 'task b', spec_body: validSpec, files: ['src/db/schema.sql'] },
             ],
         });
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
@@ -1330,8 +1485,7 @@ describe('taskTools', () => {
         const db = tempDB();
         const issueId = await createIssue(db);
         const tools = taskTools(db);
-        const specA = '## Files\n- src/tools/tasks.ts\n\n## Success Criteria\n- pass\n\n## Verification\n- test';
-        const specB = '## Files\n- src/tools/agents.ts\n\n## Success Criteria\n- pass\n\n## Verification\n- test';
+        const validSpec = '## Success Criteria\n- pass';
         const result = await call(tools.handlers, 'task_create_batch', {
             waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
             waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
@@ -1340,8 +1494,8 @@ describe('taskTools', () => {
             agent: 'bro',
             issue_id: String(issueId),
             tasks: [
-                { branch_id: 'feat/overlap-a', description: 'task a', spec_body: specA },
-                { branch_id: 'feat/overlap-b', description: 'task b', spec_body: specB },
+                { branch_id: 'feat/overlap-a', description: 'task a', spec_body: validSpec, files: ['src/tools/tasks.ts'] },
+                { branch_id: 'feat/overlap-b', description: 'task b', spec_body: validSpec, files: ['src/tools/agents.ts'] },
             ],
         });
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
@@ -1352,9 +1506,8 @@ describe('taskTools', () => {
         db.close();
     });
     it('task_create_batch resolves repo via repos.path when repos.name differs from directory basename (#529)', async () => {
-        const { name, cleanup } = makeGitSubdir('test-git-fixture-repos-table');
+        const { dir: repoDir, cleanup } = makeGitSubdir('test-git-fixture-repos-table');
         try {
-            const repoDir = join(process.cwd(), name);
             spawnSync('git', ['-C', repoDir, 'branch', 'feat/repos-table-test'], { stdio: 'pipe' });
             const db = tempDB();
             db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['plugin', repoDir]);
@@ -1379,9 +1532,8 @@ describe('taskTools', () => {
         }
     });
     it('task_create_batch auto-creates branch from parent_branch_id and emits tmb_branch_autocreated audit (#529)', async () => {
-        const { name, cleanup } = makeGitSubdir('test-git-fixture-autocreate-from-parent');
+        const { dir: repoDir, cleanup } = makeGitSubdir('test-git-fixture-autocreate-from-parent');
         try {
-            const repoDir = join(process.cwd(), name);
             const db = tempDB();
             db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['fixture-from-parent', repoDir]);
             const issueId = await createIssue(db);
@@ -1414,9 +1566,8 @@ describe('taskTools', () => {
         }
     });
     it('task_create_batch auto-creates branch from HEAD when parent_branch_id does not exist in repo (#529)', async () => {
-        const { name, cleanup } = makeGitSubdir('test-git-fixture-autocreate-from-head');
+        const { dir: repoDir, cleanup } = makeGitSubdir('test-git-fixture-autocreate-from-head');
         try {
-            const repoDir = join(process.cwd(), name);
             const db = tempDB();
             db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['fixture-from-head', repoDir]);
             const issueId = await createIssue(db);
@@ -1449,9 +1600,8 @@ describe('taskTools', () => {
         }
     });
     it('task_create_batch does not mutate git or emit audit when branch already exists (#529)', async () => {
-        const { name, cleanup } = makeGitSubdir('test-git-fixture-already-exists');
+        const { dir: repoDir, cleanup } = makeGitSubdir('test-git-fixture-already-exists');
         try {
-            const repoDir = join(process.cwd(), name);
             spawnSync('git', ['-C', repoDir, 'branch', 'feat/already-there'], { stdio: 'pipe' });
             const db = tempDB();
             db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['fixture-already-exists', repoDir]);
@@ -1476,10 +1626,8 @@ describe('taskTools', () => {
         }
     });
     it('task_create_batch warn-skips branch ensure when repo path is not a git repository (#529)', async () => {
-        const { mkdirSync: _mk, rmSync: _rm } = await import('node:fs');
-        const nonGitDir = join(process.cwd(), 'test-non-git-fixture-529');
+        const nonGitDir = mkdtempSync(join(tmpdir(), 'tmb-test-non-git-fixture-529-'));
         try {
-            _mk(nonGitDir, { recursive: true });
             const db = tempDB();
             db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['fixture-non-git', nonGitDir]);
             const issueId = await createIssue(db);
@@ -1497,7 +1645,7 @@ describe('taskTools', () => {
             db.close();
         }
         finally {
-            _rm(nonGitDir, { recursive: true, force: true });
+            rmSync(nonGitDir, { recursive: true, force: true });
         }
     });
 });

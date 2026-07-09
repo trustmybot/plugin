@@ -14,10 +14,10 @@
 #   - Normalized agent role == 'swe' (non-isolated SWE running in main checkout)
 #   Enforcement surfaces (scripts/hooks/, hooks/hooks.json) are ALWAYS denied from
 #   main, even for swe — they sit above the swe permit and are never re-opened.
-#   Managed-repo scope: in a multi-repo workspace Rule 1 only guards the managed
-#   product repo (plugin_config tmb_default_repo); absolute targets in sibling
-#   repos are allowed. Empty/'.' tmb_default_repo guards the whole tree (the
-#   normal single-repo user project).
+#   Managed-repo scope: in a multi-repo workspace Rule 1 only guards a REGISTERED
+#   product repo; absolute targets whose git-root is an unregistered sibling repo
+#   are allowed. A single-repo project's sole registered repo IS the root, so the
+#   whole tree is guarded.
 #
 # Rule 2 — Bash write-form targeting a prompt surface from main checkout:
 #   Denied for every agent identity (bro, subagent, swe, unknown) when outside a
@@ -34,6 +34,8 @@ set -uo pipefail
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=scripts/hooks/lib/normalize-role.sh
 . "$PLUGIN_ROOT/scripts/hooks/lib/normalize-role.sh"
+# shellcheck source=scripts/hooks/lib/resolve-repo.sh
+. "$PLUGIN_ROOT/scripts/hooks/lib/resolve-repo.sh"
 
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
@@ -54,11 +56,14 @@ fi
 if [ "$TOOL_NAME" = "Bash" ]; then
   CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null || true)
 
-  # Worktree exemption: if the command is operating inside a worktree, allow.
-  _main_bash_in_worktree() {
-    local cmd="$1"
-    case "$cmd" in
-      */.claude/worktrees/*|*.claude/worktrees/*) return 0 ;;
+  # Worktree exemption: allow only when the WRITE TARGET (destination token)
+  # lives inside a worktree — not merely because the command string mentions a
+  # worktree path anywhere (#1031). The old whole-command test exempted
+  # `sed '...' .claude/worktrees/x/agents/a.md > agents/a.md`, which reads from a
+  # worktree but WRITES a prompt surface in the main checkout.
+  _token_in_worktree() {
+    case "$1" in
+      */.claude/worktrees/*|.claude/worktrees/*) return 0 ;;
     esac
     return 1
   }
@@ -79,8 +84,10 @@ if [ "$TOOL_NAME" = "Bash" ]; then
     return 1
   }
 
-  # _main_bash_writes_prompt_surface: destination-coupled matching.
-  # The verb/redirect operator must be adjacent to the prompt-surface path token.
+  # _main_bash_writes_prompt_surface: destination-coupled matching. The verb/
+  # redirect operator must be adjacent to the prompt-surface path token. On a
+  # match it prints the destination token (so the caller can test THAT token
+  # against the worktree exemption) and returns 0; otherwise returns 1.
   _main_bash_writes_prompt_surface() {
     local cmd="$1"
 
@@ -91,7 +98,7 @@ if [ "$TOOL_NAME" = "Bash" ]; then
         after_redir="${cmd##*>>}"
         after_redir="${after_redir#"${after_redir%%[! ]*}"}"
         local dest_tok="${after_redir%% *}"
-        _is_prompt_surface_token "$dest_tok" && return 0
+        _is_prompt_surface_token "$dest_tok" && { printf '%s' "$dest_tok"; return 0; }
         ;;
     esac
     case "$cmd" in
@@ -103,7 +110,7 @@ if [ "$TOOL_NAME" = "Bash" ]; then
             after_redir="${no_dbl##*>}"
             after_redir="${after_redir#"${after_redir%%[! ]*}"}"
             local dest_tok2="${after_redir%% *}"
-            _is_prompt_surface_token "$dest_tok2" && return 0
+            _is_prompt_surface_token "$dest_tok2" && { printf '%s' "$dest_tok2"; return 0; }
             ;;
         esac
         ;;
@@ -121,7 +128,7 @@ if [ "$TOOL_NAME" = "Bash" ]; then
           "-a "*) tee_rest="${tee_rest#-a }" ;;
         esac
         local tee_dest="${tee_rest%% *}"
-        _is_prompt_surface_token "$tee_dest" && return 0
+        _is_prompt_surface_token "$tee_dest" && { printf '%s' "$tee_dest"; return 0; }
         ;;
     esac
 
@@ -134,7 +141,7 @@ if [ "$TOOL_NAME" = "Bash" ]; then
           *"sed -i"*) after_sedi="${cmd##*sed -i}" ;;
         esac
         local sedi_file="${after_sedi##* }"
-        _is_prompt_surface_token "$sedi_file" && return 0
+        _is_prompt_surface_token "$sedi_file" && { printf '%s' "$sedi_file"; return 0; }
         ;;
     esac
 
@@ -143,7 +150,7 @@ if [ "$TOOL_NAME" = "Bash" ]; then
       *"perl -i"*)
         local after_perli="${cmd##*perl -i}"
         local perli_file="${after_perli##* }"
-        _is_prompt_surface_token "$perli_file" && return 0
+        _is_prompt_surface_token "$perli_file" && { printf '%s' "$perli_file"; return 0; }
         ;;
     esac
 
@@ -156,7 +163,7 @@ if [ "$TOOL_NAME" = "Bash" ]; then
         open_path="${open_path%\'}"
         open_path="${open_path#\"}"
         open_path="${open_path%\"}"
-        _is_prompt_surface_token "$open_path" && return 0
+        _is_prompt_surface_token "$open_path" && { printf '%s' "$open_path"; return 0; }
         ;;
     esac
 
@@ -164,15 +171,17 @@ if [ "$TOOL_NAME" = "Bash" ]; then
     case "$cmd" in
       "cp "*|*" cp "*|"mv "*|*" mv "*|"rsync "*|*" rsync "*)
         local copy_last="${cmd##* }"
-        _is_prompt_surface_token "$copy_last" && return 0
+        _is_prompt_surface_token "$copy_last" && { printf '%s' "$copy_last"; return 0; }
         ;;
     esac
 
     return 1
   }
 
-  if ! _main_bash_in_worktree "$CMD" \
-      && _main_bash_writes_prompt_surface "$CMD"; then
+  # Exempt only when the WRITE DESTINATION is inside a worktree (#1031) — not
+  # when the command merely reads from one.
+  _BASH_DEST_TOK=$(_main_bash_writes_prompt_surface "$CMD")
+  if [ -n "$_BASH_DEST_TOK" ] && ! _token_in_worktree "$_BASH_DEST_TOK"; then
     BASH_DENY_REASON="BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md, CODEX/CURSOR/GEMINI.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed."
     jq -nc --arg reason "$BASH_DENY_REASON" '{
       hookSpecificOutput: {
@@ -211,31 +220,27 @@ case "$TARGET" in
   */.claude/worktrees/*|.claude/worktrees/*) exit 0 ;;
 esac
 
-# Managed-repo scope (#592): in a multi-repo workspace, Rule 1 must only guard
-# the managed product repo (plugin_config tmb_default_repo), not its siblings.
-# The DB lives at <workspace_root>/.claude/<plugin>/trajectory.db, so the
-# workspace root is three levels above DB_PATH and the managed repo is
-# <workspace_root>/<tmb_default_repo>. An absolute target outside that subtree
-# belongs to a sibling repo and is allowed. When tmb_default_repo is empty or
-# '.' (the normal single-repo user project), the whole tree is guarded as before.
-DEFAULT_REPO=""
-if command -v sqlite3 >/dev/null 2>&1; then
-  DEFAULT_REPO=$(sqlite3 -readonly -cmd '.timeout 500' "$DB_PATH" \
-    "SELECT json_extract(value_json, '\$') FROM plugin_config WHERE key='tmb_default_repo' LIMIT 1;" \
-    2>/dev/null || true)
-fi
-if [ -n "$DEFAULT_REPO" ] && [ "$DEFAULT_REPO" != "." ]; then
-  case "$TARGET" in
-    /*)
-      WORKSPACE_ROOT=$(dirname "$(dirname "$(dirname "$DB_PATH")")")
-      MANAGED_ROOT="$WORKSPACE_ROOT/$DEFAULT_REPO"
-      case "$TARGET" in
-        "$MANAGED_ROOT"/*) : ;;       # inside the managed repo — keep guarding
-        *) exit 0 ;;                  # sibling repo — outside Rule 1 scope
-      esac
-      ;;
-  esac
-fi
+# Managed-repo scope by REGISTRATION (#693, ADR: path-keyed repo resolution):
+# in a multi-repo workspace Rule 1 must only guard a REGISTERED product repo,
+# not its siblings. Resolve the target's git-root and enforce iff that root is a
+# `repos` row (matched by path); an absolute target whose git-root is an
+# unregistered sibling tree is outside Rule 1 scope (exit 0). A target with no
+# resolvable git-root (or a single-repo project whose sole repo IS the root) is
+# guarded as before — registration of the lone repo covers the whole tree.
+case "$TARGET" in
+  /*)
+    TARGET_DIR=$(dirname "$TARGET")
+    # Only consult registration when the target's directory actually exists —
+    # otherwise tmb_repo_git_root falls back to $PWD (the hook's cwd) and would
+    # mis-scope. A target whose parent dir is absent fails closed (guarded).
+    if command -v sqlite3 >/dev/null 2>&1 && [ -d "$TARGET_DIR" ]; then
+      TARGET_GIT_ROOT=$(tmb_repo_git_root "$TARGET_DIR")
+      if [ -n "$TARGET_GIT_ROOT" ] && ! tmb_repo_is_registered "$DB_PATH" "$TARGET_GIT_ROOT"; then
+        exit 0                          # unregistered sibling repo — outside Rule 1 scope
+      fi
+    fi
+    ;;
+esac
 
 # Enforcement surfaces: deny before any allowlist entry is evaluated.
 # No pattern — including *.md or docs/ — can re-open these paths from

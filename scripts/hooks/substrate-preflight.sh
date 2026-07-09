@@ -33,14 +33,18 @@ _check sqlite3 "task/spawn gates cannot verify state"
 _check git     "branch guards and commit-message lint are inoperative"
 _check node    "MCP trajectory-server and scan tooling cannot start"
 
-# Detect local-only mode: no remote with a non-empty url in plugin_config.
+# Detect local-only mode: no remote with a non-empty url in the current repo's
+# repos.remotes (#980 — the sole source of truth, resolved per repo).
 OFFLINE_NOTE=""
 if command -v sqlite3 >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
   # shellcheck source=scripts/hooks/lib/query-task.sh
   . "$SCRIPT_DIR/lib/query-task.sh"
+  # shellcheck source=scripts/hooks/lib/resolve-repo.sh
+  . "$SCRIPT_DIR/lib/resolve-repo.sh"
   _DB=$(tmb_db_path 2>/dev/null || true)
   if [ -n "$_DB" ]; then
-    _REMOTES_JSON=$(tmb_config_raw "remotes" "$_DB" 2>/dev/null || true)
+    _GIT_ROOT=$(tmb_repo_git_root "$PWD" 2>/dev/null || true)
+    _REMOTES_JSON=$(tmb_repo_remotes "$_DB" "$_GIT_ROOT" 2>/dev/null || true)
     if [ -n "$_REMOTES_JSON" ]; then
       _HAS_REMOTE=$(printf '%s' "$_REMOTES_JSON" | \
         jq -r '[.[]|select(.url!=null and .url!="")]|length>0' 2>/dev/null || true)

@@ -38,6 +38,16 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/substrate-preflight.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/cheatcode-healthcheck.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/orphan-scan.sh",
+            "timeout": 6
           }
         ]
       }
@@ -117,6 +127,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/no-remote-auth-guard.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/remote-id-guard.sh",
+            "timeout": 5
           }
         ]
       },
@@ -151,6 +166,16 @@
         ]
       },
       {
+        "matcher": "mcp__.*trajectory-server__cheatcode_install",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/cheatcode-install-approval.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "AskUserQuestion",
         "hooks": [
           {
@@ -162,11 +187,6 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/roundtable-auq-shape.sh",
             "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/auq-headless-deny.sh",
-            "timeout": 3
           }
         ]
       },
@@ -254,6 +274,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/post-task-close-rescan.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/post-atomic-close-readme.sh",
+            "timeout": 5
           }
         ]
       },
@@ -268,17 +293,7 @@
         ]
       },
       {
-        "matcher": "Skill",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/skill-invocation-record.sh",
-            "timeout": 3
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__.*trajectory-server__pr_comments_get",
+        "matcher": "mcp__.*trajectory-server__pr_monitor_comments_get",
         "hooks": [
           {
             "type": "command",
@@ -293,6 +308,16 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/attribution-footer.sh",
+            "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/clean-merged-branch.sh",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/close-issue-on-merge.sh",
             "timeout": 15
           }
         ]

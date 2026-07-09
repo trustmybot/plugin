@@ -23,7 +23,8 @@ run_hook() {
   (
     cd "$PLUGIN_ROOT" || exit 1
     printf '%s' "$payload" \
-    | TMB_DISABLE_CONSULTANT_HINT=0 \
+    | TMB_DISABLE_CHEATCODE_INSTALL_HINT=0 \
+      TMB_DISABLE_CONSULTANT_HINT=0 \
       TMB_DISABLE_SEARCH_HINT=0 \
       TMB_DISABLE_CONCERNS_HINT=0 \
       TMB_DISABLE_PUSH_INTENT_HINT=0 \
@@ -39,6 +40,107 @@ run_hook() {
 test_case "empty prompt emits nothing"
 out=$(run_hook "")
 assert_not_contains "$out" "additionalContext" "empty prompt must be silent"
+
+# ---------------------------------------------------------------------------
+# cheatcode-install: install of a named plugin/skill/mcp/cheatcode
+# ---------------------------------------------------------------------------
+
+test_case "cheatcode-install: row-44 install-plugins-in-local-scope prompt fires"
+out=$(run_hook "install the feature-dev and code-review plugins in local scope")
+assert_contains "$out" "cheatcode-install routing" "named plugin install must fire"
+assert_contains "$out" "cheatcode_approve" "CTX must name cheatcode_approve"
+assert_contains "$out" "cheatcode_install" "CTX must name cheatcode_install"
+assert_contains "$out" "NOT agent" "CTX must say NOT agent-create"
+
+test_case "cheatcode-install: 'install the X skill' fires"
+out=$(run_hook "Please install the superpowers skill")
+assert_contains "$out" "cheatcode-install routing" "named skill install must fire"
+
+test_case "cheatcode-install: 'install the X mcp' fires"
+out=$(run_hook "install the linear mcp")
+assert_contains "$out" "cheatcode-install routing" "named mcp install must fire"
+
+test_case "cheatcode-install: 'in global scope' alone fires"
+out=$(run_hook "set it up in global scope")
+assert_contains "$out" "cheatcode-install routing" "in global scope must fire"
+
+test_case "cheatcode-install: 'npm install' does NOT fire"
+out=$(run_hook "Run npm install to get the deps")
+assert_not_contains "$out" "cheatcode-install routing" "npm install must not fire"
+
+test_case "cheatcode-install: 'pip install' does NOT fire"
+out=$(run_hook "pip install requests for the script")
+assert_not_contains "$out" "cheatcode-install routing" "pip install must not fire"
+
+test_case "cheatcode-install: 'bun install' does NOT fire"
+out=$(run_hook "bun install in the server directory")
+assert_not_contains "$out" "cheatcode-install routing" "bun install (no capability noun) must not fire"
+
+test_case "cheatcode-install: 'install dependencies' does NOT fire"
+out=$(run_hook "install dependencies before running the build")
+assert_not_contains "$out" "cheatcode-install routing" "install dependencies must not fire"
+
+test_case "cheatcode-install: bare role name still routes to agent-create (no regression)"
+out=$(run_hook "get the architect's read on this design choice?")
+assert_not_contains "$out" "cheatcode-install routing" "bare role must not hit cheatcode hint"
+assert_contains "$out" "consultant-spawn enforcement" "bare role still routes to agent-create"
+
+# ---------------------------------------------------------------------------
+# cheatcode-routing: install/add a capability TARGETED AT a known agent
+# ("install <X> for swe", "add <X> to bro") → load tmb_cheatcode, not planning
+# ---------------------------------------------------------------------------
+
+test_case "cheatcode-routing: 'install <X> for swe and pr-reviewer' fires cheatcode cue"
+out=$(run_hook "install typescript-lsp for swe and pr-reviewer")
+assert_contains "$out" "cheatcode-routing" "capability-on-agent install must fire"
+assert_contains "$out" "tmb_cheatcode" "CTX must point to tmb_cheatcode skill"
+
+test_case "cheatcode-routing: 'add <X> to bro' fires cheatcode cue"
+out=$(run_hook "add a web-search tool to bro")
+assert_contains "$out" "cheatcode-routing" "add-to-agent must fire"
+assert_contains "$out" "tmb_cheatcode" "CTX must point to tmb_cheatcode skill"
+
+test_case "cheatcode-routing: positive cue does not name a 'don't use planning' clause"
+out=$(run_hook "install ripgrep for swe")
+assert_contains "$out" "cheatcode-routing" "capability-on-agent must fire"
+assert_not_contains "$out" "planning" "positive disambiguation only — no negative planning clause"
+
+test_case "cheatcode-routing: plain dependency install does NOT fire cheatcode cue"
+out=$(run_hook "npm install to get the deps for the build")
+assert_not_contains "$out" "cheatcode-routing" "dependency install (no agent target) must not fire"
+
+test_case "cheatcode-routing: 'install dependencies' does NOT fire cheatcode cue"
+out=$(run_hook "install dependencies before running the build")
+assert_not_contains "$out" "cheatcode-routing" "install dependencies must not fire"
+
+# ---------------------------------------------------------------------------
+# synthetic-turn early-exit: harness-generated turns emit NOTHING
+# ---------------------------------------------------------------------------
+
+test_case "synthetic-turn: <task-notification> body emits nothing"
+out=$(run_hook "<task-notification>swe reports: ran bun install in plugin/mcp/ to rebuild the dist</task-notification>")
+assert_not_contains "$out" "additionalContext" "task-notification turn must be fully silent"
+
+test_case "synthetic-turn: [SYSTEM NOTIFICATION] body emits nothing"
+out=$(run_hook "[SYSTEM NOTIFICATION - NOT USER INPUT] pr-reviewer finished reviewing plugin/mcp/dist")
+assert_not_contains "$out" "additionalContext" "system-notification turn must be fully silent"
+
+# ---------------------------------------------------------------------------
+# cheatcode-install: package-manager installs never route to cheatcodes
+# ---------------------------------------------------------------------------
+
+test_case "cheatcode-install: 'bun install to fix the plugin build' does NOT fire"
+out=$(run_hook "i ran bun install to fix the plugin build")
+assert_not_contains "$out" "cheatcode-install routing" "bun install + plugin noun must not fire"
+
+test_case "cheatcode-install: 'npm install left the mcp dist stale' does NOT fire"
+out=$(run_hook "npm install left the mcp dist stale")
+assert_not_contains "$out" "cheatcode-install routing" "npm install + mcp noun must not fire"
+
+test_case "cheatcode-routing: 'add the code-review skill for swe' fires capability-on-agent"
+out=$(run_hook "add the code-review skill for swe")
+assert_contains "$out" "cheatcode-routing" "add-skill-for-agent must fire capability-on-agent"
+assert_not_contains "$out" "cheatcode-install routing" "capability-on-agent must not also fire install hint"
 
 # ---------------------------------------------------------------------------
 # consultant-spawn: domain keyword + advisory shape required

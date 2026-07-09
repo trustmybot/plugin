@@ -1,0 +1,8 @@
+{
+  "expected_writes": {
+    "repos": ">=2",
+    "tasks": "=0",
+    "issues WHERE id != -1": "=0",
+    "plugin_config WHERE key IN ('remotes','pr_target','branching_model','protected_branches')": "=0"
+  }
+}

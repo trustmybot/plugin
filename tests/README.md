@@ -16,15 +16,14 @@ Each layer catches a different class of bug; skipping one means shipping a bug t
 | **L3** | Integration — real server subprocess + JSON-RPC stdio + hook scripts | [`l3-integration/mcp/*.test.mjs`](./l3-integration/mcp/), [`l3-integration/hooks/*.sh`](./l3-integration/hooks/) | Schema drift, missing `agent` param, protocol plumbing, role enforcement, hook deny/inject behavior |
 | **L4** | Workflow simulation — MCP-only multi-step flows (no real Claude) | [`l4-workflow-sim/*.test.mjs`](./l4-workflow-sim/) | Workflow contract bugs at the MCP-call level |
 | **L5** | Per-row isolated unit. Same row dir as L6; L5 applies `setup-l5.sh` to pre-seed the prior-state surface so the row runs alone. One row = one test. ~$0.20/test. | [`l5-l6/run-l5.sh`](./l5-l6/run-l5.sh), [`l5-l6/rows/`](./l5-l6/rows/) | Per-row contract drift. **First-line check after a fix or when an L6 step fails.** |
-| **L6** | Multi-turn chain. Walks the 13 chain steps against a single cumulative trajectory DB; state inherits from prior step instead of `setup-l5.sh`. | [`l5-l6/run-l6-chain.sh`](./l5-l6/run-l6-chain.sh), [`l5-l6/l6-chain/`](./l5-l6/l6-chain/) | Cross-step continuity, multi-session state carry. Run after the relevant per-row L5 passes. See [`EVALUATION.md`](./EVALUATION.md) for the journey table + per-step log format. |
+| **L6** | Multi-turn chain. Walks the 15 chain steps against a single cumulative trajectory DB; state inherits from prior step instead of `setup-l5.sh`. | [`l5-l6/run-l6-chain.sh`](./l5-l6/run-l6-chain.sh), [`l5-l6/l6-chain/`](./l5-l6/l6-chain/) | Cross-step continuity, multi-session state carry. Run after the relevant per-row L5 passes. See [`EVALUATION.md`](./EVALUATION.md) for the journey table + per-step log format. |
 | **Release canary** | Full marketplace install + workflow doctrine in one Docker image | [`l0-install/release-canary.Dockerfile`](./l0-install/) | Everything L0 catches + everything L5 catches, against the as-shipped marketplace artifact. RC-only (token-heavy) |
-| **Manual smoke** *(fallback)* | Human-driven interactive Claude Code session for UX scenarios the automated layers can't model (e.g. AskUserQuestion interactivity, real worktree creation in CC's UI) | [`manual/`](./manual/) | UX regressions only catchable with a human in the loop |
 
 **Golden rule:** *L<sub>N</sub> green does not imply L<sub>N+1</sub> green.* L2 once passed every test while a critical bug sat in production — the MCP schema stripped the `agent` parameter on every call, collapsing all role checks to `caller_role: 'unknown'`. L3 would have caught that at the wire level in milliseconds. Always run L0–L4 before tagging.
 
 ## Testing philosophy — light to heavy, fail fast
 
-**Always start from the lightest test layer and only escalate when each preceding layer is green.** The pyramid orders by cost (latency + tokens + manual time) ascending: L0 → L1 → L2 → L3 → L4 → L5 (per-flow, `--plugin-dir`) → L6 (multi-turn integration) → Release canary (marketplace simulation in Docker) → Manual smoke (last resort).
+**Always start from the lightest test layer and only escalate when each preceding layer is green.** The pyramid orders by cost (latency + tokens) ascending: L0 → L1 → L2 → L3 → L4 → L5 (per-flow, `--plugin-dir`) → L6 (multi-turn integration) → Release canary (marketplace simulation in Docker). The automated chain is the sole gate.
 
 Applies to:
 
@@ -32,7 +31,7 @@ Applies to:
 - **Release validation.** Cut an RC tag → L0 + L1–L4 (every PR did this) → L5 + L6 → if green, Release canary → if green, promote dev → main → cut stable.
 - **Investigating a regression.** Bisect at the lightest layer that fails. If L1 catches it, don't run L4. If L2 catches it, don't run L5.
 
-**Why**: token cost (Release canary ≈ $1–3/run; L6 multi-turn ≈ $0.30–1.00 per scenario; L5 per-flow ≈ ~$0.20; L1–L4 ≈ free). Human time (manual smoke = 30–45 min; rest is automated). Cheap signals first eliminates the need for expensive ones.
+**Why**: token cost (Release canary ≈ $1–3/run; L6 multi-turn ≈ $0.30–1.00 per scenario; L5 per-flow ≈ ~$0.20; L1–L4 ≈ free). Cheap signals first eliminates the need for expensive ones.
 
 The escalation chain:
 
@@ -47,8 +46,7 @@ workflow_dispatch on feature branch → full release-gate (L0 + L1–L4 + L6)
    ↓ green
 RC tag pushed → Release canary in CI (~$1–3, ~10 min)
    ↓ green
-Promote RC → main → tag stable. Manual smoke only when an automated layer
-  genuinely can't model the scenario.
+Promote RC → main → tag stable.
 ```
 
 ## Layout
@@ -66,14 +64,10 @@ tests/
 │   └── hooks/                  ← L3 hook script tests
 ├── l4-workflow-sim/            ← L4 MCP-only multi-step workflow tests
 ├── lib/                        ← shared shell-assert helpers
-├── manual/                     ← Manual smoke (human-run against real CC)
-│   ├── README.md
-│   ├── setup.md
-│   └── scenarios.md
 └── l5-l6/                      ← L5 + L6
     ├── run-l5.sh, run-l6-chain.sh
     ├── lib/                    ← flow-helpers, l6-chain-helpers, scorers, smoke-helpers, timeout-shim
-    ├── rows/<NN>-<name>/       ← canonical row tree (L5 + L6 share the same dir) — prompt.txt + script.json + fixture.txt + setup-l5.sh + outcome bundle
+    ├── rows/<NN>/<row-name>/   ← canonical row tree in family folders (L5 + L6 share the same dir) — prompt.txt + script.json + fixture.txt + setup-l5.sh + outcome bundle
     ├── l6-chain/               ← chain-manifest.json + seeds/ (between-row SQL bridges for chained L6 run)
     └── fixtures/               ← SQL fixtures (empty, onboarding-named, onboarding-anonymous) — pre-seed the world-model-cold gate so rows that exercise task_create_batch don't trip it
 ```
@@ -113,7 +107,7 @@ bun test tests/l4-workflow-sim/*.test.mjs
 L5 drives real Claude Code through one pre-seeded flow and asserts the MCP/tool sequence + DB state matches doctrine. See [`EVALUATION.md`](./EVALUATION.md) for the scorer model and the TODO-CLI journey table.
 
 ```bash
-# One-time: set the headless auth token
+# One-time: set the auth token for non-interactive `claude -p`
 export CLAUDE_CODE_OAUTH_TOKEN="<your-cc-oauth-token>"
 
 # Run all flows
@@ -129,10 +123,10 @@ Run L5 locally before tagging a release candidate. The token is the one-time `CL
 
 L6 drives real Claude Code through fresh `claude -p` invocations against a cumulative trajectory DB, asserting cross-step DB continuity across the whole user journey. Continuity is DB-driven (bro re-reads `issues`, `tasks`, `discussions`, `audit`, and world-model state on every cold start via `tmb_recovery`), NOT LLM-session-driven — the chain mirrors how real cross-session resume actually works in production.
 
-The 13 chain steps live in `tests/l5-l6/rows/` — the SAME directory L5 runs against. L5 = isolation (applies `setup-l5.sh` to simulate prior-state); L6 = chain (state inherits from prior step's atomic close, `setup-l5.sh` is ignored).
+The 15 chain steps live in `tests/l5-l6/rows/` — the SAME directory L5 runs against. L5 = isolation (applies `setup-l5.sh` to simulate prior-state); L6 = chain (state inherits from prior step's atomic close, `setup-l5.sh` is ignored).
 
 ```bash
-# Chained run — walks all 13 chain rows against a cumulative trajectory DB.
+# Chained run — walks all 15 chain rows against a cumulative trajectory DB.
 # Each row fires a fresh `claude -p`; DB continuity drives the chain.
 # Per-step logs land at ~/.claude/tmb/l6-chain-runs/<run-id>/.
 # See tests/l5-l6/l6-chain/README.md.
@@ -141,14 +135,14 @@ bash tests/l5-l6/run-l6-chain.sh --from 7         # resume from row 7
 bash tests/l5-l6/run-l6-chain.sh --halt-on-fail 0 # don't stop at first fail
 ```
 
-Run L6 locally before tagging a release candidate; rc tag policy gates on 13/13 chain pass.
+Run L6 locally before tagging a release candidate; rc tag policy gates on 15/15 chain pass.
 
 ### Debugging an L6 chain failure
 
 When an L6 step fails, the failure can come from either the step itself or from prior chain steps that left bad state behind. To isolate, run the same row in L5 mode:
 
 ```bash
-bash tests/l5-l6/run-l5.sh <NN>-<step-name>     # e.g. 10-consultant
+bash tests/l5-l6/run-l5.sh <NN>-<step-name>     # e.g. 12-consultant
 ```
 
 L5 applies the step's `setup-l5.sh` to simulate ONLY the prior-state surface (a clean approximation of what the prior chain step should have left), then drives the same prompt + scorers as L6. Two outcomes:
@@ -175,10 +169,6 @@ L5/L6 test against bro's ability to translate user intent into the right orchest
 | `@bro let's switch to Clerk for auth.` | `@bro plan a difficult-path migration from JWT to Clerk and dispatch SWE.` |
 
 Legitimate user-typed slash commands stay verbatim (`/onboard`, `/roundtable …`, `/monitor 123`, `/scan`). Don't have the user type `@bro scan the codebase` — `scan_run` is supposed to be fired implicitly by the world-model-cold gate when bro reaches `task_create_batch`. Asking for it explicitly bypasses the very contract row 4 exists to verify.
-
-## Run manual smoke
-
-See [`manual/README.md`](./manual/README.md) — setup, scenarios, and what to do when a scenario fails.
 
 ## Debug modes
 
@@ -232,7 +222,7 @@ Does the change touch the schema (DB tables, columns, CHECK constraints)?
 - **L2** — bypasses the MCP protocol. Cannot catch schema drift, role enforcement via the SDK (tests pass `agent:'x'` synthetically; production stripping happens before handler sees it), stdio transport bugs, or cross-tool workflow regressions.
 - **L3** — deterministic protocol exercise. Cannot catch UX regressions, prompt drift, or whether the LLM *chooses* to call the right MCP at the right time (it tests that the call works when made, not that it's made).
 - **L5** — single-shot, slow, non-deterministic. Cannot substitute for L2/L3 (schema/role bugs should be caught in ms). Cannot catch cross-flow drift — that's L6.
-- **L6** — multi-turn, slow, non-deterministic. Cannot substitute for L5 (which is faster + tighter for one-flow regressions). Cannot catch what only happens with a real Human in the loop — that's manual smoke.
+- **L6** — multi-turn, slow, non-deterministic. Cannot substitute for L5 (which is faster + tighter for one-flow regressions).
 
 **Regression teeth proof (L3):** removing `requireRoles('task_create_batch', ['bro'], …)` from `tasks.ts` → L3 fails on the next run with *"architect must be forbidden from task_create_batch"*. Verified 2026-04-24.
 
@@ -243,8 +233,7 @@ Does the change touch the schema (DB tables, columns, CHECK constraints)?
 | MCP tool handler | `mcp/trajectory-server/src/test/<name>.test.ts` | `node:test` + `node:assert/strict`; helper `tempDB()` in `src/test/helpers.ts` |
 | Protocol / role / workflow | `tests/l3-integration/mcp/<name>.test.mjs` | import from `./harness.mjs`; use `startClient()` + `call(name, args)` |
 | Hook script | `tests/l3-integration/hooks/<name>.test.sh` | shebang + `. tests/lib/assert.sh`; call `test_case`, `assert_*`, `summarize` (skeleton below) |
-| L5 / L6 row | `tests/l5-l6/rows/<NN>-<name>/` | scaffold per [`EVALUATION.md`](./EVALUATION.md) — `prompt.txt` + `script.json` + `fixture.txt` + `setup-l5.sh` (L5-only pre-seed) + `outcome.sql` + `tools-required.json` + `tools-forbidden.json` + `cost-budget.json` + optional `outcome-coherence.json` / `outcome-git.json` / `outcome-files.json`. Add to `tests/l5-l6/l6-chain/chain-manifest.json` if the row should also run in the L6 chain. |
-| Manual scenario | `tests/manual/scenarios.md` | follow the 8-section template at the top of that file |
+| L5 / L6 row | `tests/l5-l6/rows/<NN>/<row-name>/` (under its family folder) | scaffold per [`EVALUATION.md`](./EVALUATION.md) — `prompt.txt` + `script.json` + `fixture.txt` + `setup-l5.sh` (L5-only pre-seed) + `outcome.sql` + `tools-required.json` + `tools-forbidden.json` + `cost-budget.json` + optional `outcome-coherence.json` / `outcome-git.json` / `outcome-files.json`. Add to `tests/l5-l6/l6-chain/chain-manifest.json` if the row should also run in the L6 chain. |
 
 ### Hook test skeleton
 

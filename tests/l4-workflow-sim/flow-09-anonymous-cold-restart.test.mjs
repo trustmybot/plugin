@@ -39,6 +39,7 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
     agent: 'bro',
     objective: 'Verify role enforcement',
     description: 'Confirm validation_record rejects non-pr-reviewer callers.',
+    labels: ['Feature', 'Priority: Medium'],
   });
   assert.equal(issue.ok, true);
 
@@ -57,7 +58,7 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
       branch_id: 'feat/role-test',
       title: 'role test',
       description: 'fixture',
-      spec_body: '## Description\nfixture\n## Files\n- none\n## Success Criteria\n- none\n## Verification\n```\necho ok\n```',
+      spec_body: '## Description\nfixture\n## Success Criteria\n- none',
     }],
   });
   assert.equal(task.ok, true);
@@ -84,7 +85,7 @@ test('Flow 09b — Bro forbidden from validation_record (issue #96 server enforc
   assert.equal(history.data.length, 0, 'no validation row should have been recorded');
 });
 
-test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not validation_record (issue #91/#96)', async (t) => {
+test('Flow 09c — Bro task-gate uses audit_append(bro_verification_pass), not validation_record (issue #91/#96)', async (t) => {
   const { client, close } = await startClient();
   t.after(async () => { await close(); });
 
@@ -93,6 +94,7 @@ test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not vali
     agent: 'bro',
     objective: 'Verify bro_verification_pass audit event',
     description: 'Bro must record its task-gate verdict in audit, not in validation_attempts.',
+    labels: ['Feature', 'Priority: Medium'],
   });
   const issueId = issue.data.id;
 
@@ -111,12 +113,11 @@ test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not vali
       branch_id: 'feat/audit-event-test',
       title: 'audit event test',
       description: 'fixture',
-      spec_body: '## Description\nfixture\n## Files\n- none\n## Success Criteria\n- none\n## Verification\n```\necho ok\n```',
+      spec_body: '## Description\nfixture\n## Success Criteria\n- none',
     }],
   });
   const createdTask = Array.isArray(task.data) ? task.data[0] : task.data.tasks?.[0];
   const taskId = createdTask.id;
-  const branchId = createdTask.branch_id;
 
   // SWE finishes the work first — bro can only close verified ('completed')
   // work, never jump a pending task straight to closed (#278).
@@ -124,27 +125,19 @@ test('Flow 09c — Bro task-gate uses audit_log(bro_verification_pass), not vali
     agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234',
   });
 
-  // Bro's correct task-gate close sequence
-  const verifEvent = await call(client, 'audit_log', {
-    agent: 'bro',
-    issue_id: issueId,
-    branch_id: branchId,
-    from_node: 'bro',
-    event_type: 'bro_verification_pass',
-    summary: 'V1 files match. V2 verification commands passed. V3 success criteria met.',
-  });
-  assert.equal(verifEvent.ok, true);
-
-  const closed = await call(client, 'task_update_status', {
+  // Bro's correct task-gate close: bro_atomic_close writes the single
+  // bro_verification_pass audit and advances the task to closed in one tx.
+  const closed = await call(client, 'bro_atomic_close', {
     agent: 'bro',
     task_id: taskId,
-    status: 'closed',
     commit_sha: 'abc1234',
+    verification_summary: 'V1 files match. V2 verification commands passed. V3 success criteria met.',
+    waive_scope_gate: true,
   });
   assert.equal(closed.ok, true);
 
   // Verify the audit table has the bro_verification_pass event
-  const audit = await call(client, 'audit_log_list', { agent: 'bro', issue_id: issueId });
+  const audit = await call(client, 'audit_list', { agent: 'bro', issue_id: issueId });
   const verifEvents = audit.data.filter(e => e.event_type === 'bro_verification_pass');
   assert.equal(verifEvents.length, 1, 'exactly one bro_verification_pass event recorded');
   assert.equal(verifEvents[0].from_node, 'bro');

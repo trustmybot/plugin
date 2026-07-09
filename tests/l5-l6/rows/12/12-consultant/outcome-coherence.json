@@ -1,0 +1,5 @@
+{
+  "expected_writes": {
+    "audit WHERE event_type = 'consultant_spawn_nudged'": ">=1"
+  }
+}

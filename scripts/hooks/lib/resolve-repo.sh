@@ -4,15 +4,107 @@
 # branch-up-to-date-with-remote.sh.
 #
 # Provides:
+#   tmb_cmd_cwd <command> [<input_json>]
+#                               — print the directory a Bash command will run in,
+#                                 parsing a leading `cd <path> &&` / `git -C <path>`
+#                                 target (then the payload .cwd, then $PWD). This is
+#                                 the repo-scoping primitive: in a multi-repo
+#                                 workspace $PWD is the non-repo root, so guards must
+#                                 resolve the repo from the command itself.
+#   tmb_repo_default_branch <git_root>
+#                               — print the repo's real default branch: origin/HEAD's
+#                                 target, else the main checkout's HEAD branch, else
+#                                 "main". Empty only when <git_root> is empty.
 #   tmb_repo_git_root <dir>     — print the MAIN worktree root for <dir>, or empty
 #   tmb_repo_resolve <db> <git_root>
 #                               — print pipe-separated "target_branch|branching_model|protected_branches"
 #                                 from the repos row matching <git_root>.
 #                                 Prints empty when no row matches (unregistered repo).
+#   tmb_repo_remotes <db> <git_root>
+#                               — print repos.remotes (JSON array) for the row
+#                                 matching <git_root>, falling back to the sole
+#                                 registered repo. Empty when unresolved.
 #   tmb_repo_is_registered <db> <git_root>
 #                               — exits 0 when a repos row with path=<git_root> exists, 1 otherwise.
+#   tmb_repo_path_by_name <db> <name>
+#                               — print repos.path for the row with name=<name>, or empty.
+#   tmb_repo_single_path <db>   — print repos.path when EXACTLY one repo is
+#                                 registered (single-repo fallback), else empty.
+#   tmb_repo_resolve_path <db> <name>
+#                               — print the absolute repo path for <name> via
+#                                 repos.path; when <name> is empty, fall back to
+#                                 the sole registered repo (single-repo). Empty
+#                                 when neither resolves.
 #
 # All functions never fail the caller (use || true / return 0 patterns).
+
+# tmb_cmd_cwd <command> [<input_json>]
+# Resolve the working directory a Bash command will execute in. SWE and bro
+# prefix commands with `cd <repo> &&` (or `git -C <repo>`) to target a specific
+# repo in a multi-repo workspace; the hook's own $PWD is the non-repo workspace
+# root and must NOT be trusted to scope the guard. Resolution order:
+#   1. leading `cd <path> &&|;|<newline>` prefix (quoted or bare)
+#   2. `git -C <path>` option in the command
+#   3. the hook payload `.cwd` field (parsed from <input_json> when provided)
+#   4. fallback: $PWD
+tmb_cmd_cwd() {
+  local cmd="$1"
+  local input="${2:-}"
+  local cd_path
+  # Match leading: `cd /some/path &&` or `cd /some/path ;` or `cd /some/path\n`
+  cd_path=$(echo "$cmd" | sed -nE 's|^[[:space:]]*cd[[:space:]]+("([^"]+)"\|'"'"'([^'"'"']+)'"'"'\|([^[:space:]&;]+)).*|\2\3\4|p' | head -1)
+  if [ -n "$cd_path" ]; then
+    echo "$cd_path"
+    return
+  fi
+  # Try git -C <path>
+  cd_path=$(echo "$cmd" | grep -oE 'git -C [^[:space:]]+' | head -1 | awk '{print $3}' | tr -d "'\"")
+  if [ -n "$cd_path" ]; then
+    echo "$cd_path"
+    return
+  fi
+  # Try the hook payload cwd (CC may populate this).
+  if [ -n "$input" ]; then
+    cd_path=$(echo "$input" | jq -r '.cwd // empty' 2>/dev/null)
+    if [ -n "$cd_path" ]; then
+      echo "$cd_path"
+      return
+    fi
+  fi
+  echo "$PWD"
+}
+
+# tmb_repo_default_branch <git_root>
+# Print the repo's real default branch. Resolution order:
+#   1. the remote's default (origin/HEAD's target)
+#   2. the first well-known default name that actually exists (main, master, dev)
+#   3. the main checkout's current branch (HEAD)
+#   4. "main"
+# Empty only when <git_root> is empty. Used as the base-check fallback when a
+# configured target_branch ref does not actually exist in the repo. Steps 1–2
+# avoid returning a feature branch that merely happens to be the checked-out HEAD.
+tmb_repo_default_branch() {
+  local root="$1"
+  [ -n "$root" ] || return 0
+  local b cand
+  b=$(git -C "$root" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##' || true)
+  if [ -n "$b" ]; then
+    printf '%s' "$b"
+    return 0
+  fi
+  for cand in main master dev; do
+    if git -C "$root" show-ref --verify --quiet "refs/heads/$cand" 2>/dev/null; then
+      printf '%s' "$cand"
+      return 0
+    fi
+  done
+  b=$(git -C "$root" symbolic-ref --short HEAD 2>/dev/null || true)
+  if [ -n "$b" ]; then
+    printf '%s' "$b"
+    return 0
+  fi
+  printf 'main'
+}
 
 # tmb_repo_git_root <dir>
 # Prints the MAIN worktree root for <dir>; empty string if not inside a git repo.
@@ -46,6 +138,34 @@ tmb_repo_resolve() {
     2>/dev/null | head -1 || true
 }
 
+# tmb_repo_remotes <db> <git_root>
+# Prints repos.remotes (JSON array of {name,provider,url}) for the row whose
+# path matches <git_root>. When <git_root> is empty or no row matches, falls
+# back to the sole registered repo (single-repo). Empty when unresolved.
+tmb_repo_remotes() {
+  local db="$1"
+  local git_root="$2"
+  [ -f "$db" ] || return 0
+  command -v sqlite3 >/dev/null 2>&1 || return 0
+  local out=""
+  if [ -n "$git_root" ]; then
+    out=$(sqlite3 -readonly -cmd '.timeout 500' "$db" \
+      "SELECT COALESCE(remotes,'')
+         FROM repos WHERE path = '$(printf '%s' "$git_root" | sed "s/'/''/g")' LIMIT 1;" \
+      2>/dev/null | head -1 || true)
+  fi
+  if [ -z "$out" ]; then
+    local count
+    count=$(sqlite3 -readonly -cmd '.timeout 500' "$db" \
+      "SELECT COUNT(*) FROM repos;" 2>/dev/null || echo 0)
+    if [ "${count:-0}" = "1" ]; then
+      out=$(sqlite3 -readonly -cmd '.timeout 500' "$db" \
+        "SELECT COALESCE(remotes,'') FROM repos LIMIT 1;" 2>/dev/null | head -1 || true)
+    fi
+  fi
+  printf '%s' "$out"
+}
+
 # tmb_repo_is_registered <db> <git_root>
 # Exits 0 when repos has a row with path=<git_root>; exits 1 otherwise.
 tmb_repo_is_registered() {
@@ -59,4 +179,48 @@ tmb_repo_is_registered() {
     "SELECT COUNT(*) FROM repos WHERE path = '$(printf '%s' "$git_root" | sed "s/'/''/g")';" \
     2>/dev/null || echo 0)
   [ "${count:-0}" -gt 0 ]
+}
+
+# tmb_repo_path_by_name <db> <name>
+# Prints repos.path for the row whose name matches <name>; empty when absent.
+tmb_repo_path_by_name() {
+  local db="$1"
+  local name="$2"
+  [ -f "$db" ] || return 0
+  command -v sqlite3 >/dev/null 2>&1 || return 0
+  [ -n "$name" ] || return 0
+  sqlite3 -readonly -cmd '.timeout 500' "$db" \
+    "SELECT path FROM repos WHERE name = '$(printf '%s' "$name" | sed "s/'/''/g")' LIMIT 1;" \
+    2>/dev/null | head -1 || true
+}
+
+# tmb_repo_single_path <db>
+# Prints repos.path when EXACTLY one repo is registered, else empty.
+# This is the single-repo fallback (matches the MCP resolveDefaultRepoPath).
+tmb_repo_single_path() {
+  local db="$1"
+  [ -f "$db" ] || return 0
+  command -v sqlite3 >/dev/null 2>&1 || return 0
+  local count
+  count=$(sqlite3 -readonly -cmd '.timeout 500' "$db" \
+    "SELECT COUNT(*) FROM repos;" 2>/dev/null || echo 0)
+  [ "${count:-0}" = "1" ] || return 0
+  sqlite3 -readonly -cmd '.timeout 500' "$db" \
+    "SELECT path FROM repos LIMIT 1;" 2>/dev/null | head -1 || true
+}
+
+# tmb_repo_resolve_path <db> <name>
+# Resolve the absolute repo path: by <name> via repos.path; when <name> is
+# empty, fall back to the sole registered repo (single-repo). Empty when neither.
+tmb_repo_resolve_path() {
+  local db="$1"
+  local name="$2"
+  local path=""
+  if [ -n "$name" ]; then
+    path=$(tmb_repo_path_by_name "$db" "$name")
+  fi
+  if [ -z "$path" ]; then
+    path=$(tmb_repo_single_path "$db")
+  fi
+  printf '%s' "$path"
 }

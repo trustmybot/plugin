@@ -2,6 +2,7 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
+import { insertDiscussion } from './discussions.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -521,15 +522,9 @@ export function roundtableTools(db: TrajectoryDB): {
 
         db.transaction(() => {
           for (const agreement of ratified) {
-            db.run(
-              `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'answer', ?, ?)`,
-              [issueId, agreement, now],
-            );
+            insertDiscussion(db, { issue_id: issueId, author: 'bro', kind: 'answer', body: agreement, created_at: now });
             discussionRowsWritten++;
-            db.run(
-              `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'decision', ?, ?)`,
-              [issueId, `Ratified: ${agreement}`, now],
-            );
+            insertDiscussion(db, { issue_id: issueId, author: 'bro', kind: 'decision', body: `Ratified: ${agreement}`, created_at: now });
             discussionRowsWritten++;
             db.run(
               `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', 'ratified', ?, ?)`,
@@ -539,18 +534,12 @@ export function roundtableTools(db: TrajectoryDB): {
           }
 
           for (const agreement of unratified) {
-            db.run(
-              `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'note', ?, ?)`,
-              [issueId, `not ratified: ${agreement}`, now],
-            );
+            insertDiscussion(db, { issue_id: issueId, author: 'bro', kind: 'note', body: `not ratified: ${agreement}`, created_at: now });
             discussionRowsWritten++;
           }
 
           for (const r of resolutions) {
-            db.run(
-              `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'decision', ?, ?)`,
-              [issueId, `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, now],
-            );
+            insertDiscussion(db, { issue_id: issueId, author: 'bro', kind: 'decision', body: `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, created_at: now });
             discussionRowsWritten++;
             db.run(
               `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', ?, ?, ?)`,
@@ -584,6 +573,13 @@ export function roundtableTools(db: TrajectoryDB): {
           throw new Error(`Not found: roundtable ${roundtableId}`);
         }
 
+        // The window upper bound must be compared in the SAME format as
+        // discussions.created_at, which is ISO (nowISO). An OPEN roundtable has
+        // closed_at NULL, so we fall back to an ISO `now` — not SQLite's
+        // `datetime('now')` (space-separated), which sorts BELOW an ISO 'T'
+        // string and silently drops same-day rows (#1030).
+        const windowEnd = nowISO();
+
         const participants = db.all<{ participant: string }>(
           `SELECT DISTINCT participant FROM roundtable_votes
            WHERE roundtable_id = ? AND participant != 'human' AND participant IS NOT NULL`,
@@ -592,20 +588,20 @@ export function roundtableTools(db: TrajectoryDB): {
 
         const answerRows = db.all<{ body: string }>(
           `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'answer'
-           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`,
-          [roundtable.issue_id, roundtable.created_at, roundtable.closed_at],
+           AND created_at >= ? AND created_at <= COALESCE(?, ?)`,
+          [roundtable.issue_id, roundtable.created_at, roundtable.closed_at, windowEnd],
         ).map((r) => r.body);
 
         const noteRows = db.all<{ body: string }>(
           `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'note' AND body LIKE 'not ratified: %'
-           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`,
-          [roundtable.issue_id, roundtable.created_at, roundtable.closed_at],
+           AND created_at >= ? AND created_at <= COALESCE(?, ?)`,
+          [roundtable.issue_id, roundtable.created_at, roundtable.closed_at, windowEnd],
         ).map((r) => r.body.replace(/^not ratified: /, ''));
 
         const decisionRows = db.all<{ body: string }>(
           `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'decision' AND body NOT LIKE 'Ratified: %'
-           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`,
-          [roundtable.issue_id, roundtable.created_at, roundtable.closed_at],
+           AND created_at >= ? AND created_at <= COALESCE(?, ?)`,
+          [roundtable.issue_id, roundtable.created_at, roundtable.closed_at, windowEnd],
         );
 
         const disagreementsResolved = decisionRows.map((r) => ({
@@ -680,15 +676,9 @@ export function roundtableTools(db: TrajectoryDB): {
 
         db.transaction(() => {
           for (const agreement of decisions.ratified) {
-            db.run(
-              `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'answer', ?, ?)`,
-              [issueId, agreement, now],
-            );
+            insertDiscussion(db, { issue_id: issueId, author: 'bro', kind: 'answer', body: agreement, created_at: now });
             discussionRowsWritten++;
-            db.run(
-              `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'decision', ?, ?)`,
-              [issueId, `Ratified: ${agreement}`, now],
-            );
+            insertDiscussion(db, { issue_id: issueId, author: 'bro', kind: 'decision', body: `Ratified: ${agreement}`, created_at: now });
             discussionRowsWritten++;
             db.run(
               `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', 'ratified', ?, ?)`,
@@ -698,18 +688,12 @@ export function roundtableTools(db: TrajectoryDB): {
           }
 
           for (const agreement of decisions.unratified) {
-            db.run(
-              `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'note', ?, ?)`,
-              [issueId, `not ratified: ${agreement}`, now],
-            );
+            insertDiscussion(db, { issue_id: issueId, author: 'bro', kind: 'note', body: `not ratified: ${agreement}`, created_at: now });
             discussionRowsWritten++;
           }
 
           for (const r of decisions.resolutions) {
-            db.run(
-              `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (?, 'bro', 'decision', ?, ?)`,
-              [issueId, `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, now],
-            );
+            insertDiscussion(db, { issue_id: issueId, author: 'bro', kind: 'decision', body: `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, created_at: now });
             discussionRowsWritten++;
             db.run(
               `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', ?, ?, ?)`,

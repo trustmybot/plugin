@@ -107,18 +107,30 @@ assert_not_contains "$out" "error" "partial install path does not emit error"
 # node_modules. We verify: exit 0 and (if a package manager is present)
 # the additionalContext notice is emitted.
 # ──────────────────────────────────────────────────────────────
-test_case "full-install path exits 0 and emits notice or silent"
-MCP_DIR_8="$TMPDIR_EK/mcp8/trajectory-server"
+test_case "full-install path emits kuzu additionalContext notice (deterministic)"
+# NOTE: the hook resolves MCP_DIR as $CLAUDE_PLUGIN_ROOT/mcp/trajectory-server,
+# so the fixture must nest under mcp/ or the hook exits early at the -d check
+# (the old mcp8/trajectory-server layout never reached this path — a tautology).
+MCP_DIR_8="$TMPDIR_EK/mcp8/mcp/trajectory-server"
 mkdir -p "$MCP_DIR_8"
 echo '{"name":"traj","dependencies":{"kuzu":"*"}}' > "$MCP_DIR_8/package.json"
 PLUGIN_ROOT_8="$TMPDIR_EK/mcp8"
+# Curated PATH exposing only grep + jq (and bash to run the hook), deliberately
+# omitting bun/npm so the hook takes the deterministic "no package manager"
+# branch — it emits an additionalContext advisory instead of backgrounding a
+# real network install (isolation: no stray process, no package-cache writes).
+STUB_PATH_8="$TMPDIR_EK/stubpath8"
+mkdir -p "$STUB_PATH_8"
+for tool in bash grep jq; do
+  src=$(command -v "$tool") && ln -sf "$src" "$STUB_PATH_8/$tool"
+done
 exit_code=0
-out=$(echo "" | CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT_8" bash "$HOOK" 2>&1) || exit_code=$?
+out=$(echo "" | env -i HOME="$HOME" PATH="$STUB_PATH_8" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT_8" bash "$HOOK" 2>&1) || exit_code=$?
 assert_exit_code "0" "$exit_code" "full-install path exits 0"
-# If a package manager is present the notice will be emitted; if not, a different
-# notice is emitted. Either way: ok=true and contains additionalContext.
-if [ -n "$out" ]; then
-  assert_contains "$out" "additionalContext" "full-install path emits additionalContext"
-fi
+# Unconditional (anti-no-op): the full-install path always emits an
+# additionalContext notice. A no-op replacement of the hook would emit nothing
+# and fail these. Not guarded by [ -n "$out" ].
+assert_contains "$out" '"additionalContext"' "full-install path emits additionalContext notice"
+assert_contains "$out" "kuzu" "full-install notice names the kuzu install"
 
 summarize

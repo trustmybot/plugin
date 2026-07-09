@@ -100,10 +100,10 @@ MOCK_BIN=$(setup_mock_bin)
 PATH="$MOCK_BIN:$PATH" TRAJECTORY_DB_PATH="$DB1" \
   node --experimental-sqlite -e "
     const { TrajectoryDB } = await import('$PLUGIN_ROOT/mcp/trajectory-server/dist/db.js');
-    const { prCommentsTools } = await import('$PLUGIN_ROOT/mcp/trajectory-server/dist/tools/pr_comments.js');
+    const { prMonitorTools } = await import('$PLUGIN_ROOT/mcp/trajectory-server/dist/tools/pr_monitor.js');
     const db = new TrajectoryDB('$DB1');
-    const tools = prCommentsTools(db);
-    await tools.handlers['pr_comments_get']({ agent: 'bro', pr_number: 42 });
+    const tools = prMonitorTools(db);
+    await tools.handlers['pr_monitor_comments_get']({ agent: 'bro', pr_number: 42 });
     db.close();
   " 2>&1 || true
 
@@ -149,10 +149,10 @@ chmod +x "$MOCK_BIN3/gh"
 EMPTY_RESULT=$(PATH="$MOCK_BIN3:$PATH" TRAJECTORY_DB_PATH="$DB3" \
   node --experimental-sqlite -e "
     const { TrajectoryDB } = await import('$PLUGIN_ROOT/mcp/trajectory-server/dist/db.js');
-    const { prCommentsTools } = await import('$PLUGIN_ROOT/mcp/trajectory-server/dist/tools/pr_comments.js');
+    const { prMonitorTools } = await import('$PLUGIN_ROOT/mcp/trajectory-server/dist/tools/pr_monitor.js');
     const db = new TrajectoryDB('$DB3');
-    const tools = prCommentsTools(db);
-    const result = await tools.handlers['pr_comments_get']({ agent: 'bro', pr_number: 99 });
+    const tools = prMonitorTools(db);
+    const result = await tools.handlers['pr_monitor_comments_get']({ agent: 'bro', pr_number: 99 });
     const data = JSON.parse(result.content[0].text);
     console.log(JSON.stringify({ count: data.comments ? data.comments.length : -1 }));
     db.close();
@@ -169,7 +169,6 @@ assert_contains "$EMPTY_RESULT" '"count":0' "empty fetch returns zero comments"
 test_case "arch-impact heuristic flags schema.sql changes"
 ARCH_PATHS=(
   "mcp/trajectory-server/src/schema.sql"
-  "docs/trustmybot/architecture/auto/overview.md"
   ".claude-plugin/plugin.json"
   "templates/agents/new-agent.md"
   "agents/custom.md"
@@ -183,7 +182,7 @@ NON_ARCH_PATHS=(
 
 is_arch_impact() {
   local path="$1"
-  echo "$path" | grep -qE '(docs/trustmybot/architecture/auto/|mcp/trajectory-server/src/schema\.sql|\.claude-plugin/plugin\.json|templates/agents/|^agents/)' && return 0
+  echo "$path" | grep -qE '(mcp/trajectory-server/src/schema\.sql|\.claude-plugin/plugin\.json|templates/agents/|^agents/)' && return 0
   return 1
 }
 

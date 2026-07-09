@@ -1,0 +1,5 @@
+{
+  "expected_writes": {
+    "audit WHERE event_type = 'tmb_skill_created' OR event_type LIKE '%creator_blocked%'": ">=1"
+  }
+}

@@ -2,9 +2,9 @@
 # Tests for scripts/hooks/swe-verification-gate.sh
 #
 # Hook contract: PreToolUse gate on task_update_status(agent=swe, status=completed).
-# Extracts ## Verification block from spec_body, runs each command in the
-# task worktree. Deny on non-zero exit or total timeout. Allow on pass, no block,
-# or valid waiver.
+# Reads the typed `verification` column (JSON array of command strings, Typed
+# Rails #673), runs each command in the task worktree. Deny on non-zero exit or
+# total timeout. Allow on pass, empty array, or valid waiver.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,22 +15,24 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/swe-verification-gate.sh"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-# Workspace-above-repo layout (mirrors the real TMB workspace):
-#   <ws>/.claude/tmb/trajectory.db   — DB lives here
-#   <ws>/.claude/worktrees/<slug>/   — worktrees here
-#   <ws>/plugin/                     — repo here (separate from ws root)
+# Plugin-subdir layout (mirrors the real TMB workspace):
+#   <ws>/.claude/tmb/trajectory.db        — DB lives at the workspace root
+#   <ws>/plugin/                          — the repo (a subdir of the workspace)
+#   <ws>/plugin/.claude/worktrees/<slug>/ — worktrees hang off the REPO, not ws
+#
+# The verification gate resolves the worktree base from the task's repo
+# (tasks.repo → repos.path), exactly as ensure-swe-worktree.sh creates it — a
+# workspace-rooted guess (<ws>/.claude/worktrees) is wrong here. (#156)
 WS="$TMPDIR/ws"
 mkdir -p "$WS/.claude/tmb"
 DB="$WS/.claude/tmb/trajectory.db"
 export TRAJECTORY_DB_PATH="$DB"
 
-# Worktrees hang off the workspace .claude dir (not the repo).
-WT_ROOT="$WS/.claude/worktrees"
-mkdir -p "$WT_ROOT/my-feature"
-
-# Fake repo dir — hook runs with cwd here in workspace-above-repo tests.
+# Repo dir — a subdir of the workspace. Worktrees hang off the repo's .claude.
 REPO_DIR="$WS/plugin"
 mkdir -p "$REPO_DIR"
+WT_ROOT="$REPO_DIR/.claude/worktrees"
+mkdir -p "$WT_ROOT/my-feature"
 
 sqlite3 "$DB" "
   CREATE TABLE issues (
@@ -41,12 +43,19 @@ sqlite3 "$DB" "
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  CREATE TABLE repos (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    path TEXT NOT NULL
+  );
   CREATE TABLE tasks (
     id INTEGER PRIMARY KEY,
     issue_id INTEGER NOT NULL REFERENCES issues(id),
     branch_id TEXT NOT NULL,
+    repo TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
-    spec_body TEXT NOT NULL DEFAULT ''
+    spec_body TEXT NOT NULL DEFAULT '',
+    verification TEXT NOT NULL DEFAULT '[]'
   );
   CREATE TABLE audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,10 +68,11 @@ sqlite3 "$DB" "
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   INSERT INTO issues VALUES (1, 'test', '', 'open', datetime('now'), datetime('now'));
-  INSERT INTO tasks VALUES (1, 1, 'feat/my-feature', 'pending', '## Verification' || char(10) || 'bash tests/run.sh' || char(10));
-  INSERT INTO tasks VALUES (2, 1, 'feat/no-verify', 'pending', '## Description' || char(10) || 'No verification block here.' || char(10));
-  INSERT INTO tasks VALUES (3, 1, 'feat/fail-verify', 'pending', '## Verification' || char(10) || 'exit 1' || char(10));
-  INSERT INTO tasks VALUES (4, 1, 'feat/multi-cmd', 'pending', '## Verification' || char(10) || 'echo ok' || char(10) || 'exit 0' || char(10));
+  INSERT INTO repos VALUES (1, 'plugin', '$REPO_DIR');
+  INSERT INTO tasks VALUES (1, 1, 'feat/my-feature', 'plugin', 'pending', '', '[\"bash tests/run.sh\"]');
+  INSERT INTO tasks VALUES (2, 1, 'feat/no-verify', 'plugin', 'pending', '', '[]');
+  INSERT INTO tasks VALUES (3, 1, 'feat/fail-verify', 'plugin', 'pending', '', '[\"exit 1\"]');
+  INSERT INTO tasks VALUES (4, 1, 'feat/multi-cmd', 'plugin', 'pending', '', '[\"echo ok\",\"exit 0\"]');
 "
 
 # Create a passing test runner in the worktree.
@@ -101,12 +111,12 @@ test_case "SWE setting status=failed: allowed"
 out=$(run_hook "$(make_input swe failed 1)")
 assert_not_contains "$out" '"permissionDecision":"deny"' "status=failed should not trigger gate"
 
-# ---- No ## Verification block: allow with advisory --------------------------
-test_case "SWE completing task with no ## Verification block: allowed with advisory"
+# ---- Empty typed verification[]: allow with advisory ------------------------
+test_case "SWE completing task with empty typed verification[]: allowed with advisory"
 out=$(run_hook "$(make_input swe completed 2)")
-assert_not_contains "$out" '"permissionDecision":"deny"' "no verification block should allow"
+assert_not_contains "$out" '"permissionDecision":"deny"' "empty verification[] should allow"
 assert_contains "$out" "additionalContext" "should emit advisory additionalContext"
-assert_contains "$out" "no ## Verification block" "advisory should mention missing block"
+assert_contains "$out" "no typed verification" "advisory should mention missing typed field"
 
 # ---- Passing verification: allowed ------------------------------------------
 test_case "SWE completing task with passing verification: allowed"
@@ -154,8 +164,7 @@ assert_not_contains "$out" '"permissionDecision":"deny"' "no DB should allow"
 # ---- Timeout: DENIED --------------------------------------------------------
 test_case "Verification timeout: DENIED"
 sqlite3 "$DB" "
-  INSERT INTO tasks VALUES (99, 1, 'feat/slow-test', 'pending',
-    '## Verification' || char(10) || 'sleep 5' || char(10) || 'echo done' || char(10));
+  INSERT INTO tasks VALUES (99, 1, 'feat/slow-test', 'plugin', 'pending', '', '[\"sleep 5\",\"echo done\"]');
 "
 mkdir -p "$WT_ROOT/slow-test"
 out=$(cd "$REPO_DIR" && \
@@ -192,58 +201,134 @@ assert_contains "$ROW" "it's a doc-only change" "stored content_json should reta
 EXTRACTED=$(sqlite3 "$DB" "SELECT json_extract(content_json, '\$.waiver_reason') FROM audit WHERE event_type='verification_gate_waived' ORDER BY id DESC LIMIT 1;")
 assert_contains "$EXTRACTED" "can't run here" "content_json should be valid JSON (json_extract works)"
 
-# ---- Bullet+backtick verification: passing -----------------------------------
-# Spec writes:  ## Verification\n- `echo ok`\n- `exit 0`
-test_case "bullet+backtick ## Verification block: all pass → allowed"
+# ---- Multi-command typed verification[]: passing -----------------------------
+test_case "multi-command typed verification[]: all pass → allowed"
 sqlite3 "$DB" "
-  INSERT INTO tasks VALUES (10, 1, 'feat/bullet-pass', 'pending',
-    '## Verification' || char(10) ||
-    '- \`echo bullet-ok\`' || char(10) ||
-    '- \`exit 0\`' || char(10));
+  INSERT INTO tasks VALUES (10, 1, 'feat/typed-pass', 'plugin', 'pending', '', '[\"echo typed-ok\",\"exit 0\"]');
 "
-mkdir -p "$WT_ROOT/bullet-pass"
+mkdir -p "$WT_ROOT/typed-pass"
 out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 10)")
-assert_not_contains "$out" '"permissionDecision":"deny"' "bullet+backtick all-pass should allow"
+assert_not_contains "$out" '"permissionDecision":"deny"' "typed multi-command all-pass should allow"
 
-# ---- Bullet+backtick verification: failing -----------------------------------
-# Spec writes:  ## Verification\n- `exit 1`
-test_case "bullet+backtick ## Verification block: failing cmd → DENIED"
+# ---- Typed verification[]: failing command -----------------------------------
+test_case "typed verification[]: failing command → DENIED"
 sqlite3 "$DB" "
-  INSERT INTO tasks VALUES (11, 1, 'feat/bullet-fail', 'pending',
-    '## Verification' || char(10) ||
-    '- \`exit 1\`' || char(10));
+  INSERT INTO tasks VALUES (11, 1, 'feat/typed-fail', 'plugin', 'pending', '', '[\"exit 1\"]');
 "
-mkdir -p "$WT_ROOT/bullet-fail"
+mkdir -p "$WT_ROOT/typed-fail"
 out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 11)")
-assert_contains "$out" '"permissionDecision":"deny"' "bullet+backtick failing cmd should deny"
+assert_contains "$out" '"permissionDecision":"deny"' "typed failing cmd should deny"
 assert_contains "$out" "verification failed" "deny reason should say verification failed"
 
-# ---- Bullet-only (no backticks) verification: passing ------------------------
-test_case "bullet-only (no backticks) ## Verification block: all pass → allowed"
+# ---- Typed verification[] with shell metacharacters in a command -------------
+test_case "typed verification[]: command with pipes/redirects runs verbatim → allowed"
 sqlite3 "$DB" "
-  INSERT INTO tasks VALUES (12, 1, 'feat/bullet-bare-pass', 'pending',
-    '## Verification' || char(10) ||
-    '- echo bare-ok' || char(10) ||
-    '- exit 0' || char(10));
+  INSERT INTO tasks VALUES (12, 1, 'feat/typed-shell', 'plugin', 'pending', '', '[\"echo a | grep a\"]');
 "
-mkdir -p "$WT_ROOT/bullet-bare-pass"
+mkdir -p "$WT_ROOT/typed-shell"
 out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 12)")
-assert_not_contains "$out" '"permissionDecision":"deny"' "bare-bullet all-pass should allow"
+assert_not_contains "$out" '"permissionDecision":"deny"' "shell-metachar command should run and pass"
 
-# ---- Workspace-above-repo layout: gate runs (no skip warning) ----------------
-# Layout: ws/.claude/tmb/trajectory.db  +  ws/.claude/worktrees/<slug>/
-# Hook runs from ws/plugin (the repo), not the workspace root.
-# With the old PWD walk-up the gate would skip (worktrees not under ws/plugin).
-# With the new DB-derived resolution the gate finds ws/.claude/worktrees/.
-test_case "workspace-above-repo layout: gate resolves worktree and runs (no skip)"
+# ---- Repo-subdir layout: worktree resolves under the REPO, not the ws --------
+# Layout: ws/.claude/tmb/trajectory.db  +  ws/plugin/.claude/worktrees/<slug>/
+# Hook runs from ws/plugin (the repo). The worktree hangs off the repo subdir,
+# NOT the workspace root. A workspace-rooted guess (ws/.claude/worktrees) would
+# silently miss the worktree; the repo-rooted resolution (tasks.repo → repos.path)
+# finds ws/plugin/.claude/worktrees/. (#156)
+test_case "repo-subdir layout: gate resolves worktree under the repo root and runs"
 sqlite3 "$DB" "
-  INSERT INTO tasks VALUES (20, 1, 'feat/ws-above-repo', 'pending',
-    '## Verification' || char(10) ||
-    'echo ws-above-repo-ok' || char(10));
+  INSERT INTO tasks VALUES (20, 1, 'feat/repo-subdir', 'plugin', 'pending', '', '[\"echo repo-subdir-ok\"]');
 "
-mkdir -p "$WT_ROOT/ws-above-repo"
+mkdir -p "$WT_ROOT/repo-subdir"
+# A decoy worktree at the WORKSPACE root must NOT be picked up — only the
+# repo-rooted one is valid. A workspace-rooted resolver would run the decoy's
+# (absent) commands and behave differently.
+mkdir -p "$WS/.claude/worktrees/repo-subdir"
 out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 20)")
-assert_not_contains "$out" "verification gate skipped" "workspace-above-repo gate must not skip"
-assert_not_contains "$out" '"permissionDecision":"deny"' "workspace-above-repo passing cmd should allow"
+assert_not_contains "$out" "verification gate skipped" "repo-subdir gate must not skip"
+assert_not_contains "$out" '"permissionDecision":"deny"' "repo-subdir passing cmd should allow"
+
+# ---- Minimal hook PATH: toolchain (mise/homebrew) tool resolves (#673) --------
+# The swe-subagent PreToolUse hook process starts with a minimal, login-stripped
+# PATH where npm/node/shellcheck are absent (they live in mise/homebrew). The
+# gate must resolve the user toolchain PATH so such a verification[] command
+# runs instead of exiting 127 (false DENY).
+#
+# We pick a real toolchain tool (node via mise, else shellcheck via homebrew),
+# capture its bin dir, then run the hook under a PATH that DELIBERATELY excludes
+# that bin dir (but keeps the hook's own deps: jq, sqlite3, the timeout impl).
+# If the gate's PATH resolution works, the command resolves and runs.
+TOOL=""; TOOL_BIN=""
+for cand in node npm shellcheck; do
+  p=$(command -v "$cand" 2>/dev/null || true)
+  if [ -n "$p" ]; then TOOL="$cand"; TOOL_BIN=$(dirname "$p"); break; fi
+done
+
+if [ -n "$TOOL" ]; then
+  # Build a PATH that keeps the hook's runtime deps but drops the tool's bin dir.
+  DEP_DIRS=""
+  for dep in jq sqlite3 timeout gtimeout perl date dirname tail head bash sort tr; do
+    dp=$(command -v "$dep" 2>/dev/null || true)
+    [ -n "$dp" ] || continue
+    d=$(dirname "$dp")
+    case ":$DEP_DIRS:" in *":$d:"*) ;; *) DEP_DIRS="${DEP_DIRS:+$DEP_DIRS:}$d" ;; esac
+  done
+  # Strip the tool's bin dir from the dep PATH so it is genuinely unresolvable
+  # before the gate prepends the toolchain dirs.
+  MINIMAL_PATH=""
+  IFS=: read -ra _dirs <<< "$DEP_DIRS"
+  for d in "${_dirs[@]}"; do
+    [ "$d" = "$TOOL_BIN" ] && continue
+    MINIMAL_PATH="${MINIMAL_PATH:+$MINIMAL_PATH:}$d"
+  done
+  MINIMAL_PATH="${MINIMAL_PATH}:/usr/bin:/bin:/usr/sbin:/sbin"
+
+  run_hook_min_path() {
+    echo "$1" | env PATH="$MINIMAL_PATH" bash "$HOOK" 2>&1 || true
+  }
+
+  # Sanity: under the minimal PATH the tool is genuinely unresolvable.
+  test_case "minimal PATH: chosen toolchain tool ($TOOL) is unresolvable before gate resolution"
+  unresolved=$(env PATH="$MINIMAL_PATH" bash -c "command -v $TOOL >/dev/null 2>&1 && echo found || echo missing")
+  assert_eq "missing" "$unresolved" "$TOOL must be off the minimal PATH for this test to be meaningful"
+
+  # Passing: a verification command invoking the toolchain tool resolves and runs.
+  test_case "minimal PATH: passing verification using mise/homebrew tool resolves and ALLOWS (#673)"
+  sqlite3 "$DB" "
+    INSERT INTO tasks VALUES (30, 1, 'feat/toolchain-pass', 'plugin', 'pending', '', '[\"$TOOL --version\"]');
+  "
+  mkdir -p "$WT_ROOT/toolchain-pass"
+  out=$(cd "$REPO_DIR" && run_hook_min_path "$(make_input swe completed 30)")
+  assert_not_contains "$out" '"permissionDecision":"deny"' "toolchain tool should resolve and pass (no false 127 DENY)"
+
+  # Failing: the same tool exits non-zero → genuine DENY (resolution still works).
+  test_case "minimal PATH: failing verification using mise/homebrew tool resolves and DENIES (#673)"
+  sqlite3 "$DB" "
+    INSERT INTO tasks VALUES (31, 1, 'feat/toolchain-fail', 'plugin', 'pending', '', '[\"$TOOL --no-such-flag-xyz; exit 1\"]');
+  "
+  mkdir -p "$WT_ROOT/toolchain-fail"
+  out=$(cd "$REPO_DIR" && run_hook_min_path "$(make_input swe completed 31)")
+  assert_contains "$out" '"permissionDecision":"deny"' "genuinely failing toolchain command should still DENY"
+  assert_contains "$out" "verification failed" "deny reason should say verification failed"
+fi
+
+# ---- No worktree + non-empty verification[]: fail CLOSED (deny, never skip) ---
+# When the task's worktree cannot be located but verification[] is non-empty,
+# the gate must DENY with a named remediation — never skip (the silent skip let
+# tasks atomic-close without the gate enforcing verification, a safety hole) and
+# never silently fall back to the active checkout (that would let SWE pass the
+# gate from an arbitrary cwd). (#156)
+test_case "no worktree + non-empty verification[]: fail CLOSED with a named reason (deny)"
+sqlite3 "$DB" "
+  INSERT INTO tasks VALUES (40, 1, 'feat/no-worktree', 'plugin', 'pending', '', '[\"echo should-not-run\"]');
+"
+# Deliberately do NOT create the worktree dir for this slug. The repo resolves
+# (repos.path), but no worktree exists under it → the gate must fail closed.
+ACTIVE_CHECKOUT=$(git -C "$PLUGIN_ROOT" rev-parse --show-toplevel 2>/dev/null || echo "$PLUGIN_ROOT")
+out=$(cd "$ACTIVE_CHECKOUT" && run_hook "$(make_input swe completed 40)")
+assert_not_contains "$out" "verification gate skipped" "no-worktree gate must not emit the silent-skip note"
+assert_contains "$out" '"permissionDecision":"deny"' "unlocatable worktree must DENY (fail closed)"
+assert_contains "$out" "could not locate the task worktree" "deny reason should name the missing-worktree remediation"
+assert_contains "$out" ".claude/worktrees/no-worktree" "deny reason should name the expected repo-rooted worktree path"
 
 summarize

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for scripts/hooks/post-pr-comments-persist.sh
 #
-# Hook contract: on a pr_comments_get PostToolUse, persist each returned comment
+# Hook contract: on a pr_monitor_comments_get PostToolUse, persist each returned comment
 # as a discussions row via sqlite3. The regression under test (#274): a comment
 # body containing a single quote must still persist — bash pattern-substitution
 # escaping produced backslash-quote (SQLite drops the row); sed "s/'/''/g" is
@@ -34,11 +34,14 @@ sqlite3 "$DB" "
     VALUES (1,'t','t','open',datetime('now'),datetime('now'));
   INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
     VALUES (1,1,'fix/1-pr','t','d','open','s',datetime('now'),datetime('now'));
+  -- Carrier resolution is via pr_number → pr_review_runs → task → issue (#1024).
+  INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, task_id)
+    VALUES (42,'',datetime('now'),1),(99,'',datetime('now'),1),(77,'',datetime('now'),1);
 " >/dev/null
 
-# pr_comments_get-shaped tool result with an apostrophe in the body + author.
+# pr_monitor_comments_get-shaped tool result with an apostrophe in the body + author.
 PAYLOAD=$(jq -cn '{
-  tool_name: "pr_comments_get",
+  tool_name: "pr_monitor_comments_get",
   tool_response: { output: {
     pr_number: 42,
     comments: [ { number: 1, author: "o'\''brien", body: "don'\''t drop this comment", pr_number: 42, is_resolved: false } ]
@@ -66,7 +69,7 @@ esac
 test_case "#349: .tool_response.content[0].text shape is parsed correctly"
 sqlite3 "$DB" "DELETE FROM discussions;"
 PAYLOAD_CONTENT=$(jq -cn '{
-  tool_name: "pr_comments_get",
+  tool_name: "pr_monitor_comments_get",
   tool_response: { content: [ { type: "text", text: "{\"pr_number\":99,\"comments\":[{\"number\":2,\"author\":\"reviewer\",\"body\":\"looks good\",\"pr_number\":99,\"is_resolved\":false}]}" } ] }
 }')
 ( cd "$REPO" && echo "$PAYLOAD_CONTENT" | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null )
@@ -92,9 +95,11 @@ sqlite3 "$WALK_DB" "
     VALUES (2,'t','t','open',datetime('now'),datetime('now'));
   INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
     VALUES (2,2,'fix/walk-pr','t','d','open','s',datetime('now'),datetime('now'));
+  INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, task_id)
+    VALUES (55,'',datetime('now'),2);
 " >/dev/null
 WALK_PAYLOAD=$(jq -cn '{
-  tool_name: "pr_comments_get",
+  tool_name: "pr_monitor_comments_get",
   tool_response: { output: {
     pr_number: 55,
     comments: [ { number: 3, author: "walk", body: "walk-up comment", pr_number: 55, is_resolved: false } ]
@@ -105,14 +110,14 @@ COUNT3=$(sqlite3 "$WALK_DB" "SELECT COUNT(*) FROM discussions WHERE kind='note' 
 assert_eq "1" "$COUNT3" "walk-up must find the DB and insert the comment row"
 
 # ── injection regression ──────────────────────────────────────────────────────
-# The discussions INSERT uses CURRENT_BRANCH (from git rev-parse), ISSUE_ID
-# (from DB SELECT), AUTHOR_ESC and NOTE_BODY_ESC (both escaped via sed).
+# Carrier issue_id resolves via the integer-validated pr_number (#1024, no raw
+# branch interpolation); AUTHOR_ESC and NOTE_BODY_ESC are escaped via sed.
 # We test: injection via comment body does NOT corrupt the DB.
 
 test_case "injection in comment body: treated as literal string, no SQL error"
 sqlite3 "$DB" "DELETE FROM discussions;"
 INJ_PAYLOAD=$(jq -cn '{
-  tool_name: "pr_comments_get",
+  tool_name: "pr_monitor_comments_get",
   tool_response: { output: {
     pr_number: 99,
     comments: [ { number: 9, author: "hax", body: "1; DROP TABLE discussions;-- end", pr_number: 99, is_resolved: false } ]
@@ -127,7 +132,7 @@ assert_eq "1" "$COUNT_INJ" "injection-string comment inserted as a literal row"
 test_case "comment author with single quotes: row inserted intact"
 sqlite3 "$DB" "DELETE FROM discussions;"
 QUOTE_PAYLOAD=$(jq -cn '{
-  tool_name: "pr_comments_get",
+  tool_name: "pr_monitor_comments_get",
   tool_response: { output: {
     pr_number: 77,
     comments: [ { number: 5, author: "o'\''reilly", body: "it'\''s fine", pr_number: 77, is_resolved: false } ]

@@ -78,15 +78,18 @@ The trajectory DB is per-project and unaffected by the channel switch — your d
 When the MCP server starts and finds `plugin_meta.schema_version < TARGET_SCHEMA_VERSION`:
 
 1. **Backup.** A copy is written to `<dbpath>.pre-v<TARGET>.<timestamp>.bak` next to the live DB. One backup per target version — re-opening the same DB after migration does not create additional backups.
-2. **Migrate.** Migration steps run inside a single SQLite transaction. If any step fails, the transaction rolls back and your DB is left at the pre-migration version. The backup is still there.
+2. **Migrate.** Each version-step runs inside its own SQLite transaction. If a step fails, that step's transaction rolls back and your DB is left at the last version that committed cleanly. The backup is still there.
 3. **Bump.** `plugin_meta.schema_version` updates to the new target. Subsequent boots see the new version and skip migrations.
 
-### What's in the v1 → v2 migration
+### What the migration chain does
 
-- Drops zombie tables left over from earlier refactors (`identity`, `regen_state`, `project_metadata`).
-- Adds `skills.scope` (default `'global'`).
-- Rebuilds `tasks`, `roundtables`, `roundtable_votes` if any pre-v2 columns are still present. The new schema drops a handful of columns that were either never written or constant-by-construction; the rebuild copies surviving rows into a fresh table. The pre-v7 file-level registry is dropped at v7 as part of the world-model migration.
-- Adds `agent_runs.started_at` and relaxes `completed_at` to nullable.
+Migrations are chained one version at a time — `migrateV1toV2`, `migrateV2toV3`, … up to the current target — so a DB at any older version replays every step in order to reach the target. Across the chain the steps:
+
+- Drop zombie tables left over from earlier refactors (`identity`, `regen_state`, `project_metadata`).
+- Drop the pre-v7 file-level registry as part of the world-model migration.
+- Drop the `skill_invocations` table; skill/cheatcode usage is tracked in the stream-json session log instead of the trajectory DB.
+- Rebuild `tasks`, `roundtables`, `roundtable_votes` whenever a breaking column change lands — the rebuild copies surviving rows into a fresh table.
+- Add columns as features land (e.g. `agent_runs.started_at` with nullable `completed_at`, `issues.milestone`).
 
 Row data on every workflow table is preserved.
 
@@ -170,7 +173,7 @@ You're running a plugin that's older than the DB. Two ways out:
 
 ### Migration crashed mid-step
 
-The transaction wrapping `migrateV1toV2` rolls back. Your DB stays at the old version. Common causes: filesystem full, locked DB (another CC session is running against it).
+The transaction wrapping the migration step rolls back. Your DB stays at the old version. Common causes: filesystem full, locked DB (another CC session is running against it).
 
 - Free disk space / close the other session, then restart CC. Migration re-runs from scratch.
 - The pre-migration backup is still there if you'd rather roll back: restore the `.bak` file.
@@ -195,13 +198,13 @@ If your DB has a shape neither v1 nor v2 covers (e.g. you ran the plugin from a 
 
 ## Rolling back
 
-Migrations are forward-only. There is no v2 → v1 migration. To roll back:
+Migrations are forward-only — there is no downward migration. To roll back:
 
-1. Restore the `.bak` written at the time of the v1 → v2 migration:
+1. Restore the `.bak` written just before the upgrade migration ran (`<TARGET>` is the schema version you migrated to):
    ```bash
-   cp <dbpath>.pre-v2.<timestamp>.bak <dbpath>
+   cp <dbpath>.pre-v<TARGET>.<timestamp>.bak <dbpath>
    ```
-2. Downgrade the plugin to a version that ships `schema_version=1` code.
+2. Downgrade the plugin to a version whose code targets the older `schema_version`.
 
 Any work done since the upgrade is lost — the rollback restores the DB to the pre-upgrade snapshot.
 
@@ -209,15 +212,15 @@ Any work done since the upgrade is lost — the rollback restores the DB to the 
 
 ## Project-local pr-reviewer override (optional)
 
-The plugin ships one global pr-reviewer; it is the recommended reviewer. Claude Code resolves agents by name, so a project-local agent at `.claude/agents/pr-reviewer.md` shadows the plugin-global one when a project needs custom review behavior. A project-local agent may declare `mcpServers: [trajectory-server]` in its frontmatter (plugin-global agents cannot) — the entry must match a key in your project's `.mcp.json` (added during onboard). Without MCP tools the reviewer falls back to the honor-system sqlite3 path (§B path 2 in `tmb_review`); both paths produce valid verdicts.
+The plugin ships one global pr-reviewer; it is the recommended reviewer. Claude Code resolves agents by name, so a project-local agent at `.claude/agents/pr-reviewer.md` shadows the plugin-global one when a project needs custom review behavior. A project-local agent may declare `mcpServers: [trajectory-server]` in its frontmatter (plugin-global agents cannot) — the entry must match a key in your project's `.mcp.json` (added during onboard). Without MCP tools the reviewer falls back to the honor-system sqlite3 path (the fallback script in `tmb_review`); both paths produce valid verdicts.
 
 ### Verifying MCP is wired up
 
-When pr-reviewer writes its verdict, the first line of `feedback` will be `MCP available: yes` (path 1) instead of `MCP available: no — honor-system fallback` (path 2). Query the DB to confirm:
+When pr-reviewer writes its verdict, the typed `mcp_available` column is `1` (path 1, MCP-backed) instead of `0` (path 2, honor-system). Query the DB to confirm:
 
 ```bash
 sqlite3 <workspace>/.claude/tmb/trajectory.db \
-  "SELECT feedback FROM validation_attempts ORDER BY id DESC LIMIT 1;"
+  "SELECT mcp_available, verdict FROM validation_attempts ORDER BY id DESC LIMIT 1;"
 ```
 
 ---
@@ -237,14 +240,13 @@ git push origin main --tags
 
 ### Bumping the version
 
-`bump-version.sh` keeps the four version locations in sync atomically:
+`bump-version.sh` keeps the three version manifests in sync atomically:
 
 - `.claude-plugin/plugin.json`
 - `package.json`
 - `mcp/trajectory-server/package.json`
-- The `serverLog('startup', version: '...')` literal in `mcp/trajectory-server/src/index.ts`
 
-It does **not** touch the MCP `Server({ name, version })` constructor in `index.ts` — that's the protocol-handshake version, independent of the plugin version.
+`mcp/trajectory-server/src/index.ts` derives the version at runtime by reading its own `package.json`, so the startup-log line and the MCP `Server({ name, version })` handshake both pick up the new version automatically — there is no hardcoded version literal to edit.
 
 ### Bumping the schema
 
@@ -284,7 +286,7 @@ echo '@bro check status' | claude --plugin-dir <your-plugin-checkout> -p --dange
 
 # 5. Verify the migration applied
 sqlite3 .claude/tmb/trajectory.db 'SELECT schema_version, plugin_version FROM plugin_meta;'
-ls -la .claude/tmb/trajectory.db.pre-v2.*.bak           # one backup per target version
+ls -la .claude/tmb/trajectory.db.pre-v*.bak             # one backup per target version
 sqlite3 .claude/tmb/trajectory.db "SELECT value_json FROM plugin_config WHERE key='onboarded';"
 
 # 6. Cleanup
@@ -330,9 +332,9 @@ cd "$TEST_PROJ" && git init -q && git config user.email t@t.t && git config user
   && echo init > README.md && git add . && git commit -qm init
 echo '@bro hi' | claude --plugin-dir <your-plugin-checkout> -p --dangerously-skip-permissions
 
-# Verify
-sqlite3 "$DB" 'SELECT schema_version FROM plugin_meta;'        # expect 2
-ls "$DB".pre-v2.*.bak                                          # expect backup present
+# Verify — schema_version should now match the plugin's current TARGET_SCHEMA_VERSION
+sqlite3 "$DB" 'SELECT schema_version FROM plugin_meta;'
+ls "$DB".pre-v*.bak                                            # expect backup present
 sqlite3 "$DB" "SELECT value_json FROM plugin_config WHERE key='onboarded';"   # expect "true"
 rm -rf "$TEST_PROJ"
 ```
@@ -341,5 +343,5 @@ rm -rf "$TEST_PROJ"
 
 ```bash
 # Stop CC. Restore the .bak. Downgrade plugin. Re-launch.
-cp <project>/.claude/tmb/trajectory.db.pre-v2.<timestamp>.bak <project>/.claude/tmb/trajectory.db
+cp <project>/.claude/tmb/trajectory.db.pre-v<TARGET>.<timestamp>.bak <project>/.claude/tmb/trajectory.db
 ```

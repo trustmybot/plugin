@@ -54,7 +54,7 @@ export function detectPreferred() {
         return null;
     }
 }
-export function resolveBackend(configValue, hasSpawnFn = false) {
+export function resolveBackend(configValue, repoRemotes, hasSpawnFn = false, availability) {
     if (!hasSpawnFn &&
         (process.env.TMB_DISABLE_REMOTE_SYNC === '1' ||
             process.env.TMB_DISABLE_REMOTE_SYNC?.toLowerCase() === 'true')) {
@@ -68,19 +68,17 @@ export function resolveBackend(configValue, hasSpawnFn = false) {
         return 'glab';
     if (configValue === 'both')
         return 'both';
-    // 'auto' — detect at runtime
-    const available = detectAvailable();
-    if (!available.gh && !available.glab)
-        return null;
-    const preferred = detectPreferred();
-    if (preferred === 'gh' && available.gh)
+    // 'auto' — derive the decision from the issue repo's configured remotes
+    // (repos.remotes), gated only by a CLI-availability check that confirms the
+    // chosen CLI is installed/authed. No process.cwd() git probe.
+    const available = availability ?? detectAvailable();
+    const ghUsable = (repoRemotes?.github ?? false) && available.gh;
+    const glUsable = (repoRemotes?.gitlab ?? false) && available.glab;
+    if (ghUsable && glUsable)
+        return 'both';
+    if (ghUsable)
         return 'gh';
-    if (preferred === 'glab' && available.glab)
-        return 'glab';
-    // No origin preference — use whichever is available (gh preferred)
-    if (available.gh)
-        return 'gh';
-    if (available.glab)
+    if (glUsable)
         return 'glab';
     return null;
 }

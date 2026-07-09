@@ -15,9 +15,15 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/mcp-health-check.sh"
+
+# Sandbox HOME so the hook reads/writes its state + log under a throwaway dir,
+# never the developer's real ~/.claude/tmb.
+HOME="$(mktemp -d)"
+export HOME
 
 LOG_DIR="$HOME/.claude/tmb/logs"
 LOG_FILE="$LOG_DIR/mcp-health.log"
@@ -42,7 +48,7 @@ chmod +x "$STUB_DIR/pgrep"
 export PATH="$STUB_DIR:$PATH"
 
 cleanup() {
-  rm -rf "$STUB_DIR"
+  rm -rf "$STUB_DIR" "$HOME"
 }
 trap cleanup EXIT
 

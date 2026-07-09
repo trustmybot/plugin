@@ -1,0 +1,5 @@
+/onboard
+
+After onboarding, scan the workspace so the world model picks up every repo.
+
+Don't ask questions.

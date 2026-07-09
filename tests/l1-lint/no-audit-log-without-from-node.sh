@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Catch audit_log() calls that are missing from_node=.
+# Catch audit_append() calls that are missing from_node=.
 # Captures: !2892 BLOCKER 1 — 6 prompt files crashed bro on first call.
 #
 # Scans: agents/*.md, skills/*/SKILL.md, commands/*.md, templates/agents/*.md,
 #         top-level platform *.md (CLAUDE.md, CODEX.md, CURSOR.md, GEMINI.md).
 #
-# Logic: find every line containing audit_log(. Collect the multi-line call
+# Logic: find every line containing audit_append(. Collect the multi-line call
 # (up to the closing ')' or the next blank line). If the collected slice
 # does not contain from_node= → FAIL.
 #
@@ -29,7 +29,7 @@ check_file() {
   flush_call() {
     if [ "$in_call" -eq 1 ]; then
       if ! printf '%s\n' "$call_buf" | grep -q 'from_node='; then
-        printf '%s:%d: audit_log() missing from_node=\n' "$rel" "$call_start"
+        printf '%s:%d: audit_append() missing from_node=\n' "$rel" "$call_start"
         FAIL=1
       fi
       in_call=0
@@ -50,7 +50,7 @@ ${line}"
       continue
     fi
 
-    if printf '%s\n' "$line" | grep -q 'audit_log('; then
+    if printf '%s\n' "$line" | grep -q 'audit_append('; then
       in_call=1
       call_start="$lineno"
       call_buf="$line"

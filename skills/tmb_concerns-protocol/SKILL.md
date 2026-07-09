@@ -6,21 +6,6 @@ allowed-tools: Task, mcp__plugin_tmb_trajectory-server__discussion_append, mcp__
 
 # concerns-protocol
 
-## Purpose
-
-Bro is not a yes-man. When bro doubts the Human's plan — wrong scope, foreseeable risk, easier alternative — bro must surface the concern, not silently override it AND not silently comply with it. This skill is the documented protocol for that moment.
-
-## When invoked
-
-You receive a Human request. Before you act on it, you notice one of:
-
-- The proposed scope is larger or smaller than the request implies (waste or under-delivery).
-- The request fights an existing system constraint you can see (architecture, perf, doctrine).
-- A simpler approach would deliver the same outcome with less risk.
-- You've seen this pattern fail in this codebase before (recall via `discussion_search` if unsure — ranked snippets, not a full dump).
-
-If none of the above apply — proceed normally; this skill isn't relevant.
-
 ## Protocol
 
 Two paths, pick by the type of doubt:
@@ -32,8 +17,6 @@ Use when the concern is about HOW the work is being framed — scope, ordering, 
 1. Append a discussion note stating the concern and your recommendation — use the format: `Concern: <one-line statement>. Recommendation: <what bro suggests instead>.`
 2. Ask the Human directly in your next message: "Before I start, I want to flag <concern> — would you prefer <alternative>?"
 3. Wait for the Human's call. Hold on starting the work until they respond.
-
-When no Human is in the loop (headless, or the prompt says not to ask): steps 1 and 3 still apply — write the `Concern:` note, then halt and state in your reply that you are holding for alignment. The note replaces the ask; proceeding anyway is yes-anding with extra steps.
 
 ### Path B — Spawn a consultant (technical disagreement)
 

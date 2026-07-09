@@ -1,0 +1,248 @@
+#!/usr/bin/env bash
+# L3: cheatcode install stage (#659).
+#   Part A — scripts/cheatcode-install.sh assembles the install payload from a
+#            fixture (no live marketplace). JSON shape + kind-dependent
+#            attachment + the skill-kind proposed-PR payload.
+#   Part B — scripts/hooks/cheatcode-install-approval.sh fails closed: deny
+#            without an approval record, allow with one.
+# Network is stubbed via TMB_CHEATCODE_INSTALL_FIXTURE — no live web.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HERE/../../lib/assert.sh"
+PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
+SCRIPT="$PLUGIN_ROOT/scripts/cheatcode-install.sh"
+HOOK="$PLUGIN_ROOT/scripts/hooks/cheatcode-install-approval.sh"
+
+command -v jq >/dev/null 2>&1 || { printf "FAIL jq not found — required dependency for this security-gate test\n"; exit 1; }
+
+WORKSPACE=$(mktemp -d)
+trap 'rm -rf "$WORKSPACE"' EXIT
+
+# ---------------------------------------------------------------------------
+# Part A — install script (fixture-stubbed marketplace).
+# ---------------------------------------------------------------------------
+FIXTURE="$WORKSPACE/install.json"
+cat > "$FIXTURE" <<'JSON'
+{ "installed": true, "version": "1.2.3", "error": null }
+JSON
+
+OUT=$(TMB_CHEATCODE_INSTALL_FIXTURE="$FIXTURE" bash "$SCRIPT" \
+  --candidate '{"name":"pdf-plugin","kind":"plugin","source_url":"https://x.test/pdf","tier":1}')
+
+test_case "install output is valid JSON"
+if printf '%s' "$OUT" | jq -e . >/dev/null 2>&1; then _pass; else _fail "not JSON: $OUT"; fi
+
+test_case "plugin kind installed via marketplace method"
+assert_eq "marketplace" "$(printf '%s' "$OUT" | jq -r '.method')" "method"
+
+test_case "plugin install reports installed=true with version"
+assert_eq "true" "$(printf '%s' "$OUT" | jq -r '.installed')" "installed"
+assert_eq "1.2.3" "$(printf '%s' "$OUT" | jq -r '.version')" "version"
+
+test_case "plugin attachment targets the plugin (no prompt-surface edit)"
+assert_eq "plugin" "$(printf '%s' "$OUT" | jq -r '.attachments[0].target')" "attachment target"
+
+test_case "plugin install has no proposed_pr"
+assert_eq "null" "$(printf '%s' "$OUT" | jq -r '.proposed_pr')" "proposed_pr"
+
+test_case "scope defaults to local when --scope omitted"
+assert_eq "local" "$(printf '%s' "$OUT" | jq -r '.scope')" "scope"
+
+# --scope global is echoed in the output (#659).
+OUT_GLOBAL=$(TMB_CHEATCODE_INSTALL_FIXTURE="$FIXTURE" bash "$SCRIPT" \
+  --scope global \
+  --candidate '{"name":"pdf-plugin","kind":"plugin","source_url":"https://x.test/pdf"}')
+
+test_case "--scope global is echoed in the output"
+assert_eq "global" "$(printf '%s' "$OUT_GLOBAL" | jq -r '.scope')" "scope global"
+
+test_case "invalid scope fails non-zero"
+set +e
+bash "$SCRIPT" --scope bad --candidate '{"name":"x","kind":"plugin","source_url":"https://x"}' >/dev/null 2>&1
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then _pass; else _fail "expected non-zero exit on bad scope"; fi
+
+# Fixture-supplied attachments pass through verbatim — the per-agent attachment
+# target (feature-dev→swe, code-review→pr-reviewer).
+ATT_FIXTURE="$WORKSPACE/install-att.json"
+cat > "$ATT_FIXTURE" <<'JSON'
+{ "installed": true, "version": "1.0.0", "attachments": [ { "target": "swe", "artifact": "marketplace-plugin:feature-dev" } ] }
+JSON
+
+OUT_ATT=$(TMB_CHEATCODE_INSTALL_FIXTURE="$ATT_FIXTURE" bash "$SCRIPT" \
+  --candidate '{"name":"feature-dev","kind":"plugin","source_url":"https://x.test/feature-dev"}')
+
+test_case "fixture-supplied attachment target passes through"
+assert_eq "swe" "$(printf '%s' "$OUT_ATT" | jq -r '.attachments[0].target')" "attachment target"
+
+# Per-candidate keyed fixture: ONE file keyed by candidate name routes each
+# install to its own entry → distinct attachment targets (feature-dev→swe,
+# code-review→pr-reviewer).
+KEYED_FIXTURE="$WORKSPACE/install-keyed.json"
+cat > "$KEYED_FIXTURE" <<'JSON'
+{
+  "feature-dev": { "installed": true, "version": "1.0.0",
+                   "attachments": [ { "target": "swe", "artifact": "marketplace-plugin:feature-dev" } ] },
+  "code-review": { "installed": true, "version": "1.0.0",
+                   "attachments": [ { "target": "pr-reviewer", "artifact": "marketplace-plugin:code-review" } ] }
+}
+JSON
+
+OUT_FD=$(TMB_CHEATCODE_INSTALL_FIXTURE="$KEYED_FIXTURE" bash "$SCRIPT" \
+  --candidate '{"name":"feature-dev","kind":"plugin","source_url":"https://x.test/feature-dev"}')
+OUT_CR=$(TMB_CHEATCODE_INSTALL_FIXTURE="$KEYED_FIXTURE" bash "$SCRIPT" \
+  --candidate '{"name":"code-review","kind":"plugin","source_url":"https://x.test/code-review"}')
+
+test_case "per-candidate keyed fixture routes feature-dev to swe"
+assert_eq "swe" "$(printf '%s' "$OUT_FD" | jq -r '.attachments[0].target')" "feature-dev target"
+
+test_case "per-candidate keyed fixture routes code-review to pr-reviewer"
+assert_eq "pr-reviewer" "$(printf '%s' "$OUT_CR" | jq -r '.attachments[0].target')" "code-review target"
+
+test_case "per-candidate keyed targets are distinct"
+if [ "$(printf '%s' "$OUT_FD" | jq -r '.attachments[0].target')" != \
+     "$(printf '%s' "$OUT_CR" | jq -r '.attachments[0].target')" ]; then _pass; else _fail "targets not distinct"; fi
+
+# Backward-compat: a candidate whose name is NOT a top-level key falls back to
+# the FLAT shape — the keyed file's own top-level installed/version is ignored
+# and the flat read applies. Using the FLAT fixture from above proves the flat
+# path is unchanged (regression).
+OUT_FLAT_REGRESS=$(TMB_CHEATCODE_INSTALL_FIXTURE="$FIXTURE" bash "$SCRIPT" \
+  --candidate '{"name":"feature-dev","kind":"plugin","source_url":"https://x.test/pdf"}')
+
+test_case "flat fixture still works for an unmatched candidate name (regression)"
+assert_eq "true" "$(printf '%s' "$OUT_FLAT_REGRESS" | jq -r '.installed')" "flat installed"
+assert_eq "1.2.3" "$(printf '%s' "$OUT_FLAT_REGRESS" | jq -r '.version')" "flat version"
+assert_eq "plugin" "$(printf '%s' "$OUT_FLAT_REGRESS" | jq -r '.attachments[0].target')" "flat default attachment"
+
+# Env-unset default-path probe: when TMB_CHEATCODE_INSTALL_FIXTURE is unset/empty
+# the script falls back to "$PWD/.tmb-cheatcode-install-fixture.json" (the path the
+# row setup-l5.sh stages in the step's CWD) and uses it if present. Run from a CWD
+# that holds the default-named file, with the env var explicitly unset.
+PROBE_DIR="$WORKSPACE/probe"
+mkdir -p "$PROBE_DIR"
+cat > "$PROBE_DIR/.tmb-cheatcode-install-fixture.json" <<'JSON'
+{ "installed": true, "version": "9.9.9", "error": null,
+  "attachments": [ { "target": "swe", "artifact": "marketplace-plugin:feature-dev" } ] }
+JSON
+
+OUT_PROBE=$(cd "$PROBE_DIR" && env -u TMB_CHEATCODE_INSTALL_FIXTURE bash "$SCRIPT" \
+  --candidate '{"name":"feature-dev","kind":"plugin","source_url":"https://x.test/feature-dev"}')
+
+test_case "env unset + default fixture file present → fixture used"
+assert_eq "true" "$(printf '%s' "$OUT_PROBE" | jq -r '.installed')" "probe installed"
+assert_eq "9.9.9" "$(printf '%s' "$OUT_PROBE" | jq -r '.version')" "probe version"
+assert_eq "swe" "$(printf '%s' "$OUT_PROBE" | jq -r '.attachments[0].target')" "probe attachment target"
+
+# Env-set still wins over the default file: with the env pointing at a DIFFERENT
+# fixture, the default file in CWD is ignored.
+WINS_FIXTURE="$WORKSPACE/wins.json"
+cat > "$WINS_FIXTURE" <<'JSON'
+{ "installed": true, "version": "1.1.1", "error": null }
+JSON
+
+OUT_WINS=$(cd "$PROBE_DIR" && TMB_CHEATCODE_INSTALL_FIXTURE="$WINS_FIXTURE" bash "$SCRIPT" \
+  --candidate '{"name":"feature-dev","kind":"plugin","source_url":"https://x.test/feature-dev"}')
+
+test_case "env-set fixture wins over the default file in CWD"
+assert_eq "1.1.1" "$(printf '%s' "$OUT_WINS" | jq -r '.version')" "env wins version"
+
+# No env and no default file: the no-fixture path is unchanged. Use a skill kind
+# (which never calls the marketplace) from a CWD with no default file so the probe
+# misses and nothing is installed — fast and network-free.
+NOFIX_DIR="$WORKSPACE/nofix"
+mkdir -p "$NOFIX_DIR"
+OUT_NOFIX=$(cd "$NOFIX_DIR" && env -u TMB_CHEATCODE_INSTALL_FIXTURE bash "$SCRIPT" \
+  --candidate '{"name":"pdf-skill","kind":"skill","source_url":"https://x.test/pdf-skill"}')
+
+test_case "no env + no default file → no-fixture path unchanged (not installed)"
+assert_eq "false" "$(printf '%s' "$OUT_NOFIX" | jq -r '.installed')" "no-fixture installed"
+assert_eq "skill-proposed-pr" "$(printf '%s' "$OUT_NOFIX" | jq -r '.method')" "no-fixture method"
+
+# Skill kind with no fixture: nothing installs at the marketplace; the
+# attachment is the proposed-PR payload only — never an automatic md write.
+OUT_SKILL=$(bash "$SCRIPT" \
+  --candidate '{"name":"pdf-skill","kind":"skill","source_url":"https://x.test/pdf-skill"}')
+
+test_case "skill kind uses the skill-proposed-pr method"
+assert_eq "skill-proposed-pr" "$(printf '%s' "$OUT_SKILL" | jq -r '.method')" "skill method"
+
+test_case "skill kind returns an agent-frontmatter proposed-PR payload"
+assert_eq "agent-frontmatter" "$(printf '%s' "$OUT_SKILL" | jq -r '.proposed_pr.kind')" "proposed_pr.kind"
+
+test_case "skill kind installs nothing at the marketplace"
+assert_eq "false" "$(printf '%s' "$OUT_SKILL" | jq -r '.installed')" "skill installed"
+
+test_case "invalid kind fails non-zero"
+set +e
+bash "$SCRIPT" --candidate '{"name":"x","kind":"bad","source_url":"https://x"}' >/dev/null 2>&1
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then _pass; else _fail "expected non-zero exit on bad kind"; fi
+
+# ---------------------------------------------------------------------------
+# Part B — PreToolUse approval gate (fail closed).
+# ---------------------------------------------------------------------------
+if ! command -v sqlite3 >/dev/null 2>&1; then
+  printf "FAIL sqlite3 not found — required dependency for the approval-gate cases\n"
+  exit 1
+fi
+
+WS="$WORKSPACE/ws"
+mkdir -p "$WS/.claude/tmb"
+DB="$WS/.claude/tmb/trajectory.db"
+export TRAJECTORY_DB_PATH="$DB"
+
+sqlite3 "$DB" "
+  CREATE TABLE audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_id INTEGER NOT NULL DEFAULT -1,
+    branch_id TEXT,
+    from_node TEXT NOT NULL DEFAULT 'bro',
+    event_type TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    content_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE tasks (id INTEGER PRIMARY KEY, prompt_bearing INTEGER NOT NULL DEFAULT 0);
+"
+
+install_input() {
+  jq -nc --arg url "$1" \
+    '{tool_name: "mcp__plugin_tmb_trajectory-server__cheatcode_install",
+      tool_input: {agent: "bro", candidate: {name: "pdf", kind: "plugin", source_url: $url}}}'
+}
+
+test_case "non-cheatcode_install tool passes through silently"
+OUT_PASS=$(echo '{"tool_name":"Bash"}' | bash "$HOOK" 2>&1 || true)
+assert_eq "" "$OUT_PASS" "pass-through output"
+
+test_case "install WITHOUT approval record is denied (fail closed)"
+OUT_DENY=$(install_input "https://x.test/pdf" | bash "$HOOK" 2>&1 || true)
+assert_contains "$OUT_DENY" '"permissionDecision":"deny"' "deny decision"
+assert_contains "$OUT_DENY" "cheatcode_approve" "deny names the recovery tool"
+
+test_case "missing candidate.source_url is denied"
+OUT_NOURL=$(echo '{"tool_name":"mcp__x__cheatcode_install","tool_input":{}}' | bash "$HOOK" 2>&1 || true)
+assert_contains "$OUT_NOURL" '"permissionDecision":"deny"' "deny on missing source_url"
+
+# Seed a per-candidate approval record and retry.
+sqlite3 "$DB" "
+  INSERT INTO audit (event_type, summary, content_json, created_at)
+  VALUES ('cheatcode_approved', 'approved pdf',
+          json_object('name','pdf','kind','plugin','source_url','https://x.test/pdf'),
+          datetime('now'));
+"
+
+test_case "install WITH a matching approval record is allowed"
+OUT_ALLOW=$(install_input "https://x.test/pdf" | bash "$HOOK" 2>&1 || true)
+assert_eq "" "$OUT_ALLOW" "allow output (no deny)"
+
+test_case "approval for a different candidate does NOT unlock this one (per-candidate)"
+OUT_OTHER=$(install_input "https://x.test/OTHER" | bash "$HOOK" 2>&1 || true)
+assert_contains "$OUT_OTHER" '"permissionDecision":"deny"' "per-candidate isolation"
+
+summarize
+printf "PASS cheatcode-install\n"
