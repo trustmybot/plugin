@@ -8,7 +8,7 @@ import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
 import { insertDiscussion } from './discussions.js';
 import { syncIssueCloseRemotes, resolveDefaultMilestone } from './issues.js';
 import type { SpawnFn } from '../sync/issue_sync.js';
-import type { WorldModelGraph } from '../graph-db.js';
+import type { GraphHolder } from '../graph-db.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolveSoleRepo } from '../utils/repo-paths.js';
 import { resolve, dirname } from 'node:path';
@@ -313,7 +313,7 @@ function closeTaskInTx(
 export function compositeTools(
   db: TrajectoryDB,
   dbPath: string,
-  graph: WorldModelGraph | null = null,
+  graphHolder: GraphHolder | null = null,
 ): { definitions: Tool[]; handlers: Record<string, Fn> } {
   const definitions: Tool[] = [
     {
@@ -950,6 +950,7 @@ export function compositeTools(
           children: Array<{ path: string; summary: string | null }>;
         }> = [];
         let world_model_warning: string | undefined;
+        const graph = graphHolder?.ensureGraph() ?? null;
         if (!graph) {
           world_model_warning = 'world-model-unavailable';
         } else {

@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
 import { tempDB } from './helpers.js';
 import { compositeTools, filesToDirs, scopeCheckCommit } from '../tools/composites.js';
+import { GraphHolder, type WorldModelGraph } from '../graph-db.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
 import { discussionTools } from '../tools/discussions.js';
@@ -1463,8 +1464,8 @@ describe('task_brief (#300)', () => {
         { key: 'app:src/api', repo: 'app', path: 'src/api', parent_path: 'src', summary: 'api layer', summary_source: 'readme', summary_updated_at: null, file_count: 3 },
         { key: 'app:src/api/v2', repo: 'app', path: 'src/api/v2', parent_path: 'src/api', summary: 'v2 handlers', summary_source: 'llm', summary_updated_at: null, file_count: 1 },
       ],
-    } as unknown as Parameters<typeof compositeTools>[2];
-    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', stubGraph);
+    } as unknown as WorldModelGraph;
+    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', GraphHolder.fixed(stubGraph));
     const r = (await tools.handlers['task_brief']!({ agent: 'swe', task_id: id })) as RawResult;
     const out = parse(r) as Record<string, unknown>;
     assert.equal(out['world_model_warning'], undefined);

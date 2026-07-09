@@ -250,7 +250,7 @@ function closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssue
     }
     return { issue_closed: issueClosed };
 }
-export function compositeTools(db, dbPath, graph = null) {
+export function compositeTools(db, dbPath, graphHolder = null) {
     const definitions = [
         {
             name: 'branch_id_propose',
@@ -797,6 +797,7 @@ export function compositeTools(db, dbPath, graph = null) {
             const dirs = filesToDirs(parseTaskFiles(task.files));
             let scope_world_model = [];
             let world_model_warning;
+            const graph = graphHolder?.ensureGraph() ?? null;
             if (!graph) {
                 world_model_warning = 'world-model-unavailable';
             }
