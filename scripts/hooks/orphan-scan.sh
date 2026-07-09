@@ -4,7 +4,10 @@
 # Detects (and, only when explicitly opted in, cleans) TMB artifacts left
 # behind by version upgrades, scoped STRICTLY to the CURRENT project:
 #   1. Stale old-layout / 0-byte trajectory DBs of THIS project.
-#   2. A stale duplicate trajectory-server proc holding THIS project's live DB.
+#   2. A stale duplicate trajectory-server proc holding THIS project's live DB
+#      whose owning CC session is dead. The current session's own server is
+#      excluded; a live other session's server is reported as a lock-conflict
+#      and never killed.
 #   3. Cache version dirs referenced by NO installed_plugins.json entry
 #      (globally unused — safe to clean regardless of project).
 #
@@ -144,45 +147,100 @@ if [ "${#UNUSED_CACHE[@]}" -gt 0 ]; then
   done
 fi
 
-# --- (2) stale duplicate MCP proc on THIS project's live DB -----------------
-# Only flag a trajectory-server node proc that holds THIS project's live DB.
-# A proc holding any OTHER project's DB is never enumerated. lsof absence
-# degrades gracefully (we simply report nothing).
-DUP_PROCS=()
-if [ -s "$LIVE_DB" ] && command -v lsof >/dev/null 2>&1 && _within_deadline; then
-  # PIDs with the live DB file open.
-  HOLDERS=$(lsof -t -- "$LIVE_DB" 2>/dev/null | sort -u || printf '')
-  if [ -n "$HOLDERS" ]; then
-    HOLDER_COUNT=$(printf '%s\n' "$HOLDERS" | grep -c . || printf '0')
-    # A single holder is the live server — not a duplicate. Only when more
-    # than one trajectory-server holds the SAME live DB is there a stale dup.
-    if [ "$HOLDER_COUNT" -gt 1 ]; then
-      while IFS= read -r pid; do
-        [ -n "$pid" ] || continue
-        # Confirm it is a trajectory-server node proc (not an unrelated reader).
-        if ps -p "$pid" -o command= 2>/dev/null | grep -q 'trajectory-server'; then
-          DUP_PROCS+=("$pid")
-        fi
-      done < <(printf '%s\n' "$HOLDERS")
-    fi
+# --- (2) MCP procs holding THIS project's live DB ---------------------------
+# Only trajectory-server node procs that hold THIS project's live DB are
+# enumerated (a proc holding any OTHER project's DB is never touched). Each
+# holder is classified so the CURRENT session's own server is never flagged:
+#   - own session's server (its parent chain contains this session's CC proc)
+#     → excluded entirely.
+#   - a holder whose owning CC session is still alive → lock-conflict; reported
+#     but NEVER a clean-mode kill target.
+#   - a holder whose owning CC session is dead/absent → stale duplicate;
+#     reported and eligible for clean-mode termination.
+# POSIX ps -o pid=,ppid= ancestry walks (no /proc dependence) keep this
+# portable across macOS and Linux. lsof absence degrades gracefully.
+
+# ppid of a pid (empty on failure — never trips the ERR trap).
+proc_ppid() { ps -o ppid= -p "$1" 2>/dev/null | tr -d ' ' || printf ''; }
+# full command of a pid (empty on failure).
+proc_cmd()  { ps -o command= -p "$1" 2>/dev/null || printf ''; }
+
+# A Claude Code process is the `claude` CLI binary (argv[0] basename 'claude').
+# The shell-snapshot wrappers that merely reference a `.claude/` path and the
+# `node .../trajectory-server` child are deliberately NOT matched.
+is_cc_cmd() {
+  case "$1" in
+    claude|claude\ *|*/claude|*/claude\ *) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Walk a pid's ancestry (starting at pid itself) up to init; echo the pid of
+# the nearest Claude Code ancestor, or empty when none is found. Always 0.
+nearest_cc_ancestor() {
+  local pid="$1" guard=0
+  while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null; do
+    guard=$((guard + 1)); [ "$guard" -gt 40 ] && break
+    if is_cc_cmd "$(proc_cmd "$pid")"; then printf '%s' "$pid"; return 0; fi
+    pid=$(proc_ppid "$pid")
+  done
+  printf ''
+}
+
+# True when target appears anywhere in pid's ancestry (pid included).
+chain_contains() {
+  local pid="$1" target="$2" guard=0
+  [ -n "$target" ] || return 1
+  while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null; do
+    guard=$((guard + 1)); [ "$guard" -gt 40 ] && break
+    [ "$pid" = "$target" ] && return 0
+    pid=$(proc_ppid "$pid")
+  done
+  return 1
+}
+
+# Holders of the live DB: a test override (whitespace-separated PIDs) wins so
+# L3 can drive fabricated process trees; otherwise lsof enumerates real ones.
+resolve_holders() {
+  if [ -n "${TMB_ORPHAN_SCAN_HOLDERS_OVERRIDE:-}" ]; then
+    printf '%s\n' "$TMB_ORPHAN_SCAN_HOLDERS_OVERRIDE" | tr ' ' '\n'
+    return 0
   fi
+  command -v lsof >/dev/null 2>&1 || return 0
+  lsof -t -- "$LIVE_DB" 2>/dev/null | sort -u || printf ''
+}
+
+# Resolve the CURRENT session's own CC proc by walking this hook's ancestry.
+# TMB_ORPHAN_SCAN_SELF_PID pins the start pid so L3 can drive it.
+OWN_CC=$(nearest_cc_ancestor "${TMB_ORPHAN_SCAN_SELF_PID:-$$}")
+
+LOCK_CONFLICTS=()   # live-owner holders — reported, never killed
+STALE_PROCS=()      # dead-owner holders — reported and clean-mode killable
+if [ -s "$LIVE_DB" ] && _within_deadline; then
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    # Confirm it is a trajectory-server node proc (not an unrelated reader).
+    ps -p "$pid" -o command= 2>/dev/null | grep -q 'trajectory-server' || continue
+    # Never flag the current session's own server.
+    chain_contains "$pid" "$OWN_CC" && continue
+    # Classify by owner liveness.
+    owner=$(nearest_cc_ancestor "$pid")
+    if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then
+      LOCK_CONFLICTS+=("$pid")
+    else
+      STALE_PROCS+=("$pid")
+    fi
+  done < <(resolve_holders)
 fi
 
-if [ "${#DUP_PROCS[@]}" -gt 1 ]; then
-  # Keep the lowest PID (oldest / live); the rest are stale duplicates.
-  SORTED=$(printf '%s\n' "${DUP_PROCS[@]}" | sort -n)
-  KEEP=$(printf '%s\n' "$SORTED" | head -1)
-  STALE_PROCS=()
-  while IFS= read -r pid; do
-    [ "$pid" = "$KEEP" ] && continue
-    STALE_PROCS+=("$pid")
-  done < <(printf '%s\n' "$SORTED")
-  for pid in "${STALE_PROCS[@]}"; do
-    add_report "stale duplicate trajectory-server on this project's live DB: pid $pid"
-  done
-else
-  STALE_PROCS=()
-fi
+for pid in "${LOCK_CONFLICTS[@]:-}"; do
+  [ -n "$pid" ] || continue
+  add_report "lock-conflict: another live session's server holds this project's live DB (pid $pid)"
+done
+for pid in "${STALE_PROCS[@]:-}"; do
+  [ -n "$pid" ] || continue
+  add_report "stale duplicate trajectory-server on this project's live DB: pid $pid"
+done
 
 # --- cleanup (gated) --------------------------------------------------------
 # Default OFF. When on, act ONLY on the project-scoped candidates above plus
