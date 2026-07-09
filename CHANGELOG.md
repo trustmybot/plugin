@@ -2,6 +2,10 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
 
+## v1.0.0 — 2026-07-09
+
+First stable release. Functionally identical to v0.10.0-rc.9: the v0.10.0 release-candidate line (rc.1–rc.9, entries below) is the complete delta since v0.9.0, and rc.9 passed the tag-triggered release-gate green end to end.
+
 ## v0.10.0-rc.9 — 2026-07-09
 
 Ninth release candidate for v0.10.0 — closes the two release-gate holes that turned rc.8's tag run red.
