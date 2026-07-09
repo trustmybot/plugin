@@ -6,6 +6,9 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 First stable release. Functionally identical to v0.10.0-rc.9: the v0.10.0 release-candidate line (rc.1–rc.9, entries below) is the complete delta since v0.9.0, and rc.9 passed the tag-triggered release-gate green end to end.
 
+### Fixed
+- **release.sh stable cuts resolve the gate verdict from the promoted rc** (#49): step 3 awaited a release-gate run for the stable tag, but the gate fires only on rc tags (#630) — every stable cut aborted after pushing the tag. A stable tag now awaits the newest rc tag in its ancestry; refuse-on-red is unchanged.
+
 ## v0.10.0-rc.9 — 2026-07-09
 
 Ninth release candidate for v0.10.0 — closes the two release-gate holes that turned rc.8's tag run red.
