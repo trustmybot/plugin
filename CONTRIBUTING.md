@@ -34,7 +34,7 @@ Direct commits to `dev` and `main` are blocked by `scripts/hooks/git-guards.sh` 
 ## CI (GitHub Actions)
 
 `.github/workflows/release-gate.yml` is **not** wired to dev pushes or PRs — it runs only on:
-- **version tags + manual dispatch** → L1–L4 **+ L6 chain** (`tests/l5-l6/run-l6-chain.sh`) **+ L0 docker install-smoke**.
+- **rc tags (`vX.Y.Z-rc.N`) + manual dispatch** → L1–L4 **+ L6 chain** (`tests/l5-l6/run-l6-chain.sh`) **+ L0 docker install-smoke**. Stable tags do not fire the gate; the stable cut consumes the promoted rc's verdict.
 
 Per-PR validation to `dev` is the **local L0–L4 sweep (`tests/run-all.sh`) + pr-reviewer** — there is no automatic PR-CI on `dev`. CI-affecting changes additionally run a `workflow_dispatch` release-gate on the feature branch before merge (rule 6 above).
 

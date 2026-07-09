@@ -40,9 +40,9 @@ When CC pulls a new version, the new files land on disk but the **running MCP se
 
 ### Trigger the new MCP server (required to apply the migration)
 
-After CC reports the plugin updated, **run `/reload-plugins`** in your session. This restarts the MCP server (and hooks + LSP); the fresh boot detects `plugin_meta.schema_version < TARGET`, backs the DB up, applies any pending migrations, and bumps the version.
+After CC reports the plugin updated, **fully quit Claude Code and relaunch it** — `Cmd+R` in the desktop app, or close + reopen. A full quit + relaunch reboots the MCP server process, and its fresh boot detects `plugin_meta.schema_version < TARGET`, backs the DB up, applies any pending migrations, and bumps the version. Reconnecting the trajectory-server via `/mcp` also reboots the server and applies the migration.
 
-If you'd rather restart the whole session, that works too: `Cmd+R` in the desktop app, or close + reopen.
+`/reload-plugins` re-reads hooks, skills, and commands from the new cache, but it does **not** restart the MCP server process — on its own it will not apply a pending migration.
 
 If the SessionStart "newer plugin version … restart to apply" banner is showing, this is the step that clears it.
 
@@ -101,6 +101,10 @@ sqlite3 <project>/.claude/tmb/trajectory.db \
 ```
 
 Both columns should match the version you just installed.
+
+### Upgrading into v1.0.0 (first stable)
+
+v1.0.0 is the first stable release. Upgrading from any v0.10.x rc is a normal channel update — nothing special to do. The schema migrations apply on server start exactly as described above.
 
 ---
 
@@ -229,14 +233,14 @@ sqlite3 <workspace>/.claude/tmb/trajectory.db \
 
 ### Promoting rc → stable
 
+Promotion runs through a PR — merge `dev` → `main` via `gh pr create` + `gh pr merge` (the merge lands the version bump in `plugin.json` and its matching `CHANGELOG.md` entry) — then cut the release from `main`:
+
 ```bash
-git checkout main
-git merge --ff-only origin/rc            # or the validated commit
-bash scripts/maintenance/bump-version.sh <X.Y.Z>
-git commit -am "🔖 release: v<X.Y.Z>"
-git tag v<X.Y.Z>
-git push origin main --tags
+git checkout main && git pull origin main
+bash scripts/release.sh
 ```
+
+`release.sh` tags `main` HEAD as `v<X.Y.Z>` (read from `plugin.json`), then resolves the promoted rc's release-gate verdict via `resolve_gate_tag()`: the gate fires only on rc tags, so a stable tag resolves to the newest `v*-rc.*` tag in HEAD's ancestry — the rc it promotes — and consumes that run's verdict. It refuses to publish on a red or missing verdict, and on green creates the GitHub release from the CHANGELOG notes.
 
 ### Bumping the version
 
