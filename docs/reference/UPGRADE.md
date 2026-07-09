@@ -27,7 +27,7 @@ The SessionStart project inventory also prints a `Plugin version:` line at the t
 CC can fetch a newer version into its marketplace cache while the **older** MCP server / hooks keep running until you reload. When that happens, the SessionStart inventory appends a line:
 
 ```
-newer plugin version <X.Y.Z> is installed but <A.B.C> is still running — restart Claude Code (or /reload-plugins) to apply
+newer plugin version <X.Y.Z> is installed but <A.B.C> is still running — restart Claude Code (or reconnect the trajectory-server via /mcp) to apply
 ```
 
 That is your cue to reload — the new files are on disk but inert until the MCP server reboots (see below). The line disappears once the running version matches the highest cached version. It is read-only and never blocks the session.
