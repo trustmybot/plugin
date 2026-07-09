@@ -13,7 +13,7 @@ This mirrors standard developer flow: edit + commit locally, push to origin, ope
 - **You** — your shell + IDE on your project's main checkout
 - **Bro** — the persona on the main Claude thread. Operates on the main checkout via `git -C <project> …`.
 - **SWE** — subagent. Always works from a private worktree at `<project>/.claude/worktrees/<slug>/`, attached directly to `<feature>` so commits advance the branch ref naturally.
-- **Origin** — your remote. `<base>` is the configured base branch (`main` for github-flow, `dev` for gitflow — set via the `pr_target` plugin config).
+- **Origin** — your remote. `<base>` is the configured base branch (`main` for github-flow, `dev` for gitflow — set via each repo's `repos.target_branch` row, the `pr_target` policy and sole source of truth).
 
 ## Stage table
 

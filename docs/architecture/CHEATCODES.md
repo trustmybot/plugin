@@ -1,4 +1,4 @@
-# Cheatcode Integration (v0.10.0)
+# Cheatcode Integration (introduced v0.10.0)
 
 Architecture-of-record for the discover → vet → install → hot-load pipeline that lets bro acquire cheatcodes (skills, MCP toolkits, plugins) on demand. Each stage names the [DETERMINISM.md](../prompt-engineering/DETERMINISM.md) mechanism it lands in.
 
