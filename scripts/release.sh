@@ -169,12 +169,21 @@ fi
 
 # ---------- step 3: await the tag-triggered release-gate verdict ----------
 #
-# Pushing the tag auto-fired .github/workflows/release-gate.yml. Refuse to make
-# the release public unless that run concluded success — a red stable-tag gate
-# must stop here, not 13 minutes after the release is already live.
+# The release gate fires only on rc tags (#630) — a stable cut is functionally
+# identical to the rc it promotes, so it is never re-gated. resolve_gate_tag maps
+# the tag we push to the tag whose run carries the verdict: an rc tag to itself,
+# a stable tag to the newest rc tag in HEAD's ancestry (the promoted rc). Refuse
+# to make the release public unless that run concluded success — refuse-on-red is
+# unchanged: a red or missing rc verdict must stop here, not 13 minutes after the
+# release is already live.
 
-printf "  Step 3: Awaiting the release-gate run for %s ...\n" "$NEW_TAG"
-await_release_gate "$NEW_TAG" || exit $?
+GATE_TAG="$(resolve_gate_tag "$NEW_TAG")" || exit $?
+if [ "$GATE_TAG" != "$NEW_TAG" ]; then
+  printf "  Step 3: Awaiting the release-gate run for %s (the promoted rc's verdict for %s) ...\n" "$GATE_TAG" "$NEW_TAG"
+else
+  printf "  Step 3: Awaiting the release-gate run for %s ...\n" "$GATE_TAG"
+fi
+await_release_gate "$GATE_TAG" || exit $?
 printf "\n"
 
 # ---------- step 4: create the GitHub release ----------

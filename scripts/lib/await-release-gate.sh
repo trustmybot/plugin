@@ -9,6 +9,15 @@
 # gate has concluded `success`.
 #
 # Provides:
+#   resolve_gate_tag <tag>
+#     Map a tag to the tag whose release-gate run carries its verdict. The gate
+#     fires only on rc tags (#630), so an rc tag resolves to itself. A stable tag
+#     resolves to the newest v*-rc.* tag merged into HEAD — after a dev → main
+#     promotion the promoted rc is always an ancestor, and it is functionally
+#     identical to the stable cut, so its concluded run is the stable tag's
+#     verdict. Returns:
+#       0  — echoes the resolved rc tag on stdout
+#       2  — stable tag with no rc tag in HEAD's ancestry (verdict unresolvable)
 #   await_release_gate <tag> [timeout_seconds]
 #     Resolve the release-gate run whose headBranch == <tag> (tag-triggered runs
 #     report the tag name as the branch, so a dev workflow_dispatch run is never
@@ -20,6 +29,36 @@
 #       1  — usage error / missing dependency (gh, jq)
 #     Timeout precedence: <timeout_seconds> arg, else env TMB_GATE_TIMEOUT, else
 #     1800s. Prints what it is waiting on, with the run URL.
+
+resolve_gate_tag() {
+  local tag="${1:-}"
+
+  if [ -z "$tag" ]; then
+    printf "❌ resolve_gate_tag: missing <tag> argument.\n" >&2
+    return 1
+  fi
+
+  case "$tag" in
+    *-rc.*)
+      printf '%s\n' "$tag"
+      return 0
+      ;;
+  esac
+
+  local rc_tag
+  rc_tag="$(git tag --list 'v*-rc.*' --merged HEAD --sort=-creatordate | head -1)"
+
+  if [ -z "$rc_tag" ]; then
+    printf "❌ resolve_gate_tag: no v*-rc.* tag in HEAD's ancestry for stable tag %s.\n" "$tag" >&2
+    printf "   The release gate fires only on rc tags (#630), so a stable cut's\n" >&2
+    printf "   functional-identity verdict is the promoted rc's run — but none is an\n" >&2
+    printf "   ancestor of HEAD. Promote a green rc into main before cutting %s.\n" "$tag" >&2
+    return 2
+  fi
+
+  printf '%s\n' "$rc_tag"
+  return 0
+}
 
 await_release_gate() {
   local tag="${1:-}"
