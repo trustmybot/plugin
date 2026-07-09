@@ -131,7 +131,7 @@ $COLD_NOTE"
 # Version-skew note (#602) — only when a newer version sits in the cache but
 # the older one is still running.
 [ -n "$NEWER_CACHED_VERSION" ] && COLD_SUFFIX="${COLD_SUFFIX}
-newer plugin version ${NEWER_CACHED_VERSION} is installed but ${PLUGIN_VERSION} is still running — restart Claude Code (or /reload-plugins) to apply"
+newer plugin version ${NEWER_CACHED_VERSION} is installed but ${PLUGIN_VERSION} is still running — restart Claude Code (or reconnect the trajectory-server via /mcp) to apply"
 
 PLUGIN_VERSION_LINE="(unknown)"
 [ -n "$PLUGIN_VERSION" ] && PLUGIN_VERSION_LINE="$PLUGIN_VERSION"
