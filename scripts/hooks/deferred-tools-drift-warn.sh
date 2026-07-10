@@ -11,26 +11,75 @@
 #
 # Silent no-op when:
 #   - pgrep is not available (and no TMB_MCP_PID_OVERRIDE)
-#   - No trajectory-server child is running
+#   - The current session has no trajectory-server child running
 #   - dist/tools/ directory does not exist
 #   - No tool source files are newer than the running child
 #   - ps start-time parse fails (defensive — avoid false alarms)
 #
+# The running server is resolved to the CURRENT session's own child: walk this
+# hook's ancestry to the owning CC process, then pick the trajectory-server
+# whose parent chain contains it. A global pgrep would pick a DIFFERENT
+# project's server (live repro 2026-07-09); the own-child walk prevents that.
+#
 # Test overrides (env vars):
-#   TMB_MCP_PID_OVERRIDE   — inject a known PID (skips pgrep)
+#   TMB_MCP_PID_OVERRIDE   — inject a known PID (skips resolution)
 #   TMB_MCP_START_OVERRIDE — inject epoch seconds for child start-time (skips ps)
 #   TMB_TOOL_DIR_OVERRIDE  — inject alternate dist/tools path (skips PLUGIN_ROOT)
+#   TMB_DRIFT_SELF_PID     — pin the ancestry-walk start pid (skips $$)
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# POSIX ps ancestry helpers (no /proc dependence) — portable macOS + Linux.
+proc_ppid() { ps -o ppid= -p "$1" 2>/dev/null | tr -d ' ' || printf ''; }
+proc_cmd()  { ps -o command= -p "$1" 2>/dev/null || printf ''; }
+is_cc_cmd() {
+  case "$1" in
+    claude|claude\ *|*/claude|*/claude\ *) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+# Nearest Claude Code ancestor of a pid (pid included), or empty.
+nearest_cc_ancestor() {
+  local pid="$1" guard=0
+  while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null; do
+    guard=$((guard + 1)); [ "$guard" -gt 40 ] && break
+    if is_cc_cmd "$(proc_cmd "$pid")"; then printf '%s' "$pid"; return 0; fi
+    pid=$(proc_ppid "$pid")
+  done
+  printf ''
+}
+# True when target appears anywhere in pid's ancestry (pid included).
+chain_contains() {
+  local pid="$1" target="$2" guard=0
+  [ -n "$target" ] || return 1
+  while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null; do
+    guard=$((guard + 1)); [ "$guard" -gt 40 ] && break
+    [ "$pid" = "$target" ] && return 0
+    pid=$(proc_ppid "$pid")
+  done
+  return 1
+}
+# The current session's own trajectory-server child, or empty.
+resolve_own_server() {
+  local own_cc pid
+  own_cc=$(nearest_cc_ancestor "${TMB_DRIFT_SELF_PID:-$$}")
+  [ -n "$own_cc" ] || return 0
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    [ "$pid" = "$own_cc" ] && continue   # the CC proc is never its own server child
+    if chain_contains "$pid" "$own_cc"; then printf '%s' "$pid"; return 0; fi
+  done < <(pgrep -f 'trajectory-server/dist/index.js' 2>/dev/null || true)
+  return 0
+}
+
 if [ -n "${TMB_MCP_PID_OVERRIDE:-}" ]; then
   MCP_PID="$TMB_MCP_PID_OVERRIDE"
 else
   command -v pgrep >/dev/null 2>&1 || exit 0
-  MCP_PID=$(pgrep -f 'trajectory-server/dist/index.js' 2>/dev/null | head -1 || true)
+  MCP_PID=$(resolve_own_server)
   [ -n "$MCP_PID" ] || exit 0
 fi
 

@@ -1,4 +1,4 @@
-# Typed Rails (v0.10.0)
+# Typed Rails (introduced v0.10.0)
 
 Architecture-of-record for promoting `files` and `verification` from markdown sections in `spec_body` to typed, schema-validated columns on the `tasks` table — and for rewriting the two enforcement hooks to read those columns instead of scraping markdown. Epic #65 (ratified); shipped incrementally as #673 / local #66.
 

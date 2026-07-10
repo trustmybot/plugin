@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
-import { isKuzuLockError, WorldModelGraph } from '../graph-db.js';
+import { isKuzuLockError, WorldModelGraph, GraphHolder } from '../graph-db.js';
 import { scanTools } from '../tools/scan.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
@@ -113,9 +113,8 @@ describe('scan_run — kuzu-open failure surfaces as graph_db_open_failed (#591)
       const db = tempDB();
       const tools = scanTools(
         db,
-        null,
+        GraphHolder.fixed(null, 'IO exception: Could not set lock on file world-model.kuzu'),
         join(ws, '.claude', 'tmb', 'trajectory.db'),
-        'IO exception: Could not set lock on file world-model.kuzu',
       );
       const result = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
       assert.ok(result.isError, 'scan_run must error when kuzu open failed on a lock');
@@ -137,8 +136,8 @@ describe('scan_run — kuzu-open failure surfaces as graph_db_open_failed (#591)
     try {
       mkRepo(ws, 'app');
       const db = tempDB();
-      // graph null with NO graphOpenError = kuzu binding missing/sandboxed.
-      const tools = scanTools(db, null, join(ws, '.claude', 'tmb', 'trajectory.db'), null);
+      // A null holder = no graph, no lock error = kuzu binding missing/sandboxed.
+      const tools = scanTools(db, null, join(ws, '.claude', 'tmb', 'trajectory.db'));
       const result = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
       assert.ok(!result.isError, `scan_run must stay clean when kuzu is absent: ${JSON.stringify(result)}`);
       db.close();

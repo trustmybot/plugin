@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildTree, worldModelTools } from '../tools/world_model.js';
-import { WorldModelGraph, type DirectoryNode } from '../graph-db.js';
+import { WorldModelGraph, GraphHolder, type DirectoryNode } from '../graph-db.js';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
@@ -268,7 +268,7 @@ describe('world_model_get — unmerged_work (#1059)', () => {
     try {
       seed(db, repo.repoRoot);
       addTask(db, 'fix/unmerged', 'dev', repo.unmergedTip, 'closed');
-      const tools = worldModelTools(db, stubGraph());
+      const tools = worldModelTools(db, GraphHolder.fixed(stubGraph()));
       const out = wmParse((await tools.handlers['world_model_get']!({ agent: 'bro' })) as WmResult);
       const work = out['unmerged_work'] as Array<Record<string, unknown>>;
       assert.equal(work.length, 1, 'un-merged branch surfaces');
@@ -292,7 +292,7 @@ describe('world_model_get — unmerged_work (#1059)', () => {
       addTask(db, 'fix/unmerged', 'dev', repo.unmergedTip, 'closed');
       // Simulate squash-merge cleanup: the tip stays reachable but the ref is gone.
       execFileSync('git', ['-C', repo.repoRoot, 'branch', '-D', 'fix/unmerged']);
-      const tools = worldModelTools(db, stubGraph());
+      const tools = worldModelTools(db, GraphHolder.fixed(stubGraph()));
       const out = wmParse((await tools.handlers['world_model_get']!({ agent: 'bro' })) as WmResult);
       assert.deepEqual(out['unmerged_work'], [], 'deleted ref → skipped despite un-ancestor tip');
       assert.equal(out['warning'], undefined, 'no warning: a deleted ref is expected');
@@ -309,7 +309,7 @@ describe('world_model_get — unmerged_work (#1059)', () => {
       seed(db, repo.repoRoot);
       // Live ref (fix/unmerged) but a dangling tip → is-ancestor exits 128.
       addTask(db, 'fix/unmerged', 'dev', 'a'.repeat(40), 'closed');
-      const tools = worldModelTools(db, stubGraph());
+      const tools = worldModelTools(db, GraphHolder.fixed(stubGraph()));
       const r = (await tools.handlers['world_model_get']!({ agent: 'bro' })) as WmResult;
       const out = wmParse(r);
       assert.notEqual(r.isError, true, 'never an is_error');
@@ -327,7 +327,7 @@ describe('world_model_get — unmerged_work (#1059)', () => {
     try {
       seed(db, repo.repoRoot);
       addTask(db, 'fix/merged', 'dev', repo.devTip, 'closed'); // tip is an ancestor of dev
-      const tools = worldModelTools(db, stubGraph());
+      const tools = worldModelTools(db, GraphHolder.fixed(stubGraph()));
       const out = wmParse((await tools.handlers['world_model_get']!({ agent: 'bro' })) as WmResult);
       assert.deepEqual(out['unmerged_work'], [], 'merged branch omitted → empty list');
     } finally {
@@ -342,7 +342,7 @@ describe('world_model_get — unmerged_work (#1059)', () => {
     try {
       seed(db, repo.repoRoot);
       addTask(db, 'fix/pending', 'dev', null, 'pending'); // no commit_sha → not counted
-      const tools = worldModelTools(db, stubGraph());
+      const tools = worldModelTools(db, GraphHolder.fixed(stubGraph()));
       const out = wmParse((await tools.handlers['world_model_get']!({ agent: 'bro' })) as WmResult);
       assert.deepEqual(out['unmerged_work'], [], 'no qualifying tasks → empty list');
     } finally {
@@ -361,7 +361,7 @@ describe('world_model_get — unmerged_work (#1059)', () => {
          VALUES ('o', 'd', 'open', datetime('now'), datetime('now'))`,
       );
       addTask(db, 'fix/orphan', 'dev', 'a'.repeat(40), 'closed');
-      const tools = worldModelTools(db, stubGraph());
+      const tools = worldModelTools(db, GraphHolder.fixed(stubGraph()));
       const r = (await tools.handlers['world_model_get']!({ agent: 'bro' })) as WmResult;
       const out = wmParse(r);
       assert.notEqual(r.isError, true, 'never an is_error');
@@ -402,14 +402,14 @@ describe('pruneDirectories + rename regression (#342)', () => {
       const distRoot = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
       const script = `
 import { TrajectoryDB } from '${distRoot}/db.js';
-import { WorldModelGraph } from '${distRoot}/graph-db.js';
+import { WorldModelGraph, GraphHolder } from '${distRoot}/graph-db.js';
 import { scanTools } from '${distRoot}/tools/scan.js';
 
 const ws = ${JSON.stringify(ws)};
 const repoRoot = ${JSON.stringify(repoRoot)};
 const db = new TrajectoryDB(':memory:');
 const graph = new WorldModelGraph(ws + '/world-model.kuzu');
-const tools = scanTools(db, graph, ':memory:');
+const tools = scanTools(db, GraphHolder.fixed(graph), ':memory:');
 
 // First scan.
 const r1 = await tools.handlers.scan_run({ agent: 'bro', session_dir: ws });

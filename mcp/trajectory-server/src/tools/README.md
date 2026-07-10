@@ -6,7 +6,7 @@ The MCP tool modules for the trajectory server — one TypeScript file per domai
 
 | Domain | File | Tools |
 |---|---|---|
-| Issues | `issues.ts` | `issue_create`, `issue_get`, `issue_list`, `issue_resume`, `issue_close`, `issue_link`, `issue_update_description`, `issue_get_phase`, `issue_sync_retry` |
+| Issues | `issues.ts` | `issue_create`, `issue_get`, `issue_list`, `issue_resume`, `issue_close`, `issue_link`, `issue_update_description`, `issue_get_phase`, `issue_sync_retry`, `issue_adopt_remote` |
 | Tasks | `tasks.ts` | `task_create_batch`, `task_get`, `task_update_status`, `task_first_actionable` |
 | Discussions | `discussions.ts` | `discussion_append`, `discussion_list`, `discussion_search`, `issue_get_with_discussions` |
 | Audit | `audit.ts` | `audit_append`, `audit_list`, `audit_search` |

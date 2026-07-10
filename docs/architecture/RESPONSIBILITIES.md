@@ -123,7 +123,7 @@ Batch in one response:
 | Hook | When | Effect |
 |---|---|---|
 | `require-task-spec.sh` | PreToolUse Agent | Deny SWE spawn without valid `task_id` referencing a `pending`/`open` task with non-empty spec |
-| `git-guards.sh`, `git-push-guard.sh` | PreToolUse Bash | Universal git safety (no force-push to protected branches; no push without signed `validation_attempts`) |
+| `git-guards.sh`, `git-push-guard.sh` | PreToolUse Bash | PR/MR must target `pr_target` (git/gh/glab); local merge/rebase/cherry-pick denied in the main checkout (integration via PRs only); no force-push to protected branches. Push blocked without a signed `validation_attempts` row (`git-push-guard.sh`). |
 | `no-worktree-branch-create.sh` | PreToolUse Bash | Deny `git worktree add -b/-B/--detach` |
 | `branch-up-to-date-with-remote.sh` | PreToolUse Bash | Deny SWE attaching worktree to a stale branch |
 

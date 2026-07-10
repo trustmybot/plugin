@@ -3,10 +3,18 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
-import { syncIssueCreate, syncIssueClose, isSyncFailure } from '../sync/issue_sync.js';
+import { syncIssueCreate, syncIssueClose, isSyncFailure, verifyRemoteIssue } from '../sync/issue_sync.js';
 export function makeSpawnFn(responses) {
     let index = 0;
-    return (_cmd, _args, _opts) => {
+    return (_cmd, args, _opts) => {
+        // Label-taxonomy probes (#36) are auto-answered as "unavailable" so a
+        // positional response array [create, verify] stays aligned — a null
+        // taxonomy makes the sync path pass every requested label through
+        // unchanged. Tests that exercise label splitting supply an explicit,
+        // taxonomy-aware spawnFn instead of this positional helper.
+        if (args[0] === 'label' && args[1] === 'list') {
+            return { status: 1, stdout: '', stderr: 'no taxonomy (test helper)' };
+        }
         const response = responses[index] ?? { status: 1, stdout: '', stderr: 'no more responses' };
         index++;
         return response;
@@ -204,7 +212,7 @@ describe('syncIssueCreate', () => {
             _spawnFn: spawnFn,
         });
         assert.ok(calls.length > 0);
-        const ghCall = calls[0];
+        const ghCall = calls.find((c) => c.args[0] === 'issue' && c.args[1] === 'create');
         assert.ok(ghCall !== undefined);
         assert.equal(ghCall.cmd, 'gh');
         assert.ok(ghCall.args.includes('--label'));
@@ -516,6 +524,105 @@ describe('syncIssueClose', () => {
         assert.equal(result.reason, 'non_zero_exit');
         assert.equal(result.exit_code, 1);
         assert.equal(result.stderr, 'not found');
+    });
+});
+describe('verifyRemoteIssue (#36)', () => {
+    it('ok when gh issue view returns a numbered issue', async () => {
+        const calls = [];
+        const spawnFn = (cmd, args) => {
+            calls.push({ cmd, args });
+            return { status: 0, stdout: '{"number":42,"title":"t","state":"OPEN"}', stderr: '' };
+        };
+        const result = await verifyRemoteIssue('gh', 42, { spawnFn, repoSlug: 'github.com/owner/repo' });
+        assert.equal(result.ok, true);
+        const call = calls[0];
+        assert.equal(call.cmd, 'gh');
+        assert.deepEqual(call.args.slice(0, 3), ['issue', 'view', '42']);
+        assert.ok(call.args.includes('--json'));
+        const rIdx = call.args.indexOf('--repo');
+        assert.equal(call.args[rIdx + 1], 'github.com/owner/repo');
+    });
+    it('fails when gh view exits non-zero (nonexistent / PR iid)', async () => {
+        const spawnFn = () => ({ status: 1, stdout: '', stderr: 'not found' });
+        const result = await verifyRemoteIssue('gh', 999999, { spawnFn });
+        assert.equal(result.ok, false);
+        assert.equal(result.reason, 'not_found_or_error');
+    });
+    it('fails when gh view stdout is unparseable', async () => {
+        const spawnFn = () => ({ status: 0, stdout: 'not json', stderr: '' });
+        const result = await verifyRemoteIssue('gh', 5, { spawnFn });
+        assert.equal(result.ok, false);
+        assert.equal(result.reason, 'parse_failed');
+    });
+    it('glab uses status-only verification with -R', async () => {
+        const calls = [];
+        const spawnFn = (cmd, args) => {
+            calls.push({ cmd, args });
+            return { status: 0, stdout: 'issue 7 details', stderr: '' };
+        };
+        const result = await verifyRemoteIssue('glab', 7, { spawnFn, repoSlug: 'gitlab.com/owner/repo' });
+        assert.equal(result.ok, true);
+        const call = calls[0];
+        assert.equal(call.cmd, 'glab');
+        const rIdx = call.args.indexOf('-R');
+        assert.equal(call.args[rIdx + 1], 'gitlab.com/owner/repo');
+    });
+});
+describe('syncIssueCreate label pre-validation (#36)', () => {
+    it('creates with the valid subset and reports unknown_labels', async () => {
+        const calls = [];
+        const spawnFn = (cmd, args) => {
+            calls.push({ cmd, args });
+            if (args[0] === 'label' && args[1] === 'list') {
+                return { status: 0, stdout: JSON.stringify([{ name: 'bug' }, { name: 'urgent' }]), stderr: '' };
+            }
+            if (args[0] === 'issue' && args[1] === 'view') {
+                return { status: 0, stdout: '{"number":1,"url":"https://github.com/owner/repo/issues/1"}', stderr: '' };
+            }
+            return { status: 0, stdout: 'https://github.com/owner/repo/issues/1\n', stderr: '' };
+        };
+        const result = await syncIssueCreate({
+            issueId: 1,
+            title: 'Test',
+            body: 'Body',
+            labels: ['bug', 'urgent', 'ghost'],
+            _backend: 'gh',
+            _spawnFn: spawnFn,
+        });
+        assert.ok(!isSyncFailure(result));
+        assert.deepEqual(result.unknown_labels, ['ghost']);
+        const createCall = calls.find((c) => c.args[0] === 'issue' && c.args[1] === 'create');
+        const labelValues = [];
+        for (let i = 0; i < createCall.args.length; i++) {
+            if (createCall.args[i] === '--label')
+                labelValues.push(createCall.args[i + 1]);
+        }
+        assert.deepEqual(labelValues, ['bug', 'urgent']);
+    });
+    it('passes all labels through when the taxonomy fetch fails', async () => {
+        const calls = [];
+        const spawnFn = (cmd, args) => {
+            calls.push({ cmd, args });
+            if (args[0] === 'label' && args[1] === 'list') {
+                return { status: 1, stdout: '', stderr: 'unavailable' };
+            }
+            if (args[0] === 'issue' && args[1] === 'view') {
+                return { status: 0, stdout: '{"number":1,"url":"https://github.com/owner/repo/issues/1"}', stderr: '' };
+            }
+            return { status: 0, stdout: 'https://github.com/owner/repo/issues/1\n', stderr: '' };
+        };
+        const result = await syncIssueCreate({
+            issueId: 1,
+            title: 'Test',
+            body: 'Body',
+            labels: ['bug', 'ghost'],
+            _backend: 'gh',
+            _spawnFn: spawnFn,
+        });
+        assert.ok(!isSyncFailure(result));
+        assert.equal(result.unknown_labels, undefined);
+        const createCall = calls.find((c) => c.args[0] === 'issue' && c.args[1] === 'create');
+        assert.ok(createCall.args.includes('ghost'), 'unknown label passes through when taxonomy is unavailable');
     });
 });
 describe('defaultSpawnFn live-CLI guard', () => {

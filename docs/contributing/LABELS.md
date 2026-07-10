@@ -12,7 +12,7 @@ If you need a new label and it's not below, ask in the PR. Adding a label is a d
 
 ## Canonical list — 25 labels on GH, 14 on Linear (Linear has native priority field)
 
-### Type / kind (4)
+### Type / kind (6)
 
 | Label | Means |
 |---|---|
@@ -20,6 +20,8 @@ If you need a new label and it's not below, ask in the PR. Adding a label is a d
 | **Feature** | New functionality |
 | **Improvement** | Refactor, polish, quality work |
 | **Docs** | Documentation-only changes |
+| **Test** | Test-only changes |
+| **Chore** | Tooling, deps, release mechanics |
 
 Linear ships the first three by default; we add `Docs`.
 

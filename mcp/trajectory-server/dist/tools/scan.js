@@ -441,7 +441,7 @@ function releaseLock(lockPath) {
         // already removed — not an error
     }
 }
-export function scanTools(db, graph, dbPath = '', graphOpenError = null) {
+export function scanTools(db, graphHolder = null, dbPath = '') {
     const definitions = [
         {
             name: 'scan_run',
@@ -481,13 +481,17 @@ export function scanTools(db, graph, dbPath = '', graphOpenError = null) {
             const rawSource = args['source'] ?? 'bro_auto_initial';
             const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : 'bro_auto_initial';
             // #590/#591: when the server lost the cold-start kuzu write-lock race
-            // its graph is null for the session because the open hit a lock error.
-            // Surface that as graph_db_open_failed — NOT as a scan-lock message — so
-            // the operator isn't sent chasing a phantom "scan already running" with a
-            // dead pid. A genuinely-absent kuzu (missing native binding, sandbox) has
-            // no lock error and falls through to the no-op graph path below.
+            // its graph is null because the open hit a lock error. ensureGraph()
+            // re-attempts (throttled) so a since-freed lock recovers here in-process.
+            // If it's still locked, surface graph_db_open_failed — NOT a scan-lock
+            // message — so the operator isn't sent chasing a phantom "scan already
+            // running" with a dead pid. A genuinely-absent kuzu (missing native
+            // binding, sandbox) has no lock error and falls through to the no-op
+            // graph path below.
+            const graph = graphHolder?.ensureGraph() ?? null;
+            const graphOpenError = graphHolder?.openError ?? null;
             if (!graph && graphOpenError) {
-                return err(`graph_db_open_failed: ${graphOpenError} — world model could not be opened this session (kuzu write-lock contention); restart the session to retry`);
+                return err(`graph_db_open_failed: ${graphOpenError} — another process holds the world-model lock (identify it: \`lsof .claude/tmb/world-model.kuzu\`); the server retries automatically on the next call once the holder exits`);
             }
             // #339: lock file prevents concurrent scans. Lock lives beside the DB.
             const lockPath = dbPath && dbPath !== ':memory:'

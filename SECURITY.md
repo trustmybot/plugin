@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-This project is pre-1.0 and ships from a single trunk. Only the latest stable release receives security fixes. RCs (`vX.Y.Z-rc.N`) are not separately supported — fixes land in the next stable cut.
+This project ships from a single trunk. Only the latest stable release receives security fixes. RCs (`vX.Y.Z-rc.N`) are not separately supported — fixes land in the next stable cut.
 
 | Version | Supported |
 | ------- | --------- |

@@ -6,7 +6,7 @@ Operational and one-off scripts that keep a TMB install healthy: version bumps, 
 
 | File | Purpose |
 |---|---|
-| `bump-version.sh` | Atomic plugin-version bump — updates the three manifests that must stay in sync, or fails leaving every file unchanged. Idempotent. |
+| `bump-version.sh` | Atomic plugin-version bump — updates the four files that must stay in sync (the three manifests plus the `bun.lock` workspace version), or fails leaving every file unchanged. Idempotent. |
 | `heal-mcp-cache.sh` | Interactive remediation for the Claude Code plugin MCP-config cache bug — clears stale `disabledMcpServers` entries and other recovery steps. |
 | `cleanup-stale-worktrees.sh` | One-time cleanup of repo-rooted SWE worktrees left over before worktrees moved to workspace-rooted paths. Idempotent. |
 | `run-scan.mjs` | Standalone scan invoker used by the `post-task-close-rescan.sh` hook to re-run the scan against the current commit after an atomic close. Reuses the same `scan_run` logic as the MCP tool; silent on failure. |

@@ -1,13 +1,27 @@
 # Changelog
 
-All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (pre-1.0: breaking changes may happen on minor bumps).
+All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (SemVer guarantees apply as of v1.0.0).
 
-## v1.0.0 — 2026-07-09
+## v1.0.0 — 2026-07-10
 
-First stable release. Functionally identical to v0.10.0-rc.9: the v0.10.0 release-candidate line (rc.1–rc.9, entries below) is the complete delta since v0.9.0, and rc.9 passed the tag-triggered release-gate green end to end.
+First stable release. The core is v0.10.0-rc.9 — the first release candidate whose tag-triggered gate ran fully green (the rc.1–rc.9 entries below are the complete delta since v0.9.0) — plus a post-rc.9 hardening sprint, rolled up below.
 
 ### Fixed
 - **release.sh stable cuts resolve the gate verdict from the promoted rc** (#49): step 3 awaited a release-gate run for the stable tag, but the gate fires only on rc tags (#630) — every stable cut aborted after pushing the tag. A stable tag now awaits the newest rc tag in its ancestry; refuse-on-red is unchanged.
+- **World-model graph recovers in-process** (#1089): the kuzu handle lives behind a mutable holder with a throttled lazy re-open, so a transient unavailability heals on the next query instead of leaking a dead handle and self-deadlocking the server.
+- **Orphan scan + drift warning resolve the session's own server** (#1090): the SessionStart scan and the version-drift check identify the current session's MCP process rather than naming a bystander session's PID.
+- **Version-drift banner names a remedy that reboots the MCP server** (#1088): the drift notice points at the step that actually restarts the server, so the fix it recommends resolves the drift.
+
+### Added
+- **Issue sync adopts existing remote issues** (#1093): `issue_create` adopts a matching open remote issue instead of duplicating it, and pre-validates labels against the live taxonomy before syncing.
+- **tmb_recovery learns the world-model-unavailable class** (#1092): the recovery skill covers the kuzu graph-unavailable failure with its own detection and remedy path.
+
+### Changed
+- **bump-version.sh carries bun.lock as a fourth atomic file** (#1091): the version bump updates `bun.lock`'s workspace version alongside the three manifests, closing the known post-bump drift gap.
+- **Docs reconciled to v1.0.0 reality** (#1087): 12 stale claims across the docs corrected to match the shipped v1.0.0 behavior.
+
+### Security
+- **esbuild bumped to ^0.25** (#1094): resolves GHSA-67mh-4wv8-2f99.
 
 ## v0.10.0-rc.9 — 2026-07-09
 
