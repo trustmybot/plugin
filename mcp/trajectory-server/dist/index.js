@@ -23315,6 +23315,67 @@ function repoSlugFromRemoteUrl(remoteUrl) {
   const repoPath = parsed.repoPath.replace(/\.git$/, "");
   return `${parsed.host}/${repoPath}`;
 }
+async function fetchRemoteLabelNames(backend, spawnFn, spawnOpts, repoSlug) {
+  try {
+    let result;
+    if (backend === "gh") {
+      const args = ["label", "list", "--json", "name"];
+      if (repoSlug) args.push("--repo", repoSlug);
+      result = spawnFn("gh", args, spawnOpts);
+    } else {
+      const args = ["label", "list", "-F", "json"];
+      if (repoSlug) args.push("-R", repoSlug);
+      result = spawnFn("glab", args, spawnOpts);
+    }
+    if (result.status !== 0) return null;
+    let parsed;
+    try {
+      parsed = JSON.parse(result.stdout);
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(parsed)) return null;
+    const names = /* @__PURE__ */ new Set();
+    for (const entry of parsed) {
+      if (entry && typeof entry === "object" && typeof entry.name === "string") {
+        names.add(entry.name);
+      }
+    }
+    return names;
+  } catch {
+    return null;
+  }
+}
+async function verifyRemoteIssue(backend, iid, opts = {}) {
+  const spawnFn = opts.spawnFn ?? defaultSpawnFn;
+  const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
+  if (opts.cwd) spawnOpts.cwd = opts.cwd;
+  try {
+    let result;
+    if (backend === "gh") {
+      const args = ["issue", "view", String(iid), "--json", "number,title,state"];
+      if (opts.repoSlug) args.push("--repo", opts.repoSlug);
+      result = spawnFn("gh", args, spawnOpts);
+    } else {
+      const args = ["issue", "view", String(iid)];
+      if (opts.repoSlug) args.push("-R", opts.repoSlug);
+      result = spawnFn("glab", args, spawnOpts);
+    }
+    if (result.status !== 0) return { ok: false, reason: "not_found_or_error" };
+    if (backend === "gh") {
+      let parsed;
+      try {
+        parsed = JSON.parse(result.stdout);
+      } catch {
+        return { ok: false, reason: "parse_failed" };
+      }
+      if (typeof parsed.number !== "number") return { ok: false, reason: "parse_failed" };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: "spawn_error" };
+  }
+}
 function isFailure(r) {
   return r.ok === false;
 }
@@ -23325,6 +23386,24 @@ async function createOnBackend(backend, opts, spawnFn) {
   if (opts._cwd) {
     spawnOpts.cwd = opts._cwd;
   }
+  let effectiveLabels = labels;
+  let unknownLabels = [];
+  if (labels.length > 0) {
+    const known = await fetchRemoteLabelNames(backend, spawnFn, spawnOpts, opts._repoSlug);
+    if (known !== null) {
+      effectiveLabels = labels.filter((l) => known.has(l));
+      unknownLabels = labels.filter((l) => !known.has(l));
+      if (unknownLabels.length > 0) {
+        syncLog({
+          event: "issue_create_labels_filtered",
+          backend,
+          issueId: opts.issueId,
+          unknown: unknownLabels,
+          kept: effectiveLabels
+        });
+      }
+    }
+  }
   let cmd;
   let args;
   if (backend === "gh") {
@@ -23333,7 +23412,7 @@ async function createOnBackend(backend, opts, spawnFn) {
     if (opts._repoSlug) {
       args.push("--repo", opts._repoSlug);
     }
-    for (const label of labels) {
+    for (const label of effectiveLabels) {
       args.push("--label", label);
     }
     if (milestone) {
@@ -23345,7 +23424,7 @@ async function createOnBackend(backend, opts, spawnFn) {
     if (opts._repoSlug) {
       args.push("-R", opts._repoSlug);
     }
-    for (const label of labels) {
+    for (const label of effectiveLabels) {
       args.push("--label", label);
     }
     if (milestone) {
@@ -23439,7 +23518,11 @@ async function createOnBackend(backend, opts, spawnFn) {
       iid: parsed.iid,
       stdout: result.stdout
     });
-    return { remote_iid: parsed.iid, remote_kind: kind };
+    return {
+      remote_iid: parsed.iid,
+      remote_kind: kind,
+      unknown_labels: unknownLabels.length > 0 ? unknownLabels : void 0
+    };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     syncLog({
@@ -23678,6 +23761,38 @@ function resolveIssueSyncContext(db2, repoName) {
     }
   };
 }
+async function verifyAdoptionRemote(db2, issueRepo, remoteBackendArg, remoteIid, spawnFn) {
+  if (!Number.isInteger(remoteIid) || remoteIid <= 0) {
+    return { ok: false, error: `invalid_remote_iid: must be a positive integer, got ${String(remoteIid)}` };
+  }
+  const syncCtx = resolveIssueSyncContext(db2, issueRepo);
+  let backend = remoteBackendArg;
+  if (!backend) {
+    const hasGh = syncCtx?.remoteFor("gh") != null;
+    const hasGl = syncCtx?.remoteFor("glab") != null;
+    if (hasGh && !hasGl) backend = "github";
+    else if (hasGl && !hasGh) backend = "gitlab";
+    else if (hasGh && hasGl) {
+      return { ok: false, error: "remote_backend_ambiguous: repo has both github and gitlab remotes \u2014 pass remote_backend" };
+    } else {
+      return { ok: false, error: "remote_backend_unresolved: repo has no configured remote \u2014 pass remote_backend" };
+    }
+  }
+  const cliBackend = backend === "github" ? "gh" : "glab";
+  const remote = syncCtx?.remoteFor(cliBackend);
+  const verify = await verifyRemoteIssue(cliBackend, remoteIid, {
+    spawnFn,
+    cwd: syncCtx?.cwd,
+    repoSlug: remote?.slug ?? void 0
+  });
+  if (!verify.ok) {
+    return {
+      ok: false,
+      error: `remote_verify_failed: ${backend} issue #${remoteIid} not found or not viewable (${verify.reason ?? "unknown"})`
+    };
+  }
+  return { ok: true, backend };
+}
 async function syncIssueCloseRemotes(db2, dbPath2, issueId, spawnFn) {
   const remoteRow = db2.get(
     `SELECT remote_iid, remote_kind, gh_iid, gl_iid, repo FROM issues WHERE id = ?`,
@@ -23733,7 +23848,9 @@ function issueTools(db2, dbPath2 = "") {
           labels: { type: "array", items: { type: "string" }, description: "Required. Must include at least one priority label AND at least one classification label, drawn from the project's configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore). Extra labels are allowed. Applied to the remote issue." },
           milestone: { type: "string", description: 'Optional milestone name (e.g. "v1.2.0"). Persisted on the issue row and set on the remote issue. Omit for no milestone.' },
           repo: { type: "string", description: "Optional repo name (matches a repos row) this issue belongs to. Drives issue-scoped sync (explicit gh --repo / glab -R from that repo's remotes). Defaults to the sole/managed repo when exactly one repos row exists." },
-          allow_duplicate: { type: "boolean", description: "When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating." }
+          allow_duplicate: { type: "boolean", description: "When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating." },
+          remote_iid: { type: "number", description: "Optional. Adopt an existing remote issue instead of creating one: verifies the remote issue exists, links it, and skips remote creation. A failed verification creates nothing." },
+          remote_backend: { type: "string", enum: ["github", "gitlab"], description: "Optional backend for remote_iid adoption. Defaults to the repo's sole configured remote." }
         },
         required: ["agent", "objective", "labels"]
       }
@@ -23836,6 +23953,20 @@ function issueTools(db2, dbPath2 = "") {
       }
     },
     {
+      name: "issue_adopt_remote",
+      description: "Link an existing local issue to an existing remote issue after verifying it exists. Bro only. Errors if the row is already linked to a different iid; re-adopting the same iid is idempotent.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
+          issue_id: { type: "string", description: "Local issue ID" },
+          remote_iid: { type: "number", description: "Remote issue number to adopt" },
+          remote_backend: { type: "string", enum: ["github", "gitlab"], description: "Optional. Defaults to the repo's sole configured remote." }
+        },
+        required: ["agent", "issue_id", "remote_iid"]
+      }
+    },
+    {
       name: "issue_link",
       description: "Record a remote issue linkage (gh_iid/gl_iid) for a manually-mirrored issue. Bro only. Rejects if the backend iid is already set unless force=true.",
       inputSchema: {
@@ -23890,6 +24021,49 @@ function issueTools(db2, dbPath2 = "") {
       const milestone = resolveDefaultMilestone(db2, explicitMilestone, issueRepo);
       const spawnFn = args["_spawnFn"] ?? void 0;
       const now = nowISO();
+      const remoteIidRaw = args["remote_iid"];
+      if (remoteIidRaw !== void 0 && remoteIidRaw !== null) {
+        const remoteIid = typeof remoteIidRaw === "number" ? remoteIidRaw : Number(remoteIidRaw);
+        const remoteBackendArg = args["remote_backend"];
+        const adoption = await verifyAdoptionRemote(db2, issueRepo, remoteBackendArg, remoteIid, spawnFn);
+        if (!adoption.ok) {
+          return err2(adoption.error);
+        }
+        db2.run(
+          `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo)
+           VALUES (?, ?, 'open', ?, ?, ?, ?)`,
+          [objective, description, now, now, milestone, issueRepo]
+        );
+        const adoptRowId = db2.get(
+          `SELECT id FROM issues WHERE rowid = last_insert_rowid()`
+        );
+        if (!adoptRowId) {
+          throw new Error("issue_create: failed to retrieve inserted row");
+        }
+        const adoptId = adoptRowId.id;
+        const ghIid = adoption.backend === "github" ? remoteIid : null;
+        const glIid = adoption.backend === "gitlab" ? remoteIid : null;
+        db2.run(
+          `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
+          [remoteIid, adoption.backend, ghIid, glIid, now, adoptId]
+        );
+        db2.run(
+          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
+           VALUES (?, 'executor', 'issue_adopted', ?, ?, ?)`,
+          [
+            adoptId,
+            `issue ${adoptId} adopted ${adoption.backend} #${remoteIid} at create`,
+            JSON.stringify({ issue_id: adoptId, backend: adoption.backend, remote_iid: remoteIid, at_create: true }),
+            now
+          ]
+        );
+        const adoptedRow = db2.get("SELECT * FROM issues WHERE id = ?", [adoptId]);
+        const adoptedIssue = decodeIssue(adoptedRow);
+        const adoptedRedacted = redactIssue(adoptedIssue, agent, { include_description: true });
+        const adoptedPayload = { ...adoptedRedacted };
+        adoptedPayload._adopted = { backend: adoption.backend, remote_iid: remoteIid };
+        return ok2(adoptedPayload);
+      }
       db2.run(
         `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo)
          VALUES (?, ?, 'open', ?, ?, ?, ?)`,
@@ -24012,6 +24186,20 @@ function issueTools(db2, dbPath2 = "") {
                   };
                 }
               }
+              const droppedLabels = /* @__PURE__ */ new Set();
+              if (!isFailure(ghResult) && ghResult.unknown_labels) {
+                for (const l of ghResult.unknown_labels) droppedLabels.add(l);
+              }
+              if (!isFailure(glResult) && glResult.unknown_labels) {
+                for (const l of glResult.unknown_labels) droppedLabels.add(l);
+              }
+              if (droppedLabels.size > 0 && !syncDiagnostic) {
+                syncDiagnostic = {
+                  labels_dropped: [...droppedLabels],
+                  reason: "labels_not_in_remote_taxonomy",
+                  hint: "These requested labels do not exist on the remote and were omitted from the remote issue; all labels are still kept on the local issue."
+                };
+              }
             }
           } else {
             const remote = syncCtx.remoteFor(backend);
@@ -24044,6 +24232,13 @@ function issueTools(db2, dbPath2 = "") {
                   `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
                   [syncResult.remote_iid, syncResult.remote_kind, ghIid, glIid, now, issueId]
                 );
+                if (syncResult.unknown_labels && syncResult.unknown_labels.length > 0) {
+                  syncDiagnostic = {
+                    labels_dropped: syncResult.unknown_labels,
+                    reason: "labels_not_in_remote_taxonomy",
+                    hint: "These requested labels do not exist on the remote and were omitted from the remote issue; all labels are still kept on the local issue."
+                  };
+                }
               } else {
                 serverLog({
                   event: "issue_sync_failed",
@@ -24410,6 +24605,47 @@ function issueTools(db2, dbPath2 = "") {
       );
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       return ok2({ linked: true, backend, iid, issue: decodeIssue(updated) });
+    })),
+    issue_adopt_remote: requireRoles("issue_adopt_remote", ["bro"], wrapHandler2(async (args) => {
+      const issueId = requireArg2(args, "issue_id");
+      const remoteIidRaw = requireArg2(args, "remote_iid");
+      const remoteIid = typeof remoteIidRaw === "number" ? remoteIidRaw : Number(remoteIidRaw);
+      const remoteBackendArg = args["remote_backend"];
+      const spawnFn = args["_spawnFn"] ?? void 0;
+      const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      if (!row) {
+        return err2(`not_found: issue ${issueId}`);
+      }
+      const adoption = await verifyAdoptionRemote(db2, row.repo ?? null, remoteBackendArg, remoteIid, spawnFn);
+      if (!adoption.ok) {
+        return err2(adoption.error);
+      }
+      const existingIid = adoption.backend === "github" ? row.gh_iid : row.gl_iid;
+      if (existingIid != null && existingIid !== remoteIid) {
+        return err2(`already_linked: issue ${issueId} already has a ${adoption.backend} link (#${existingIid}); re-adopt is only idempotent for the same iid`);
+      }
+      const idempotent = existingIid === remoteIid;
+      const now = nowISO();
+      const ghIid = adoption.backend === "github" ? remoteIid : null;
+      const glIid = adoption.backend === "gitlab" ? remoteIid : null;
+      db2.run(
+        `UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, ?), updated_at = ? WHERE id = ?`,
+        [ghIid, glIid, remoteIid, adoption.backend, now, issueId]
+      );
+      if (!idempotent) {
+        db2.run(
+          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
+           VALUES (?, 'executor', 'issue_adopted', ?, ?, ?)`,
+          [
+            parseInt(issueId, 10),
+            `issue ${issueId} adopted ${adoption.backend} #${remoteIid}`,
+            JSON.stringify({ issue_id: issueId, backend: adoption.backend, remote_iid: remoteIid, at_create: false }),
+            now
+          ]
+        );
+      }
+      const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      return ok2({ adopted: true, backend: adoption.backend, remote_iid: remoteIid, idempotent, issue: decodeIssue(updated) });
     }))
   };
   return { definitions, handlers };
