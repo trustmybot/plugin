@@ -1657,3 +1657,386 @@ describe('issue_create dedup (#91/#775)', () => {
     db.close();
   });
 });
+
+// A repos row with a single github remote so the adoption backend resolves
+// unambiguously (registerSoleRepo defaults to both github + gitlab, which is
+// ambiguous for a backend-less adopt).
+function registerGithubRepo(db: ReturnType<typeof tempDB>): void {
+  registerSoleRepo(db, [{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }]);
+}
+
+describe('issue_create remote adoption (#36)', () => {
+  it('adopts an existing remote at create: verifies, links, skips remote create', async () => {
+    const db = tempDB();
+    registerGithubRepo(db);
+    const tools = issueTools(db);
+
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    const spawnFn = (cmd: string, args: string[]) => {
+      calls.push({ cmd, args });
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return { status: 0, stdout: '{"number":42,"title":"t","state":"OPEN"}', stderr: '' };
+      }
+      return { status: 1, stdout: '', stderr: 'must not create remotely' };
+    };
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'adopt existing remote at create',
+      labels: VALID_LABELS,
+      remote_iid: 42,
+      _spawnFn: spawnFn,
+    });
+    const issue = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
+    assert.equal(issue.gh_iid, 42, 'gh_iid linked from adopted remote');
+    assert.equal(issue.remote_kind, 'github');
+    assert.equal(issue.remote_iid, 42);
+    assert.deepEqual(issue._adopted, { backend: 'github', remote_iid: 42 });
+    assert.ok(
+      !calls.some((c) => c.args[0] === 'issue' && c.args[1] === 'create'),
+      'adoption must skip the remote create',
+    );
+
+    const row = db.get<{ gh_iid: number | null; remote_kind: string | null }>(
+      'SELECT gh_iid, remote_kind FROM issues WHERE id = ?',
+      [issue.id],
+    );
+    assert.equal(row?.gh_iid, 42);
+    assert.equal(row?.remote_kind, 'github');
+
+    db.close();
+  });
+
+  it('honors an explicit remote_backend even when the repo has both remotes', async () => {
+    const db = tempDB();
+    registerSoleRepo(db); // both github + gitlab
+    const tools = issueTools(db);
+
+    const spawnFn = (cmd: string, args: string[]) => {
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return { status: 0, stdout: 'issue 88 details', stderr: '' };
+      }
+      return { status: 1, stdout: '', stderr: 'must not create remotely' };
+    };
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'adopt explicit gitlab backend',
+      labels: VALID_LABELS,
+      remote_iid: 88,
+      remote_backend: 'gitlab',
+      _spawnFn: spawnFn,
+    });
+    const issue = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
+    assert.equal(issue.gl_iid, 88);
+    assert.equal(issue.remote_kind, 'gitlab');
+
+    db.close();
+  });
+
+  it('nonexistent remote → named error, inserts nothing', async () => {
+    const db = tempDB();
+    registerGithubRepo(db);
+    const tools = issueTools(db);
+
+    const spawnFn = (cmd: string, args: string[]) => {
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return { status: 1, stdout: '', stderr: 'not found' };
+      }
+      return { status: 1, stdout: '', stderr: 'must not create remotely' };
+    };
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'adopt nonexistent remote',
+      labels: VALID_LABELS,
+      remote_iid: 999999,
+      _spawnFn: spawnFn,
+    });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'nonexistent remote must error');
+    assert.match(data.error, /remote_verify_failed/);
+
+    const count = db.get<{ n: number }>('SELECT COUNT(*) AS n FROM issues WHERE id > 0');
+    assert.equal(count?.n, 0, 'a failed adoption must insert no issue row');
+
+    db.close();
+  });
+
+  it('ambiguous backend (both remotes, no remote_backend) → named error, inserts nothing', async () => {
+    const db = tempDB();
+    registerSoleRepo(db); // both github + gitlab
+    const tools = issueTools(db);
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'adopt ambiguous backend',
+      labels: VALID_LABELS,
+      remote_iid: 5,
+      _spawnFn: makeSpawnFn([]),
+    });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'ambiguous backend must error');
+    assert.match(data.error, /remote_backend_ambiguous/);
+
+    const count = db.get<{ n: number }>('SELECT COUNT(*) AS n FROM issues WHERE id > 0');
+    assert.equal(count?.n, 0, 'inserts nothing on ambiguous backend');
+
+    db.close();
+  });
+});
+
+describe('issue_adopt_remote (#36)', () => {
+  async function createLocalIssue(
+    tools: ReturnType<typeof issueTools>,
+    objective: string,
+  ): Promise<number> {
+    const created = await call(tools.handlers, 'issue_create', { agent: 'bro', objective, labels: VALID_LABELS });
+    return parseResult(created).id as number;
+  }
+
+  const viewOkSpawn = (cmd: string, args: string[]) => {
+    if (args[0] === 'issue' && args[1] === 'view') {
+      return { status: 0, stdout: '{"number":42,"title":"t","state":"OPEN"}', stderr: '' };
+    }
+    return { status: 1, stdout: '', stderr: 'unexpected' };
+  };
+
+  it('links an existing local issue to a verified remote', async () => {
+    const db = tempDB();
+    registerGithubRepo(db);
+    const tools = issueTools(db);
+    const issueId = await createLocalIssue(tools, 'adopt-remote happy');
+
+    const result = await call(tools.handlers, 'issue_adopt_remote', {
+      agent: 'bro',
+      issue_id: String(issueId),
+      remote_iid: 42,
+      _spawnFn: viewOkSpawn,
+    });
+    const data = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${data.error}`);
+    assert.equal(data.adopted, true);
+    assert.equal(data.backend, 'github');
+    assert.equal(data.idempotent, false);
+
+    const row = db.get<{ gh_iid: number | null; remote_iid: number | null; remote_kind: string | null }>(
+      'SELECT gh_iid, remote_iid, remote_kind FROM issues WHERE id = ?',
+      [issueId],
+    );
+    assert.equal(row?.gh_iid, 42);
+    assert.equal(row?.remote_iid, 42);
+    assert.equal(row?.remote_kind, 'github');
+
+    const audit = db.get<{ event_type: string }>(
+      `SELECT event_type FROM audit WHERE issue_id = ? AND event_type = 'issue_adopted'`,
+      [issueId],
+    );
+    assert.ok(audit, 'issue_adopted audit row must exist');
+
+    db.close();
+  });
+
+  it('re-adopting the SAME iid is idempotent', async () => {
+    const db = tempDB();
+    registerGithubRepo(db);
+    const tools = issueTools(db);
+    const issueId = await createLocalIssue(tools, 'adopt-remote idempotent');
+
+    await call(tools.handlers, 'issue_adopt_remote', { agent: 'bro', issue_id: String(issueId), remote_iid: 42, _spawnFn: viewOkSpawn });
+    const second = await call(tools.handlers, 'issue_adopt_remote', { agent: 'bro', issue_id: String(issueId), remote_iid: 42, _spawnFn: viewOkSpawn });
+    const data = parseResult(second);
+    assert.ok(!second.isError, `idempotent re-adopt must succeed, got: ${data.error}`);
+    assert.equal(data.idempotent, true);
+
+    const row = db.get<{ gh_iid: number | null }>('SELECT gh_iid FROM issues WHERE id = ?', [issueId]);
+    assert.equal(row?.gh_iid, 42);
+
+    db.close();
+  });
+
+  it('adopting a DIFFERENT iid for a linked backend → conflict error', async () => {
+    const db = tempDB();
+    registerGithubRepo(db);
+    const tools = issueTools(db);
+    const issueId = await createLocalIssue(tools, 'adopt-remote conflict');
+
+    await call(tools.handlers, 'issue_adopt_remote', { agent: 'bro', issue_id: String(issueId), remote_iid: 42, _spawnFn: viewOkSpawn });
+
+    const conflictSpawn = (cmd: string, args: string[]) => {
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return { status: 0, stdout: '{"number":43,"title":"t","state":"OPEN"}', stderr: '' };
+      }
+      return { status: 1, stdout: '', stderr: 'unexpected' };
+    };
+    const conflict = await call(tools.handlers, 'issue_adopt_remote', { agent: 'bro', issue_id: String(issueId), remote_iid: 43, _spawnFn: conflictSpawn });
+    const data = parseResult(conflict);
+    assert.ok(conflict.isError, 'conflicting adopt must error');
+    assert.match(data.error, /already_linked/);
+
+    const row = db.get<{ gh_iid: number | null }>('SELECT gh_iid FROM issues WHERE id = ?', [issueId]);
+    assert.equal(row?.gh_iid, 42, 'the original link is preserved on conflict');
+
+    db.close();
+  });
+
+  it('nonexistent remote → named error, no link persisted', async () => {
+    const db = tempDB();
+    registerGithubRepo(db);
+    const tools = issueTools(db);
+    const issueId = await createLocalIssue(tools, 'adopt-remote missing');
+
+    const missingSpawn = (cmd: string, args: string[]) => {
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return { status: 1, stdout: '', stderr: 'not found' };
+      }
+      return { status: 1, stdout: '', stderr: 'unexpected' };
+    };
+    const result = await call(tools.handlers, 'issue_adopt_remote', { agent: 'bro', issue_id: String(issueId), remote_iid: 777, _spawnFn: missingSpawn });
+    const data = parseResult(result);
+    assert.ok(result.isError, 'nonexistent remote must error');
+    assert.match(data.error, /remote_verify_failed/);
+
+    const row = db.get<{ gh_iid: number | null }>('SELECT gh_iid FROM issues WHERE id = ?', [issueId]);
+    assert.equal(row?.gh_iid ?? null, null, 'no link persisted on verification failure');
+
+    db.close();
+  });
+
+  it('is forbidden to swe', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+    const result = await call(tools.handlers, 'issue_adopt_remote', { agent: 'swe', issue_id: '1', remote_iid: 1 });
+    assert.ok(result.isError, 'swe must be forbidden from issue_adopt_remote');
+    assert.equal(parseResult(result).error, 'forbidden');
+    db.close();
+  });
+});
+
+describe('issue_create label pre-validation (#36)', () => {
+  it('creates with the valid subset and surfaces the unknown labels as a warning', async () => {
+    const db = tempDB();
+    registerGithubRepo(db);
+    const cfgTools = configTools(db);
+    await call(cfgTools.handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'gh' });
+    const tools = issueTools(db);
+
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    const spawnFn = (cmd: string, args: string[]) => {
+      calls.push({ cmd, args });
+      if (args[0] === 'label' && args[1] === 'list') {
+        return { status: 0, stdout: JSON.stringify([{ name: 'Bug' }, { name: 'Priority: High' }]), stderr: '' };
+      }
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return { status: 0, stdout: '{"number":7,"url":"https://github.com/owner/repo/issues/7"}', stderr: '' };
+      }
+      return { status: 0, stdout: 'https://github.com/owner/repo/issues/7\n', stderr: '' };
+    };
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'label split with one unknown',
+      labels: ['Bug', 'Priority: High', 'nonexistent-label'],
+      _spawnFn: spawnFn,
+    });
+    const issue = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
+    assert.equal(issue.remote_iid, 7, 'remote issue still created');
+    assert.ok(issue._sync, 'label warning must surface');
+    assert.deepEqual(issue._sync.labels_dropped, ['nonexistent-label']);
+    assert.equal(issue._sync.reason, 'labels_not_in_remote_taxonomy');
+
+    const createCall = calls.find((c) => c.args[0] === 'issue' && c.args[1] === 'create');
+    assert.ok(createCall, 'remote create must run');
+    const labelValues: string[] = [];
+    for (let i = 0; i < createCall.args.length; i++) {
+      if (createCall.args[i] === '--label') labelValues.push(createCall.args[i + 1]!);
+    }
+    assert.deepEqual(labelValues.sort(), ['Bug', 'Priority: High'], 'remote create carries only the valid subset');
+    assert.ok(!labelValues.includes('nonexistent-label'), 'unknown label must not reach the remote');
+
+    db.close();
+  });
+
+  it('all-unknown labels still creates the remote issue with no labels + warning', async () => {
+    const db = tempDB();
+    registerGithubRepo(db);
+    const cfgTools = configTools(db);
+    await call(cfgTools.handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'gh' });
+    const tools = issueTools(db);
+
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    const spawnFn = (cmd: string, args: string[]) => {
+      calls.push({ cmd, args });
+      if (args[0] === 'label' && args[1] === 'list') {
+        // Taxonomy exists but contains none of the requested labels.
+        return { status: 0, stdout: JSON.stringify([{ name: 'unrelated' }]), stderr: '' };
+      }
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return { status: 0, stdout: '{"number":9,"url":"https://github.com/owner/repo/issues/9"}', stderr: '' };
+      }
+      return { status: 0, stdout: 'https://github.com/owner/repo/issues/9\n', stderr: '' };
+    };
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'all labels unknown to remote',
+      labels: ['Bug', 'Priority: High'],
+      _spawnFn: spawnFn,
+    });
+    const issue = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
+    assert.equal(issue.remote_iid, 9, 'remote issue created even with an empty valid subset');
+    assert.ok(issue._sync, 'warning surfaced');
+    assert.deepEqual((issue._sync.labels_dropped as string[]).sort(), ['Bug', 'Priority: High']);
+
+    const createCall = calls.find((c) => c.args[0] === 'issue' && c.args[1] === 'create');
+    assert.ok(createCall, 'remote create must run');
+    assert.ok(!createCall.args.includes('--label'), 'no labels passed when the valid subset is empty');
+
+    db.close();
+  });
+
+  it('taxonomy fetch failure → all labels pass through unchanged, no warning', async () => {
+    const db = tempDB();
+    registerGithubRepo(db);
+    const cfgTools = configTools(db);
+    await call(cfgTools.handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'gh' });
+    const tools = issueTools(db);
+
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    const spawnFn = (cmd: string, args: string[]) => {
+      calls.push({ cmd, args });
+      if (args[0] === 'label' && args[1] === 'list') {
+        return { status: 1, stdout: '', stderr: 'taxonomy unavailable' };
+      }
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return { status: 0, stdout: '{"number":11,"url":"https://github.com/owner/repo/issues/11"}', stderr: '' };
+      }
+      return { status: 0, stdout: 'https://github.com/owner/repo/issues/11\n', stderr: '' };
+    };
+
+    const result = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'taxonomy fetch fails',
+      labels: ['Bug', 'Priority: High', 'maybe-unknown'],
+      _spawnFn: spawnFn,
+    });
+    const issue = parseResult(result);
+    assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
+    assert.equal(issue.remote_iid, 11);
+    assert.ok(!issue._sync || issue._sync.reason !== 'labels_not_in_remote_taxonomy', 'no label warning when taxonomy is unavailable');
+
+    const createCall = calls.find((c) => c.args[0] === 'issue' && c.args[1] === 'create');
+    assert.ok(createCall, 'remote create must run');
+    const labelValues: string[] = [];
+    for (let i = 0; i < createCall.args.length; i++) {
+      if (createCall.args[i] === '--label') labelValues.push(createCall.args[i + 1]!);
+    }
+    assert.ok(labelValues.includes('maybe-unknown'), 'all labels pass through when taxonomy is unavailable');
+
+    db.close();
+  });
+});

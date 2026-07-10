@@ -162,6 +162,92 @@ export interface SyncIssueCreateOpts {
 export interface SyncResult {
   remote_iid: number;
   remote_kind: 'github' | 'gitlab';
+  // Requested labels that do not exist in the remote taxonomy and were dropped
+  // from the remote create (#36). Undefined when nothing was dropped.
+  unknown_labels?: string[];
+}
+
+// Fetch the remote label taxonomy for a backend (one probe per create, no
+// persistent cache — #36). Returns the set of existing label names, or null
+// when the taxonomy can't be determined (probe failed / unparseable) so the
+// caller falls back to passing every requested label through unchanged rather
+// than stripping them all.
+async function fetchRemoteLabelNames(
+  backend: 'gh' | 'glab',
+  spawnFn: SpawnFn,
+  spawnOpts: SpawnSyncOptions,
+  repoSlug?: string,
+): Promise<Set<string> | null> {
+  try {
+    let result: { status: number | null; stdout: string; stderr: string };
+    if (backend === 'gh') {
+      const args = ['label', 'list', '--json', 'name'];
+      if (repoSlug) args.push('--repo', repoSlug);
+      result = spawnFn('gh', args, spawnOpts);
+    } else {
+      const args = ['label', 'list', '-F', 'json'];
+      if (repoSlug) args.push('-R', repoSlug);
+      result = spawnFn('glab', args, spawnOpts);
+    }
+    if (result.status !== 0) return null;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(result.stdout);
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(parsed)) return null;
+    const names = new Set<string>();
+    for (const entry of parsed) {
+      if (entry && typeof entry === 'object' && typeof (entry as { name?: unknown }).name === 'string') {
+        names.add((entry as { name: string }).name);
+      }
+    }
+    return names;
+  } catch {
+    return null;
+  }
+}
+
+// Verify a remote issue exists before adopting its iid onto a local row (#36).
+// gh: `gh issue view <iid> --repo <slug> --json number,title,state` — a PR iid
+// makes `gh issue view` exit non-zero, so PRs are rejected implicitly. glab:
+// `glab issue view <iid> -R <slug>`, status-only (matching the close/read-back
+// path, which never parses glab JSON). Returns { ok:false, reason } on any
+// failure so the caller can surface a named error and create nothing.
+export async function verifyRemoteIssue(
+  backend: 'gh' | 'glab',
+  iid: number,
+  opts: { spawnFn?: SpawnFn; cwd?: string; repoSlug?: string } = {},
+): Promise<{ ok: boolean; reason?: string }> {
+  const spawnFn = opts.spawnFn ?? defaultSpawnFn;
+  const spawnOpts: SpawnSyncOptions = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: 'utf8' };
+  if (opts.cwd) spawnOpts.cwd = opts.cwd;
+  try {
+    let result: { status: number | null; stdout: string; stderr: string };
+    if (backend === 'gh') {
+      const args = ['issue', 'view', String(iid), '--json', 'number,title,state'];
+      if (opts.repoSlug) args.push('--repo', opts.repoSlug);
+      result = spawnFn('gh', args, spawnOpts);
+    } else {
+      const args = ['issue', 'view', String(iid)];
+      if (opts.repoSlug) args.push('-R', opts.repoSlug);
+      result = spawnFn('glab', args, spawnOpts);
+    }
+    if (result.status !== 0) return { ok: false, reason: 'not_found_or_error' };
+    if (backend === 'gh') {
+      let parsed: { number?: unknown };
+      try {
+        parsed = JSON.parse(result.stdout) as { number?: unknown };
+      } catch {
+        return { ok: false, reason: 'parse_failed' };
+      }
+      if (typeof parsed.number !== 'number') return { ok: false, reason: 'parse_failed' };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: 'spawn_error' };
+  }
 }
 
 export interface SyncFailure {
@@ -190,6 +276,31 @@ async function createOnBackend(
     spawnOpts.cwd = opts._cwd;
   }
 
+  // Label pre-validation (#36): split the requested labels against the remote's
+  // actual taxonomy and create with only the valid subset, so one unknown label
+  // no longer fails the whole create. When the taxonomy can't be fetched, pass
+  // every label through unchanged (prior behaviour). An empty valid subset still
+  // creates the issue with no labels. The full requested set stays on the local
+  // row (the caller persists it) — this only shapes the remote command.
+  let effectiveLabels = labels;
+  let unknownLabels: string[] = [];
+  if (labels.length > 0) {
+    const known = await fetchRemoteLabelNames(backend, spawnFn, spawnOpts, opts._repoSlug);
+    if (known !== null) {
+      effectiveLabels = labels.filter((l) => known.has(l));
+      unknownLabels = labels.filter((l) => !known.has(l));
+      if (unknownLabels.length > 0) {
+        syncLog({
+          event: 'issue_create_labels_filtered',
+          backend,
+          issueId: opts.issueId,
+          unknown: unknownLabels,
+          kept: effectiveLabels,
+        });
+      }
+    }
+  }
+
   let cmd: string;
   let args: string[];
   if (backend === 'gh') {
@@ -198,7 +309,7 @@ async function createOnBackend(
     if (opts._repoSlug) {
       args.push('--repo', opts._repoSlug);
     }
-    for (const label of labels) {
+    for (const label of effectiveLabels) {
       args.push('--label', label);
     }
     if (milestone) {
@@ -210,7 +321,7 @@ async function createOnBackend(
     if (opts._repoSlug) {
       args.push('-R', opts._repoSlug);
     }
-    for (const label of labels) {
+    for (const label of effectiveLabels) {
       args.push('--label', label);
     }
     if (milestone) {
@@ -309,7 +420,11 @@ async function createOnBackend(
       stdout: result.stdout,
     });
 
-    return { remote_iid: parsed.iid, remote_kind: kind };
+    return {
+      remote_iid: parsed.iid,
+      remote_kind: kind,
+      unknown_labels: unknownLabels.length > 0 ? unknownLabels : undefined,
+    };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     syncLog({
