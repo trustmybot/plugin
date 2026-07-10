@@ -61,8 +61,21 @@ export class WorldModelGraph {
     const req = createRequire(import.meta.url);
     const kuzu = req('kuzu') as typeof import('kuzu');
     this.db = WorldModelGraph.openWithRetry(kuzu, dbPath);
-    this.conn = new kuzu.Connection(this.db);
-    this.applySchema();
+    // A throw after the Database opened (Connection creation or applySchema)
+    // would otherwise leak the open db handle — and its file lock — for the
+    // process's lifetime, so the next open (this session or another) can never
+    // acquire the write-lock. Best-effort close the handle before rethrowing.
+    try {
+      this.conn = new kuzu.Connection(this.db);
+      this.applySchema();
+    } catch (e) {
+      try {
+        this.db.closeSync();
+      } catch {
+        // Already closed / never fully initialized — nothing to release.
+      }
+      throw e;
+    }
   }
 
   // Open the kuzu Database, retrying with bounded exponential backoff when the
@@ -263,4 +276,98 @@ export class WorldModelGraph {
 export function resolveGraphDbPath(trajectoryDbPath: string): string {
   if (trajectoryDbPath === ':memory:') return ':memory:';
   return trajectoryDbPath.replace(/trajectory\.db$/, 'world-model.kuzu');
+}
+
+// Minimum interval between lazy re-open attempts. A persistent lock holder
+// must not add per-call open latency, so once an open fails the holder waits
+// this long before trying again.
+export const GRAPH_REOPEN_THROTTLE_MS = 5000;
+
+export interface GraphHolderOptions {
+  open: () => WorldModelGraph;
+  now?: () => number;
+  log?: (entry: Record<string, unknown>) => void;
+  throttleMs?: number;
+}
+
+// Mutable, shared-by-reference container for the world-model graph. The open
+// can fail on cold-start write-lock contention (#590); before this holder the
+// failure was cached for the server's lifetime because index.ts passed the
+// resolved graph BY VALUE to registerTools — no later open could reach the
+// tools. Tools now read through ensureGraph(), which re-attempts a failed open
+// lazily (throttled) so world_model_*/scan_run self-recover once the lock frees
+// in the same server process. (GH #1077)
+export class GraphHolder {
+  graph: WorldModelGraph | null = null;
+  openError: string | null = null;
+  lastAttemptMs = 0;
+
+  private readonly open: () => WorldModelGraph;
+  private readonly now: () => number;
+  private readonly log: (entry: Record<string, unknown>) => void;
+  private readonly throttleMs: number;
+  private lastFailureMessage: string | null = null;
+  private attempted = false;
+
+  constructor(opts: GraphHolderOptions) {
+    this.open = opts.open;
+    this.now = opts.now ?? Date.now;
+    this.log = opts.log ?? (() => {});
+    this.throttleMs = opts.throttleMs ?? GRAPH_REOPEN_THROTTLE_MS;
+  }
+
+  // Wrap an already-resolved graph (or a null-with-error) as an inert holder
+  // that never re-opens — for call sites that already own a graph instance.
+  static fixed(graph: WorldModelGraph | null, openError: string | null = null): GraphHolder {
+    const holder = new GraphHolder({
+      open: () => {
+        throw new Error('fixed GraphHolder does not re-open');
+      },
+    });
+    holder.graph = graph;
+    holder.openError = openError;
+    holder.attempted = true;
+    holder.lastAttemptMs = Number.MAX_SAFE_INTEGER;
+    return holder;
+  }
+
+  // Return a live graph, re-attempting a failed open at most once per throttle
+  // window. Returns null while the open keeps failing (or has never succeeded).
+  ensureGraph(): WorldModelGraph | null {
+    if (this.graph) return this.graph;
+    if (this.attempted && this.now() - this.lastAttemptMs < this.throttleMs) {
+      return null;
+    }
+    return this.attemptOpen();
+  }
+
+  // Run one open attempt now, ignoring the throttle. Used at startup for the
+  // initial open and internally by ensureGraph() past the throttle window.
+  attemptOpen(): WorldModelGraph | null {
+    this.attempted = true;
+    this.lastAttemptMs = this.now();
+    try {
+      this.graph = this.open();
+      const recovered = this.lastFailureMessage !== null;
+      this.openError = null;
+      this.lastFailureMessage = null;
+      this.log({ kind: 'graph_db_open', ...(recovered ? { recovered: true } : {}) });
+      return this.graph;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      // Log only when the message changes, to avoid per-throttle log spam while
+      // a lock holder persists.
+      if (message !== this.lastFailureMessage) {
+        this.log({ kind: 'graph_db_open_failed', error_message: message });
+      }
+      this.lastFailureMessage = message;
+      // Preserve the pre-holder semantics: openError carries the LOCK-error
+      // message only (scan_run keys its lock-specific guidance off it); a
+      // non-lock failure (missing binding, sandbox) leaves openError null so
+      // scan_run falls through to the graph no-op path.
+      this.openError = isKuzuLockError(e) ? message : null;
+      this.graph = null;
+      return null;
+    }
+  }
 }

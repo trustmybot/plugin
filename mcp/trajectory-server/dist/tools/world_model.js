@@ -147,7 +147,7 @@ export function buildTree(rows, rootPath, depth, opts) {
     }
     return descend(root, depth, 0);
 }
-export function worldModelTools(db, graph) {
+export function worldModelTools(db, graphHolder) {
     const definitions = [
         {
             name: 'world_model_get',
@@ -222,6 +222,7 @@ export function worldModelTools(db, graph) {
             // the world-model warning takes precedence; the unmerged_work array
             // still rides along so bro sees in-flight branch work either way.
             const unmerged = computeUnmergedWork(db, repo);
+            const graph = graphHolder?.ensureGraph() ?? null;
             if (!graph) {
                 return ok({ repo, root: null, warning: 'world-model-unavailable', unmerged_work: unmerged.unmerged_work });
             }
@@ -262,6 +263,7 @@ export function worldModelTools(db, graph) {
                 // Exactly 1 → resolve the sole repo.
                 repo = resolveSoleRepo(db)?.name ?? '';
             }
+            const graph = graphHolder?.ensureGraph() ?? null;
             if (!graph) {
                 return ok({ results: [], total_matched: 0, warning: 'world-model-unavailable', mode });
             }

@@ -28030,7 +28030,7 @@ function closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssu
   }
   return { issue_closed: issueClosed };
 }
-function compositeTools(db2, dbPath2, graph2 = null) {
+function compositeTools(db2, dbPath2, graphHolder2 = null) {
   const definitions = [
     {
       name: "branch_id_propose",
@@ -28537,10 +28537,11 @@ function compositeTools(db2, dbPath2, graph2 = null) {
         const dirs = filesToDirs(parseTaskFiles(task.files));
         let scope_world_model = [];
         let world_model_warning;
-        if (!graph2) {
+        const graph = graphHolder2?.ensureGraph() ?? null;
+        if (!graph) {
           world_model_warning = "world-model-unavailable";
         } else {
-          const nodes = graph2.allDirectoriesForRepo(repo);
+          const nodes = graph.allDirectoriesForRepo(repo);
           if (nodes.length === 0) {
             world_model_warning = "world-model-empty";
           } else {
@@ -30013,8 +30014,16 @@ var WorldModelGraph = class _WorldModelGraph {
     const req = createRequire(import.meta.url);
     const kuzu = req("kuzu");
     this.db = _WorldModelGraph.openWithRetry(kuzu, dbPath2);
-    this.conn = new kuzu.Connection(this.db);
-    this.applySchema();
+    try {
+      this.conn = new kuzu.Connection(this.db);
+      this.applySchema();
+    } catch (e) {
+      try {
+        this.db.closeSync();
+      } catch {
+      }
+      throw e;
+    }
   }
   // Open the kuzu Database, retrying with bounded exponential backoff when the
   // open fails on write-lock contention. A non-lock error (missing binary,
@@ -30184,6 +30193,71 @@ function resolveGraphDbPath(trajectoryDbPath) {
   if (trajectoryDbPath === ":memory:") return ":memory:";
   return trajectoryDbPath.replace(/trajectory\.db$/, "world-model.kuzu");
 }
+var GRAPH_REOPEN_THROTTLE_MS = 5e3;
+var GraphHolder = class _GraphHolder {
+  graph = null;
+  openError = null;
+  lastAttemptMs = 0;
+  open;
+  now;
+  log;
+  throttleMs;
+  lastFailureMessage = null;
+  attempted = false;
+  constructor(opts) {
+    this.open = opts.open;
+    this.now = opts.now ?? Date.now;
+    this.log = opts.log ?? (() => {
+    });
+    this.throttleMs = opts.throttleMs ?? GRAPH_REOPEN_THROTTLE_MS;
+  }
+  // Wrap an already-resolved graph (or a null-with-error) as an inert holder
+  // that never re-opens — for call sites that already own a graph instance.
+  static fixed(graph, openError = null) {
+    const holder = new _GraphHolder({
+      open: () => {
+        throw new Error("fixed GraphHolder does not re-open");
+      }
+    });
+    holder.graph = graph;
+    holder.openError = openError;
+    holder.attempted = true;
+    holder.lastAttemptMs = Number.MAX_SAFE_INTEGER;
+    return holder;
+  }
+  // Return a live graph, re-attempting a failed open at most once per throttle
+  // window. Returns null while the open keeps failing (or has never succeeded).
+  ensureGraph() {
+    if (this.graph) return this.graph;
+    if (this.attempted && this.now() - this.lastAttemptMs < this.throttleMs) {
+      return null;
+    }
+    return this.attemptOpen();
+  }
+  // Run one open attempt now, ignoring the throttle. Used at startup for the
+  // initial open and internally by ensureGraph() past the throttle window.
+  attemptOpen() {
+    this.attempted = true;
+    this.lastAttemptMs = this.now();
+    try {
+      this.graph = this.open();
+      const recovered = this.lastFailureMessage !== null;
+      this.openError = null;
+      this.lastFailureMessage = null;
+      this.log({ kind: "graph_db_open", ...recovered ? { recovered: true } : {} });
+      return this.graph;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (message !== this.lastFailureMessage) {
+        this.log({ kind: "graph_db_open_failed", error_message: message });
+      }
+      this.lastFailureMessage = message;
+      this.openError = isKuzuLockError(e) ? message : null;
+      this.graph = null;
+      return null;
+    }
+  }
+};
 
 // src/tools/scan.ts
 function ok16(data) {
@@ -30367,7 +30441,7 @@ function readReadmeSummary(absDirPath) {
   }
   return null;
 }
-function persistDirectoriesGraph(graph2, out, now) {
+function persistDirectoriesGraph(graph, out, now) {
   const repoPaths = /* @__PURE__ */ new Map();
   for (const r of out.repos) repoPaths.set(r.name, r.path);
   const dirMap = deriveDirectoryEntries(out);
@@ -30389,7 +30463,7 @@ function persistDirectoriesGraph(graph2, out, now) {
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(entry.path, entry.file_names, subdirNames);
-    graph2.upsertDirectory({
+    graph.upsertDirectory({
       repo: entry.repo,
       path: entry.path,
       parent_path: entry.parent_path,
@@ -30404,7 +30478,7 @@ function persistDirectoriesGraph(graph2, out, now) {
   }
   for (const entry of dirMap.values()) {
     if (entry.parent_path === null) continue;
-    graph2.upsertContains(
+    graph.upsertContains(
       { repo: entry.repo, path: entry.parent_path },
       { repo: entry.repo, path: entry.path }
     );
@@ -30430,7 +30504,7 @@ function readRepoRemotes(path2) {
     return [];
   }
 }
-function persistScan(db2, graph2, out, sessionDir) {
+function persistScan(db2, graph, out, sessionDir) {
   const now = nowISO();
   const scannedNames = new Set(out.repos.map((r) => r.name));
   const normSession = sessionDir.replace(/\/+$/, "");
@@ -30470,17 +30544,17 @@ function persistScan(db2, graph2, out, sessionDir) {
       }
     }
   });
-  if (graph2) {
+  if (graph) {
     for (const r of retired) {
-      const n = graph2.pruneDirectories(r.name, /* @__PURE__ */ new Set());
+      const n = graph.pruneDirectories(r.name, /* @__PURE__ */ new Set());
       dirs_retired += n;
     }
   }
   let dirs_upserted = 0;
   let dirs_readme_summarized = 0;
   let dirs_structural_summarized = 0;
-  if (graph2) {
-    const stats = persistDirectoriesGraph(graph2, out, now);
+  if (graph) {
+    const stats = persistDirectoriesGraph(graph, out, now);
     dirs_upserted = stats.dirs_upserted;
     dirs_readme_summarized = stats.dirs_readme_summarized;
     dirs_structural_summarized = stats.dirs_structural_summarized;
@@ -30492,7 +30566,7 @@ function persistScan(db2, graph2, out, sessionDir) {
           keepKeys.add(WorldModelGraph.dirKey(r.name, entry.path));
         }
       }
-      graph2.pruneDirectories(r.name, keepKeys);
+      graph.pruneDirectories(r.name, keepKeys);
     }
   }
   return {
@@ -30536,7 +30610,7 @@ function releaseLock(lockPath) {
   } catch {
   }
 }
-function scanTools(db2, graph2, dbPath2 = "", graphOpenError2 = null) {
+function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
   const definitions = [
     {
       name: "scan_run",
@@ -30578,9 +30652,11 @@ function scanTools(db2, graph2, dbPath2 = "", graphOpenError2 = null) {
         const sessionDir = args["session_dir"] ?? process.cwd();
         const rawSource = args["source"] ?? "bro_auto_initial";
         const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : "bro_auto_initial";
-        if (!graph2 && graphOpenError2) {
+        const graph = graphHolder2?.ensureGraph() ?? null;
+        const graphOpenError = graphHolder2?.openError ?? null;
+        if (!graph && graphOpenError) {
           return err15(
-            `graph_db_open_failed: ${graphOpenError2} \u2014 world model could not be opened this session (kuzu write-lock contention); restart the session to retry`
+            `graph_db_open_failed: ${graphOpenError} \u2014 another process holds the world-model lock (identify it: \`lsof .claude/tmb/world-model.kuzu\`); the server retries automatically on the next call once the holder exits`
           );
         }
         const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join8(dirname8(dbPath2), "scan.lock") : "";
@@ -30608,7 +30684,7 @@ function scanTools(db2, graph2, dbPath2 = "", graphOpenError2 = null) {
         }
         try {
           const out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
-          const stats = persistScan(db2, graph2, out, sessionDir);
+          const stats = persistScan(db2, graph, out, sessionDir);
           const topDirs = new Set(out.files.map((f) => f.path.split("/")[0]).filter(Boolean));
           const structuralChange = detectStructuralChange(db2, out.repos, topDirs);
           db2.run(
@@ -31793,7 +31869,7 @@ function buildTree(rows, rootPath, depth, opts) {
   }
   return descend(root, depth, 0);
 }
-function worldModelTools(db2, graph2) {
+function worldModelTools(db2, graphHolder2) {
   const definitions = [
     {
       name: "world_model_get",
@@ -31864,10 +31940,11 @@ function worldModelTools(db2, graph2) {
         const depthArg = args["depth"];
         const depth = depthArg === null ? null : typeof depthArg === "number" ? depthArg : 2;
         const unmerged = computeUnmergedWork(db2, repo);
-        if (!graph2) {
+        const graph = graphHolder2?.ensureGraph() ?? null;
+        if (!graph) {
           return ok18({ repo, root: null, warning: "world-model-unavailable", unmerged_work: unmerged.unmerged_work });
         }
-        const nodes = graph2.allDirectoriesForRepo(repo);
+        const nodes = graph.allDirectoriesForRepo(repo);
         if (nodes.length === 0) {
           return ok18({ repo, root: null, warning: "world-model-empty", unmerged_work: unmerged.unmerged_work });
         }
@@ -31903,10 +31980,11 @@ function worldModelTools(db2, graph2) {
           }
           repo = resolveSoleRepo(db2)?.name ?? "";
         }
-        if (!graph2) {
+        const graph = graphHolder2?.ensureGraph() ?? null;
+        if (!graph) {
           return ok18({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });
         }
-        const hits = graph2.keywordSearchDirectories(repo, query, k);
+        const hits = graph.keywordSearchDirectories(repo, query, k);
         if (mode === "keyword") {
           return ok18({
             results: hits.map((h) => ({
@@ -31973,7 +32051,7 @@ function decorateWithAgent(tools) {
     };
   });
 }
-function registerTools(server2, db2, dbPath2 = "", graph2 = null, graphOpenError2 = null) {
+function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
   const discussions = discussionTools(db2);
   const issues = issueTools(db2, dbPath2);
   const tasks = taskTools(db2);
@@ -31987,11 +32065,11 @@ function registerTools(server2, db2, dbPath2 = "", graph2 = null, graphOpenError
   const stats = statsTools(db2);
   const roundtable = roundtableTools(db2);
   const prMonitor = prMonitorTools(db2);
-  const composites = compositeTools(db2, dbPath2, graph2);
+  const composites = compositeTools(db2, dbPath2, graphHolder2);
   const onboard = onboardTools(db2, dbPath2);
-  const scan = scanTools(db2, graph2, dbPath2, graphOpenError2);
+  const scan = scanTools(db2, graphHolder2, dbPath2);
   const cheatcode = cheatcodeTools(db2);
-  const worldModel = worldModelTools(db2, graph2);
+  const worldModel = worldModelTools(db2, graphHolder2);
   toolDefinitions = decorateWithAgent([
     ...discussions.definitions,
     ...issues.definitions,
@@ -32104,22 +32182,17 @@ function readPackageVersion() {
   }
 }
 var packageVersion = readPackageVersion();
-var graph = null;
-var graphOpenError = null;
-try {
-  const graphPath = resolveGraphDbPath(dbPath);
-  graph = new WorldModelGraph(graphPath);
-  serverLogSync({ kind: "graph_db_open", path: graphPath });
-} catch (e) {
-  const errorMessage = e instanceof Error ? e.message : String(e);
-  serverLogSync({ kind: "graph_db_open_failed", error_message: errorMessage });
-  if (isKuzuLockError(e)) graphOpenError = errorMessage;
-}
+var graphPath = resolveGraphDbPath(dbPath);
+var graphHolder = new GraphHolder({
+  open: () => new WorldModelGraph(graphPath),
+  log: (entry) => serverLogSync({ ...entry, path: graphPath })
+});
+graphHolder.attemptOpen();
 var server = new Server(
   { name: "trajectory-server", version: packageVersion },
   { capabilities: { tools: {} } }
 );
-registerTools(server, db, dbPath, graph, graphOpenError);
+registerTools(server, db, dbPath, graphHolder);
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: toolDefinitions
 }));
@@ -32153,7 +32226,7 @@ function maybeRecordTrajectory(toolName, args, result) {
 }
 var shutdown = createShutdown({
   closeDb: () => db.close(),
-  closeGraph: () => graph?.close(),
+  closeGraph: () => graphHolder.graph?.close(),
   log: (signal) => serverLogSync({ kind: "shutdown", signal, pid: process.pid }),
   exit: (code) => process.exit(code),
   pid: process.pid

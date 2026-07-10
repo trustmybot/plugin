@@ -1,7 +1,7 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
-import type { WorldModelGraph, DirectoryNode } from '../graph-db.js';
+import type { DirectoryNode, GraphHolder } from '../graph-db.js';
 import { resolveSoleRepo } from '../utils/repo-paths.js';
 import { spawnSync } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -211,7 +211,7 @@ export function buildTree(
   return descend(root, depth, 0);
 }
 
-export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null): {
+export function worldModelTools(db: TrajectoryDB, graphHolder: GraphHolder | null): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
 } {
@@ -304,6 +304,7 @@ export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null)
         // still rides along so bro sees in-flight branch work either way.
         const unmerged = computeUnmergedWork(db, repo);
 
+        const graph = graphHolder?.ensureGraph() ?? null;
         if (!graph) {
           return ok({ repo, root: null, warning: 'world-model-unavailable', unmerged_work: unmerged.unmerged_work });
         }
@@ -353,6 +354,7 @@ export function worldModelTools(db: TrajectoryDB, graph: WorldModelGraph | null)
           repo = resolveSoleRepo(db)?.name ?? '';
         }
 
+        const graph = graphHolder?.ensureGraph() ?? null;
         if (!graph) {
           return ok({ results: [], total_matched: 0, warning: 'world-model-unavailable', mode });
         }

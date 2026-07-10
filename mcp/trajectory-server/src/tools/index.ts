@@ -1,7 +1,7 @@
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
-import type { WorldModelGraph } from '../graph-db.js';
+import type { GraphHolder } from '../graph-db.js';
 import { discussionTools } from './discussions.js';
 import { issueTools } from './issues.js';
 import { taskTools } from './tasks.js';
@@ -50,8 +50,7 @@ export function registerTools(
   server: Server,
   db: TrajectoryDB,
   dbPath = '',
-  graph: WorldModelGraph | null = null,
-  graphOpenError: string | null = null,
+  graphHolder: GraphHolder | null = null,
 ): void {
   const discussions = discussionTools(db);
   const issues = issueTools(db, dbPath);
@@ -66,11 +65,11 @@ export function registerTools(
   const stats = statsTools(db);
   const roundtable = roundtableTools(db);
   const prMonitor = prMonitorTools(db);
-  const composites = compositeTools(db, dbPath, graph);
+  const composites = compositeTools(db, dbPath, graphHolder);
   const onboard = onboardTools(db, dbPath);
-  const scan = scanTools(db, graph, dbPath, graphOpenError);
+  const scan = scanTools(db, graphHolder, dbPath);
   const cheatcode = cheatcodeTools(db);
-  const worldModel = worldModelTools(db, graph);
+  const worldModel = worldModelTools(db, graphHolder);
 
   toolDefinitions = decorateWithAgent([
     ...discussions.definitions,

@@ -40,7 +40,7 @@ function decorateWithAgent(tools) {
         };
     });
 }
-export function registerTools(server, db, dbPath = '', graph = null, graphOpenError = null) {
+export function registerTools(server, db, dbPath = '', graphHolder = null) {
     const discussions = discussionTools(db);
     const issues = issueTools(db, dbPath);
     const tasks = taskTools(db);
@@ -54,11 +54,11 @@ export function registerTools(server, db, dbPath = '', graph = null, graphOpenEr
     const stats = statsTools(db);
     const roundtable = roundtableTools(db);
     const prMonitor = prMonitorTools(db);
-    const composites = compositeTools(db, dbPath, graph);
+    const composites = compositeTools(db, dbPath, graphHolder);
     const onboard = onboardTools(db, dbPath);
-    const scan = scanTools(db, graph, dbPath, graphOpenError);
+    const scan = scanTools(db, graphHolder, dbPath);
     const cheatcode = cheatcodeTools(db);
-    const worldModel = worldModelTools(db, graph);
+    const worldModel = worldModelTools(db, graphHolder);
     toolDefinitions = decorateWithAgent([
         ...discussions.definitions,
         ...issues.definitions,
