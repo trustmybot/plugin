@@ -15212,7 +15212,7 @@ function _stringbool(Classes, _params) {
     type: "pipe",
     in: stringSchema,
     out: booleanSchema,
-    transform: (input, payload) => {
+    transform: ((input, payload) => {
       let data = input;
       if (params.case !== "sensitive")
         data = data.toLowerCase();
@@ -15231,14 +15231,14 @@ function _stringbool(Classes, _params) {
         });
         return {};
       }
-    },
-    reverseTransform: (input, _payload) => {
+    }),
+    reverseTransform: ((input, _payload) => {
       if (input === true) {
         return truthyArray[0] || "true";
       } else {
         return falsyArray[0] || "false";
       }
-    },
+    }),
     error: params.error
   });
   return codec2;
@@ -16476,10 +16476,10 @@ var ZodType2 = /* @__PURE__ */ $constructor("ZodType", (inst, def) => {
   inst.with = inst.check;
   inst.clone = (def2, params) => clone(inst, def2, params);
   inst.brand = () => inst;
-  inst.register = (reg, meta3) => {
+  inst.register = ((reg, meta3) => {
     reg.add(inst, meta3);
     return inst;
-  };
+  });
   inst.parse = (data, params) => parse2(inst, data, params, { callee: inst.parse });
   inst.safeParse = (data, params) => safeParse3(inst, data, params);
   inst.parseAsync = async (data, params) => parseAsync2(inst, data, params, { callee: inst.parseAsync });
@@ -22525,11 +22525,13 @@ function requireRoles(toolName, allowedRoles, handler) {
 function redactIssue(issue2, agent, opts) {
   if (agent === "swe" || agent === "unknown") {
     const { description: _, ...rest } = issue2;
+    void _;
     const truncated = rest.objective.length > 120 ? rest.objective.slice(0, 120) + "..." : rest.objective;
     return { ...rest, objective: truncated };
   }
   if (!opts?.include_description) {
     const { description: _, ...rest } = issue2;
+    void _;
     return rest;
   }
   return issue2;
@@ -22537,6 +22539,7 @@ function redactIssue(issue2, agent, opts) {
 function redactValidationRow(row, agent, scope) {
   if (agent === "swe" && row.task_id !== scope.own_task_id) {
     const { feedback: _, ...rest } = row;
+    void _;
     return rest;
   }
   return row;
