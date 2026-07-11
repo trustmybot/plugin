@@ -98,4 +98,30 @@ case "$STORED" in
   *) echo "FAIL: expected single quotes in stored summary, got: $STORED"; exit 1 ;;
 esac
 
+# ── prefixed prompt (preamble + newline before /roundtable) ──────────────────
+# Exercises the `*$'\n'/roundtable*` matcher arm: a real prompt often carries a
+# preamble line before the slash command.
+
+test_case "/roundtable after a preamble + newline is detected"
+sqlite3 "$DB" "DELETE FROM audit;"
+run_hook "please help me out\n/roundtable pick a design"
+COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_slash_invoked';")
+assert_eq "1" "$COUNT" "prefixed /roundtable after newline detected"
+
+# ── WAL contention ────────────────────────────────────────────────────────────
+# A concurrent writer holds BEGIN IMMEDIATE (the write lock) for ~1s. With the
+# hook's old busy_timeout=0 the INSERT would fail instantly and drop the row;
+# with .timeout 3000 it waits out the lock and the audit row still lands.
+
+test_case "/roundtable audit row lands despite a concurrent write-lock holder"
+sqlite3 "$DB" "DELETE FROM audit;"
+( printf 'BEGIN IMMEDIATE;\n'; sleep 1; printf 'COMMIT;\n' ) | sqlite3 "$DB" &
+HOLDER_PID=$!
+# Give the holder a moment to acquire the write lock before the hook runs.
+sleep 0.2
+run_hook "/roundtable under contention"
+wait "$HOLDER_PID" 2>/dev/null || true
+COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_slash_invoked';")
+assert_eq "1" "$COUNT" "audit row inserted after waiting out the concurrent write lock"
+
 summarize
