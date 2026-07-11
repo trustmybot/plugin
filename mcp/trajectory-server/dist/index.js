@@ -30895,7 +30895,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
         const graphOpenError = graphHolder2?.openError ?? null;
         if (!graph && graphOpenError) {
           return err15(
-            `graph_db_open_failed: ${graphOpenError} \u2014 another process holds the world-model lock (identify it: \`lsof .claude/tmb/world-model.kuzu\`); the server retries automatically on the next call once the holder exits`
+            `graph_db_open_failed: ${graphOpenError} \u2014 another process holds the world-model lock (identify the holder by running lsof on the world-model graph file); the server retries automatically on the next call once the holder exits`
           );
         }
         const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join8(dirname8(dbPath2), "scan.lock") : "";
