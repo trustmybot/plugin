@@ -256,38 +256,56 @@ _rule2_is_integration() {
   printf '%s' "$1" | grep -qE '(^|[[:space:]]*([;&]|[|][|]|[&][&])[[:space:]]*)git[[:space:]]+(merge|rebase|cherry-pick)([[:space:]]|$)'
 }
 
-# Print the branch a compound command provably creates-and-switches-to before its
-# `git commit`, or nothing. Override for the Rule-2 commit gate: a fresh-clone
-# remedy like `git clone <url> x && cd x && git checkout -b feat && git commit` has
-# no clone dir at PreToolUse time, so cmd_effective_branch falls back to the session
-# checkout's (protected) branch and denies the exact branch+PR remedy the deny text
-# prescribes. When a `git checkout -b <name>` / `git switch -c <name>` — matched at
-# the same shell statement boundary as _rule2_match (^, ;, &&, ||, |, newline) — is
-# the LAST checkout/switch before the commit, the commit provably lands on <name>,
-# so <name> is the effective branch. A plain `git checkout <base>` between the create
-# and the commit re-ambiguates the landing branch and clears the override (the caller
-# then falls back to the fail-closed resolution). Names are dequoted like tmb_cmd_cwd.
+# Print every commit's provable landing branch in a compound command, one per line,
+# or nothing to disable the override. Override for the Rule-2 commit gate: a fresh-
+# clone remedy like `git clone <url> x && cd x && git checkout -b feat && git commit`
+# has no clone dir at PreToolUse time, so cmd_effective_branch falls back to the
+# session checkout's (protected) branch and denies the exact branch+PR remedy the
+# deny text prescribes. Walk every statement — split at the same shell boundary as
+# _rule2_match (^, ;, &&, ||, |, newline) — tracking `current`, the branch the
+# command has switched to so far (UNKNOWN until the first checkout/switch): a create
+# (`checkout -b <name>` / `switch -c <name>`) AND a plain transition (`checkout
+# <name>` / `switch <name>`) both set it. At EVERY `git commit`, `current` must be a
+# known branch — the commit provably lands there. If any commit runs while `current`
+# is UNKNOWN, or a statement is unparseable / `git -C`-scoped, the override is
+# disabled (empty output → caller falls back to the fail-closed cmd_effective_branch
+# path). Otherwise print each commit's landing branch so the caller denies when any
+# lands on a protected base — a trailing `checkout <protected> && commit` no longer
+# rides in on a leading feature-branch create (#58). Names are dequoted like
+# tmb_cmd_cwd.
 _rule2_inline_branch_create() {
   printf '%s' "$1" | awk '
     { buf = (NR == 1 ? $0 : buf "\n" $0) }
     END {
       n = split(buf, stmt, /[[:space:]]*(&&|[|][|]|[;&]|\n)[[:space:]]*/)
-      branch = ""
+      current = ""      # branch switched to so far; "" = UNKNOWN
+      known = 0         # 1 once current names a real branch
+      landings = ""
+      saw_commit = 0
       for (i = 1; i <= n; i++) {
         s = stmt[i]
         sub(/^[[:space:]]+/, "", s)
-        if (s ~ /^git[[:space:]]+commit([[:space:]]|$)/) { print branch; exit }
-        if (s ~ /^git[[:space:]]+checkout[[:space:]]+-b[[:space:]]/ || s ~ /^git[[:space:]]+switch[[:space:]]+-c[[:space:]]/) {
+        if (s ~ /^git[[:space:]]+-C([[:space:]]|$)/ && s ~ /(commit|checkout|switch)/) { exit }
+        if (s ~ /^git[[:space:]]+commit([[:space:]]|$)/) {
+          saw_commit = 1
+          if (!known) { exit }
+          landings = landings current "\n"
+        } else if (s ~ /^git[[:space:]]+checkout[[:space:]]+-b[[:space:]]/ || s ~ /^git[[:space:]]+switch[[:space:]]+-c[[:space:]]/) {
           m = split(s, tok, /[[:space:]]+/)
           name = ""
           for (j = 1; j <= m; j++) {
             if (tok[j] == "-b" || tok[j] == "-c") { if (j < m) name = tok[j+1]; break }
           }
-          if (name != "") branch = name
+          if (name == "") { exit }
+          current = name; known = 1
         } else if (s ~ /^git[[:space:]]+(checkout|switch)([[:space:]]|$)/) {
-          branch = ""
+          m = split(s, tok, /[[:space:]]+/)
+          name = (m >= 3 ? tok[3] : "")
+          if (name == "" || name ~ /^-/) { exit }
+          current = name; known = 1
         }
       }
+      if (saw_commit) printf "%s", landings
     }
   ' | sed -E "s/^[\"']//; s/[\"']$//"
 }
@@ -350,16 +368,20 @@ if _rule2_match "$CMD"; then
         exit 0
       fi
     else
-      # git commit: keep the protected-set union gating. When the command
-      # provably creates-and-switches-to a branch before the commit, honor that
-      # branch (fresh-clone remedy) instead of the fail-closed cwd resolution;
-      # a protected create-name (e.g. checkout -b dev) still denies below.
-      BRANCH=$(_rule2_inline_branch_create "$CMD")
-      if [ -z "$BRANCH" ]; then
-        BRANCH=$(cmd_effective_branch "$CMD")
-      fi
+      # git commit: keep the protected-set union gating. Walk the whole compound
+      # command and vet EVERY commit's landing branch (#54/#58). When every commit
+      # provably lands on a known branch, honor those branches (fresh-clone remedy)
+      # and deny if ANY lands on a protected base; when a commit's landing is
+      # UNKNOWN/ambiguous, fall back to the fail-closed cwd resolution.
       RULE2_PROTECTED=$(rule2_protected_bases || true)
-      if [ -n "$BRANCH" ] && printf '%s\n' "$RULE2_PROTECTED" | grep -qxF "$BRANCH"; then
+      INLINE_LANDINGS=$(_rule2_inline_branch_create "$CMD")
+      if [ -n "$INLINE_LANDINGS" ]; then
+        BRANCH=$(printf '%s\n' "$INLINE_LANDINGS" | grep -Fxf <(printf '%s\n' "$RULE2_PROTECTED") | head -1 || true)
+      else
+        BRANCH=$(cmd_effective_branch "$CMD")
+        printf '%s\n' "$RULE2_PROTECTED" | grep -qxF "$BRANCH" || BRANCH=""
+      fi
+      if [ -n "$BRANCH" ]; then
         jq -nc --arg r "BLOCKED: ${BRANCH} is a shared workflow base — no direct commits/merges/rebases. $(rule2_recovery)" \
           '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
         exit 0

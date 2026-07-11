@@ -938,4 +938,22 @@ out=$(run_hook_in_repo "git checkout -b feat/z && git checkout dev && git commit
 assert_contains "$out" '"permissionDecision":"deny"' "a plain checkout after the create re-ambiguates the landing branch → deny"
 cleanup_repo
 
+# ---- #58: Rule 2 override vets EVERY commit's landing branch, not just the first --
+# The override walks the whole compound command tracking the branch each commit
+# lands on. A laundering shape opens on a feature-branch create (first commit is
+# clean) then checks out a protected base for a trailing commit — that second
+# commit must still be denied. A run of commits on one feature branch stays allowed.
+
+test_case "#58: laundering (checkout -b feat/x && commit && checkout dev && commit) is DENIED"
+setup_worktree_repo
+out=$(run_hook_in_repo "git checkout -b feat/x && git commit -m a && git checkout dev && git commit -m b")
+assert_contains "$out" '"permissionDecision":"deny"' "a trailing commit landing on protected dev must be blocked even after a clean feature-branch commit"
+cleanup_repo
+
+test_case "#58: two commits on the same feature branch (checkout -b feat/x && commit && commit) is ALLOWED"
+setup_worktree_repo
+out=$(run_hook_in_repo "git checkout -b feat/x && git commit -m a && git commit -m b")
+assert_not_contains "$out" '"permissionDecision":"deny"' "every commit lands on the non-protected feat/x → allowed"
+cleanup_repo
+
 summarize
