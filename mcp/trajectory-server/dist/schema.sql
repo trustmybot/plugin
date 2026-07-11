@@ -49,6 +49,10 @@ CREATE TABLE IF NOT EXISTS issues (
     repo              TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
     -- milestone (#155): FK into milestones(name, repo). Nullable.
     milestone         TEXT,
+    -- labels (#53): the validated label set from issue_create, stored as a JSON
+    -- array string so issue_sync_retry replays the original set. Nullable; NULL
+    -- means a pre-v28 row (falls back to defaultSyncLabels on retry).
+    labels            TEXT,
     FOREIGN KEY (milestone, repo) REFERENCES milestones(name, repo) ON DELETE RESTRICT
 );
 
@@ -190,7 +194,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 27, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 28, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,

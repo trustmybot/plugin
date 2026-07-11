@@ -5,6 +5,7 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 ## Unreleased
 
 ### Fixed
+- **issue_sync_retry replays the original label set** (#53): `issue_create` now persists its validated labels on the issue row (new nullable `issues.labels` JSON column, schema v28), and a sync retry replays that exact set instead of re-deriving the taxonomy's default classification+priority pair — no more silent label substitution (an issue created with `[Improvement, Priority: Low]` no longer retries to the remote as `[Bug, Priority: Urgent]`). Pre-v28 rows with `NULL` labels keep the derived-default fallback.
 - **Post-close rescan passes a real GraphHolder** (#56): the standalone rescan invoker handed `scan_run` a raw world-model graph where a `GraphHolder` was expected since #1089, so every `bro_atomic_close` background rescan died with `graphHolder?.ensureGraph is not a function`. It now wraps the graph in `GraphHolder.fixed()`, and the `graph_db_open_failed` lock message no longer hardcodes a plugin path.
 - **Release canary pins bun and rebuilds cache-clean** (#52): the L0/canary Dockerfiles pin bun via `ARG BUN_VERSION=1.3.4` before the install layer, and `release.sh`'s canary build runs `--no-cache`, so the canary can no longer validate the committed `bun.lock` with a months-stale layer-cached bun.
 

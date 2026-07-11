@@ -29,6 +29,8 @@ export interface IssueRow {
   gl_iid: number | null;
   repo: string | null;
   milestone: string | null;
+  /** JSON array string of the validated labels from issue_create (#53). NULL for pre-v28 rows. */
+  labels: string | null;
 }
 
 export interface Task {

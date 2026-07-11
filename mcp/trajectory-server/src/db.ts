@@ -6,7 +6,7 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog, serverLog } from './logger.js';
 
-const TARGET_SCHEMA_VERSION = 27;
+const TARGET_SCHEMA_VERSION = 28;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -565,6 +565,9 @@ function runMigrations(
   if (fromVersion < 27 && toVersion >= 27) {
     migrateV26toV27(db);
   }
+  if (fromVersion < 28 && toVersion >= 28) {
+    migrateV27toV28(db);
+  }
 }
 
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
@@ -1098,6 +1101,18 @@ function migrateV21toV22(db: DatabaseSync): void {
   // and hasColumn guards an idempotent re-run.
   if (tableExists(db, 'issues') && !hasColumn(db, 'issues', 'milestone')) {
     db.exec('ALTER TABLE issues ADD COLUMN milestone TEXT');
+  }
+}
+
+function migrateV27toV28(db: DatabaseSync): void {
+  // #53 — persist the validated label set on the issue row so issue_sync_retry
+  // replays the original labels instead of re-deriving defaultSyncLabels.
+  // Nullable JSON array string, append-only; existing rows get NULL (no
+  // backfill) — NULL means "created pre-v28" and keeps the defaultSyncLabels
+  // fallback. tableExists handles partial-seed fixtures and hasColumn guards an
+  // idempotent re-run.
+  if (tableExists(db, 'issues') && !hasColumn(db, 'issues', 'labels')) {
+    db.exec('ALTER TABLE issues ADD COLUMN labels TEXT');
   }
 }
 

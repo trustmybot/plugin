@@ -20879,7 +20879,7 @@ var sqlLog = sqlEnabled ? (entry) => {
 };
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 27;
+var TARGET_SCHEMA_VERSION = 28;
 function resolvePluginName(env = process.env) {
   const root = env["CLAUDE_PLUGIN_ROOT"];
   if (!root) return "tmb";
@@ -21249,6 +21249,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 27 && toVersion >= 27) {
     migrateV26toV27(db2);
+  }
+  if (fromVersion < 28 && toVersion >= 28) {
+    migrateV27toV28(db2);
   }
 }
 function hasColumn(db2, table, column) {
@@ -21644,6 +21647,11 @@ function migrateV20toV21(db2) {
 function migrateV21toV22(db2) {
   if (tableExists(db2, "issues") && !hasColumn(db2, "issues", "milestone")) {
     db2.exec("ALTER TABLE issues ADD COLUMN milestone TEXT");
+  }
+}
+function migrateV27toV28(db2) {
+  if (tableExists(db2, "issues") && !hasColumn(db2, "issues", "labels")) {
+    db2.exec("ALTER TABLE issues ADD COLUMN labels TEXT");
   }
 }
 function migrateV22toV23(db2) {
@@ -24033,9 +24041,9 @@ function issueTools(db2, dbPath2 = "") {
           return err2(adoption.error);
         }
         db2.run(
-          `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo)
-           VALUES (?, ?, 'open', ?, ?, ?, ?)`,
-          [objective, description, now, now, milestone, issueRepo]
+          `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
+           VALUES (?, ?, 'open', ?, ?, ?, ?, ?)`,
+          [objective, description, now, now, milestone, issueRepo, JSON.stringify(labels)]
         );
         const adoptRowId = db2.get(
           `SELECT id FROM issues WHERE rowid = last_insert_rowid()`
@@ -24068,9 +24076,9 @@ function issueTools(db2, dbPath2 = "") {
         return ok2(adoptedPayload);
       }
       db2.run(
-        `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo)
-         VALUES (?, ?, 'open', ?, ?, ?, ?)`,
-        [objective, description, now, now, milestone, issueRepo]
+        `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
+         VALUES (?, ?, 'open', ?, ?, ?, ?, ?)`,
+        [objective, description, now, now, milestone, issueRepo, JSON.stringify(labels)]
       );
       const rowId = db2.get(
         `SELECT id FROM issues WHERE rowid = last_insert_rowid()`
@@ -24517,6 +24525,17 @@ function issueTools(db2, dbPath2 = "") {
       if (createTargets.length === 0) {
         return ok2({ action: "create", success: true, skipped: true, reason: "already_synced" });
       }
+      let retryLabels;
+      if (row.labels == null) {
+        retryLabels = defaultSyncLabels(db2);
+      } else {
+        try {
+          const parsed = JSON.parse(row.labels);
+          retryLabels = Array.isArray(parsed) ? parsed : defaultSyncLabels(db2);
+        } catch {
+          retryLabels = defaultSyncLabels(db2);
+        }
+      }
       const createErrors = [];
       let lastSuccess = null;
       for (const target of createTargets) {
@@ -24525,10 +24544,7 @@ function issueTools(db2, dbPath2 = "") {
           issueId: row.id,
           title: issue2.objective,
           body: row.description,
-          // #1028: re-derive a valid label set + carry the persisted milestone
-          // so the retried remote issue satisfies the same mandatory-tagging
-          // invariant issue_create enforces.
-          labels: defaultSyncLabels(db2),
+          labels: retryLabels,
           milestone: row.milestone ?? void 0,
           _backend: target,
           _spawnFn: spawnFn,

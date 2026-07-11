@@ -1013,6 +1013,136 @@ describe('issue_sync_retry — milestone + valid labels (#1028)', () => {
   });
 });
 
+describe('issue_create persists labels on the row (#53)', () => {
+  it('stores the validated label set verbatim as a JSON array string', async () => {
+    const db = tempDB();
+    const tools = issueTools(db);
+
+    const createResult = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'persist the labels',
+      labels: ['Improvement', 'Priority: Low'],
+    });
+    const issue = parseResult(createResult);
+    assert.ok(!createResult.isError, `create should succeed: ${issue.error}`);
+
+    const row = db.get<{ labels: string | null }>('SELECT labels FROM issues WHERE id = ?', [
+      issue.id,
+    ]);
+    assert.equal(
+      row!.labels,
+      JSON.stringify(['Improvement', 'Priority: Low']),
+      'issue_create must persist the validated label set verbatim',
+    );
+
+    db.close();
+  });
+});
+
+describe('issue_sync_retry replays the persisted label set (#53)', () => {
+  it('sends the original labels, not the derived defaultSyncLabels pair', async () => {
+    const db = tempDB();
+    registerSoleRepo(db);
+    const cfgTools = configTools(db);
+    await call(cfgTools.handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'gh' });
+    const tools = issueTools(db);
+
+    // Create with labels that differ from defaultSyncLabels (Bug + Priority:
+    // Urgent) so a replay is distinguishable from a re-derivation. The observed
+    // bug: [Improvement, Priority: Low] silently retried as [Bug, Priority: Urgent].
+    // The gh create fails so gh_iid stays null → retryable.
+    const createResult = await call(tools.handlers, 'issue_create', {
+      agent: 'bro',
+      objective: 'replay the original labels',
+      labels: ['Improvement', 'Priority: Low'],
+      _spawnFn: makeSpawnFn([{ status: 1, stdout: '', stderr: 'simulated gh create failure' }]),
+    });
+    const issue = parseResult(createResult);
+    assert.ok(!createResult.isError, `create should succeed locally: ${issue.error}`);
+
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    const spawnFn = (cmd: string, args: string[]) => {
+      calls.push({ cmd, args });
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return { status: 0, stdout: '{"number":88,"url":"https://github.com/owner/repo/issues/88"}', stderr: '' };
+      }
+      return { status: 0, stdout: 'https://github.com/owner/repo/issues/88\n', stderr: '' };
+    };
+
+    const retryResult = await call(tools.handlers, 'issue_sync_retry', {
+      agent: 'bro',
+      issue_id: String(issue.id),
+      _spawnFn: spawnFn,
+    });
+    assert.ok(!retryResult.isError, 'retry must not error');
+
+    const createCall = calls.find((c) => c.args[0] === 'issue' && c.args[1] === 'create');
+    assert.ok(createCall !== undefined, 'gh issue create must run on retry');
+    const labelValues: string[] = [];
+    for (let i = 0; i < createCall.args.length; i++) {
+      if (createCall.args[i] === '--label') labelValues.push(createCall.args[i + 1]!);
+    }
+    assert.deepEqual(
+      labelValues,
+      ['Improvement', 'Priority: Low'],
+      'retry must replay the persisted labels, not the derived defaults',
+    );
+    assert.ok(!labelValues.includes('Bug'), 'must not substitute the default classification');
+
+    db.close();
+  });
+});
+
+describe('issue_sync_retry on a legacy NULL-labels row (#53)', () => {
+  it('falls back to defaultSyncLabels when row.labels is NULL', async () => {
+    const db = tempDB();
+    registerSoleRepo(db);
+    const cfgTools = configTools(db);
+    await call(cfgTools.handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'gh' });
+    const tools = issueTools(db);
+
+    // A pre-v28 row: inserted directly with NULL labels (no issue_create persist).
+    db.run(
+      `INSERT INTO issues (objective, description, status, created_at, updated_at, repo, labels)
+       VALUES (?, '', 'open', datetime('now'), datetime('now'), 'app', NULL)`,
+      ['legacy null-labels row'],
+    );
+    const issueId = db.get<{ id: number }>('SELECT id FROM issues WHERE objective = ?', [
+      'legacy null-labels row',
+    ])!.id;
+
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    const spawnFn = (cmd: string, args: string[]) => {
+      calls.push({ cmd, args });
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return { status: 0, stdout: '{"number":90,"url":"https://github.com/owner/repo/issues/90"}', stderr: '' };
+      }
+      return { status: 0, stdout: 'https://github.com/owner/repo/issues/90\n', stderr: '' };
+    };
+
+    const retryResult = await call(tools.handlers, 'issue_sync_retry', {
+      agent: 'bro',
+      issue_id: String(issueId),
+      _spawnFn: spawnFn,
+    });
+    assert.ok(!retryResult.isError, 'retry must not error');
+
+    const createCall = calls.find((c) => c.args[0] === 'issue' && c.args[1] === 'create');
+    assert.ok(createCall !== undefined, 'gh issue create must run on retry');
+    const labelValues: string[] = [];
+    for (let i = 0; i < createCall.args.length; i++) {
+      if (createCall.args[i] === '--label') labelValues.push(createCall.args[i + 1]!);
+    }
+    assert.deepEqual(
+      labelValues,
+      ['Bug', 'Priority: Urgent'],
+      'a NULL-labels legacy row falls back to defaultSyncLabels',
+    );
+
+    db.close();
+  });
+});
+
 describe('issue_create sync_skipped audit marker (#336)', () => {
   it('writes sync_skipped audit row when issue_sync=off', async () => {
     const db = tempDB();

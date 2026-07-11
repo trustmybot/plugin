@@ -19,6 +19,8 @@ The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drif
 
 `issues.milestone` (#83) is a nullable `TEXT` column that, since schema v23 (#155), is a foreign key into a real `milestones(name, repo, state)` table. Milestones are GitHub-style and **per-repo**: the table's primary key is the composite `(name, repo)`, so the same milestone name can exist independently under each repo. The FK is the composite `issues.(milestone, repo) → milestones.(name, repo)` (`ON DELETE RESTRICT`), nullable so an issue need not carry a milestone. Milestone rows are seeded on demand by `issue_create` rather than pre-populated.
 
+`issues.labels` (#53, schema v28) is a nullable `TEXT` column holding the validated label set from `issue_create` as a JSON array string. `issue_sync_retry` replays it verbatim so a retried remote create carries the original labels rather than re-deriving them; a `NULL` value marks a pre-v28 row and falls back to the taxonomy-derived default label pair.
+
 ## Diagram
 
 ```mermaid
@@ -96,6 +98,7 @@ erDiagram
         INT  remote_iid
         TEXT remote_kind
         TEXT milestone "nullable FK → milestones.name (composite with repo); #83/#155"
+        TEXT labels "nullable JSON array of the validated create labels; replayed by issue_sync_retry; #53"
     }
 
     tasks {
