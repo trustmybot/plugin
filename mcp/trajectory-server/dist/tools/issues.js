@@ -440,7 +440,9 @@ export function issueTools(db, dbPath = '') {
             requireArg(args, 'objective');
             const objective = args['objective'];
             const description = args['description'] ?? '';
-            // labels: pass-through to remote sync; not persisted locally after #179.
+            // labels: passed to remote sync AND persisted on the row (#53) as a JSON
+            // array string so issue_sync_retry replays the original validated set
+            // instead of re-deriving defaultSyncLabels.
             const labels = args['labels'] ?? [];
             // Mandatory tagging (#93/#777): fail closed before any insert/sync.
             const labelError = validateIssueLabels(db, labels);
@@ -496,8 +498,8 @@ export function issueTools(db, dbPath = '') {
                 if (!adoption.ok) {
                     return err(adoption.error);
                 }
-                db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo)
-           VALUES (?, ?, 'open', ?, ?, ?, ?)`, [objective, description, now, now, milestone, issueRepo]);
+                db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
+           VALUES (?, ?, 'open', ?, ?, ?, ?, ?)`, [objective, description, now, now, milestone, issueRepo, JSON.stringify(labels)]);
                 const adoptRowId = db.get(`SELECT id FROM issues WHERE rowid = last_insert_rowid()`);
                 if (!adoptRowId) {
                     throw new Error('issue_create: failed to retrieve inserted row');
@@ -520,8 +522,8 @@ export function issueTools(db, dbPath = '') {
                 adoptedPayload._adopted = { backend: adoption.backend, remote_iid: remoteIid };
                 return ok(adoptedPayload);
             }
-            db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo)
-         VALUES (?, ?, 'open', ?, ?, ?, ?)`, [objective, description, now, now, milestone, issueRepo]);
+            db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
+         VALUES (?, ?, 'open', ?, ?, ?, ?, ?)`, [objective, description, now, now, milestone, issueRepo, JSON.stringify(labels)]);
             const rowId = db.get(`SELECT id FROM issues WHERE rowid = last_insert_rowid()`);
             if (!rowId) {
                 throw new Error('issue_create: failed to retrieve inserted row');
@@ -995,6 +997,25 @@ export function issueTools(db, dbPath = '') {
             if (createTargets.length === 0) {
                 return ok({ action: 'create', success: true, skipped: true, reason: 'already_synced' });
             }
+            // Replay the label set persisted at create (#53). Non-NULL → replay the
+            // original validated labels verbatim (syncIssueCreate's #1067 pre-validation
+            // drops any taxonomy-invalid entries with an unknown_labels warning). NULL
+            // is a legacy pre-v28 row: re-derive defaultSyncLabels so it still satisfies
+            // the mandatory-tagging invariant (#1028). Malformed JSON degrades to the
+            // same fallback rather than throwing.
+            let retryLabels;
+            if (row.labels == null) {
+                retryLabels = defaultSyncLabels(db);
+            }
+            else {
+                try {
+                    const parsed = JSON.parse(row.labels);
+                    retryLabels = Array.isArray(parsed) ? parsed : defaultSyncLabels(db);
+                }
+                catch {
+                    retryLabels = defaultSyncLabels(db);
+                }
+            }
             const createErrors = [];
             let lastSuccess = null;
             for (const target of createTargets) {
@@ -1003,10 +1024,7 @@ export function issueTools(db, dbPath = '') {
                     issueId: row.id,
                     title: issue.objective,
                     body: row.description,
-                    // #1028: re-derive a valid label set + carry the persisted milestone
-                    // so the retried remote issue satisfies the same mandatory-tagging
-                    // invariant issue_create enforces.
-                    labels: defaultSyncLabels(db),
+                    labels: retryLabels,
                     milestone: row.milestone ?? undefined,
                     _backend: target,
                     _spawnFn: spawnFn,
