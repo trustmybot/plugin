@@ -5,6 +5,7 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 ## Unreleased
 
 ### Fixed
+- **Post-close rescan passes a real GraphHolder** (#56): the standalone rescan invoker handed `scan_run` a raw world-model graph where a `GraphHolder` was expected since #1089, so every `bro_atomic_close` background rescan died with `graphHolder?.ensureGraph is not a function`. It now wraps the graph in `GraphHolder.fixed()`, and the `graph_db_open_failed` lock message no longer hardcodes a plugin path.
 - **Release canary pins bun and rebuilds cache-clean** (#52): the L0/canary Dockerfiles pin bun via `ARG BUN_VERSION=1.3.4` before the install layer, and `release.sh`'s canary build runs `--no-cache`, so the canary can no longer validate the committed `bun.lock` with a months-stale layer-cached bun.
 
 ## v1.0.0 — 2026-07-10

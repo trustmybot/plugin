@@ -491,7 +491,7 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
             const graph = graphHolder?.ensureGraph() ?? null;
             const graphOpenError = graphHolder?.openError ?? null;
             if (!graph && graphOpenError) {
-                return err(`graph_db_open_failed: ${graphOpenError} — another process holds the world-model lock (identify it: \`lsof .claude/tmb/world-model.kuzu\`); the server retries automatically on the next call once the holder exits`);
+                return err(`graph_db_open_failed: ${graphOpenError} — another process holds the world-model lock (identify the holder by running lsof on the world-model graph file); the server retries automatically on the next call once the holder exits`);
             }
             // #339: lock file prevents concurrent scans. Lock lives beside the DB.
             const lockPath = dbPath && dbPath !== ':memory:'
