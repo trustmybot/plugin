@@ -2,6 +2,11 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (SemVer guarantees apply as of v1.0.0).
 
+## Unreleased
+
+### Fixed
+- **Release canary pins bun and rebuilds cache-clean** (#52): the L0/canary Dockerfiles pin bun via `ARG BUN_VERSION=1.3.4` before the install layer, and `release.sh`'s canary build runs `--no-cache`, so the canary can no longer validate the committed `bun.lock` with a months-stale layer-cached bun.
+
 ## v1.0.0 — 2026-07-10
 
 First stable release. The core is v0.10.0-rc.9 — the first release candidate whose tag-triggered gate ran fully green (the rc.1–rc.9 entries below are the complete delta since v0.9.0) — plus a post-rc.9 hardening sprint, rolled up below.
