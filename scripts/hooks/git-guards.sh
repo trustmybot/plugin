@@ -256,6 +256,42 @@ _rule2_is_integration() {
   printf '%s' "$1" | grep -qE '(^|[[:space:]]*([;&]|[|][|]|[&][&])[[:space:]]*)git[[:space:]]+(merge|rebase|cherry-pick)([[:space:]]|$)'
 }
 
+# Print the branch a compound command provably creates-and-switches-to before its
+# `git commit`, or nothing. Override for the Rule-2 commit gate: a fresh-clone
+# remedy like `git clone <url> x && cd x && git checkout -b feat && git commit` has
+# no clone dir at PreToolUse time, so cmd_effective_branch falls back to the session
+# checkout's (protected) branch and denies the exact branch+PR remedy the deny text
+# prescribes. When a `git checkout -b <name>` / `git switch -c <name>` — matched at
+# the same shell statement boundary as _rule2_match (^, ;, &&, ||, |, newline) — is
+# the LAST checkout/switch before the commit, the commit provably lands on <name>,
+# so <name> is the effective branch. A plain `git checkout <base>` between the create
+# and the commit re-ambiguates the landing branch and clears the override (the caller
+# then falls back to the fail-closed resolution). Names are dequoted like tmb_cmd_cwd.
+_rule2_inline_branch_create() {
+  printf '%s' "$1" | awk '
+    { buf = (NR == 1 ? $0 : buf "\n" $0) }
+    END {
+      n = split(buf, stmt, /[[:space:]]*(&&|[|][|]|[;&]|\n)[[:space:]]*/)
+      branch = ""
+      for (i = 1; i <= n; i++) {
+        s = stmt[i]
+        sub(/^[[:space:]]+/, "", s)
+        if (s ~ /^git[[:space:]]+commit([[:space:]]|$)/) { print branch; exit }
+        if (s ~ /^git[[:space:]]+checkout[[:space:]]+-b[[:space:]]/ || s ~ /^git[[:space:]]+switch[[:space:]]+-c[[:space:]]/) {
+          m = split(s, tok, /[[:space:]]+/)
+          name = ""
+          for (j = 1; j <= m; j++) {
+            if (tok[j] == "-b" || tok[j] == "-c") { if (j < m) name = tok[j+1]; break }
+          }
+          if (name != "") branch = name
+        } else if (s ~ /^git[[:space:]]+(checkout|switch)([[:space:]]|$)/) {
+          branch = ""
+        }
+      }
+    }
+  ' | sed -E "s/^[\"']//; s/[\"']$//"
+}
+
 # Exit 0 when the command runs inside a LINKED worktree — its git toplevel differs
 # from the main checkout root (_GIT_ROOT). merge/rebase/cherry-pick are legitimate
 # SWE mechanics in a task worktree, so they stay allowed there; in the main checkout
@@ -314,8 +350,14 @@ if _rule2_match "$CMD"; then
         exit 0
       fi
     else
-      # git commit: keep the protected-set union gating.
-      BRANCH=$(cmd_effective_branch "$CMD")
+      # git commit: keep the protected-set union gating. When the command
+      # provably creates-and-switches-to a branch before the commit, honor that
+      # branch (fresh-clone remedy) instead of the fail-closed cwd resolution;
+      # a protected create-name (e.g. checkout -b dev) still denies below.
+      BRANCH=$(_rule2_inline_branch_create "$CMD")
+      if [ -z "$BRANCH" ]; then
+        BRANCH=$(cmd_effective_branch "$CMD")
+      fi
       RULE2_PROTECTED=$(rule2_protected_bases || true)
       if [ -n "$BRANCH" ] && printf '%s\n' "$RULE2_PROTECTED" | grep -qxF "$BRANCH"; then
         jq -nc --arg r "BLOCKED: ${BRANCH} is a shared workflow base — no direct commits/merges/rebases. $(rule2_recovery)" \
