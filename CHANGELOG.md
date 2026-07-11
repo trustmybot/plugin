@@ -2,7 +2,7 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (SemVer guarantees apply as of v1.0.0).
 
-## v1.0.1-rc.1 — 2026-07-11
+## v1.0.1 — 2026-07-11
 
 ### Fixed
 - **release.sh re-pins the rc channel to the new stable tag** (#55): CONTRIBUTING Phase-D step 14 (re-pin `trustmybot/marketplace-rc` to the released `vX.Y.Z` so rc-channel installs converge on the stable build) was the only Phase-D step with no tooling, so it got dropped at v1.0.0 — the rc channel kept serving `rc.9` until it was caught manually. `publish-rc-channel.sh` gains a `--stable-repin` mode (reuses its temp-clone/verify/commit/push machinery; enforces a stable-tag regex and skips the release-gate pre-check, since stable tags fire no gate — the content was gated at its rc), and `release.sh` gains a confirmed, fail-forward step 6 that invokes it with the just-released tag. The default `publish-rc-channel.sh` path is byte-for-byte unchanged (still rc-only, still gate-checked).
