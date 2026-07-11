@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { TrajectoryDB, resolveDbPath, resolvePluginName } from '../../mcp/trajectory-server/dist/db.js';
-import { GraphHolder, WorldModelGraph, resolveGraphDbPath } from '../../mcp/trajectory-server/dist/graph-db.js';
+import { GraphHolder, WorldModelGraph, resolveGraphDbPath, isKuzuLockError } from '../../mcp/trajectory-server/dist/graph-db.js';
 import { scanTools } from '../../mcp/trajectory-server/dist/tools/scan.js';
 
 // Derive the session_dir by walking up from cwd to find the directory that
@@ -34,8 +34,11 @@ async function main() {
     const graphPath = resolveGraphDbPath(dbPath);
     graph = new WorldModelGraph(graphPath);
   } catch (e) {
-    // kuzu unavailable — scan proceeds without world-model writes.
-    openError = e instanceof Error ? e.message : String(e);
+    // Mirror the server holder's lock-only contract: surface lock errors
+    // (holder identifiable via lsof, retry meaningful) so scan hard-fails;
+    // a missing kuzu binding stays silent — scan proceeds without
+    // world-model writes.
+    openError = isKuzuLockError(e) ? (e instanceof Error ? e.message : String(e)) : null;
   }
 
   try {
