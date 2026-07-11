@@ -18,8 +18,13 @@ FROM node:22-slim
 # the entire native-binding bug class that broke v0.2.0.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl unzip git ca-certificates sqlite3 \
- && rm -rf /var/lib/apt/lists/* \
- && curl -fsSL https://bun.sh/install | bash
+ && rm -rf /var/lib/apt/lists/*
+
+# Pin bun so the install layer's cache key tracks the version: the canary must
+# never validate the committed bun.lock with a cache-stale bun. Declared right
+# before the install RUN so changing BUN_VERSION invalidates this layer.
+ARG BUN_VERSION=1.3.4
+RUN curl -fsSL https://bun.sh/install | bash -s "bun-v${BUN_VERSION}"
 ENV PATH="/root/.bun/bin:${PATH}"
 
 # Copy the plugin tree as it would be served from the marketplace

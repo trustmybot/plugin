@@ -116,6 +116,22 @@ else
   fail "publish-rc-channel: missing 'trap ... rm -rf' cleanup of the temp clone"
 fi
 
+# R6: --stable-repin path enforces the stable-tag regex (X.Y.Z), the deliberate
+# inverse of the default rc-only refusal — a stable re-pin must reject rc versions.
+if grep -q -- '--stable-repin' "$RC_SCRIPT" && grep -qF '^v?[0-9]+\.[0-9]+\.[0-9]+$' "$RC_SCRIPT"; then
+  pass "publish-rc-channel: --stable-repin enforces the stable-tag regex"
+else
+  fail "publish-rc-channel: --stable-repin path missing the stable-tag regex (X.Y.Z)"
+fi
+
+# S1: release.sh step 6 invokes publish-rc-channel.sh with --stable-repin so the
+# rc channel re-pins to the new stable tag (CONTRIBUTING Phase-D step 14).
+if grep -q 'publish-rc-channel.sh" --stable-repin' "$SCRIPT"; then
+  pass "release.sh step 6 re-pins the rc channel (publish-rc-channel.sh --stable-repin)"
+else
+  fail "release.sh missing the step-6 re-pin invocation (publish-rc-channel.sh --stable-repin)"
+fi
+
 echo ""
 if [ $failed -ne 0 ]; then
   echo "Release-script-safety: FAIL" >&2

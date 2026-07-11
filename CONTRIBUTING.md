@@ -79,7 +79,7 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 11. Promotion PR `dev → main` as a **merge commit**; merge.
 12. `git checkout main && git pull`, then `bash scripts/release.sh` — it tags `v<plugin.json version>` on `main` HEAD, pushes the tag, cuts the GitHub release from the matching CHANGELOG section, and runs the Docker install canary. Each step asks y/N and skips if already done (safe to re-run); it refuses off-`main`, on a dirty tree, or on a version/CHANGELOG mismatch.
 13. The stable catalog (`trustmybot/marketplace`) pins `ref: "main"` — promotion updates it automatically; no catalog edit.
-14. **Re-pin the rc channel to the stable tag**: in `trustmybot/marketplace-rc`, set `plugins[].source.ref` to the new `vX.Y.Z` so rc-channel installs converge on the released build between rc cycles.
+14. **Re-pin the rc channel to the stable tag**: `release.sh` step 6 does this automatically — it runs `bash scripts/publish-rc-channel.sh --stable-repin --yes <version>`, which points `trustmybot/marketplace-rc`'s `plugins[].source.ref` at the new `vX.Y.Z` so rc-channel installs converge on the released build between rc cycles (idempotent; fail-forward — the release is already public). Manual fallback if the step was skipped or failed: `bash scripts/publish-rc-channel.sh --stable-repin <version>`.
 15. **Canary red = fix-forward immediately** — the release is already public. Diagnose before announcing; never delete the tag.
 
 ## Writing code & tests

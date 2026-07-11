@@ -594,7 +594,7 @@ export function scanTools(
         const graphOpenError = graphHolder?.openError ?? null;
         if (!graph && graphOpenError) {
           return err(
-            `graph_db_open_failed: ${graphOpenError} — another process holds the world-model lock (identify it: \`lsof .claude/tmb/world-model.kuzu\`); the server retries automatically on the next call once the holder exits`,
+            `graph_db_open_failed: ${graphOpenError} — another process holds the world-model lock (identify the holder by running lsof on the world-model graph file); the server retries automatically on the next call once the holder exits`,
           );
         }
 
