@@ -238,9 +238,13 @@ if confirm "Step 5: Run L5 release canary (re-clone tag in Docker, run install-s
       # Wrap the build in `timeout` so a stalled buildkit can't hang the release
       # indefinitely (#643). Default 600s; override with TMB_CANARY_TIMEOUT.
       CANARY_TIMEOUT="${TMB_CANARY_TIMEOUT:-600}"
+      # --no-cache: the canary runs once per release and must never reuse a
+      # stale layer (a cache-pinned bun would validate the lockfile with the
+      # wrong version). Minutes of rebuild buys a canary that can't be poisoned.
       if (cd "$CANARY_DIR/plugin" && timeout "$CANARY_TIMEOUT" docker build \
             -f tests/l0-install/install-smoke.Dockerfile \
             -t "tmb-canary-$NEW_VERSION" \
+            --no-cache \
             --quiet .); then
         printf "  ✓ Canary PASSED — published %s installs cleanly from a fresh clone\n\n" "$NEW_TAG"
       else
