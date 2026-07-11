@@ -892,4 +892,68 @@ out=$(run_hook_in_repo "cd .claude/worktrees/task-1 && git rebase main")
 assert_not_contains "$out" '"permissionDecision":"deny"' "rebase inside a task worktree must be allowed"
 cleanup_repo
 
+# ---- #54: Rule 2 honors an in-command branch-create before the commit ----------
+# A fresh-clone remedy (`git clone … && cd … && git checkout -b feat && git commit`)
+# has no clone dir at PreToolUse time, so cmd_effective_branch falls back to the
+# session checkout's protected branch and denies the very branch+PR remedy the deny
+# text prescribes. When a `git checkout -b <name>` / `git switch -c <name>` at a shell
+# statement boundary is the LAST checkout/switch before the commit, the commit
+# provably lands on <name> — allow when it is not protected, still deny when it is.
+# The fixture repo is on protected main, so without the override every case below
+# would resolve to main and deny.
+
+test_case "#54: fresh-clone compound (clone + checkout -b feat/x + commit) is ALLOWED"
+setup_worktree_repo
+out=$(run_hook_in_repo "git clone https://example.com/x.git repo && cd repo && git checkout -b feat/x && git commit -m 'bump'")
+assert_not_contains "$out" '"permissionDecision":"deny"' "in-command checkout -b feat/x must land the commit on the new branch"
+cleanup_repo
+
+test_case "#54: in-command checkout -b dev (protected name) is DENIED"
+setup_worktree_repo
+out=$(run_hook_in_repo "git clone https://example.com/x.git repo && cd repo && git checkout -b dev && git commit -m 'bump'")
+assert_contains "$out" '"permissionDecision":"deny"' "creating a protected branch name must still block the commit"
+cleanup_repo
+
+test_case "#54: plain git commit with cwd on protected main is DENIED (regression)"
+setup_worktree_repo
+out=$(run_hook_in_repo "git commit -m broken")
+assert_contains "$out" '"permissionDecision":"deny"' "no in-command branch-create → fail-closed cwd resolution denies on main"
+cleanup_repo
+
+test_case "#54: branch-create AFTER the commit in the command text is DENIED"
+setup_worktree_repo
+out=$(run_hook_in_repo "git commit -m broken && git checkout -b feat/late")
+assert_contains "$out" '"permissionDecision":"deny"' "a create that follows the commit does not cover it → deny"
+cleanup_repo
+
+test_case "#54: git switch -c feat/y variant is ALLOWED"
+setup_worktree_repo
+out=$(run_hook_in_repo "git clone https://example.com/x.git repo && cd repo && git switch -c feat/y && git commit -m 'bump'")
+assert_not_contains "$out" '"permissionDecision":"deny"' "switch -c feat/y must land the commit on the new branch"
+cleanup_repo
+
+test_case "#54: create-then-switch-back (checkout -b feat/z && git checkout dev && commit) is DENIED"
+setup_worktree_repo
+out=$(run_hook_in_repo "git checkout -b feat/z && git checkout dev && git commit -m x")
+assert_contains "$out" '"permissionDecision":"deny"' "a plain checkout after the create re-ambiguates the landing branch → deny"
+cleanup_repo
+
+# ---- #58: Rule 2 override vets EVERY commit's landing branch, not just the first --
+# The override walks the whole compound command tracking the branch each commit
+# lands on. A laundering shape opens on a feature-branch create (first commit is
+# clean) then checks out a protected base for a trailing commit — that second
+# commit must still be denied. A run of commits on one feature branch stays allowed.
+
+test_case "#58: laundering (checkout -b feat/x && commit && checkout dev && commit) is DENIED"
+setup_worktree_repo
+out=$(run_hook_in_repo "git checkout -b feat/x && git commit -m a && git checkout dev && git commit -m b")
+assert_contains "$out" '"permissionDecision":"deny"' "a trailing commit landing on protected dev must be blocked even after a clean feature-branch commit"
+cleanup_repo
+
+test_case "#58: two commits on the same feature branch (checkout -b feat/x && commit && commit) is ALLOWED"
+setup_worktree_repo
+out=$(run_hook_in_repo "git checkout -b feat/x && git commit -m a && git commit -m b")
+assert_not_contains "$out" '"permissionDecision":"deny"' "every commit lands on the non-protected feat/x → allowed"
+cleanup_repo
+
 summarize
