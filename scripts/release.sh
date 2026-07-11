@@ -14,6 +14,8 @@
 #   3. Await the tag's release-gate run; refuse unless it concluded success
 #   4. Create the GitHub release with notes extracted from CHANGELOG.md
 #   5. Run the L5 release canary (re-clone the tag in Docker, run install-smoke)
+#   6. Re-pin the rc channel to the new stable tag
+#      (publish-rc-channel.sh --stable-repin — CONTRIBUTING Phase-D step 14)
 #
 # Idempotent + safety-checked:
 #   - Refuses to run unless current branch is `main`.
@@ -268,6 +270,30 @@ if confirm "Step 5: Run L5 release canary (re-clone tag in Docker, run install-s
   fi
 else
   printf "  Skipped — run 'bash tests/l0-install/run-install-smoke.sh' manually before announcing.\n\n"
+fi
+
+# ---------- step 6: re-pin the rc channel to the stable tag ----------
+#
+# CONTRIBUTING Phase-D step 14. The rc channel (trustmybot/marketplace-rc) pins
+# the rc under validation; after a stable cut it must converge on the released
+# build so rc-channel installs stop serving the old rc between cycles.
+# publish-rc-channel.sh --stable-repin reuses the same temp-clone/verify/commit/
+# push machinery and is idempotent (skips if the ref already points at the tag).
+#
+# Fail-forward like the canary: the release is already public, so a failure warns
+# loudly and prints the manual re-pin command — it never deletes the release.
+
+if confirm "Step 6: Re-pin the rc channel to $NEW_TAG?"; then
+  if bash "$PLUGIN_ROOT/scripts/publish-rc-channel.sh" --stable-repin --yes "$NEW_VERSION"; then
+    printf "  ✓ rc channel re-pinned to %s\n\n" "$NEW_TAG"
+  else
+    printf "\n  ⚠️  rc-channel re-pin FAILED — %s is already public.\n" "$NEW_TAG" >&2
+    printf "     rc-channel installs may still serve the previous rc. Re-pin manually:\n" >&2
+    printf "       bash scripts/publish-rc-channel.sh --stable-repin %s\n\n" "$NEW_VERSION" >&2
+  fi
+else
+  printf "  Skipped — re-pin manually before the next rc cycle:\n"
+  printf "      bash scripts/publish-rc-channel.sh --stable-repin %s\n\n" "$NEW_VERSION"
 fi
 
 # ---------- summary ----------

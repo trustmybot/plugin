@@ -11,7 +11,7 @@
 # `tmb@trustmybot-rc` serve the rc under validation.
 #
 # Usage:
-#   bash scripts/publish-rc-channel.sh [version] [--yes] [--dry-run]
+#   bash scripts/publish-rc-channel.sh [version] [--stable-repin] [--yes] [--dry-run]
 #
 # What it does:
 #   1. Resolve VERSION (arg or .claude-plugin/plugin.json .version) → TAG=v$VERSION.
@@ -24,10 +24,19 @@
 #   7. Ensure a marketplace-rc README.md exists.
 #   8. Show the diff, confirm y/N (skipped by --yes), then commit + push origin main.
 #
+# --stable-repin mode (CONTRIBUTING Phase-D step 14):
+#   Re-pins the rc channel to a STABLE tag (X.Y.Z) after a release so rc-channel
+#   installs converge on the released build between rc cycles. VERSION must match
+#   a stable tag; the rc-only refusal and the release-gate pre-check are bypassed
+#   (stable tags fire no gate — the content was gated at its rc). Every other
+#   step — verify tag on origin, temp clone, rewrite ref, idempotent skip,
+#   confirm, commit + push — is identical. Fired by scripts/release.sh step 6.
+#
 # Idempotent + safety-checked:
-#   - Refuses any non-rc version.
-#   - Refuses if the rc tag is not on origin.
-#   - Refuses unless the tag's release-gate run concluded success (no bypass flag).
+#   - Refuses any non-rc version (or, in --stable-repin, any non-stable version).
+#   - Refuses if the tag is not on origin.
+#   - Refuses unless the tag's release-gate run concluded success (no bypass flag;
+#     skipped in --stable-repin, where no gate fires).
 #   - Never operates on a hardcoded local catalog path — always a fresh temp clone.
 #   - If the ref already points at TAG AND the README is present → prints
 #     'already published' and exits 0.
@@ -48,14 +57,16 @@ PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION=""
 ASSUME_YES=0
 DRY_RUN=0
+STABLE_REPIN=0
 
 for arg in "$@"; do
   case "$arg" in
+    --stable-repin) STABLE_REPIN=1 ;;
     --yes) ASSUME_YES=1 ;;
     --dry-run) DRY_RUN=1 ;;
     -*)
       printf "❌ Unknown flag: %s\n" "$arg" >&2
-      printf "   Usage: bash scripts/publish-rc-channel.sh [version] [--yes] [--dry-run]\n" >&2
+      printf "   Usage: bash scripts/publish-rc-channel.sh [version] [--stable-repin] [--yes] [--dry-run]\n" >&2
       exit 1
       ;;
     *)
@@ -79,13 +90,27 @@ if [ -z "$VERSION" ]; then
   VERSION="$(jq -r '.version' "$PLUGIN_ROOT/.claude-plugin/plugin.json")"
 fi
 
-# ---------- refuse non-rc ----------
+# ---------- refuse a version that doesn't match the mode ----------
 
-if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$'; then
-  printf "❌ Refusing to publish. Version '%s' is not an rc version.\n" "$VERSION" >&2
-  printf "   The rc channel only serves rc tags (e.g. 0.10.0-rc.2).\n" >&2
-  printf "   For a stable tag, re-pin the rc channel per CONTRIBUTING step 14.\n" >&2
-  exit 1
+if [ "$STABLE_REPIN" -eq 1 ]; then
+  # --stable-repin: the version must be a STABLE tag (X.Y.Z). This is the
+  # deliberate inverse of the default rc-only refusal — an rc version here is a
+  # mode mismatch and is refused fail-closed.
+  if ! printf '%s' "$VERSION" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
+    printf "❌ Refusing to re-pin. Version '%s' is not a stable version.\n" "$VERSION" >&2
+    printf "   --stable-repin re-pins the rc channel to a stable tag (e.g. 1.0.0).\n" >&2
+    printf "   For an rc tag, drop --stable-repin and pass the rc version.\n" >&2
+    exit 1
+  fi
+  # Accept an optional leading v so TAG construction stays uniform.
+  VERSION="${VERSION#v}"
+else
+  if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$'; then
+    printf "❌ Refusing to publish. Version '%s' is not an rc version.\n" "$VERSION" >&2
+    printf "   The rc channel only serves rc tags (e.g. 0.10.0-rc.2).\n" >&2
+    printf "   For a stable tag, re-pin the rc channel with --stable-repin.\n" >&2
+    exit 1
+  fi
 fi
 
 TAG="v${VERSION}"
@@ -105,9 +130,16 @@ fi
 # point the rc channel at a tag whose gate has not concluded success. Read-only,
 # so it runs in --dry-run too. No bypass flag: a red tag gate means roll back
 # the channel/tag and ship a new rc.
+#
+# --stable-repin skips this: stable tags fire no gate (the content was already
+# gated at its rc, re-checked by release.sh step 3 before the release exists).
 
-printf "Checking the release-gate run for %s ...\n" "$TAG"
-await_release_gate "$TAG" || exit $?
+if [ "$STABLE_REPIN" -eq 1 ]; then
+  printf "Re-pinning the rc channel to the stable tag %s (no gate — gated at its rc) ...\n" "$TAG"
+else
+  printf "Checking the release-gate run for %s ...\n" "$TAG"
+  await_release_gate "$TAG" || exit $?
+fi
 
 # ---------- clone the catalog into a temp dir ----------
 
