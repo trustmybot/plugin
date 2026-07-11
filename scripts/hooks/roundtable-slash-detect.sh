@@ -34,7 +34,7 @@ DB_PATH=$(tmb_db_path 2>/dev/null || true)
 
 SUMMARY=$(printf '%s' "$PROMPT" | head -c 200 | sed "s/'/''/g")
 
-sqlite3 "$DB_PATH" <<SQL 2>&1 >/dev/null || true
+sqlite3 -cmd '.timeout 3000' "$DB_PATH" <<SQL 2>&1 >/dev/null || true
 INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
 VALUES (-1, NULL, 'system', 'roundtable_slash_invoked',
         'User typed /roundtable: $SUMMARY', '{}', datetime('now'));
