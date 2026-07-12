@@ -26,10 +26,10 @@
 #   - waive_verification_gate_reason (>=10 chars) → allow + audit row
 #   - Verification passes          → allow
 #   - Verification fails           → DENY with failing command + output tail
-#   - Total timeout (default 240s) → DENY with timeout message
+#   - Total timeout (default 900s) → DENY with timeout message
 #
 # Environment:
-#   TMB_VERIFICATION_TIMEOUT_S — total seconds (default 240)
+#   TMB_VERIFICATION_TIMEOUT_S — total seconds (default 900)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -190,7 +190,7 @@ fi
 # hook-process PATH. See lib/resolve-toolchain-path.sh.
 TOOLCHAIN_PATH=$(tmb_resolve_toolchain_path "$PATH" 2>/dev/null || printf '%s' "$PATH")
 
-TIMEOUT_S="${TMB_VERIFICATION_TIMEOUT_S:-240}"
+TIMEOUT_S="${TMB_VERIFICATION_TIMEOUT_S:-900}"
 START_TS=$(date +%s 2>/dev/null || echo 0)
 
 FAILED_CMD=""
@@ -209,7 +209,7 @@ while IFS= read -r line; do
   REMAINING=$(( TIMEOUT_S - ELAPSED ))
   if [ "$REMAINING" -le 0 ]; then
     jq -nc --arg t "$TIMEOUT_S" \
-      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":("BLOCKED: verification timed out after " + $t + "s total. Increase TMB_VERIFICATION_TIMEOUT_S or fix slow verification commands.")}}'
+      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: verification timed out after " + $t + "s total. Increase TMB_VERIFICATION_TIMEOUT_S or fix slow verification commands. (current budget: " + $t + "s via TMB_VERIFICATION_TIMEOUT_S, default 900).")}}'
     exit 0
   fi
 
@@ -219,7 +219,7 @@ while IFS= read -r line; do
     CMD_RC=$?
     if [ "$CMD_RC" -eq 124 ]; then
       jq -nc --arg cmd "$CMD" --arg t "$TIMEOUT_S" \
-        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","denyReason":("BLOCKED: verification timed out after " + $t + "s total budget while running: " + $cmd + ". Increase TMB_VERIFICATION_TIMEOUT_S or fix slow verification commands.")}}'
+        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: verification timed out after " + $t + "s total budget while running: " + $cmd + ". Increase TMB_VERIFICATION_TIMEOUT_S or fix slow verification commands. (current budget: " + $t + "s via TMB_VERIFICATION_TIMEOUT_S, default 900).")}}'
       exit 0
     fi
     FAILED_CMD="$CMD"
@@ -234,7 +234,7 @@ if [ -n "$FAILED_CMD" ]; then
     {"hookSpecificOutput":{
       "hookEventName":"PreToolUse",
       "permissionDecision":"deny",
-      "denyReason":("BLOCKED: verification failed.\nFailing command: " + $cmd + "\n\nOutput (last 20 lines):\n" + $out)
+      "permissionDecisionReason":("BLOCKED: verification failed.\nFailing command: " + $cmd + "\n\nOutput (last 20 lines):\n" + $out)
     }}
   '
   exit 0
