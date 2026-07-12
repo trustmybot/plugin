@@ -2,6 +2,12 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (SemVer guarantees apply as of v1.0.0).
 
+## v1.0.2-rc.1 — 2026-07-12
+
+### Fixed
+- **Verification gate denies with a visible reason and a budget that fits the full suite** (GH 1121): the timeout and verification-failed branches emitted `denyReason` — a field Claude Code does not surface — so swe received reasonless denials. All three branches now emit `permissionDecisionReason` with the resolved budget named in timeout messages, and the default `TMB_VERIFICATION_TIMEOUT_S` rises 240→900s so specs listing `tests/run-all.sh` (~295s) no longer force the waiver escape hatch.
+- **L6 row 09 judgment coin-flip removed** (GH 1117): the row 04 install fixture described the code-review candidate as "gating pushes", which bro could read at row 09 as removing its own push gate and hold at the concerns-protocol. The candidate description is now an optional linting convenience, so the row deterministically tests the uninstall ceremony.
+
 ## v1.0.1 — 2026-07-11
 
 ### Fixed
