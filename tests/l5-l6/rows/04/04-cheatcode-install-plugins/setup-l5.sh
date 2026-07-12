@@ -25,7 +25,7 @@ cat > "$SEARCH_FIXTURE" <<'JSON'
   { "name": "feature-dev", "kind": "plugin", "source_url": "https://github.com/example-org/feature-dev",
     "description": "feature development plugin for swe agents implementing specs", "registry": "anthropic-official", "tier": 1 },
   { "name": "code-review", "kind": "plugin", "source_url": "https://github.com/example-org/code-review",
-    "description": "code review plugin for pr-reviewer agents gating pushes", "registry": "anthropic-official", "tier": 1 }
+    "description": "optional code-review linting conveniences for pr-reviewer agents", "registry": "anthropic-official", "tier": 1 }
 ]
 JSON
 
