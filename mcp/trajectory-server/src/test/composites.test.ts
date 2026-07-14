@@ -1415,7 +1415,10 @@ describe('filesToDirs (#300)', () => {
   });
 });
 
-function seedTask(db: TrajectoryDB, opts: { repo?: string | null; spec: string; files?: string[] }): number {
+function seedTask(
+  db: TrajectoryDB,
+  opts: { repo?: string | null; spec: string; files?: string[]; verification?: string[] },
+): number {
   if (opts.repo) {
     db.run(`INSERT OR IGNORE INTO repos (name, path) VALUES (?, ?)`, [opts.repo, `/tmp/${opts.repo}`]);
   }
@@ -1424,9 +1427,9 @@ function seedTask(db: TrajectoryDB, opts: { repo?: string | null; spec: string; 
      VALUES (1, 'brief test obj', 'd', 'open', datetime('now'), datetime('now'))`,
   );
   db.run(
-    `INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, files, commit_sha, repo, created_at, updated_at)
-     VALUES (1, 'fix/1-brief', 'brief task', 'd', 'open', ?, ?, 'abc123def', ?, datetime('now'), datetime('now'))`,
-    [opts.spec, JSON.stringify(opts.files ?? []), opts.repo ?? null],
+    `INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, files, verification, commit_sha, repo, created_at, updated_at)
+     VALUES (1, 'fix/1-brief', 'brief task', 'd', 'open', ?, ?, ?, 'abc123def', ?, datetime('now'), datetime('now'))`,
+    [opts.spec, JSON.stringify(opts.files ?? []), JSON.stringify(opts.verification ?? []), opts.repo ?? null],
   );
   const row = db.get<{ id: number }>('SELECT last_insert_rowid() AS id');
   db.run(
@@ -1475,6 +1478,28 @@ describe('task_brief (#300)', () => {
     assert.equal(apiDir!.summary, 'api layer');
     assert.ok(apiDir!.children.some((c) => c.path === 'src/api/v2'), 'child surfaced');
     db.close();
+  });
+
+  it('emits the typed files[] + verification[] contract; [] for a legacy default-verification row', async () => {
+    const db = tempDB();
+    const files = ['src/api/handler.ts', 'src/api/'];
+    const verification = ['bun test', 'bash tests/l1-lint/dist-fresh.sh'];
+    const id = seedTask(db, { repo: 'app', spec: SPEC, files, verification });
+    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+    const r = (await tools.handlers['task_brief']!({ agent: 'swe', task_id: id })) as RawResult;
+    const out = parse(r) as Record<string, unknown>;
+    assert.deepEqual(out['files'], files, 'typed files[] round-trips');
+    assert.deepEqual(out['verification'], verification, 'typed verification[] round-trips');
+    db.close();
+
+    // Legacy row: verification unset → schema DEFAULT '[]' → [] without error.
+    const db2 = tempDB();
+    const legacyId = seedTask(db2, { repo: 'app', spec: SPEC, files });
+    const tools2 = compositeTools(db2, '/tmp/.claude/tmb/trajectory.db', null);
+    const lr = (await tools2.handlers['task_brief']!({ agent: 'swe', task_id: legacyId })) as RawResult;
+    const lout = parse(lr) as Record<string, unknown>;
+    assert.deepEqual(lout['verification'], [], 'unset verification yields []');
+    db2.close();
   });
 
   it('errors on a missing task', async () => {

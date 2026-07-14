@@ -28778,7 +28778,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
         const taskId = args["task_id"];
         if (taskId === void 0 || taskId === null) return err14("task_id is required");
         const task = db2.get(
-          `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.commit_sha, t.repo,
+          `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.verification, t.commit_sha, t.repo,
                   i.objective
              FROM tasks t JOIN issues i ON i.id = t.issue_id
             WHERE t.id = ? LIMIT 1`,
@@ -28846,6 +28846,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           commit_sha: task.commit_sha,
           repo,
           spec_body: task.spec_body,
+          files: parseTaskFiles(task.files),
+          verification: parseTaskFiles(task.verification),
           scope_world_model,
           ...world_model_warning ? { world_model_warning } : {},
           task_discussions
