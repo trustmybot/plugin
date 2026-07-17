@@ -2,6 +2,13 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (SemVer guarantees apply as of v1.0.0).
 
+## v1.0.2-rc.2 — 2026-07-18
+
+### Fixed
+- **cheatcode_install materializes every attachment target** (GH 1137): materialization keyed solely off the optional target arg, so installs recording attachment rows could skip the on-disk agent materialization when the caller omitted it — DB said attached, the agent never loaded the capability. The handler now materializes each distinct attachment target (union with the explicit arg) and surfaces `materialized[]` per write.
+- **SWE spawn-gate deny remedy is runnable in remoteless repos** (GH 1132): the prescribed branch-create hardcoded `origin/<base>`, fatal without an origin remote; the remedy now probes the remote and substitutes the task's concrete parent branch.
+- **slash-detect audit INSERT retries through writer locks** (GH 1134): the single 3s-timeout attempt with silent failure could drop the `roundtable_slash_invoked` row under longer WAL writer locks; now 3 attempts × 5s with a loud stderr warning on final failure, still fail-open.
+
 ## v1.0.2-rc.1 — 2026-07-12
 
 ### Fixed
