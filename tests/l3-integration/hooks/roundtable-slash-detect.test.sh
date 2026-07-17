@@ -124,4 +124,41 @@ wait "$HOLDER_PID" 2>/dev/null || true
 COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_slash_invoked';")
 assert_eq "1" "$COUNT" "audit row inserted after waiting out the concurrent write lock"
 
+# ── bounded retry: lock held ~2s, then released ──────────────────────────────
+# A writer holds the lock for ~2s before releasing. The bounded retry loop
+# waits it out and the audit row still lands; the hook exits 0.
+
+test_case "/roundtable retry lands the audit row after a ~2s write lock releases"
+sqlite3 "$DB" "DELETE FROM audit;"
+( printf 'BEGIN IMMEDIATE;\n'; sleep 2; printf 'COMMIT;\n' ) | sqlite3 "$DB" &
+HOLDER_PID=$!
+sleep 0.2
+OUT=$(echo '{"prompt":"/roundtable retry lands"}' | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>&1)
+RC=$?
+wait "$HOLDER_PID" 2>/dev/null || true
+assert_eq "0" "$RC" "hook must exit 0 while retrying through the lock"
+COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_slash_invoked';")
+assert_eq "1" "$COUNT" "the retry must land the audit row once the lock releases"
+
+# ── bounded retry exhausted: lock outlasts every attempt ─────────────────────
+# The writer holds the lock longer than all three attempts (3 x 5s + sleeps).
+# The hook gives up, warns loudly on stderr, leaves no row, and still exits 0.
+
+test_case "/roundtable warns loudly and exits 0 when the lock outlasts all retries"
+sqlite3 "$DB" "DELETE FROM audit;"
+( printf 'BEGIN IMMEDIATE;\n'; sleep 30; printf 'COMMIT;\n' ) | sqlite3 "$DB" &
+HOLDER_PID=$!
+sleep 0.2
+OUT=$(echo '{"prompt":"/roundtable permanent lock"}' | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>&1)
+RC=$?
+kill "$HOLDER_PID" 2>/dev/null || true
+wait "$HOLDER_PID" 2>/dev/null || true
+assert_eq "0" "$RC" "hook must exit 0 even when the INSERT never lands (fail-open)"
+COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_slash_invoked';")
+assert_eq "0" "$COUNT" "no audit row when the lock outlasts every attempt"
+case "$OUT" in
+  *"FAILED to record roundtable_slash_invoked after 3 attempts"*) echo "  ✓ loud stderr warning emitted on final failure" ;;
+  *) echo "FAIL: expected FAILED warning on stderr, got: $OUT"; exit 1 ;;
+esac
+
 summarize
