@@ -2,6 +2,10 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (SemVer guarantees apply as of v1.0.0).
 
+## v1.0.2-rc.3 — 2026-07-19
+
+Release-mechanics only — no user-visible plugin changes since rc.2. Bundles the internal CI/test/docs deltas that landed on dev after the rc.2 tag so the stable v1.0.2 build is cut from a gate-validated dev tip: tag-triggered release-gate inherits a green same-SHA dispatch (GH 1146), sandbox https-push probe accepts connection-level failures (GH 1145), and the CONTRIBUTING functional-identity rule is scoped to shipped surfaces (GH 1144).
+
 ## v1.0.2-rc.2 — 2026-07-18
 
 ### Fixed
