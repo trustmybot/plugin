@@ -2,6 +2,33 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (SemVer guarantees apply as of v1.0.0).
 
+## v1.0.2 — 2026-07-19
+
+Patch release rolling up the fixes validated across rc.1–rc.3.
+
+### Fixed
+- **cheatcode_install materializes every attachment target** (GH 1137): materialization keyed solely off the optional target arg, so installs recording attachment rows could skip the on-disk agent materialization when the caller omitted it — the DB said attached, the agent never loaded the capability. The handler now materializes each distinct attachment target (union with the explicit arg) and surfaces `materialized[]` per write.
+- **SWE spawn-gate deny remedy is runnable in remoteless repos** (GH 1132): the prescribed branch-create hardcoded `origin/<base>`, fatal without an origin remote; the remedy now probes the remote and substitutes the task's concrete parent branch.
+- **Verification gate denies with a visible reason and a budget that fits the full suite** (GH 1121): the timeout and verification-failed branches emitted `denyReason` — a field Claude Code does not surface — so swe received reasonless denials. All three branches now emit `permissionDecisionReason` with the resolved budget named in timeout messages, and the default `TMB_VERIFICATION_TIMEOUT_S` rises 240→900s so specs listing `tests/run-all.sh` (~295s) no longer force the waiver escape hatch.
+- **slash-detect audit INSERT survives writer locks** (GH 1134): the single 3s-timeout attempt with silent failure could drop the `roundtable_slash_invoked` row under longer WAL writer locks; now 3 attempts × 5s with a loud stderr warning on final failure, still fail-open.
+
+## v1.0.2-rc.3 — 2026-07-19
+
+Release-mechanics only — no user-visible plugin changes since rc.2. Bundles the internal CI/test/docs deltas that landed on dev after the rc.2 tag so the stable v1.0.2 build is cut from a gate-validated dev tip: tag-triggered release-gate inherits a green same-SHA dispatch (GH 1146), sandbox https-push probe accepts connection-level failures (GH 1145), and the CONTRIBUTING functional-identity rule is scoped to shipped surfaces (GH 1144).
+
+## v1.0.2-rc.2 — 2026-07-18
+
+### Fixed
+- **cheatcode_install materializes every attachment target** (GH 1137): materialization keyed solely off the optional target arg, so installs recording attachment rows could skip the on-disk agent materialization when the caller omitted it — DB said attached, the agent never loaded the capability. The handler now materializes each distinct attachment target (union with the explicit arg) and surfaces `materialized[]` per write.
+- **SWE spawn-gate deny remedy is runnable in remoteless repos** (GH 1132): the prescribed branch-create hardcoded `origin/<base>`, fatal without an origin remote; the remedy now probes the remote and substitutes the task's concrete parent branch.
+- **slash-detect audit INSERT retries through writer locks** (GH 1134): the single 3s-timeout attempt with silent failure could drop the `roundtable_slash_invoked` row under longer WAL writer locks; now 3 attempts × 5s with a loud stderr warning on final failure, still fail-open.
+
+## v1.0.2-rc.1 — 2026-07-12
+
+### Fixed
+- **Verification gate denies with a visible reason and a budget that fits the full suite** (GH 1121): the timeout and verification-failed branches emitted `denyReason` — a field Claude Code does not surface — so swe received reasonless denials. All three branches now emit `permissionDecisionReason` with the resolved budget named in timeout messages, and the default `TMB_VERIFICATION_TIMEOUT_S` rises 240→900s so specs listing `tests/run-all.sh` (~295s) no longer force the waiver escape hatch.
+- **L6 row 09 judgment coin-flip removed** (GH 1117): the row 04 install fixture described the code-review candidate as "gating pushes", which bro could read at row 09 as removing its own push gate and hold at the concerns-protocol. The candidate description is now an optional linting convenience, so the row deterministically tests the uninstall ceremony.
+
 ## v1.0.1 — 2026-07-11
 
 ### Fixed

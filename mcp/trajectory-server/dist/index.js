@@ -28778,7 +28778,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
         const taskId = args["task_id"];
         if (taskId === void 0 || taskId === null) return err14("task_id is required");
         const task = db2.get(
-          `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.commit_sha, t.repo,
+          `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.verification, t.commit_sha, t.repo,
                   i.objective
              FROM tasks t JOIN issues i ON i.id = t.issue_id
             WHERE t.id = ? LIMIT 1`,
@@ -28846,6 +28846,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           commit_sha: task.commit_sha,
           repo,
           spec_body: task.spec_body,
+          files: parseTaskFiles(task.files),
+          verification: parseTaskFiles(task.verification),
           scope_world_model,
           ...world_model_warning ? { world_model_warning } : {},
           task_discussions
@@ -31770,8 +31772,19 @@ function cheatcodeTools(db2) {
         const placementScope = scope === "global" ? "global" : "project-local";
         const filePath = kind === "skill" ? `.claude/skills/${name}/SKILL.md` : null;
         const description = trustTier ? `${kind} cheatcode '${name}' (installed, vetted ${trustTier})` : `${kind} cheatcode '${name}' (installed)`;
-        const providedTools = kind === "plugin" && target && target !== "bro" ? detectProvidedTools(name) : [];
-        const materialized = target && (kind === "skill" || kind === "plugin") ? materializeConsumingAgent(db2.dbPath, target, name, providedTools) : null;
+        const materialized = [];
+        if (kind === "skill" || kind === "plugin") {
+          const targetSet = /* @__PURE__ */ new Set();
+          for (const att of out.attachments) {
+            if (att.target) targetSet.add(att.target);
+          }
+          if (target) targetSet.add(target);
+          for (const t of targetSet) {
+            const providedTools = kind === "plugin" && t !== "bro" ? detectProvidedTools(name) : [];
+            const result = materializeConsumingAgent(db2.dbPath, t, name, providedTools);
+            if (result) materialized.push(result);
+          }
+        }
         const origin = deriveOrigin(sourceUrl);
         const installedAt = nowISO();
         const cheatcodeId = db2.transaction(() => {
@@ -31788,11 +31801,11 @@ function cheatcodeTools(db2) {
               [id, att.target, att.artifact, installedAt]
             );
           }
-          if (materialized) {
+          for (const m of materialized) {
             db2.run(
               `INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
                VALUES (?, ?, ?, ?)`,
-              [id, materialized.target, materialized.artifact, installedAt]
+              [id, m.target, m.artifact, installedAt]
             );
           }
           db2.run(
@@ -31830,10 +31843,15 @@ function cheatcodeTools(db2) {
           version: out.version,
           scope: placementScope,
           attachments: out.attachments,
-          // When a target was named, the materialized prompt-surface path (the
-          // .claude/agents/<target>.md or .claude/CLAUDE.md written in the user
-          // project). null when no target, or when the surface couldn't resolve.
-          materialized: materialized ? { target: materialized.target, artifact: materialized.artifact, path: materialized.path } : null,
+          // Every materialized prompt-surface path (the .claude/agents/<target>.md
+          // or .claude/CLAUDE.md written in the user project), one element per
+          // bound target. Empty when nothing materialized (no target, or none
+          // resolved).
+          materialized: materialized.map((m) => ({
+            target: m.target,
+            artifact: m.artifact,
+            path: m.path
+          })),
           // Skill installs carry the install script's proposed agent-frontmatter
           // PR payload alongside the materialized surface — the canonical
           // upstream contribution, distinct from the project-local materialize.

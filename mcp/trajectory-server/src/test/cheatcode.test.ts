@@ -1122,11 +1122,11 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
       assert.ok(body.includes('SWE — Executor'), 'body preserved from the global copy');
 
       // The result + attachment row report the materialized path.
-      const mat = out['materialized'] as { target: string; artifact: string; path: string } | null;
-      assert.ok(mat, 'materialized reported in result');
-      assert.equal(mat!.target, 'swe');
-      assert.equal(mat!.artifact, 'agent-md:.claude/agents/swe.md');
-      assert.equal(mat!.path, localSwe);
+      const mat = out['materialized'] as { target: string; artifact: string; path: string }[];
+      assert.equal(mat.length, 1, 'one materialized element');
+      assert.equal(mat[0].target, 'swe');
+      assert.equal(mat[0].artifact, 'agent-md:.claude/agents/swe.md');
+      assert.equal(mat[0].path, localSwe);
 
       const att = db.get<{ target: string; artifact: string }>(
         `SELECT target, artifact FROM cheatcode_attachments WHERE target = 'swe'`,
@@ -1237,10 +1237,10 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
       const body = readFileSync(claudeMd, 'utf8');
       assert.ok(body.includes('pdf-skill'), 'CLAUDE.md references the installed skill');
 
-      const mat = out['materialized'] as { target: string; artifact: string } | null;
-      assert.ok(mat, 'materialized reported');
-      assert.equal(mat!.target, 'bro');
-      assert.equal(mat!.artifact, 'claude-md:.claude/CLAUDE.md');
+      const mat = out['materialized'] as { target: string; artifact: string }[];
+      assert.equal(mat.length, 1, 'one materialized element');
+      assert.equal(mat[0].target, 'bro');
+      assert.equal(mat[0].artifact, 'claude-md:.claude/CLAUDE.md');
 
       const att = db.get<{ artifact: string }>(
         `SELECT artifact FROM cheatcode_attachments WHERE target = 'bro'`,
@@ -1301,11 +1301,11 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
       assert.ok(/^name:\s*swe\s*$/m.test(fm), 'frontmatter name preserved');
       assert.ok(body.includes('SWE — Executor'), 'body preserved from the global copy');
 
-      const mat = out['materialized'] as { target: string; artifact: string; path: string } | null;
-      assert.ok(mat, 'materialized reported in result for plugin-kind');
-      assert.equal(mat!.target, 'swe');
-      assert.equal(mat!.artifact, 'agent-md:.claude/agents/swe.md');
-      assert.equal(mat!.path, localSwe);
+      const mat = out['materialized'] as { target: string; artifact: string; path: string }[];
+      assert.equal(mat.length, 1, 'one materialized element for plugin-kind (target arg only)');
+      assert.equal(mat[0].target, 'swe');
+      assert.equal(mat[0].artifact, 'agent-md:.claude/agents/swe.md');
+      assert.equal(mat[0].path, localSwe);
 
       const att = db.get<{ artifact: string }>(
         `SELECT artifact FROM cheatcode_attachments WHERE target = 'swe' AND artifact LIKE 'agent-md:%'`,
@@ -1329,6 +1329,129 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
       assert.equal(occurrences.length, 1, 'no duplicate feature-dev entry');
 
       assertPluginRepoUntouched(snapshot);
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('kind=plugin with NO target arg materializes every attachment-row target (swe + pr-reviewer), materialized[] length 2', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    // The install records two attachment rows (swe, pr-reviewer) and NO target
+    // arg is passed — disk materialization must follow the recorded attachments,
+    // not the (absent) arg. Both consuming agents get their prompt surface.
+    const fx = withFixture(
+      JSON.stringify({
+        installed: true,
+        version: '1.0.0',
+        attachments: [
+          { target: 'swe', artifact: 'marketplace-plugin:multi-agent' },
+          { target: 'pr-reviewer', artifact: 'marketplace-plugin:multi-agent' },
+        ],
+      }),
+    );
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    const snapshot = pluginRepoSnapshot();
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'multi-agent', kind: 'plugin', source_url: 'https://github.com/x/multi-agent' },
+      });
+      assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
+      const out = parse(r);
+
+      const localSwe = join(root, '.claude', 'agents', 'swe.md');
+      const localPr = join(root, '.claude', 'agents', 'pr-reviewer.md');
+      assert.ok(existsSync(localSwe), 'project .claude/agents/swe.md materialized from attachment target');
+      assert.ok(existsSync(localPr), 'project .claude/agents/pr-reviewer.md materialized from attachment target');
+      assert.ok(
+        readFileSync(localSwe, 'utf8').match(/^skills:\s*\[(.*)\]\s*$/m)![1].includes('multi-agent'),
+        'multi-agent in swe skills:',
+      );
+      assert.ok(
+        readFileSync(localPr, 'utf8').match(/^skills:\s*\[(.*)\]\s*$/m)![1].includes('multi-agent'),
+        'multi-agent in pr-reviewer skills:',
+      );
+
+      const mat = out['materialized'] as { target: string; artifact: string; path: string }[];
+      assert.equal(mat.length, 2, 'both attachment targets materialized');
+      const targets = mat.map((m) => m.target).sort();
+      assert.deepEqual(targets, ['pr-reviewer', 'swe'], 'materialized[] covers both consuming agents');
+
+      const atts = db.all<{ target: string; artifact: string }>(
+        `SELECT target, artifact FROM cheatcode_attachments WHERE artifact LIKE 'agent-md:%' ORDER BY target`,
+      );
+      assert.equal(atts.length, 2, 'a materialized attachment row per target');
+      assert.equal(atts[0].target, 'pr-reviewer');
+      assert.equal(atts[1].target, 'swe');
+
+      assertPluginRepoUntouched(snapshot);
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('kind=plugin with an explicit target arg and no fixture attachments materializes exactly one element (regression)', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(JSON.stringify({ installed: true, version: '1.0.0' }));
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    try {
+      const tools = cheatcodeTools(db);
+      const r = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'solo-dev', kind: 'plugin', source_url: 'https://github.com/x/solo-dev' },
+        target: 'swe',
+      });
+      assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
+      const mat = parse(r)['materialized'] as { target: string; artifact: string; path: string }[];
+      assert.equal(mat.length, 1, 'target-arg-only install materializes one element');
+      assert.equal(mat[0].target, 'swe');
+      assert.ok(existsSync(join(root, '.claude', 'agents', 'swe.md')), 'swe.md materialized');
+      assert.ok(!existsSync(join(root, '.claude', 'agents', 'pr-reviewer.md')), 'no stray pr-reviewer materialization');
+    } finally {
+      delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+      if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];
+      else process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+      fx.cleanup();
+      cleanup();
+    }
+  });
+
+  it('skill install with no target is still hard-rejected — no materialize, no row', async () => {
+    const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+    process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+    const { root, db, cleanup } = tempProject();
+    const fx = withFixture(INSTALL_SKILL_OK);
+    process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+    try {
+      const tools = cheatcodeTools(db);
+      const before = db.get<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM cheatcodes WHERE origin != 'builtin'`,
+      )!.n;
+      const r = await callInstall(tools.handlers, {
+        agent: 'bro',
+        candidate: { name: 'orphan-skill', kind: 'skill', source_url: 'https://github.com/x/orphan-skill' },
+      });
+      assert.equal(r.isError, true, 'no-target skill install is rejected');
+      assert.match(parse(r)['error'] as string, /target agent/, 'error names the missing target requirement');
+      assert.ok(!existsSync(join(root, '.claude', 'agents')), 'no agent md materialized');
+      assert.equal(
+        db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM cheatcodes WHERE origin != 'builtin'`)!.n,
+        before,
+        'no cheatcodes row written',
+      );
     } finally {
       delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
       if (prev === undefined) delete process.env['CLAUDE_PLUGIN_ROOT'];

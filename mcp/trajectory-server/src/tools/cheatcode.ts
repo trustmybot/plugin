@@ -1112,25 +1112,33 @@ export function cheatcodeTools(db: TrajectoryDB): {
           ? `${kind} cheatcode '${name}' (installed, vetted ${trustTier})`
           : `${kind} cheatcode '${name}' (installed)`;
 
-        // A plugin that provides a built-in tool (an LSP plugin provides `LSP`)
-        // is detected from its installed cache manifest (#149). A tool-contributing
-        // plugin grants the tool to the consuming agent's tools: allowlist;
-        // everything else (a skill, a skill-contributing plugin) keeps the skills:
-        // path. MCP-server-only plugins register globally → [] (no per-agent grant).
-        const providedTools =
-          kind === 'plugin' && target && target !== 'bro' ? detectProvidedTools(name) : [];
-
-        // When a target is named for a skill OR a plugin, materialize the
-        // consuming agent's prompt surface in the USER PROJECT's .claude/ (copy
-        // global agent md → local + skills: entry / tools: grant, or bro's
-        // CLAUDE.md) — never the plugin repo. A tool-contributing plugin grants
-        // its tool to tools: and skips skills:; a skill-contributing plugin /
-        // standalone skill lands in skills:. The written path becomes an
-        // attachment row + is surfaced in the result.
-        const materialized =
-          target && (kind === 'skill' || kind === 'plugin')
-            ? materializeConsumingAgent(db.dbPath, target, name, providedTools)
-            : null;
+        // Materialize the consuming agent's prompt surface for EVERY target this
+        // install binds (kind skill|plugin): the distinct non-empty attachment-row
+        // targets, unioned with the explicit target arg when provided. Disk state
+        // follows the recorded attachments, not the optional arg alone — an
+        // attachment recorded without a matching arg still materializes. Per target
+        // the write lands in the USER PROJECT's .claude/ (copy global agent md →
+        // local + skills: entry / tools: grant, or bro's CLAUDE.md) — never the
+        // plugin repo. A tool-contributing plugin (an LSP plugin provides `LSP`,
+        // detected from its cache manifest #149) grants its tool to that target's
+        // tools: and skips skills:; a skill-contributing plugin / standalone skill
+        // lands in skills:. bro keeps its CLAUDE.md reference. MCP-server-only
+        // plugins register globally → [] (no per-agent grant). Each written path
+        // becomes its own attachment row + is surfaced in materialized[].
+        const materialized: MaterializeResult[] = [];
+        if (kind === 'skill' || kind === 'plugin') {
+          const targetSet = new Set<string>();
+          for (const att of out.attachments) {
+            if (att.target) targetSet.add(att.target);
+          }
+          if (target) targetSet.add(target);
+          for (const t of targetSet) {
+            const providedTools =
+              kind === 'plugin' && t !== 'bro' ? detectProvidedTools(name) : [];
+            const result = materializeConsumingAgent(db.dbPath, t, name, providedTools);
+            if (result) materialized.push(result);
+          }
+        }
 
         // Provenance, derived from the source (#152): a marketplace ref →
         // 'marketplace'; a raw external repo URL → 'external'. Never a lifecycle
@@ -1156,13 +1164,13 @@ export function cheatcodeTools(db: TrajectoryDB): {
             );
           }
 
-          // The materialized prompt surface is its own attachment row, keyed by
+          // Each materialized prompt surface is its own attachment row, keyed by
           // the consuming agent + the written artifact (agent-md / claude-md).
-          if (materialized) {
+          for (const m of materialized) {
             db.run(
               `INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
                VALUES (?, ?, ?, ?)`,
-              [id, materialized.target, materialized.artifact, installedAt],
+              [id, m.target, m.artifact, installedAt],
             );
           }
 
@@ -1202,12 +1210,15 @@ export function cheatcodeTools(db: TrajectoryDB): {
           version: out.version,
           scope: placementScope,
           attachments: out.attachments,
-          // When a target was named, the materialized prompt-surface path (the
-          // .claude/agents/<target>.md or .claude/CLAUDE.md written in the user
-          // project). null when no target, or when the surface couldn't resolve.
-          materialized: materialized
-            ? { target: materialized.target, artifact: materialized.artifact, path: materialized.path }
-            : null,
+          // Every materialized prompt-surface path (the .claude/agents/<target>.md
+          // or .claude/CLAUDE.md written in the user project), one element per
+          // bound target. Empty when nothing materialized (no target, or none
+          // resolved).
+          materialized: materialized.map((m) => ({
+            target: m.target,
+            artifact: m.artifact,
+            path: m.path,
+          })),
           // Skill installs carry the install script's proposed agent-frontmatter
           // PR payload alongside the materialized surface — the canonical
           // upstream contribution, distinct from the project-local materialize.

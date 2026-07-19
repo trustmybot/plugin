@@ -42,12 +42,14 @@ setup_db() {
 
 # Insert a minimal issue + task row.
 insert_task() {
-  local db="$1" task_id="$2" branch_id="$3"
+  local db="$1" task_id="$2" branch_id="$3" parent_branch_id="${4:-}"
+  local parent_sql="NULL"
+  [ -n "$parent_branch_id" ] && parent_sql="'$parent_branch_id'"
   sqlite3 "$db" "
     INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
       VALUES (1, 'test', 'test', 'open', datetime('now'), datetime('now'));
-    INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
-      VALUES ($task_id, 1, '$branch_id', 'task $task_id', 'd', 'pending', '## body', datetime('now'), datetime('now'));
+    INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, title, description, status, spec_body, created_at, updated_at)
+      VALUES ($task_id, 1, '$branch_id', $parent_sql, 'task $task_id', 'd', 'pending', '## body', datetime('now'), datetime('now'));
   " >/dev/null
 }
 
@@ -99,6 +101,28 @@ out=$(run_hook "$payload" "$db")
 assert_contains "$out" '"permissionDecision":"deny"' "missing branch must produce deny decision"
 assert_contains "$out" "fix/1-foo" "block message must name the expected branch"
 assert_contains "$out" "exist" "block message must say the branch must exist"
+cleanup
+
+test_case "remoteless repo: missing-branch remedy prescribes the plain local base, no origin/"
+setup_repo "dev"
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "fix/1-foo" "dev"
+payload=$(make_payload "swe" "task_id=1 You are SWE.")
+out=$(run_hook "$payload" "$db")
+assert_contains "$out" '"permissionDecision":"deny"' "missing branch must produce deny decision"
+assert_contains "$out" "branch fix/1-foo dev" "remoteless remedy must prescribe the plain local base (parent branch)"
+assert_not_contains "$out" "origin/" "remoteless remedy must NOT reference origin/"
+cleanup
+
+test_case "with-remote repo: missing-branch remedy keeps the origin/<base> form"
+setup_repo "dev"
+git -C "$REPO_PATH" remote add origin "https://example.com/foo.git"
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "fix/1-foo" "dev"
+payload=$(make_payload "swe" "task_id=1 You are SWE.")
+out=$(run_hook "$payload" "$db")
+assert_contains "$out" '"permissionDecision":"deny"' "missing branch must produce deny decision"
+assert_contains "$out" "branch fix/1-foo origin/dev" "with-remote remedy must keep the origin/<base> form"
 cleanup
 
 test_case "non-swe agent passes: architect bypasses the hook"

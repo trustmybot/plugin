@@ -129,6 +129,16 @@ out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 3)")
 assert_contains "$out" '"permissionDecision":"deny"' "failing verification should deny"
 assert_contains "$out" "verification failed" "deny reason should say verification failed"
 
+# ---- Failing verification: deny carries permissionDecisionReason (not denyReason) ---
+# Claude Code only surfaces hookSpecificOutput.permissionDecisionReason; a
+# denyReason field would render as a silent deny with no explanation.
+test_case "failing verification: deny uses permissionDecisionReason with a non-empty value, no denyReason"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 3)")
+REASON=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>/dev/null || true)
+assert_contains "$REASON" "verification failed" "deny must carry a non-empty permissionDecisionReason"
+HAS_DENY_REASON=$(printf '%s' "$out" | jq -r 'if (.hookSpecificOutput | has("denyReason")) then "yes" else "no" end' 2>/dev/null || echo "no")
+assert_eq "no" "$HAS_DENY_REASON" "deny must not carry a denyReason key"
+
 # ---- Multi-command verification that passes: allowed ------------------------
 test_case "SWE completing task with multi-command verification (all pass): allowed"
 out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 4)")
@@ -171,6 +181,23 @@ out=$(cd "$REPO_DIR" && \
   TMB_VERIFICATION_TIMEOUT_S=0 run_hook "$(make_input swe completed 99)")
 assert_contains "$out" '"permissionDecision":"deny"' "timeout should deny"
 assert_contains "$out" "timed out" "deny reason should mention timeout"
+
+# ---- Timeout mid-command: deny carries permissionDecisionReason mentioning timeout ---
+# Drive a real per-command timeout (budget 1s, command sleeps 5s) so the deny is
+# emitted from the mid-command branch, and assert it surfaces via the field CC
+# reads (permissionDecisionReason), not denyReason.
+test_case "timeout path: deny uses permissionDecisionReason mentioning the timeout, no denyReason"
+sqlite3 "$DB" "
+  INSERT INTO tasks VALUES (98, 1, 'feat/slow-mid', 'plugin', 'pending', '', '[\"sleep 5\"]');
+"
+mkdir -p "$WT_ROOT/slow-mid"
+out=$(cd "$REPO_DIR" && \
+  TMB_VERIFICATION_TIMEOUT_S=1 run_hook "$(make_input swe completed 98)")
+assert_contains "$out" '"permissionDecision":"deny"' "mid-command timeout should deny"
+REASON=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>/dev/null || true)
+assert_contains "$REASON" "timed out" "timeout deny must carry permissionDecisionReason mentioning the timeout"
+HAS_DENY_REASON=$(printf '%s' "$out" | jq -r 'if (.hookSpecificOutput | has("denyReason")) then "yes" else "no" end' 2>/dev/null || echo "no")
+assert_eq "no" "$HAS_DENY_REASON" "timeout deny must not carry a denyReason key"
 
 # ---- SQL injection via task_id: treated as missing ---------------------------
 test_case "Injection: task_id='1; DROP TABLE tasks;--' treated as missing (no SQL error, no row)"

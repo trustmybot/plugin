@@ -33,11 +33,12 @@ SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
 DB=$(tmb_db_path 2>/dev/null || true)
 if [ -z "$DB" ] || ! tmb_have_sqlite; then exit 0; fi
 
-ROW=$(sqlite3 "$DB" "SELECT branch_id, repo FROM tasks WHERE id=${SAFE_TASK_ID};" 2>/dev/null || true)
+ROW=$(sqlite3 "$DB" "SELECT branch_id, repo, parent_branch_id FROM tasks WHERE id=${SAFE_TASK_ID};" 2>/dev/null || true)
 [ -n "$ROW" ] || exit 0
 
 EXPECTED=$(echo "$ROW" | cut -d'|' -f1)
 REPO=$(echo "$ROW" | cut -d'|' -f2)
+PARENT_BRANCH=$(echo "$ROW" | cut -d'|' -f3)
 
 WORKSPACE_ROOT="$(dirname "$(dirname "$(dirname "$DB")")")"
 
@@ -70,8 +71,18 @@ fi
 # The prerequisite is that <feature> EXISTS (bro pre-created it), not that the
 # main checkout is on it — the main checkout stays on <base>.
 if ! git -C "$REPO_ABS" show-ref --verify --quiet "refs/heads/$EXPECTED"; then
-  jq -nc --arg id "$TASK_ID" --arg branch "$EXPECTED" --arg repo "$REPO_ABS" \
-    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: SWE spawn for task "+$id+" needs branch "+$branch+" to exist first — bro pre-creates it (\"git -C "+$repo+" branch "+$branch+" origin/<base>\") and stays on <base>; SWE'\''s worktree owns the branch.")}}'
+  # The remedy is a create command the executor runs verbatim, so it must be
+  # correct for this repo. Use the task's concrete parent branch when known,
+  # else a <base> placeholder. Prefix origin/ only when the repo actually has
+  # an origin remote — a remoteless repo would choke on origin/<base>.
+  BASE="${PARENT_BRANCH:-<base>}"
+  if git -C "$REPO_ABS" remote get-url origin >/dev/null 2>&1; then
+    BASE_REF="origin/$BASE"
+  else
+    BASE_REF="$BASE"
+  fi
+  jq -nc --arg id "$TASK_ID" --arg branch "$EXPECTED" --arg repo "$REPO_ABS" --arg base "$BASE" --arg baseref "$BASE_REF" \
+    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: SWE spawn for task "+$id+" needs branch "+$branch+" to exist first — bro pre-creates it (\"git -C "+$repo+" branch "+$branch+" "+$baseref+"\") and stays on "+$base+"; SWE'\''s worktree owns the branch.")}}'
   exit 0
 fi
 

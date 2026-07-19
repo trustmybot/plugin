@@ -222,6 +222,30 @@ if [ "$START_FROM" -gt 1 ]; then
     SCRATCH=$(l5_setup_scratch_project)
     mv "$SCRATCH" "$PROJECT"
   fi
+
+  # Rewrite stale absolute paths in the inherited trajectory DB. The DB we
+  # just restored (checkpoint.db or the copied live project) was written by
+  # the prior run, whose project dir differs from this run's. Hooks resolve
+  # the workspace from repos.path, so a stale path deadlocks spawn-gate
+  # remedies against the prior run's dir. repos.path is the ONLY absolute-path
+  # column in schema.sql (agents/cheatcodes.file_path and tasks.repo are
+  # repo-relative). Each rewrite is guarded by a table-existence check so
+  # older inherited DBs without a given table don't error, and any sqlite3
+  # failure fails the resume loudly — a silently stale path is the bug here.
+  INHERITED_DB="$PROJECT/.claude/tmb/trajectory.db"
+  OLD_PROJECT_ABS="${PRIOR_RUN%/}/project"
+  if [ -n "${PRIOR_RUN:-}" ] && [ -f "$INHERITED_DB" ] && [ "$OLD_PROJECT_ABS" != "$PROJECT" ]; then
+    printf '  path-rewrite: repos.path %s → %s\n' "$OLD_PROJECT_ABS" "$PROJECT"
+    HAS_REPOS=$(sqlite3 -cmd '.timeout 3000' "$INHERITED_DB" \
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='repos';" 2>/dev/null)
+    if [ "$HAS_REPOS" = "repos" ]; then
+      if ! sqlite3 -cmd '.timeout 3000' "$INHERITED_DB" \
+        "UPDATE repos SET path = REPLACE(path, '$OLD_PROJECT_ABS', '$PROJECT') WHERE path LIKE '$OLD_PROJECT_ABS%';"; then
+        printf '❌ resume path-rewrite failed for repos.path in %s\n' "$INHERITED_DB" >&2
+        exit 1
+      fi
+    fi
+  fi
 else
   # Full run: fresh project. Mirror l5_setup_scratch_project's init steps
   # but put the project inside RUN_DIR so it survives for later resumes.
