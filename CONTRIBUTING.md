@@ -75,7 +75,7 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 
 **Phase D — stable**
 9. Final bump PR (`X.Y.Z`) → `dev`.
-10. **Functional-identity rule**: the stable tag must be functionally identical to the latest green rc. Permitted deltas after the rc: version manifests, CHANGELOG, `docs/`, README-class files. Anything else — plugin code, prompts, hooks, MCP server, schema, CI workflows — invalidates the rc: cut `rc.N+1` and repeat Phases B–C.
+10. **Functional-identity rule**: the stable tag must be functionally identical to the latest green rc — identical in what users install. Permitted deltas after the rc (non-shipping surfaces): version manifests, CHANGELOG, `docs/`, README-class files, `tests/`, `.github/workflows/`. Anything that ships — plugin code, prompts, hooks, MCP server, schema — invalidates the rc: cut `rc.N+1` and repeat Phases B–C.
 11. Promotion PR `dev → main` as a **merge commit**; merge.
 12. `git checkout main && git pull`, then `bash scripts/release.sh` — it tags `v<plugin.json version>` on `main` HEAD, pushes the tag, cuts the GitHub release from the matching CHANGELOG section, and runs the Docker install canary. Each step asks y/N and skips if already done (safe to re-run); it refuses off-`main`, on a dirty tree, or on a version/CHANGELOG mismatch.
 13. The stable catalog (`trustmybot/marketplace`) pins `ref: "main"` — promotion updates it automatically; no catalog edit.
