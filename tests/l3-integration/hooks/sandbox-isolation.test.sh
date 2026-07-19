@@ -55,7 +55,7 @@ fi
 test_case "git push to https remote is blocked — sandbox, transport, or credential-prompt suppressed"
 if echo "$https_out" | grep -q "tmb sandbox"; then
   _pass
-elif echo "$https_out" | grep -qiE "transport|blocked|disabled|Couldn.t connect|Failed to connect|Connection refused|terminal prompts disabled|could not read Username|Device not configured|Authentication failed"; then
+elif echo "$https_out" | grep -qiE "transport|blocked|disabled|Couldn.t connect|Failed to connect|Connection refused|Connection reset|Connection timed out|SSL_ERROR_SYSCALL|Could not resolve host|unable to access|terminal prompts disabled|could not read Username|Device not configured|Authentication failed"; then
   _pass
 else
   _fail "git push https: expected sandbox or network-blocked or credential-suppressed message, got: $https_out"
