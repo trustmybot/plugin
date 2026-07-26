@@ -5,7 +5,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { tempDB } from './helpers.js';
-import { nowISO, TrajectoryDB } from '../db.js';
+import {
+  nowISO,
+  TrajectoryDB,
+  type TrajectoryDBDependencies,
+} from '../db.js';
 
 describe('TrajectoryDB', () => {
   it('opens an in-memory DB and verifies all prod tables exist with schema_version=28 (skills folded into cheatcodes #101; world model in kuzu)', () => {
@@ -180,6 +184,122 @@ describe('TrajectoryDB', () => {
           process.env['CLAUDE_PLUGIN_ROOT'] = saved;
         }
       }
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('treats an explicit dependency object as authoritative, including null version', () => {
+    const pluginRoot = mkdtempSync(join(tmpdir(), 'tmb-explicit-deps-'));
+    const saved = process.env['CLAUDE_PLUGIN_ROOT'];
+    try {
+      mkdirSync(join(pluginRoot, '.claude-plugin'), { recursive: true });
+      writeFileSync(
+        join(pluginRoot, '.claude-plugin', 'plugin.json'),
+        JSON.stringify({ name: 'tmb', version: '9.9.9' }),
+      );
+      process.env['CLAUDE_PLUGIN_ROOT'] = pluginRoot;
+
+      const sqlEvents: Array<Record<string, unknown>> = [];
+      const db = new TrajectoryDB(':memory:', {
+        pluginVersion: null,
+        serverLog: () => {},
+        sqlLog: (entry) => sqlEvents.push(entry),
+      });
+
+      const meta = db.get<{ plugin_version: string }>(
+        'SELECT plugin_version FROM plugin_meta WHERE id = 1',
+      );
+      const stampedBuiltins = db.get<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM cheatcodes WHERE origin = 'builtin' AND version IS NOT NULL",
+      );
+      assert.equal(meta?.plugin_version, '0.0.0');
+      assert.equal(stampedBuiltins?.n, 0);
+
+      db.run('CREATE TABLE injected_logger_test (id INTEGER PRIMARY KEY)');
+      assert.throws(
+        () => db.run('INSERT INTO missing_injected_logger_table VALUES (1)'),
+        /no such table/,
+      );
+      assert.ok(sqlEvents.some((entry) => entry['ok'] === true));
+      assert.ok(sqlEvents.some((entry) => entry['ok'] === false));
+      db.close();
+    } finally {
+      if (saved === undefined) {
+        delete process.env['CLAUDE_PLUGIN_ROOT'];
+      } else {
+        process.env['CLAUDE_PLUGIN_ROOT'] = saved;
+      }
+      rmSync(pluginRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('uses an explicit version for plugin metadata and builtin versions', () => {
+    const db = new TrajectoryDB(':memory:', {
+      pluginVersion: '1.1.0',
+      serverLog: () => {},
+      sqlLog: () => {},
+    });
+    const meta = db.get<{ plugin_version: string }>(
+      'SELECT plugin_version FROM plugin_meta WHERE id = 1',
+    );
+    const unstampedBuiltins = db.get<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM cheatcodes WHERE origin = 'builtin' AND version != '1.1.0'",
+    );
+    assert.equal(meta?.plugin_version, '1.1.0');
+    assert.equal(unstampedBuiltins?.n, 0);
+    db.close();
+  });
+
+  it('rejects incomplete explicit dependencies instead of falling back to globals', () => {
+    assert.throws(
+      () =>
+        new TrajectoryDB(':memory:', {
+          pluginVersion: '',
+          serverLog: () => {},
+          sqlLog: () => {},
+        }),
+      /pluginVersion must be a non-empty string or null/,
+    );
+    assert.throws(
+      () =>
+        new TrajectoryDB(':memory:', {
+          pluginVersion: null,
+          serverLog: undefined,
+          sqlLog: () => {},
+        } as unknown as TrajectoryDBDependencies),
+      /serverLog must be a function/,
+    );
+    assert.throws(
+      () =>
+        new TrajectoryDB(':memory:', {
+          pluginVersion: null,
+          serverLog: () => {},
+          sqlLog: undefined,
+        } as unknown as TrajectoryDBDependencies),
+      /sqlLog must be a function/,
+    );
+  });
+
+  it('routes legacy-shape warnings through the supplied server logger', () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-injected-server-log-'));
+    const dbPath = join(tmpDir, 'trajectory.db');
+    try {
+      const raw = new DatabaseSync(dbPath);
+      raw.exec('CREATE TABLE legacy_table (id INTEGER PRIMARY KEY)');
+      raw.close();
+
+      const serverEvents: Array<Record<string, unknown>> = [];
+      const db = new TrajectoryDB(dbPath, {
+        pluginVersion: '1.1.0',
+        serverLog: (entry) => serverEvents.push(entry),
+        sqlLog: () => {},
+      });
+      assert.equal(db.legacyNoPluginMeta, true);
+      assert.ok(
+        serverEvents.some((entry) => entry['kind'] === 'legacy_db_no_plugin_meta'),
+      );
+      db.close();
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
     }

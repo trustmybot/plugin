@@ -296,6 +296,26 @@ rem=$(remediation_after "$out" "FAIL  world-model")
 assert_contains "$rem" "run /scan" "missing-graph remediation prescribes /scan"
 
 # ============================================================================
+# Check 4 — custom DB names map one-to-one to <db>.world-model.kuzu
+# ============================================================================
+test_case "check4d world-model: custom DB uses its own graph path"
+reset_scenario kuzu-custom
+custom_db="$ROOT/.claude/tmb/custom.db"
+mv "$F_DB" "$custom_db"
+F_DB="$custom_db"
+rm -f "$ROOT/.claude/tmb/world-model.kuzu"
+: > "$custom_db.world-model.kuzu"
+: > "$F_LOG"
+out=$(run_health)
+assert_contains "$out" "PASS  world-model" "custom DB graph path PASS"
+
+test_case "check4d world-model: custom DB does not share the standard graph path"
+rm -f "$custom_db.world-model.kuzu"
+: > "$ROOT/.claude/tmb/world-model.kuzu"
+out=$(run_health)
+assert_contains "$out" "FAIL  world-model: graph file missing" "custom DB ignores standard graph path"
+
+# ============================================================================
 # Check 5 — label-config: unset issue_classification_labels → FAIL
 # ============================================================================
 test_case "check5 label-config: empty labels → FAIL"

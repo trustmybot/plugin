@@ -7,11 +7,59 @@ import {
   chmodSync,
   mkdirSync,
   rmdirSync,
+  rmSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 describe('logger', () => {
+  it('does not create Claude state when the module is only imported', async () => {
+    const tmpHome = mkdtempSync(join(tmpdir(), 'tmb-lazy-logger-'));
+    const savedHome = process.env['HOME'];
+    try {
+      process.env['HOME'] = tmpHome;
+      await import(`../logger.js?lazy-${Date.now()}`);
+      assert.ok(
+        !existsSync(join(tmpHome, '.claude')),
+        'import-only callers must not create Claude state',
+      );
+    } finally {
+      if (savedHome === undefined) {
+        delete process.env['HOME'];
+      } else {
+        process.env['HOME'] = savedHome;
+      }
+      rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
+  it('createProjectLogger binds server and SQL logs to an explicit project path', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'tmb-project-logger-'));
+    const logDir = join(root, '.tmb', 'tmb', 'logs');
+    try {
+      const { createProjectLogger } = await import('../logger.js');
+      const logger = createProjectLogger({ logDir, sqlEnabled: true });
+
+      logger.serverLog({ kind: 'server-test' });
+      logger.sqlLog({ kind: 'sql-test', ok: true });
+
+      assert.equal(logger.logDir, logDir);
+      const serverEntry = JSON.parse(
+        readFileSync(join(logDir, 'mcp-server.log'), 'utf8').trim(),
+      ) as { kind: string; ts: string };
+      const sqlEntry = JSON.parse(
+        readFileSync(join(logDir, 'sql.log'), 'utf8').trim(),
+      ) as { kind: string; ok: boolean; ts: string };
+      assert.equal(serverEntry.kind, 'server-test');
+      assert.equal(sqlEntry.kind, 'sql-test');
+      assert.equal(sqlEntry.ok, true);
+      assert.match(serverEntry.ts, /^\d{4}-\d{2}-\d{2}T/);
+      assert.match(sqlEntry.ts, /^\d{4}-\d{2}-\d{2}T/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('sqlLog is a no-op when TMB_DEBUG_SQL is unset', async () => {
     const tmpHome = mkdtempSync(join(tmpdir(), 'tmb-logger-test-'));
     const savedHome = process.env['HOME'];

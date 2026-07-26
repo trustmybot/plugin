@@ -1,10 +1,10 @@
-import { copyFileSync, existsSync, readFileSync, readdirSync } from 'node:fs';
+import { copyFileSync, readFileSync, readdirSync } from 'node:fs';
 import { basename, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { homedir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
-import { sqlLog, serverLog } from './logger.js';
+import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logger.js';
+import { resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
 const TARGET_SCHEMA_VERSION = 28;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -20,19 +20,7 @@ const TARGET_SCHEMA_VERSION = 28;
  * CC is invoking the server with a real plugin context.
  */
 export function resolvePluginName(env = process.env) {
-    const root = env['CLAUDE_PLUGIN_ROOT'];
-    if (!root)
-        return 'tmb';
-    try {
-        const manifest = JSON.parse(readFileSync(join(root, '.claude-plugin', 'plugin.json'), 'utf8'));
-        if (typeof manifest.name === 'string' && manifest.name.length > 0) {
-            return manifest.name;
-        }
-    }
-    catch {
-        // Fall through to the default below.
-    }
-    return 'tmb';
+    return resolveClaudePluginName(env);
 }
 /**
  * Resolve the plugin version from CLAUDE_PLUGIN_ROOT's manifest. Returns null
@@ -40,19 +28,7 @@ export function resolvePluginName(env = process.env) {
  * the builtin-version backfill (#111) then leaves the column unchanged.
  */
 export function resolvePluginVersion(env = process.env) {
-    const root = env['CLAUDE_PLUGIN_ROOT'];
-    if (!root)
-        return null;
-    try {
-        const manifest = JSON.parse(readFileSync(join(root, '.claude-plugin', 'plugin.json'), 'utf8'));
-        if (typeof manifest.version === 'string' && manifest.version.length > 0) {
-            return manifest.version;
-        }
-    }
-    catch {
-        // Fall through to null below.
-    }
-    return null;
+    return resolveClaudePluginVersion(env);
 }
 /**
  * Resolve the trajectory DB path.
@@ -66,52 +42,13 @@ export function resolvePluginVersion(env = process.env) {
  * 3. Fallback: `<cwd>/.claude/<plugin-name>/trajectory.db` — fresh-init.
  */
 export function resolveDbPath(opts) {
-    const env = opts?.env ?? process.env;
-    const cwd = opts?.cwd ?? process.cwd();
-    const home = opts?.home ?? homedir();
-    const override = env['TRAJECTORY_DB_PATH'];
-    if (override && override.trim().length > 0)
-        return override;
-    const pluginName = resolvePluginName(env);
-    const found = findExistingDbUp(cwd, pluginName, { home });
-    if (found)
-        return found;
-    return join(cwd, '.claude', pluginName, 'trajectory.db');
-}
-function findExistingDbUp(startDir, pluginName, opts) {
-    const home = opts?.home ?? homedir();
-    let dir = startDir;
-    // Walk up at most 8 levels — enough for any reasonable workspace nesting,
-    // and bounds the cost when nothing exists.
-    for (let i = 0; i < 8; i++) {
-        // P0 guard: never traverse into the user's HOME via walk-up. Project
-        // state belongs to a project, not the user's profile. If the user
-        // launched from HOME itself (degenerate), the walk-up still checks
-        // the starting dir but never traverses upward into HOME from a
-        // descendant — that's how a stale ~/.claude/<plugin>/trajectory.db
-        // (left over from a prior buggy session or a test artifact) would
-        // otherwise be silently adopted as the live DB on every launch.
-        if (dir === home && startDir !== home)
-            return null;
-        const candidate = join(dir, '.claude', pluginName, 'trajectory.db');
-        if (existsSync(candidate))
-            return candidate;
-        // Git-repo boundary: a dir containing a `.git` entry (a dir in a normal
-        // checkout, a FILE in a git worktree) is the repo root. Check it for the
-        // DB above, then STOP — never traverse above the repo root, so a spawned
-        // server (a worktree under another repo, an isolated subdir test) can't
-        // silently adopt a parent project's live DB.
-        if (existsSync(join(dir, '.git')))
-            break;
-        const parent = dirname(dir);
-        if (parent === dir)
-            break;
-        dir = parent;
-    }
-    return null;
+    return resolveClaudeDbPath(opts);
 }
 export class TrajectoryDB {
     db;
+    pluginVersion;
+    serverLog;
+    sqlLog;
     dbPath;
     /**
      * True when the DB opened with user tables present but NO plugin_meta table
@@ -121,11 +58,15 @@ export class TrajectoryDB {
      * degraded signal so the upgrade is not silent. Non-fatal.
      */
     legacyNoPluginMeta = false;
-    constructor(dbPath) {
+    constructor(dbPath, dependencies) {
         // node:sqlite is part of Node's stdlib (>=22). Behind --experimental-sqlite
         // on 22.x, stable on 24+. The plugin's .mcp.json passes --experimental-sqlite
         // unconditionally — it's required on 22 and a no-op on 24+.
+        const resolvedDependencies = resolveDependencies(dependencies);
         this.dbPath = dbPath;
+        this.pluginVersion = resolvedDependencies.pluginVersion;
+        this.serverLog = resolvedDependencies.serverLog;
+        this.sqlLog = resolvedDependencies.sqlLog;
         this.db = new DatabaseSync(dbPath);
         this.db.exec('PRAGMA journal_mode = WAL');
         this.db.exec('PRAGMA foreign_keys = ON');
@@ -168,7 +109,7 @@ export class TrajectoryDB {
                 .get();
             const isLegacy = userTableCount.n > 0;
             if (isLegacy) {
-                serverLog({
+                this.serverLog({
                     kind: 'legacy_db_no_plugin_meta',
                     level: 'warn',
                     db_path: this.dbPath,
@@ -214,17 +155,13 @@ export class TrajectoryDB {
         verifySeed();
         return false;
     }
-    syncPluginVersion(env = process.env) {
-        const root = env['CLAUDE_PLUGIN_ROOT'];
-        if (!root)
+    syncPluginVersion() {
+        if (!this.pluginVersion)
             return;
         try {
-            const manifest = JSON.parse(readFileSync(join(root, '.claude-plugin', 'plugin.json'), 'utf8'));
-            if (typeof manifest.version !== 'string' || manifest.version.length === 0)
-                return;
             this.db
                 .prepare(`UPDATE plugin_meta SET plugin_version = ? WHERE id = 1`)
-                .run(manifest.version);
+                .run(this.pluginVersion);
         }
         catch {
             // Silent skip — leave existing value unchanged.
@@ -238,14 +175,13 @@ export class TrajectoryDB {
      * cheatcode_list surfaces a version for every row. Runs every startup against
      * the resolved plugin version; a no-op when the version is unresolvable.
      */
-    syncBuiltinVersions(env = process.env) {
-        const version = resolvePluginVersion(env);
-        if (!version)
+    syncBuiltinVersions() {
+        if (!this.pluginVersion)
             return;
         try {
             this.db
                 .prepare(`UPDATE cheatcodes SET version = ? WHERE origin = 'builtin'`)
-                .run(version);
+                .run(this.pluginVersion);
         }
         catch {
             // Silent skip — a DB without the cheatcodes table leaves builtins untouched.
@@ -257,7 +193,7 @@ export class TrajectoryDB {
             const stmt = this.db.prepare(sql);
             const result = stmt.run(...(params ?? []));
             const out = { changes: Number(result.changes), lastInsertRowid: result.lastInsertRowid };
-            sqlLog({
+            this.sqlLog({
                 kind: 'run',
                 sql,
                 params: params ?? [],
@@ -268,7 +204,7 @@ export class TrajectoryDB {
             return out;
         }
         catch (err) {
-            sqlLog({
+            this.sqlLog({
                 kind: 'run',
                 sql,
                 params: params ?? [],
@@ -284,7 +220,7 @@ export class TrajectoryDB {
         try {
             const stmt = this.db.prepare(sql);
             const row = stmt.get(...(params ?? []));
-            sqlLog({
+            this.sqlLog({
                 kind: 'get',
                 sql,
                 params: params ?? [],
@@ -295,7 +231,7 @@ export class TrajectoryDB {
             return row;
         }
         catch (err) {
-            sqlLog({
+            this.sqlLog({
                 kind: 'get',
                 sql,
                 params: params ?? [],
@@ -311,7 +247,7 @@ export class TrajectoryDB {
         try {
             const stmt = this.db.prepare(sql);
             const rows = stmt.all(...(params ?? []));
-            sqlLog({
+            this.sqlLog({
                 kind: 'all',
                 sql,
                 params: params ?? [],
@@ -322,7 +258,7 @@ export class TrajectoryDB {
             return rows;
         }
         catch (err) {
-            sqlLog({
+            this.sqlLog({
                 kind: 'all',
                 sql,
                 params: params ?? [],
@@ -359,6 +295,27 @@ export class TrajectoryDB {
     close() {
         this.db.close();
     }
+}
+function resolveDependencies(dependencies) {
+    if (dependencies === undefined) {
+        return {
+            pluginVersion: resolvePluginVersion(process.env),
+            serverLog: defaultServerLog,
+            sqlLog: defaultSqlLog,
+        };
+    }
+    if (dependencies.pluginVersion !== null &&
+        (typeof dependencies.pluginVersion !== 'string' ||
+            dependencies.pluginVersion.length === 0)) {
+        throw new TypeError('TrajectoryDB dependencies.pluginVersion must be a non-empty string or null');
+    }
+    if (typeof dependencies.serverLog !== 'function') {
+        throw new TypeError('TrajectoryDB dependencies.serverLog must be a function');
+    }
+    if (typeof dependencies.sqlLog !== 'function') {
+        throw new TypeError('TrajectoryDB dependencies.sqlLog must be a function');
+    }
+    return dependencies;
 }
 export function nowISO() {
     return new Date().toISOString();

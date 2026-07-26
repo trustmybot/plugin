@@ -2,6 +2,12 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (SemVer guarantees apply as of v1.0.0).
 
+## Unreleased
+
+### Changed
+- **Trajectory runtime gains a host-neutral foundation** (GH 1152): runtime context and path resolution now distinguish Claude's invocation cwd from Codex's explicit canonical project root; project loggers and trajectory DB metadata/logging can be injected without consulting Claude globals. Codex state derives under `<project>/.tmb/<plugin>/`, with traversal and symlink-escape checks, but the Codex adapter, tool dispatch, packaging, hooks, and agent loading are not shipped yet.
+- **Custom trajectory DBs no longer share one graph path** (GH 1152): `trajectory.db` keeps the historical `world-model.kuzu` sibling, while any custom DB maps to `<db-basename>.world-model.kuzu`; the standalone health check uses the same rule.
+
 ## v1.0.2 — 2026-07-19
 
 Patch release rolling up the fixes validated across rc.1–rc.3.

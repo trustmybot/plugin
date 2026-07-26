@@ -3,7 +3,8 @@
 //
 // The graph stores bro's project mental model: Directory nodes today,
 // File + Symbol + IMPORTS + CALLS edges in follow-up slices. Lives in
-// a sibling file to trajectory.db at <project>/.claude/<plugin-name>/world-model.kuzu/.
+// a sibling file to trajectory.db. Standard DBs use world-model.kuzu; custom
+// DB names get a one-to-one <db-basename>.world-model.kuzu graph directory.
 //
 // kuzu uses synchronous API (querySync / prepareSync) to match the rest
 // of the MCP server's sync style (node:sqlite synchronous bindings).
@@ -11,6 +12,7 @@ import { createRequire } from 'node:module';
 import type { Database, Connection, QueryResult } from 'kuzu';
 import { mkdirSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
+export { resolveGraphDbPath } from './platform.js';
 
 function single(result: QueryResult | QueryResult[]): QueryResult {
   return Array.isArray(result) ? result[0]! : result;
@@ -271,11 +273,6 @@ export class WorldModelGraph {
     (this as unknown as Record<string, unknown>)['conn'] = null;
     (this as unknown as Record<string, unknown>)['db'] = null;
   }
-}
-
-export function resolveGraphDbPath(trajectoryDbPath: string): string {
-  if (trajectoryDbPath === ':memory:') return ':memory:';
-  return trajectoryDbPath.replace(/trajectory\.db$/, 'world-model.kuzu');
 }
 
 // Minimum interval between lazy re-open attempts. A persistent lock holder

@@ -191,10 +191,17 @@ fi
 # ===========================================================================
 # 4. world-model (kuzu) — graph openable? graph_db_open_failed sub-diagnosis
 # ===========================================================================
-# The graph file is a sibling of the DB: <...>/world-model.kuzu
+# The standard graph is <...>/world-model.kuzu; custom DBs use
+# <db-path>.world-model.kuzu so each DB has a distinct graph.
 KUZU_FILE=""
 if [ -n "$DB" ]; then
-  KUZU_FILE="${DB%trajectory.db}world-model.kuzu"
+  if [ "$DB" = ":memory:" ]; then
+    KUZU_FILE=":memory:"
+  elif [ "${DB##*/}" = "trajectory.db" ]; then
+    KUZU_FILE="${DB%trajectory.db}world-model.kuzu"
+  else
+    KUZU_FILE="${DB}.world-model.kuzu"
+  fi
 fi
 # Most recent graph_db_open / graph_db_open_failed line from the server log.
 LAST_GRAPH_LINE=""

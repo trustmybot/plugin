@@ -3587,49 +3587,49 @@ var require_fast_uri = __commonJS({
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative, options, skipNormalization) {
+    function resolveComponent(base, relative2, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse3(serialize(base, options), options);
-        relative = parse3(serialize(relative, options), options);
+        relative2 = parse3(serialize(relative2, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative.scheme) {
-        target.scheme = relative.scheme;
-        target.userinfo = relative.userinfo;
-        target.host = relative.host;
-        target.port = relative.port;
-        target.path = removeDotSegments(relative.path || "");
-        target.query = relative.query;
+      if (!options.tolerant && relative2.scheme) {
+        target.scheme = relative2.scheme;
+        target.userinfo = relative2.userinfo;
+        target.host = relative2.host;
+        target.port = relative2.port;
+        target.path = removeDotSegments(relative2.path || "");
+        target.query = relative2.query;
       } else {
-        if (relative.userinfo !== void 0 || relative.host !== void 0 || relative.port !== void 0) {
-          target.userinfo = relative.userinfo;
-          target.host = relative.host;
-          target.port = relative.port;
-          target.path = removeDotSegments(relative.path || "");
-          target.query = relative.query;
+        if (relative2.userinfo !== void 0 || relative2.host !== void 0 || relative2.port !== void 0) {
+          target.userinfo = relative2.userinfo;
+          target.host = relative2.host;
+          target.port = relative2.port;
+          target.path = removeDotSegments(relative2.path || "");
+          target.query = relative2.query;
         } else {
-          if (!relative.path) {
+          if (!relative2.path) {
             target.path = base.path;
-            if (relative.query !== void 0) {
-              target.query = relative.query;
+            if (relative2.query !== void 0) {
+              target.query = relative2.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative.path[0] === "/") {
-              target.path = removeDotSegments(relative.path);
+            if (relative2.path[0] === "/") {
+              target.path = removeDotSegments(relative2.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative.path;
+                target.path = "/" + relative2.path;
               } else if (!base.path) {
-                target.path = relative.path;
+                target.path = relative2.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative2.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative.query;
+            target.query = relative2.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -3637,7 +3637,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative.fragment;
+      target.fragment = relative2.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -6799,7 +6799,7 @@ var require_dist = __commonJS({
 
 // src/index.ts
 import path from "node:path";
-import { mkdirSync as mkdirSync7, readFileSync as readFileSync5 } from "node:fs";
+import { mkdirSync as mkdirSync7, readFileSync as readFileSync6 } from "node:fs";
 import { performance as performance2 } from "node:perf_hooks";
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
@@ -20838,103 +20838,162 @@ var StdioServerTransport = class {
 };
 
 // src/db.ts
-import { copyFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
-import { basename, join as join2, dirname } from "node:path";
+import { copyFileSync, readFileSync as readFileSync2, readdirSync } from "node:fs";
+import { basename as basename2, join as join3, dirname as dirname2 } from "node:path";
 import { fileURLToPath } from "node:url";
-import { homedir as homedir2 } from "node:os";
 import { performance } from "node:perf_hooks";
 import { DatabaseSync } from "node:sqlite";
 
 // src/logger.ts
 import { appendFileSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-var logDir = join(homedir(), ".claude", resolvePluginName(process.env), "logs");
-var logDirReady = false;
-try {
-  mkdirSync(logDir, { recursive: true });
-  logDirReady = true;
-} catch {
-}
-var serverLogPath = join(logDir, "mcp-server.log");
-var sqlLogPath = join(logDir, "sql.log");
-var sqlEnabled = process.env["TMB_DEBUG_SQL"] === "1";
-function serverLog(entry) {
-  if (!logDirReady) return;
-  try {
-    const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-    appendFileSync(serverLogPath, line);
-  } catch {
-  }
-}
-var serverLogSync = serverLog;
-var sqlLog = sqlEnabled ? (entry) => {
-  if (!logDirReady) return;
-  try {
-    const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-    appendFileSync(sqlLogPath, line);
-  } catch {
-  }
-} : () => {
-};
+import { join as join2 } from "node:path";
 
-// src/db.ts
-var TARGET_SCHEMA_VERSION = 28;
-function resolvePluginName(env = process.env) {
-  const root = env["CLAUDE_PLUGIN_ROOT"];
-  if (!root) return "tmb";
+// src/platform.ts
+import {
+  existsSync,
+  readFileSync,
+  realpathSync,
+  statSync
+} from "node:fs";
+import { homedir } from "node:os";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  sep
+} from "node:path";
+function readClaudePluginMetadata(env = process.env) {
+  const root = env["CLAUDE_PLUGIN_ROOT"] ?? null;
+  if (!root) {
+    return freezePlugin({ root: null, name: "tmb", version: null });
+  }
   try {
     const manifest = JSON.parse(
-      readFileSync(join2(root, ".claude-plugin", "plugin.json"), "utf8")
+      readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")
     );
-    if (typeof manifest.name === "string" && manifest.name.length > 0) {
-      return manifest.name;
-    }
+    const name = typeof manifest.name === "string" && manifest.name.length > 0 ? manifest.name : "tmb";
+    const version2 = typeof manifest.version === "string" && manifest.version.length > 0 ? manifest.version : null;
+    return freezePlugin({ root, name, version: version2 });
   } catch {
+    return freezePlugin({ root, name: "tmb", version: null });
   }
-  return "tmb";
 }
-function resolvePluginVersion(env = process.env) {
-  const root = env["CLAUDE_PLUGIN_ROOT"];
-  if (!root) return null;
-  try {
-    const manifest = JSON.parse(
-      readFileSync(join2(root, ".claude-plugin", "plugin.json"), "utf8")
-    );
-    if (typeof manifest.version === "string" && manifest.version.length > 0) {
-      return manifest.version;
-    }
-  } catch {
-  }
-  return null;
+function resolveClaudePluginName(env = process.env) {
+  return readClaudePluginMetadata(env).name;
 }
-function resolveDbPath(opts) {
+function resolveClaudePluginVersion(env = process.env) {
+  return readClaudePluginMetadata(env).version;
+}
+function resolveClaudeDbPath(opts) {
   const env = opts?.env ?? process.env;
   const cwd = opts?.cwd ?? process.cwd();
-  const home = opts?.home ?? homedir2();
+  const home = opts?.home ?? homedir();
   const override = env["TRAJECTORY_DB_PATH"];
   if (override && override.trim().length > 0) return override;
-  const pluginName = resolvePluginName(env);
-  const found = findExistingDbUp(cwd, pluginName, { home });
+  const pluginName = resolveClaudePluginName(env);
+  const found = findExistingClaudeDbUp(cwd, pluginName, { home });
   if (found) return found;
-  return join2(cwd, ".claude", pluginName, "trajectory.db");
+  return join(cwd, ".claude", pluginName, "trajectory.db");
 }
-function findExistingDbUp(startDir, pluginName, opts) {
-  const home = opts?.home ?? homedir2();
+function resolveClaudeLogDir(opts) {
+  const env = opts?.env ?? process.env;
+  const home = opts?.home ?? homedir();
+  return join(home, ".claude", resolveClaudePluginName(env), "logs");
+}
+function resolveGraphDbPath(trajectoryDbPath) {
+  if (trajectoryDbPath === ":memory:") return ":memory:";
+  const dbName = basename(trajectoryDbPath);
+  const graphName = dbName === "trajectory.db" ? "world-model.kuzu" : `${dbName}.world-model.kuzu`;
+  return join(dirname(trajectoryDbPath), graphName);
+}
+function findExistingClaudeDbUp(startDir, pluginName, opts) {
+  const home = opts?.home ?? homedir();
   let dir = startDir;
   for (let i = 0; i < 8; i++) {
     if (dir === home && startDir !== home) return null;
-    const candidate = join2(dir, ".claude", pluginName, "trajectory.db");
+    const candidate = join(dir, ".claude", pluginName, "trajectory.db");
     if (existsSync(candidate)) return candidate;
-    if (existsSync(join2(dir, ".git"))) break;
+    if (existsSync(join(dir, ".git"))) break;
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
   return null;
 }
+function freezePlugin(plugin) {
+  return Object.freeze(plugin);
+}
+
+// src/logger.ts
+function createProjectLogger(opts) {
+  let logDirReady = false;
+  try {
+    mkdirSync(opts.logDir, { recursive: true });
+    logDirReady = true;
+  } catch {
+  }
+  const serverLogPath = join2(opts.logDir, "mcp-server.log");
+  const sqlLogPath = join2(opts.logDir, "sql.log");
+  const serverLog2 = (entry) => {
+    if (!logDirReady) return;
+    try {
+      const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
+      appendFileSync(serverLogPath, line);
+    } catch {
+    }
+  };
+  const sqlLog2 = opts.sqlEnabled === true ? (entry) => {
+    if (!logDirReady) return;
+    try {
+      const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
+      appendFileSync(sqlLogPath, line);
+    } catch {
+    }
+  } : () => {
+  };
+  return Object.freeze({
+    logDir: opts.logDir,
+    serverLog: serverLog2,
+    serverLogSync: serverLog2,
+    sqlLog: sqlLog2
+  });
+}
+var defaultLogger = null;
+function getDefaultLogger() {
+  if (defaultLogger === null) {
+    defaultLogger = createProjectLogger({
+      logDir: resolveClaudeLogDir(),
+      sqlEnabled: process.env["TMB_DEBUG_SQL"] === "1"
+    });
+  }
+  return defaultLogger;
+}
+function serverLog(entry) {
+  getDefaultLogger().serverLog(entry);
+}
+var serverLogSync = serverLog;
+function sqlLog(entry) {
+  getDefaultLogger().sqlLog(entry);
+}
+
+// src/db.ts
+var TARGET_SCHEMA_VERSION = 28;
+function resolvePluginName(env = process.env) {
+  return resolveClaudePluginName(env);
+}
+function resolvePluginVersion(env = process.env) {
+  return resolveClaudePluginVersion(env);
+}
+function resolveDbPath(opts) {
+  return resolveClaudeDbPath(opts);
+}
 var TrajectoryDB = class {
   db;
+  pluginVersion;
+  serverLog;
+  sqlLog;
   dbPath;
   /**
    * True when the DB opened with user tables present but NO plugin_meta table
@@ -20944,8 +21003,12 @@ var TrajectoryDB = class {
    * degraded signal so the upgrade is not silent. Non-fatal.
    */
   legacyNoPluginMeta = false;
-  constructor(dbPath2) {
+  constructor(dbPath2, dependencies) {
+    const resolvedDependencies = resolveDependencies(dependencies);
     this.dbPath = dbPath2;
+    this.pluginVersion = resolvedDependencies.pluginVersion;
+    this.serverLog = resolvedDependencies.serverLog;
+    this.sqlLog = resolvedDependencies.sqlLog;
     this.db = new DatabaseSync(dbPath2);
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec("PRAGMA foreign_keys = ON");
@@ -20955,11 +21018,11 @@ var TrajectoryDB = class {
     this.syncBuiltinVersions();
   }
   applySchema() {
-    const schemaDir = dirname(fileURLToPath(import.meta.url));
-    const sql = readFileSync(join2(schemaDir, "schema.sql"), "utf8");
+    const schemaDir = dirname2(fileURLToPath(import.meta.url));
+    const sql = readFileSync2(join3(schemaDir, "schema.sql"), "utf8");
     const applyEvalIfNeeded = () => {
       if (process.env["TMB_EVAL_MODE"] === "1") {
-        const evalSql = readFileSync(join2(schemaDir, "schema-eval.sql"), "utf8");
+        const evalSql = readFileSync2(join3(schemaDir, "schema-eval.sql"), "utf8");
         this.db.exec(evalSql);
       }
     };
@@ -20978,7 +21041,7 @@ var TrajectoryDB = class {
       ).get();
       const isLegacy = userTableCount.n > 0;
       if (isLegacy) {
-        serverLog({
+        this.serverLog({
           kind: "legacy_db_no_plugin_meta",
           level: "warn",
           db_path: this.dbPath,
@@ -21018,15 +21081,10 @@ var TrajectoryDB = class {
     verifySeed();
     return false;
   }
-  syncPluginVersion(env = process.env) {
-    const root = env["CLAUDE_PLUGIN_ROOT"];
-    if (!root) return;
+  syncPluginVersion() {
+    if (!this.pluginVersion) return;
     try {
-      const manifest = JSON.parse(
-        readFileSync(join2(root, ".claude-plugin", "plugin.json"), "utf8")
-      );
-      if (typeof manifest.version !== "string" || manifest.version.length === 0) return;
-      this.db.prepare(`UPDATE plugin_meta SET plugin_version = ? WHERE id = 1`).run(manifest.version);
+      this.db.prepare(`UPDATE plugin_meta SET plugin_version = ? WHERE id = 1`).run(this.pluginVersion);
     } catch {
     }
   }
@@ -21038,11 +21096,10 @@ var TrajectoryDB = class {
    * cheatcode_list surfaces a version for every row. Runs every startup against
    * the resolved plugin version; a no-op when the version is unresolvable.
    */
-  syncBuiltinVersions(env = process.env) {
-    const version2 = resolvePluginVersion(env);
-    if (!version2) return;
+  syncBuiltinVersions() {
+    if (!this.pluginVersion) return;
     try {
-      this.db.prepare(`UPDATE cheatcodes SET version = ? WHERE origin = 'builtin'`).run(version2);
+      this.db.prepare(`UPDATE cheatcodes SET version = ? WHERE origin = 'builtin'`).run(this.pluginVersion);
     } catch {
     }
   }
@@ -21052,7 +21109,7 @@ var TrajectoryDB = class {
       const stmt = this.db.prepare(sql);
       const result = stmt.run(...params ?? []);
       const out = { changes: Number(result.changes), lastInsertRowid: result.lastInsertRowid };
-      sqlLog({
+      this.sqlLog({
         kind: "run",
         sql,
         params: params ?? [],
@@ -21062,7 +21119,7 @@ var TrajectoryDB = class {
       });
       return out;
     } catch (err18) {
-      sqlLog({
+      this.sqlLog({
         kind: "run",
         sql,
         params: params ?? [],
@@ -21078,7 +21135,7 @@ var TrajectoryDB = class {
     try {
       const stmt = this.db.prepare(sql);
       const row = stmt.get(...params ?? []);
-      sqlLog({
+      this.sqlLog({
         kind: "get",
         sql,
         params: params ?? [],
@@ -21088,7 +21145,7 @@ var TrajectoryDB = class {
       });
       return row;
     } catch (err18) {
-      sqlLog({
+      this.sqlLog({
         kind: "get",
         sql,
         params: params ?? [],
@@ -21104,7 +21161,7 @@ var TrajectoryDB = class {
     try {
       const stmt = this.db.prepare(sql);
       const rows = stmt.all(...params ?? []);
-      sqlLog({
+      this.sqlLog({
         kind: "all",
         sql,
         params: params ?? [],
@@ -21114,7 +21171,7 @@ var TrajectoryDB = class {
       });
       return rows;
     } catch (err18) {
-      sqlLog({
+      this.sqlLog({
         kind: "all",
         sql,
         params: params ?? [],
@@ -21148,13 +21205,34 @@ var TrajectoryDB = class {
     this.db.close();
   }
 };
+function resolveDependencies(dependencies) {
+  if (dependencies === void 0) {
+    return {
+      pluginVersion: resolvePluginVersion(process.env),
+      serverLog,
+      sqlLog
+    };
+  }
+  if (dependencies.pluginVersion !== null && (typeof dependencies.pluginVersion !== "string" || dependencies.pluginVersion.length === 0)) {
+    throw new TypeError(
+      "TrajectoryDB dependencies.pluginVersion must be a non-empty string or null"
+    );
+  }
+  if (typeof dependencies.serverLog !== "function") {
+    throw new TypeError("TrajectoryDB dependencies.serverLog must be a function");
+  }
+  if (typeof dependencies.sqlLog !== "function") {
+    throw new TypeError("TrajectoryDB dependencies.sqlLog must be a function");
+  }
+  return dependencies;
+}
 function nowISO() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function backupDbBeforeMigration(db2, dbPath2, targetVersion) {
   if (!dbPath2 || dbPath2 === ":memory:") return;
-  const dir = dirname(dbPath2);
-  const base = basename(dbPath2);
+  const dir = dirname2(dbPath2);
+  const base = basename2(dbPath2);
   const prefix = `${base}.pre-v${targetVersion}.`;
   try {
     const existing = readdirSync(dir).some(
@@ -22554,8 +22632,8 @@ function redactValidationRow(row, agent, scope) {
 }
 
 // src/embeddings/model.ts
-import { homedir as homedir3 } from "node:os";
-import { join as join3 } from "node:path";
+import { homedir as homedir2 } from "node:os";
+import { join as join4 } from "node:path";
 var pipelinePromise = null;
 var loadFailed = false;
 async function embed(text) {
@@ -22563,7 +22641,7 @@ async function embed(text) {
   if (!pipelinePromise) {
     try {
       const { pipeline, env } = await import("@huggingface/transformers");
-      env.cacheDir = process.env.HF_HOME ?? join3(homedir3(), ".cache", "huggingface");
+      env.cacheDir = process.env.HF_HOME ?? join4(homedir2(), ".cache", "huggingface");
       pipelinePromise = pipeline("feature-extraction", "Xenova/bge-small-en-v1.5");
       pipelinePromise.catch(() => {
         loadFailed = true;
@@ -23225,20 +23303,20 @@ function resolveBackend(configValue, repoRemotes, hasSpawnFn = false, availabili
 // src/sync/issue_sync.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync2 } from "node:fs";
-import { homedir as homedir4 } from "node:os";
-import { join as join4 } from "node:path";
+import { homedir as homedir3 } from "node:os";
+import { join as join5 } from "node:path";
 function resolveLogDir() {
   if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
-  return join4(homedir4(), ".claude", resolvePluginName(process.env), "logs");
+  return join5(homedir3(), ".claude", resolvePluginName(process.env), "logs");
 }
-var logDir2 = resolveLogDir();
-var syncLogPath = join4(logDir2, "issue-sync.log");
+var logDir = resolveLogDir();
+var syncLogPath = join5(logDir, "issue-sync.log");
 try {
-  mkdirSync2(logDir2, { recursive: true });
+  mkdirSync2(logDir, { recursive: true });
 } catch {
 }
 function syncLog(entry) {
-  const currentLogPath = process.env.TMB_SYNC_LOG_DIR ? join4(process.env.TMB_SYNC_LOG_DIR, "issue-sync.log") : syncLogPath;
+  const currentLogPath = process.env.TMB_SYNC_LOG_DIR ? join5(process.env.TMB_SYNC_LOG_DIR, "issue-sync.log") : syncLogPath;
   try {
     const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
     appendFileSync2(currentLogPath, line);
@@ -24672,7 +24750,7 @@ function issueTools(db2, dbPath2 = "") {
 
 // src/tools/tasks.ts
 import { spawnSync as spawnSync3 } from "node:child_process";
-import { resolve, dirname as dirname2 } from "node:path";
+import { resolve, dirname as dirname3 } from "node:path";
 function taskFileDirs(filesJson) {
   const dirs = /* @__PURE__ */ new Set();
   if (!filesJson) return dirs;
@@ -25161,7 +25239,7 @@ function taskTools(db2) {
       }
       const soleRepoValue = resolveSoleRepo(db2)?.name ?? null;
       const repoCount = db2.get("SELECT COUNT(*) AS c FROM repos")?.c ?? 0;
-      const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname2(db2.dbPath);
+      const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname3(db2.dbPath);
       const autocreatedAudits = [];
       for (const t of taskInputs) {
         if (!t.branch_id) throw new Error("Missing required arg: branch_id");
@@ -26240,7 +26318,7 @@ function skillTools(db2) {
 
 // src/tools/agents.ts
 import { existsSync as existsSync2 } from "node:fs";
-import { dirname as dirname3, join as join5 } from "node:path";
+import { dirname as dirname4, join as join6 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 function ok7(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
@@ -26272,15 +26350,15 @@ var RESERVED_NAME = "bro";
 var BACKBONE_GLOBAL_ONLY = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
 function resolvePluginRoot() {
   const env = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (env && existsSync2(join5(env, ".claude-plugin", "plugin.json"))) return env;
-  let dir = dirname3(fileURLToPath2(import.meta.url));
+  if (env && existsSync2(join6(env, ".claude-plugin", "plugin.json"))) return env;
+  let dir = dirname4(fileURLToPath2(import.meta.url));
   for (; ; ) {
-    if (existsSync2(join5(dir, ".claude-plugin", "plugin.json"))) return dir;
-    const parent = dirname3(dir);
+    if (existsSync2(join6(dir, ".claude-plugin", "plugin.json"))) return dir;
+    const parent = dirname4(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  return env ?? dirname3(fileURLToPath2(import.meta.url));
+  return env ?? dirname4(fileURLToPath2(import.meta.url));
 }
 var PLUGIN_ROOT = resolvePluginRoot();
 function resolveWorkspaceRoot(dbPath2) {
@@ -26422,11 +26500,11 @@ function agentTools(db2, dbPath2 = "") {
         const name = requireArg7(args, "name");
         validateAgentName(name);
         const workspaceRoot = resolveWorkspaceRoot(dbPath2);
-        const targetPath = workspaceRoot ? join5(workspaceRoot, ".claude", "agents", `${name}.md`) : join5(".claude", "agents", `${name}.md`);
+        const targetPath = workspaceRoot ? join6(workspaceRoot, ".claude", "agents", `${name}.md`) : join6(".claude", "agents", `${name}.md`);
         if (workspaceRoot && existsSync2(targetPath)) {
           return ok7({ mode: "collision", existing_path: targetPath });
         }
-        const templatePath = join5(PLUGIN_ROOT, "templates", "agents", `${name}.md`);
+        const templatePath = join6(PLUGIN_ROOT, "templates", "agents", `${name}.md`);
         if (existsSync2(templatePath)) {
           return ok7({
             mode: "template-copy",
@@ -26434,7 +26512,7 @@ function agentTools(db2, dbPath2 = "") {
             target_path: targetPath
           });
         }
-        const scaffoldPath = join5(PLUGIN_ROOT, "templates", "agents", "template.md");
+        const scaffoldPath = join6(PLUGIN_ROOT, "templates", "agents", "template.md");
         return ok7({
           mode: "from-scratch",
           scaffold_path: scaffoldPath,
@@ -26448,7 +26526,7 @@ function agentTools(db2, dbPath2 = "") {
 
 // src/tools/reports.ts
 import { mkdirSync as mkdirSync3, writeFileSync } from "node:fs";
-import { dirname as dirname4, resolve as resolve2, sep } from "node:path";
+import { dirname as dirname5, resolve as resolve2, sep as sep2 } from "node:path";
 function ok8(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
@@ -26626,7 +26704,7 @@ function reportTools(db2) {
       const defaultOutputPath = `docs/trustmybot/snapshots/${issueId}.md`;
       const relOutputPath = rawOutputPath ?? defaultOutputPath;
       const cwd = process.cwd();
-      const allowedBase = resolve2(cwd, "docs/trustmybot") + sep;
+      const allowedBase = resolve2(cwd, "docs/trustmybot") + sep2;
       const absPath = resolve2(cwd, relOutputPath);
       if (!absPath.startsWith(allowedBase)) {
         throw new Error(
@@ -26702,7 +26780,7 @@ function reportTools(db2) {
         }
       }
       const markdown = lines.join("\n");
-      mkdirSync3(dirname4(absPath), { recursive: true });
+      mkdirSync3(dirname5(absPath), { recursive: true });
       writeFileSync(absPath, markdown, "utf8");
       return ok8({ path: relOutputPath, bytes_written: Buffer.byteLength(markdown, "utf8") });
     }))
@@ -28083,8 +28161,8 @@ function prMonitorTools(db2, _spawnFn) {
 
 // src/tools/composites.ts
 import { execFileSync } from "node:child_process";
-import { existsSync as existsSync3, realpathSync } from "node:fs";
-import { resolve as resolve3, dirname as dirname5 } from "node:path";
+import { existsSync as existsSync3, realpathSync as realpathSync2 } from "node:fs";
+import { resolve as resolve3, dirname as dirname6 } from "node:path";
 var WORKTREE_TIMEOUT_MS = 6e4;
 function filesToDirs(files) {
   const dirs = /* @__PURE__ */ new Set();
@@ -28140,7 +28218,7 @@ function resolveRepoPath(db2, repoValue) {
   if (!name) return null;
   const reposRow = db2.get(`SELECT path FROM repos WHERE name = ?`, [name]);
   if (!reposRow) return name;
-  const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname5(db2.dbPath);
+  const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname6(db2.dbPath);
   return reposRow.path.startsWith("/") ? reposRow.path : resolve3(dbDir, reposRow.path);
 }
 function resolveBaseRef(repoPath, base) {
@@ -28629,7 +28707,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
             [repoValue]
           );
           if (reposRow) {
-            const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname5(db2.dbPath);
+            const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname6(db2.dbPath);
             repoPath = reposRow.path.startsWith("/") ? reposRow.path : resolve3(dbDir, reposRow.path);
           } else {
             return err14(
@@ -28738,7 +28816,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
         try {
           let worktreeReused = false;
           if (existsSync3(worktreePath)) {
-            const canonicalWt = realpathSync(worktreePath);
+            const canonicalWt = realpathSync2(worktreePath);
             try {
               const list = execFileSync("git", ["-C", repoPath, "worktree", "list", "--porcelain"], {
                 stdio: ["ignore", "pipe", "pipe"],
@@ -29405,12 +29483,12 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
 import { spawnSync as spawnSync5 } from "node:child_process";
 import { existsSync as existsSync5 } from "node:fs";
 import os from "node:os";
-import { dirname as dirname6, join as join7 } from "node:path";
+import { dirname as dirname7, join as join8 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/tools/onboard-hooks-shim.ts
-import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync4, existsSync as existsSync4, chmodSync } from "node:fs";
-import { join as join6 } from "node:path";
+import { readFileSync as readFileSync3, writeFileSync as writeFileSync2, mkdirSync as mkdirSync4, existsSync as existsSync4, chmodSync } from "node:fs";
+import { join as join7 } from "node:path";
 var STABLE_RESOLVER_DIR = [".claude", "tmb-hooks"];
 var STABLE_RESOLVER_NAME = "resolve-hook.sh";
 var CANONICAL_RESOLVER_REL = ["scripts", "lib", "resolve-hook.sh"];
@@ -29423,12 +29501,12 @@ var ADVISORY_HOOK_DENYLIST = /* @__PURE__ */ new Set([
   "branch-up-to-date-with-remote.sh",
   "debug-trajectory.sh"
 ]);
-function basename2(command) {
+function basename3(command) {
   const parts = command.split("/");
   return parts[parts.length - 1] ?? command;
 }
 function hookName(command) {
-  return basename2(command).replace(/\.sh$/, "");
+  return basename3(command).replace(/\.sh$/, "");
 }
 function deriveMarketplace(pluginRoot) {
   const segs = pluginRoot.split("/").filter((s) => s.length > 0);
@@ -29438,11 +29516,11 @@ function deriveMarketplace(pluginRoot) {
   return mp && mp.length > 0 ? mp : null;
 }
 function readPreToolUseFromHooksJson(pluginRoot) {
-  const hooksJsonPath = join6(pluginRoot, "hooks", "hooks.json");
+  const hooksJsonPath = join7(pluginRoot, "hooks", "hooks.json");
   if (!existsSync4(hooksJsonPath)) return null;
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync2(hooksJsonPath, "utf8"));
+    parsed = JSON.parse(readFileSync3(hooksJsonPath, "utf8"));
   } catch {
     return null;
   }
@@ -29453,7 +29531,7 @@ function readPreToolUseFromHooksJson(pluginRoot) {
 function buildTmbGroups(pre, resolverPath, marketplace) {
   const groups = [];
   for (const group of pre) {
-    const hooks = (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(basename2(h.command))).map((h) => ({
+    const hooks = (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(basename3(h.command))).map((h) => ({
       type: h.type,
       command: `bash ${resolverPath} --marketplace ${marketplace} --hook ${hookName(h.command)}`,
       ...h.timeout !== void 0 ? { timeout: h.timeout } : {},
@@ -29468,12 +29546,12 @@ function buildTmbGroups(pre, resolverPath, marketplace) {
   return groups;
 }
 function materializeResolver(pluginRoot, homeDir) {
-  const canonical = join6(pluginRoot, ...CANONICAL_RESOLVER_REL);
+  const canonical = join7(pluginRoot, ...CANONICAL_RESOLVER_REL);
   if (!existsSync4(canonical)) return null;
-  const resolverDir = join6(homeDir, ...STABLE_RESOLVER_DIR);
-  const resolverPath = join6(resolverDir, STABLE_RESOLVER_NAME);
+  const resolverDir = join7(homeDir, ...STABLE_RESOLVER_DIR);
+  const resolverPath = join7(resolverDir, STABLE_RESOLVER_NAME);
   mkdirSync4(resolverDir, { recursive: true });
-  writeFileSync2(resolverPath, readFileSync2(canonical, "utf8"));
+  writeFileSync2(resolverPath, readFileSync3(canonical, "utf8"));
   chmodSync(resolverPath, 493);
   return resolverPath;
 }
@@ -29531,12 +29609,12 @@ function writeUserSettingsEnforcementShim(opts) {
     return { written: false, reason };
   }
   const tmbGroups = buildTmbGroups(pre, resolverPath, marketplace);
-  const settingsDir = join6(homeDir, ".claude");
-  const settingsPath = join6(settingsDir, "settings.json");
+  const settingsDir = join7(homeDir, ".claude");
+  const settingsPath = join7(settingsDir, "settings.json");
   let settings = {};
   if (existsSync4(settingsPath)) {
     try {
-      const raw = readFileSync2(settingsPath, "utf8").trim();
+      const raw = readFileSync3(settingsPath, "utf8").trim();
       if (raw.length > 0) settings = JSON.parse(raw);
     } catch {
       const reason = "existing settings.json is not valid JSON";
@@ -29567,11 +29645,11 @@ function writeUserSettingsEnforcementShim(opts) {
 // src/tools/onboard.ts
 function resolvePluginRoot2() {
   const env = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (env && existsSync5(join7(env, ".claude-plugin", "plugin.json"))) return env;
-  let dir = dirname6(fileURLToPath3(import.meta.url));
+  if (env && existsSync5(join8(env, ".claude-plugin", "plugin.json"))) return env;
+  let dir = dirname7(fileURLToPath3(import.meta.url));
   for (; ; ) {
-    if (existsSync5(join7(dir, ".claude-plugin", "plugin.json"))) return dir;
-    const parent = dirname6(dir);
+    if (existsSync5(join8(dir, ".claude-plugin", "plugin.json"))) return dir;
+    const parent = dirname7(dir);
     if (parent === dir) break;
     dir = parent;
   }
@@ -30240,14 +30318,14 @@ function onboardTools(db2, dbPath2 = "") {
 
 // src/tools/scan.ts
 import { spawn, spawnSync as spawnSync6 } from "node:child_process";
-import { existsSync as existsSync7, readFileSync as readFileSync3, writeFileSync as writeFileSync3, unlinkSync } from "node:fs";
-import { dirname as dirname8, join as join8 } from "node:path";
+import { existsSync as existsSync7, readFileSync as readFileSync4, writeFileSync as writeFileSync3, unlinkSync } from "node:fs";
+import { dirname as dirname9, join as join9 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
 // src/graph-db.ts
 import { createRequire } from "node:module";
 import { mkdirSync as mkdirSync5, existsSync as existsSync6 } from "node:fs";
-import { dirname as dirname7 } from "node:path";
+import { dirname as dirname8 } from "node:path";
 function single(result) {
   return Array.isArray(result) ? result[0] : result;
 }
@@ -30265,8 +30343,8 @@ var WorldModelGraph = class _WorldModelGraph {
   db;
   conn;
   constructor(dbPath2) {
-    if (dbPath2 !== ":memory:" && !existsSync6(dirname7(dbPath2))) {
-      mkdirSync5(dirname7(dbPath2), { recursive: true });
+    if (dbPath2 !== ":memory:" && !existsSync6(dirname8(dbPath2))) {
+      mkdirSync5(dirname8(dbPath2), { recursive: true });
     }
     const req = createRequire(import.meta.url);
     const kuzu = req("kuzu");
@@ -30446,10 +30524,6 @@ var WorldModelGraph = class _WorldModelGraph {
     this["db"] = null;
   }
 };
-function resolveGraphDbPath(trajectoryDbPath) {
-  if (trajectoryDbPath === ":memory:") return ":memory:";
-  return trajectoryDbPath.replace(/trajectory\.db$/, "world-model.kuzu");
-}
 var GRAPH_REOPEN_THROTTLE_MS = 5e3;
 var GraphHolder = class _GraphHolder {
   graph = null;
@@ -30536,15 +30610,15 @@ function wrap3(fn) {
   };
 }
 function resolveScanScript() {
-  const here = dirname8(fileURLToPath4(import.meta.url));
+  const here = dirname9(fileURLToPath4(import.meta.url));
   const candidates = [
-    join8(here, "..", "..", "..", "..", "scripts", "scan.sh"),
-    join8(here, "..", "..", "..", "scripts", "scan.sh")
+    join9(here, "..", "..", "..", "..", "scripts", "scan.sh"),
+    join9(here, "..", "..", "..", "scripts", "scan.sh")
   ];
   for (const c of candidates) if (existsSync7(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join8(pluginRoot, "scripts", "scan.sh");
+    const c = join9(pluginRoot, "scripts", "scan.sh");
     if (existsSync7(c)) return c;
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
@@ -30639,7 +30713,7 @@ function detectStructuralChange(db2, currentRepos, currentTopDirs) {
 var README_CANDIDATES = ["README.md", "readme.md", "README.rst", "readme.rst"];
 var README_MAX_BYTES = 1024;
 var STRUCTURAL_LIST_MAX = 8;
-function basename3(p) {
+function basename4(p) {
   const i = p.lastIndexOf("/");
   return i >= 0 ? p.slice(i + 1) : p;
 }
@@ -30664,33 +30738,33 @@ function deriveDirectoryEntries(out) {
     const entry = dirMap.get(`${f.repo} ${dirPath}`);
     if (entry) {
       entry.file_count++;
-      entry.file_names.push(basename3(f.path));
+      entry.file_names.push(basename4(f.path));
     }
   }
   return dirMap;
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames) {
-  const leaf = dirPath === "" ? "(repo root)" : basename3(dirPath);
-  const join10 = (names) => {
+  const leaf = dirPath === "" ? "(repo root)" : basename4(dirPath);
+  const join11 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
   };
   const parts = [];
   if (fileNames.length > 0) {
-    parts.push(`${fileNames.length} file${fileNames.length === 1 ? "" : "s"} (${join10(fileNames.slice().sort())})`);
+    parts.push(`${fileNames.length} file${fileNames.length === 1 ? "" : "s"} (${join11(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts.push(`subdirs: ${join10(subdirNames.slice().sort())}`);
+    parts.push(`subdirs: ${join11(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts.length > 0 ? parts.join("; ") : "empty directory"}`;
 }
 function readReadmeSummary(absDirPath) {
   for (const candidate of README_CANDIDATES) {
-    const readmePath = join8(absDirPath, candidate);
+    const readmePath = join9(absDirPath, candidate);
     if (!existsSync7(readmePath)) continue;
     try {
-      const raw = readFileSync3(readmePath, "utf8");
+      const raw = readFileSync4(readmePath, "utf8");
       const clipped = raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
       return frameUntrusted("readme", clipped);
     } catch {
@@ -30710,13 +30784,13 @@ function persistDirectoriesGraph(graph, out, now) {
     if (entry.parent_path === null) continue;
     const key = `${entry.repo} ${entry.parent_path}`;
     const list = subdirsByParent.get(key);
-    if (list) list.push(basename3(entry.path));
-    else subdirsByParent.set(key, [basename3(entry.path)]);
+    if (list) list.push(basename4(entry.path));
+    else subdirsByParent.set(key, [basename4(entry.path)]);
   }
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join8(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join9(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(entry.path, entry.file_names, subdirNames);
@@ -30839,7 +30913,7 @@ function persistScan(db2, graph, out, sessionDir) {
 var SCAN_TIMEOUT_MS = 10 * 60 * 1e3;
 function readLock(lockPath) {
   try {
-    return JSON.parse(readFileSync3(lockPath, "utf8"));
+    return JSON.parse(readFileSync4(lockPath, "utf8"));
   } catch {
     return null;
   }
@@ -30916,7 +30990,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
             `graph_db_open_failed: ${graphOpenError} \u2014 another process holds the world-model lock (identify the holder by running lsof on the world-model graph file); the server retries automatically on the next call once the holder exits`
           );
         }
-        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join8(dirname8(dbPath2), "scan.lock") : "";
+        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join9(dirname9(dbPath2), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -30988,8 +31062,8 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
 
 // src/tools/cheatcode.ts
 import { spawn as spawn2 } from "node:child_process";
-import { existsSync as existsSync8, mkdirSync as mkdirSync6, readFileSync as readFileSync4, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname9, join as join9, sep as sep2 } from "node:path";
+import { existsSync as existsSync8, mkdirSync as mkdirSync6, readFileSync as readFileSync5, writeFileSync as writeFileSync4 } from "node:fs";
+import { dirname as dirname10, join as join10, sep as sep3 } from "node:path";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
 function ok17(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
@@ -31010,15 +31084,15 @@ function wrap4(fn) {
   };
 }
 function resolveScriptsFile(name) {
-  const here = dirname9(fileURLToPath5(import.meta.url));
+  const here = dirname10(fileURLToPath5(import.meta.url));
   const candidates = [
-    join9(here, "..", "..", "..", "..", "scripts", name),
-    join9(here, "..", "..", "..", "scripts", name)
+    join10(here, "..", "..", "..", "..", "scripts", name),
+    join10(here, "..", "..", "..", "scripts", name)
   ];
   for (const c of candidates) if (existsSync8(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join9(pluginRoot, "scripts", name);
+    const c = join10(pluginRoot, "scripts", name);
     if (existsSync8(c)) return c;
   }
   throw new Error(`${name} not found \u2014 expected at <plugin>/scripts/${name}`);
@@ -31273,26 +31347,26 @@ function parseInstallCandidate(raw) {
 }
 function projectRootFromDbPath(dbPath2) {
   if (!dbPath2 || dbPath2 === ":memory:") return null;
-  const segments = dbPath2.split(sep2);
+  const segments = dbPath2.split(sep3);
   const idx = segments.lastIndexOf(".claude");
   if (idx <= 0) return null;
-  return segments.slice(0, idx).join(sep2) || sep2;
+  return segments.slice(0, idx).join(sep3) || sep3;
 }
 function resolveGlobalAgentMd(target) {
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c2 = join9(pluginRoot, "agents", `${target}.md`);
+    const c2 = join10(pluginRoot, "agents", `${target}.md`);
     if (existsSync8(c2)) return c2;
   }
-  const here = dirname9(fileURLToPath5(import.meta.url));
-  const c = join9(here, "..", "..", "..", "..", "agents", `${target}.md`);
+  const here = dirname10(fileURLToPath5(import.meta.url));
+  const c = join10(here, "..", "..", "..", "..", "agents", `${target}.md`);
   if (existsSync8(c)) return c;
   return null;
 }
 function readManifestProvidedTools(manifestPath) {
   let manifest;
   try {
-    manifest = JSON.parse(readFileSync4(manifestPath, "utf8"));
+    manifest = JSON.parse(readFileSync5(manifestPath, "utf8"));
   } catch {
     return [];
   }
@@ -31308,12 +31382,12 @@ function readManifestProvidedTools(manifestPath) {
 function resolveInstalledPluginManifest(name) {
   const override = process.env["TMB_CHEATCODE_PLUGIN_MANIFEST"];
   if (override) return existsSync8(override) ? override : null;
-  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join9(process.env["HOME"] || "", ".claude");
-  const registry2 = join9(claudeHome, "plugins", "installed_plugins.json");
+  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join10(process.env["HOME"] || "", ".claude");
+  const registry2 = join10(claudeHome, "plugins", "installed_plugins.json");
   if (!existsSync8(registry2)) return null;
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync4(registry2, "utf8"));
+    parsed = JSON.parse(readFileSync5(registry2, "utf8"));
   } catch {
     return null;
   }
@@ -31325,7 +31399,7 @@ function resolveInstalledPluginManifest(name) {
     for (const e of list) {
       const installPath = e?.installPath;
       if (typeof installPath !== "string" || installPath.length === 0) continue;
-      const manifest = join9(installPath, ".claude-plugin", "plugin.json");
+      const manifest = join10(installPath, ".claude-plugin", "plugin.json");
       if (existsSync8(manifest)) return manifest;
     }
   }
@@ -31411,11 +31485,11 @@ function removeSkillFromAgentFrontmatter(content, skillName) {
 function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools = []) {
   const projectRoot = projectRootFromDbPath(dbPath2);
   if (!projectRoot) return null;
-  const claudeDir = join9(projectRoot, ".claude");
+  const claudeDir = join10(projectRoot, ".claude");
   if (target === "bro") {
-    const claudeMd = join9(claudeDir, "CLAUDE.md");
+    const claudeMd = join10(claudeDir, "CLAUDE.md");
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    let body = existsSync8(claudeMd) ? readFileSync4(claudeMd, "utf8") : "";
+    let body = existsSync8(claudeMd) ? readFileSync5(claudeMd, "utf8") : "";
     if (!body.includes(reference)) {
       const prefix = body.length === 0 || body.endsWith("\n") ? "" : "\n";
       body = body.length === 0 ? `${reference}
@@ -31426,14 +31500,14 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
     }
     return { target: "bro", artifact: "claude-md:.claude/CLAUDE.md", path: claudeMd };
   }
-  const localAgentMd = join9(claudeDir, "agents", `${target}.md`);
+  const localAgentMd = join10(claudeDir, "agents", `${target}.md`);
   let content;
   if (existsSync8(localAgentMd)) {
-    content = readFileSync4(localAgentMd, "utf8");
+    content = readFileSync5(localAgentMd, "utf8");
   } else {
     const globalAgentMd = resolveGlobalAgentMd(target);
     if (!globalAgentMd) return null;
-    content = readFileSync4(globalAgentMd, "utf8");
+    content = readFileSync5(globalAgentMd, "utf8");
   }
   let updated = content;
   if (providedTools.length > 0) {
@@ -31441,7 +31515,7 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
   } else {
     updated = addSkillToAgentFrontmatter(updated, cheatcodeName);
   }
-  mkdirSync6(dirname9(localAgentMd), { recursive: true });
+  mkdirSync6(dirname10(localAgentMd), { recursive: true });
   writeFileSync4(localAgentMd, updated);
   return {
     target,
@@ -31454,9 +31528,9 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   if (!projectRoot) return;
   if (artifact.startsWith("agent-md:")) {
     const rel = artifact.slice("agent-md:".length);
-    const filePath = join9(projectRoot, rel);
+    const filePath = join10(projectRoot, rel);
     if (!existsSync8(filePath)) return;
-    const content = readFileSync4(filePath, "utf8");
+    const content = readFileSync5(filePath, "utf8");
     let updated = removeSkillFromAgentFrontmatter(content, cheatcodeName);
     for (const tool of providedTools) updated = removeToolFromAgentFrontmatter(updated, tool);
     if (updated !== content) writeFileSync4(filePath, updated);
@@ -31464,10 +31538,10 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   }
   if (artifact.startsWith("claude-md:")) {
     const rel = artifact.slice("claude-md:".length);
-    const filePath = join9(projectRoot, rel);
+    const filePath = join10(projectRoot, rel);
     if (!existsSync8(filePath)) return;
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    const body = readFileSync4(filePath, "utf8");
+    const body = readFileSync5(filePath, "utf8");
     if (!body.includes(reference)) return;
     const updated = body.split("\n").filter((line) => line !== reference).join("\n");
     writeFileSync4(filePath, updated);
@@ -32021,7 +32095,7 @@ function cheatcodeTools(db2) {
 
 // src/tools/world_model.ts
 import { spawnSync as spawnSync7 } from "node:child_process";
-import { resolve as resolve4, dirname as dirname10 } from "node:path";
+import { resolve as resolve4, dirname as dirname11 } from "node:path";
 var WORLD_MODEL_GET_MAX_NODES = 500;
 var UNMERGED_WORK_MAX_BRANCHES = 10;
 function computeUnmergedWork(db2, repo) {
@@ -32031,7 +32105,7 @@ function computeUnmergedWork(db2, repo) {
     [repo]
   );
   if (!repoRow) return { unmerged_work: [] };
-  const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname10(db2.dbPath);
+  const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname11(db2.dbPath);
   const repoPath = repoRow.path.startsWith("/") ? repoRow.path : resolve4(dbDir, repoRow.path);
   const target = repoRow.target_branch || "dev";
   const gitCheck = spawnSync7("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
@@ -32448,7 +32522,7 @@ function readPackageVersion() {
   try {
     const here = path.dirname(new URL(import.meta.url).pathname);
     const pkgPath = path.join(here, "..", "package.json");
-    const pkg = JSON.parse(readFileSync5(pkgPath, "utf8"));
+    const pkg = JSON.parse(readFileSync6(pkgPath, "utf8"));
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch {
     return "0.0.0";

@@ -24,7 +24,7 @@ plugin/
 ├── agents/                 # workflow backbone — swe + pr-reviewer, ship globally
 ├── skills/                 # tmb_* protocol skills + default workflow skills (all global)
 ├── templates/agents/       # opt-in consultant templates (architect, cto, ceo, pm)
-├── mcp/trajectory-server/  # MCP server — already cross-platform (MCP is the emerging standard)
+├── mcp/trajectory-server/  # Shared MCP core — Claude runtime today; host-neutral foundation underway
 │
 ├── # Per-platform hook configs (CC only today; future: hooks/<platform>/)
 ├── hooks/hooks.json        # Claude Code event protocol
@@ -47,7 +47,7 @@ The pattern, copied from [`obra/superpowers`](https://github.com/obra/superpower
 | `agents/*.md` body (swe + pr-reviewer) | ✓ Portable | Body is platform-agnostic |
 | `agents/*.md` frontmatter | ⚠️ CC-shaped | `tools:`, `model:`, `isolation:`, `skills:` are Claude Code conventions. Other platforms may need adapter-side translation. |
 | `templates/agents/*.md` (consultants) | ✓ Portable bodies, ⚠️ CC-shaped frontmatter (same as above) | Opt-in templates, not auto-installed |
-| `mcp/trajectory-server/` | ✓ Portable | MCP is the cross-platform standard (Anthropic + OpenAI + Cursor all support) |
+| `mcp/trajectory-server/` | ⚠️ Protocol-portable, runtime partly adapted | The shared server now has explicit Claude/Codex runtime contexts, project-scoped logger construction, and injectable DB metadata/logging. The shipped entry point and tool registry are still Claude-shaped, so this is a foundation — not a working Codex adapter. |
 | `hooks/hooks.json` | ✗ CC-only | Each platform has different hook event names + decision protocol |
 | `scripts/hooks/*.sh` | ⚠️ Partly | Shell logic is portable; the JSON-decision contract is CC-specific |
 | `CLAUDE.md` (bro persona) | ⚠️ Partly | Doctrine is portable; trigger-word mechanism is CC-specific |
@@ -56,7 +56,7 @@ The pattern, copied from [`obra/superpowers`](https://github.com/obra/superpower
 
 When a Codex adapter (or Cursor / OpenCode / Gemini) gets built, the work is:
 
-1. Author the platform's manifest in `.<platform>-plugin/plugin.json`. Most fields point at shared content via relative paths (`"skills": "./skills/"`, etc.).
+1. Implement the platform's supported packaging and discovery mechanism. Placeholder manifests are design intent only and must not be treated as a current platform contract.
 2. Author the platform's persona file (`CODEX.md`, `CURSOR.md`, `GEMINI.md`) — the bro doctrine adapted to the platform's tool names + trigger mechanism.
 3. Author the platform's hook configs under `hooks/<platform>/` — translating the doctrine-level rules (no commits to protected, no push without review, etc.) into the platform's native hook event names.
 4. Possibly a build/sync script under `scripts/sync-to-<platform>-marketplace.sh` if the platform's marketplace requires a separate fork repo (Superpowers does this for Codex).
@@ -68,7 +68,7 @@ The shared skill library + MCP server + planning protocol stay intact. Only the 
 Two reasons:
 
 1. **Discoverability.** Anyone browsing the repo sees `.codex-plugin/` and immediately understands TMB's vision. No conversation needed.
-2. **Path-precedent.** When we DO want to ship Codex/Cursor/Gemini support, the directory structure is already there. The actual work shrinks to "fill in the manifest" rather than "restructure the repo."
+2. **Path-precedent.** When we do ship Codex/Cursor/Gemini support, the directory structure already separates shared content from platform adapters. A real adapter still needs verified installation, runtime dispatch, configuration, and validation; filling in a placeholder manifest alone is not sufficient.
 
 The placeholders explicitly say "not implemented." They don't pretend to support what they don't. They're a north star, not a feature claim.
 
