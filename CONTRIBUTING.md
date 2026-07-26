@@ -2,10 +2,36 @@
 
 Public MIT plugin for Claude Code. Issues, PRs, and real-use reports all welcome — the bugs you hit *using* the plugin are the highest-value reports.
 
+## Ways to contribute
+
+There are two paths, depending on whether you've been granted access to the repo. Both land the same way — a GitHub pull request into `dev` that a maintainer reviews and merges.
+
+**Fork + pull request (no access needed).** Anyone can contribute this way, with zero permissions granted:
+
+1. **Fork** `github.com/trustmybot/plugin` to your own account.
+2. In your fork, branch off `dev`: `<type>/<issue>-<slug>` (same convention as below).
+3. Make the change with tests; `bash tests/run-all.sh` must be green.
+4. Open a **cross-repo pull request** from your fork's branch into `trustmybot/plugin`'s `dev`.
+5. A maintainer reviews and merges it.
+
+A pull request is a *request* — you're asking a maintainer to pull your commits in, and they fulfil it by merging. You never push into `trustmybot/plugin` yourself, so you need no access to the repo at all.
+
+**Collaborator / org-team Write access (trusted members).** Trusted contributors are granted Write access either by a GitHub collaborator invite or by membership in a GitHub Team on the org. With Write access you branch directly inside `trustmybot/plugin` off `dev` — no fork — then open the pull request from that branch. Org and company teammates typically work this way, since access is managed at the team level, rather than each keeping a personal fork.
+
+Either way you still don't push to `dev` or `main` directly — branch protection and `scripts/hooks/git-guards.sh` block that. The pull request is always the merge path.
+
+**You don't need to run TMB itself to contribute** — plain git plus `bash tests/run-all.sh` (L1–L4) is all the local tooling a change requires.
+
+**Maintainer-only steps.** A contributor (fork or collaborator) cannot:
+
+- Merge a pull request into `dev` or `main`.
+- Run the L6 release-gate — it needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret (forks can't read repo secrets), and it fires only on rc tags plus manual `workflow_dispatch`.
+- Tag a release, publish to a marketplace channel, or cut a GitHub release.
+
 ## TL;DR
 
 1. Open or find a **GitHub** issue. `github.com/trustmybot/plugin` is canonical (a GitLab mirror exists as backup).
-2. Branch off `dev`: `<type>/<issue>-<slug>` (e.g. `fix/45-gitguards-merge`). Types: `feat fix refactor chore docs test perf`.
+2. Branch off `dev`: `<type>/<issue>-<slug>` (e.g. `fix/45-gitguards-merge`). Types: `feat fix refactor chore docs test perf`. Working from a fork? Branch off `dev` in your fork (see [Ways to contribute](#ways-to-contribute)).
 3. Make the change **with tests**.
 4. `bash tests/run-all.sh` — must be green (L1–L4).
 5. `gh pr create --base dev` — reference the issue (`Closes #N`); pick from the existing [labels](docs/contributing/LABELS.md).
