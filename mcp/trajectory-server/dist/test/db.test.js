@@ -158,10 +158,21 @@ describe('TrajectoryDB', () => {
             const stampedBuiltins = db.get("SELECT COUNT(*) AS n FROM cheatcodes WHERE origin = 'builtin' AND version IS NOT NULL");
             assert.equal(meta?.plugin_version, '0.0.0');
             assert.equal(stampedBuiltins?.n, 0);
+            sqlEvents.length = 0;
             db.run('CREATE TABLE injected_logger_test (id INTEGER PRIMARY KEY)');
+            db.get('SELECT 1 AS n');
+            db.all('SELECT 1 AS n');
             assert.throws(() => db.run('INSERT INTO missing_injected_logger_table VALUES (1)'), /no such table/);
-            assert.ok(sqlEvents.some((entry) => entry['ok'] === true));
-            assert.ok(sqlEvents.some((entry) => entry['ok'] === false));
+            assert.throws(() => db.get('SELECT * FROM missing_injected_logger_table'), /no such table/);
+            assert.throws(() => db.all('SELECT * FROM missing_injected_logger_table'), /no such table/);
+            assert.deepEqual(sqlEvents.map((entry) => [entry['kind'], entry['ok']]), [
+                ['run', true],
+                ['get', true],
+                ['all', true],
+                ['run', false],
+                ['get', false],
+                ['all', false],
+            ]);
             db.close();
         }
         finally {
@@ -186,12 +197,32 @@ describe('TrajectoryDB', () => {
         assert.equal(unstampedBuiltins?.n, 0);
         db.close();
     });
+    it('does not let injected logger failures change database operation results', () => {
+        const db = new TrajectoryDB(':memory:', {
+            pluginVersion: null,
+            serverLog: () => {
+                throw new Error('server logger exploded');
+            },
+            sqlLog: () => {
+                throw new Error('SQL logger exploded');
+            },
+        });
+        assert.doesNotThrow(() => {
+            db.run('CREATE TABLE logger_throw_test (id INTEGER)');
+        });
+        const table = db.get("SELECT name FROM sqlite_master WHERE name = 'logger_throw_test'");
+        assert.equal(table?.name, 'logger_throw_test');
+        assert.throws(() => db.run('INSERT INTO missing_logger_throw_table VALUES (1)'), /no such table/);
+        db.close();
+    });
     it('rejects incomplete explicit dependencies instead of falling back to globals', () => {
-        assert.throws(() => new TrajectoryDB(':memory:', {
-            pluginVersion: '',
-            serverLog: () => { },
-            sqlLog: () => { },
-        }), /pluginVersion must be a non-empty string or null/);
+        for (const pluginVersion of ['', '   ']) {
+            assert.throws(() => new TrajectoryDB(':memory:', {
+                pluginVersion,
+                serverLog: () => { },
+                sqlLog: () => { },
+            }), /pluginVersion must be a non-empty string or null/);
+        }
         assert.throws(() => new TrajectoryDB(':memory:', {
             pluginVersion: null,
             serverLog: undefined,
@@ -219,6 +250,30 @@ describe('TrajectoryDB', () => {
             assert.equal(db.legacyNoPluginMeta, true);
             assert.ok(serverEvents.some((entry) => entry['kind'] === 'legacy_db_no_plugin_meta'));
             db.close();
+        }
+        finally {
+            rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
+    it('does not let a throwing server logger abort legacy DB adoption', () => {
+        const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-throwing-server-log-'));
+        const dbPath = join(tmpDir, 'trajectory.db');
+        try {
+            const raw = new DatabaseSync(dbPath);
+            raw.exec('CREATE TABLE legacy_table (id INTEGER PRIMARY KEY)');
+            raw.close();
+            let db;
+            assert.doesNotThrow(() => {
+                db = new TrajectoryDB(dbPath, {
+                    pluginVersion: '1.1.0',
+                    serverLog: () => {
+                        throw new Error('server logger exploded');
+                    },
+                    sqlLog: () => { },
+                });
+            });
+            assert.equal(db?.legacyNoPluginMeta, true);
+            db?.close();
         }
         finally {
             rmSync(tmpDir, { recursive: true, force: true });

@@ -152,7 +152,8 @@ reset_scenario() {
   # Graph file present (sibling of DB) so the world-model FS fallback is happy.
   : > "$root/.claude/tmb/world-model.kuzu"
   # Server log logs a successful graph open.
-  printf '{"kind":"graph_db_open","ok":true}\n' > "$F_LOG"
+  printf '{"kind":"graph_db_open","ok":true,"path":"%s"}\n' \
+    "$root/.claude/tmb/world-model.kuzu" > "$F_LOG"
 }
 
 # Extract the remediation block (the `-> ...` lines) that follow a given FAIL
@@ -247,7 +248,8 @@ assert_contains "$rem" "/reload-plugins does NOT restart the server" "schema for
 # ============================================================================
 test_case "check4a world-model: lock-contention → FAIL"
 reset_scenario kuzu-lock
-printf '{"kind":"graph_db_open_failed","error_message":"Could not set lock on file world-model.kuzu"}\n' > "$F_LOG"
+printf '{"kind":"graph_db_open_failed","error_message":"Could not set lock on file world-model.kuzu","path":"%s"}\n' \
+  "$ROOT/.claude/tmb/world-model.kuzu" > "$F_LOG"
 out=$(run_health)
 assert_contains "$out" "FAIL  world-model: kuzu open FAILED — graph file is locked" "kuzu lock FAIL line"
 
@@ -265,7 +267,8 @@ assert_not_contains "$rem" "/reload-plugins" "lock remediation never mentions /r
 # ============================================================================
 test_case "check4b world-model: postinstall-skipped (binding missing) → FAIL"
 reset_scenario kuzu-postinstall
-printf '{"kind":"graph_db_open_failed","error_message":"Cannot find module kuzu"}\n' > "$F_LOG"
+printf '{"kind":"graph_db_open_failed","error_message":"Cannot find module kuzu","path":"%s"}\n' \
+  "$ROOT/.claude/tmb/world-model.kuzu" > "$F_LOG"
 # Rebuild cache WITHOUT the kuzu native binding.
 rm -rf "$F_CACHE"
 make_cache "$F_CACHE" "$TARGET_SCHEMA" no
@@ -314,6 +317,43 @@ rm -f "$custom_db.world-model.kuzu"
 : > "$ROOT/.claude/tmb/world-model.kuzu"
 out=$(run_health)
 assert_contains "$out" "FAIL  world-model: graph file missing" "custom DB ignores standard graph path"
+
+test_case "check4d world-model: ignores a successful log event for another graph"
+printf '{"kind":"graph_db_open","ok":true,"path":"%s"}\n' \
+  "$ROOT/.claude/tmb/world-model.kuzu" > "$F_LOG"
+out=$(run_health)
+assert_contains "$out" "FAIL  world-model: graph file missing" "old graph success cannot make current graph PASS"
+
+test_case "check4d world-model: ignores a failed log event for another graph"
+: > "$custom_db.world-model.kuzu"
+printf '{"kind":"graph_db_open_failed","error_message":"Could not set lock on old graph","path":"%s"}\n' \
+  "$ROOT/.claude/tmb/world-model.kuzu" > "$F_LOG"
+out=$(run_health)
+assert_contains "$out" "PASS  world-model" "old graph failure cannot make current graph FAIL"
+
+# ============================================================================
+# Check 4 — in-memory and reserved graph-path behavior
+# ============================================================================
+test_case "check4e world-model: :memory: needs no graph file"
+reset_scenario kuzu-memory
+F_DB=":memory:"
+: > "$F_LOG"
+out=$(run_health)
+assert_contains "$out" "db:        :memory:" ":memory: override is preserved"
+assert_contains "$out" "PASS  world-model" ":memory: graph is healthy without a file"
+assert_not_contains "$out" "FAIL  world-model" ":memory: is never checked with -e"
+
+test_case "check4f world-model: graph-shaped trajectory DB names are rejected"
+reset_scenario kuzu-reserved-db
+reserved_db="$ROOT/.claude/tmb/world-model.kuzu"
+rm -f "$reserved_db"
+mv "$F_DB" "$reserved_db"
+F_DB="$reserved_db"
+: > "$F_LOG"
+out=$(run_health)
+assert_contains "$out" "FAIL  world-model: trajectory DB filename is reserved for graph storage" "reserved DB name FAIL line"
+rem=$(remediation_after "$out" "FAIL  world-model")
+assert_contains "$rem" "Choose a different trajectory DB filename" "reserved DB remediation"
 
 # ============================================================================
 # Check 5 — label-config: unset issue_classification_labels → FAIL
@@ -393,7 +433,8 @@ assert_eq "" "$residual" "schema-state remediation has no positive /reload-plugi
 
 test_case "sweep: world-model-unavailable (lock) emits NO /reload-plugins at all"
 reset_scenario sweep-kuzu
-printf '{"kind":"graph_db_open_failed","error_message":"Could not set lock on file world-model.kuzu"}\n' > "$F_LOG"
+printf '{"kind":"graph_db_open_failed","error_message":"Could not set lock on file world-model.kuzu","path":"%s"}\n' \
+  "$ROOT/.claude/tmb/world-model.kuzu" > "$F_LOG"
 out=$(run_health)
 rem=$(remediation_after "$out" "FAIL  world-model")
 assert_not_contains "$rem" "/reload-plugins" "world-model remediation never mentions /reload-plugins"

@@ -5,7 +5,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 ## Where state lives
 
 - **Trajectory DB** — SQLite at `<project>/.claude/<plugin-name>/trajectory.db`. Holds the workflow audit: issues, tasks, discussions, audit, validation, plugin metadata. The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. Project-local, gitignored, per-developer.
-- **World model graph DB** — kuzu at `<project>/.claude/<plugin-name>/world-model.kuzu/`. Holds bro's project mental picture: Directory nodes + CONTAINS edges (more node/edge types in follow-up slices). Sibling file to the trajectory DB. See `docs/architecture/WORLD_MODEL.md`.
+- **World model graph DB** — kuzu at `<project>/.claude/<plugin-name>/world-model.kuzu/` for the standard `trajectory.db`. A custom `TRAJECTORY_DB_PATH` maps to `<db-basename>.world-model.kuzu`; graph-shaped trajectory filenames are reserved. Holds bro's project mental picture: Directory nodes + CONTAINS edges (more node/edge types in follow-up slices). See `docs/architecture/WORLD_MODEL.md`.
 - **Task specs** — `tasks.spec_body` column, fetched via `task_get(task_id)`. NOT on disk.
 - **Issue milestone** — `issues.milestone` column (nullable `TEXT`), a composite FK `(milestone, repo)` into the per-repo `milestones` table (#155, schema v23). See `docs/architecture/ERD.md`.
 - **Architectural decisions** — recorded as `kind=decision` discussions in the trajectory DB.

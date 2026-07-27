@@ -63,7 +63,11 @@ remediate() {
 }
 
 DB=""
-DB=$(tmb_db_path 2>/dev/null || true)
+if [ "${TRAJECTORY_DB_PATH:-}" = ":memory:" ]; then
+  DB=":memory:"
+else
+  DB=$(tmb_db_path 2>/dev/null || true)
+fi
 
 # ---------------------------------------------------------------------------
 # Resolve the installed (intended) version + cache dir from CC's
@@ -192,66 +196,92 @@ fi
 # 4. world-model (kuzu) — graph openable? graph_db_open_failed sub-diagnosis
 # ===========================================================================
 # The standard graph is <...>/world-model.kuzu; custom DBs use
-# <db-path>.world-model.kuzu so each DB has a distinct graph.
+# <db-path>.world-model.kuzu so each DB has a distinct graph. DB filenames
+# shaped like graph artifacts are reserved to prevent cross-type collisions.
 KUZU_FILE=""
+KUZU_PATH_ERROR=""
 if [ -n "$DB" ]; then
   if [ "$DB" = ":memory:" ]; then
     KUZU_FILE=":memory:"
   elif [ "${DB##*/}" = "trajectory.db" ]; then
     KUZU_FILE="${DB%trajectory.db}world-model.kuzu"
   else
-    KUZU_FILE="${DB}.world-model.kuzu"
+    DB_BASENAME_LOWER=$(printf '%s' "${DB##*/}" | tr '[:upper:]' '[:lower:]')
+    case "$DB_BASENAME_LOWER" in
+      world-model.kuzu|*.world-model.kuzu)
+        KUZU_PATH_ERROR="trajectory DB filename is reserved for graph storage (${DB##*/})"
+        ;;
+      *)
+        KUZU_FILE="${DB}.world-model.kuzu"
+        ;;
+    esac
   fi
 fi
-# Most recent graph_db_open / graph_db_open_failed line from the server log.
+# Most recent graph event for the graph path currently being checked. The
+# server log is shared across TRAJECTORY_DB_PATH overrides, so an unscoped
+# "last event wins" lookup can report another database's graph as healthy.
 LAST_GRAPH_LINE=""
-if [ -f "$SERVER_LOG" ]; then
-  LAST_GRAPH_LINE=$(grep -E '"kind":"graph_db_open(_failed)?"' "$SERVER_LOG" 2>/dev/null | tail -1)
+if [ -f "$SERVER_LOG" ] && command -v jq >/dev/null 2>&1; then
+  LAST_GRAPH_LINE=$(jq -Rrc --arg path "$KUZU_FILE" '
+    fromjson?
+    | select(
+        (.kind == "graph_db_open" or .kind == "graph_db_open_failed")
+        and .path == $path
+      )
+  ' "$SERVER_LOG" 2>/dev/null | tail -1)
 fi
 KUZU_MODULE_DIR=""
 [ -n "$CACHE_DIR" ] && KUZU_MODULE_DIR="$CACHE_DIR/mcp/trajectory-server/node_modules/kuzu"
 
-case "$LAST_GRAPH_LINE" in
-  *graph_db_open_failed*)
-    # A failure is the latest signal. Sub-diagnose by error_message.
-    if printf '%s' "$LAST_GRAPH_LINE" | grep -qiE 'could not set lock|lock.*world-model'; then
-      fail "world-model: kuzu open FAILED — graph file is locked by another process"
-      remediate \
-        "A concurrent/orphan trajectory-server holds the single-writer lock." \
-        "Close the other Claude Code session, OR kill the orphan: pkill -f 'trajectory-server/dist/index.js'" \
-        "Then fully quit + relaunch THIS session. The .kuzu data is intact — do NOT /scan."
-    elif [ -n "$KUZU_MODULE_DIR" ] && [ ! -f "$KUZU_MODULE_DIR/index.js" ]; then
-      fail "world-model: kuzu open FAILED — native binding not installed (postinstall skipped)"
-      remediate \
-        "cd $KUZU_MODULE_DIR && node install.js" \
-        "Then fully quit + relaunch Claude Code so the server reboots with kuzu present."
-    else
-      fail "world-model: kuzu open FAILED — see server log"
-      remediate \
-        "Inspect the error: grep graph_db_open_failed $SERVER_LOG | tail -1" \
-        "If the native binding is missing: cd ${KUZU_MODULE_DIR:-<cache>/mcp/trajectory-server/node_modules/kuzu} && node install.js, then full restart." \
-        "The .kuzu data survives — only /scan if the graph file is gone."
-    fi
-    ;;
-  *graph_db_open*)
-    pass "world-model: kuzu graph opened successfully (per server log)"
-    ;;
-  *)
-    # No log evidence either way — fall back to filesystem checks.
-    if [ -n "$KUZU_MODULE_DIR" ] && [ ! -f "$KUZU_MODULE_DIR/index.js" ]; then
-      fail "world-model: kuzu native binding missing (no index.js — postinstall skipped)"
-      remediate \
-        "cd $KUZU_MODULE_DIR && node install.js" \
-        "Then fully quit + relaunch Claude Code so the server reboots with kuzu present."
-    elif [ -n "$KUZU_FILE" ] && [ ! -e "$KUZU_FILE" ]; then
-      fail "world-model: graph file missing ($KUZU_FILE)"
-      remediate \
-        "Build the world model: run /scan."
-    else
-      pass "world-model: kuzu binding present, graph file exists (no failure logged)"
-    fi
-    ;;
-esac
+if [ -n "$KUZU_PATH_ERROR" ]; then
+  fail "world-model: $KUZU_PATH_ERROR"
+  remediate \
+    "Choose a different trajectory DB filename; world-model.kuzu and *.world-model.kuzu are reserved for graph storage."
+else
+  case "$LAST_GRAPH_LINE" in
+    *graph_db_open_failed*)
+      # A failure is the latest signal. Sub-diagnose by error_message.
+      if printf '%s' "$LAST_GRAPH_LINE" | grep -qiE 'could not set lock|lock.*world-model'; then
+        fail "world-model: kuzu open FAILED — graph file is locked by another process"
+        remediate \
+          "A concurrent/orphan trajectory-server holds the single-writer lock." \
+          "Close the other Claude Code session, OR kill the orphan: pkill -f 'trajectory-server/dist/index.js'" \
+          "Then fully quit + relaunch THIS session. The .kuzu data is intact — do NOT /scan."
+      elif [ -n "$KUZU_MODULE_DIR" ] && [ ! -f "$KUZU_MODULE_DIR/index.js" ]; then
+        fail "world-model: kuzu open FAILED — native binding not installed (postinstall skipped)"
+        remediate \
+          "cd $KUZU_MODULE_DIR && node install.js" \
+          "Then fully quit + relaunch Claude Code so the server reboots with kuzu present."
+      else
+        fail "world-model: kuzu open FAILED — see server log"
+        remediate \
+          "Inspect the error: grep graph_db_open_failed $SERVER_LOG | tail -1" \
+          "If the native binding is missing: cd ${KUZU_MODULE_DIR:-<cache>/mcp/trajectory-server/node_modules/kuzu} && node install.js, then full restart." \
+          "The .kuzu data survives — only /scan if the graph file is gone."
+      fi
+      ;;
+    *graph_db_open*)
+      pass "world-model: kuzu graph opened successfully (per server log)"
+      ;;
+    *)
+      # No log evidence either way — fall back to filesystem checks.
+      if [ -n "$KUZU_MODULE_DIR" ] && [ ! -f "$KUZU_MODULE_DIR/index.js" ]; then
+        fail "world-model: kuzu native binding missing (no index.js — postinstall skipped)"
+        remediate \
+          "cd $KUZU_MODULE_DIR && node install.js" \
+          "Then fully quit + relaunch Claude Code so the server reboots with kuzu present."
+      elif [ "$KUZU_FILE" = ":memory:" ]; then
+        pass "world-model: in-memory graph configured (no persistent graph file)"
+      elif [ -n "$KUZU_FILE" ] && [ ! -e "$KUZU_FILE" ]; then
+        fail "world-model: graph file missing ($KUZU_FILE)"
+        remediate \
+          "Build the world model: run /scan."
+      else
+        pass "world-model: kuzu binding present, graph file exists (no failure logged)"
+      fi
+      ;;
+  esac
+fi
 
 # ===========================================================================
 # 5. label-config — issue_classification_labels sane (not bare default)

@@ -5,8 +5,8 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 ## Unreleased
 
 ### Changed
-- **Trajectory runtime gains a host-neutral foundation** (GH 1152): runtime context and path resolution now distinguish Claude's invocation cwd from Codex's explicit canonical project root; project loggers and trajectory DB metadata/logging can be injected without consulting Claude globals. Codex state derives under `<project>/.tmb/<plugin>/`, with traversal and symlink-escape checks, but the Codex adapter, tool dispatch, packaging, hooks, and agent loading are not shipped yet.
-- **Custom trajectory DBs no longer share one graph path** (GH 1152): `trajectory.db` keeps the historical `world-model.kuzu` sibling, while any custom DB maps to `<db-basename>.world-model.kuzu`; the standalone health check uses the same rule.
+- **Trajectory runtime gains a host-neutral foundation** (GH 1152): runtime context and path resolution now distinguish Claude's invocation cwd from Codex's explicit canonical project root; project loggers, trajectory DBs, and world-model DBs can revalidate that root at their write boundary without consulting Claude globals. Codex state derives under `<project>/.tmb/<plugin>/`; Codex writable state rejects symlink components, explicitly bound loggers refuse symlink leaves, and injected logger failures cannot change database results. The existing Claude logger keeps its historical append behavior. The Codex adapter, tool dispatch, packaging, hooks, and agent loading are not shipped yet.
+- **Custom trajectory DBs no longer share one graph path** (GH 1152): `trajectory.db` keeps the historical `world-model.kuzu` sibling, while any custom DB maps to `<db-basename>.world-model.kuzu`; graph-shaped DB filenames are rejected to prevent cross-type collisions. The standalone health check uses the same rules, ignores graph events recorded for another DB path, and treats `:memory:` as non-filesystem graph state. Existing custom-DB users keep their old `world-model.kuzu` untouched; run `/scan` once to populate the new graph path.
 
 ## v1.0.2 — 2026-07-19
 

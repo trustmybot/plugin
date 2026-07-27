@@ -405,11 +405,11 @@ var require_codegen = __commonJS({
         const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
         return `${varKind} ${this.name}${rhs};` + _n;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         if (!names[this.name.str])
           return;
         if (this.rhs)
-          this.rhs = optimizeExpr(this.rhs, names, constants);
+          this.rhs = optimizeExpr(this.rhs, names, constants2);
         return this;
       }
       get names() {
@@ -426,10 +426,10 @@ var require_codegen = __commonJS({
       render({ _n }) {
         return `${this.lhs} = ${this.rhs};` + _n;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         if (this.lhs instanceof code_1.Name && !names[this.lhs.str] && !this.sideEffects)
           return;
-        this.rhs = optimizeExpr(this.rhs, names, constants);
+        this.rhs = optimizeExpr(this.rhs, names, constants2);
         return this;
       }
       get names() {
@@ -490,8 +490,8 @@ var require_codegen = __commonJS({
       optimizeNodes() {
         return `${this.code}` ? this : void 0;
       }
-      optimizeNames(names, constants) {
-        this.code = optimizeExpr(this.code, names, constants);
+      optimizeNames(names, constants2) {
+        this.code = optimizeExpr(this.code, names, constants2);
         return this;
       }
       get names() {
@@ -520,12 +520,12 @@ var require_codegen = __commonJS({
         }
         return nodes.length > 0 ? this : void 0;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         const { nodes } = this;
         let i = nodes.length;
         while (i--) {
           const n = nodes[i];
-          if (n.optimizeNames(names, constants))
+          if (n.optimizeNames(names, constants2))
             continue;
           subtractNames(names, n.names);
           nodes.splice(i, 1);
@@ -578,12 +578,12 @@ var require_codegen = __commonJS({
           return void 0;
         return this;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         var _a2;
-        this.else = (_a2 = this.else) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants);
-        if (!(super.optimizeNames(names, constants) || this.else))
+        this.else = (_a2 = this.else) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants2);
+        if (!(super.optimizeNames(names, constants2) || this.else))
           return;
-        this.condition = optimizeExpr(this.condition, names, constants);
+        this.condition = optimizeExpr(this.condition, names, constants2);
         return this;
       }
       get names() {
@@ -606,10 +606,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.iteration})` + super.render(opts);
       }
-      optimizeNames(names, constants) {
-        if (!super.optimizeNames(names, constants))
+      optimizeNames(names, constants2) {
+        if (!super.optimizeNames(names, constants2))
           return;
-        this.iteration = optimizeExpr(this.iteration, names, constants);
+        this.iteration = optimizeExpr(this.iteration, names, constants2);
         return this;
       }
       get names() {
@@ -645,10 +645,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
       }
-      optimizeNames(names, constants) {
-        if (!super.optimizeNames(names, constants))
+      optimizeNames(names, constants2) {
+        if (!super.optimizeNames(names, constants2))
           return;
-        this.iterable = optimizeExpr(this.iterable, names, constants);
+        this.iterable = optimizeExpr(this.iterable, names, constants2);
         return this;
       }
       get names() {
@@ -690,11 +690,11 @@ var require_codegen = __commonJS({
         (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNodes();
         return this;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         var _a2, _b;
-        super.optimizeNames(names, constants);
-        (_a2 = this.catch) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants);
-        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants);
+        super.optimizeNames(names, constants2);
+        (_a2 = this.catch) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants2);
+        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants2);
         return this;
       }
       get names() {
@@ -995,7 +995,7 @@ var require_codegen = __commonJS({
     function addExprNames(names, from) {
       return from instanceof code_1._CodeOrName ? addNames(names, from.names) : names;
     }
-    function optimizeExpr(expr, names, constants) {
+    function optimizeExpr(expr, names, constants2) {
       if (expr instanceof code_1.Name)
         return replaceName(expr);
       if (!canOptimize(expr))
@@ -1010,14 +1010,14 @@ var require_codegen = __commonJS({
         return items;
       }, []));
       function replaceName(n) {
-        const c = constants[n.str];
+        const c = constants2[n.str];
         if (c === void 0 || names[n.str] !== 1)
           return n;
         delete names[n.str];
         return c;
       }
       function canOptimize(e) {
-        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants[c.str] !== void 0);
+        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants2[c.str] !== void 0);
       }
     }
     function subtractNames(names, from) {
@@ -20845,12 +20845,20 @@ import { performance } from "node:perf_hooks";
 import { DatabaseSync } from "node:sqlite";
 
 // src/logger.ts
-import { appendFileSync, mkdirSync } from "node:fs";
+import {
+  appendFileSync,
+  closeSync,
+  constants,
+  lstatSync as lstatSync2,
+  mkdirSync,
+  openSync
+} from "node:fs";
 import { join as join2 } from "node:path";
 
 // src/platform.ts
 import {
   existsSync,
+  lstatSync,
   readFileSync,
   realpathSync,
   statSync
@@ -20890,9 +20898,13 @@ function resolveClaudeDbPath(opts) {
   const env = opts?.env ?? process.env;
   const cwd = opts?.cwd ?? process.cwd();
   const home = opts?.home ?? homedir();
+  const pluginName = resolveClaudePluginName(env);
+  return resolveClaudeDbPathForPlugin(pluginName, { env, cwd, home });
+}
+function resolveClaudeDbPathForPlugin(pluginName, opts) {
+  const { env, cwd, home } = opts;
   const override = env["TRAJECTORY_DB_PATH"];
   if (override && override.trim().length > 0) return override;
-  const pluginName = resolveClaudePluginName(env);
   const found = findExistingClaudeDbUp(cwd, pluginName, { home });
   if (found) return found;
   return join(cwd, ".claude", pluginName, "trajectory.db");
@@ -20905,8 +20917,37 @@ function resolveClaudeLogDir(opts) {
 function resolveGraphDbPath(trajectoryDbPath) {
   if (trajectoryDbPath === ":memory:") return ":memory:";
   const dbName = basename(trajectoryDbPath);
+  const normalizedDbName = dbName.toLowerCase();
+  if (normalizedDbName === "world-model.kuzu" || normalizedDbName.endsWith(".world-model.kuzu")) {
+    throw new Error(
+      `Trajectory DB filename "${dbName}" is reserved for graph storage`
+    );
+  }
   const graphName = dbName === "trajectory.db" ? "world-model.kuzu" : `${dbName}.world-model.kuzu`;
   return join(dirname(trajectoryDbPath), graphName);
+}
+function assertSafeProjectWritePath(projectRoot, path2, label = "Codex writable path") {
+  if (!isAbsolute(projectRoot)) {
+    throw new Error(`${label} project root must be an absolute path`);
+  }
+  if (!isAbsolute(path2)) {
+    throw new Error(`${label} must be an absolute path`);
+  }
+  let rootStat;
+  try {
+    rootStat = lstatSync(projectRoot);
+  } catch {
+    throw new Error(`${label} project root must remain an existing directory`);
+  }
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw new Error(`${label} project root must remain a real directory`);
+  }
+  const canonicalRoot = realpathSync(projectRoot);
+  if (canonicalRoot !== projectRoot) {
+    throw new Error(`${label} project root changed after canonicalization`);
+  }
+  assertPathContained(canonicalRoot, path2, label);
+  assertExistingAncestorContained(canonicalRoot, path2, label);
 }
 function findExistingClaudeDbUp(startDir, pluginName, opts) {
   const home = opts?.home ?? homedir();
@@ -20922,12 +20963,45 @@ function findExistingClaudeDbUp(startDir, pluginName, opts) {
   }
   return null;
 }
+function assertPathContained(root, path2, label) {
+  const rel = relative(root, path2);
+  if (rel === "" || !rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel)) {
+    return;
+  }
+  throw new Error(`${label} escapes the trusted project root`);
+}
+function assertExistingAncestorContained(root, path2, label) {
+  const rel = relative(root, path2);
+  const parts = rel === "" ? [] : rel.split(sep);
+  let current = root;
+  for (let index = 0; index < parts.length; index += 1) {
+    current = join(current, parts[index]);
+    let currentStat;
+    try {
+      currentStat = lstatSync(current);
+    } catch (error2) {
+      if (error2.code === "ENOENT") {
+        return;
+      }
+      throw error2;
+    }
+    if (currentStat.isSymbolicLink()) {
+      throw new Error(`${label} contains a symbolic link in writable state`);
+    }
+    if (index < parts.length - 1 && !currentStat.isDirectory()) {
+      throw new Error(`${label} has a non-directory ancestor`);
+    }
+  }
+  if (parts.length > 0) {
+    assertPathContained(root, realpathSync(path2), label);
+  }
+}
 function freezePlugin(plugin) {
   return Object.freeze(plugin);
 }
 
 // src/logger.ts
-function createProjectLogger(opts) {
+function createLogger(opts, appendLine) {
   let logDirReady = false;
   try {
     mkdirSync(opts.logDir, { recursive: true });
@@ -20940,7 +21014,7 @@ function createProjectLogger(opts) {
     if (!logDirReady) return;
     try {
       const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-      appendFileSync(serverLogPath, line);
+      appendLine(serverLogPath, line);
     } catch {
     }
   };
@@ -20948,7 +21022,7 @@ function createProjectLogger(opts) {
     if (!logDirReady) return;
     try {
       const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-      appendFileSync(sqlLogPath, line);
+      appendLine(sqlLogPath, line);
     } catch {
     }
   } : () => {
@@ -20963,10 +21037,13 @@ function createProjectLogger(opts) {
 var defaultLogger = null;
 function getDefaultLogger() {
   if (defaultLogger === null) {
-    defaultLogger = createProjectLogger({
-      logDir: resolveClaudeLogDir(),
-      sqlEnabled: process.env["TMB_DEBUG_SQL"] === "1"
-    });
+    defaultLogger = createLogger(
+      {
+        logDir: resolveClaudeLogDir(),
+        sqlEnabled: process.env["TMB_DEBUG_SQL"] === "1"
+      },
+      appendFileSync
+    );
   }
   return defaultLogger;
 }
@@ -21009,6 +21086,13 @@ var TrajectoryDB = class {
     this.pluginVersion = resolvedDependencies.pluginVersion;
     this.serverLog = resolvedDependencies.serverLog;
     this.sqlLog = resolvedDependencies.sqlLog;
+    if (dbPath2 !== ":memory:" && resolvedDependencies.trustedProjectRoot !== void 0) {
+      assertSafeProjectWritePath(
+        resolvedDependencies.trustedProjectRoot,
+        dbPath2,
+        "Trajectory database"
+      );
+    }
     this.db = new DatabaseSync(dbPath2);
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec("PRAGMA foreign_keys = ON");
@@ -21209,11 +21293,11 @@ function resolveDependencies(dependencies) {
   if (dependencies === void 0) {
     return {
       pluginVersion: resolvePluginVersion(process.env),
-      serverLog,
-      sqlLog
+      serverLog: noThrowTrajectoryLog(serverLog),
+      sqlLog: noThrowTrajectoryLog(sqlLog)
     };
   }
-  if (dependencies.pluginVersion !== null && (typeof dependencies.pluginVersion !== "string" || dependencies.pluginVersion.length === 0)) {
+  if (dependencies.pluginVersion !== null && (typeof dependencies.pluginVersion !== "string" || dependencies.pluginVersion.trim().length === 0)) {
     throw new TypeError(
       "TrajectoryDB dependencies.pluginVersion must be a non-empty string or null"
     );
@@ -21224,7 +21308,20 @@ function resolveDependencies(dependencies) {
   if (typeof dependencies.sqlLog !== "function") {
     throw new TypeError("TrajectoryDB dependencies.sqlLog must be a function");
   }
-  return dependencies;
+  return {
+    pluginVersion: dependencies.pluginVersion,
+    serverLog: noThrowTrajectoryLog(dependencies.serverLog),
+    sqlLog: noThrowTrajectoryLog(dependencies.sqlLog),
+    trustedProjectRoot: dependencies.trustedProjectRoot
+  };
+}
+function noThrowTrajectoryLog(log) {
+  return (entry) => {
+    try {
+      log(entry);
+    } catch {
+    }
+  };
 }
 function nowISO() {
   return (/* @__PURE__ */ new Date()).toISOString();
@@ -30342,13 +30439,29 @@ function sleepSync(ms) {
 var WorldModelGraph = class _WorldModelGraph {
   db;
   conn;
-  constructor(dbPath2) {
+  constructor(dbPath2, opts = {}) {
+    const validateWritePath = () => {
+      if (dbPath2 !== ":memory:" && opts.trustedProjectRoot !== void 0) {
+        assertSafeProjectWritePath(
+          opts.trustedProjectRoot,
+          dbPath2,
+          "World-model database"
+        );
+      }
+    };
+    validateWritePath();
     if (dbPath2 !== ":memory:" && !existsSync6(dirname8(dbPath2))) {
       mkdirSync5(dirname8(dbPath2), { recursive: true });
     }
+    validateWritePath();
     const req = createRequire(import.meta.url);
     const kuzu = req("kuzu");
-    this.db = _WorldModelGraph.openWithRetry(kuzu, dbPath2);
+    this.db = _WorldModelGraph.openWithRetry(
+      kuzu,
+      dbPath2,
+      KUZU_OPEN_MAX_ATTEMPTS,
+      validateWritePath
+    );
     try {
       this.conn = new kuzu.Connection(this.db);
       this.applySchema();
@@ -30364,10 +30477,12 @@ var WorldModelGraph = class _WorldModelGraph {
   // open fails on write-lock contention. A non-lock error (missing binary,
   // corrupt file) is rethrown immediately so it still surfaces as
   // graph_db_open_failed. (#590)
-  static openWithRetry(kuzu, dbPath2, maxAttempts = KUZU_OPEN_MAX_ATTEMPTS) {
+  static openWithRetry(kuzu, dbPath2, maxAttempts = KUZU_OPEN_MAX_ATTEMPTS, beforeOpen = () => {
+  }) {
     let lastErr;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
+        beforeOpen();
         return new kuzu.Database(dbPath2);
       } catch (e) {
         if (!isKuzuLockError(e)) throw e;

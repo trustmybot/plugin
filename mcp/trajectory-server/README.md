@@ -22,9 +22,13 @@ node --test dist/test/*.test.js
 
 | Variable | Default | Description |
 |---|---|---|
-| `TRAJECTORY_DB_PATH` | walk-up from `<cwd>` to find an existing `.claude/<plugin-name>/trajectory.db`; fall back to `<cwd>/.claude/<plugin-name>/trajectory.db` | Absolute path to the SQLite database, or `:memory:` for ephemeral runs |
+| `TRAJECTORY_DB_PATH` | walk-up from `<cwd>` to find an existing `.claude/<plugin-name>/trajectory.db`; fall back to `<cwd>/.claude/<plugin-name>/trajectory.db` | Absolute path to the SQLite database, or `:memory:` for ephemeral runs. Filenames `world-model.kuzu` and `*.world-model.kuzu` are reserved for graph storage and rejected. |
 
 Default is project-local, per-user, gitignored (the plugin-root `.gitignore` excludes `.claude/`). The `<plugin-name>` segment is read from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field. Both stable and RC channels currently ship `name=tmb`, so both resolve to `.claude/tmb/` — install only one channel at a time to avoid DB collision. The walk-up handles workspace-pattern projects where the live DB lives at the workspace root above multiple inner repos (#2872). Set the env var to override for CI, isolated tests, or shared testbeds.
+
+`TrajectoryDB` has two construction modes. The existing one-argument constructor keeps Claude behavior and discovers `plugin_version` from `CLAUDE_PLUGIN_ROOT`. Supplying `TrajectoryDBDependencies` switches to an authoritative explicit mode: the provided `pluginVersion`, `serverLog`, and `sqlLog` are used without falling back to Claude process state; `pluginVersion: null` deliberately disables version synchronization. Logger callback failures are isolated and never change a database operation's result.
+
+Codex-bound consumers pass the context's canonical `projectRoot` as `trustedProjectRoot` when creating a project logger, `TrajectoryDB`, or `WorldModelGraph`. Each consumer then revalidates its target immediately before creating or opening state. Explicit project loggers also reject symlink leaves and create new log files with mode `0600` on POSIX; the legacy Claude singleton keeps its existing append semantics. This is a fail-closed guard against path replacement between context resolution and use, not a claim of atomic protection against a same-user filesystem mutation in the final syscall window.
 
 ## Tool families
 
@@ -62,4 +66,4 @@ where `<type>` is one of `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `pe
 
 Current baseline: `TARGET_SCHEMA_VERSION = 28` (see `src/db.ts`). `schema.sql` is applied on open via `CREATE TABLE IF NOT EXISTS` semantics. On open, the stored `schema_version` is compared against `TARGET_SCHEMA_VERSION` via `db.ts:runMigrations`; if behind, a `.bak` snapshot is written before any migration runs, then migrations execute in sequence and `schema_version` is updated on success. Rollback is via the `.bak` file. Migration correctness is covered by `src/test/schema-upgrade.test.ts`.
 
-`plugin_meta` tracks `schema_version` + `plugin_version`. `plugin_version` is synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — fresh and existing DBs auto-update without a migration; the schema placeholder `'0.0.0'` applies only when `CLAUDE_PLUGIN_ROOT` is unset (e.g. test runs).
+`plugin_meta` tracks `schema_version` + `plugin_version`. In the default Claude constructor mode, `plugin_version` is synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every construction, so fresh and existing DBs auto-update without a migration. Explicit dependency mode instead treats its supplied version as authoritative; `null` performs no synchronization. The schema placeholder `'0.0.0'` applies when no version is supplied.

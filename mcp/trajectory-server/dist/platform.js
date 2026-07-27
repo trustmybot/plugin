@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync, statSync, } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, realpathSync, statSync, } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, sep, } from 'node:path';
 /**
@@ -39,10 +39,14 @@ export function resolveClaudeDbPath(opts) {
     const env = opts?.env ?? process.env;
     const cwd = opts?.cwd ?? process.cwd();
     const home = opts?.home ?? homedir();
+    const pluginName = resolveClaudePluginName(env);
+    return resolveClaudeDbPathForPlugin(pluginName, { env, cwd, home });
+}
+function resolveClaudeDbPathForPlugin(pluginName, opts) {
+    const { env, cwd, home } = opts;
     const override = env['TRAJECTORY_DB_PATH'];
     if (override && override.trim().length > 0)
         return override;
-    const pluginName = resolveClaudePluginName(env);
     const found = findExistingClaudeDbUp(cwd, pluginName, { home });
     if (found)
         return found;
@@ -58,7 +62,7 @@ export function createClaudeRuntimeContext(opts) {
     const cwd = opts?.cwd ?? process.cwd();
     const home = opts?.home ?? homedir();
     const plugin = readClaudePluginMetadata(env);
-    const trajectoryDb = resolveClaudeDbPath({ env, cwd, home });
+    const trajectoryDb = resolveClaudeDbPathForPlugin(plugin.name, { env, cwd, home });
     const stateDir = trajectoryDb === ':memory:' ? null : dirname(trajectoryDb);
     const paths = freezePaths({
         stateDir,
@@ -96,8 +100,9 @@ export function deriveCodexRuntimePaths(input) {
  * Load a Codex runtime context from explicit adapter input.
  *
  * This function is read-only but not pure: it requires both roots to exist,
- * canonicalizes them with realpath, and rejects existing symlink ancestors
- * that would move derived project state outside the trusted project root.
+ * canonicalizes them with realpath, and rejects symlinks anywhere below the
+ * canonical project root in a derived writable path. Project-root aliases are
+ * resolved before this check; mutable state itself must use real directories.
  * It never reads Claude environment variables or either platform manifest.
  */
 export function createCodexRuntimeContext(input) {
@@ -109,10 +114,14 @@ export function createCodexRuntimeContext(input) {
         projectRoot,
         pluginName: input.pluginName,
     });
-    for (const [label, path] of Object.entries(paths)) {
+    const writablePaths = {
+        ...paths,
+        serverLog: join(paths.logDir, 'mcp-server.log'),
+        sqlLog: join(paths.logDir, 'sql.log'),
+    };
+    for (const [label, path] of Object.entries(writablePaths)) {
         if (path !== null) {
-            assertPathContained(projectRoot, path, `Codex ${label}`);
-            assertExistingAncestorContained(projectRoot, path, `Codex ${label}`);
+            assertSafeProjectWritePath(projectRoot, path, `Codex ${label}`);
         }
     }
     const plugin = freezePlugin({
@@ -132,16 +141,55 @@ export function createCodexRuntimeContext(input) {
  *
  * The standard trajectory.db retains its historical sibling name. Custom DB
  * names include their basename so two overrides in one directory cannot share
- * a graph accidentally.
+ * a graph accidentally. Graph-shaped DB filenames are reserved so one
+ * runtime's graph output cannot also be another runtime's SQLite input.
  */
 export function resolveGraphDbPath(trajectoryDbPath) {
     if (trajectoryDbPath === ':memory:')
         return ':memory:';
     const dbName = basename(trajectoryDbPath);
+    const normalizedDbName = dbName.toLowerCase();
+    if (normalizedDbName === 'world-model.kuzu' ||
+        normalizedDbName.endsWith('.world-model.kuzu')) {
+        throw new Error(`Trajectory DB filename "${dbName}" is reserved for graph storage`);
+    }
     const graphName = dbName === 'trajectory.db'
         ? 'world-model.kuzu'
         : `${dbName}.world-model.kuzu`;
     return join(dirname(trajectoryDbPath), graphName);
+}
+/**
+ * Revalidate a Codex write target at the point of use.
+ *
+ * Runtime-context creation is deliberately side-effect free, so its validation
+ * cannot authorize a later filesystem write by itself. Writable consumers call
+ * this immediately before opening or creating state. This closes deterministic
+ * path replacement between context creation and use; it does not claim atomic
+ * protection against a same-user replacement in the final syscall window.
+ */
+export function assertSafeProjectWritePath(projectRoot, path, label = 'Codex writable path') {
+    if (!isAbsolute(projectRoot)) {
+        throw new Error(`${label} project root must be an absolute path`);
+    }
+    if (!isAbsolute(path)) {
+        throw new Error(`${label} must be an absolute path`);
+    }
+    let rootStat;
+    try {
+        rootStat = lstatSync(projectRoot);
+    }
+    catch {
+        throw new Error(`${label} project root must remain an existing directory`);
+    }
+    if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+        throw new Error(`${label} project root must remain a real directory`);
+    }
+    const canonicalRoot = realpathSync(projectRoot);
+    if (canonicalRoot !== projectRoot) {
+        throw new Error(`${label} project root changed after canonicalization`);
+    }
+    assertPathContained(canonicalRoot, path, label);
+    assertExistingAncestorContained(canonicalRoot, path, label);
 }
 function findExistingClaudeDbUp(startDir, pluginName, opts) {
     const home = opts?.home ?? homedir();
@@ -202,16 +250,31 @@ function assertPathContained(root, path, label) {
     throw new Error(`${label} escapes the trusted project root`);
 }
 function assertExistingAncestorContained(root, path, label) {
-    let ancestor = path;
-    while (!existsSync(ancestor)) {
-        const parent = dirname(ancestor);
-        if (parent === ancestor) {
-            throw new Error(`${label} has no existing ancestor`);
+    const rel = relative(root, path);
+    const parts = rel === '' ? [] : rel.split(sep);
+    let current = root;
+    for (let index = 0; index < parts.length; index += 1) {
+        current = join(current, parts[index]);
+        let currentStat;
+        try {
+            currentStat = lstatSync(current);
         }
-        ancestor = parent;
+        catch (error) {
+            if (error.code === 'ENOENT') {
+                return;
+            }
+            throw error;
+        }
+        if (currentStat.isSymbolicLink()) {
+            throw new Error(`${label} contains a symbolic link in writable state`);
+        }
+        if (index < parts.length - 1 && !currentStat.isDirectory()) {
+            throw new Error(`${label} has a non-directory ancestor`);
+        }
     }
-    const canonicalAncestor = realpathSync(ancestor);
-    assertPathContained(root, canonicalAncestor, label);
+    if (parts.length > 0) {
+        assertPathContained(root, realpathSync(path), label);
+    }
 }
 function freezePlugin(plugin) {
     return Object.freeze(plugin);

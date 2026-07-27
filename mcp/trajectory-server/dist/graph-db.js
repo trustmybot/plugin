@@ -11,6 +11,7 @@
 import { createRequire } from 'node:module';
 import { mkdirSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { assertSafeProjectWritePath } from './platform.js';
 export { resolveGraphDbPath } from './platform.js';
 function single(result) {
     return Array.isArray(result) ? result[0] : result;
@@ -35,16 +36,23 @@ function sleepSync(ms) {
 export class WorldModelGraph {
     db;
     conn;
-    constructor(dbPath) {
+    constructor(dbPath, opts = {}) {
+        const validateWritePath = () => {
+            if (dbPath !== ':memory:' && opts.trustedProjectRoot !== undefined) {
+                assertSafeProjectWritePath(opts.trustedProjectRoot, dbPath, 'World-model database');
+            }
+        };
+        validateWritePath();
         if (dbPath !== ':memory:' && !existsSync(dirname(dbPath))) {
             mkdirSync(dirname(dbPath), { recursive: true });
         }
+        validateWritePath();
         // Lazy-require kuzu so a missing/broken native binding fails HERE (caught
         // by index.ts's try/catch → graph=null) rather than at module load, which
         // would crash the whole MCP server. (#271)
         const req = createRequire(import.meta.url);
         const kuzu = req('kuzu');
-        this.db = WorldModelGraph.openWithRetry(kuzu, dbPath);
+        this.db = WorldModelGraph.openWithRetry(kuzu, dbPath, KUZU_OPEN_MAX_ATTEMPTS, validateWritePath);
         // A throw after the Database opened (Connection creation or applySchema)
         // would otherwise leak the open db handle — and its file lock — for the
         // process's lifetime, so the next open (this session or another) can never
@@ -67,10 +75,11 @@ export class WorldModelGraph {
     // open fails on write-lock contention. A non-lock error (missing binary,
     // corrupt file) is rethrown immediately so it still surfaces as
     // graph_db_open_failed. (#590)
-    static openWithRetry(kuzu, dbPath, maxAttempts = KUZU_OPEN_MAX_ATTEMPTS) {
+    static openWithRetry(kuzu, dbPath, maxAttempts = KUZU_OPEN_MAX_ATTEMPTS, beforeOpen = () => { }) {
         let lastErr;
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
             try {
+                beforeOpen();
                 return new kuzu.Database(dbPath);
             }
             catch (e) {

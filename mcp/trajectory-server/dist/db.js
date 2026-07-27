@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logger.js';
-import { resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
+import { assertSafeProjectWritePath, resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
 const TARGET_SCHEMA_VERSION = 28;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -67,6 +67,10 @@ export class TrajectoryDB {
         this.pluginVersion = resolvedDependencies.pluginVersion;
         this.serverLog = resolvedDependencies.serverLog;
         this.sqlLog = resolvedDependencies.sqlLog;
+        if (dbPath !== ':memory:' &&
+            resolvedDependencies.trustedProjectRoot !== undefined) {
+            assertSafeProjectWritePath(resolvedDependencies.trustedProjectRoot, dbPath, 'Trajectory database');
+        }
         this.db = new DatabaseSync(dbPath);
         this.db.exec('PRAGMA journal_mode = WAL');
         this.db.exec('PRAGMA foreign_keys = ON');
@@ -300,13 +304,13 @@ function resolveDependencies(dependencies) {
     if (dependencies === undefined) {
         return {
             pluginVersion: resolvePluginVersion(process.env),
-            serverLog: defaultServerLog,
-            sqlLog: defaultSqlLog,
+            serverLog: noThrowTrajectoryLog(defaultServerLog),
+            sqlLog: noThrowTrajectoryLog(defaultSqlLog),
         };
     }
     if (dependencies.pluginVersion !== null &&
         (typeof dependencies.pluginVersion !== 'string' ||
-            dependencies.pluginVersion.length === 0)) {
+            dependencies.pluginVersion.trim().length === 0)) {
         throw new TypeError('TrajectoryDB dependencies.pluginVersion must be a non-empty string or null');
     }
     if (typeof dependencies.serverLog !== 'function') {
@@ -315,7 +319,22 @@ function resolveDependencies(dependencies) {
     if (typeof dependencies.sqlLog !== 'function') {
         throw new TypeError('TrajectoryDB dependencies.sqlLog must be a function');
     }
-    return dependencies;
+    return {
+        pluginVersion: dependencies.pluginVersion,
+        serverLog: noThrowTrajectoryLog(dependencies.serverLog),
+        sqlLog: noThrowTrajectoryLog(dependencies.sqlLog),
+        trustedProjectRoot: dependencies.trustedProjectRoot,
+    };
+}
+function noThrowTrajectoryLog(log) {
+    return (entry) => {
+        try {
+            log(entry);
+        }
+        catch {
+            // Observability must never change a database operation's result.
+        }
+    };
 }
 export function nowISO() {
     return new Date().toISOString();

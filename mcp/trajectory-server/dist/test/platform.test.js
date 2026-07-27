@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
+import { WorldModelGraph } from '../graph-db.js';
 import { createProjectLogger } from '../logger.js';
 import { createClaudeRuntimeContext, createCodexRuntimeContext, deriveCodexRuntimePaths, resolveGraphDbPath, } from '../platform.js';
 function fixture() {
@@ -132,10 +133,69 @@ describe('runtime contexts', () => {
                 pluginRoot: plugin,
                 pluginName: 'tmb',
                 pluginVersion: '1.1.0',
-            }), /escapes the trusted project root/);
+            }), /contains a symbolic link in writable state/);
         }
         finally {
             rmSync(root, { recursive: true, force: true });
+        }
+    });
+    it('rejects escaping and dangling symlinks at every derived Codex write target', () => {
+        const cases = [
+            { name: 'state root', targetParts: ['.tmb'], kind: 'dir' },
+            { name: 'plugin state', targetParts: ['.tmb', 'tmb'], kind: 'dir' },
+            {
+                name: 'trajectory DB',
+                targetParts: ['.tmb', 'tmb', 'trajectory.db'],
+                kind: 'file',
+                dangling: true,
+            },
+            {
+                name: 'graph DB',
+                targetParts: ['.tmb', 'tmb', 'world-model.kuzu'],
+                kind: 'file',
+                dangling: true,
+            },
+            { name: 'log directory', targetParts: ['.tmb', 'tmb', 'logs'], kind: 'dir' },
+            {
+                name: 'server log',
+                targetParts: ['.tmb', 'tmb', 'logs', 'mcp-server.log'],
+                kind: 'file',
+            },
+            {
+                name: 'SQL log',
+                targetParts: ['.tmb', 'tmb', 'logs', 'sql.log'],
+                kind: 'file',
+                dangling: true,
+            },
+        ];
+        for (const testCase of cases) {
+            const { root, project, plugin } = fixture();
+            try {
+                const target = join(project, ...testCase.targetParts);
+                mkdirSync(join(target, '..'), { recursive: true });
+                const outside = join(root, `outside-${testCase.name.replaceAll(' ', '-')}`);
+                if (testCase.dangling !== true) {
+                    if (testCase.kind === 'dir') {
+                        mkdirSync(outside);
+                    }
+                    else {
+                        writeFileSync(outside, 'sentinel');
+                    }
+                }
+                symlinkSync(outside, target, testCase.kind);
+                assert.throws(() => createCodexRuntimeContext({
+                    projectRoot: project,
+                    pluginRoot: plugin,
+                    pluginName: 'tmb',
+                    pluginVersion: '1.1.0',
+                }), /escapes the trusted project root|symbolic link/, testCase.name);
+                if (testCase.dangling === true) {
+                    assert.equal(existsSync(outside), false, `${testCase.name} target must stay absent`);
+                }
+            }
+            finally {
+                rmSync(root, { recursive: true, force: true });
+            }
         }
     });
     it('initializes two Codex DBs only under their respective .tmb state roots', () => {
@@ -147,28 +207,71 @@ describe('runtime contexts', () => {
             mkdirSync(plugin);
             mkdirSync(projectA);
             mkdirSync(projectB);
-            for (const projectRoot of [projectA, projectB]) {
-                const context = createCodexRuntimeContext({
-                    projectRoot,
-                    pluginRoot: plugin,
-                    pluginName: 'tmb',
-                    pluginVersion: '1.1.0',
-                });
+            const contexts = [projectA, projectB].map((projectRoot) => createCodexRuntimeContext({
+                projectRoot,
+                pluginRoot: plugin,
+                pluginName: 'tmb',
+                pluginVersion: '1.1.0',
+            }));
+            for (const context of contexts) {
                 const logger = createProjectLogger({
                     logDir: context.paths.logDir,
-                    sqlEnabled: false,
+                    sqlEnabled: true,
+                    trustedProjectRoot: context.projectRoot,
                 });
+                logger.serverLog({ kind: 'project-isolation' });
+                logger.sqlLog({ kind: 'project-isolation' });
                 const db = new TrajectoryDB(context.paths.trajectoryDb, {
                     pluginVersion: context.plugin.version,
                     serverLog: logger.serverLog,
                     sqlLog: logger.sqlLog,
+                    trustedProjectRoot: context.projectRoot,
                 });
                 db.close();
             }
+            assert.notEqual(contexts[0].paths.trajectoryDb, contexts[1].paths.trajectoryDb);
+            assert.notEqual(contexts[0].paths.graphDb, contexts[1].paths.graphDb);
+            assert.notEqual(contexts[0].paths.logDir, contexts[1].paths.logDir);
             assert.ok(existsSync(join(projectA, '.tmb', 'tmb', 'trajectory.db')));
             assert.ok(existsSync(join(projectB, '.tmb', 'tmb', 'trajectory.db')));
+            for (const projectRoot of [projectA, projectB]) {
+                assert.ok(existsSync(join(projectRoot, '.tmb', 'tmb', 'logs', 'mcp-server.log')));
+                assert.ok(existsSync(join(projectRoot, '.tmb', 'tmb', 'logs', 'sql.log')));
+            }
             assert.ok(!existsSync(join(projectA, '.claude')));
             assert.ok(!existsSync(join(projectB, '.claude')));
+        }
+        finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+    it('revalidates Codex write targets after runtime-context creation', () => {
+        const { root, project, plugin } = fixture();
+        try {
+            const outside = join(root, 'outside-state');
+            mkdirSync(outside);
+            const context = createCodexRuntimeContext({
+                projectRoot: project,
+                pluginRoot: plugin,
+                pluginName: 'tmb',
+                pluginVersion: '1.1.0',
+            });
+            symlinkSync(outside, join(project, '.tmb'), 'dir');
+            assert.throws(() => createProjectLogger({
+                logDir: context.paths.logDir,
+                sqlEnabled: true,
+                trustedProjectRoot: context.projectRoot,
+            }), /symbolic link/);
+            assert.throws(() => new TrajectoryDB(context.paths.trajectoryDb, {
+                pluginVersion: context.plugin.version,
+                serverLog: () => { },
+                sqlLog: () => { },
+                trustedProjectRoot: context.projectRoot,
+            }), /symbolic link/);
+            assert.throws(() => new WorldModelGraph(context.paths.graphDb, {
+                trustedProjectRoot: context.projectRoot,
+            }), /symbolic link/);
+            assert.equal(existsSync(join(outside, 'tmb')), false);
         }
         finally {
             rmSync(root, { recursive: true, force: true });
@@ -182,13 +285,23 @@ describe('path derivation', () => {
             pluginName: 'tmb',
         });
         assert.equal(paths.trajectoryDb, join('/does/not/need/to/exist', '.tmb', 'tmb', 'trajectory.db'));
+        assert.throws(() => deriveCodexRuntimePaths({
+            projectRoot: 'relative',
+            pluginName: 'tmb',
+        }), /absolute path/);
     });
-    it('maps graph paths one-to-one without self-collision', () => {
+    it('maps graph paths one-to-one and reserves graph-shaped DB names', () => {
         assert.equal(resolveGraphDbPath(':memory:'), ':memory:');
         assert.equal(resolveGraphDbPath('/project/state/trajectory.db'), '/project/state/world-model.kuzu');
         assert.equal(resolveGraphDbPath('/project/state/custom.db'), '/project/state/custom.db.world-model.kuzu');
-        assert.equal(resolveGraphDbPath('/project/state/world-model.kuzu'), '/project/state/world-model.kuzu.world-model.kuzu');
         assert.notEqual(resolveGraphDbPath('/project/state/a.db'), resolveGraphDbPath('/project/state/b.db'));
+        for (const reserved of [
+            '/project/state/world-model.kuzu',
+            '/project/state/custom.db.world-model.kuzu',
+            '/project/state/WORLD-MODEL.KUZU',
+        ]) {
+            assert.throws(() => resolveGraphDbPath(reserved), /reserved for graph storage/);
+        }
     });
 });
 //# sourceMappingURL=platform.test.js.map

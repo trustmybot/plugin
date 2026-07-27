@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, existsSync, readFileSync, chmodSync, mkdirSync, rmdirSync, rmSync, } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, existsSync, readFileSync, chmodSync, mkdirSync, realpathSync, rmdirSync, rmSync, statSync, symlinkSync, writeFileSync, } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 describe('logger', () => {
@@ -22,6 +23,26 @@ describe('logger', () => {
             rmSync(tmpHome, { recursive: true, force: true });
         }
     });
+    it('does not create Claude state when the DB module is imported in a fresh process', () => {
+        const tmpHome = mkdtempSync(join(tmpdir(), 'tmb-lazy-db-'));
+        try {
+            const dbModuleUrl = new URL('../db.js', import.meta.url).href;
+            const result = spawnSync(process.execPath, [
+                '--experimental-sqlite',
+                '--input-type=module',
+                '-e',
+                `await import(${JSON.stringify(dbModuleUrl)})`,
+            ], {
+                encoding: 'utf8',
+                env: { ...process.env, HOME: tmpHome },
+            });
+            assert.equal(result.status, 0, result.stderr);
+            assert.equal(existsSync(join(tmpHome, '.claude')), false, 'importing db.js must not create Claude state');
+        }
+        finally {
+            rmSync(tmpHome, { recursive: true, force: true });
+        }
+    });
     it('createProjectLogger binds server and SQL logs to an explicit project path', async () => {
         const root = mkdtempSync(join(tmpdir(), 'tmb-project-logger-'));
         const logDir = join(root, '.tmb', 'tmb', 'logs');
@@ -38,6 +59,10 @@ describe('logger', () => {
             assert.equal(sqlEntry.ok, true);
             assert.match(serverEntry.ts, /^\d{4}-\d{2}-\d{2}T/);
             assert.match(sqlEntry.ts, /^\d{4}-\d{2}-\d{2}T/);
+            if (process.platform !== 'win32') {
+                assert.equal(statSync(join(logDir, 'mcp-server.log')).mode & 0o777, 0o600);
+                assert.equal(statSync(join(logDir, 'sql.log')).mode & 0o777, 0o600);
+            }
         }
         finally {
             rmSync(root, { recursive: true, force: true });
@@ -68,6 +93,82 @@ describe('logger', () => {
             else {
                 process.env['TMB_DEBUG_SQL'] = savedSql;
             }
+        }
+    });
+    it('never follows project log leaf symlinks outside the log directory', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'tmb-log-symlink-'));
+        try {
+            const logDir = join(root, 'project', '.tmb', 'tmb', 'logs');
+            const outside = join(root, 'outside');
+            mkdirSync(logDir, { recursive: true });
+            mkdirSync(outside);
+            const serverTarget = join(outside, 'server.log');
+            const sqlTarget = join(outside, 'sql.log');
+            writeFileSync(serverTarget, 'server-sentinel');
+            symlinkSync(serverTarget, join(logDir, 'mcp-server.log'), 'file');
+            symlinkSync(sqlTarget, join(logDir, 'sql.log'), 'file');
+            const { createProjectLogger } = await import('../logger.js');
+            const logger = createProjectLogger({ logDir, sqlEnabled: true });
+            assert.doesNotThrow(() => logger.serverLog({ kind: 'server-test' }));
+            assert.doesNotThrow(() => logger.sqlLog({ kind: 'sql-test' }));
+            assert.equal(readFileSync(serverTarget, 'utf8'), 'server-sentinel');
+            assert.equal(existsSync(sqlTarget), false, 'dangling SQL-log target must stay absent');
+        }
+        finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+    it('stops project logging if an ancestor is replaced after logger creation', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'tmb-log-ancestor-swap-'));
+        try {
+            const projectRoot = join(root, 'project');
+            const outside = join(root, 'outside');
+            mkdirSync(projectRoot);
+            mkdirSync(outside);
+            const canonicalProjectRoot = realpathSync(projectRoot);
+            const logDir = join(canonicalProjectRoot, '.tmb', 'tmb', 'logs');
+            const { createProjectLogger } = await import('../logger.js');
+            const logger = createProjectLogger({
+                logDir,
+                sqlEnabled: true,
+                trustedProjectRoot: canonicalProjectRoot,
+            });
+            rmSync(join(canonicalProjectRoot, '.tmb'), { recursive: true });
+            symlinkSync(outside, join(canonicalProjectRoot, '.tmb'), 'dir');
+            assert.doesNotThrow(() => logger.serverLog({ kind: 'server-test' }));
+            assert.doesNotThrow(() => logger.sqlLog({ kind: 'sql-test' }));
+            assert.equal(existsSync(join(outside, 'tmb')), false);
+        }
+        finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+    it('keeps the existing Claude singleton append behavior separate from secure project loggers', () => {
+        if (process.platform === 'win32')
+            return;
+        const tmpHome = mkdtempSync(join(tmpdir(), 'tmb-legacy-logger-'));
+        try {
+            const logDir = join(tmpHome, '.claude', 'tmb', 'logs');
+            const target = join(tmpHome, 'legacy-server.log');
+            mkdirSync(logDir, { recursive: true });
+            writeFileSync(target, 'legacy-sentinel\n');
+            symlinkSync(target, join(logDir, 'mcp-server.log'), 'file');
+            const loggerModuleUrl = new URL('../logger.js', import.meta.url).href;
+            const result = spawnSync(process.execPath, [
+                '--input-type=module',
+                '-e',
+                `const { serverLog } = await import(${JSON.stringify(loggerModuleUrl)}); serverLog({ kind: 'legacy-symlink' });`,
+            ], {
+                encoding: 'utf8',
+                env: { ...process.env, HOME: tmpHome, CLAUDE_PLUGIN_ROOT: '' },
+            });
+            assert.equal(result.status, 0, result.stderr);
+            const written = readFileSync(target, 'utf8');
+            assert.match(written, /^legacy-sentinel\n/);
+            assert.match(written, /"kind":"legacy-symlink"/);
+        }
+        finally {
+            rmSync(tmpHome, { recursive: true, force: true });
         }
     });
     it('serverLog writes valid JSONL with payload and auto-ts', async () => {
@@ -126,6 +227,21 @@ describe('logger', () => {
             else {
                 process.env['HOME'] = savedHome;
             }
+        }
+    });
+    it('makes both project loggers no-ops when log-dir creation fails', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'tmb-project-logger-failure-'));
+        try {
+            const logDir = join(root, 'not-a-directory');
+            writeFileSync(logDir, 'sentinel');
+            const { createProjectLogger } = await import('../logger.js');
+            const logger = createProjectLogger({ logDir, sqlEnabled: true });
+            assert.doesNotThrow(() => logger.serverLog({ kind: 'server-test' }));
+            assert.doesNotThrow(() => logger.sqlLog({ kind: 'sql-test' }));
+            assert.equal(readFileSync(logDir, 'utf8'), 'sentinel');
+        }
+        finally {
+            rmSync(root, { recursive: true, force: true });
         }
     });
 });
