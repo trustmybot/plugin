@@ -4,7 +4,7 @@ Bro is the architect of every project it works on. The world model is the stable
 
 ## Substrate: kuzu graph database
 
-The world model lives in a dedicated **kuzu** graph database at `<project>/.claude/tmb/world-model.kuzu/`, separate from the trajectory DB. This is by design:
+The world model lives in a dedicated **kuzu** graph database at `<project>/.claude/tmb/world-model.kuzu/`, separate from the standard trajectory DB. A custom `TRAJECTORY_DB_PATH` uses `<db-basename>.world-model.kuzu` so separate SQLite files cannot share one graph. This is by design:
 
 | | Graph DB (kuzu) | Trajectory DB (SQLite) |
 |---|---|---|

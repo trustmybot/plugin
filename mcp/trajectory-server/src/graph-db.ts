@@ -3,7 +3,8 @@
 //
 // The graph stores bro's project mental model: Directory nodes today,
 // File + Symbol + IMPORTS + CALLS edges in follow-up slices. Lives in
-// a sibling file to trajectory.db at <project>/.claude/<plugin-name>/world-model.kuzu/.
+// a sibling file to trajectory.db. Standard DBs use world-model.kuzu; custom
+// DB names get a one-to-one <db-basename>.world-model.kuzu graph directory.
 //
 // kuzu uses synchronous API (querySync / prepareSync) to match the rest
 // of the MCP server's sync style (node:sqlite synchronous bindings).
@@ -11,6 +12,8 @@ import { createRequire } from 'node:module';
 import type { Database, Connection, QueryResult } from 'kuzu';
 import { mkdirSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { assertSafeProjectWritePath } from './platform.js';
+export { resolveGraphDbPath } from './platform.js';
 
 function single(result: QueryResult | QueryResult[]): QueryResult {
   return Array.isArray(result) ? result[0]! : result;
@@ -47,20 +50,41 @@ export interface DirectoryNode {
   file_count: number;
 }
 
+export interface WorldModelGraphOptions {
+  /** Canonical project root for a Codex-bound graph database. */
+  readonly trustedProjectRoot?: string;
+}
+
 export class WorldModelGraph {
   private db: Database;
   private conn: Connection;
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, opts: WorldModelGraphOptions = {}) {
+    const validateWritePath = (): void => {
+      if (dbPath !== ':memory:' && opts.trustedProjectRoot !== undefined) {
+        assertSafeProjectWritePath(
+          opts.trustedProjectRoot,
+          dbPath,
+          'World-model database',
+        );
+      }
+    };
+    validateWritePath();
     if (dbPath !== ':memory:' && !existsSync(dirname(dbPath))) {
       mkdirSync(dirname(dbPath), { recursive: true });
     }
+    validateWritePath();
     // Lazy-require kuzu so a missing/broken native binding fails HERE (caught
     // by index.ts's try/catch → graph=null) rather than at module load, which
     // would crash the whole MCP server. (#271)
     const req = createRequire(import.meta.url);
     const kuzu = req('kuzu') as typeof import('kuzu');
-    this.db = WorldModelGraph.openWithRetry(kuzu, dbPath);
+    this.db = WorldModelGraph.openWithRetry(
+      kuzu,
+      dbPath,
+      KUZU_OPEN_MAX_ATTEMPTS,
+      validateWritePath,
+    );
     // A throw after the Database opened (Connection creation or applySchema)
     // would otherwise leak the open db handle — and its file lock — for the
     // process's lifetime, so the next open (this session or another) can never
@@ -86,10 +110,12 @@ export class WorldModelGraph {
     kuzu: typeof import('kuzu'),
     dbPath: string,
     maxAttempts = KUZU_OPEN_MAX_ATTEMPTS,
+    beforeOpen: () => void = () => {},
   ): Database {
     let lastErr: unknown;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
+        beforeOpen();
         return new kuzu.Database(dbPath);
       } catch (e) {
         if (!isKuzuLockError(e)) throw e;
@@ -271,11 +297,6 @@ export class WorldModelGraph {
     (this as unknown as Record<string, unknown>)['conn'] = null;
     (this as unknown as Record<string, unknown>)['db'] = null;
   }
-}
-
-export function resolveGraphDbPath(trajectoryDbPath: string): string {
-  if (trajectoryDbPath === ':memory:') return ':memory:';
-  return trajectoryDbPath.replace(/trajectory\.db$/, 'world-model.kuzu');
 }
 
 // Minimum interval between lazy re-open attempts. A persistent lock holder

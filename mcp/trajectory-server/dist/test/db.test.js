@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { tempDB } from './helpers.js';
-import { nowISO, TrajectoryDB } from '../db.js';
+import { nowISO, TrajectoryDB, } from '../db.js';
 describe('TrajectoryDB', () => {
     it('opens an in-memory DB and verifies all prod tables exist with schema_version=28 (skills folded into cheatcodes #101; world model in kuzu)', () => {
         const db = tempDB();
@@ -136,6 +136,144 @@ describe('TrajectoryDB', () => {
                     process.env['CLAUDE_PLUGIN_ROOT'] = saved;
                 }
             }
+        }
+        finally {
+            rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
+    it('treats an explicit dependency object as authoritative, including null version', () => {
+        const pluginRoot = mkdtempSync(join(tmpdir(), 'tmb-explicit-deps-'));
+        const saved = process.env['CLAUDE_PLUGIN_ROOT'];
+        try {
+            mkdirSync(join(pluginRoot, '.claude-plugin'), { recursive: true });
+            writeFileSync(join(pluginRoot, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'tmb', version: '9.9.9' }));
+            process.env['CLAUDE_PLUGIN_ROOT'] = pluginRoot;
+            const sqlEvents = [];
+            const db = new TrajectoryDB(':memory:', {
+                pluginVersion: null,
+                serverLog: () => { },
+                sqlLog: (entry) => sqlEvents.push(entry),
+            });
+            const meta = db.get('SELECT plugin_version FROM plugin_meta WHERE id = 1');
+            const stampedBuiltins = db.get("SELECT COUNT(*) AS n FROM cheatcodes WHERE origin = 'builtin' AND version IS NOT NULL");
+            assert.equal(meta?.plugin_version, '0.0.0');
+            assert.equal(stampedBuiltins?.n, 0);
+            sqlEvents.length = 0;
+            db.run('CREATE TABLE injected_logger_test (id INTEGER PRIMARY KEY)');
+            db.get('SELECT 1 AS n');
+            db.all('SELECT 1 AS n');
+            assert.throws(() => db.run('INSERT INTO missing_injected_logger_table VALUES (1)'), /no such table/);
+            assert.throws(() => db.get('SELECT * FROM missing_injected_logger_table'), /no such table/);
+            assert.throws(() => db.all('SELECT * FROM missing_injected_logger_table'), /no such table/);
+            assert.deepEqual(sqlEvents.map((entry) => [entry['kind'], entry['ok']]), [
+                ['run', true],
+                ['get', true],
+                ['all', true],
+                ['run', false],
+                ['get', false],
+                ['all', false],
+            ]);
+            db.close();
+        }
+        finally {
+            if (saved === undefined) {
+                delete process.env['CLAUDE_PLUGIN_ROOT'];
+            }
+            else {
+                process.env['CLAUDE_PLUGIN_ROOT'] = saved;
+            }
+            rmSync(pluginRoot, { recursive: true, force: true });
+        }
+    });
+    it('uses an explicit version for plugin metadata and builtin versions', () => {
+        const db = new TrajectoryDB(':memory:', {
+            pluginVersion: '1.1.0',
+            serverLog: () => { },
+            sqlLog: () => { },
+        });
+        const meta = db.get('SELECT plugin_version FROM plugin_meta WHERE id = 1');
+        const unstampedBuiltins = db.get("SELECT COUNT(*) AS n FROM cheatcodes WHERE origin = 'builtin' AND version != '1.1.0'");
+        assert.equal(meta?.plugin_version, '1.1.0');
+        assert.equal(unstampedBuiltins?.n, 0);
+        db.close();
+    });
+    it('does not let injected logger failures change database operation results', () => {
+        const db = new TrajectoryDB(':memory:', {
+            pluginVersion: null,
+            serverLog: () => {
+                throw new Error('server logger exploded');
+            },
+            sqlLog: () => {
+                throw new Error('SQL logger exploded');
+            },
+        });
+        assert.doesNotThrow(() => {
+            db.run('CREATE TABLE logger_throw_test (id INTEGER)');
+        });
+        const table = db.get("SELECT name FROM sqlite_master WHERE name = 'logger_throw_test'");
+        assert.equal(table?.name, 'logger_throw_test');
+        assert.throws(() => db.run('INSERT INTO missing_logger_throw_table VALUES (1)'), /no such table/);
+        db.close();
+    });
+    it('rejects incomplete explicit dependencies instead of falling back to globals', () => {
+        for (const pluginVersion of ['', '   ']) {
+            assert.throws(() => new TrajectoryDB(':memory:', {
+                pluginVersion,
+                serverLog: () => { },
+                sqlLog: () => { },
+            }), /pluginVersion must be a non-empty string or null/);
+        }
+        assert.throws(() => new TrajectoryDB(':memory:', {
+            pluginVersion: null,
+            serverLog: undefined,
+            sqlLog: () => { },
+        }), /serverLog must be a function/);
+        assert.throws(() => new TrajectoryDB(':memory:', {
+            pluginVersion: null,
+            serverLog: () => { },
+            sqlLog: undefined,
+        }), /sqlLog must be a function/);
+    });
+    it('routes legacy-shape warnings through the supplied server logger', () => {
+        const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-injected-server-log-'));
+        const dbPath = join(tmpDir, 'trajectory.db');
+        try {
+            const raw = new DatabaseSync(dbPath);
+            raw.exec('CREATE TABLE legacy_table (id INTEGER PRIMARY KEY)');
+            raw.close();
+            const serverEvents = [];
+            const db = new TrajectoryDB(dbPath, {
+                pluginVersion: '1.1.0',
+                serverLog: (entry) => serverEvents.push(entry),
+                sqlLog: () => { },
+            });
+            assert.equal(db.legacyNoPluginMeta, true);
+            assert.ok(serverEvents.some((entry) => entry['kind'] === 'legacy_db_no_plugin_meta'));
+            db.close();
+        }
+        finally {
+            rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
+    it('does not let a throwing server logger abort legacy DB adoption', () => {
+        const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-throwing-server-log-'));
+        const dbPath = join(tmpDir, 'trajectory.db');
+        try {
+            const raw = new DatabaseSync(dbPath);
+            raw.exec('CREATE TABLE legacy_table (id INTEGER PRIMARY KEY)');
+            raw.close();
+            let db;
+            assert.doesNotThrow(() => {
+                db = new TrajectoryDB(dbPath, {
+                    pluginVersion: '1.1.0',
+                    serverLog: () => {
+                        throw new Error('server logger exploded');
+                    },
+                    sqlLog: () => { },
+                });
+            });
+            assert.equal(db?.legacyNoPluginMeta, true);
+            db?.close();
         }
         finally {
             rmSync(tmpDir, { recursive: true, force: true });
