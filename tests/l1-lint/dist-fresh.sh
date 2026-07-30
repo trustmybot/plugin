@@ -20,9 +20,10 @@ TMPDIR=$(mktemp -d -t tmb-dist-fresh-XXXX)
 trap 'rm -rf "$TMPDIR"' EXIT
 
 # Build into a temp outDir (without touching the committed dist/).
-# The shipped entrypoint dist/index.js is an esbuild bundle (self-contained so a
-# fresh marketplace install with no node_modules still boots the MCP, #647); the
-# rest of dist/ is plain tsc output. Reproduce both so the diff is apples-to-apples.
+# The shipped Claude and Codex entrypoints are esbuild bundles (self-contained
+# so a fresh marketplace install with no node_modules still boots the MCP,
+# #647/GH 1157); the rest of dist/ is plain tsc output. Reproduce both so the
+# diff is apples-to-apples.
 if [ ! -x ./node_modules/.bin/tsc ] || [ ! -x ./node_modules/.bin/esbuild ]; then
   echo "  ⊘ tsc/esbuild not installed locally — skipping (run 'bun install' first)" >&2
   echo "Dist-fresh: SKIPPED"
@@ -34,14 +35,22 @@ fi
   --bundle --platform=node --format=esm --target=node22 \
   --external:kuzu --external:@huggingface/transformers \
   --outfile="$TMPDIR/index.js" --sourcemap >/dev/null 2>&1
+./node_modules/.bin/esbuild src/codex.ts \
+  --bundle --platform=node --format=esm --target=node22 \
+  --external:kuzu \
+  --outfile="$TMPDIR/codex.js" --sourcemap >/dev/null 2>&1
 # Canonicalize the volatile bun-store path baked into the bundle. esbuild bakes
 # the relative climb-out to the `.bun` store as __commonJS labels + comments; the
 # depth varies by build location (symlinked worktree vs root vs CI). These are
 # cosmetic labels (modules referenced by variable, not by the string key), so a
-# consistent global collapse is runtime-safe. This MUST stay byte-identical to
-# the transform in mcp/trajectory-server/package.json `build:bundle` so the diff
-# below remains a strict byte comparison across build locations.
-perl -i -pe 's{(?:\.\./)+node_modules/\.bun/}{node_modules/.bun/}g' "$TMPDIR/index.js" "$TMPDIR/index.js.map"
+# consistent global collapse is runtime-safe. Strip bundled trailing whitespace
+# at the same boundary so new generated artifacts also pass git diff --check.
+# This MUST stay byte-identical to the transform in
+# mcp/trajectory-server/package.json `build:bundle` so the diff below remains a
+# strict byte comparison across build locations.
+perl -i -pe 's{(?:\.\./)+node_modules/\.bun/}{node_modules/.bun/}g; s/[ \t]+$//' \
+  "$TMPDIR/index.js" "$TMPDIR/index.js.map" \
+  "$TMPDIR/codex.js" "$TMPDIR/codex.js.map"
 cp src/schema*.sql "$TMPDIR/"
 
 # Diff (ignore .map files since their sourceRoot is path-dependent)

@@ -1,6 +1,6 @@
 import { appendFileSync, closeSync, constants, lstatSync, mkdirSync, openSync, } from 'node:fs';
 import { join } from 'node:path';
-import { assertSafeProjectWritePath, resolveClaudeLogDir, } from './platform.js';
+import { assertSafeProjectWritePath, resolveClaudeLogDir, UnsafeProjectWritePathError, } from './platform.js';
 /**
  * Create a logger bound to one runtime context's log directory.
  *
@@ -11,11 +11,34 @@ import { assertSafeProjectWritePath, resolveClaudeLogDir, } from './platform.js'
  */
 export function createProjectLogger(opts) {
     if (opts.trustedProjectRoot !== undefined) {
-        assertSafeProjectWritePath(opts.trustedProjectRoot, opts.logDir, 'Project log directory');
+        assertSafeProjectWritePath(opts.trustedProjectRoot, opts.logDir, 'Project log directory', 'directory');
+        try {
+            mkdirSync(opts.logDir, { recursive: true });
+        }
+        catch (error) {
+            throw new UnsafeProjectWritePathError(`Project log directory could not be created safely: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        if (!lstatSync(opts.logDir).isDirectory()) {
+            throw new UnsafeProjectWritePathError('Project log directory must be a directory');
+        }
+        assertSafeProjectWritePath(opts.trustedProjectRoot, opts.logDir, 'Project log directory', 'directory');
+        for (const leaf of ['mcp-server.log', 'sql.log']) {
+            const path = join(opts.logDir, leaf);
+            assertSafeProjectWritePath(opts.trustedProjectRoot, path, 'Project log file', 'file');
+            try {
+                if (!lstatSync(path).isFile()) {
+                    throw new UnsafeProjectWritePathError('Project log file must be a regular file');
+                }
+            }
+            catch (error) {
+                if (error.code !== 'ENOENT')
+                    throw error;
+            }
+        }
     }
     return createLogger(opts, (path, line) => {
         if (opts.trustedProjectRoot !== undefined) {
-            assertSafeProjectWritePath(opts.trustedProjectRoot, path, 'Project log file');
+            assertSafeProjectWritePath(opts.trustedProjectRoot, path, 'Project log file', 'file');
         }
         appendSecureLogLine(path, line);
     });

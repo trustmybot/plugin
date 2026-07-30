@@ -6,7 +6,7 @@
 
 TMB turns Claude Code into a production-grade agent harness. Three roles split the work — `bro` plans and gates, `swe` executes in an isolated worktree, and `pr-reviewer` signs off independently — backed by a two-tier memory system that carries state across context resets.
 
-> **Claude Code today.** TMB ships the Claude Code adapter; Codex / Cursor / OpenCode / Gemini CLI placeholders exist — see [`docs/reference/MULTI_PLATFORM.md`](docs/reference/MULTI_PLATFORM.md).
+> **Claude Code is the complete workflow today.** Codex has a packaged runtime-initialization foundation only; its agents, skills, workflow tools, and hooks are not yet ported. Cursor / OpenCode / Gemini CLI remain placeholders. See [`docs/reference/MULTI_PLATFORM.md`](docs/reference/MULTI_PLATFORM.md).
 
 ---
 

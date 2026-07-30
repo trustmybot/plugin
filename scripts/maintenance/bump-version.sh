@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Atomic plugin-version bump. Updates the three manifests plus the bun.lock
+# Atomic plugin-version bump. Updates the four manifests plus the bun.lock
 # workspace entry that must stay in sync, or fails leaving every file
 # unchanged. Idempotent — re-running with the same version is a no-op.
 #
@@ -8,9 +8,10 @@
 #
 # Touches:
 #   1. .claude-plugin/plugin.json                         "version"
-#   2. package.json                                       "version"
-#   3. mcp/trajectory-server/package.json                 "version"
-#   4. bun.lock                                           workspace "version"
+#   2. .codex-plugin/plugin.json                          "version"
+#   3. package.json                                       "version"
+#   4. mcp/trajectory-server/package.json                 "version"
+#   5. bun.lock                                           workspace "version"
 #
 # mcp/trajectory-server/src/index.ts derives the version from package.json
 # at runtime (readFileSync → packageVersion) and is not touched.
@@ -34,6 +35,7 @@ cd "$REPO_ROOT"
 
 FILES=(
   ".claude-plugin/plugin.json"
+  ".codex-plugin/plugin.json"
   "package.json"
   "mcp/trajectory-server/package.json"
   "bun.lock"
@@ -81,15 +83,17 @@ bump_json() {
 }
 
 bump_json    .claude-plugin/plugin.json                "$TMP_DIR/plugin.json"
+bump_json    .codex-plugin/plugin.json                 "$TMP_DIR/codex-plugin.json"
 bump_json    package.json                              "$TMP_DIR/root-package.json"
 bump_json    mcp/trajectory-server/package.json        "$TMP_DIR/trajectory-package.json"
 bump_json    bun.lock                                  "$TMP_DIR/bun.lock"
 
 # All edits staged successfully — commit them.
 mv "$TMP_DIR/plugin.json"             .claude-plugin/plugin.json
+mv "$TMP_DIR/codex-plugin.json"       .codex-plugin/plugin.json
 mv "$TMP_DIR/root-package.json"       package.json
 mv "$TMP_DIR/trajectory-package.json" mcp/trajectory-server/package.json
 mv "$TMP_DIR/bun.lock"                bun.lock
 
-echo "Bumped $CURRENT → $NEW_VERSION across 4 files."
+echo "Bumped $CURRENT → $NEW_VERSION across 5 files."
 echo "Next: rebuild MCP server, run tests, commit."

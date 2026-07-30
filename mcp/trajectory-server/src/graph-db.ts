@@ -66,6 +66,7 @@ export class WorldModelGraph {
           opts.trustedProjectRoot,
           dbPath,
           'World-model database',
+          'directory',
         );
       }
     };

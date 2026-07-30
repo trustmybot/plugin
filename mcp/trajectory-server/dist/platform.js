@@ -1,6 +1,12 @@
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync, } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, sep, } from 'node:path';
+export class UnsafeProjectWritePathError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'UnsafeProjectWritePathError';
+    }
+}
 /**
  * Read Claude Code's plugin manifest using the same tolerant fallback rules as
  * the legacy resolver. Codex callers must not use this loader; their metadata
@@ -108,20 +114,23 @@ export function deriveCodexRuntimePaths(input) {
 export function createCodexRuntimeContext(input) {
     assertSafePathSegment(input.pluginName, 'Codex pluginName');
     assertNonEmpty(input.pluginVersion, 'Codex pluginVersion');
-    const projectRoot = canonicalDirectory(input.projectRoot, 'Codex projectRoot');
+    const projectRoot = canonicalDirectory(input.projectRoot, 'Codex projectRoot', UnsafeProjectWritePathError);
     const pluginRoot = canonicalDirectory(input.pluginRoot, 'Codex pluginRoot');
     const paths = deriveCodexRuntimePaths({
         projectRoot,
         pluginName: input.pluginName,
     });
-    const writablePaths = {
-        ...paths,
-        serverLog: join(paths.logDir, 'mcp-server.log'),
-        sqlLog: join(paths.logDir, 'sql.log'),
-    };
-    for (const [label, path] of Object.entries(writablePaths)) {
+    const writablePaths = [
+        ['stateDir', paths.stateDir, 'directory'],
+        ['trajectoryDb', paths.trajectoryDb, 'file'],
+        ['graphDb', paths.graphDb, 'directory'],
+        ['logDir', paths.logDir, 'directory'],
+        ['serverLog', join(paths.logDir, 'mcp-server.log'), 'file'],
+        ['sqlLog', join(paths.logDir, 'sql.log'), 'file'],
+    ];
+    for (const [label, path, expectedKind] of writablePaths) {
         if (path !== null) {
-            assertSafeProjectWritePath(projectRoot, path, `Codex ${label}`);
+            assertSafeProjectWritePath(projectRoot, path, `Codex ${label}`, expectedKind);
         }
     }
     const plugin = freezePlugin({
@@ -167,29 +176,29 @@ export function resolveGraphDbPath(trajectoryDbPath) {
  * path replacement between context creation and use; it does not claim atomic
  * protection against a same-user replacement in the final syscall window.
  */
-export function assertSafeProjectWritePath(projectRoot, path, label = 'Codex writable path') {
+export function assertSafeProjectWritePath(projectRoot, path, label = 'Codex writable path', expectedKind = 'either') {
     if (!isAbsolute(projectRoot)) {
-        throw new Error(`${label} project root must be an absolute path`);
+        throw new UnsafeProjectWritePathError(`${label} project root must be an absolute path`);
     }
     if (!isAbsolute(path)) {
-        throw new Error(`${label} must be an absolute path`);
+        throw new UnsafeProjectWritePathError(`${label} must be an absolute path`);
     }
     let rootStat;
     try {
         rootStat = lstatSync(projectRoot);
     }
     catch {
-        throw new Error(`${label} project root must remain an existing directory`);
+        throw new UnsafeProjectWritePathError(`${label} project root must remain an existing directory`);
     }
     if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
-        throw new Error(`${label} project root must remain a real directory`);
+        throw new UnsafeProjectWritePathError(`${label} project root must remain a real directory`);
     }
     const canonicalRoot = realpathSync(projectRoot);
     if (canonicalRoot !== projectRoot) {
-        throw new Error(`${label} project root changed after canonicalization`);
+        throw new UnsafeProjectWritePathError(`${label} project root changed after canonicalization`);
     }
     assertPathContained(canonicalRoot, path, label);
-    assertExistingAncestorContained(canonicalRoot, path, label);
+    assertExistingAncestorContained(canonicalRoot, path, label, expectedKind);
 }
 function findExistingClaudeDbUp(startDir, pluginName, opts) {
     const home = opts?.home ?? homedir();
@@ -209,19 +218,19 @@ function findExistingClaudeDbUp(startDir, pluginName, opts) {
     }
     return null;
 }
-function canonicalDirectory(path, label) {
+function canonicalDirectory(path, label, ErrorType = Error) {
     if (!isAbsolute(path)) {
-        throw new Error(`${label} must be an absolute path`);
+        throw new ErrorType(`${label} must be an absolute path`);
     }
     let stat;
     try {
         stat = statSync(path);
     }
     catch {
-        throw new Error(`${label} must be an existing directory: ${path}`);
+        throw new ErrorType(`${label} must be an existing directory: ${path}`);
     }
     if (!stat.isDirectory()) {
-        throw new Error(`${label} must be an existing directory: ${path}`);
+        throw new ErrorType(`${label} must be an existing directory: ${path}`);
     }
     return realpathSync(path);
 }
@@ -247,9 +256,9 @@ function assertPathContained(root, path, label) {
     if (rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel))) {
         return;
     }
-    throw new Error(`${label} escapes the trusted project root`);
+    throw new UnsafeProjectWritePathError(`${label} escapes the trusted project root`);
 }
-function assertExistingAncestorContained(root, path, label) {
+function assertExistingAncestorContained(root, path, label, expectedKind) {
     const rel = relative(root, path);
     const parts = rel === '' ? [] : rel.split(sep);
     let current = root;
@@ -266,10 +275,21 @@ function assertExistingAncestorContained(root, path, label) {
             throw error;
         }
         if (currentStat.isSymbolicLink()) {
-            throw new Error(`${label} contains a symbolic link in writable state`);
+            throw new UnsafeProjectWritePathError(`${label} contains a symbolic link in writable state`);
+        }
+        if (index === parts.length - 1) {
+            if (expectedKind === 'file' && !currentStat.isFile()) {
+                throw new UnsafeProjectWritePathError(`${label} must be a regular file`);
+            }
+            if (expectedKind === 'directory' && !currentStat.isDirectory()) {
+                throw new UnsafeProjectWritePathError(`${label} must be a directory`);
+            }
+            if (currentStat.isFile() && currentStat.nlink !== 1) {
+                throw new UnsafeProjectWritePathError(`${label} must not be a multiply linked writable file`);
+            }
         }
         if (index < parts.length - 1 && !currentStat.isDirectory()) {
-            throw new Error(`${label} has a non-directory ancestor`);
+            throw new UnsafeProjectWritePathError(`${label} has a non-directory ancestor`);
         }
     }
     if (parts.length > 0) {

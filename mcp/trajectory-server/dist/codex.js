@@ -1297,21 +1297,21 @@ var require_errors = __commonJS({
     function extendErrors({ gen, keyword, schemaValue, data, errsCount, it }) {
       if (errsCount === void 0)
         throw new Error("ajv implementation error");
-      const err18 = gen.name("err");
+      const err = gen.name("err");
       gen.forRange("i", errsCount, names_1.default.errors, (i) => {
-        gen.const(err18, (0, codegen_1._)`${names_1.default.vErrors}[${i}]`);
-        gen.if((0, codegen_1._)`${err18}.instancePath === undefined`, () => gen.assign((0, codegen_1._)`${err18}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it.errorPath)));
-        gen.assign((0, codegen_1._)`${err18}.schemaPath`, (0, codegen_1.str)`${it.errSchemaPath}/${keyword}`);
+        gen.const(err, (0, codegen_1._)`${names_1.default.vErrors}[${i}]`);
+        gen.if((0, codegen_1._)`${err}.instancePath === undefined`, () => gen.assign((0, codegen_1._)`${err}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it.errorPath)));
+        gen.assign((0, codegen_1._)`${err}.schemaPath`, (0, codegen_1.str)`${it.errSchemaPath}/${keyword}`);
         if (it.opts.verbose) {
-          gen.assign((0, codegen_1._)`${err18}.schema`, schemaValue);
-          gen.assign((0, codegen_1._)`${err18}.data`, data);
+          gen.assign((0, codegen_1._)`${err}.schema`, schemaValue);
+          gen.assign((0, codegen_1._)`${err}.data`, data);
         }
       });
     }
     exports.extendErrors = extendErrors;
     function addError(gen, errObj) {
-      const err18 = gen.const("err", errObj);
-      gen.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen.assign(names_1.default.vErrors, (0, codegen_1._)`[${err18}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err18})`);
+      const err = gen.const("err", errObj);
+      gen.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen.assign(names_1.default.vErrors, (0, codegen_1._)`[${err}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err})`);
       gen.code((0, codegen_1._)`${names_1.default.errors}++`);
     }
     function returnErrors(it, errs) {
@@ -2979,7 +2979,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve5.call(this, root, ref);
+      let _sch = resolve.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a2 = root.localRefs) === null || _a2 === void 0 ? void 0 : _a2[ref];
         const { schemaId } = this.opts;
@@ -3006,7 +3006,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve5(root, ref) {
+    function resolve(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3221,8 +3221,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path2) {
-      let input = path2;
+    function removeDotSegments(path) {
+      let input = path;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3421,8 +3421,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path2, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path2 && path2 !== "/" ? path2 : void 0;
+        const [path, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path && path !== "/" ? path : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -3581,7 +3581,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve5(baseURI, relativeURI, options) {
+    function resolve(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse3(baseURI, schemelessOptions), parse3(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
@@ -3808,7 +3808,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve5,
+      resolve,
       resolveComponent,
       equal,
       serialize,
@@ -6797,11 +6797,6 @@ var require_dist = __commonJS({
   }
 });
 
-// src/index.ts
-import path from "node:path";
-import { mkdirSync as mkdirSync7, readFileSync as readFileSync6 } from "node:fs";
-import { performance as performance2 } from "node:perf_hooks";
-
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
 var util;
 (function(util2) {
@@ -7161,8 +7156,8 @@ function getErrorMap() {
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path2, errorMaps, issueData } = params;
-  const fullPath = [...path2, ...issueData.path || []];
+  const { data, path, errorMaps, issueData } = params;
+  const fullPath = [...path, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -7277,11 +7272,11 @@ var errorUtil;
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path2, key) {
+  constructor(parent, value, path, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path2;
+    this._path = path;
     this._key = key;
   }
   get path() {
@@ -7420,8 +7415,8 @@ var ZodType = class {
         } : {
           issues: ctx.common.issues
         };
-      } catch (err18) {
-        if (err18?.message?.toLowerCase()?.includes("encountered")) {
+      } catch (err) {
+        if (err?.message?.toLowerCase()?.includes("encountered")) {
           this["~standard"].async = true;
         }
         ctx.common = {
@@ -10927,10 +10922,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path2) {
-  if (!path2)
+function getElementAtPath(obj, path) {
+  if (!path)
     return obj;
-  return path2.reduce((acc, key) => acc?.[key], obj);
+  return path.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -11313,11 +11308,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path2, issues) {
+function prefixIssues(path, issues) {
   return issues.map((iss) => {
     var _a2;
     (_a2 = iss).path ?? (_a2.path = []);
-    iss.path.unshift(path2);
+    iss.path.unshift(path);
     return iss;
   });
 }
@@ -19271,11 +19266,11 @@ var Protocol = class {
    *
    * The Protocol object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
    */
-  async connect(transport2) {
+  async connect(transport) {
     if (this._transport) {
       throw new Error("Already connected to a transport. Call close() before connecting to a new transport, or use a separate Protocol instance per connection.");
     }
-    this._transport = transport2;
+    this._transport = transport;
     const _onclose = this.transport?.onclose;
     this._transport.onclose = () => {
       _onclose?.();
@@ -19595,7 +19590,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve5) => setTimeout(resolve5, pollInterval));
+        await new Promise((resolve) => setTimeout(resolve, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -19612,7 +19607,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve5, reject) => {
+    return new Promise((resolve, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -19690,7 +19685,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve5(parseResult.data);
+            resolve(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -19951,12 +19946,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve5, reject) => {
+    return new Promise((resolve, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve5, interval);
+      const timeoutId = setTimeout(resolve, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -20826,21 +20821,59 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve5) => {
+    return new Promise((resolve) => {
       const json2 = serializeMessage(message);
       if (this._stdout.write(json2)) {
-        resolve5();
+        resolve();
       } else {
-        this._stdout.once("drain", resolve5);
+        this._stdout.once("drain", resolve);
       }
     });
   }
 };
 
-// src/db.ts
-import { copyFileSync, readFileSync as readFileSync2, readdirSync } from "node:fs";
-import { basename as basename2, join as join3, dirname as dirname2 } from "node:path";
+// src/codex-package.ts
+import { readFileSync, realpathSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+function readCodexPackageMetadata(moduleUrl = import.meta.url) {
+  let directory = dirname(fileURLToPath(moduleUrl));
+  for (let depth = 0; depth < 6; depth += 1) {
+    const manifestPath = join(directory, ".codex-plugin", "plugin.json");
+    try {
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      if (typeof manifest.name !== "string" || manifest.name.trim().length === 0 || typeof manifest.version !== "string" || manifest.version.trim().length === 0) {
+        throw new Error("manifest name and version must be non-empty strings");
+      }
+      return Object.freeze({
+        root: realpathSync(directory),
+        name: manifest.name,
+        version: manifest.version
+      });
+    } catch (error2) {
+      if (error2.code !== "ENOENT") {
+        throw new Error(
+          `Invalid Codex plugin manifest at ${manifestPath}: ${error2 instanceof Error ? error2.message : String(error2)}`
+        );
+      }
+    }
+    const parent = dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  throw new Error("Unable to locate .codex-plugin/plugin.json from the installed module");
+}
+
+// src/codex-runtime.ts
+import { execFile } from "node:child_process";
+import { mkdirSync as mkdirSync3, realpathSync as realpathSync3, statSync as statSync2 } from "node:fs";
+import { createRequire as createRequire2 } from "node:module";
+import { isAbsolute as isAbsolute2 } from "node:path";
+
+// src/db.ts
+import { copyFileSync, readFileSync as readFileSync3, readdirSync } from "node:fs";
+import { basename as basename2, join as join4, dirname as dirname3 } from "node:path";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { performance } from "node:perf_hooks";
 import { DatabaseSync } from "node:sqlite";
 
@@ -20853,22 +20886,22 @@ import {
   mkdirSync,
   openSync
 } from "node:fs";
-import { join as join2 } from "node:path";
+import { join as join3 } from "node:path";
 
 // src/platform.ts
 import {
   existsSync,
   lstatSync,
-  readFileSync,
-  realpathSync,
+  readFileSync as readFileSync2,
+  realpathSync as realpathSync2,
   statSync
 } from "node:fs";
 import { homedir } from "node:os";
 import {
   basename,
-  dirname,
+  dirname as dirname2,
   isAbsolute,
-  join,
+  join as join2,
   relative,
   sep
 } from "node:path";
@@ -20885,7 +20918,7 @@ function readClaudePluginMetadata(env = process.env) {
   }
   try {
     const manifest = JSON.parse(
-      readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf8")
+      readFileSync2(join2(root, ".claude-plugin", "plugin.json"), "utf8")
     );
     const name = typeof manifest.name === "string" && manifest.name.length > 0 ? manifest.name : "tmb";
     const version2 = typeof manifest.version === "string" && manifest.version.length > 0 ? manifest.version : null;
@@ -20900,25 +20933,67 @@ function resolveClaudePluginName(env = process.env) {
 function resolveClaudePluginVersion(env = process.env) {
   return readClaudePluginMetadata(env).version;
 }
-function resolveClaudeDbPath(opts) {
-  const env = opts?.env ?? process.env;
-  const cwd = opts?.cwd ?? process.cwd();
-  const home = opts?.home ?? homedir();
-  const pluginName = resolveClaudePluginName(env);
-  return resolveClaudeDbPathForPlugin(pluginName, { env, cwd, home });
-}
-function resolveClaudeDbPathForPlugin(pluginName, opts) {
-  const { env, cwd, home } = opts;
-  const override = env["TRAJECTORY_DB_PATH"];
-  if (override && override.trim().length > 0) return override;
-  const found = findExistingClaudeDbUp(cwd, pluginName, { home });
-  if (found) return found;
-  return join(cwd, ".claude", pluginName, "trajectory.db");
-}
 function resolveClaudeLogDir(opts) {
   const env = opts?.env ?? process.env;
   const home = opts?.home ?? homedir();
-  return join(home, ".claude", resolveClaudePluginName(env), "logs");
+  return join2(home, ".claude", resolveClaudePluginName(env), "logs");
+}
+function deriveCodexRuntimePaths(input) {
+  if (!isAbsolute(input.projectRoot)) {
+    throw new Error("Codex projectRoot must be an absolute path");
+  }
+  assertSafePathSegment(input.pluginName, "Codex pluginName");
+  const stateDir = join2(input.projectRoot, ".tmb", input.pluginName);
+  const trajectoryDb = join2(stateDir, "trajectory.db");
+  return freezePaths({
+    stateDir,
+    trajectoryDb,
+    graphDb: resolveGraphDbPath(trajectoryDb),
+    logDir: join2(stateDir, "logs")
+  });
+}
+function createCodexRuntimeContext(input) {
+  assertSafePathSegment(input.pluginName, "Codex pluginName");
+  assertNonEmpty(input.pluginVersion, "Codex pluginVersion");
+  const projectRoot = canonicalDirectory(
+    input.projectRoot,
+    "Codex projectRoot",
+    UnsafeProjectWritePathError
+  );
+  const pluginRoot = canonicalDirectory(input.pluginRoot, "Codex pluginRoot");
+  const paths = deriveCodexRuntimePaths({
+    projectRoot,
+    pluginName: input.pluginName
+  });
+  const writablePaths = [
+    ["stateDir", paths.stateDir, "directory"],
+    ["trajectoryDb", paths.trajectoryDb, "file"],
+    ["graphDb", paths.graphDb, "directory"],
+    ["logDir", paths.logDir, "directory"],
+    ["serverLog", join2(paths.logDir, "mcp-server.log"), "file"],
+    ["sqlLog", join2(paths.logDir, "sql.log"), "file"]
+  ];
+  for (const [label, path, expectedKind] of writablePaths) {
+    if (path !== null) {
+      assertSafeProjectWritePath(
+        projectRoot,
+        path,
+        `Codex ${label}`,
+        expectedKind
+      );
+    }
+  }
+  const plugin2 = freezePlugin({
+    root: pluginRoot,
+    name: input.pluginName,
+    version: input.pluginVersion
+  });
+  return Object.freeze({
+    host: "codex",
+    projectRoot,
+    plugin: plugin2,
+    paths
+  });
 }
 function resolveGraphDbPath(trajectoryDbPath) {
   if (trajectoryDbPath === ":memory:") return ":memory:";
@@ -20930,15 +21005,15 @@ function resolveGraphDbPath(trajectoryDbPath) {
     );
   }
   const graphName = dbName === "trajectory.db" ? "world-model.kuzu" : `${dbName}.world-model.kuzu`;
-  return join(dirname(trajectoryDbPath), graphName);
+  return join2(dirname2(trajectoryDbPath), graphName);
 }
-function assertSafeProjectWritePath(projectRoot, path2, label = "Codex writable path", expectedKind = "either") {
+function assertSafeProjectWritePath(projectRoot, path, label = "Codex writable path", expectedKind = "either") {
   if (!isAbsolute(projectRoot)) {
     throw new UnsafeProjectWritePathError(
       `${label} project root must be an absolute path`
     );
   }
-  if (!isAbsolute(path2)) {
+  if (!isAbsolute(path)) {
     throw new UnsafeProjectWritePathError(`${label} must be an absolute path`);
   }
   let rootStat;
@@ -20954,36 +21029,47 @@ function assertSafeProjectWritePath(projectRoot, path2, label = "Codex writable 
       `${label} project root must remain a real directory`
     );
   }
-  const canonicalRoot = realpathSync(projectRoot);
+  const canonicalRoot = realpathSync2(projectRoot);
   if (canonicalRoot !== projectRoot) {
     throw new UnsafeProjectWritePathError(
       `${label} project root changed after canonicalization`
     );
   }
-  assertPathContained(canonicalRoot, path2, label);
+  assertPathContained(canonicalRoot, path, label);
   assertExistingAncestorContained(
     canonicalRoot,
-    path2,
+    path,
     label,
     expectedKind
   );
 }
-function findExistingClaudeDbUp(startDir, pluginName, opts) {
-  const home = opts?.home ?? homedir();
-  let dir = startDir;
-  for (let i = 0; i < 8; i++) {
-    if (dir === home && startDir !== home) return null;
-    const candidate = join(dir, ".claude", pluginName, "trajectory.db");
-    if (existsSync(candidate)) return candidate;
-    if (existsSync(join(dir, ".git"))) break;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
+function canonicalDirectory(path, label, ErrorType = Error) {
+  if (!isAbsolute(path)) {
+    throw new ErrorType(`${label} must be an absolute path`);
   }
-  return null;
+  let stat;
+  try {
+    stat = statSync(path);
+  } catch {
+    throw new ErrorType(`${label} must be an existing directory: ${path}`);
+  }
+  if (!stat.isDirectory()) {
+    throw new ErrorType(`${label} must be an existing directory: ${path}`);
+  }
+  return realpathSync2(path);
 }
-function assertPathContained(root, path2, label) {
-  const rel = relative(root, path2);
+function assertSafePathSegment(value, label) {
+  if (value.length === 0 || value.trim() !== value || value === "." || value === ".." || value.includes("/") || value.includes("\\") || value.includes("\0") || basename(value) !== value) {
+    throw new Error(`${label} must be a safe, non-empty path segment`);
+  }
+}
+function assertNonEmpty(value, label) {
+  if (value.trim().length === 0) {
+    throw new Error(`${label} must be a non-empty string`);
+  }
+}
+function assertPathContained(root, path, label) {
+  const rel = relative(root, path);
   if (rel === "" || !rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel)) {
     return;
   }
@@ -20991,12 +21077,12 @@ function assertPathContained(root, path2, label) {
     `${label} escapes the trusted project root`
   );
 }
-function assertExistingAncestorContained(root, path2, label, expectedKind) {
-  const rel = relative(root, path2);
+function assertExistingAncestorContained(root, path, label, expectedKind) {
+  const rel = relative(root, path);
   const parts = rel === "" ? [] : rel.split(sep);
   let current = root;
   for (let index = 0; index < parts.length; index += 1) {
-    current = join(current, parts[index]);
+    current = join2(current, parts[index]);
     let currentStat;
     try {
       currentStat = lstatSync(current);
@@ -21035,14 +21121,74 @@ function assertExistingAncestorContained(root, path2, label, expectedKind) {
     }
   }
   if (parts.length > 0) {
-    assertPathContained(root, realpathSync(path2), label);
+    assertPathContained(root, realpathSync2(path), label);
   }
 }
-function freezePlugin(plugin) {
-  return Object.freeze(plugin);
+function freezePlugin(plugin2) {
+  return Object.freeze(plugin2);
+}
+function freezePaths(paths) {
+  return Object.freeze(paths);
 }
 
 // src/logger.ts
+function createProjectLogger(opts) {
+  if (opts.trustedProjectRoot !== void 0) {
+    assertSafeProjectWritePath(
+      opts.trustedProjectRoot,
+      opts.logDir,
+      "Project log directory",
+      "directory"
+    );
+    try {
+      mkdirSync(opts.logDir, { recursive: true });
+    } catch (error2) {
+      throw new UnsafeProjectWritePathError(
+        `Project log directory could not be created safely: ${error2 instanceof Error ? error2.message : String(error2)}`
+      );
+    }
+    if (!lstatSync2(opts.logDir).isDirectory()) {
+      throw new UnsafeProjectWritePathError(
+        "Project log directory must be a directory"
+      );
+    }
+    assertSafeProjectWritePath(
+      opts.trustedProjectRoot,
+      opts.logDir,
+      "Project log directory",
+      "directory"
+    );
+    for (const leaf of ["mcp-server.log", "sql.log"]) {
+      const path = join3(opts.logDir, leaf);
+      assertSafeProjectWritePath(
+        opts.trustedProjectRoot,
+        path,
+        "Project log file",
+        "file"
+      );
+      try {
+        if (!lstatSync2(path).isFile()) {
+          throw new UnsafeProjectWritePathError(
+            "Project log file must be a regular file"
+          );
+        }
+      } catch (error2) {
+        if (error2.code !== "ENOENT") throw error2;
+      }
+    }
+  }
+  return createLogger(opts, (path, line) => {
+    if (opts.trustedProjectRoot !== void 0) {
+      assertSafeProjectWritePath(
+        opts.trustedProjectRoot,
+        path,
+        "Project log file",
+        "file"
+      );
+    }
+    appendSecureLogLine(path, line);
+  });
+}
 function createLogger(opts, appendLine) {
   let logDirReady = false;
   try {
@@ -21050,8 +21196,8 @@ function createLogger(opts, appendLine) {
     logDirReady = true;
   } catch {
   }
-  const serverLogPath = join2(opts.logDir, "mcp-server.log");
-  const sqlLogPath = join2(opts.logDir, "sql.log");
+  const serverLogPath = join3(opts.logDir, "mcp-server.log");
+  const sqlLogPath = join3(opts.logDir, "sql.log");
   const serverLog2 = (entry) => {
     if (!logDirReady) return;
     try {
@@ -21076,6 +21222,27 @@ function createLogger(opts, appendLine) {
     sqlLog: sqlLog2
   });
 }
+function appendSecureLogLine(path, line) {
+  try {
+    const existing = lstatSync2(path);
+    if (existing.isSymbolicLink() || !existing.isFile()) {
+      throw new Error(`Refusing to append to unsafe log target: ${path}`);
+    }
+  } catch (error2) {
+    if (error2.code !== "ENOENT") throw error2;
+  }
+  const noFollow = constants.O_NOFOLLOW ?? 0;
+  const fd = openSync(
+    path,
+    constants.O_APPEND | constants.O_CREAT | constants.O_WRONLY | noFollow,
+    384
+  );
+  try {
+    appendFileSync(fd, line, "utf8");
+  } finally {
+    closeSync(fd);
+  }
+}
 var defaultLogger = null;
 function getDefaultLogger() {
   if (defaultLogger === null) {
@@ -21092,21 +21259,14 @@ function getDefaultLogger() {
 function serverLog(entry) {
   getDefaultLogger().serverLog(entry);
 }
-var serverLogSync = serverLog;
 function sqlLog(entry) {
   getDefaultLogger().sqlLog(entry);
 }
 
 // src/db.ts
 var TARGET_SCHEMA_VERSION = 28;
-function resolvePluginName(env = process.env) {
-  return resolveClaudePluginName(env);
-}
 function resolvePluginVersion(env = process.env) {
   return resolveClaudePluginVersion(env);
-}
-function resolveDbPath(opts) {
-  return resolveClaudeDbPath(opts);
 }
 var TrajectoryDB = class {
   db;
@@ -21122,21 +21282,21 @@ var TrajectoryDB = class {
    * degraded signal so the upgrade is not silent. Non-fatal.
    */
   legacyNoPluginMeta = false;
-  constructor(dbPath2, dependencies) {
+  constructor(dbPath, dependencies) {
     const resolvedDependencies = resolveDependencies(dependencies);
-    this.dbPath = dbPath2;
+    this.dbPath = dbPath;
     this.pluginVersion = resolvedDependencies.pluginVersion;
     this.serverLog = resolvedDependencies.serverLog;
     this.sqlLog = resolvedDependencies.sqlLog;
-    if (dbPath2 !== ":memory:" && resolvedDependencies.trustedProjectRoot !== void 0) {
+    if (dbPath !== ":memory:" && resolvedDependencies.trustedProjectRoot !== void 0) {
       assertSafeProjectWritePath(
         resolvedDependencies.trustedProjectRoot,
-        dbPath2,
+        dbPath,
         "Trajectory database",
         "file"
       );
     }
-    this.db = new DatabaseSync(dbPath2);
+    this.db = new DatabaseSync(dbPath);
     try {
       this.db.exec("PRAGMA journal_mode = WAL");
       this.db.exec("PRAGMA foreign_keys = ON");
@@ -21153,11 +21313,11 @@ var TrajectoryDB = class {
     }
   }
   applySchema() {
-    const schemaDir = dirname2(fileURLToPath(import.meta.url));
-    const sql = readFileSync2(join3(schemaDir, "schema.sql"), "utf8");
+    const schemaDir = dirname3(fileURLToPath2(import.meta.url));
+    const sql = readFileSync3(join4(schemaDir, "schema.sql"), "utf8");
     const applyEvalIfNeeded = () => {
       if (process.env["TMB_EVAL_MODE"] === "1") {
-        const evalSql = readFileSync2(join3(schemaDir, "schema-eval.sql"), "utf8");
+        const evalSql = readFileSync3(join4(schemaDir, "schema-eval.sql"), "utf8");
         this.db.exec(evalSql);
       }
     };
@@ -21253,16 +21413,16 @@ var TrajectoryDB = class {
         ok: true
       });
       return out;
-    } catch (err18) {
+    } catch (err) {
       this.sqlLog({
         kind: "run",
         sql,
         params: params ?? [],
         duration_ms: Math.round(performance.now() - start),
         ok: false,
-        error_message: err18 instanceof Error ? err18.message : String(err18)
+        error_message: err instanceof Error ? err.message : String(err)
       });
-      throw err18;
+      throw err;
     }
   }
   get(sql, params) {
@@ -21279,16 +21439,16 @@ var TrajectoryDB = class {
         ok: true
       });
       return row;
-    } catch (err18) {
+    } catch (err) {
       this.sqlLog({
         kind: "get",
         sql,
         params: params ?? [],
         duration_ms: Math.round(performance.now() - start),
         ok: false,
-        error_message: err18 instanceof Error ? err18.message : String(err18)
+        error_message: err instanceof Error ? err.message : String(err)
       });
-      throw err18;
+      throw err;
     }
   }
   all(sql, params) {
@@ -21305,16 +21465,16 @@ var TrajectoryDB = class {
         ok: true
       });
       return rows;
-    } catch (err18) {
+    } catch (err) {
       this.sqlLog({
         kind: "all",
         sql,
         params: params ?? [],
         duration_ms: Math.round(performance.now() - start),
         ok: false,
-        error_message: err18 instanceof Error ? err18.message : String(err18)
+        error_message: err instanceof Error ? err.message : String(err)
       });
-      throw err18;
+      throw err;
     }
   }
   /**
@@ -21328,12 +21488,12 @@ var TrajectoryDB = class {
       const result = fn();
       this.db.exec("COMMIT");
       return result;
-    } catch (err18) {
+    } catch (err) {
       try {
         this.db.exec("ROLLBACK");
       } catch {
       }
-      throw err18;
+      throw err;
     }
   }
   close() {
@@ -21374,13 +21534,10 @@ function noThrowTrajectoryLog(log) {
     }
   };
 }
-function nowISO() {
-  return (/* @__PURE__ */ new Date()).toISOString();
-}
-function backupDbBeforeMigration(db2, dbPath2, targetVersion) {
-  if (!dbPath2 || dbPath2 === ":memory:") return;
-  const dir = dirname2(dbPath2);
-  const base = basename2(dbPath2);
+function backupDbBeforeMigration(db, dbPath, targetVersion) {
+  if (!dbPath || dbPath === ":memory:") return;
+  const dir = dirname3(dbPath);
+  const base = basename2(dbPath);
   const prefix = `${base}.pre-v${targetVersion}.`;
   try {
     const existing = readdirSync(dir).some(
@@ -21390,232 +21547,232 @@ function backupDbBeforeMigration(db2, dbPath2, targetVersion) {
   } catch {
   }
   try {
-    db2.prepare("PRAGMA wal_checkpoint(FULL)").get();
+    db.prepare("PRAGMA wal_checkpoint(FULL)").get();
   } catch {
   }
   const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
-  const backupPath = `${dbPath2}.pre-v${targetVersion}.${timestamp}.bak`;
-  copyFileSync(dbPath2, backupPath);
+  const backupPath = `${dbPath}.pre-v${targetVersion}.${timestamp}.bak`;
+  copyFileSync(dbPath, backupPath);
 }
-function runMigrations(db2, fromVersion, toVersion) {
+function runMigrations(db, fromVersion, toVersion) {
   if (fromVersion < 2 && toVersion >= 2) {
-    migrateV1toV2(db2);
+    migrateV1toV2(db);
   }
   if (fromVersion < 3 && toVersion >= 3) {
-    migrateV2toV3(db2);
+    migrateV2toV3(db);
   }
   if (fromVersion < 4 && toVersion >= 4) {
-    migrateV3toV4(db2);
+    migrateV3toV4(db);
   }
   if (fromVersion < 5 && toVersion >= 5) {
-    migrateV4toV5(db2);
+    migrateV4toV5(db);
   }
   if (fromVersion < 6 && toVersion >= 6) {
-    migrateV5toV6(db2);
+    migrateV5toV6(db);
   }
   if (fromVersion < 7 && toVersion >= 7) {
-    migrateV6toV7(db2);
+    migrateV6toV7(db);
   }
   if (fromVersion < 8 && toVersion >= 8) {
-    migrateV7toV8(db2);
+    migrateV7toV8(db);
   }
   if (fromVersion < 9 && toVersion >= 9) {
-    migrateV8toV9(db2);
+    migrateV8toV9(db);
   }
   if (fromVersion < 10 && toVersion >= 10) {
-    migrateV9toV10(db2);
+    migrateV9toV10(db);
   }
   if (fromVersion < 11 && toVersion >= 11) {
-    migrateV10toV11(db2);
+    migrateV10toV11(db);
   }
   if (fromVersion < 12 && toVersion >= 12) {
-    migrateV11toV12(db2);
+    migrateV11toV12(db);
   }
   if (fromVersion < 13 && toVersion >= 13) {
-    migrateV12toV13(db2);
+    migrateV12toV13(db);
   }
   if (fromVersion < 14 && toVersion >= 14) {
-    migrateV13toV14(db2);
+    migrateV13toV14(db);
   }
   if (fromVersion < 15 && toVersion >= 15) {
-    migrateV14toV15(db2);
+    migrateV14toV15(db);
   }
   if (fromVersion < 16 && toVersion >= 16) {
-    migrateV15toV16(db2);
+    migrateV15toV16(db);
   }
   if (fromVersion < 17 && toVersion >= 17) {
-    migrateV16toV17(db2);
+    migrateV16toV17(db);
   }
   if (fromVersion < 18 && toVersion >= 18) {
-    migrateV17toV18(db2);
+    migrateV17toV18(db);
   }
   if (fromVersion < 19 && toVersion >= 19) {
-    migrateV18toV19(db2);
+    migrateV18toV19(db);
   }
   if (fromVersion < 20 && toVersion >= 20) {
-    migrateV19toV20(db2);
+    migrateV19toV20(db);
   }
   if (fromVersion < 21 && toVersion >= 21) {
-    migrateV20toV21(db2);
+    migrateV20toV21(db);
   }
   if (fromVersion < 22 && toVersion >= 22) {
-    migrateV21toV22(db2);
+    migrateV21toV22(db);
   }
   if (fromVersion < 23 && toVersion >= 23) {
-    migrateV22toV23(db2);
+    migrateV22toV23(db);
   }
   if (fromVersion < 24 && toVersion >= 24) {
-    migrateV23toV24(db2);
+    migrateV23toV24(db);
   }
   if (fromVersion < 25 && toVersion >= 25) {
-    migrateV24toV25(db2);
+    migrateV24toV25(db);
   }
   if (fromVersion < 26 && toVersion >= 26) {
-    migrateV25toV26(db2);
+    migrateV25toV26(db);
   }
   if (fromVersion < 27 && toVersion >= 27) {
-    migrateV26toV27(db2);
+    migrateV26toV27(db);
   }
   if (fromVersion < 28 && toVersion >= 28) {
-    migrateV27toV28(db2);
+    migrateV27toV28(db);
   }
 }
-function hasColumn(db2, table, column) {
-  const cols = db2.prepare(`PRAGMA table_info(${table})`).all();
+function hasColumn(db, table, column) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
   return cols.some((c) => c.name === column);
 }
-function tableExists(db2, table) {
-  const row = db2.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table);
+function tableExists(db, table) {
+  const row = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table);
   return row !== void 0;
 }
-function migrateV8toV9(db2) {
-  db2.exec("BEGIN");
+function migrateV8toV9(db) {
+  db.exec("BEGIN");
   try {
-    if (tableExists(db2, "agent_runs")) {
-      if (!hasColumn(db2, "agent_runs", "cache_read_tokens")) {
-        db2.exec("ALTER TABLE agent_runs ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0");
+    if (tableExists(db, "agent_runs")) {
+      if (!hasColumn(db, "agent_runs", "cache_read_tokens")) {
+        db.exec("ALTER TABLE agent_runs ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0");
       }
-      if (!hasColumn(db2, "agent_runs", "cache_creation_tokens")) {
-        db2.exec("ALTER TABLE agent_runs ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0");
+      if (!hasColumn(db, "agent_runs", "cache_creation_tokens")) {
+        db.exec("ALTER TABLE agent_runs ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0");
       }
     }
-    if (tableExists(db2, "pr_review_runs")) {
-      if (!hasColumn(db2, "pr_review_runs", "task_id")) {
-        db2.exec("ALTER TABLE pr_review_runs ADD COLUMN task_id INTEGER REFERENCES tasks(id)");
+    if (tableExists(db, "pr_review_runs")) {
+      if (!hasColumn(db, "pr_review_runs", "task_id")) {
+        db.exec("ALTER TABLE pr_review_runs ADD COLUMN task_id INTEGER REFERENCES tasks(id)");
       }
-      if (!hasColumn(db2, "pr_review_runs", "verdict")) {
-        db2.exec("ALTER TABLE pr_review_runs ADD COLUMN verdict TEXT");
+      if (!hasColumn(db, "pr_review_runs", "verdict")) {
+        db.exec("ALTER TABLE pr_review_runs ADD COLUMN verdict TEXT");
       }
-      if (!hasColumn(db2, "pr_review_runs", "attempt_n")) {
-        db2.exec("ALTER TABLE pr_review_runs ADD COLUMN attempt_n INTEGER");
+      if (!hasColumn(db, "pr_review_runs", "attempt_n")) {
+        db.exec("ALTER TABLE pr_review_runs ADD COLUMN attempt_n INTEGER");
       }
-      db2.exec("DROP INDEX IF EXISTS idx_pr_review_runs_pr");
-      db2.exec(
+      db.exec("DROP INDEX IF EXISTS idx_pr_review_runs_pr");
+      db.exec(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_pr ON pr_review_runs(pr_number, repo) WHERE pr_number > 0"
       );
-      const auditIdxExists = db2.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_pr_review_runs_audit'").get();
+      const auditIdxExists = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_pr_review_runs_audit'").get();
       if (!auditIdxExists) {
-        db2.exec(
+        db.exec(
           "CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_audit ON pr_review_runs(task_id, attempt_n) WHERE task_id IS NOT NULL"
         );
       }
-      const taskIdxExists = db2.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_pr_review_runs_task'").get();
+      const taskIdxExists = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_pr_review_runs_task'").get();
       if (!taskIdxExists) {
-        db2.exec(
+        db.exec(
           "CREATE INDEX IF NOT EXISTS idx_pr_review_runs_task ON pr_review_runs(task_id)"
         );
       }
     }
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   }
 }
-function migrateV9toV10(db2) {
-  db2.exec("BEGIN");
+function migrateV9toV10(db) {
+  db.exec("BEGIN");
   try {
-    if (tableExists(db2, "tasks")) {
-      if (!hasColumn(db2, "tasks", "prompt_bearing")) {
-        db2.exec("ALTER TABLE tasks ADD COLUMN prompt_bearing INTEGER NOT NULL DEFAULT 0");
+    if (tableExists(db, "tasks")) {
+      if (!hasColumn(db, "tasks", "prompt_bearing")) {
+        db.exec("ALTER TABLE tasks ADD COLUMN prompt_bearing INTEGER NOT NULL DEFAULT 0");
       }
     }
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   }
 }
-function migrateV10toV11(db2) {
-  db2.exec("BEGIN");
+function migrateV10toV11(db) {
+  db.exec("BEGIN");
   try {
-    if (tableExists(db2, "repos")) {
-      if (!hasColumn(db2, "repos", "target_branch")) {
-        db2.exec("ALTER TABLE repos ADD COLUMN target_branch TEXT");
+    if (tableExists(db, "repos")) {
+      if (!hasColumn(db, "repos", "target_branch")) {
+        db.exec("ALTER TABLE repos ADD COLUMN target_branch TEXT");
       }
-      if (!hasColumn(db2, "repos", "branching_model")) {
-        db2.exec("ALTER TABLE repos ADD COLUMN branching_model TEXT");
+      if (!hasColumn(db, "repos", "branching_model")) {
+        db.exec("ALTER TABLE repos ADD COLUMN branching_model TEXT");
       }
-      if (!hasColumn(db2, "repos", "protected_branches")) {
-        db2.exec("ALTER TABLE repos ADD COLUMN protected_branches TEXT");
+      if (!hasColumn(db, "repos", "protected_branches")) {
+        db.exec("ALTER TABLE repos ADD COLUMN protected_branches TEXT");
       }
     }
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   }
 }
-function migrateV11toV12(db2) {
-  db2.exec("BEGIN");
+function migrateV11toV12(db) {
+  db.exec("BEGIN");
   try {
-    if (tableExists(db2, "agent_runs")) {
-      if (!hasColumn(db2, "agent_runs", "usage_baseline_json")) {
-        db2.exec("ALTER TABLE agent_runs ADD COLUMN usage_baseline_json TEXT");
+    if (tableExists(db, "agent_runs")) {
+      if (!hasColumn(db, "agent_runs", "usage_baseline_json")) {
+        db.exec("ALTER TABLE agent_runs ADD COLUMN usage_baseline_json TEXT");
       }
     }
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   }
 }
-function migrateV12toV13(db2) {
-  db2.exec("BEGIN");
+function migrateV12toV13(db) {
+  db.exec("BEGIN");
   try {
-    if (tableExists(db2, "tasks")) {
-      if (!hasColumn(db2, "tasks", "files")) {
-        db2.exec("ALTER TABLE tasks ADD COLUMN files TEXT NOT NULL DEFAULT '[]'");
+    if (tableExists(db, "tasks")) {
+      if (!hasColumn(db, "tasks", "files")) {
+        db.exec("ALTER TABLE tasks ADD COLUMN files TEXT NOT NULL DEFAULT '[]'");
       }
-      if (!hasColumn(db2, "tasks", "verification")) {
-        db2.exec("ALTER TABLE tasks ADD COLUMN verification TEXT NOT NULL DEFAULT '[]'");
+      if (!hasColumn(db, "tasks", "verification")) {
+        db.exec("ALTER TABLE tasks ADD COLUMN verification TEXT NOT NULL DEFAULT '[]'");
       }
     }
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   }
 }
-function migrateV13toV14(db2) {
-  db2.exec("BEGIN");
+function migrateV13toV14(db) {
+  db.exec("BEGIN");
   try {
-    db2.exec(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS cheatcodes (
           id           INTEGER PRIMARY KEY AUTOINCREMENT,
           name         TEXT    NOT NULL,
@@ -21628,7 +21785,7 @@ function migrateV13toV14(db2) {
           UNIQUE(name, source_url)
       )
     `);
-    db2.exec(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS cheatcode_attachments (
           id           INTEGER PRIMARY KEY AUTOINCREMENT,
           cheatcode_id INTEGER NOT NULL REFERENCES cheatcodes(id) ON DELETE CASCADE,
@@ -21637,69 +21794,69 @@ function migrateV13toV14(db2) {
           created_at   TEXT    NOT NULL
       )
     `);
-    db2.exec(
+    db.exec(
       "CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode ON cheatcode_attachments(cheatcode_id)"
     );
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   }
 }
-function migrateV14toV15(db2) {
-  db2.exec("BEGIN");
+function migrateV14toV15(db) {
+  db.exec("BEGIN");
   try {
-    if (tableExists(db2, "cheatcodes") && !hasColumn(db2, "cheatcodes", "scope")) {
-      db2.exec("ALTER TABLE cheatcodes ADD COLUMN scope TEXT NOT NULL DEFAULT 'local'");
+    if (tableExists(db, "cheatcodes") && !hasColumn(db, "cheatcodes", "scope")) {
+      db.exec("ALTER TABLE cheatcodes ADD COLUMN scope TEXT NOT NULL DEFAULT 'local'");
     }
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   }
 }
-function migrateV15toV16(db2) {
-  db2.exec("BEGIN");
+function migrateV15toV16(db) {
+  db.exec("BEGIN");
   try {
-    db2.exec("DROP TABLE IF EXISTS rule_invocations");
-    db2.exec("DROP TABLE IF EXISTS rules");
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("DROP TABLE IF EXISTS rule_invocations");
+    db.exec("DROP TABLE IF EXISTS rules");
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   }
 }
-function migrateV16toV17(db2) {
-  db2.exec("BEGIN");
+function migrateV16toV17(db) {
+  db.exec("BEGIN");
   try {
-    db2.exec("DROP TABLE IF EXISTS commands");
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("DROP TABLE IF EXISTS commands");
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   }
 }
-function migrateV17toV18(db2) {
-  if (!tableExists(db2, "skills") || !(hasColumn(db2, "skills", "uses") || hasColumn(db2, "skills", "successes") || hasColumn(db2, "skills", "effectiveness"))) {
+function migrateV17toV18(db) {
+  if (!tableExists(db, "skills") || !(hasColumn(db, "skills", "uses") || hasColumn(db, "skills", "successes") || hasColumn(db, "skills", "effectiveness"))) {
     return;
   }
-  db2.exec("PRAGMA foreign_keys = OFF");
-  db2.exec("BEGIN");
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.exec("BEGIN");
   try {
-    db2.exec("DROP TABLE IF EXISTS skills_new");
-    db2.exec(`
+    db.exec("DROP TABLE IF EXISTS skills_new");
+    db.exec(`
       CREATE TABLE skills_new (
           id              INTEGER PRIMARY KEY AUTOINCREMENT,
           name            TEXT    NOT NULL UNIQUE,
@@ -21713,41 +21870,41 @@ function migrateV17toV18(db2) {
           updated_at      TEXT    NOT NULL
       )
     `);
-    db2.exec(`
+    db.exec(`
       INSERT INTO skills_new (id, name, description, file_path, scope, trust_tier, status, created_at, updated_at)
       SELECT id, name, description, file_path, scope, trust_tier, status, created_at, updated_at FROM skills
     `);
-    db2.exec("DROP TABLE skills");
-    db2.exec("ALTER TABLE skills_new RENAME TO skills");
-    const violations = db2.prepare("PRAGMA foreign_key_check").all();
+    db.exec("DROP TABLE skills");
+    db.exec("ALTER TABLE skills_new RENAME TO skills");
+    const violations = db.prepare("PRAGMA foreign_key_check").all();
     if (violations.length > 0) {
       throw new Error(
         `migrateV17toV18: foreign_key_check found ${violations.length} dangling reference(s) after skills rebuild`
       );
     }
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   } finally {
-    db2.exec("PRAGMA foreign_keys = ON");
+    db.exec("PRAGMA foreign_keys = ON");
   }
 }
-function migrateV18toV19(db2) {
-  const skillsPresent = tableExists(db2, "skills");
-  const cheatcodesUnified = tableExists(db2, "cheatcodes") && hasColumn(db2, "cheatcodes", "origin");
+function migrateV18toV19(db) {
+  const skillsPresent = tableExists(db, "skills");
+  const cheatcodesUnified = tableExists(db, "cheatcodes") && hasColumn(db, "cheatcodes", "origin");
   if (cheatcodesUnified && !skillsPresent) {
     return;
   }
-  db2.exec("PRAGMA foreign_keys = OFF");
-  db2.exec("BEGIN");
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.exec("BEGIN");
   try {
     if (!cheatcodesUnified) {
-      db2.exec("DROP TABLE IF EXISTS cheatcodes_new");
-      db2.exec(`
+      db.exec("DROP TABLE IF EXISTS cheatcodes_new");
+      db.exec(`
         CREATE TABLE cheatcodes_new (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
             name         TEXT    NOT NULL UNIQUE,
@@ -21769,8 +21926,8 @@ function migrateV18toV19(db2) {
             CHECK (origin != 'builtin' OR source_url IS NULL)
         )
       `);
-      if (tableExists(db2, "cheatcodes")) {
-        db2.exec(`
+      if (tableExists(db, "cheatcodes")) {
+        db.exec(`
           INSERT INTO cheatcodes_new
             (id, name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
           SELECT
@@ -21779,12 +21936,12 @@ function migrateV18toV19(db2) {
             status, installed_at, installed_at, installed_at
           FROM cheatcodes
         `);
-        db2.exec("DROP TABLE cheatcodes");
+        db.exec("DROP TABLE cheatcodes");
       }
-      db2.exec("ALTER TABLE cheatcodes_new RENAME TO cheatcodes");
+      db.exec("ALTER TABLE cheatcodes_new RENAME TO cheatcodes");
     }
-    if (tableExists(db2, "skills")) {
-      db2.exec(`
+    if (tableExists(db, "skills")) {
+      db.exec(`
         INSERT OR IGNORE INTO cheatcodes
           (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
         SELECT
@@ -21792,11 +21949,11 @@ function migrateV18toV19(db2) {
         FROM skills
       `);
     }
-    if (tableExists(db2, "skill_invocations")) {
-      const agentRunFk = tableExists(db2, "agent_runs") ? " REFERENCES agent_runs(id)" : "";
-      const taskFk = tableExists(db2, "tasks") ? " REFERENCES tasks(id)" : "";
-      db2.exec("DROP TABLE IF EXISTS skill_invocations_new");
-      db2.exec(`
+    if (tableExists(db, "skill_invocations")) {
+      const agentRunFk = tableExists(db, "agent_runs") ? " REFERENCES agent_runs(id)" : "";
+      const taskFk = tableExists(db, "tasks") ? " REFERENCES tasks(id)" : "";
+      db.exec("DROP TABLE IF EXISTS skill_invocations_new");
+      db.exec(`
         CREATE TABLE skill_invocations_new (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             skill_name    TEXT    NOT NULL REFERENCES cheatcodes(name),
@@ -21808,42 +21965,42 @@ function migrateV18toV19(db2) {
                             CHECK (outcome IN ('completed','failed','partial'))
         )
       `);
-      db2.exec(`
+      db.exec(`
         INSERT INTO skill_invocations_new (id, skill_name, agent_name, agent_run_id, task_id, invoked_at, outcome)
         SELECT id, skill_name, agent_name, agent_run_id, task_id, invoked_at, outcome FROM skill_invocations
       `);
-      db2.exec("DROP TABLE skill_invocations");
-      db2.exec("ALTER TABLE skill_invocations_new RENAME TO skill_invocations");
-      db2.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill ON skill_invocations(skill_name)");
-      db2.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_task  ON skill_invocations(task_id)");
-      db2.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_agent_run ON skill_invocations(agent_run_id)");
+      db.exec("DROP TABLE skill_invocations");
+      db.exec("ALTER TABLE skill_invocations_new RENAME TO skill_invocations");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_skill ON skill_invocations(skill_name)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_task  ON skill_invocations(task_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_skill_invocations_agent_run ON skill_invocations(agent_run_id)");
     }
-    db2.exec("DROP TABLE IF EXISTS skills");
-    const violations = db2.prepare("PRAGMA foreign_key_check").all();
+    db.exec("DROP TABLE IF EXISTS skills");
+    const violations = db.prepare("PRAGMA foreign_key_check").all();
     if (violations.length > 0) {
       throw new Error(
         `migrateV18toV19: foreign_key_check found ${violations.length} dangling reference(s) after the skills\u2192cheatcodes unification`
       );
     }
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   } finally {
-    db2.exec("PRAGMA foreign_keys = ON");
+    db.exec("PRAGMA foreign_keys = ON");
   }
 }
-function migrateV19toV20(db2) {
-  if (!tableExists(db2, "cheatcodes")) {
+function migrateV19toV20(db) {
+  if (!tableExists(db, "cheatcodes")) {
     return;
   }
-  db2.exec("BEGIN");
+  db.exec("BEGIN");
   try {
-    db2.exec("DELETE FROM cheatcodes WHERE name = 'tmb_agent-creator' AND origin = 'builtin'");
-    db2.exec(`
+    db.exec("DELETE FROM cheatcodes WHERE name = 'tmb_agent-creator' AND origin = 'builtin'");
+    db.exec(`
       INSERT OR IGNORE INTO cheatcodes
         (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
       VALUES
@@ -21852,50 +22009,50 @@ function migrateV19toV20(db2) {
          NULL, 'skills/tmb_cheatcode/SKILL.md', NULL, 'curated', 'global', 'active',
          datetime('now'), datetime('now'), datetime('now'))
     `);
-    const violations = db2.prepare("PRAGMA foreign_key_check").all();
+    const violations = db.prepare("PRAGMA foreign_key_check").all();
     if (violations.length > 0) {
       throw new Error(
         `migrateV19toV20: foreign_key_check found ${violations.length} dangling reference(s) after the builtin-skill seed correction`
       );
     }
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   }
 }
-function migrateV20toV21(db2) {
-  db2.exec("DROP TABLE IF EXISTS skill_invocations");
+function migrateV20toV21(db) {
+  db.exec("DROP TABLE IF EXISTS skill_invocations");
 }
-function migrateV21toV22(db2) {
-  if (tableExists(db2, "issues") && !hasColumn(db2, "issues", "milestone")) {
-    db2.exec("ALTER TABLE issues ADD COLUMN milestone TEXT");
+function migrateV21toV22(db) {
+  if (tableExists(db, "issues") && !hasColumn(db, "issues", "milestone")) {
+    db.exec("ALTER TABLE issues ADD COLUMN milestone TEXT");
   }
 }
-function migrateV27toV28(db2) {
-  if (tableExists(db2, "issues") && !hasColumn(db2, "issues", "labels")) {
-    db2.exec("ALTER TABLE issues ADD COLUMN labels TEXT");
+function migrateV27toV28(db) {
+  if (tableExists(db, "issues") && !hasColumn(db, "issues", "labels")) {
+    db.exec("ALTER TABLE issues ADD COLUMN labels TEXT");
   }
 }
-function migrateV22toV23(db2) {
+function migrateV22toV23(db) {
   const soleRepo = () => {
-    if (!tableExists(db2, "repos")) return null;
-    const rows = db2.prepare("SELECT name FROM repos").all();
+    if (!tableExists(db, "repos")) return null;
+    const rows = db.prepare("SELECT name FROM repos").all();
     return rows.length === 1 ? rows[0].name : null;
   };
-  db2.exec("PRAGMA foreign_keys = OFF");
-  db2.exec("BEGIN");
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.exec("BEGIN");
   try {
-    if (tableExists(db2, "repos")) {
-      if (!hasColumn(db2, "repos", "remotes")) {
-        db2.exec("ALTER TABLE repos ADD COLUMN remotes TEXT");
+    if (tableExists(db, "repos")) {
+      if (!hasColumn(db, "repos", "remotes")) {
+        db.exec("ALTER TABLE repos ADD COLUMN remotes TEXT");
       }
     }
     const sole = soleRepo();
-    db2.exec(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS milestones (
           name   TEXT NOT NULL,
           repo   TEXT NOT NULL REFERENCES repos(name) ON DELETE RESTRICT,
@@ -21903,22 +22060,22 @@ function migrateV22toV23(db2) {
           PRIMARY KEY (name, repo)
       )
     `);
-    if (tableExists(db2, "issues") && hasColumn(db2, "issues", "milestone")) {
-      const issuesHasRepo = hasColumn(db2, "issues", "repo");
+    if (tableExists(db, "issues") && hasColumn(db, "issues", "milestone")) {
+      const issuesHasRepo = hasColumn(db, "issues", "repo");
       if (!issuesHasRepo) {
-        db2.exec("ALTER TABLE issues ADD COLUMN repo TEXT");
+        db.exec("ALTER TABLE issues ADD COLUMN repo TEXT");
       }
       if (sole !== null) {
-        db2.prepare("UPDATE issues SET repo = ? WHERE repo IS NULL AND id <> -1").run(sole);
+        db.prepare("UPDATE issues SET repo = ? WHERE repo IS NULL AND id <> -1").run(sole);
       }
-      db2.exec(`
+      db.exec(`
         INSERT OR IGNORE INTO milestones (name, repo, state)
         SELECT DISTINCT milestone, repo, 'open'
           FROM issues
          WHERE milestone IS NOT NULL AND repo IS NOT NULL
       `);
-      db2.exec("DROP TABLE IF EXISTS issues_new");
-      db2.exec(`
+      db.exec("DROP TABLE IF EXISTS issues_new");
+      db.exec(`
         CREATE TABLE issues_new (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
             objective         TEXT    NOT NULL,
@@ -21936,8 +22093,8 @@ function migrateV22toV23(db2) {
             FOREIGN KEY (milestone, repo) REFERENCES milestones(name, repo) ON DELETE RESTRICT
         )
       `);
-      const issueCol = (name, expr = name) => hasColumn(db2, "issues", name) ? expr : `NULL AS ${name}`;
-      db2.exec(`
+      const issueCol = (name, expr = name) => hasColumn(db, "issues", name) ? expr : `NULL AS ${name}`;
+      db.exec(`
         INSERT INTO issues_new
           (id, objective, description, status, created_at, updated_at, closed_at,
            remote_iid, remote_kind, gh_iid, gl_iid, repo, milestone)
@@ -21949,12 +22106,12 @@ function migrateV22toV23(db2) {
            repo, milestone
           FROM issues
       `);
-      db2.exec("DROP TABLE issues");
-      db2.exec("ALTER TABLE issues_new RENAME TO issues");
+      db.exec("DROP TABLE issues");
+      db.exec("ALTER TABLE issues_new RENAME TO issues");
     }
-    if (tableExists(db2, "tasks") && hasColumn(db2, "tasks", "repo")) {
-      db2.exec("DROP TABLE IF EXISTS tasks_new");
-      db2.exec(`
+    if (tableExists(db, "tasks") && hasColumn(db, "tasks", "repo")) {
+      db.exec("DROP TABLE IF EXISTS tasks_new");
+      db.exec(`
         CREATE TABLE tasks_new (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
             issue_id          INTEGER NOT NULL REFERENCES issues(id),
@@ -21975,8 +22132,8 @@ function migrateV22toV23(db2) {
             completed_at      TEXT
         )
       `);
-      const taskCol = (name, fallback) => hasColumn(db2, "tasks", name) ? name : `${fallback} AS ${name}`;
-      db2.exec(`
+      const taskCol = (name, fallback) => hasColumn(db, "tasks", name) ? name : `${fallback} AS ${name}`;
+      db.exec(`
         INSERT INTO tasks_new
           (id, issue_id, branch_id, parent_branch_id, title, description, status,
            attempts, spec_body, commit_sha, repo, prompt_bearing, files,
@@ -21996,82 +22153,82 @@ function migrateV22toV23(db2) {
            ${taskCol("completed_at", "NULL")}
           FROM tasks
       `);
-      db2.exec("DROP TABLE tasks");
-      db2.exec("ALTER TABLE tasks_new RENAME TO tasks");
-      db2.exec(
+      db.exec("DROP TABLE tasks");
+      db.exec("ALTER TABLE tasks_new RENAME TO tasks");
+      db.exec(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id)"
       );
     }
-    if (tableExists(db2, "discussions") && !hasColumn(db2, "discussions", "repo")) {
-      db2.exec("ALTER TABLE discussions ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT");
-      if (tableExists(db2, "issues")) {
-        db2.exec(`
+    if (tableExists(db, "discussions") && !hasColumn(db, "discussions", "repo")) {
+      db.exec("ALTER TABLE discussions ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT");
+      if (tableExists(db, "issues")) {
+        db.exec(`
           UPDATE discussions
              SET repo = (SELECT i.repo FROM issues i WHERE i.id = discussions.issue_id)
            WHERE repo IS NULL
         `);
       }
     }
-    if (tableExists(db2, "audit") && !hasColumn(db2, "audit", "repo")) {
-      db2.exec("ALTER TABLE audit ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT");
-      if (tableExists(db2, "issues")) {
-        db2.exec(`
+    if (tableExists(db, "audit") && !hasColumn(db, "audit", "repo")) {
+      db.exec("ALTER TABLE audit ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT");
+      if (tableExists(db, "issues")) {
+        db.exec(`
           UPDATE audit
              SET repo = (SELECT i.repo FROM issues i WHERE i.id = audit.issue_id)
            WHERE repo IS NULL
         `);
       }
     }
-    if (tableExists(db2, "agent_runs") && !hasColumn(db2, "agent_runs", "repo")) {
-      db2.exec("ALTER TABLE agent_runs ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT");
-      if (tableExists(db2, "tasks")) {
-        db2.exec(`
+    if (tableExists(db, "agent_runs") && !hasColumn(db, "agent_runs", "repo")) {
+      db.exec("ALTER TABLE agent_runs ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT");
+      if (tableExists(db, "tasks")) {
+        db.exec(`
           UPDATE agent_runs
              SET repo = (SELECT t.repo FROM tasks t WHERE t.id = agent_runs.task_id)
            WHERE repo IS NULL AND task_id IS NOT NULL
         `);
       }
-      if (tableExists(db2, "issues")) {
-        db2.exec(`
+      if (tableExists(db, "issues")) {
+        db.exec(`
           UPDATE agent_runs
              SET repo = (SELECT i.repo FROM issues i WHERE i.id = agent_runs.issue_id)
            WHERE repo IS NULL AND issue_id IS NOT NULL
         `);
       }
     }
-    if (tableExists(db2, "validation_attempts") && !hasColumn(db2, "validation_attempts", "repo")) {
-      db2.exec("ALTER TABLE validation_attempts ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT");
-      if (tableExists(db2, "tasks")) {
-        db2.exec(`
+    if (tableExists(db, "validation_attempts") && !hasColumn(db, "validation_attempts", "repo")) {
+      db.exec("ALTER TABLE validation_attempts ADD COLUMN repo TEXT REFERENCES repos(name) ON DELETE RESTRICT");
+      if (tableExists(db, "tasks")) {
+        db.exec(`
           UPDATE validation_attempts
              SET repo = (SELECT t.repo FROM tasks t WHERE t.id = validation_attempts.task_id)
            WHERE repo IS NULL
         `);
       }
     }
-    const violations = db2.prepare("PRAGMA foreign_key_check").all();
+    const violations = db.prepare("PRAGMA foreign_key_check").all();
     if (violations.length > 0) {
       throw new Error(
         `migrateV22toV23: foreign_key_check found ${violations.length} dangling reference(s) after the repos-centric migration`
       );
     }
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   } finally {
-    db2.exec("PRAGMA foreign_keys = ON");
+    db.exec("PRAGMA foreign_keys = ON");
   }
 }
-function migrateV23toV24(db2) {
-  if (!tableExists(db2, "cheatcodes")) return;
-  db2.exec("PRAGMA foreign_keys = OFF");
-  db2.exec("BEGIN");
+function migrateV23toV24(db) {
+  if (!tableExists(db, "cheatcodes")) return;
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.exec("BEGIN");
   try {
-    db2.exec(`
+    db.exec(`
       -- LINT-ALLOW: v23\u2192v24 WHERE-scoped cleanup of leaked scan-ingest rows (#150).
       DELETE FROM cheatcodes
        WHERE source_url = 'scan_discovered'
@@ -22080,8 +22237,8 @@ function migrateV23toV24(db2) {
            OR name IN ('Installed','Version','Scope','Status','Location','Name','Source','Enabled')
          )
     `);
-    db2.exec("DROP TABLE IF EXISTS cheatcodes_new");
-    db2.exec(`
+    db.exec("DROP TABLE IF EXISTS cheatcodes_new");
+    db.exec(`
       CREATE TABLE cheatcodes_new (
           id           INTEGER PRIMARY KEY AUTOINCREMENT,
           name         TEXT    NOT NULL UNIQUE,
@@ -22103,7 +22260,7 @@ function migrateV23toV24(db2) {
           CHECK (origin != 'builtin' OR source_url IS NULL)
       )
     `);
-    db2.exec(`
+    db.exec(`
       INSERT INTO cheatcodes_new
         (id, name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
       SELECT
@@ -22119,33 +22276,33 @@ function migrateV23toV24(db2) {
         description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at
       FROM cheatcodes
     `);
-    db2.exec("DROP TABLE cheatcodes");
-    db2.exec("ALTER TABLE cheatcodes_new RENAME TO cheatcodes");
-    const violations = db2.prepare("PRAGMA foreign_key_check").all();
+    db.exec("DROP TABLE cheatcodes");
+    db.exec("ALTER TABLE cheatcodes_new RENAME TO cheatcodes");
+    const violations = db.prepare("PRAGMA foreign_key_check").all();
     if (violations.length > 0) {
       throw new Error(
         `migrateV23toV24: foreign_key_check found ${violations.length} dangling reference(s) after the cheatcodes rebuild`
       );
     }
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   } finally {
-    db2.exec("PRAGMA foreign_keys = ON");
+    db.exec("PRAGMA foreign_keys = ON");
   }
 }
-function migrateV24toV25(db2) {
-  if (!tableExists(db2, "cheatcodes")) {
+function migrateV24toV25(db) {
+  if (!tableExists(db, "cheatcodes")) {
     return;
   }
-  db2.exec("BEGIN");
+  db.exec("BEGIN");
   try {
-    db2.exec("DELETE FROM cheatcodes WHERE name = 'tmb_push-triage' AND origin = 'builtin'");
-    db2.exec(`
+    db.exec("DELETE FROM cheatcodes WHERE name = 'tmb_push-triage' AND origin = 'builtin'");
+    db.exec(`
       INSERT OR IGNORE INTO cheatcodes
         (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
       VALUES
@@ -22158,29 +22315,29 @@ function migrateV24toV25(db2) {
          NULL, 'skills/tmb_comment-triage/SKILL.md', NULL, 'curated', 'global', 'active',
          datetime('now'), datetime('now'), datetime('now'))
     `);
-    const violations = db2.prepare("PRAGMA foreign_key_check").all();
+    const violations = db.prepare("PRAGMA foreign_key_check").all();
     if (violations.length > 0) {
       throw new Error(
         `migrateV24toV25: foreign_key_check found ${violations.length} dangling reference(s) after the push-triage skill split`
       );
     }
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   }
 }
-function migrateV25toV26(db2) {
-  if (!tableExists(db2, "validation_attempts")) return;
-  if (hasColumn(db2, "validation_attempts", "mcp_available")) return;
-  db2.exec("PRAGMA foreign_keys = OFF");
-  db2.exec("BEGIN");
+function migrateV25toV26(db) {
+  if (!tableExists(db, "validation_attempts")) return;
+  if (hasColumn(db, "validation_attempts", "mcp_available")) return;
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.exec("BEGIN");
   try {
-    db2.exec("DROP TABLE IF EXISTS validation_attempts_new");
-    db2.exec(`
+    db.exec("DROP TABLE IF EXISTS validation_attempts_new");
+    db.exec(`
       CREATE TABLE validation_attempts_new (
           id                  INTEGER PRIMARY KEY AUTOINCREMENT,
           task_id             INTEGER NOT NULL REFERENCES tasks(id),
@@ -22195,7 +22352,7 @@ function migrateV25toV26(db2) {
           UNIQUE(task_id, attempt_n)
       )
     `);
-    db2.exec(`
+    db.exec(`
       INSERT INTO validation_attempts_new
         (id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, repo, created_at)
       SELECT
@@ -22204,32 +22361,32 @@ function migrateV25toV26(db2) {
         subagent_session_id, repo, created_at
       FROM validation_attempts
     `);
-    db2.exec("DROP TABLE validation_attempts");
-    db2.exec("ALTER TABLE validation_attempts_new RENAME TO validation_attempts");
-    const violations = db2.prepare("PRAGMA foreign_key_check").all();
+    db.exec("DROP TABLE validation_attempts");
+    db.exec("ALTER TABLE validation_attempts_new RENAME TO validation_attempts");
+    const violations = db.prepare("PRAGMA foreign_key_check").all();
     if (violations.length > 0) {
       throw new Error(
         `migrateV25toV26: foreign_key_check found ${violations.length} dangling reference(s) after the validation_attempts rebuild`
       );
     }
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   } finally {
-    db2.exec("PRAGMA foreign_keys = ON");
+    db.exec("PRAGMA foreign_keys = ON");
   }
 }
-function migrateV26toV27(db2) {
-  if (!tableExists(db2, "plugin_config")) return;
-  db2.exec("BEGIN");
+function migrateV26toV27(db) {
+  if (!tableExists(db, "plugin_config")) return;
+  db.exec("BEGIN");
   try {
-    if (tableExists(db2, "repos")) {
+    if (tableExists(db, "repos")) {
       const scalarFromConfig = (key) => {
-        const row = db2.prepare("SELECT value_json FROM plugin_config WHERE key = ?").get(key);
+        const row = db.prepare("SELECT value_json FROM plugin_config WHERE key = ?").get(key);
         if (!row?.value_json) return null;
         try {
           const v = JSON.parse(row.value_json);
@@ -22239,154 +22396,154 @@ function migrateV26toV27(db2) {
         }
       };
       const rawFromConfig = (key) => {
-        const row = db2.prepare("SELECT value_json FROM plugin_config WHERE key = ?").get(key);
+        const row = db.prepare("SELECT value_json FROM plugin_config WHERE key = ?").get(key);
         return row?.value_json ?? null;
       };
       const prTarget = scalarFromConfig("pr_target");
       const branchingModel = scalarFromConfig("branching_model");
       const protectedBranches = rawFromConfig("protected_branches");
       const remotes = rawFromConfig("remotes");
-      if (hasColumn(db2, "repos", "target_branch") && prTarget !== null) {
-        db2.prepare("UPDATE repos SET target_branch = ? WHERE target_branch IS NULL").run(prTarget);
+      if (hasColumn(db, "repos", "target_branch") && prTarget !== null) {
+        db.prepare("UPDATE repos SET target_branch = ? WHERE target_branch IS NULL").run(prTarget);
       }
-      if (hasColumn(db2, "repos", "branching_model") && branchingModel !== null) {
-        db2.prepare("UPDATE repos SET branching_model = ? WHERE branching_model IS NULL").run(
+      if (hasColumn(db, "repos", "branching_model") && branchingModel !== null) {
+        db.prepare("UPDATE repos SET branching_model = ? WHERE branching_model IS NULL").run(
           branchingModel
         );
       }
-      if (hasColumn(db2, "repos", "protected_branches") && protectedBranches !== null) {
-        db2.prepare("UPDATE repos SET protected_branches = ? WHERE protected_branches IS NULL").run(
+      if (hasColumn(db, "repos", "protected_branches") && protectedBranches !== null) {
+        db.prepare("UPDATE repos SET protected_branches = ? WHERE protected_branches IS NULL").run(
           protectedBranches
         );
       }
-      if (hasColumn(db2, "repos", "remotes") && remotes !== null) {
-        db2.prepare("UPDATE repos SET remotes = ? WHERE remotes IS NULL").run(remotes);
+      if (hasColumn(db, "repos", "remotes") && remotes !== null) {
+        db.prepare("UPDATE repos SET remotes = ? WHERE remotes IS NULL").run(remotes);
       }
     }
-    db2.prepare(
+    db.prepare(
       // LINT-ALLOW: v27 migration intentionally removes the drained global policy keys (#980).
       "DELETE FROM plugin_config WHERE key IN ('pr_target', 'branching_model', 'protected_branches', 'remotes')"
     ).run();
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   }
 }
-function migrateV7toV8(db2) {
-  db2.exec("BEGIN");
+function migrateV7toV8(db) {
+  db.exec("BEGIN");
   try {
-    db2.exec("DROP TRIGGER IF EXISTS directories_au_new");
-    db2.exec("DROP TRIGGER IF EXISTS directories_au");
-    db2.exec("DROP TRIGGER IF EXISTS directories_ad");
-    db2.exec("DROP TRIGGER IF EXISTS directories_ai");
-    db2.exec("DROP INDEX IF EXISTS idx_directories_embeddings_model");
-    db2.exec("DROP INDEX IF EXISTS idx_directories_parent");
-    db2.exec("DROP TABLE IF EXISTS directories_embeddings");
-    db2.exec("DROP TABLE IF EXISTS directories_fts");
-    db2.exec("DROP TABLE IF EXISTS directories");
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("DROP TRIGGER IF EXISTS directories_au_new");
+    db.exec("DROP TRIGGER IF EXISTS directories_au");
+    db.exec("DROP TRIGGER IF EXISTS directories_ad");
+    db.exec("DROP TRIGGER IF EXISTS directories_ai");
+    db.exec("DROP INDEX IF EXISTS idx_directories_embeddings_model");
+    db.exec("DROP INDEX IF EXISTS idx_directories_parent");
+    db.exec("DROP TABLE IF EXISTS directories_embeddings");
+    db.exec("DROP TABLE IF EXISTS directories_fts");
+    db.exec("DROP TABLE IF EXISTS directories");
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   }
 }
-function migrateV6toV7(db2) {
-  db2.exec("BEGIN");
+function migrateV6toV7(db) {
+  db.exec("BEGIN");
   try {
-    db2.exec("DROP TRIGGER IF EXISTS file_registry_au_new");
-    db2.exec("DROP TRIGGER IF EXISTS file_registry_au");
-    db2.exec("DROP TRIGGER IF EXISTS file_registry_ad");
-    db2.exec("DROP TRIGGER IF EXISTS file_registry_ai");
-    db2.exec("DROP INDEX IF EXISTS idx_file_registry_embeddings_model");
-    db2.exec("DROP TABLE IF EXISTS file_registry_embeddings");
-    db2.exec("DROP TABLE IF EXISTS file_registry_fts");
-    db2.exec("DROP TABLE IF EXISTS file_registry");
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("DROP TRIGGER IF EXISTS file_registry_au_new");
+    db.exec("DROP TRIGGER IF EXISTS file_registry_au");
+    db.exec("DROP TRIGGER IF EXISTS file_registry_ad");
+    db.exec("DROP TRIGGER IF EXISTS file_registry_ai");
+    db.exec("DROP INDEX IF EXISTS idx_file_registry_embeddings_model");
+    db.exec("DROP TABLE IF EXISTS file_registry_embeddings");
+    db.exec("DROP TABLE IF EXISTS file_registry_fts");
+    db.exec("DROP TABLE IF EXISTS file_registry");
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   }
 }
-function migrateV5toV6(db2) {
-  db2.exec("BEGIN");
+function migrateV5toV6(db) {
+  db.exec("BEGIN");
   try {
-    db2.exec(
+    db.exec(
       "CREATE TABLE IF NOT EXISTS directories (id INTEGER PRIMARY KEY AUTOINCREMENT, repo TEXT NOT NULL DEFAULT '', path TEXT NOT NULL, parent_path TEXT, summary TEXT, summary_source TEXT CHECK (summary_source IN ('readme','llm','manual')) DEFAULT 'llm', summary_updated_at TEXT, file_count INTEGER NOT NULL DEFAULT 0, UNIQUE(repo, path))"
     );
-    db2.exec(
+    db.exec(
       "CREATE INDEX IF NOT EXISTS idx_directories_parent ON directories(repo, parent_path)"
     );
-    db2.exec(
+    db.exec(
       "CREATE VIRTUAL TABLE IF NOT EXISTS directories_fts USING fts5(summary, path, content='directories', tokenize='porter unicode61')"
     );
-    db2.exec(
+    db.exec(
       "CREATE TRIGGER IF NOT EXISTS directories_ai AFTER INSERT ON directories WHEN new.summary IS NOT NULL BEGIN INSERT INTO directories_fts(rowid, summary, path) VALUES (new.id, new.summary, new.path); END"
     );
-    db2.exec(
+    db.exec(
       "CREATE TRIGGER IF NOT EXISTS directories_ad AFTER DELETE ON directories WHEN old.summary IS NOT NULL BEGIN INSERT INTO directories_fts(directories_fts, rowid, summary, path) VALUES ('delete', old.id, old.summary, old.path); END"
     );
-    db2.exec(
+    db.exec(
       "CREATE TRIGGER IF NOT EXISTS directories_au AFTER UPDATE ON directories WHEN old.summary IS NOT NULL BEGIN INSERT INTO directories_fts(directories_fts, rowid, summary, path) VALUES ('delete', old.id, old.summary, old.path); END"
     );
-    db2.exec(
+    db.exec(
       "CREATE TRIGGER IF NOT EXISTS directories_au_new AFTER UPDATE ON directories WHEN new.summary IS NOT NULL BEGIN INSERT INTO directories_fts(rowid, summary, path) VALUES (new.id, new.summary, new.path); END"
     );
-    db2.exec(
+    db.exec(
       "CREATE TABLE IF NOT EXISTS directories_embeddings (directory_id INTEGER PRIMARY KEY, embedding BLOB NOT NULL, model_id TEXT NOT NULL, embedded_at TEXT NOT NULL)"
     );
-    db2.exec(
+    db.exec(
       "CREATE INDEX IF NOT EXISTS idx_directories_embeddings_model ON directories_embeddings(model_id)"
     );
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   }
 }
-function migrateV4toV5(db2) {
-  db2.exec("BEGIN");
+function migrateV4toV5(db) {
+  db.exec("BEGIN");
   try {
-    if (tableExists(db2, "issues")) {
-      if (!hasColumn(db2, "issues", "gh_iid")) {
-        db2.exec("ALTER TABLE issues ADD COLUMN gh_iid INTEGER");
+    if (tableExists(db, "issues")) {
+      if (!hasColumn(db, "issues", "gh_iid")) {
+        db.exec("ALTER TABLE issues ADD COLUMN gh_iid INTEGER");
       }
-      if (!hasColumn(db2, "issues", "gl_iid")) {
-        db2.exec("ALTER TABLE issues ADD COLUMN gl_iid INTEGER");
+      if (!hasColumn(db, "issues", "gl_iid")) {
+        db.exec("ALTER TABLE issues ADD COLUMN gl_iid INTEGER");
       }
-      db2.exec(
+      db.exec(
         "UPDATE issues SET gh_iid = remote_iid WHERE remote_kind = 'github' AND remote_iid IS NOT NULL AND gh_iid IS NULL"
       );
-      db2.exec(
+      db.exec(
         "UPDATE issues SET gl_iid = remote_iid WHERE remote_kind = 'gitlab' AND remote_iid IS NOT NULL AND gl_iid IS NULL"
       );
     }
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   }
 }
-function migrateV3toV4(db2) {
-  db2.exec("BEGIN");
+function migrateV3toV4(db) {
+  db.exec("BEGIN");
   try {
-    if (tableExists(db2, "discussions")) {
-      db2.exec(`
+    if (tableExists(db, "discussions")) {
+      db.exec(`
         CREATE TABLE IF NOT EXISTS discussions_embeddings (
           discussion_id INTEGER PRIMARY KEY REFERENCES discussions(id) ON DELETE CASCADE,
           embedding BLOB NOT NULL,
@@ -22394,13 +22551,13 @@ function migrateV3toV4(db2) {
           embedded_at TEXT NOT NULL
         )
       `);
-      db2.exec(`
+      db.exec(`
         CREATE INDEX IF NOT EXISTS idx_discussions_embeddings_model
         ON discussions_embeddings(model_id)
       `);
     }
-    if (tableExists(db2, "audit")) {
-      db2.exec(`
+    if (tableExists(db, "audit")) {
+      db.exec(`
         CREATE TABLE IF NOT EXISTS audit_embeddings (
           audit_id INTEGER PRIMARY KEY REFERENCES audit(id) ON DELETE CASCADE,
           embedding BLOB NOT NULL,
@@ -22408,13 +22565,13 @@ function migrateV3toV4(db2) {
           embedded_at TEXT NOT NULL
         )
       `);
-      db2.exec(`
+      db.exec(`
         CREATE INDEX IF NOT EXISTS idx_audit_embeddings_model
         ON audit_embeddings(model_id)
       `);
     }
-    if (tableExists(db2, "file_registry")) {
-      db2.exec(`
+    if (tableExists(db, "file_registry")) {
+      db.exec(`
         CREATE TABLE IF NOT EXISTS file_registry_embeddings (
           file_registry_id INTEGER PRIMARY KEY,
           embedding BLOB NOT NULL,
@@ -22422,25 +22579,25 @@ function migrateV3toV4(db2) {
           embedded_at TEXT NOT NULL
         )
       `);
-      db2.exec(`
+      db.exec(`
         CREATE INDEX IF NOT EXISTS idx_file_registry_embeddings_model
         ON file_registry_embeddings(model_id)
       `);
     }
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   }
 }
-function migrateV2toV3(db2) {
-  db2.exec("BEGIN");
+function migrateV2toV3(db) {
+  db.exec("BEGIN");
   try {
-    if (tableExists(db2, "discussions")) {
-      db2.exec(`
+    if (tableExists(db, "discussions")) {
+      db.exec(`
         CREATE VIRTUAL TABLE IF NOT EXISTS discussions_fts USING fts5(
           body,
           content='discussions',
@@ -22448,26 +22605,26 @@ function migrateV2toV3(db2) {
           tokenize='porter unicode61'
         )
       `);
-      db2.exec(`
+      db.exec(`
         CREATE TRIGGER IF NOT EXISTS discussions_ai AFTER INSERT ON discussions BEGIN
           INSERT INTO discussions_fts(rowid, body) VALUES (new.id, new.body);
         END
       `);
-      db2.exec(`
+      db.exec(`
         CREATE TRIGGER IF NOT EXISTS discussions_ad AFTER DELETE ON discussions BEGIN
           INSERT INTO discussions_fts(discussions_fts, rowid, body) VALUES ('delete', old.id, old.body);
         END
       `);
-      db2.exec(`
+      db.exec(`
         CREATE TRIGGER IF NOT EXISTS discussions_au AFTER UPDATE ON discussions BEGIN
           INSERT INTO discussions_fts(discussions_fts, rowid, body) VALUES ('delete', old.id, old.body);
           INSERT INTO discussions_fts(rowid, body) VALUES (new.id, new.body);
         END
       `);
-      db2.exec(`INSERT INTO discussions_fts(rowid, body) SELECT id, body FROM discussions`);
+      db.exec(`INSERT INTO discussions_fts(rowid, body) SELECT id, body FROM discussions`);
     }
-    if (tableExists(db2, "audit")) {
-      db2.exec(`
+    if (tableExists(db, "audit")) {
+      db.exec(`
         CREATE VIRTUAL TABLE IF NOT EXISTS audit_fts USING fts5(
           summary,
           content_json,
@@ -22476,26 +22633,26 @@ function migrateV2toV3(db2) {
           tokenize='porter unicode61'
         )
       `);
-      db2.exec(`
+      db.exec(`
         CREATE TRIGGER IF NOT EXISTS audit_ai AFTER INSERT ON audit BEGIN
           INSERT INTO audit_fts(rowid, summary, content_json) VALUES (new.id, new.summary, new.content_json);
         END
       `);
-      db2.exec(`
+      db.exec(`
         CREATE TRIGGER IF NOT EXISTS audit_ad AFTER DELETE ON audit BEGIN
           INSERT INTO audit_fts(audit_fts, rowid, summary, content_json) VALUES ('delete', old.id, old.summary, old.content_json);
         END
       `);
-      db2.exec(`
+      db.exec(`
         CREATE TRIGGER IF NOT EXISTS audit_au AFTER UPDATE ON audit BEGIN
           INSERT INTO audit_fts(audit_fts, rowid, summary, content_json) VALUES ('delete', old.id, old.summary, old.content_json);
           INSERT INTO audit_fts(rowid, summary, content_json) VALUES (new.id, new.summary, new.content_json);
         END
       `);
-      db2.exec(`INSERT INTO audit_fts(rowid, summary, content_json) SELECT id, summary, content_json FROM audit`);
+      db.exec(`INSERT INTO audit_fts(rowid, summary, content_json) SELECT id, summary, content_json FROM audit`);
     }
-    if (tableExists(db2, "file_registry")) {
-      db2.exec(`
+    if (tableExists(db, "file_registry")) {
+      db.exec(`
         CREATE VIRTUAL TABLE IF NOT EXISTS file_registry_fts USING fts5(
           summary,
           path,
@@ -22503,63 +22660,63 @@ function migrateV2toV3(db2) {
           tokenize='porter unicode61'
         )
       `);
-      db2.exec(`
+      db.exec(`
         CREATE TRIGGER IF NOT EXISTS file_registry_ai AFTER INSERT ON file_registry
         WHEN new.summary IS NOT NULL BEGIN
           INSERT INTO file_registry_fts(rowid, summary, path) VALUES (new.rowid, new.summary, new.path);
         END
       `);
-      db2.exec(`
+      db.exec(`
         CREATE TRIGGER IF NOT EXISTS file_registry_ad AFTER DELETE ON file_registry
         WHEN old.summary IS NOT NULL BEGIN
           INSERT INTO file_registry_fts(file_registry_fts, rowid, summary, path) VALUES ('delete', old.rowid, old.summary, old.path);
         END
       `);
-      db2.exec(`
+      db.exec(`
         CREATE TRIGGER IF NOT EXISTS file_registry_au AFTER UPDATE ON file_registry
         WHEN old.summary IS NOT NULL BEGIN
           INSERT INTO file_registry_fts(file_registry_fts, rowid, summary, path) VALUES ('delete', old.rowid, old.summary, old.path);
         END
       `);
-      db2.exec(`
+      db.exec(`
         CREATE TRIGGER IF NOT EXISTS file_registry_au_new AFTER UPDATE ON file_registry
         WHEN new.summary IS NOT NULL BEGIN
           INSERT INTO file_registry_fts(rowid, summary, path) VALUES (new.rowid, new.summary, new.path);
         END
       `);
-      db2.exec(`INSERT INTO file_registry_fts(rowid, summary, path) SELECT rowid, summary, path FROM file_registry WHERE summary IS NOT NULL`);
+      db.exec(`INSERT INTO file_registry_fts(rowid, summary, path) SELECT rowid, summary, path FROM file_registry WHERE summary IS NOT NULL`);
     }
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   }
 }
-function migrateV1toV2(db2) {
-  db2.exec("BEGIN");
+function migrateV1toV2(db) {
+  db.exec("BEGIN");
   try {
-    if (tableExists(db2, "identity") && tableExists(db2, "plugin_config")) {
-      const row = db2.prepare("SELECT COUNT(*) AS n FROM identity").get();
+    if (tableExists(db, "identity") && tableExists(db, "plugin_config")) {
+      const row = db.prepare("SELECT COUNT(*) AS n FROM identity").get();
       if (row && row.n > 0) {
-        db2.exec(
+        db.exec(
           "INSERT OR IGNORE INTO plugin_config (key, value_json) VALUES ('onboarded', 'true')"
         );
       }
     }
-    db2.exec("DROP TABLE IF EXISTS identity");
-    db2.exec("DROP TABLE IF EXISTS regen_state");
-    db2.exec("DROP TABLE IF EXISTS project_metadata");
-    if (tableExists(db2, "skills") && !hasColumn(db2, "skills", "scope")) {
-      db2.exec(
+    db.exec("DROP TABLE IF EXISTS identity");
+    db.exec("DROP TABLE IF EXISTS regen_state");
+    db.exec("DROP TABLE IF EXISTS project_metadata");
+    if (tableExists(db, "skills") && !hasColumn(db, "skills", "scope")) {
+      db.exec(
         "ALTER TABLE skills ADD COLUMN scope TEXT NOT NULL DEFAULT 'global' CHECK(scope IN ('global','template','project-local'))"
       );
     }
-    if (tableExists(db2, "tasks") && hasColumn(db2, "tasks", "success_criteria")) {
-      db2.exec("DROP TABLE IF EXISTS tasks_new");
-      db2.exec(`
+    if (tableExists(db, "tasks") && hasColumn(db, "tasks", "success_criteria")) {
+      db.exec("DROP TABLE IF EXISTS tasks_new");
+      db.exec(`
         CREATE TABLE tasks_new (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
             issue_id          INTEGER NOT NULL REFERENCES issues(id),
@@ -22577,19 +22734,19 @@ function migrateV1toV2(db2) {
             completed_at      TEXT
         )
       `);
-      db2.exec(`
+      db.exec(`
         INSERT INTO tasks_new (id, issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, commit_sha, repo, created_at, updated_at, completed_at)
         SELECT id, issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, commit_sha, repo, created_at, updated_at, completed_at FROM tasks
       `);
-      db2.exec("DROP TABLE tasks");
-      db2.exec("ALTER TABLE tasks_new RENAME TO tasks");
-      db2.exec(
+      db.exec("DROP TABLE tasks");
+      db.exec("ALTER TABLE tasks_new RENAME TO tasks");
+      db.exec(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id)"
       );
     }
-    if (tableExists(db2, "roundtables") && hasColumn(db2, "roundtables", "agent")) {
-      db2.exec("DROP TABLE IF EXISTS roundtables_new");
-      db2.exec(`
+    if (tableExists(db, "roundtables") && hasColumn(db, "roundtables", "agent")) {
+      db.exec("DROP TABLE IF EXISTS roundtables_new");
+      db.exec(`
         CREATE TABLE roundtables_new (
             id                      INTEGER PRIMARY KEY AUTOINCREMENT,
             issue_id                INTEGER NOT NULL REFERENCES issues(id),
@@ -22602,20 +22759,20 @@ function migrateV1toV2(db2) {
             expected_participants   INTEGER
         )
       `);
-      const hasState = hasColumn(db2, "roundtables", "state");
-      const hasExpected = hasColumn(db2, "roundtables", "expected_participants");
+      const hasState = hasColumn(db, "roundtables", "state");
+      const hasExpected = hasColumn(db, "roundtables", "expected_participants");
       const stateExpr = hasState ? "state" : "'collecting' AS state";
       const expectedExpr = hasExpected ? "expected_participants" : "NULL AS expected_participants";
-      db2.exec(`
+      db.exec(`
         INSERT INTO roundtables_new (id, issue_id, topic, outcome, created_at, closed_at, state, expected_participants)
         SELECT id, issue_id, topic, outcome, created_at, closed_at, ${stateExpr}, ${expectedExpr} FROM roundtables
       `);
-      db2.exec("DROP TABLE roundtables");
-      db2.exec("ALTER TABLE roundtables_new RENAME TO roundtables");
+      db.exec("DROP TABLE roundtables");
+      db.exec("ALTER TABLE roundtables_new RENAME TO roundtables");
     }
-    if (tableExists(db2, "roundtable_votes") && hasColumn(db2, "roundtable_votes", "agent")) {
-      db2.exec("DROP TABLE IF EXISTS roundtable_votes_new");
-      db2.exec(`
+    if (tableExists(db, "roundtable_votes") && hasColumn(db, "roundtable_votes", "agent")) {
+      db.exec("DROP TABLE IF EXISTS roundtable_votes_new");
+      db.exec(`
         CREATE TABLE roundtable_votes_new (
             id             INTEGER PRIMARY KEY AUTOINCREMENT,
             roundtable_id  INTEGER NOT NULL REFERENCES roundtables(id),
@@ -22625,16 +22782,16 @@ function migrateV1toV2(db2) {
             created_at     TEXT    NOT NULL
         )
       `);
-      const hasParticipant = hasColumn(db2, "roundtable_votes", "participant");
+      const hasParticipant = hasColumn(db, "roundtable_votes", "participant");
       const participantExpr = hasParticipant ? "participant" : "agent AS participant";
-      db2.exec(`
+      db.exec(`
         INSERT INTO roundtable_votes_new (id, roundtable_id, participant, vote, rationale, created_at)
         SELECT id, roundtable_id, ${participantExpr}, vote, rationale, created_at FROM roundtable_votes
       `);
-      db2.exec("DROP TABLE roundtable_votes");
-      db2.exec("ALTER TABLE roundtable_votes_new RENAME TO roundtable_votes");
+      db.exec("DROP TABLE roundtable_votes");
+      db.exec("ALTER TABLE roundtable_votes_new RENAME TO roundtable_votes");
     }
-    if (tableExists(db2, "file_registry")) {
+    if (tableExists(db, "file_registry")) {
       const stale = [
         "size_bytes",
         "last_commit_sha",
@@ -22645,10 +22802,10 @@ function migrateV1toV2(db2) {
         "exports_json",
         "metadata_json"
       ];
-      const hasStale = stale.some((c) => hasColumn(db2, "file_registry", c));
+      const hasStale = stale.some((c) => hasColumn(db, "file_registry", c));
       if (hasStale) {
-        db2.exec("DROP TABLE IF EXISTS file_registry_new");
-        db2.exec(`
+        db.exec("DROP TABLE IF EXISTS file_registry_new");
+        db.exec(`
           CREATE TABLE file_registry_new (
               repo                TEXT NOT NULL DEFAULT '',
               path                TEXT NOT NULL,
@@ -22659,33 +22816,33 @@ function migrateV1toV2(db2) {
               PRIMARY KEY (repo, path)
           )
         `);
-        const hasRepo = hasColumn(db2, "file_registry", "repo");
-        const hasType = hasColumn(db2, "file_registry", "type");
-        const hasContentMd5 = hasColumn(db2, "file_registry", "content_md5");
-        const hasSummary = hasColumn(db2, "file_registry", "summary");
-        const hasSummaryUpdated = hasColumn(db2, "file_registry", "summary_updated_at");
+        const hasRepo = hasColumn(db, "file_registry", "repo");
+        const hasType = hasColumn(db, "file_registry", "type");
+        const hasContentMd5 = hasColumn(db, "file_registry", "content_md5");
+        const hasSummary = hasColumn(db, "file_registry", "summary");
+        const hasSummaryUpdated = hasColumn(db, "file_registry", "summary_updated_at");
         const repoExpr = hasRepo ? "repo" : "'' AS repo";
         const typeExpr = hasType ? "type" : "'unknown' AS type";
         const md5Expr = hasContentMd5 ? "content_md5" : "NULL AS content_md5";
         const summaryExpr = hasSummary ? "summary" : "NULL AS summary";
         const summaryUpdatedExpr = hasSummaryUpdated ? "summary_updated_at" : "NULL AS summary_updated_at";
-        db2.exec(`
+        db.exec(`
           INSERT OR IGNORE INTO file_registry_new (repo, path, type, content_md5, summary, summary_updated_at)
           SELECT ${repoExpr}, path, ${typeExpr}, ${md5Expr}, ${summaryExpr}, ${summaryUpdatedExpr} FROM file_registry
         `);
-        db2.exec("DROP TABLE file_registry");
-        db2.exec("ALTER TABLE file_registry_new RENAME TO file_registry");
+        db.exec("DROP TABLE file_registry");
+        db.exec("ALTER TABLE file_registry_new RENAME TO file_registry");
       }
     }
-    if (tableExists(db2, "agent_runs")) {
-      if (!hasColumn(db2, "agent_runs", "started_at")) {
-        db2.exec("ALTER TABLE agent_runs ADD COLUMN started_at TEXT");
+    if (tableExists(db, "agent_runs")) {
+      if (!hasColumn(db, "agent_runs", "started_at")) {
+        db.exec("ALTER TABLE agent_runs ADD COLUMN started_at TEXT");
       }
-      const cols = db2.prepare("PRAGMA table_info(agent_runs)").all();
+      const cols = db.prepare("PRAGMA table_info(agent_runs)").all();
       const completedCol = cols.find((c) => c.name === "completed_at");
       if (completedCol && completedCol.notnull === 1) {
-        db2.exec("DROP TABLE IF EXISTS agent_runs_new");
-        db2.exec(`
+        db.exec("DROP TABLE IF EXISTS agent_runs_new");
+        db.exec(`
           CREATE TABLE agent_runs_new (
               id           INTEGER PRIMARY KEY AUTOINCREMENT,
               task_id      INTEGER REFERENCES tasks(id),
@@ -22700,7780 +22857,34 @@ function migrateV1toV2(db2) {
               completed_at TEXT
           )
         `);
-        db2.exec(`
+        db.exec(`
           INSERT INTO agent_runs_new (id, task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, tool_uses, duration_ms, started_at, completed_at)
           SELECT id, task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, tool_uses, duration_ms, started_at, completed_at FROM agent_runs
         `);
-        db2.exec("DROP TABLE agent_runs");
-        db2.exec("ALTER TABLE agent_runs_new RENAME TO agent_runs");
-        db2.exec(
+        db.exec("DROP TABLE agent_runs");
+        db.exec("ALTER TABLE agent_runs_new RENAME TO agent_runs");
+        db.exec(
           "CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id)"
         );
-        db2.exec(
+        db.exec(
           "CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id)"
         );
       }
     }
-    db2.exec("COMMIT");
-  } catch (err18) {
+    db.exec("COMMIT");
+  } catch (err) {
     try {
-      db2.exec("ROLLBACK");
+      db.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err;
   }
 }
-
-// src/middleware/agent-scope.ts
-var FIRST_CLASS_ROLES = /* @__PURE__ */ new Set(["bro", "swe", "pr-reviewer"]);
-function normalizeAgent(name) {
-  if (!name) return "unknown";
-  const lower = name.toLowerCase();
-  if (FIRST_CLASS_ROLES.has(lower)) return lower;
-  if (/^[a-z][a-z0-9_-]*$/.test(lower)) return "consultant";
-  return "unknown";
-}
-function requireRoles(toolName, allowedRoles, handler) {
-  const allowed = new Set(allowedRoles);
-  return async (args) => {
-    const agent = normalizeAgent(args["agent"]);
-    if (!allowed.has(agent)) {
-      return {
-        isError: true,
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              error: "forbidden",
-              tool: toolName,
-              caller_role: agent,
-              allowed_roles: [...allowedRoles]
-            })
-          }
-        ]
-      };
-    }
-    return handler(args);
-  };
-}
-function redactIssue(issue2, agent, opts) {
-  if (agent === "swe" || agent === "unknown") {
-    const { description: _, ...rest } = issue2;
-    void _;
-    const truncated = rest.objective.length > 120 ? rest.objective.slice(0, 120) + "..." : rest.objective;
-    return { ...rest, objective: truncated };
-  }
-  if (!opts?.include_description) {
-    const { description: _, ...rest } = issue2;
-    void _;
-    return rest;
-  }
-  return issue2;
-}
-function redactValidationRow(row, agent, scope) {
-  if (agent === "swe" && row.task_id !== scope.own_task_id) {
-    const { feedback: _, ...rest } = row;
-    void _;
-    return rest;
-  }
-  return row;
-}
-
-// src/embeddings/model.ts
-import { homedir as homedir2 } from "node:os";
-import { join as join4 } from "node:path";
-var pipelinePromise = null;
-var loadFailed = false;
-async function embed(text) {
-  if (loadFailed) return null;
-  if (!pipelinePromise) {
-    try {
-      const { pipeline, env } = await import("@huggingface/transformers");
-      env.cacheDir = process.env.HF_HOME ?? join4(homedir2(), ".cache", "huggingface");
-      pipelinePromise = pipeline("feature-extraction", "Xenova/bge-small-en-v1.5");
-      pipelinePromise.catch(() => {
-        loadFailed = true;
-        pipelinePromise = null;
-      });
-    } catch (e) {
-      console.error("[embeddings] model load failed:", e);
-      loadFailed = true;
-      return null;
-    }
-  }
-  try {
-    const pipe2 = await pipelinePromise;
-    const result = await pipe2(text, { pooling: "mean", normalize: true });
-    return new Float32Array(result.data);
-  } catch (e) {
-    console.error("[embeddings] embed failed:", e);
-    loadFailed = true;
-    pipelinePromise = null;
-    return null;
-  }
-}
-var MODEL_ID = "Xenova/bge-small-en-v1.5";
-
-// src/embeddings/store.ts
-function packEmbedding(v) {
-  return Buffer.from(v.buffer, v.byteOffset, v.byteLength);
-}
-function unpackEmbedding(b) {
-  const out = new Float32Array(b.byteLength / 4);
-  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
-  for (let i = 0; i < out.length; i++) out[i] = dv.getFloat32(i * 4, true);
-  return out;
-}
-function cosine(a, b) {
-  let s = 0;
-  for (let i = 0; i < a.length; i++) s += a[i] * b[i];
-  return s;
-}
-var INSERT_SQL = {
-  discussions: "INSERT OR REPLACE INTO discussions_embeddings (discussion_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)",
-  audit: "INSERT OR REPLACE INTO audit_embeddings (audit_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)"
-};
-var SELECT_SQL = {
-  discussions: "SELECT discussion_id AS rowid, embedding FROM discussions_embeddings WHERE model_id = ?",
-  audit: "SELECT audit_id AS rowid, embedding FROM audit_embeddings WHERE model_id = ?"
-};
-async function embedAndStore(db2, table, rowid, text) {
-  const v = await embed(text);
-  if (v === null) return;
-  const sql = INSERT_SQL[table];
-  db2.run(sql, [rowid, packEmbedding(v), MODEL_ID, (/* @__PURE__ */ new Date()).toISOString()]);
-}
-async function topKByCosine(db2, table, query, k) {
-  const qv = await embed(query);
-  if (qv === null) return [];
-  const sql = SELECT_SQL[table];
-  const rows = db2.all(sql, [MODEL_ID]);
-  const scored = rows.map((r) => {
-    const v = unpackEmbedding(r.embedding);
-    if (v.length !== qv.length) return null;
-    return { rowid: r.rowid, score: cosine(qv, v) };
-  }).filter((r) => r !== null);
-  scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, k);
-}
-
-// src/tools/discussions.ts
-var ALLOWED_KINDS = /* @__PURE__ */ new Set(["intent", "question", "answer", "decision", "note", "analysis"]);
-var MAX_BODY_BYTES = 65536;
-function ok(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function requireArg(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
-  }
-  return args[name];
-}
-function wrapHandler(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err(e.message);
-    }
-  };
-}
-function resolveDefaultIssueId(db2) {
-  const latest = db2.get(
-    `SELECT id FROM issues WHERE status = 'open' AND id != -1 ORDER BY created_at DESC LIMIT 1`
-  );
-  return latest?.id ?? -1;
-}
-function insertDiscussion(db2, entry) {
-  const createdAt = entry.created_at ?? nowISO();
-  const res = db2.run(
-    `INSERT INTO discussions (issue_id, author, kind, body, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
-    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt]
-  );
-  const id = Number(res.lastInsertRowid);
-  void embedAndStore(db2, "discussions", id, entry.body).catch(
-    (e) => console.error("[embeddings] insertDiscussion embed failed:", e)
-  );
-  return id;
-}
-function discussionTools(db2) {
-  const definitions = [
-    {
-      name: "discussion_search",
-      description: "Search discussions via keyword (FTS5), semantic (cosine), or hybrid (RRF) ranking. Default mode is hybrid. Returns top-K snippets. Use instead of issue_get_with_discussions when you want ranked snippets, not a full dump.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          query: {
-            type: "string",
-            description: "Search query. For keyword/hybrid: FTS5 MATCH syntax. For semantic: natural language."
-          },
-          mode: {
-            type: "string",
-            enum: ["keyword", "semantic", "hybrid"],
-            description: "Search mode. Default: hybrid (RRF combines FTS5 + cosine + recency-decay)."
-          },
-          issue_id: { type: "string", description: "Optional \u2014 restrict to one issue." },
-          kind: {
-            type: "string",
-            enum: ["intent", "note", "question", "answer", "decision", "analysis"],
-            description: "Optional \u2014 restrict to one discussion kind."
-          },
-          k: { type: "number", description: "Top-K rows to return. Default 5. Max 20." },
-          recency_alpha: {
-            type: "number",
-            description: "Recency weight 0\u20131 (hybrid/keyword only). Default 0.3."
-          }
-        },
-        required: ["agent", "query"]
-      }
-    },
-    {
-      name: "discussion_append",
-      description: "Append a discussion entry to an issue. Captures conversational intent, questions, answers, decisions, or notes into the SQLite log. issue_id is optional \u2014 defaults to the newest open issue (excluding -1), or -1 if no open issues exist. body is capped at 64 KB; larger payloads return a named validation error.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string", description: "Caller agent name" },
-          issue_id: { type: "string", description: "The issue ID (integer as string). Optional \u2014 defaults to the newest open issue, else -1." },
-          author: { type: "string", description: "Author of this entry (agent name or human)" },
-          kind: {
-            type: "string",
-            enum: ["intent", "question", "answer", "decision", "note", "analysis"],
-            description: "Entry kind. Default: note"
-          },
-          body: { type: "string", description: "Markdown body of the discussion entry" },
-          verified_human: {
-            type: "boolean",
-            description: 'Reserved for UserPromptSubmit hook captures only. Must be true when author="human"; agents must never set this on self-authored entries. Gate-only \u2014 not persisted.'
-          }
-        },
-        required: ["agent", "author", "body"]
-      }
-    },
-    {
-      name: "discussion_list",
-      description: "Return discussion entries for an issue ordered by created_at ASC. Supports optional fields projection: pass fields=['id','kind','author','body'] to return only those columns (unknown fields return a named error). Used by bro at session resume and by snapshot generation.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          issue_id: { type: "string" },
-          limit: { type: "number", description: "Max rows to return. Capped at 200. When omitted, returns up to 200 rows (legacy bare-array shape); when provided, response includes next_cursor." },
-          offset: { type: "number", description: "Row offset for pagination. Default 0." },
-          cursor: { type: "string", description: "Opaque cursor from a previous response. When provided, overrides offset." },
-          fields: {
-            type: "array",
-            items: { type: "string" },
-            description: "Optional column projection. Allowed: id, issue_id, author, kind, body, created_at. Unknown fields return an error. Default: all columns."
-          }
-        },
-        required: ["agent", "issue_id"]
-      }
-    },
-    {
-      name: "issue_get_with_discussions",
-      description: "Convenience call: returns the issue row + its discussion list + its task list in one round-trip. Default compact mode returns counts + last 10 discussions (configurable via last_n). Pass include_full=true to return all discussions (current full behavior). Respects agent-scoped description redaction.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          issue_id: { type: "string" },
-          include_full: {
-            type: "boolean",
-            description: "When true, return all discussions (no limit). Default false \u2014 compact mode returns last_n discussions + total_count."
-          },
-          last_n: {
-            type: "number",
-            description: "In compact mode: number of most-recent discussions to return. Default 10. Max 200."
-          },
-          limit: { type: "number", description: "Deprecated alias for last_n when include_full=false. When include_full=false and limit is provided, acts as last_n cap. Prefer last_n." },
-          cursor: { type: "string", description: "Opaque cursor for paginating beyond last_n. When provided, returns next page of discussions." }
-        },
-        required: ["agent", "issue_id"]
-      }
-    }
-  ];
-  function decodeCursor2(cursor) {
-    try {
-      return JSON.parse(Buffer.from(cursor, "base64").toString("utf8"));
-    } catch {
-      return null;
-    }
-  }
-  function encodeCursor2(row) {
-    return Buffer.from(JSON.stringify({ created_at: row.created_at, id: row.id })).toString(
-      "base64"
-    );
-  }
-  const handlers = {
-    discussion_search: wrapHandler(async (args) => {
-      normalizeAgent(args["agent"]);
-      const query = requireArg(args, "query");
-      const mode = args["mode"] ?? "hybrid";
-      const issueId = args["issue_id"] ?? null;
-      const kind = args["kind"] ?? null;
-      const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
-      const alpha = Math.min(1, Math.max(0, args["recency_alpha"] ?? 0.3));
-      const fetchFtsRows = (limitK) => db2.all(
-        `SELECT
-             d.id, d.issue_id, d.kind, d.author, d.created_at,
-             snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
-             bm25(discussions_fts) AS bm25_score,
-             (julianday('now') - julianday(d.created_at)) AS age_days
-           FROM discussions_fts
-           JOIN discussions d ON d.id = discussions_fts.rowid
-           WHERE discussions_fts MATCH ?
-             AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
-             AND (? IS NULL OR d.kind = ?)
-           ORDER BY bm25(discussions_fts) ASC
-           LIMIT ?`,
-        [query, issueId, issueId, kind, kind, limitK]
-      );
-      const fetchRowById = (id) => db2.get(
-        `SELECT d.id, d.issue_id, d.kind, d.author, d.created_at,
-                  '' AS snippet,
-                  0.0 AS bm25_score,
-                  (julianday('now') - julianday(d.created_at)) AS age_days
-           FROM discussions d
-           WHERE d.id = ?
-             AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
-             AND (? IS NULL OR d.kind = ?)`,
-        [id, issueId, issueId, kind, kind]
-      );
-      if (mode === "keyword") {
-        const countRow = db2.get(
-          `SELECT COUNT(*) AS n
-           FROM discussions_fts
-           JOIN discussions d ON d.id = discussions_fts.rowid
-           WHERE discussions_fts MATCH ?
-             AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
-             AND (? IS NULL OR d.kind = ?)`,
-          [query, issueId, issueId, kind, kind]
-        );
-        const total_matched = countRow?.n ?? 0;
-        const rows = db2.all(
-          `SELECT
-             d.id, d.issue_id, d.kind, d.author, d.created_at,
-             snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
-             bm25(discussions_fts) AS bm25_score,
-             (julianday('now') - julianday(d.created_at)) AS age_days
-           FROM discussions_fts
-           JOIN discussions d ON d.id = discussions_fts.rowid
-           WHERE discussions_fts MATCH ?
-             AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
-             AND (? IS NULL OR d.kind = ?)
-           ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC
-           LIMIT ?`,
-          [query, issueId, issueId, kind, kind, alpha, alpha, k]
-        );
-        return ok({
-          results: rows.map((r) => ({
-            id: r.id,
-            issue_id: r.issue_id,
-            kind: r.kind,
-            author: r.author,
-            created_at: r.created_at,
-            snippet: r.snippet,
-            score: -r.bm25_score * (1 - alpha) + Math.exp(-r.age_days / 30) * alpha
-          })),
-          total_matched
-        });
-      }
-      if (mode === "semantic") {
-        const cosineResults2 = await topKByCosine(db2, "discussions", query, k);
-        if (cosineResults2.length === 0) {
-          return ok({ results: [], total_matched: 0, warning: "semantic_unavailable" });
-        }
-        const results2 = [];
-        for (const cr of cosineResults2) {
-          const row = fetchRowById(cr.rowid);
-          if (row) {
-            results2.push({
-              id: row.id,
-              issue_id: row.issue_id,
-              kind: row.kind,
-              author: row.author,
-              created_at: row.created_at,
-              snippet: row.snippet,
-              score: cr.score
-            });
-          }
-        }
-        return ok({ results: results2, total_matched: results2.length });
-      }
-      const RRF_K = 60;
-      const ftsRows = fetchFtsRows(k * 4);
-      const cosineResults = await topKByCosine(db2, "discussions", query, k * 4);
-      const semanticAvailable = cosineResults.length > 0;
-      const scoreMap = /* @__PURE__ */ new Map();
-      ftsRows.forEach((r, rank) => {
-        const rrf = 1 / (RRF_K + rank + 1);
-        const existing = scoreMap.get(r.id);
-        if (existing) {
-          existing.rrf += rrf;
-        } else {
-          scoreMap.set(r.id, { rrf, row: r });
-        }
-      });
-      cosineResults.forEach((cr, rank) => {
-        const rrf = 1 / (RRF_K + rank + 1);
-        const existing = scoreMap.get(cr.rowid);
-        if (existing) {
-          existing.rrf += rrf;
-        } else {
-          const row = fetchRowById(cr.rowid);
-          if (row) scoreMap.set(cr.rowid, { rrf, row });
-        }
-      });
-      const combined = Array.from(scoreMap.values()).map(({ rrf, row }) => {
-        const ageDays = row.age_days;
-        const decayed = rrf * (Math.exp(-ageDays / 30) * alpha + (1 - alpha));
-        return { row, score: decayed };
-      });
-      combined.sort((a, b) => b.score - a.score);
-      const topRows = combined.slice(0, k);
-      const results = topRows.map(({ row, score }) => ({
-        id: row.id,
-        issue_id: row.issue_id,
-        kind: row.kind,
-        author: row.author,
-        created_at: row.created_at,
-        snippet: row.snippet,
-        score
-      }));
-      const response = { results, total_matched: results.length };
-      if (!semanticAvailable) response["warning"] = "semantic_unavailable";
-      return ok(response);
-    }),
-    discussion_append: requireRoles(
-      "discussion_append",
-      ["bro", "swe", "pr-reviewer", "consultant"],
-      wrapHandler(async (args) => {
-        normalizeAgent(args["agent"]);
-        const rawIssueId = args["issue_id"];
-        const issueId = rawIssueId != null ? rawIssueId : String(resolveDefaultIssueId(db2));
-        const author = requireArg(args, "author");
-        const body = requireArg(args, "body");
-        const kind = args["kind"] ?? "note";
-        const bodyBytes = Buffer.byteLength(body, "utf8");
-        if (bodyBytes > MAX_BODY_BYTES) {
-          return err(`body exceeds 64KB limit (${bodyBytes} bytes); truncate before calling discussion_append`);
-        }
-        if (!ALLOWED_KINDS.has(kind)) {
-          return err(
-            `Invalid kind: "${kind}". Allowed values: ${[...ALLOWED_KINDS].join(", ")}`
-          );
-        }
-        if (!author.trim()) {
-          throw new Error("author must be a non-empty string");
-        }
-        const verifiedHuman = Boolean(args["verified_human"]);
-        if (author === "human" && !verifiedHuman) {
-          throw new Error(
-            'precondition_failed: discussion_append with author="human" requires verified_human=true. This flag must only be set by legitimate UserPromptSubmit hook captures, never by agent self-attribution. Use author="bro" with body citing the human verbatim instead.'
-          );
-        }
-        const issue2 = db2.get("SELECT id FROM issues WHERE id = ?", [issueId]);
-        if (!issue2) {
-          throw new Error(`Not found: issue ${issueId}`);
-        }
-        const now = nowISO();
-        const id = insertDiscussion(db2, { issue_id: issueId, author, kind, body, created_at: now });
-        const row = db2.get("SELECT * FROM discussions WHERE id = ?", [id]);
-        return ok(row);
-      })
-    ),
-    discussion_list: wrapHandler(async (args) => {
-      normalizeAgent(args["agent"]);
-      const issueId = requireArg(args, "issue_id");
-      const limitArg = args["limit"];
-      const cursorArg = args["cursor"];
-      const rawOffset = args["offset"] ?? 0;
-      const fieldsArg = args["fields"];
-      const ALLOWED_DISCUSSION_FIELDS = /* @__PURE__ */ new Set(["id", "issue_id", "author", "kind", "body", "created_at"]);
-      if (fieldsArg !== void 0) {
-        const unknown2 = fieldsArg.filter((f) => !ALLOWED_DISCUSSION_FIELDS.has(f));
-        if (unknown2.length > 0) {
-          return err(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_DISCUSSION_FIELDS].join(", ")}`);
-        }
-      }
-      function projectRow(row) {
-        if (!fieldsArg) return row;
-        const out = {};
-        for (const f of fieldsArg) out[f] = row[f];
-        return out;
-      }
-      const issue2 = db2.get("SELECT id FROM issues WHERE id = ?", [issueId]);
-      if (!issue2) {
-        return ok({ discussions: [], warning: "issue not found" });
-      }
-      if (limitArg === void 0 || limitArg === null) {
-        const offset = Math.max(0, rawOffset);
-        const rows2 = db2.all(
-          `SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC LIMIT 200 OFFSET ?`,
-          [issueId, offset]
-        );
-        return ok(rows2.map(projectRow));
-      }
-      const limit = Math.min(Math.max(1, limitArg), 200);
-      let cursorFilter = "";
-      let cursorParams = [];
-      if (cursorArg) {
-        const decoded = decodeCursor2(cursorArg);
-        if (decoded) {
-          cursorFilter = "AND (created_at > ? OR (created_at = ? AND id > ?))";
-          cursorParams = [decoded.created_at, decoded.created_at, decoded.id];
-        }
-      }
-      const sql = "SELECT * FROM discussions WHERE issue_id = ? " + cursorFilter + " ORDER BY created_at ASC, id ASC LIMIT ?";
-      const fetchedRows = db2.all(sql, [issueId, ...cursorParams, limit + 1]);
-      const hasMore = fetchedRows.length > limit;
-      const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
-      const last = rows[rows.length - 1];
-      const next_cursor = hasMore && last ? encodeCursor2(last) : void 0;
-      return ok({ rows: rows.map(projectRow), next_cursor });
-    }),
-    issue_get_with_discussions: wrapHandler(async (args) => {
-      const agent = normalizeAgent(args["agent"]);
-      const issueId = requireArg(args, "issue_id");
-      const includeFull = args["include_full"] ?? false;
-      const lastNArg = args["last_n"];
-      const limitArg = args["limit"];
-      const cursorArg = args["cursor"];
-      const issue2 = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      if (!issue2) {
-        throw new Error(`Not found: issue ${issueId}`);
-      }
-      const tasks = db2.all(
-        `SELECT id, branch_id, status, title FROM tasks WHERE issue_id = ? ORDER BY branch_id ASC`,
-        [issueId]
-      );
-      const redactedIssue = redactIssue(issue2, agent);
-      if (includeFull) {
-        const discussions2 = db2.all(
-          `SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC`,
-          [issueId]
-        );
-        return ok({ issue: redactedIssue, discussions: discussions2, tasks });
-      }
-      const totalCount = db2.get(
-        `SELECT COUNT(*) AS n FROM discussions WHERE issue_id = ?`,
-        [issueId]
-      )?.n ?? 0;
-      const resolvedLastN = Math.min(
-        Math.max(1, lastNArg ?? limitArg ?? 10),
-        200
-      );
-      let cursorFilter = "";
-      let cursorParams = [];
-      if (cursorArg) {
-        const decoded = decodeCursor2(cursorArg);
-        if (decoded) {
-          cursorFilter = "AND (created_at < ? OR (created_at = ? AND id < ?))";
-          cursorParams = [decoded.created_at, decoded.created_at, decoded.id];
-        }
-      }
-      const sql = "SELECT * FROM discussions WHERE issue_id = ? " + cursorFilter + " ORDER BY created_at DESC, id DESC LIMIT ?";
-      const fetchedDisc = db2.all(sql, [issueId, ...cursorParams, resolvedLastN + 1]);
-      const hasMore = fetchedDisc.length > resolvedLastN;
-      const sliced = hasMore ? fetchedDisc.slice(0, resolvedLastN) : fetchedDisc;
-      const oldest = sliced[sliced.length - 1];
-      const next_cursor = hasMore && oldest ? encodeCursor2(oldest) : void 0;
-      const discussions = sliced.slice().reverse();
-      return ok({
-        issue: redactedIssue,
-        discussions,
-        tasks,
-        total_discussion_count: totalCount,
-        returned_count: discussions.length,
-        ...next_cursor !== void 0 ? { next_cursor } : {}
-      });
-    })
-  };
-  return { definitions, handlers };
-}
-
-// src/utils/repo-paths.ts
-function resolveSoleRepoPath(db2) {
-  return resolveSoleRepo(db2)?.path;
-}
-function resolveRepoForSync(db2, repoName) {
-  const decodeRemotes = (raw) => {
-    if (!raw) return [];
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
-    } catch {
-    }
-    return [];
-  };
-  if (repoName) {
-    const row = db2.get(
-      `SELECT name, path, remotes FROM repos WHERE name = ?`,
-      [repoName]
-    );
-    if (!row) return null;
-    return { name: row.name, path: row.path, remotes: decodeRemotes(row.remotes) };
-  }
-  const rows = db2.all(
-    `SELECT name, path, remotes FROM repos`
-  );
-  if (rows.length !== 1) return null;
-  const sole = rows[0];
-  return { name: sole.name, path: sole.path, remotes: decodeRemotes(sole.remotes) };
-}
-function resolveSoleRepo(db2, name) {
-  if (name) {
-    const repoRow = db2.get(
-      `SELECT path FROM repos WHERE name = ?`,
-      [name]
-    );
-    return repoRow?.path ? { name, path: repoRow.path } : void 0;
-  }
-  const repos = db2.all(
-    `SELECT name, path FROM repos`
-  );
-  return repos.length === 1 ? { name: repos[0].name, path: repos[0].path } : void 0;
-}
-
-// src/sync/backend.ts
-import { spawnSync } from "node:child_process";
-
-// src/utils/timeouts.ts
-var SUBPROCESS_TIMEOUT_MS = 5e3;
-var AUTH_PROBE_TIMEOUT_MS = 1e3;
-
-// src/utils/live-cli-guard.ts
-function liveCliBlockReason(env = process.env) {
-  if (env.TMB_FORBID_LIVE_SYNC === "1") return "TMB_FORBID_LIVE_SYNC=1";
-  if (env.NODE_TEST_CONTEXT) return `NODE_TEST_CONTEXT=${env.NODE_TEST_CONTEXT}`;
-  return null;
-}
-function liveCliBlockedMessage(reason, cmd, args) {
-  return `live CLI blocked in test context (${reason}) \u2014 refused to spawn "${cmd} ${args.join(" ")}"; inject _spawnFn`;
-}
-
-// src/utils/classify-url.ts
-function extractHost(url2) {
-  const scpMatch = url2.match(/^[^@]+@([^:/]+)[:/]/);
-  if (scpMatch) return scpMatch[1].toLowerCase();
-  try {
-    const parsed = new URL(url2);
-    if (parsed.hostname) return parsed.hostname.toLowerCase();
-  } catch {
-  }
-  return null;
-}
-function classifyHost(host) {
-  if (host === "github.com" || host.endsWith(".github.com")) return "github";
-  if (host === "gitlab.com" || /(?:^|\.)gitlab\./i.test(host)) return "gitlab";
-  if (host === "bitbucket.org" || host.endsWith(".bitbucket.org")) return "bitbucket";
-  if (host === "codeberg.org" || host.endsWith(".codeberg.org")) return "codeberg";
-  if (host === "dev.azure.com" || host.endsWith(".dev.azure.com")) return "azuredev";
-  return "other";
-}
-function classifyUrl(url2) {
-  const host = extractHost(url2);
-  if (!host) return "other";
-  return classifyHost(host);
-}
-
-// src/sync/backend.ts
-var _availabilityCache = null;
-function detectAvailable(_spawnFn) {
-  if (_spawnFn === void 0 && _availabilityCache !== null) {
-    return _availabilityCache;
-  }
-  const check2 = (cmd, args) => {
-    try {
-      if (_spawnFn) {
-        const result3 = _spawnFn(cmd, args);
-        return result3.status === 0;
-      }
-      if (liveCliBlockReason()) return false;
-      const result2 = spawnSync(cmd, args, { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" });
-      return result2.status === 0;
-    } catch {
-      return false;
-    }
-  };
-  const result = {
-    gh: check2("gh", ["auth", "status"]),
-    glab: check2("glab", ["auth", "status"])
-  };
-  if (_spawnFn === void 0) {
-    _availabilityCache = result;
-  }
-  return result;
-}
-function detectPreferred() {
-  try {
-    const result = spawnSync("git", ["remote", "get-url", "origin"], {
-      timeout: SUBPROCESS_TIMEOUT_MS,
-      encoding: "utf8"
-    });
-    if (result.status !== 0) return null;
-    const url2 = (result.stdout ?? "").trim();
-    const provider = classifyUrl(url2);
-    if (provider === "github") return "gh";
-    if (provider === "gitlab") return "glab";
-    return null;
-  } catch {
-    return null;
-  }
-}
-function resolveBackend(configValue, repoRemotes, hasSpawnFn = false, availability) {
-  if (!hasSpawnFn && (process.env.TMB_DISABLE_REMOTE_SYNC === "1" || process.env.TMB_DISABLE_REMOTE_SYNC?.toLowerCase() === "true")) {
-    return null;
-  }
-  if (configValue === "off") return "off";
-  if (configValue === "gh") return "gh";
-  if (configValue === "glab") return "glab";
-  if (configValue === "both") return "both";
-  const available = availability ?? detectAvailable();
-  const ghUsable = (repoRemotes?.github ?? false) && available.gh;
-  const glUsable = (repoRemotes?.gitlab ?? false) && available.glab;
-  if (ghUsable && glUsable) return "both";
-  if (ghUsable) return "gh";
-  if (glUsable) return "glab";
-  return null;
-}
-
-// src/sync/issue_sync.ts
-import { spawnSync as spawnSync2 } from "node:child_process";
-import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync2 } from "node:fs";
-import { homedir as homedir3 } from "node:os";
-import { join as join5 } from "node:path";
-function resolveLogDir() {
-  if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
-  return join5(homedir3(), ".claude", resolvePluginName(process.env), "logs");
-}
-var logDir = resolveLogDir();
-var syncLogPath = join5(logDir, "issue-sync.log");
-try {
-  mkdirSync2(logDir, { recursive: true });
-} catch {
-}
-function syncLog(entry) {
-  const currentLogPath = process.env.TMB_SYNC_LOG_DIR ? join5(process.env.TMB_SYNC_LOG_DIR, "issue-sync.log") : syncLogPath;
-  try {
-    const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-    appendFileSync2(currentLogPath, line);
-  } catch {
-  }
-}
-function defaultSpawnFn(cmd, args, opts) {
-  const blockReason = liveCliBlockReason();
-  if (blockReason) {
-    const message = liveCliBlockedMessage(blockReason, cmd, args);
-    syncLog({ event: "live_cli_blocked", cmd, args, reason: blockReason });
-    return { status: null, stdout: "", stderr: message };
-  }
-  const result = spawnSync2(cmd, args, opts);
-  return {
-    status: result.status,
-    stdout: result.stdout ? String(result.stdout) : "",
-    stderr: result.stderr ? String(result.stderr) : ""
-  };
-}
-function parseRemoteIid(stdout, _kind) {
-  for (const line of stdout.split("\n")) {
-    const trimmed = line.trim();
-    const urlMatch = trimmed.match(
-      /https?:\/\/([^/]+)\/([^/]+(?:\/[^/]+)+?)\/-?\/?(?:issues|work_items)\/(\d+)/
-    );
-    if (urlMatch) {
-      const host = urlMatch[1];
-      const repoPath = urlMatch[2];
-      const iid = parseInt(urlMatch[3], 10);
-      return { iid, host, repoPath };
-    }
-  }
-  for (const line of stdout.split("\n")) {
-    const trimmed = line.trim();
-    if (/^#\d+$/.test(trimmed)) {
-      const iid = parseInt(trimmed.slice(1), 10);
-      return { iid, host: "", repoPath: "" };
-    }
-  }
-  return null;
-}
-function extractRemoteHostAndRepo(remoteUrl) {
-  if (!remoteUrl) return null;
-  const httpMatch = remoteUrl.match(/https?:\/\/([^/]+)\/([^/]+(?:\/[^/]+)+?)(?:\.git)?$/);
-  if (httpMatch) return { host: httpMatch[1], repoPath: httpMatch[2] };
-  const sshMatch = remoteUrl.match(/git@([^:]+):(.+?)(?:\.git)?$/);
-  if (sshMatch) return { host: sshMatch[1], repoPath: sshMatch[2] };
-  return null;
-}
-async function readBackVerify(backend, iid, spawnFn, spawnOpts, repoSlug) {
-  try {
-    let result;
-    if (backend === "gh") {
-      const args = ["issue", "view", String(iid), "--json", "number,url"];
-      if (repoSlug) args.push("--repo", repoSlug);
-      result = spawnFn("gh", args, spawnOpts);
-    } else {
-      const args = ["issue", "view", String(iid)];
-      if (repoSlug) args.push("-R", repoSlug);
-      result = spawnFn("glab", args, spawnOpts);
-    }
-    if (result.status !== 0) {
-      return { ok: false, reason: "read_back_non_zero_exit" };
-    }
-    if (backend === "gh") {
-      let parsed;
-      try {
-        parsed = JSON.parse(result.stdout);
-      } catch {
-        return { ok: false, reason: "read_back_parse_failed" };
-      }
-      if (parsed.url && parsed.url.includes("/pull/")) {
-        return { ok: false, reason: "read_back_is_pr" };
-      }
-    }
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, reason: "read_back_error" };
-  }
-}
-function repoSlugFromRemoteUrl(remoteUrl) {
-  const parsed = extractRemoteHostAndRepo(remoteUrl);
-  if (!parsed) return null;
-  const repoPath = parsed.repoPath.replace(/\.git$/, "");
-  return `${parsed.host}/${repoPath}`;
-}
-async function fetchRemoteLabelNames(backend, spawnFn, spawnOpts, repoSlug) {
-  try {
-    let result;
-    if (backend === "gh") {
-      const args = ["label", "list", "--json", "name"];
-      if (repoSlug) args.push("--repo", repoSlug);
-      result = spawnFn("gh", args, spawnOpts);
-    } else {
-      const args = ["label", "list", "-F", "json"];
-      if (repoSlug) args.push("-R", repoSlug);
-      result = spawnFn("glab", args, spawnOpts);
-    }
-    if (result.status !== 0) return null;
-    let parsed;
-    try {
-      parsed = JSON.parse(result.stdout);
-    } catch {
-      return null;
-    }
-    if (!Array.isArray(parsed)) return null;
-    const names = /* @__PURE__ */ new Set();
-    for (const entry of parsed) {
-      if (entry && typeof entry === "object" && typeof entry.name === "string") {
-        names.add(entry.name);
-      }
-    }
-    return names;
-  } catch {
-    return null;
-  }
-}
-async function verifyRemoteIssue(backend, iid, opts = {}) {
-  const spawnFn = opts.spawnFn ?? defaultSpawnFn;
-  const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
-  if (opts.cwd) spawnOpts.cwd = opts.cwd;
-  try {
-    let result;
-    if (backend === "gh") {
-      const args = ["issue", "view", String(iid), "--json", "number,title,state"];
-      if (opts.repoSlug) args.push("--repo", opts.repoSlug);
-      result = spawnFn("gh", args, spawnOpts);
-    } else {
-      const args = ["issue", "view", String(iid)];
-      if (opts.repoSlug) args.push("-R", opts.repoSlug);
-      result = spawnFn("glab", args, spawnOpts);
-    }
-    if (result.status !== 0) return { ok: false, reason: "not_found_or_error" };
-    if (backend === "gh") {
-      let parsed;
-      try {
-        parsed = JSON.parse(result.stdout);
-      } catch {
-        return { ok: false, reason: "parse_failed" };
-      }
-      if (typeof parsed.number !== "number") return { ok: false, reason: "parse_failed" };
-    }
-    return { ok: true };
-  } catch {
-    return { ok: false, reason: "spawn_error" };
-  }
-}
-function isFailure(r) {
-  return r.ok === false;
-}
-async function createOnBackend(backend, opts, spawnFn) {
-  const { title, body, labels = [], milestone } = opts;
-  const kind = backend === "gh" ? "github" : "gitlab";
-  const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
-  if (opts._cwd) {
-    spawnOpts.cwd = opts._cwd;
-  }
-  let effectiveLabels = labels;
-  let unknownLabels = [];
-  if (labels.length > 0) {
-    const known = await fetchRemoteLabelNames(backend, spawnFn, spawnOpts, opts._repoSlug);
-    if (known !== null) {
-      effectiveLabels = labels.filter((l) => known.has(l));
-      unknownLabels = labels.filter((l) => !known.has(l));
-      if (unknownLabels.length > 0) {
-        syncLog({
-          event: "issue_create_labels_filtered",
-          backend,
-          issueId: opts.issueId,
-          unknown: unknownLabels,
-          kept: effectiveLabels
-        });
-      }
-    }
-  }
-  let cmd;
-  let args;
-  if (backend === "gh") {
-    cmd = "gh";
-    args = ["issue", "create", "--title", title, "--body", body];
-    if (opts._repoSlug) {
-      args.push("--repo", opts._repoSlug);
-    }
-    for (const label of effectiveLabels) {
-      args.push("--label", label);
-    }
-    if (milestone) {
-      args.push("--milestone", milestone);
-    }
-  } else {
-    cmd = "glab";
-    args = ["issue", "create", "--title", title, "--description", body];
-    if (opts._repoSlug) {
-      args.push("-R", opts._repoSlug);
-    }
-    for (const label of effectiveLabels) {
-      args.push("--label", label);
-    }
-    if (milestone) {
-      args.push("--milestone", milestone);
-    }
-  }
-  try {
-    const result = spawnFn(cmd, args, spawnOpts);
-    if (result.status !== 0) {
-      syncLog({
-        event: "issue_create_failed",
-        backend,
-        issueId: opts.issueId,
-        stderr: result.stderr,
-        exit_code: result.status
-      });
-      return {
-        ok: false,
-        reason: "non_zero_exit",
-        backend,
-        stderr: result.stderr,
-        stdout: result.stdout,
-        exit_code: result.status ?? void 0
-      };
-    }
-    const parsed = parseRemoteIid(result.stdout, kind);
-    if (parsed === null) {
-      syncLog({
-        event: "issue_create_parse_failed",
-        backend,
-        issueId: opts.issueId,
-        stdout: result.stdout
-      });
-      return {
-        ok: false,
-        reason: "parse_failed",
-        backend,
-        stdout: result.stdout,
-        message: `could not parse remote issue id from "${cmd} ${args.join(" ")}" output`
-      };
-    }
-    if (opts._remoteUrl && parsed.host) {
-      const configured = extractRemoteHostAndRepo(opts._remoteUrl);
-      if (configured) {
-        const hostMismatch = parsed.host !== configured.host;
-        const repoMismatch = parsed.repoPath.replace(/\.git$/, "") !== configured.repoPath.replace(/\.git$/, "");
-        if (hostMismatch || repoMismatch) {
-          syncLog({
-            event: "issue_create_verify_failed",
-            backend,
-            issueId: opts.issueId,
-            reason: "host_repo_mismatch",
-            parsed_host: parsed.host,
-            parsed_repo: parsed.repoPath,
-            configured_host: configured.host,
-            configured_repo: configured.repoPath,
-            stdout: result.stdout
-          });
-          return {
-            ok: false,
-            reason: "verify_failed",
-            backend,
-            stdout: result.stdout,
-            message: `remote iid host/repo mismatch: got ${parsed.host}/${parsed.repoPath}, expected ${configured.host}/${configured.repoPath}`
-          };
-        }
-      }
-    }
-    const verifyResult = await readBackVerify(backend, parsed.iid, spawnFn, spawnOpts, opts._repoSlug);
-    if (!verifyResult.ok) {
-      syncLog({
-        event: "issue_create_verify_failed",
-        backend,
-        issueId: opts.issueId,
-        reason: verifyResult.reason,
-        iid: parsed.iid,
-        stdout: result.stdout
-      });
-      return {
-        ok: false,
-        reason: "verify_failed",
-        backend,
-        stdout: result.stdout,
-        message: `read-back verify failed for iid ${parsed.iid}: ${verifyResult.reason}`
-      };
-    }
-    syncLog({
-      event: "issue_create_success",
-      backend,
-      issueId: opts.issueId,
-      iid: parsed.iid,
-      stdout: result.stdout
-    });
-    return {
-      remote_iid: parsed.iid,
-      remote_kind: kind,
-      unknown_labels: unknownLabels.length > 0 ? unknownLabels : void 0
-    };
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    syncLog({
-      event: "issue_create_error",
-      backend,
-      issueId: opts.issueId,
-      error: message
-    });
-    return {
-      ok: false,
-      reason: "spawn_error",
-      backend,
-      message
-    };
-  }
-}
-async function syncIssueCreate(opts) {
-  const spawnFn = opts._spawnFn ?? defaultSpawnFn;
-  const backend = opts._backend;
-  if (!backend) {
-    return {
-      ok: false,
-      reason: "no_backend",
-      backend: null,
-      message: "no remote backend configured (issue_sync key resolved to null)"
-    };
-  }
-  syncLog({
-    kind: "issue_sync_active",
-    backend,
-    issue_id: opts.issueId,
-    title: opts.title
-  });
-  if (backend === "gh") {
-    return createOnBackend("gh", opts, spawnFn);
-  }
-  if (backend === "glab") {
-    return createOnBackend("glab", opts, spawnFn);
-  }
-  return {
-    ok: false,
-    reason: "no_backend",
-    backend: null,
-    message: `unrecognised backend "${backend}" \u2014 use issue_create for dual-backend creates`
-  };
-}
-async function syncIssueClose(opts) {
-  const spawnFn = opts._spawnFn ?? defaultSpawnFn;
-  const { remote_iid, remote_kind } = opts;
-  const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
-  if (opts._cwd) {
-    spawnOpts.cwd = opts._cwd;
-  }
-  let cmd;
-  let args;
-  if (remote_kind === "github") {
-    cmd = "gh";
-    args = ["issue", "close", String(remote_iid)];
-    if (opts._repoSlug) {
-      args.push("--repo", opts._repoSlug);
-    }
-  } else {
-    cmd = "glab";
-    args = ["issue", "close", String(remote_iid)];
-    if (opts._repoSlug) {
-      args.push("-R", opts._repoSlug);
-    }
-  }
-  try {
-    const result = spawnFn(cmd, args, spawnOpts);
-    if (result.status !== 0) {
-      syncLog({
-        event: "issue_close_failed",
-        remote_kind,
-        remote_iid,
-        stderr: result.stderr,
-        exit_code: result.status
-      });
-      return {
-        ok: false,
-        reason: "non_zero_exit",
-        stderr: result.stderr,
-        stdout: result.stdout,
-        exit_code: result.status ?? void 0
-      };
-    }
-    return { ok: true };
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    syncLog({
-      event: "issue_close_error",
-      remote_kind,
-      remote_iid,
-      error: message
-    });
-    return { ok: false, reason: "spawn_error", message };
-  }
-}
-
-// src/tools/issues.ts
-var DEFAULT_CLASSIFICATION_LABELS = [
-  "Bug",
-  "Feature",
-  "Improvement",
-  "Docs",
-  "Test",
-  "Chore"
-];
-var DEFAULT_PRIORITY_LABELS = [
-  "Priority: Urgent",
-  "Priority: High",
-  "Priority: Medium",
-  "Priority: Low"
-];
-function readStringArrayConfig(db2, key) {
-  const row = db2.get(
-    `SELECT value_json FROM plugin_config WHERE key = ?`,
-    [key]
-  );
-  if (!row) return null;
-  try {
-    const parsed = JSON.parse(row.value_json);
-    if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((v) => typeof v === "string")) {
-      return parsed;
-    }
-  } catch {
-  }
-  return null;
-}
-function resolveLabelTaxonomy(db2) {
-  const classification = readStringArrayConfig(db2, "issue_classification_labels") ?? [
-    ...DEFAULT_CLASSIFICATION_LABELS
-  ];
-  const priorityLabels = readStringArrayConfig(db2, "issue_priority_labels") ?? [
-    ...DEFAULT_PRIORITY_LABELS
-  ];
-  return { classification, priorityLabels };
-}
-function defaultSyncLabels(db2) {
-  const { classification, priorityLabels } = resolveLabelTaxonomy(db2);
-  const labels = [];
-  if (classification.length > 0) labels.push(classification[0]);
-  if (priorityLabels.length > 0) labels.push(priorityLabels[0]);
-  return labels;
-}
-function validateIssueLabels(db2, labels) {
-  const { classification, priorityLabels } = resolveLabelTaxonomy(db2);
-  const classificationSet = new Set(classification);
-  const prioritySet = new Set(priorityLabels);
-  const hasPriority = labels.some((l) => prioritySet.has(l));
-  const hasClassification = labels.some((l) => classificationSet.has(l));
-  if (hasPriority && hasClassification) return null;
-  const missing = [];
-  if (!hasClassification) {
-    missing.push(`a classification label (one of: ${classification.join(", ")})`);
-  }
-  if (!hasPriority) {
-    missing.push(`a priority label (one of: ${priorityLabels.join(", ")})`);
-  }
-  return `missing_required_labels: issue_create requires ${missing.join(" AND ")}. Got labels: [${labels.join(", ")}]`;
-}
-function ensureMilestoneRow(db2, milestone, repo) {
-  if (repo === null) return;
-  db2.run(
-    `INSERT INTO milestones (name, repo) VALUES (?, ?)
-     ON CONFLICT(name, repo) DO NOTHING`,
-    [milestone, repo]
-  );
-}
-function resolveDefaultMilestone(db2, explicitMilestone, repo) {
-  if (explicitMilestone !== null && explicitMilestone !== "") {
-    ensureMilestoneRow(db2, explicitMilestone, repo);
-    return explicitMilestone;
-  }
-  if (repo === null) return null;
-  const open = db2.all(
-    `SELECT name FROM milestones WHERE repo = ? AND state = 'open'`,
-    [repo]
-  );
-  return open.length === 1 ? open[0].name : null;
-}
-var DEDUP_THRESHOLD = 0.6;
-function normalizeObjective(text) {
-  return text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((t) => t.length > 0);
-}
-function objectiveSimilarity(a, b) {
-  const setA = new Set(normalizeObjective(a));
-  const setB = new Set(normalizeObjective(b));
-  if (setA.size === 0 && setB.size === 0) return 1;
-  let intersection2 = 0;
-  for (const t of setA) {
-    if (setB.has(t)) intersection2 += 1;
-  }
-  const union2 = setA.size + setB.size - intersection2;
-  if (union2 === 0) return 0;
-  return intersection2 / union2;
-}
-function decodeIssue(row) {
-  return { ...row };
-}
-function ok2(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err2(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function requireArg2(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
-  }
-  return args[name];
-}
-function wrapHandler2(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err2(e.message);
-    }
-  };
-}
-function resolveIssueSyncContext(db2, repoName) {
-  const resolved = resolveRepoForSync(db2, repoName);
-  if (!resolved) return null;
-  return {
-    repoName: resolved.name,
-    cwd: resolved.path,
-    remoteFor(backend) {
-      const provider = backend === "gh" ? "github" : "gitlab";
-      const entry = resolved.remotes.find((r) => r.provider === provider);
-      if (!entry) return null;
-      return { url: entry.url, slug: repoSlugFromRemoteUrl(entry.url) };
-    }
-  };
-}
-async function verifyAdoptionRemote(db2, issueRepo, remoteBackendArg, remoteIid, spawnFn) {
-  if (!Number.isInteger(remoteIid) || remoteIid <= 0) {
-    return { ok: false, error: `invalid_remote_iid: must be a positive integer, got ${String(remoteIid)}` };
-  }
-  const syncCtx = resolveIssueSyncContext(db2, issueRepo);
-  let backend = remoteBackendArg;
-  if (!backend) {
-    const hasGh = syncCtx?.remoteFor("gh") != null;
-    const hasGl = syncCtx?.remoteFor("glab") != null;
-    if (hasGh && !hasGl) backend = "github";
-    else if (hasGl && !hasGh) backend = "gitlab";
-    else if (hasGh && hasGl) {
-      return { ok: false, error: "remote_backend_ambiguous: repo has both github and gitlab remotes \u2014 pass remote_backend" };
-    } else {
-      return { ok: false, error: "remote_backend_unresolved: repo has no configured remote \u2014 pass remote_backend" };
-    }
-  }
-  const cliBackend = backend === "github" ? "gh" : "glab";
-  const remote = syncCtx?.remoteFor(cliBackend);
-  const verify = await verifyRemoteIssue(cliBackend, remoteIid, {
-    spawnFn,
-    cwd: syncCtx?.cwd,
-    repoSlug: remote?.slug ?? void 0
-  });
-  if (!verify.ok) {
-    return {
-      ok: false,
-      error: `remote_verify_failed: ${backend} issue #${remoteIid} not found or not viewable (${verify.reason ?? "unknown"})`
-    };
-  }
-  return { ok: true, backend };
-}
-async function syncIssueCloseRemotes(db2, dbPath2, issueId, spawnFn) {
-  const remoteRow = db2.get(
-    `SELECT remote_iid, remote_kind, gh_iid, gl_iid, repo FROM issues WHERE id = ?`,
-    [issueId]
-  );
-  const closeCtx = resolveIssueSyncContext(db2, remoteRow?.repo ?? null);
-  const closeCwd = closeCtx?.cwd;
-  const closeTargets = [];
-  if (remoteRow?.gh_iid != null) {
-    closeTargets.push({ remote_iid: remoteRow.gh_iid, remote_kind: "github" });
-  } else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === "github") {
-    closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: "github" });
-  }
-  if (remoteRow?.gl_iid != null) {
-    closeTargets.push({ remote_iid: remoteRow.gl_iid, remote_kind: "gitlab" });
-  } else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === "gitlab") {
-    closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: "gitlab" });
-  }
-  for (const target of closeTargets) {
-    const closeSlug = closeCtx?.remoteFor(target.remote_kind === "github" ? "gh" : "glab")?.slug ?? void 0;
-    const closeResult = await syncIssueClose({
-      remote_iid: target.remote_iid,
-      remote_kind: target.remote_kind,
-      _cwd: closeCwd,
-      _repoSlug: closeSlug,
-      _spawnFn: spawnFn
-    });
-    if (!closeResult.ok) {
-      serverLog({
-        event: "issue_close_sync_failed",
-        issueId,
-        remote_iid: target.remote_iid,
-        remote_kind: target.remote_kind,
-        reason: closeResult.reason,
-        exit_code: closeResult.exit_code,
-        stderr: closeResult.stderr?.slice(0, 1024),
-        message: closeResult.message
-      });
-    }
-  }
-}
-function issueTools(db2, dbPath2 = "") {
-  const definitions = [
-    {
-      name: "issue_create",
-      description: "Create a new issue with an objective and an optional full markdown description.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string", description: "Caller agent name" },
-          objective: { type: "string", description: "Short one-liner summary" },
-          description: { type: "string", description: "Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation." },
-          labels: { type: "array", items: { type: "string" }, description: "Required. Must include at least one priority label AND at least one classification label, drawn from the project's configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore). Extra labels are allowed. Applied to the remote issue." },
-          milestone: { type: "string", description: 'Optional milestone name (e.g. "v1.2.0"). Persisted on the issue row and set on the remote issue. Omit for no milestone.' },
-          repo: { type: "string", description: "Optional repo name (matches a repos row) this issue belongs to. Drives issue-scoped sync (explicit gh --repo / glab -R from that repo's remotes). Defaults to the sole/managed repo when exactly one repos row exists." },
-          allow_duplicate: { type: "boolean", description: "When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating." },
-          remote_iid: { type: "number", description: "Optional. Adopt an existing remote issue instead of creating one: verifies the remote issue exists, links it, and skips remote creation. A failed verification creates nothing." },
-          remote_backend: { type: "string", enum: ["github", "gitlab"], description: "Optional backend for remote_iid adoption. Defaults to the repo's sole configured remote." }
-        },
-        required: ["agent", "objective", "labels"]
-      }
-    },
-    {
-      name: "issue_get",
-      description: "Fetch a single issue by ID.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          issue_id: { type: "string", description: "The issue string ID" },
-          include_description: { type: "boolean", description: "Whether to include the full description (default false). Architect + bro only." }
-        },
-        required: ["agent", "issue_id"]
-      }
-    },
-    {
-      name: "issue_resume",
-      description: "Return an issue with its first actionable pending/failed task.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          issue_id: { type: "string" }
-        },
-        required: ["agent", "issue_id"]
-      }
-    },
-    {
-      name: "issue_close",
-      description: "Close an issue by setting its status to closed.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          issue_id: { type: "string" }
-        },
-        required: ["agent", "issue_id"]
-      }
-    },
-    {
-      name: "issue_get_phase",
-      description: "Return the current workflow phase and task completion counts for an issue.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          issue_id: { type: "string" }
-        },
-        required: ["agent", "issue_id"]
-      }
-    },
-    {
-      name: "issue_list",
-      description: "List issues ordered by updated_at DESC. Returns a thin index (id, objective, status, created_at, updated_at). Optional fields projection via fields=['id','status','objective']; unknown fields return a named error.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          status: {
-            type: "string",
-            enum: ["open", "closed"],
-            description: "Optional status filter. Omit to return all issues."
-          },
-          limit: { type: "number", description: "Max rows. Default 50, max 200." },
-          offset: { type: "number", description: "Row offset. Default 0." },
-          fields: {
-            type: "array",
-            items: { type: "string" },
-            description: "Optional column projection. Allowed: id, objective, status, created_at, updated_at. Unknown fields return a named error. Default: all five columns."
-          }
-        },
-        required: ["agent"]
-      }
-    },
-    {
-      name: "issue_update_description",
-      description: "Update an issue's description. Used by bro to backfill issues whose descriptions were truncated on import (e.g., from Linear).",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
-          issue_id: { type: "string", description: "Issue ID as string" },
-          description: { type: "string", description: "Full markdown description (no length cap)" }
-        },
-        required: ["agent", "issue_id", "description"]
-      }
-    },
-    {
-      name: "issue_sync_retry",
-      description: "Manually retry remote sync for an issue where auto-sync failed. Bro only.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
-          issue_id: { type: "string", description: "Issue ID as string" }
-        },
-        required: ["agent", "issue_id"]
-      }
-    },
-    {
-      name: "issue_adopt_remote",
-      description: "Link an existing local issue to an existing remote issue after verifying it exists. Bro only. Errors if the row is already linked to a different iid; re-adopting the same iid is idempotent.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
-          issue_id: { type: "string", description: "Local issue ID" },
-          remote_iid: { type: "number", description: "Remote issue number to adopt" },
-          remote_backend: { type: "string", enum: ["github", "gitlab"], description: "Optional. Defaults to the repo's sole configured remote." }
-        },
-        required: ["agent", "issue_id", "remote_iid"]
-      }
-    },
-    {
-      name: "issue_link",
-      description: "Record a remote issue linkage (gh_iid/gl_iid) for a manually-mirrored issue. Bro only. Rejects if the backend iid is already set unless force=true.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
-          issue_id: { type: "string", description: "Local issue ID" },
-          backend: { type: "string", enum: ["github", "gitlab"], description: "Remote backend" },
-          iid: { type: "number", description: "Remote issue number" },
-          force: { type: "boolean", description: "Overwrite existing iid if already set (default false)" }
-        },
-        required: ["agent", "issue_id", "backend", "iid"]
-      }
-    }
-  ];
-  const handlers = {
-    issue_create: requireRoles("issue_create", ["bro"], wrapHandler2(async (args) => {
-      const agent = normalizeAgent(args["agent"]);
-      requireArg2(args, "objective");
-      const objective = args["objective"];
-      const description = args["description"] ?? "";
-      const labels = args["labels"] ?? [];
-      const labelError = validateIssueLabels(db2, labels);
-      if (labelError !== null) {
-        return err2(labelError);
-      }
-      const explicitRepo = args["repo"] ?? null;
-      const issueRepo = explicitRepo ?? resolveRepoForSync(db2, null)?.name ?? null;
-      const allowDuplicate = args["allow_duplicate"] ?? false;
-      if (!allowDuplicate) {
-        const openIssues = db2.all(
-          `SELECT id, objective FROM issues WHERE status = 'open' AND (repo IS NULL OR repo = ?)`,
-          [issueRepo]
-        );
-        let best = null;
-        for (const candidate of openIssues) {
-          const similarity = objectiveSimilarity(objective, candidate.objective);
-          if (best === null || similarity > best.similarity) {
-            best = { id: candidate.id, objective: candidate.objective, similarity };
-          }
-        }
-        if (best !== null && best.similarity >= DEDUP_THRESHOLD) {
-          return ok2({
-            duplicate: true,
-            duplicate_of: best.id,
-            matched_objective: best.objective,
-            similarity: best.similarity
-          });
-        }
-      }
-      const explicitMilestone = args["milestone"] ?? null;
-      const milestone = resolveDefaultMilestone(db2, explicitMilestone, issueRepo);
-      const spawnFn = args["_spawnFn"] ?? void 0;
-      const now = nowISO();
-      const remoteIidRaw = args["remote_iid"];
-      if (remoteIidRaw !== void 0 && remoteIidRaw !== null) {
-        const remoteIid = typeof remoteIidRaw === "number" ? remoteIidRaw : Number(remoteIidRaw);
-        const remoteBackendArg = args["remote_backend"];
-        const adoption = await verifyAdoptionRemote(db2, issueRepo, remoteBackendArg, remoteIid, spawnFn);
-        if (!adoption.ok) {
-          return err2(adoption.error);
-        }
-        db2.run(
-          `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
-           VALUES (?, ?, 'open', ?, ?, ?, ?, ?)`,
-          [objective, description, now, now, milestone, issueRepo, JSON.stringify(labels)]
-        );
-        const adoptRowId = db2.get(
-          `SELECT id FROM issues WHERE rowid = last_insert_rowid()`
-        );
-        if (!adoptRowId) {
-          throw new Error("issue_create: failed to retrieve inserted row");
-        }
-        const adoptId = adoptRowId.id;
-        const ghIid = adoption.backend === "github" ? remoteIid : null;
-        const glIid = adoption.backend === "gitlab" ? remoteIid : null;
-        db2.run(
-          `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-          [remoteIid, adoption.backend, ghIid, glIid, now, adoptId]
-        );
-        db2.run(
-          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (?, 'executor', 'issue_adopted', ?, ?, ?)`,
-          [
-            adoptId,
-            `issue ${adoptId} adopted ${adoption.backend} #${remoteIid} at create`,
-            JSON.stringify({ issue_id: adoptId, backend: adoption.backend, remote_iid: remoteIid, at_create: true }),
-            now
-          ]
-        );
-        const adoptedRow = db2.get("SELECT * FROM issues WHERE id = ?", [adoptId]);
-        const adoptedIssue = decodeIssue(adoptedRow);
-        const adoptedRedacted = redactIssue(adoptedIssue, agent, { include_description: true });
-        const adoptedPayload = { ...adoptedRedacted };
-        adoptedPayload._adopted = { backend: adoption.backend, remote_iid: remoteIid };
-        return ok2(adoptedPayload);
-      }
-      db2.run(
-        `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
-         VALUES (?, ?, 'open', ?, ?, ?, ?, ?)`,
-        [objective, description, now, now, milestone, issueRepo, JSON.stringify(labels)]
-      );
-      const rowId = db2.get(
-        `SELECT id FROM issues WHERE rowid = last_insert_rowid()`
-      );
-      if (!rowId) {
-        throw new Error("issue_create: failed to retrieve inserted row");
-      }
-      const issueId = rowId.id;
-      const syncConfigRow = db2.get(
-        `SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`
-      );
-      const syncConfig = syncConfigRow ? JSON.parse(syncConfigRow.value_json) : "off";
-      let syncDiagnostic;
-      if (syncConfig !== "off") {
-        const syncCtx = resolveIssueSyncContext(db2, issueRepo);
-        const repoRemotes = syncCtx ? { github: syncCtx.remoteFor("gh") !== null, gitlab: syncCtx.remoteFor("glab") !== null } : null;
-        const backend = resolveBackend(syncConfig, repoRemotes, !!spawnFn);
-        if (backend === null) {
-          serverLog({ event: "issue_sync_skip", reason: "no_remote_configured", issueId });
-        } else if (backend !== "off") {
-          if (syncCtx === null) {
-            serverLog({ event: "issue_sync_skip", reason: "unresolvable_repo", issueId, repo: issueRepo, backend });
-            syncDiagnostic = {
-              sync_failed: true,
-              reason: "unresolvable_repo",
-              repo: issueRepo,
-              backend,
-              hint: issueRepo ? `issue repo "${issueRepo}" has no matching repos row \u2014 run /scan or pass a valid repo.` : "multiple repos registered and no issue repo selected \u2014 pass repo= on issue_create."
-            };
-            const row2 = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-            const issue3 = decodeIssue(row2);
-            const redacted2 = redactIssue(issue3, agent, { include_description: true });
-            const payload2 = { ...redacted2 };
-            payload2._sync = syncDiagnostic;
-            return ok2(payload2);
-          }
-          const syncCwd = syncCtx.cwd;
-          if (backend === "both") {
-            const ghRemote = syncCtx.remoteFor("gh");
-            const glRemote = syncCtx.remoteFor("glab");
-            const ghRemoteUrl = ghRemote?.url ?? null;
-            const glRemoteUrl = glRemote?.url ?? null;
-            const ghBlank = !ghRemoteUrl;
-            const glBlank = !glRemoteUrl;
-            if (ghBlank && glBlank) {
-              serverLog({ event: "issue_sync_skip", reason: "blank_remote_url", issueId, backend });
-              syncDiagnostic = {
-                sync_skipped: true,
-                reason: "blank_remote_url",
-                backend,
-                hint: "Configure remote URLs via /onboard before syncing issues."
-              };
-            } else {
-              const [ghResult, glResult] = await Promise.all([
-                !ghBlank ? syncIssueCreate({
-                  issueId,
-                  title: objective,
-                  body: description,
-                  labels,
-                  milestone: milestone ?? void 0,
-                  _backend: "gh",
-                  _spawnFn: spawnFn,
-                  _cwd: syncCwd,
-                  _remoteUrl: ghRemoteUrl ?? void 0,
-                  _repoSlug: ghRemote?.slug ?? void 0
-                }) : Promise.resolve({ ok: false, reason: "no_backend", backend: "gh", message: "blank remote URL for gh" }),
-                !glBlank ? syncIssueCreate({
-                  issueId,
-                  title: objective,
-                  body: description,
-                  labels,
-                  milestone: milestone ?? void 0,
-                  _backend: "glab",
-                  _spawnFn: spawnFn,
-                  _cwd: syncCwd,
-                  _remoteUrl: glRemoteUrl ?? void 0,
-                  _repoSlug: glRemote?.slug ?? void 0
-                }) : Promise.resolve({ ok: false, reason: "no_backend", backend: "glab", message: "blank remote URL for glab" })
-              ]);
-              const ghIid = !isFailure(ghResult) && ghResult.remote_kind === "github" ? ghResult.remote_iid : null;
-              const glIid = !isFailure(glResult) && glResult.remote_kind === "gitlab" ? glResult.remote_iid : null;
-              const firstSuccess = !isFailure(ghResult) ? ghResult : !isFailure(glResult) ? glResult : null;
-              if (firstSuccess !== null) {
-                db2.run(
-                  `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-                  [firstSuccess.remote_iid, firstSuccess.remote_kind, ghIid, glIid, now, issueId]
-                );
-              } else {
-                const failures = [];
-                if (isFailure(ghResult)) {
-                  serverLog({ event: "issue_sync_failed", issueId, backend: "gh", reason: ghResult.reason, exit_code: ghResult.exit_code, stderr: ghResult.stderr?.slice(0, 1024), message: ghResult.message });
-                  failures.push("gh");
-                }
-                if (isFailure(glResult)) {
-                  serverLog({ event: "issue_sync_failed", issueId, backend: "glab", reason: glResult.reason, exit_code: glResult.exit_code, stderr: glResult.stderr?.slice(0, 1024), message: glResult.message });
-                  failures.push("glab");
-                }
-                syncDiagnostic = {
-                  sync_failed: true,
-                  reason: "both_remotes_failed",
-                  backends: failures,
-                  hint: "Try `issue_sync_retry` or run the underlying gh/glab command manually to debug."
-                };
-              }
-              if (ghIid !== null || glIid !== null) {
-                const partial2 = [];
-                if (isFailure(ghResult)) partial2.push("gh");
-                if (isFailure(glResult)) partial2.push("glab");
-                if (partial2.length > 0) {
-                  syncDiagnostic = {
-                    sync_partial: true,
-                    failed_backends: partial2,
-                    gh_iid: ghIid,
-                    gl_iid: glIid,
-                    hint: "Try `issue_sync_retry` to retry the failed remote."
-                  };
-                }
-              }
-              const droppedLabels = /* @__PURE__ */ new Set();
-              if (!isFailure(ghResult) && ghResult.unknown_labels) {
-                for (const l of ghResult.unknown_labels) droppedLabels.add(l);
-              }
-              if (!isFailure(glResult) && glResult.unknown_labels) {
-                for (const l of glResult.unknown_labels) droppedLabels.add(l);
-              }
-              if (droppedLabels.size > 0 && !syncDiagnostic) {
-                syncDiagnostic = {
-                  labels_dropped: [...droppedLabels],
-                  reason: "labels_not_in_remote_taxonomy",
-                  hint: "These requested labels do not exist on the remote and were omitted from the remote issue; all labels are still kept on the local issue."
-                };
-              }
-            }
-          } else {
-            const remote = syncCtx.remoteFor(backend);
-            const remoteUrl = remote?.url ?? null;
-            if (!remoteUrl) {
-              serverLog({ event: "issue_sync_skip", reason: "blank_remote_url", issueId, backend });
-              syncDiagnostic = {
-                sync_skipped: true,
-                reason: "blank_remote_url",
-                backend,
-                hint: "Configure remote URLs via /onboard before syncing issues."
-              };
-            } else {
-              const syncResult = await syncIssueCreate({
-                issueId,
-                title: objective,
-                body: description,
-                labels,
-                milestone: milestone ?? void 0,
-                _backend: backend,
-                _spawnFn: spawnFn,
-                _cwd: syncCwd,
-                _remoteUrl: remoteUrl ?? void 0,
-                _repoSlug: remote?.slug ?? void 0
-              });
-              if (!isFailure(syncResult)) {
-                const ghIid = syncResult.remote_kind === "github" ? syncResult.remote_iid : null;
-                const glIid = syncResult.remote_kind === "gitlab" ? syncResult.remote_iid : null;
-                db2.run(
-                  `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-                  [syncResult.remote_iid, syncResult.remote_kind, ghIid, glIid, now, issueId]
-                );
-                if (syncResult.unknown_labels && syncResult.unknown_labels.length > 0) {
-                  syncDiagnostic = {
-                    labels_dropped: syncResult.unknown_labels,
-                    reason: "labels_not_in_remote_taxonomy",
-                    hint: "These requested labels do not exist on the remote and were omitted from the remote issue; all labels are still kept on the local issue."
-                  };
-                }
-              } else {
-                serverLog({
-                  event: "issue_sync_failed",
-                  issueId,
-                  backend,
-                  reason: syncResult.reason,
-                  exit_code: syncResult.exit_code,
-                  stderr: syncResult.stderr?.slice(0, 1024),
-                  message: syncResult.message
-                });
-                syncDiagnostic = {
-                  sync_failed: true,
-                  reason: syncResult.reason,
-                  backend: syncResult.backend,
-                  exit_code: syncResult.exit_code,
-                  stderr: syncResult.stderr?.slice(0, 4096),
-                  stdout: syncResult.stdout?.slice(0, 4096),
-                  message: syncResult.message,
-                  hint: "Try `issue_sync_retry` or run the underlying gh/glab command manually to debug."
-                };
-              }
-            }
-          }
-        }
-      } else {
-        db2.run(
-          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (?, 'executor', 'sync_skipped', ?, ?, ?)`,
-          [
-            issueId,
-            `issue ${issueId} sync skipped: issue_sync is off`,
-            JSON.stringify({ issue_id: issueId, reason: "issue_sync_off" }),
-            nowISO()
-          ]
-        );
-        const preferred = detectPreferred();
-        if (preferred !== null) {
-          syncDiagnostic = {
-            sync_skipped: true,
-            reason: 'issue_sync is "off" but origin points at ' + preferred,
-            hint: 'If this project should mirror issues to the remote, run `config_set(key="issue_sync", value="auto")`.'
-          };
-        }
-      }
-      const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      const issue2 = decodeIssue(row);
-      const redacted = redactIssue(issue2, agent, { include_description: true });
-      const payload = { ...redacted };
-      if (syncDiagnostic) payload._sync = syncDiagnostic;
-      return ok2(payload);
-    })),
-    issue_get: wrapHandler2(async (args) => {
-      const agent = normalizeAgent(args["agent"]);
-      const issueId = requireArg2(args, "issue_id");
-      const includeDescription = args["include_description"] ?? false;
-      const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      if (!row) {
-        throw new Error(`Not found: ${issueId}`);
-      }
-      const issue2 = decodeIssue(row);
-      return ok2(redactIssue(issue2, agent, { include_description: includeDescription }));
-    }),
-    issue_resume: wrapHandler2(async (args) => {
-      const agent = normalizeAgent(args["agent"]);
-      const issueId = requireArg2(args, "issue_id");
-      const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      if (!row) {
-        throw new Error(`Not found: ${issueId}`);
-      }
-      const issue2 = decodeIssue(row);
-      const task = db2.get(
-        `SELECT * FROM tasks
-         WHERE issue_id = ? AND status IN ('pending', 'failed')
-         ORDER BY branch_id ASC
-         LIMIT 1`,
-        [issueId]
-      );
-      return ok2({ issue: redactIssue(issue2, agent), next_task: task ?? null });
-    }),
-    issue_close: requireRoles("issue_close", ["bro"], wrapHandler2(async (args) => {
-      requireArg2(args, "agent");
-      const issueId = requireArg2(args, "issue_id");
-      const now = nowISO();
-      const existing = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      if (!existing) {
-        throw new Error(`Not found: ${issueId}`);
-      }
-      db2.run(
-        `UPDATE issues
-         SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?)
-         WHERE id = ?`,
-        [now, now, issueId]
-      );
-      await syncIssueCloseRemotes(db2, dbPath2, issueId, args["_spawnFn"]);
-      const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      return ok2(decodeIssue(updated));
-    })),
-    issue_get_phase: wrapHandler2(async (args) => {
-      requireArg2(args, "agent");
-      const issueId = requireArg2(args, "issue_id");
-      const issueRow = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      if (!issueRow) {
-        throw new Error(`Not found: ${issueId}`);
-      }
-      const issue2 = decodeIssue(issueRow);
-      const rawCounts = db2.get(
-        `SELECT
-           COUNT(*) as tasks_total,
-           SUM(CASE WHEN status IN ('completed', 'closed') THEN 1 ELSE 0 END) as tasks_completed,
-           SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as tasks_failed
-         FROM tasks WHERE issue_id = ?`,
-        [issueId]
-      );
-      const counts = {
-        tasks_total: rawCounts?.tasks_total ?? 0,
-        tasks_completed: rawCounts?.tasks_completed ?? 0,
-        tasks_failed: rawCounts?.tasks_failed ?? 0
-      };
-      let phase;
-      if (issue2.status === "closed") {
-        phase = "done";
-      } else if (counts.tasks_total === 0) {
-        phase = "discussion";
-      } else if (counts.tasks_completed >= counts.tasks_total) {
-        phase = "ready_to_close";
-      } else {
-        phase = "tasks";
-      }
-      return ok2({ phase, counts });
-    }),
-    issue_list: wrapHandler2(async (args) => {
-      normalizeAgent(args["agent"]);
-      const rawStatus = args["status"];
-      const rawLimit = args["limit"] ?? 50;
-      const rawOffset = args["offset"] ?? 0;
-      const fieldsArg = args["fields"];
-      const limit = Math.min(Math.max(1, rawLimit), 200);
-      const offset = Math.max(0, rawOffset);
-      const VALID_ISSUE_STATUSES = /* @__PURE__ */ new Set(["open", "closed"]);
-      if (rawStatus !== void 0 && !VALID_ISSUE_STATUSES.has(rawStatus)) {
-        return err2(
-          `Invalid status: "${rawStatus}". Allowed values: ${[...VALID_ISSUE_STATUSES].join(", ")}`
-        );
-      }
-      const ALLOWED_ISSUE_LIST_FIELDS = /* @__PURE__ */ new Set(["id", "objective", "status", "created_at", "updated_at"]);
-      if (fieldsArg !== void 0) {
-        const unknown2 = fieldsArg.filter((f) => !ALLOWED_ISSUE_LIST_FIELDS.has(f));
-        if (unknown2.length > 0) {
-          return err2(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_ISSUE_LIST_FIELDS].join(", ")}`);
-        }
-      }
-      function projectRow(row) {
-        if (!fieldsArg) return row;
-        const out = {};
-        for (const f of fieldsArg) out[f] = row[f];
-        return out;
-      }
-      let rows;
-      if (rawStatus !== void 0) {
-        rows = db2.all(
-          "SELECT id, objective, status, created_at, updated_at FROM issues WHERE status = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-          [rawStatus, limit, offset]
-        );
-      } else {
-        rows = db2.all(
-          "SELECT id, objective, status, created_at, updated_at FROM issues ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-          [limit, offset]
-        );
-      }
-      return ok2(rows.map(projectRow));
-    }),
-    issue_update_description: requireRoles("issue_update_description", ["bro"], wrapHandler2(async (args) => {
-      const issueId = requireArg2(args, "issue_id");
-      const description = requireArg2(args, "description");
-      const MAX_DESCRIPTION_BYTES = 1024 * 1024;
-      if (Buffer.byteLength(description, "utf8") > MAX_DESCRIPTION_BYTES) {
-        return err2("description exceeds 1MB limit");
-      }
-      const existing = db2.get("SELECT id FROM issues WHERE id = ?", [issueId]);
-      if (!existing) {
-        return err2(`not_found: issue ${issueId}`);
-      }
-      const now = nowISO();
-      db2.run(
-        "UPDATE issues SET description = ?, updated_at = ? WHERE id = ?",
-        [description, now, issueId]
-      );
-      const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      return ok2(decodeIssue(updated));
-    })),
-    issue_sync_retry: requireRoles("issue_sync_retry", ["bro"], wrapHandler2(async (args) => {
-      const issueId = requireArg2(args, "issue_id");
-      const spawnFn = args["_spawnFn"] ?? void 0;
-      const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      if (!row) {
-        return err2(`not_found: issue ${issueId}`);
-      }
-      const syncConfigRow = db2.get(
-        `SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`
-      );
-      const syncConfig = syncConfigRow ? JSON.parse(syncConfigRow.value_json) : "off";
-      if (syncConfig === "off") {
-        return ok2({ skipped: true, reason: "issue_sync is off" });
-      }
-      const retryCtx = resolveIssueSyncContext(db2, row.repo ?? null);
-      const retryRemotes = retryCtx ? { github: retryCtx.remoteFor("gh") !== null, gitlab: retryCtx.remoteFor("glab") !== null } : null;
-      const backend = resolveBackend(syncConfig, retryRemotes, !!spawnFn);
-      if (backend === null || backend === "off") {
-        return ok2({ skipped: true, reason: "no remote backend configured" });
-      }
-      if (retryCtx === null) {
-        return ok2({
-          skipped: true,
-          reason: "unresolvable_repo",
-          repo: row.repo ?? null,
-          hint: row.repo ? `issue repo "${row.repo}" has no matching repos row.` : "multiple repos registered and no issue repo selected."
-        });
-      }
-      const issue2 = decodeIssue(row);
-      if (row.status === "closed") {
-        const retryCwd2 = retryCtx.cwd;
-        const retryTargets = [];
-        if (row.gh_iid != null) {
-          retryTargets.push({ remote_iid: row.gh_iid, remote_kind: "github" });
-        } else if (row.remote_iid != null && row.remote_kind === "github") {
-          retryTargets.push({ remote_iid: row.remote_iid, remote_kind: "github" });
-        }
-        if (row.gl_iid != null) {
-          retryTargets.push({ remote_iid: row.gl_iid, remote_kind: "gitlab" });
-        } else if (row.remote_iid != null && row.remote_kind === "gitlab") {
-          retryTargets.push({ remote_iid: row.remote_iid, remote_kind: "gitlab" });
-        }
-        if (retryTargets.length === 0) {
-          return ok2({ action: "close", success: false, error: { reason: "no_remote_iid" } });
-        }
-        const closeErrors = [];
-        for (const target of retryTargets) {
-          const closeResult = await syncIssueClose({
-            remote_iid: target.remote_iid,
-            remote_kind: target.remote_kind,
-            _spawnFn: spawnFn,
-            _cwd: retryCwd2,
-            _repoSlug: retryCtx.remoteFor(target.remote_kind === "github" ? "gh" : "glab")?.slug ?? void 0
-          });
-          if (!closeResult.ok) {
-            closeErrors.push({
-              remote_kind: target.remote_kind,
-              reason: closeResult.reason,
-              exit_code: closeResult.exit_code,
-              stderr: closeResult.stderr?.slice(0, 4096),
-              stdout: closeResult.stdout?.slice(0, 4096),
-              message: closeResult.message
-            });
-          }
-        }
-        if (closeErrors.length === 0) {
-          return ok2({ action: "close", success: true });
-        }
-        return ok2({ action: "close", success: false, errors: closeErrors });
-      }
-      const retryCwd = retryCtx.cwd;
-      const createTargets = [];
-      if (backend === "gh" || backend === "both") {
-        if (row.gh_iid == null && !(row.remote_kind === "github" && row.remote_iid != null)) {
-          createTargets.push("gh");
-        }
-      }
-      if (backend === "glab" || backend === "both") {
-        if (row.gl_iid == null && !(row.remote_kind === "gitlab" && row.remote_iid != null)) {
-          createTargets.push("glab");
-        }
-      }
-      if (createTargets.length === 0) {
-        return ok2({ action: "create", success: true, skipped: true, reason: "already_synced" });
-      }
-      let retryLabels;
-      if (row.labels == null) {
-        retryLabels = defaultSyncLabels(db2);
-      } else {
-        try {
-          const parsed = JSON.parse(row.labels);
-          retryLabels = Array.isArray(parsed) ? parsed : defaultSyncLabels(db2);
-        } catch {
-          retryLabels = defaultSyncLabels(db2);
-        }
-      }
-      const createErrors = [];
-      let lastSuccess = null;
-      for (const target of createTargets) {
-        const retryRemote = retryCtx.remoteFor(target);
-        const syncResult = await syncIssueCreate({
-          issueId: row.id,
-          title: issue2.objective,
-          body: row.description,
-          labels: retryLabels,
-          milestone: row.milestone ?? void 0,
-          _backend: target,
-          _spawnFn: spawnFn,
-          _cwd: retryCwd,
-          _remoteUrl: retryRemote?.url ?? void 0,
-          _repoSlug: retryRemote?.slug ?? void 0
-        });
-        if (!isFailure(syncResult)) {
-          lastSuccess = { remote_iid: syncResult.remote_iid, remote_kind: syncResult.remote_kind };
-          const retryGhIid = syncResult.remote_kind === "github" ? syncResult.remote_iid : null;
-          const retryGlIid = syncResult.remote_kind === "gitlab" ? syncResult.remote_iid : null;
-          db2.run(
-            `UPDATE issues SET remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, ?), gh_iid = COALESCE(gh_iid, ?), gl_iid = COALESCE(gl_iid, ?), updated_at = ? WHERE id = ?`,
-            [syncResult.remote_iid, syncResult.remote_kind, retryGhIid, retryGlIid, nowISO(), issueId]
-          );
-        } else {
-          createErrors.push({
-            backend: syncResult.backend,
-            reason: syncResult.reason,
-            exit_code: syncResult.exit_code,
-            stderr: syncResult.stderr?.slice(0, 4096),
-            stdout: syncResult.stdout?.slice(0, 4096),
-            message: syncResult.message
-          });
-        }
-      }
-      if (createErrors.length === 0 && lastSuccess !== null) {
-        return ok2({ action: "create", success: true, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind });
-      }
-      if (lastSuccess !== null) {
-        return ok2({ action: "create", success: true, partial: true, errors: createErrors, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind });
-      }
-      return ok2({
-        action: "create",
-        success: false,
-        errors: createErrors
-      });
-    })),
-    issue_link: requireRoles("issue_link", ["bro"], wrapHandler2(async (args) => {
-      const issueId = requireArg2(args, "issue_id");
-      const backend = requireArg2(args, "backend");
-      const iid = requireArg2(args, "iid");
-      const force = args["force"] ?? false;
-      if (!Number.isInteger(iid) || iid <= 0) {
-        return err2(`invalid iid: must be a positive integer`);
-      }
-      const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      if (!row) {
-        return err2(`not_found: issue ${issueId}`);
-      }
-      const iidColumn = backend === "github" ? "gh_iid" : "gl_iid";
-      const existingIid = backend === "github" ? row.gh_iid : row.gl_iid;
-      if (existingIid != null && !force) {
-        return err2(`already_linked: issue ${issueId} already has ${backend} iid ${existingIid} \u2014 pass force=true to overwrite`);
-      }
-      const now = nowISO();
-      if (backend === "github") {
-        db2.run(
-          `UPDATE issues SET gh_iid = ?, remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, 'github'), updated_at = ? WHERE id = ?`,
-          [iid, iid, now, issueId]
-        );
-      } else {
-        db2.run(
-          `UPDATE issues SET gl_iid = ?, remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, 'gitlab'), updated_at = ? WHERE id = ?`,
-          [iid, iid, now, issueId]
-        );
-      }
-      db2.run(
-        `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-         VALUES (?, 'executor', 'issue_linked', ?, ?, ?)`,
-        [
-          parseInt(issueId, 10),
-          `issue ${issueId} linked to ${backend} #${iid}${force && existingIid != null ? ` (forced, was ${existingIid})` : ""}`,
-          JSON.stringify({ issue_id: issueId, backend, iid, forced: force && existingIid != null }),
-          now
-        ]
-      );
-      const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      return ok2({ linked: true, backend, iid, issue: decodeIssue(updated) });
-    })),
-    issue_adopt_remote: requireRoles("issue_adopt_remote", ["bro"], wrapHandler2(async (args) => {
-      const issueId = requireArg2(args, "issue_id");
-      const remoteIidRaw = requireArg2(args, "remote_iid");
-      const remoteIid = typeof remoteIidRaw === "number" ? remoteIidRaw : Number(remoteIidRaw);
-      const remoteBackendArg = args["remote_backend"];
-      const spawnFn = args["_spawnFn"] ?? void 0;
-      const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      if (!row) {
-        return err2(`not_found: issue ${issueId}`);
-      }
-      const adoption = await verifyAdoptionRemote(db2, row.repo ?? null, remoteBackendArg, remoteIid, spawnFn);
-      if (!adoption.ok) {
-        return err2(adoption.error);
-      }
-      const existingIid = adoption.backend === "github" ? row.gh_iid : row.gl_iid;
-      if (existingIid != null && existingIid !== remoteIid) {
-        return err2(`already_linked: issue ${issueId} already has a ${adoption.backend} link (#${existingIid}); re-adopt is only idempotent for the same iid`);
-      }
-      const idempotent = existingIid === remoteIid;
-      const now = nowISO();
-      const ghIid = adoption.backend === "github" ? remoteIid : null;
-      const glIid = adoption.backend === "gitlab" ? remoteIid : null;
-      db2.run(
-        `UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, ?), updated_at = ? WHERE id = ?`,
-        [ghIid, glIid, remoteIid, adoption.backend, now, issueId]
-      );
-      if (!idempotent) {
-        db2.run(
-          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (?, 'executor', 'issue_adopted', ?, ?, ?)`,
-          [
-            parseInt(issueId, 10),
-            `issue ${issueId} adopted ${adoption.backend} #${remoteIid}`,
-            JSON.stringify({ issue_id: issueId, backend: adoption.backend, remote_iid: remoteIid, at_create: false }),
-            now
-          ]
-        );
-      }
-      const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      return ok2({ adopted: true, backend: adoption.backend, remote_iid: remoteIid, idempotent, issue: decodeIssue(updated) });
-    }))
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/tasks.ts
-import { spawnSync as spawnSync3 } from "node:child_process";
-import { resolve, dirname as dirname3 } from "node:path";
-function taskFileDirs(filesJson) {
-  const dirs = /* @__PURE__ */ new Set();
-  if (!filesJson) return dirs;
-  let files;
-  try {
-    files = JSON.parse(filesJson);
-  } catch {
-    return dirs;
-  }
-  if (!Array.isArray(files)) return dirs;
-  for (const path2 of files) {
-    if (typeof path2 !== "string") continue;
-    const slash = path2.lastIndexOf("/");
-    dirs.add(slash >= 0 ? path2.slice(0, slash) : "");
-  }
-  return dirs;
-}
-var BRANCH_ID_RE = /^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)\/[a-z0-9][a-z0-9-]{0,62}$/;
-var BASE_BRANCH_ALLOWLIST = /* @__PURE__ */ new Set(["dev", "main", "master"]);
-var SPEC_BODY_MAX_BYTES = (() => {
-  const raw = process.env["TMB_SPEC_BODY_MAX_BYTES"];
-  if (raw === void 0) return 8e3;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 8e3;
-})();
-function validateBranchId(branchId) {
-  if (!BRANCH_ID_RE.test(branchId)) {
-    throw new Error(
-      `Invalid branch_id "${branchId}". Must match git-convention format: <type>/<slug> where <type> is one of feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: feat/user-login, fix/auth-crash.`
-    );
-  }
-}
-function validateParentBranchId(branchId) {
-  if (BASE_BRANCH_ALLOWLIST.has(branchId) || BRANCH_ID_RE.test(branchId)) return;
-  throw new Error(
-    `Invalid branch_id "${branchId}". Must be a base branch (dev, main, master) or git-convention format: <type>/<slug> where <type> is one of feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: dev, main, feat/user-login.`
-  );
-}
-function validateTypedRailsFields(t) {
-  const checkStringArray = (value, field) => {
-    if (value === void 0 || value === null) return [];
-    if (!Array.isArray(value)) {
-      throw new Error(
-        `typed_field_violation: task branch_id='${t.branch_id}' \u2014 '${field}' must be an array of strings, got ${typeof value}.`
-      );
-    }
-    if (value.length === 0) {
-      throw new Error(
-        `typed_field_violation: task branch_id='${t.branch_id}' \u2014 '${field}' must be a non-empty array when provided (omit the field entirely to disable the ${field === "files" ? "scope fence" : "verification gate"}).`
-      );
-    }
-    for (const el of value) {
-      if (typeof el !== "string" || el.trim().length === 0) {
-        throw new Error(
-          `typed_field_violation: task branch_id='${t.branch_id}' \u2014 every '${field}' entry must be a non-empty string.`
-        );
-      }
-    }
-    return value;
-  };
-  return {
-    files: checkStringArray(t.files, "files"),
-    verification: checkStringArray(t.verification, "verification")
-  };
-}
-var SWE_ALLOWED_TARGET_STATUSES = /* @__PURE__ */ new Set(["running", "completed", "failed"]);
-var SWE_LOCKED_SOURCE_STATES = /* @__PURE__ */ new Set(["closed", "escalated"]);
-function ensureBranchInRepo(branchId, repoPath, parentBranchId) {
-  const existsResult = spawnSync3("git", ["-C", repoPath, "rev-parse", "--verify", branchId], {
-    encoding: "utf8",
-    timeout: SUBPROCESS_TIMEOUT_MS
-  });
-  if (existsResult.status === 0) return null;
-  const stderr = existsResult.stderr ?? "";
-  if (stderr.includes("not a git repository") || stderr.includes("cannot change to")) {
-    serverLog({
-      level: "warn",
-      msg: `[task_create_batch] repo '${repoPath}' is not a resolvable git repository; skipping branch-existence check for '${branchId}'.`
-    });
-    return null;
-  }
-  let startPoint = "HEAD";
-  if (parentBranchId) {
-    const parentResult = spawnSync3(
-      "git",
-      ["-C", repoPath, "rev-parse", "--verify", parentBranchId],
-      { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
-    );
-    if (parentResult.status === 0) startPoint = parentBranchId;
-  }
-  const createResult = spawnSync3("git", ["-C", repoPath, "branch", branchId, startPoint], {
-    encoding: "utf8",
-    timeout: SUBPROCESS_TIMEOUT_MS
-  });
-  if (createResult.status !== 0) {
-    throw new Error(
-      `task_create_batch: failed to auto-create branch '${branchId}' from '${startPoint}' in repo '${repoPath}': ` + (createResult.stderr ?? "").trim()
-    );
-  }
-  return { branchId, startPoint, repoPath };
-}
-var VALID_STATUSES = /* @__PURE__ */ new Set([
-  "pending",
-  "running",
-  "needs_validation",
-  "completed",
-  "closed",
-  "failed",
-  "escalated"
-]);
-var BRO_TRANSITIONS = {
-  pending: /* @__PURE__ */ new Set(["running", "failed", "escalated"]),
-  running: /* @__PURE__ */ new Set(["pending", "needs_validation", "completed", "failed", "escalated"]),
-  needs_validation: /* @__PURE__ */ new Set(["running", "completed", "failed", "escalated"]),
-  completed: /* @__PURE__ */ new Set(["needs_validation", "failed", "escalated"]),
-  failed: /* @__PURE__ */ new Set(["pending", "running", "escalated", "closed"]),
-  escalated: /* @__PURE__ */ new Set(["pending", "running", "failed", "closed"]),
-  closed: /* @__PURE__ */ new Set(["escalated"])
-};
-function ok3(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err3(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function requireArg3(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
-  }
-  return args[name];
-}
-function wrapHandler3(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err3(e.message);
-    }
-  };
-}
-function taskTools(db2) {
-  const definitions = [
-    {
-      name: "task_create_batch",
-      description: "Insert multiple tasks for an issue in a single transaction. branch_id MUST be a git-convention name (feat/foo, fix/bar, refactor/baz, etc.); it doubles as the working git branch.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          issue_id: { type: "string" },
-          tasks: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                branch_id: { type: "string" },
-                parent_branch_id: { type: "string" },
-                title: { type: "string" },
-                description: { type: "string" },
-                spec_body: {
-                  type: "string",
-                  description: "Full markdown body SWE reads; required for any SWE-executed task, max 8000 chars (split via depends_on or cite existing code rather than exceeding it)."
-                },
-                repo: {
-                  type: "string",
-                  description: `Optional relative path to this task's git repo (no ".." or leading "/"); omit for single-repo CC. Routes worktree creation.`
-                },
-                prompt_bearing: {
-                  type: "number",
-                  description: "Set to 1 when this task intentionally edits prompt-surface files (agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md); the swe-boundary hook reads it. Default 0."
-                },
-                files: {
-                  type: "array",
-                  items: { type: "string" },
-                  description: "Authoritative allowlist of paths SWE may edit for this task, read by the swe-scope-fence hook; an empty/omitted array disables scope enforcement."
-                },
-                verification: {
-                  type: "array",
-                  items: { type: "string" },
-                  description: "Authoritative shell commands the swe-verification-gate hook runs in the worktree before SWE may complete the task; an empty/omitted array disables verification enforcement."
-                }
-              },
-              required: ["branch_id", "description"]
-            }
-          },
-          waive_scope_gate: {
-            type: "boolean",
-            description: "Bypass the scope-ambiguity gate (issue needs a kind='question' discussion). Only for trivial changes."
-          },
-          emit_planning_complete: {
-            type: "boolean",
-            description: "Set true to emit a planning_complete audit event in the same transaction as the task INSERTs."
-          },
-          planning_complete_summary: {
-            type: "string",
-            description: "Optional override for the planning_complete event's summary text. Defaults to: 'Planning complete for issue <id>: <N> task(s) created on <branch>.'"
-          },
-          waive_scope_gate_reason: {
-            type: "string",
-            description: "Required when the matching waive flag is true (min 10 chars): why the gate is unnecessary."
-          },
-          waive_branch_gate: {
-            type: "boolean",
-            description: "Bypass the branch-existence gate."
-          },
-          waive_branch_gate_reason: {
-            type: "string",
-            description: "Required when the matching waive flag is true (min 10 chars): why the gate is unnecessary."
-          },
-          waive_registry_gate: {
-            type: "boolean",
-            description: "Bypass the world-model-cold gate (needs a deep_scan_completed audit). Only when /scan can't run."
-          },
-          waive_registry_gate_reason: {
-            type: "string",
-            description: "Required when the matching waive flag is true (min 10 chars): why the gate is unnecessary."
-          },
-          waive_intent_gate: {
-            type: "boolean",
-            description: "Bypass the intent-discussion gate (issue needs a kind='intent' row). Only when intent is unambiguous."
-          },
-          waive_intent_gate_reason: {
-            type: "string",
-            description: "Required when the matching waive flag is true (min 10 chars): why the gate is unnecessary."
-          },
-          waive_decision_gate: {
-            type: "boolean",
-            description: "Bypass the decision-audit gate (issue needs a kind='decision' row). Only for trivial work."
-          },
-          waive_decision_gate_reason: {
-            type: "string",
-            description: "Required when the matching waive flag is true (min 10 chars): why the gate is unnecessary."
-          },
-          waive_spec_shape: {
-            type: "boolean",
-            description: "Bypass the spec-section shape gate (## Success Criteria, \u2264200 lines)."
-          },
-          waive_spec_shape_reason: {
-            type: "string",
-            description: "Required when the matching waive flag is true (min 10 chars): why the gate is unnecessary."
-          }
-        },
-        required: ["agent", "issue_id", "tasks"]
-      }
-    },
-    {
-      name: "task_get",
-      description: "Fetch a single task by ID.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          task_id: { type: "string" },
-          include_spec_body: {
-            type: "boolean",
-            description: "Include spec_body + description (default false)."
-          }
-        },
-        required: ["agent", "task_id"]
-      }
-    },
-    {
-      name: "task_update_status",
-      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          task_id: { type: "string" },
-          status: {
-            type: "string",
-            enum: ["pending", "running", "needs_validation", "completed", "closed", "failed", "escalated"]
-          },
-          attempts: { type: "number" },
-          commit_sha: {
-            type: "string",
-            description: "Optional git commit SHA (full 40-char or short 7+ char hex). Persisted atomically with the status update."
-          }
-        },
-        required: ["agent", "task_id", "status"]
-      }
-    },
-    {
-      name: "task_first_actionable",
-      description: "Returns the lex-lowest pending/failed task for an issue (groups by type prefix: chore<ci<docs<feat<...). branch_id ordering is lexicographic over git-convention names.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          issue_id: { type: "string" }
-        },
-        required: ["agent", "issue_id"]
-      }
-    }
-  ];
-  const handlers = {
-    task_create_batch: requireRoles("task_create_batch", ["bro"], wrapHandler3(async (args) => {
-      requireArg3(args, "agent");
-      const issueId = requireArg3(args, "issue_id");
-      requireArg3(args, "tasks");
-      const taskInputs = args["tasks"];
-      if (!Array.isArray(taskInputs) || taskInputs.length === 0) {
-        return ok3([]);
-      }
-      const waived = args["waive_scope_gate"] === true;
-      const waiverReason = args["waive_scope_gate_reason"] ?? "";
-      const specShapeWaived = args["waive_spec_shape"] === true;
-      const specShapeWaiverReason = args["waive_spec_shape_reason"] ?? "";
-      if (specShapeWaived) {
-        if (typeof specShapeWaiverReason !== "string" || specShapeWaiverReason.trim().length < 10) {
-          return err3("waive_spec_shape_reason must be a string \u226510 chars.");
-        }
-      } else {
-        const REQUIRED_H2 = ["## Success Criteria"];
-        for (const t of args["tasks"]) {
-          if (!t.spec_body) continue;
-          const missing = REQUIRED_H2.filter(
-            (h) => !t.spec_body.split("\n").some((l) => l.trimEnd().toLowerCase() === h.toLowerCase())
-          );
-          const lineCount = t.spec_body.split("\n").length;
-          if (missing.length > 0 || lineCount > 200) {
-            const parts = [];
-            if (missing.length > 0) parts.push(`missing sections: ${missing.join(", ")}`);
-            if (lineCount > 200) parts.push(`spec_body is ${lineCount} lines (max 200)`);
-            return {
-              isError: true,
-              content: [{
-                type: "text",
-                text: JSON.stringify({
-                  error: "spec_shape_violation",
-                  message: `Spec shape gate: task branch_id='${t.branch_id}' \u2014 ${parts.join("; ")}. Each spec_body must contain a ## Success Criteria (H2 heading) and be \u2264200 lines. Add the missing section or pass waive_spec_shape=true with waive_spec_shape_reason="<why>" (\u226510 chars) for tasks without full specs.`,
-                  branch_id: t.branch_id,
-                  missing_sections: missing,
-                  line_count: lineCount
-                })
-              }]
-            };
-          }
-        }
-      }
-      if (waived) {
-        if (typeof waiverReason !== "string" || waiverReason.trim().length < 10) {
-          return {
-            isError: true,
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  error: "waive_scope_gate_reason must be a string \u226510 chars. Explain why this task has no Human-reviewed scope."
-                })
-              }
-            ]
-          };
-        }
-      } else {
-        const row = db2.get(
-          `SELECT COUNT(*) as c FROM discussions WHERE issue_id = ? AND kind = 'question'`,
-          [issueId]
-        );
-        const questionCount = row?.c ?? 0;
-        if (questionCount === 0) {
-          return {
-            isError: true,
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  error: "scope_gate_violation",
-                  message: `Scope-ambiguity gate: issue ${issueId} has zero kind='question' discussions. Before creating tasks, architect must ask the Human at least one clarifying question via discussion_append(kind='question') and record their answer via discussion_append(kind='answer'). For truly trivial changes (typo fix, one-line doc), pass waive_scope_gate=true with waive_scope_gate_reason="<why trivial>".`,
-                  issue_id: issueId,
-                  questions_found: 0
-                })
-              }
-            ]
-          };
-        }
-      }
-      const branchGateWaived = args["waive_branch_gate"] === true;
-      const branchGateWaiverReason = args["waive_branch_gate_reason"] ?? "";
-      if (branchGateWaived) {
-        if (typeof branchGateWaiverReason !== "string" || branchGateWaiverReason.trim().length < 10) {
-          return err3("waive_branch_gate_reason must be a string \u226510 chars.");
-        }
-      } else {
-        const proposed = db2.get(
-          `SELECT COUNT(*) as c FROM audit WHERE issue_id = ? AND event_type = 'branch_id_proposed'`,
-          [issueId]
-        );
-        if ((proposed?.c ?? 0) === 0) {
-          return {
-            isError: true,
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  error: "branch_state_violation",
-                  message: `branch_state_violation: issue ${issueId} has zero audit events with event_type='branch_id_proposed'. Run tmb_planning \xA7Step 2 first (it calls branch_id_propose, confirms with Human, runs git switch -c, and emits the audit event). For exceptional cases, pass waive_branch_gate=true with waive_branch_gate_reason="<why>".`,
-                  issue_id: issueId
-                })
-              }
-            ]
-          };
-        }
-      }
-      const registryGateWaived = args["waive_registry_gate"] === true;
-      const registryGateWaiverReason = args["waive_registry_gate_reason"] ?? "";
-      if (registryGateWaived) {
-        if (typeof registryGateWaiverReason !== "string" || registryGateWaiverReason.trim().length < 10) {
-          return err3("waive_registry_gate_reason must be a string \u226510 chars.");
-        }
-      } else {
-        const scanRow = db2.get(
-          `SELECT COUNT(*) as c FROM audit WHERE event_type = 'deep_scan_completed'`
-        );
-        if ((scanRow?.c ?? 0) === 0) {
-          return {
-            isError: true,
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  error: "registry_cold_violation",
-                  message: `World-model-cold gate: no deep_scan_completed audit row exists. Run /scan (or call scan_run directly) to discover repos and populate the world model. For exceptional cases, pass waive_registry_gate=true with waive_registry_gate_reason="<why>".`
-                })
-              }
-            ]
-          };
-        }
-      }
-      const intentGateWaived = args["waive_intent_gate"] === true;
-      const intentGateWaiverReason = args["waive_intent_gate_reason"] ?? "";
-      if (intentGateWaived) {
-        if (typeof intentGateWaiverReason !== "string" || intentGateWaiverReason.trim().length < 10) {
-          return err3("waive_intent_gate_reason must be a string \u226510 chars.");
-        }
-      } else {
-        const intentRow = db2.get(
-          `SELECT COUNT(*) as c FROM discussions WHERE issue_id = ? AND kind = 'intent'`,
-          [issueId]
-        );
-        if ((intentRow?.c ?? 0) === 0) {
-          return {
-            isError: true,
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  error: "intent_gate_violation",
-                  message: `Intent gate: issue ${issueId} has zero kind='intent' discussions. tmb_planning Step 0 mandates discussion_append(kind='intent', body='Human intent verbatim: "<the request>"') before task_create_batch. For exceptional cases, pass waive_intent_gate=true with waive_intent_gate_reason="<why>".`,
-                  issue_id: issueId
-                })
-              }
-            ]
-          };
-        }
-      }
-      const decisionGateWaived = args["waive_decision_gate"] === true;
-      const decisionGateWaiverReason = args["waive_decision_gate_reason"] ?? "";
-      if (decisionGateWaived) {
-        if (typeof decisionGateWaiverReason !== "string" || decisionGateWaiverReason.trim().length < 10) {
-          return err3("waive_decision_gate_reason must be a string \u226510 chars.");
-        }
-      } else {
-        const decisionRow = db2.get(
-          `SELECT COUNT(*) as c FROM discussions WHERE issue_id = ? AND kind = 'decision'`,
-          [issueId]
-        );
-        if ((decisionRow?.c ?? 0) === 0) {
-          return {
-            isError: true,
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  error: "decision_gate_violation",
-                  message: `Decision gate: issue ${issueId} has zero kind='decision' discussions. tmb_planning mandates discussion_append(kind='decision', body='<chosen approach: what, why, trade-offs>') before task_create_batch. For architectural changes, record the decision + rationale as a kind=decision discussion (discussion_append). For trivial waives, pass waive_decision_gate=true with waive_decision_gate_reason="<why>".`,
-                  issue_id: issueId
-                })
-              }
-            ]
-          };
-        }
-      }
-      const soleRepoValue = resolveSoleRepo(db2)?.name ?? null;
-      const repoCount = db2.get("SELECT COUNT(*) AS c FROM repos")?.c ?? 0;
-      const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname3(db2.dbPath);
-      const autocreatedAudits = [];
-      for (const t of taskInputs) {
-        if (!t.branch_id) throw new Error("Missing required arg: branch_id");
-        validateBranchId(t.branch_id);
-        validateTypedRailsFields(t);
-        if (t.parent_branch_id != null) validateParentBranchId(t.parent_branch_id);
-        if (!t.description) throw new Error("Missing required arg: description");
-        if (t.spec_body !== void 0) {
-          if (typeof t.spec_body !== "string") {
-            throw new Error(`spec_body must be a string, got ${typeof t.spec_body}`);
-          }
-          if (t.spec_body.length > SPEC_BODY_MAX_BYTES) {
-            throw new Error(
-              `spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${t.spec_body.length}). Split into multiple tasks via depends_on, or cite existing code/conventions rather than restating them inline. Very long specs push SWE cold-start into the minutes range; see issue #55. Override the limit via TMB_SPEC_BODY_MAX_BYTES.`
-            );
-          }
-        }
-        let effectiveRepoName = null;
-        if (t.repo !== void 0 && t.repo !== null && t.repo !== "") {
-          const repo = t.repo;
-          if (repo.includes("..")) {
-            throw new Error(
-              `Invalid repo "${repo}": must not contain "..". Use a relative path like "inner" or "repos/backend".`
-            );
-          }
-          if (repo.startsWith("/")) {
-            throw new Error(
-              `Invalid repo "${repo}": must not start with "/". Use a relative path like "inner" or "repos/backend".`
-            );
-          }
-          effectiveRepoName = repo;
-        } else {
-          if (repoCount > 1) {
-            throw new Error(
-              `task_create_batch: task branch_id='${t.branch_id}' omits repo but ${repoCount} repos are registered. Pass task.repo=<name> \u2014 multi-repo workspaces scope every task by repo (mirrors task_provision).`
-            );
-          }
-          effectiveRepoName = soleRepoValue;
-        }
-        if (effectiveRepoName) {
-          const reposRow = db2.get(
-            `SELECT path FROM repos WHERE name = ?`,
-            [effectiveRepoName]
-          );
-          if (!reposRow) {
-            throw new Error(
-              `task_create_batch: task branch_id='${t.branch_id}' names repo='${effectiveRepoName}' which is not registered (no repos row). Run /scan or pass a registered repo \u2014 tasks.repo is a foreign key to repos(name).`
-            );
-          }
-          const rawPath = reposRow.path;
-          const repoPath = rawPath.startsWith("/") ? rawPath : resolve(dbDir, rawPath);
-          const parentBranchId = t.parent_branch_id ?? null;
-          const audit = ensureBranchInRepo(t.branch_id, repoPath, parentBranchId);
-          if (audit) autocreatedAudits.push(audit);
-        }
-      }
-      const inserted = db2.transaction(() => {
-        const results = [];
-        const now = nowISO();
-        for (const t of taskInputs) {
-          if (!t.branch_id) throw new Error("Missing required arg: branch_id");
-          if (t.parent_branch_id != null) validateParentBranchId(t.parent_branch_id);
-          if (!t.description) throw new Error("Missing required arg: description");
-          if (t.spec_body !== void 0) {
-            if (typeof t.spec_body !== "string") {
-              throw new Error(`spec_body must be a string, got ${typeof t.spec_body}`);
-            }
-            if (t.spec_body.length > SPEC_BODY_MAX_BYTES) {
-              throw new Error(
-                `spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${t.spec_body.length}). Split into multiple tasks via depends_on, or cite existing code/conventions rather than restating them inline. Very long specs push SWE cold-start into the minutes range; see issue #55. Override the limit via TMB_SPEC_BODY_MAX_BYTES.`
-              );
-            }
-          }
-          let repoValue = null;
-          if (t.repo !== void 0 && t.repo !== null && t.repo !== "") {
-            repoValue = t.repo;
-          } else {
-            repoValue = soleRepoValue;
-          }
-          let parentBranchId = t.parent_branch_id ?? null;
-          if (parentBranchId == null) {
-            const taskRepoName = t.repo ?? soleRepoValue;
-            if (taskRepoName) {
-              const repoTargetRow = db2.get(
-                `SELECT target_branch FROM repos WHERE name = ?`,
-                [taskRepoName]
-              );
-              if (repoTargetRow?.target_branch) {
-                parentBranchId = repoTargetRow.target_branch;
-              }
-            }
-          }
-          if (parentBranchId == null) parentBranchId = "main";
-          const promptBearing = typeof t.prompt_bearing === "number" && t.prompt_bearing === 1 ? 1 : 0;
-          const { files: typedFiles, verification: typedVerification } = validateTypedRailsFields(t);
-          db2.run(
-            `INSERT INTO tasks
-               (issue_id, branch_id, parent_branch_id, title, description,
-                status, attempts, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              issueId,
-              t.branch_id,
-              parentBranchId,
-              t.title ?? "",
-              t.description,
-              t.spec_body ?? "",
-              repoValue,
-              promptBearing,
-              JSON.stringify(typedFiles),
-              JSON.stringify(typedVerification),
-              now,
-              now
-            ]
-          );
-          const row = db2.get(
-            "SELECT * FROM tasks WHERE rowid = last_insert_rowid()"
-          );
-          if (row) {
-            results.push(row);
-            db2.run(
-              `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
-               VALUES (?, ?, 'bro', ?)`,
-              [row.id, issueId, now]
-            );
-          }
-        }
-        for (const ac of autocreatedAudits) {
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'trajectory-server', 'tmb_branch_autocreated', ?, ?, ?)`,
-            [
-              issueId,
-              ac.branchId,
-              `Auto-created branch '${ac.branchId}' from '${ac.startPoint}' in repo '${ac.repoPath}'.`,
-              JSON.stringify({ branch: ac.branchId, start_point: ac.startPoint, repo_path: ac.repoPath }),
-              now
-            ]
-          );
-        }
-        const emitPlanningComplete = args["emit_planning_complete"] === true;
-        if (emitPlanningComplete && results.length > 0) {
-          const firstTask = results[0];
-          const branchForAudit = firstTask.branch_id;
-          const summary = args["planning_complete_summary"] ?? `Planning complete for issue ${issueId}: ${results.length} task(s) created on ${branchForAudit}.`;
-          const contentJson = JSON.stringify({
-            issue_id: issueId,
-            task_count: results.length,
-            task_branch_ids: results.map((r) => r.branch_id),
-            parent_branch_ids: results.map((r) => r.parent_branch_id)
-          });
-          const fromNode = args["agent"] ?? "bro";
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'planning_complete', ?, ?, ?)`,
-            [issueId, branchForAudit, fromNode, summary, contentJson, now]
-          );
-        }
-        const firstBranch = results[0]?.branch_id ?? "";
-        const agentFromNode = args["agent"];
-        if (waived) {
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'scope_gate_waived', ?, ?, ?)`,
-            [
-              issueId,
-              firstBranch,
-              agentFromNode,
-              waiverReason.slice(0, 200),
-              JSON.stringify({
-                waive_scope_gate_reason: waiverReason,
-                tasks_created: results.length
-              }),
-              now
-            ]
-          );
-        }
-        if (branchGateWaived) {
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'branch_gate_waived', ?, ?, ?)`,
-            [
-              issueId,
-              firstBranch,
-              agentFromNode,
-              branchGateWaiverReason.slice(0, 200),
-              JSON.stringify({ waive_branch_gate_reason: branchGateWaiverReason, tasks_created: results.length }),
-              now
-            ]
-          );
-        }
-        if (registryGateWaived) {
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'registry_gate_waived', ?, ?, ?)`,
-            [
-              issueId,
-              firstBranch,
-              agentFromNode,
-              registryGateWaiverReason.slice(0, 200),
-              JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: results.length }),
-              now
-            ]
-          );
-        }
-        if (intentGateWaived) {
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'intent_gate_waived', ?, ?, ?)`,
-            [
-              issueId,
-              firstBranch,
-              agentFromNode,
-              intentGateWaiverReason.slice(0, 200),
-              JSON.stringify({ waive_intent_gate_reason: intentGateWaiverReason, tasks_created: results.length }),
-              now
-            ]
-          );
-        }
-        if (decisionGateWaived) {
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'decision_gate_waived', ?, ?, ?)`,
-            [
-              issueId,
-              firstBranch,
-              agentFromNode,
-              decisionGateWaiverReason.slice(0, 200),
-              JSON.stringify({ waive_decision_gate_reason: decisionGateWaiverReason, tasks_created: results.length }),
-              now
-            ]
-          );
-        }
-        if (specShapeWaived) {
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'spec_shape_gate_waived', ?, ?, ?)`,
-            [
-              issueId,
-              firstBranch,
-              agentFromNode,
-              specShapeWaiverReason.slice(0, 200),
-              JSON.stringify({ waive_spec_shape_reason: specShapeWaiverReason, tasks_created: results.length }),
-              now
-            ]
-          );
-        }
-        return results;
-      });
-      const parallelGroups = [];
-      const overlappingPairs = [];
-      if (inserted.length > 1) {
-        const taskFilePaths = inserted.map((t) => ({
-          id: t.id,
-          paths: taskFileDirs(t.files)
-        }));
-        const adjMatrix = /* @__PURE__ */ new Map();
-        for (const t of taskFilePaths) adjMatrix.set(t.id, /* @__PURE__ */ new Set());
-        for (let i = 0; i < taskFilePaths.length; i++) {
-          for (let j = i + 1; j < taskFilePaths.length; j++) {
-            const a = taskFilePaths[i];
-            const b = taskFilePaths[j];
-            const shared = [...a.paths].filter((p) => b.paths.has(p));
-            if (shared.length > 0) {
-              overlappingPairs.push({ a: a.id, b: b.id, shared_paths: shared });
-              adjMatrix.get(a.id).add(b.id);
-              adjMatrix.get(b.id).add(a.id);
-            }
-          }
-        }
-        const visited = /* @__PURE__ */ new Set();
-        for (const t of taskFilePaths) {
-          if (visited.has(t.id)) continue;
-          if ((adjMatrix.get(t.id)?.size ?? 0) === 0) {
-            parallelGroups.push([t.id]);
-            visited.add(t.id);
-          } else {
-            const group = [t.id];
-            visited.add(t.id);
-            for (const neighbor of adjMatrix.get(t.id)) {
-              if (!visited.has(neighbor)) {
-                group.push(neighbor);
-                visited.add(neighbor);
-              }
-            }
-            parallelGroups.push(group);
-          }
-        }
-      }
-      return ok3({
-        tasks: inserted.map((t) => ({
-          id: t.id,
-          issue_id: t.issue_id,
-          branch_id: t.branch_id,
-          parent_branch_id: t.parent_branch_id,
-          title: t.title,
-          status: t.status,
-          repo: t.repo,
-          prompt_bearing: t.prompt_bearing
-        })),
-        parallel_groups: parallelGroups,
-        overlapping_pairs: overlappingPairs
-      });
-    })),
-    task_get: wrapHandler3(async (args) => {
-      requireArg3(args, "agent");
-      const taskId = requireArg3(args, "task_id");
-      const task = db2.get("SELECT * FROM tasks WHERE id = ?", [taskId]);
-      if (!task) {
-        throw new Error(`Not found: ${taskId}`);
-      }
-      const includeSpec = args["include_spec_body"] === true;
-      if (includeSpec) {
-        return ok3(task);
-      }
-      const { spec_body: _spec, description: _desc, ...thin } = task;
-      return ok3(thin);
-    }),
-    task_update_status: requireRoles("task_update_status", ["bro", "swe"], wrapHandler3(async (args) => {
-      requireArg3(args, "agent");
-      const agent = normalizeAgent(args["agent"]);
-      const taskId = requireArg3(args, "task_id");
-      const status = requireArg3(args, "status");
-      const rawCommitSha = args["commit_sha"] !== void 0 ? args["commit_sha"].toLowerCase() : void 0;
-      if (!VALID_STATUSES.has(status)) {
-        throw new Error(
-          `Invalid status: ${status}. Valid values: ${[...VALID_STATUSES].join(", ")}`
-        );
-      }
-      if (rawCommitSha !== void 0) {
-        if (rawCommitSha.length < 7 || !/^[0-9a-f]+$/.test(rawCommitSha)) {
-          throw new Error(
-            `Invalid commit_sha: "${rawCommitSha}". Must be a hex string of at least 7 characters (short SHA) or 40 characters (full SHA).`
-          );
-        }
-      }
-      const task = db2.get("SELECT * FROM tasks WHERE id = ?", [taskId]);
-      if (!task) {
-        throw new Error(`Not found: ${taskId}`);
-      }
-      if (agent === "swe") {
-        if (SWE_LOCKED_SOURCE_STATES.has(task.status)) {
-          throw new Error(
-            `task_update_status rejected: SWE may not move task ${taskId} out of '${task.status}'. '${task.status}' is terminal for SWE. See #114.`
-          );
-        }
-        if (!SWE_ALLOWED_TARGET_STATUSES.has(status)) {
-          throw new Error(
-            `task_update_status rejected: SWE may only set status to 'running', 'completed', or 'failed' (got '${status}'). Pre-execution states (pending, escalated) are bro-managed; 'closed' is bro's atomic-close transition; 'needs_validation' is not a valid SWE terminal state \u2014 use 'failed' instead if the work blocked. See #114.`
-          );
-        }
-      }
-      if (agent === "bro" && status !== task.status) {
-        const allowed = BRO_TRANSITIONS[task.status] ?? /* @__PURE__ */ new Set();
-        if (!allowed.has(status)) {
-          const valid = [...allowed].join(", ") || "(none \u2014 terminal)";
-          throw new Error(
-            `task_update_status rejected: bro may not move task ${taskId} from '${task.status}' to '${status}'. Allowed from '${task.status}': ${valid}. Close verified work via bro_atomic_close; reopen a closed task by escalating. See #278.`
-          );
-        }
-      }
-      const now = nowISO();
-      const attempts = args["attempts"] !== void 0 ? args["attempts"] : task.attempts;
-      const completedAt = status === "completed" ? now : status === "closed" ? task.completed_at : null;
-      if (rawCommitSha !== void 0) {
-        db2.run(
-          `UPDATE tasks SET status = ?, attempts = ?, updated_at = ?, completed_at = ?, commit_sha = ? WHERE id = ?`,
-          [status, attempts, now, completedAt, rawCommitSha, taskId]
-        );
-      } else {
-        db2.run(
-          `UPDATE tasks SET status = ?, attempts = ?, updated_at = ?, completed_at = ? WHERE id = ?`,
-          [status, attempts, now, completedAt, taskId]
-        );
-      }
-      const updated = db2.get("SELECT * FROM tasks WHERE id = ?", [taskId]);
-      return ok3(updated);
-    })),
-    task_first_actionable: wrapHandler3(async (args) => {
-      requireArg3(args, "agent");
-      const issueId = requireArg3(args, "issue_id");
-      const task = db2.get(
-        `SELECT * FROM tasks
-         WHERE issue_id = ? AND status IN ('pending', 'failed')
-         ORDER BY branch_id ASC
-         LIMIT 1`,
-        [issueId]
-      );
-      return ok3(task ?? null);
-    })
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/audit.ts
-var MAX_CONTENT_BYTES = 1e6;
-function ok4(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err4(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function requireArg4(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
-  }
-  return args[name];
-}
-function wrapHandler4(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err4(e.message);
-    }
-  };
-}
-function decodeCursor(cursor) {
-  try {
-    return JSON.parse(Buffer.from(cursor, "base64").toString("utf8"));
-  } catch {
-    return null;
-  }
-}
-function encodeCursor(row) {
-  return Buffer.from(JSON.stringify({ created_at: row.created_at, id: row.id })).toString("base64");
-}
-function auditTools(db2) {
-  const definitions = [
-    {
-      name: "audit_search",
-      description: "Search audit records via keyword (FTS5), semantic (cosine), or hybrid (RRF) ranking. Default mode is hybrid. Returns top-K snippets.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          query: {
-            type: "string",
-            description: "Search query. For keyword/hybrid: FTS5 MATCH syntax. For semantic: natural language."
-          },
-          mode: {
-            type: "string",
-            enum: ["keyword", "semantic", "hybrid"],
-            description: "Search mode. Default: hybrid."
-          },
-          issue_id: { type: "string", description: "Optional \u2014 restrict to one issue." },
-          event_types: {
-            type: "array",
-            items: { type: "string" },
-            description: "Optional \u2014 restrict to specific event types."
-          },
-          k: { type: "number", description: "Top-K rows to return. Default 5. Max 20." },
-          recency_alpha: {
-            type: "number",
-            description: "Recency weight 0\u20131 (hybrid/keyword only). Default 0.3."
-          }
-        },
-        required: ["agent", "query"]
-      }
-    },
-    {
-      name: "audit_append",
-      description: "Insert an audit lifecycle event (planning_complete, bro_verification_pass, branch_id_proposed, etc.). Both event_type and summary are required.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          issue_id: { type: "string" },
-          branch_id: { type: "string" },
-          from_node: { type: "string" },
-          event_type: { type: "string", description: "Required. Lifecycle event identifier (e.g. planning_complete)." },
-          summary: { type: "string", description: "Required. One-line human-readable summary." },
-          content_json: { type: "string", description: "Optional. JSON string with structured event payload, max 1 MB." }
-        },
-        required: ["agent", "issue_id", "from_node", "event_type", "summary"]
-      }
-    },
-    {
-      name: "audit_list",
-      description: "Paginated fetch of audit records for an issue. Without limit, returns up to 500 rows as a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=['id','event_type','summary'] to return only requested columns (unknown fields return a named error).",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          issue_id: { type: "string" },
-          branch_id: { type: "string" },
-          limit: { type: "number", description: "Max rows to return. Capped at 500. When omitted, returns up to 500 rows (legacy bare-array shape); when provided, response includes next_cursor." },
-          offset: { type: "number", description: "Row offset for pagination (default 0)" },
-          cursor: { type: "string", description: "Opaque cursor from a previous response. When provided, overrides offset." },
-          fields: {
-            type: "array",
-            items: { type: "string" },
-            description: "Optional column projection. Allowed: id, issue_id, branch_id, from_node, event_type, summary, content_json, created_at. Unknown fields return an error. Default: all columns."
-          }
-        },
-        required: ["agent", "issue_id"]
-      }
-    }
-  ];
-  const handlers = {
-    audit_search: wrapHandler4(async (args) => {
-      requireArg4(args, "agent");
-      const query = requireArg4(args, "query");
-      const mode = args["mode"] ?? "hybrid";
-      const issueId = args["issue_id"] ?? null;
-      const eventTypes = args["event_types"] ?? null;
-      const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
-      const alpha = Math.min(1, Math.max(0, args["recency_alpha"] ?? 0.3));
-      let eventTypeFilter = "";
-      let eventTypeParams = [];
-      if (eventTypes && eventTypes.length > 0) {
-        const placeholders = eventTypes.map(() => "?").join(", ");
-        eventTypeFilter = " AND a.event_type IN (" + placeholders + ")";
-        eventTypeParams = eventTypes;
-      }
-      const fetchFtsRows = (limitK) => {
-        const sql = "SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, snippet(audit_fts, 0, '[', ']', '...', 16) AS snippet, bm25(audit_fts) AS bm25_score, (julianday('now') - julianday(a.created_at)) AS age_days FROM audit_fts JOIN audit a ON a.id = audit_fts.rowid WHERE audit_fts MATCH ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter + " ORDER BY bm25(audit_fts) ASC LIMIT ?";
-        return db2.all(sql, [query, issueId, issueId, ...eventTypeParams, limitK]);
-      };
-      const fetchRowById = (id) => {
-        const sql = "SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, '' AS snippet, 0.0 AS bm25_score, (julianday('now') - julianday(a.created_at)) AS age_days FROM audit a WHERE a.id = ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter;
-        return db2.get(sql, [id, issueId, issueId, ...eventTypeParams]);
-      };
-      if (mode === "keyword") {
-        const countSql = "SELECT COUNT(*) AS n FROM audit_fts JOIN audit a ON a.id = audit_fts.rowid WHERE audit_fts MATCH ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter;
-        const countRow = db2.get(countSql, [query, issueId, issueId, ...eventTypeParams]);
-        const total_matched = countRow?.n ?? 0;
-        const searchSql = "SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, snippet(audit_fts, 0, '[', ']', '...', 16) AS snippet, bm25(audit_fts) AS bm25_score, (julianday('now') - julianday(a.created_at)) AS age_days FROM audit_fts JOIN audit a ON a.id = audit_fts.rowid WHERE audit_fts MATCH ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter + " ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC LIMIT ?";
-        const rows = db2.all(searchSql, [query, issueId, issueId, ...eventTypeParams, alpha, alpha, k]);
-        return ok4({
-          results: rows.map((r) => ({
-            id: r.id,
-            issue_id: r.issue_id,
-            branch_id: r.branch_id,
-            from_node: r.from_node,
-            event_type: r.event_type,
-            summary: r.summary,
-            created_at: r.created_at,
-            snippet: r.snippet,
-            score: -r.bm25_score * (1 - alpha) + Math.exp(-r.age_days / 30) * alpha
-          })),
-          total_matched
-        });
-      }
-      if (mode === "semantic") {
-        const cosineResults2 = await topKByCosine(db2, "audit", query, k);
-        if (cosineResults2.length === 0) {
-          return ok4({ results: [], total_matched: 0, warning: "semantic_unavailable" });
-        }
-        const results2 = [];
-        for (const cr of cosineResults2) {
-          const row = fetchRowById(cr.rowid);
-          if (row) {
-            results2.push({
-              id: row.id,
-              issue_id: row.issue_id,
-              branch_id: row.branch_id,
-              from_node: row.from_node,
-              event_type: row.event_type,
-              summary: row.summary,
-              created_at: row.created_at,
-              snippet: row.snippet,
-              score: cr.score
-            });
-          }
-        }
-        return ok4({ results: results2, total_matched: results2.length });
-      }
-      const RRF_K = 60;
-      const ftsRows = fetchFtsRows(k * 4);
-      const cosineResults = await topKByCosine(db2, "audit", query, k * 4);
-      const semanticAvailable = cosineResults.length > 0;
-      const scoreMap = /* @__PURE__ */ new Map();
-      ftsRows.forEach((r, rank) => {
-        const rrf = 1 / (RRF_K + rank + 1);
-        const existing = scoreMap.get(r.id);
-        if (existing) {
-          existing.rrf += rrf;
-        } else {
-          scoreMap.set(r.id, { rrf, row: r });
-        }
-      });
-      cosineResults.forEach((cr, rank) => {
-        const rrf = 1 / (RRF_K + rank + 1);
-        const existing = scoreMap.get(cr.rowid);
-        if (existing) {
-          existing.rrf += rrf;
-        } else {
-          const row = fetchRowById(cr.rowid);
-          if (row) scoreMap.set(cr.rowid, { rrf, row });
-        }
-      });
-      const combined = Array.from(scoreMap.values()).map(({ rrf, row }) => ({
-        row,
-        score: rrf * (Math.exp(-row.age_days / 30) * alpha + (1 - alpha))
-      }));
-      combined.sort((a, b) => b.score - a.score);
-      const topRows = combined.slice(0, k);
-      const results = topRows.map(({ row, score }) => ({
-        id: row.id,
-        issue_id: row.issue_id,
-        branch_id: row.branch_id,
-        from_node: row.from_node,
-        event_type: row.event_type,
-        summary: row.summary,
-        created_at: row.created_at,
-        snippet: row.snippet,
-        score
-      }));
-      const response = { results, total_matched: results.length };
-      if (!semanticAvailable) response["warning"] = "semantic_unavailable";
-      return ok4(response);
-    }),
-    audit_append: requireRoles("audit_append", ["bro", "swe", "pr-reviewer", "consultant"], wrapHandler4(async (args) => {
-      requireArg4(args, "agent");
-      const issueId = requireArg4(args, "issue_id");
-      requireArg4(args, "from_node");
-      const fromNode = args["from_node"];
-      const branchId = args["branch_id"] ?? null;
-      const now = nowISO();
-      requireArg4(args, "event_type");
-      requireArg4(args, "summary");
-      const eventType = args["event_type"];
-      const summary = args["summary"];
-      const contentJson = args["content_json"] ?? "{}";
-      const byteLength = Buffer.byteLength(contentJson, "utf8");
-      if (byteLength > MAX_CONTENT_BYTES) {
-        return err4(`content_json exceeds 1MB limit (${byteLength} bytes); truncate before calling audit_append`);
-      }
-      db2.run(
-        `INSERT INTO audit
-           (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [issueId, branchId, fromNode, eventType, summary, contentJson, now]
-      );
-      const row = db2.get(
-        "SELECT * FROM audit WHERE rowid = last_insert_rowid()"
-      );
-      if (row) {
-        const embedText = contentJson !== "{}" ? `${summary} ${contentJson}` : summary;
-        await embedAndStore(db2, "audit", row.id, embedText).catch(
-          (e) => console.error("[embeddings] audit_append embed failed:", e)
-        );
-      }
-      return ok4(row);
-    })),
-    audit_list: wrapHandler4(async (args) => {
-      requireArg4(args, "agent");
-      const issueId = requireArg4(args, "issue_id");
-      const branchId = args["branch_id"] ?? null;
-      const limitArg = args["limit"];
-      const cursorArg = args["cursor"];
-      const offset = Math.max(0, args["offset"] ?? 0);
-      const fieldsArg = args["fields"];
-      const ALLOWED_AUDIT_FIELDS = /* @__PURE__ */ new Set(["id", "issue_id", "branch_id", "from_node", "event_type", "summary", "content_json", "created_at"]);
-      if (fieldsArg !== void 0) {
-        const unknown2 = fieldsArg.filter((f) => !ALLOWED_AUDIT_FIELDS.has(f));
-        if (unknown2.length > 0) {
-          return err4(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_AUDIT_FIELDS].join(", ")}`);
-        }
-      }
-      function projectRow(row) {
-        if (!fieldsArg) return row;
-        const out = {};
-        for (const f of fieldsArg) out[f] = row[f];
-        return out;
-      }
-      const conditions = ["issue_id = ?"];
-      const baseParams = [issueId];
-      if (branchId !== null) {
-        conditions.push("branch_id = ?");
-        baseParams.push(branchId);
-      }
-      const whereClause = "WHERE " + conditions.join(" AND ");
-      if (limitArg === void 0 || limitArg === null) {
-        const rows2 = db2.all(
-          "SELECT * FROM audit " + whereClause + " ORDER BY id ASC LIMIT 500 OFFSET ?",
-          [...baseParams, offset]
-        );
-        return ok4(rows2.map(projectRow));
-      }
-      const limit = Math.min(Math.max(1, limitArg), 500);
-      let cursorFilter = "";
-      let cursorParams = [];
-      if (cursorArg) {
-        const decoded = decodeCursor(cursorArg);
-        if (decoded) {
-          cursorFilter = "AND (created_at > ? OR (created_at = ? AND id > ?))";
-          cursorParams = [decoded.created_at, decoded.created_at, decoded.id];
-        }
-      }
-      const sql = "SELECT * FROM audit " + whereClause + " " + cursorFilter + " ORDER BY created_at ASC, id ASC LIMIT ?";
-      const fetchedRows = db2.all(sql, [
-        ...baseParams,
-        ...cursorParams,
-        limit + 1
-      ]);
-      const hasMore = fetchedRows.length > limit;
-      const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
-      const last = rows[rows.length - 1];
-      const next_cursor = hasMore && last ? encodeCursor(last) : void 0;
-      return ok4({ rows: rows.map(projectRow), next_cursor });
-    })
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/validation.ts
-var VALID_VERDICTS = /* @__PURE__ */ new Set(["pass", "fail", "escalate"]);
-function ok5(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err5(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function requireArg5(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
-  }
-  return args[name];
-}
-function wrapHandler5(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err5(e.message);
-    }
-  };
-}
-function coerceTaskId(raw) {
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n <= 0) {
-    throw new Error(
-      `task_id must be a positive integer; got: ${JSON.stringify(raw)}`
-    );
-  }
-  return n;
-}
-function validationTools(db2) {
-  const definitions = [
-    {
-      name: "validation_record",
-      description: "Record a validation attempt for a task.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          task_id: { type: "string" },
-          attempt_n: { type: "number" },
-          verdict: { type: "string", enum: ["pass", "fail", "escalate"] },
-          feedback: { type: "string" },
-          mcp_available: { type: "boolean", description: 'Required when agent="pr-reviewer": true if the review ran with the trajectory MCP up, false for the honor-system fallback. The typed push-gate signal bro reads from the validation row.' },
-          subagent_session_id: { type: "string", description: `Required when agent="pr-reviewer": the spawned pr-reviewer subagent's session ID.` }
-        },
-        required: ["agent", "task_id", "attempt_n", "verdict", "feedback"]
-      }
-    },
-    {
-      name: "validation_history",
-      description: "Return all validation attempts for a task ordered by attempt_n ascending. Without limit, returns a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=['attempt_n','verdict'] to return only those columns (unknown fields return a named error).",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          task_id: { type: "string" },
-          own_task_id: { type: "string", description: "The calling agent's own task ID (used to gate feedback access for swe)" },
-          limit: { type: "number", description: "Optional \u2014 max rows to return. When provided, response includes next_cursor." },
-          cursor: { type: "string", description: "Opaque cursor from a previous response." },
-          fields: {
-            type: "array",
-            items: { type: "string" },
-            description: "Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at. Unknown fields return a named error. Default: all columns."
-          }
-        },
-        required: ["agent", "task_id"]
-      }
-    }
-  ];
-  const handlers = {
-    validation_record: requireRoles("validation_record", ["pr-reviewer"], wrapHandler5(async (args) => {
-      const agent = requireArg5(args, "agent");
-      const taskId = coerceTaskId(requireArg5(args, "task_id"));
-      requireArg5(args, "attempt_n");
-      const verdict = requireArg5(args, "verdict");
-      requireArg5(args, "feedback");
-      const role = normalizeAgent(agent);
-      const subagentSessionId = args["subagent_session_id"] ?? null;
-      if (role === "pr-reviewer" && !subagentSessionId) {
-        throw new Error(
-          `precondition_failed: validation_record with agent="pr-reviewer" requires subagent_session_id (the spawned pr-reviewer subagent's session ID). This prevents bro from self-authoring pr-reviewer verdicts.`
-        );
-      }
-      const mcpAvailableArg = args["mcp_available"];
-      if (role === "pr-reviewer" && typeof mcpAvailableArg !== "boolean") {
-        throw new Error(
-          'precondition_failed: validation_record with agent="pr-reviewer" requires mcp_available (boolean) \u2014 the typed push-gate signal bro reads (true=MCP up, false=honor-system fallback).'
-        );
-      }
-      const mcpAvailable = mcpAvailableArg === false ? 0 : 1;
-      if (!VALID_VERDICTS.has(verdict)) {
-        throw new Error(
-          `Invalid verdict: "${verdict}". Allowed values: ${[...VALID_VERDICTS].join(", ")}`
-        );
-      }
-      const taskExists = db2.get(
-        `SELECT id FROM tasks WHERE id = ?`,
-        [taskId]
-      );
-      if (!taskExists) {
-        throw new Error(`task_id=${taskId} not found in tasks table`);
-      }
-      const attemptN = args["attempt_n"];
-      const feedback = args["feedback"];
-      const now = nowISO();
-      const taskRepo = db2.get(
-        "SELECT repo FROM tasks WHERE id = ?",
-        [taskId]
-      );
-      const repo = taskRepo?.repo ?? "";
-      db2.transaction(() => {
-        db2.run(
-          `INSERT INTO validation_attempts
-             (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(task_id, attempt_n) DO UPDATE SET
-             agent = excluded.agent,
-             verdict = excluded.verdict,
-             feedback = excluded.feedback,
-             mcp_available = excluded.mcp_available,
-             subagent_session_id = excluded.subagent_session_id,
-             created_at = excluded.created_at`,
-          [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, now]
-        );
-        const existingPrRow = db2.get(
-          "SELECT id FROM pr_review_runs WHERE task_id = ? AND attempt_n = ?",
-          [taskId, attemptN]
-        );
-        if (existingPrRow) {
-          db2.run(
-            "UPDATE pr_review_runs SET verdict = ?, last_fetched_at = ? WHERE id = ?",
-            [verdict, now, existingPrRow.id]
-          );
-        } else {
-          db2.run(
-            `INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, task_id, verdict, attempt_n)
-             VALUES (0, ?, ?, ?, ?, ?)`,
-            [repo, now, taskId, verdict, attemptN]
-          );
-        }
-      });
-      const row = db2.get(
-        `SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = ?`,
-        [taskId, attemptN]
-      );
-      return ok5(row);
-    })),
-    validation_history: wrapHandler5(async (args) => {
-      const agent = normalizeAgent(args["agent"]);
-      const taskId = coerceTaskId(requireArg5(args, "task_id"));
-      const ownTaskIdRaw = args["own_task_id"];
-      const ownTaskId = ownTaskIdRaw !== void 0 && ownTaskIdRaw !== null ? coerceTaskId(ownTaskIdRaw) : void 0;
-      const limitArg = args["limit"];
-      const cursorArg = args["cursor"];
-      const fieldsArg = args["fields"];
-      const ALLOWED_VALIDATION_FIELDS = /* @__PURE__ */ new Set(["id", "task_id", "attempt_n", "agent", "verdict", "feedback", "mcp_available", "subagent_session_id", "created_at"]);
-      if (fieldsArg !== void 0) {
-        const unknown2 = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));
-        if (unknown2.length > 0) {
-          return err5(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_VALIDATION_FIELDS].join(", ")}`);
-        }
-      }
-      function projectRow(row) {
-        if (!fieldsArg) return row;
-        const out = {};
-        for (const f of fieldsArg) out[f] = row[f];
-        return out;
-      }
-      if (limitArg === void 0 || limitArg === null) {
-        const rows2 = db2.all(
-          `SELECT * FROM validation_attempts WHERE task_id = ? ORDER BY attempt_n ASC`,
-          [taskId]
-        );
-        return ok5(rows2.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))));
-      }
-      const limit = Math.min(Math.max(1, limitArg), 500);
-      let cursorFilter = "";
-      let cursorParams = [];
-      if (cursorArg) {
-        try {
-          const decoded = JSON.parse(Buffer.from(cursorArg, "base64").toString("utf8"));
-          if (typeof decoded.attempt_n === "number") {
-            cursorFilter = "AND attempt_n > ?";
-            cursorParams = [decoded.attempt_n];
-          }
-        } catch {
-        }
-      }
-      const sql = "SELECT * FROM validation_attempts WHERE task_id = ? " + cursorFilter + " ORDER BY attempt_n ASC LIMIT ?";
-      const fetchedRows = db2.all(sql, [taskId, ...cursorParams, limit + 1]);
-      const hasMore = fetchedRows.length > limit;
-      const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
-      const last = rows[rows.length - 1];
-      const next_cursor = hasMore && last ? Buffer.from(JSON.stringify({ attempt_n: last.attempt_n })).toString("base64") : void 0;
-      return ok5({
-        rows: rows.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))),
-        next_cursor
-      });
-    })
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/skills.ts
-var VALID_TRUST_TIERS = /* @__PURE__ */ new Set(["curated", "agent"]);
-var SKILL_NAME_RE = /^[a-z][a-z0-9-]{0,63}$/;
-var VALID_STATUS_TRANSITIONS = /* @__PURE__ */ new Map([
-  ["draft", /* @__PURE__ */ new Set(["pending_review"])],
-  ["pending_review", /* @__PURE__ */ new Set(["active"])],
-  ["active", /* @__PURE__ */ new Set(["deprecated"])]
-]);
-var VALID_TIER_TRANSITIONS = /* @__PURE__ */ new Map([
-  ["agent", /* @__PURE__ */ new Set(["curated"])]
-]);
-function ok6(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err6(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function requireArg6(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
-  }
-  return args[name];
-}
-function wrapHandler6(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err6(e.message);
-    }
-  };
-}
-var VALID_SCOPES = /* @__PURE__ */ new Set(["global", "template", "project-local"]);
-function skillTools(db2) {
-  const definitions = [
-    {
-      name: "skill_register",
-      description: "Register a new skill. Status defaults to draft. Scope defaults to project-local (the common case for tmb_skill-creator output); plugin-shipped skills are schema-seeded with scope=global.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          name: { type: "string" },
-          description: { type: "string" },
-          file_path: { type: "string" },
-          trust_tier: { type: "string", enum: ["curated", "agent"] },
-          scope: {
-            type: "string",
-            enum: ["global", "template", "project-local"],
-            description: "Defaults to project-local."
-          }
-        },
-        required: ["agent", "name", "description", "file_path", "trust_tier"]
-      }
-    },
-    {
-      name: "skill_promote",
-      description: "Promote or deprecate a skill status or trust_tier.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          name: { type: "string" },
-          from_status: { type: "string" },
-          to_status: { type: "string" }
-        },
-        required: ["agent", "name", "from_status", "to_status"]
-      }
-    }
-  ];
-  const handlers = {
-    skill_register: wrapHandler6(async (args) => {
-      requireArg6(args, "agent");
-      const name = requireArg6(args, "name");
-      const description = requireArg6(args, "description");
-      const filePath = requireArg6(args, "file_path");
-      const trustTier = requireArg6(args, "trust_tier");
-      const scope = args["scope"] ?? "project-local";
-      if (!VALID_TRUST_TIERS.has(trustTier)) {
-        throw new Error(
-          `Invalid trust_tier: "${trustTier}". Allowed values: ${[...VALID_TRUST_TIERS].join(", ")}`
-        );
-      }
-      if (!VALID_SCOPES.has(scope)) {
-        throw new Error(
-          `Invalid scope: "${scope}". Allowed values: ${[...VALID_SCOPES].join(", ")}`
-        );
-      }
-      if (!SKILL_NAME_RE.test(name)) {
-        throw new Error(
-          `skill_register rejected: invalid name "${name}". Skill names must match ^[a-z][a-z0-9-]{0,63}$ \u2014 lowercase letters, digits, and hyphens only, starting with a letter, max 64 chars. Examples: my-skill, data-export-v2.`
-        );
-      }
-      const now = nowISO();
-      db2.run(
-        `INSERT INTO cheatcodes
-           (name, kind, origin, description, file_path, scope, trust_tier, status, installed_at, created_at, updated_at)
-         VALUES (?, 'skill', 'builtin', ?, ?, ?, ?, 'draft', ?, ?, ?)`,
-        [name, description, filePath, scope, trustTier, now, now, now]
-      );
-      const row = db2.get("SELECT * FROM cheatcodes WHERE rowid = last_insert_rowid()");
-      return ok6(row);
-    }),
-    skill_promote: wrapHandler6(async (args) => {
-      requireArg6(args, "agent");
-      const name = requireArg6(args, "name");
-      const fromStatus = requireArg6(args, "from_status");
-      const toStatus = requireArg6(args, "to_status");
-      const skill = db2.get(
-        `SELECT * FROM cheatcodes WHERE name = ? AND origin = 'builtin'`,
-        [name]
-      );
-      if (!skill) {
-        throw new Error(`Skill not registered: ${name}`);
-      }
-      const isStatusTransition = VALID_STATUS_TRANSITIONS.get(fromStatus)?.has(toStatus) ?? false;
-      const isTierTransition = VALID_TIER_TRANSITIONS.get(fromStatus)?.has(toStatus) ?? false;
-      if (!isStatusTransition && !isTierTransition) {
-        throw new Error(`Invalid transition: ${fromStatus}\u2192${toStatus}`);
-      }
-      if (isStatusTransition && skill.status !== fromStatus) {
-        throw new Error(
-          `skill_promote rejected: skill '${name}' is in status '${skill.status}', not '${fromStatus}'. from_status must match the skill's current status.`
-        );
-      }
-      if (isTierTransition && skill.trust_tier !== fromStatus) {
-        throw new Error(
-          `skill_promote rejected: skill '${name}' has trust_tier '${skill.trust_tier}', not '${fromStatus}'. from_status must match the skill's current trust_tier for tier transitions.`
-        );
-      }
-      const now = nowISO();
-      if (isStatusTransition) {
-        db2.run(
-          `UPDATE cheatcodes SET status = ?, updated_at = ? WHERE name = ? AND origin = 'builtin'`,
-          [toStatus, now, name]
-        );
-      } else {
-        db2.run(
-          `UPDATE cheatcodes SET trust_tier = ?, updated_at = ? WHERE name = ? AND origin = 'builtin'`,
-          [toStatus, now, name]
-        );
-      }
-      const updated = db2.get(
-        `SELECT * FROM cheatcodes WHERE name = ? AND origin = 'builtin'`,
-        [name]
-      );
-      return ok6(updated);
-    })
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/agents.ts
-import { existsSync as existsSync2 } from "node:fs";
-import { dirname as dirname4, join as join6 } from "node:path";
-import { fileURLToPath as fileURLToPath2 } from "node:url";
-function ok7(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err7(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function requireArg7(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
-  }
-  return args[name];
-}
-function wrapHandler7(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err7(e.message);
-    }
-  };
-}
-var VALID_KINDS = /* @__PURE__ */ new Set(["backbone", "consultant"]);
-var VALID_SCOPES2 = /* @__PURE__ */ new Set(["global", "template", "project-local"]);
-var RESERVED_NAME = "bro";
-var BACKBONE_GLOBAL_ONLY = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
-function resolvePluginRoot() {
-  const env = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (env && existsSync2(join6(env, ".claude-plugin", "plugin.json"))) return env;
-  let dir = dirname4(fileURLToPath2(import.meta.url));
-  for (; ; ) {
-    if (existsSync2(join6(dir, ".claude-plugin", "plugin.json"))) return dir;
-    const parent = dirname4(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return env ?? dirname4(fileURLToPath2(import.meta.url));
-}
-var PLUGIN_ROOT = resolvePluginRoot();
-function resolveWorkspaceRoot(dbPath2) {
-  if (!dbPath2 || dbPath2 === ":memory:") return "";
-  return dbPath2.replace(/\.claude\/[^/]+\/trajectory\.db$/, "").replace(/\/$/, "");
-}
-function validateAgentName(name) {
-  if (name === RESERVED_NAME) {
-    throw new Error(
-      `agent_resolve rejected: '${name}' is a reserved orchestrator name and cannot be registered as an agent. Choose a different name for your consultant (e.g. 'security-advisor', 'legal-reviewer').`
-    );
-  }
-  if (BACKBONE_GLOBAL_ONLY.has(name)) {
-    throw new Error(
-      `agent_resolve rejected: '${name}' is a backbone agent whose scope must be 'global'. A project-local '${name}' would shadow the backbone and disable it. To extend ${name}, create a differently-named consultant agent instead.`
-    );
-  }
-  if (!/^[a-z][a-z0-9-]*$/.test(name)) {
-    throw new Error(
-      `agent_resolve rejected: '${name}' is not a valid agent name. Names must be kebab-case (lowercase letters, digits, hyphens; must start with a letter).`
-    );
-  }
-}
-function agentTools(db2, dbPath2 = "") {
-  const definitions = [
-    {
-      name: "agent_list",
-      description: "List registered agents, optionally filtered by scope.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          scope: { type: "string", enum: ["global", "template", "project-local"] }
-        },
-        required: ["agent"]
-      }
-    },
-    {
-      name: "agent_register",
-      description: "Register a new agent. Promotes a template-seeded row to project-local when called with scope=project-local; emits tmb_agent_created audit on insert or promotion. True idempotent re-registration (already project-local) is a silent no-op.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          name: { type: "string" },
-          kind: { type: "string", enum: ["backbone", "consultant"] },
-          scope: { type: "string", enum: ["global", "template", "project-local"] },
-          file_path: { type: "string" }
-        },
-        required: ["agent", "name", "kind", "scope", "file_path"]
-      }
-    },
-    {
-      name: "agent_resolve",
-      description: 'Read-only: resolves creation mode for /tmb:agent-create. Validates the name, then returns one of three modes: "collision" (target path exists \u2014 bro runs collision dialog); "template-copy" (plugin template found \u2014 bro Writes the file then calls agent_register); "from-scratch" (no template \u2014 bro scaffolds from templates/agents/template.md then calls agent_register). Paths returned are absolute. bro owns the file Write and the agent_register call.',
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          name: { type: "string", description: "Kebab-case agent name to resolve." }
-        },
-        required: ["agent", "name"]
-      }
-    }
-  ];
-  const handlers = {
-    agent_list: wrapHandler7(async (args) => {
-      requireArg7(args, "agent");
-      const scope = args["scope"];
-      if (scope !== void 0 && !VALID_SCOPES2.has(scope)) {
-        throw new Error(
-          `Invalid scope: "${scope}". Allowed values: ${[...VALID_SCOPES2].join(", ")}`
-        );
-      }
-      const rows = scope ? db2.all("SELECT * FROM agents WHERE scope = ? ORDER BY name", [scope]) : db2.all("SELECT * FROM agents ORDER BY name");
-      return ok7({ agents: rows });
-    }),
-    agent_register: wrapHandler7(async (args) => {
-      requireArg7(args, "agent");
-      const name = requireArg7(args, "name");
-      const kind = requireArg7(args, "kind");
-      const scope = requireArg7(args, "scope");
-      const filePath = requireArg7(args, "file_path");
-      if (!VALID_KINDS.has(kind)) {
-        throw new Error(
-          `Invalid kind: "${kind}". Allowed values: ${[...VALID_KINDS].join(", ")}`
-        );
-      }
-      if (!VALID_SCOPES2.has(scope)) {
-        throw new Error(
-          `Invalid scope: "${scope}". Allowed values: ${[...VALID_SCOPES2].join(", ")}`
-        );
-      }
-      if (name === RESERVED_NAME) {
-        throw new Error(
-          `agent_register rejected: '${name}' is a reserved orchestrator name and cannot be registered as an agent. Choose a different name for your consultant (e.g. 'security-advisor', 'legal-reviewer').`
-        );
-      }
-      if (BACKBONE_GLOBAL_ONLY.has(name) && scope !== "global") {
-        throw new Error(
-          `agent_register rejected: '${name}' is a backbone agent whose scope must be 'global'. A project-local '${name}' would shadow the backbone and disable it. To extend ${name}, create a differently-named consultant agent instead.`
-        );
-      }
-      const existing = db2.get("SELECT * FROM agents WHERE name = ?", [name]);
-      let promoted = false;
-      if (existing) {
-        if (scope === "project-local" && existing.scope === "template") {
-          db2.run(
-            `UPDATE agents SET scope = ?, kind = ?, file_path = ?, updated_at = datetime('now')
-             WHERE name = ?`,
-            [scope, kind, filePath, name]
-          );
-          promoted = true;
-        }
-      } else {
-        db2.run(
-          `INSERT INTO agents (name, kind, scope, file_path)
-           VALUES (?, ?, ?, ?)`,
-          [name, kind, scope, filePath]
-        );
-      }
-      const row = db2.get("SELECT * FROM agents WHERE name = ?", [name]);
-      const inserted = !existing && (db2.get("SELECT changes() AS n", [])?.n ?? 0) > 0;
-      if (scope === "project-local" && kind === "consultant" && (inserted || promoted) && row) {
-        const contentJson = JSON.stringify({ name, mode: "agent_register", agent_id: row.id });
-        db2.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, ?, 'tmb_agent_created', ?, ?, datetime('now'))`,
-          [String(args["agent"]), `Agent registered: ${name}`, contentJson]
-        );
-      }
-      return ok7(row);
-    }),
-    agent_resolve: requireRoles(
-      "agent_resolve",
-      ["bro"],
-      wrapHandler7(async (args) => {
-        requireArg7(args, "agent");
-        const name = requireArg7(args, "name");
-        validateAgentName(name);
-        const workspaceRoot = resolveWorkspaceRoot(dbPath2);
-        const targetPath = workspaceRoot ? join6(workspaceRoot, ".claude", "agents", `${name}.md`) : join6(".claude", "agents", `${name}.md`);
-        if (workspaceRoot && existsSync2(targetPath)) {
-          return ok7({ mode: "collision", existing_path: targetPath });
-        }
-        const templatePath = join6(PLUGIN_ROOT, "templates", "agents", `${name}.md`);
-        if (existsSync2(templatePath)) {
-          return ok7({
-            mode: "template-copy",
-            source_path: templatePath,
-            target_path: targetPath
-          });
-        }
-        const scaffoldPath = join6(PLUGIN_ROOT, "templates", "agents", "template.md");
-        return ok7({
-          mode: "from-scratch",
-          scaffold_path: scaffoldPath,
-          target_path: targetPath
-        });
-      })
-    )
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/reports.ts
-import { mkdirSync as mkdirSync3, writeFileSync } from "node:fs";
-import { dirname as dirname5, resolve as resolve2, sep as sep2 } from "node:path";
-function ok8(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err8(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function requireArg8(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
-  }
-  return args[name];
-}
-function wrapHandler8(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err8(e.message);
-    }
-  };
-}
-function reportTools(db2) {
-  const definitions = [
-    {
-      name: "issue_report_md",
-      description: 'Assemble a markdown narrative for an issue. mode="summary" (default) returns top metadata + last 5 audit events + counts (~500 tokens). mode="detail" returns the full report including all tasks, validation attempts, and all audit events.',
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          issue_id: { type: "string" },
-          mode: {
-            type: "string",
-            enum: ["summary", "detail"],
-            description: "Report depth. Default: summary (~500 tokens). Use detail for full narrative."
-          }
-        },
-        required: ["agent", "issue_id"]
-      }
-    },
-    {
-      name: "issue_snapshot_md",
-      description: "Generate a read-only markdown snapshot of an issue (header, discussions, tasks) to docs/trustmybot/snapshots/<issue_id>.md (default) or an explicit output_path. Used by PR reviewer for in-flight review handoff. Rejects paths outside docs/trustmybot/.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          issue_id: { type: "string" },
-          output_path: {
-            type: "string",
-            description: "Optional override path. Must start with docs/trustmybot/. Default: docs/trustmybot/snapshots/<issue_id>.md"
-          }
-        },
-        required: ["agent", "issue_id"]
-      }
-    }
-  ];
-  const handlers = {
-    issue_report_md: wrapHandler8(async (args) => {
-      requireArg8(args, "agent");
-      const issueId = requireArg8(args, "issue_id");
-      const mode = args["mode"] ?? "summary";
-      if (mode !== "summary" && mode !== "detail") {
-        throw new Error(`Invalid mode: "${mode}". Allowed: summary, detail`);
-      }
-      const issue2 = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      if (!issue2) {
-        throw new Error(`Not found: ${issueId}`);
-      }
-      const lines = [];
-      lines.push(`# Issue Report: ${issue2.id}`);
-      lines.push("");
-      lines.push("## Objective + Status");
-      lines.push("");
-      lines.push(`**Objective:** ${issue2.objective}`);
-      lines.push(`**Status:** ${issue2.status}`);
-      lines.push(`**Created:** ${issue2.created_at}`);
-      if (issue2.closed_at) {
-        lines.push(`**Closed:** ${issue2.closed_at}`);
-      }
-      lines.push("");
-      if (mode === "summary") {
-        const taskCounts = db2.get(
-          `SELECT COUNT(*) AS total,
-                  SUM(CASE WHEN status IN ('completed','closed') THEN 1 ELSE 0 END) AS completed,
-                  SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
-           FROM tasks WHERE issue_id = ?`,
-          [issueId]
-        );
-        lines.push(`**Tasks:** ${taskCounts?.total ?? 0} total, ${taskCounts?.completed ?? 0} completed, ${taskCounts?.failed ?? 0} failed`);
-        lines.push("");
-        const auditCount = db2.get(`SELECT COUNT(*) AS n FROM audit WHERE issue_id = ?`, [issueId])?.n ?? 0;
-        lines.push(`**Audit events:** ${auditCount}`);
-        lines.push("");
-        lines.push("## Last 5 Audit Events");
-        lines.push("");
-        const recentAudit = db2.all(
-          `SELECT * FROM audit WHERE issue_id = ? ORDER BY id DESC LIMIT 5`,
-          [issueId]
-        );
-        if (recentAudit.length === 0) {
-          lines.push("_No audit events._");
-        } else {
-          for (const e of recentAudit.reverse()) {
-            lines.push(`- **${e.created_at}** [${e.event_type}] \`${e.from_node}\`: ${e.summary}`);
-          }
-        }
-        return ok8({ markdown: lines.join("\n"), mode: "summary" });
-      }
-      const tasks = db2.all(
-        `SELECT * FROM tasks WHERE issue_id = ? ORDER BY branch_id ASC`,
-        [issueId]
-      );
-      const taskIds = tasks.map((t) => String(t.id));
-      let validationAttempts = [];
-      if (taskIds.length > 0) {
-        const placeholders = taskIds.map(() => "?").join(", ");
-        validationAttempts = db2.all(
-          "SELECT * FROM validation_attempts WHERE task_id IN (" + placeholders + ") ORDER BY task_id ASC, attempt_n ASC",
-          taskIds
-        );
-      }
-      const auditEntries = db2.all(
-        `SELECT * FROM audit WHERE issue_id = ? ORDER BY id ASC`,
-        [issueId]
-      );
-      lines.push("## Tasks");
-      lines.push("");
-      if (tasks.length === 0) {
-        lines.push("_No tasks._");
-      } else {
-        lines.push("| Branch | Title | Status | Attempts |");
-        lines.push("|--------|-------|--------|----------|");
-        for (const t of tasks) {
-          const title = t.title || t.description.slice(0, 60);
-          lines.push(`| ${t.branch_id} | ${title} | ${t.status} | ${t.attempts} |`);
-        }
-      }
-      lines.push("");
-      lines.push("## Validation History");
-      lines.push("");
-      if (validationAttempts.length === 0) {
-        lines.push("_No validation attempts._");
-      } else {
-        lines.push("| Task ID | Attempt | Verdict |");
-        lines.push("|---------|---------|---------|");
-        for (const v of validationAttempts) {
-          lines.push(`| ${v.task_id} | ${v.attempt_n} | ${v.verdict} |`);
-        }
-      }
-      lines.push("");
-      lines.push("## Audit Event Timeline");
-      lines.push("");
-      if (auditEntries.length === 0) {
-        lines.push("_No audit events._");
-      } else {
-        for (const e of auditEntries) {
-          lines.push(`- **${e.created_at}** [${e.event_type}] \`${e.from_node}\`: ${e.summary}`);
-        }
-      }
-      lines.push("");
-      return ok8({ markdown: lines.join("\n"), mode: "detail" });
-    }),
-    issue_snapshot_md: requireRoles("issue_snapshot_md", ["bro", "pr-reviewer"], wrapHandler8(async (args) => {
-      requireArg8(args, "agent");
-      const issueId = requireArg8(args, "issue_id");
-      const rawOutputPath = args["output_path"];
-      const issue2 = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      if (!issue2) {
-        throw new Error(`Not found: ${issueId}`);
-      }
-      const defaultOutputPath = `docs/trustmybot/snapshots/${issueId}.md`;
-      const relOutputPath = rawOutputPath ?? defaultOutputPath;
-      const cwd = process.cwd();
-      const allowedBase = resolve2(cwd, "docs/trustmybot") + sep2;
-      const absPath = resolve2(cwd, relOutputPath);
-      if (!absPath.startsWith(allowedBase)) {
-        throw new Error(
-          `output_path must resolve inside docs/trustmybot/. Got: "${relOutputPath}"`
-        );
-      }
-      const discussions = db2.all(
-        `SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC`,
-        [issueId]
-      );
-      const tasks = db2.all(
-        `SELECT * FROM tasks WHERE issue_id = ? ORDER BY branch_id ASC`,
-        [issueId]
-      );
-      const now = (/* @__PURE__ */ new Date()).toISOString();
-      const lines = [];
-      lines.push(`<!-- Generated by issue_snapshot_md. Do not edit; rebuild via issue_snapshot_md. -->`);
-      lines.push(`<!-- GENERATED: ${now} -->`);
-      lines.push("");
-      lines.push(`# Issue Snapshot: ${issue2.id}`);
-      lines.push("");
-      lines.push("## Header");
-      lines.push("");
-      lines.push(`**Objective:** ${issue2.objective}`);
-      lines.push(`**Status:** ${issue2.status}`);
-      lines.push(`**Created:** ${issue2.created_at}`);
-      lines.push(`**Updated:** ${issue2.updated_at}`);
-      if (issue2.closed_at) {
-        lines.push(`**Closed:** ${issue2.closed_at}`);
-      }
-      lines.push("");
-      lines.push("## Discussions");
-      lines.push("");
-      if (discussions.length === 0) {
-        lines.push("_No discussion entries._");
-      } else {
-        for (const d of discussions) {
-          lines.push(`### [${d.created_at}] ${d.author} (${d.kind})`);
-          lines.push("");
-          lines.push(d.body);
-          lines.push("");
-        }
-      }
-      lines.push("## Tasks");
-      lines.push("");
-      if (tasks.length === 0) {
-        lines.push("_No tasks._");
-      } else {
-        lines.push("| Branch | Title | Status | Commit SHA |");
-        lines.push("|--------|-------|--------|------------|");
-        for (const t of tasks) {
-          const title = t.title || t.description.slice(0, 60);
-          const sha = t.commit_sha || "\u2014";
-          lines.push(`| ${t.branch_id} | ${title} | ${t.status} | ${sha} |`);
-        }
-        lines.push("");
-        lines.push("## Per-task snapshot");
-        lines.push("");
-        for (const t of tasks) {
-          const title = t.title || t.branch_id;
-          lines.push(`### ${t.branch_id}: ${title}`);
-          lines.push("");
-          if (t.spec_body) {
-            const truncated = t.spec_body.length > 400;
-            const preview = truncated ? t.spec_body.slice(0, 400) + " \u2026" : t.spec_body;
-            lines.push("**Spec body:**");
-            lines.push("");
-            lines.push(preview);
-          } else {
-            lines.push("_No spec body recorded._");
-          }
-          lines.push("");
-        }
-      }
-      const markdown = lines.join("\n");
-      mkdirSync3(dirname5(absPath), { recursive: true });
-      writeFileSync(absPath, markdown, "utf8");
-      return ok8({ path: relOutputPath, bytes_written: Buffer.byteLength(markdown, "utf8") });
-    }))
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/config.ts
-function ok9(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err9(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function wrapHandler9(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err9(e.message);
-    }
-  };
-}
-var KEY_REGEX = /^[a-z][a-z0-9_.-]{0,63}$/i;
-function configTools(db2) {
-  const definitions = [
-    {
-      name: "config_set",
-      description: "Set a plugin config key to a JSON-serializable value.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          key: { type: "string", description: "Config key (1-64 chars, must match /^[a-z][a-z0-9_.-]{0,63}$/i)" },
-          value: { description: "Any JSON-serializable value" }
-        },
-        required: ["key", "value"]
-      }
-    },
-    {
-      name: "config_get",
-      description: "Get a plugin config value by key. Returns null if not set.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          key: { type: "string" }
-        },
-        required: ["key"]
-      }
-    },
-    {
-      name: "config_list",
-      description: "List all plugin config entries as a key\u2192value object.",
-      inputSchema: {
-        type: "object",
-        properties: {}
-      }
-    }
-  ];
-  const handlers = {
-    config_set: requireRoles("config_set", ["bro"], wrapHandler9(async (args) => {
-      const key = args["key"];
-      if (typeof key !== "string" || !KEY_REGEX.test(key)) {
-        return err9(
-          `Invalid config key ${JSON.stringify(key)}: must match /^[a-z][a-z0-9_.-]{0,63}$/i`
-        );
-      }
-      if (args["value"] === void 0 || args["value"] === null) {
-        return err9("Missing required arg: value");
-      }
-      const rawValue = args["value"];
-      if (typeof rawValue === "string") {
-        const trimmed = rawValue.trim();
-        if (trimmed.startsWith("[") && trimmed.endsWith("]") || trimmed.startsWith("{") && trimmed.endsWith("}")) {
-          try {
-            const parsed = JSON.parse(trimmed);
-            if (typeof parsed === "object" && parsed !== null) {
-              return err9(
-                `config value for key=${JSON.stringify(key)} looks like a pre-serialized JSON ${Array.isArray(parsed) ? "array" : "object"} (passed as a string). Pass the raw value directly \u2014 e.g. value=["main"], not value="[\\"main\\"]". The server calls JSON.stringify() on whatever you pass; double-encoding it breaks downstream consumers that expect the original shape.`
-              );
-            }
-          } catch {
-          }
-        }
-      }
-      let valueJson;
-      try {
-        valueJson = JSON.stringify(rawValue);
-      } catch {
-        return err9("config value not JSON-serializable");
-      }
-      db2.run(
-        `INSERT INTO plugin_config (key, value_json)
-         VALUES (?, ?)
-         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
-        [key, valueJson]
-      );
-      return ok9({ key });
-    })),
-    config_get: wrapHandler9(async (args) => {
-      const key = args["key"];
-      const row = db2.get(
-        `SELECT key, value_json FROM plugin_config WHERE key = ?`,
-        [key]
-      );
-      if (!row) {
-        return ok9(null);
-      }
-      let parsed;
-      try {
-        parsed = JSON.parse(row.value_json);
-      } catch {
-        return err9(
-          `config key ${JSON.stringify(key)}: stored value is not valid JSON \u2014 raw: ${row.value_json.slice(0, 200)}`
-        );
-      }
-      return ok9(parsed);
-    }),
-    config_list: wrapHandler9(async () => {
-      const rows = db2.all(
-        `SELECT key, value_json FROM plugin_config ORDER BY key`
-      );
-      const result = {};
-      for (const row of rows) {
-        try {
-          result[row.key] = JSON.parse(row.value_json);
-        } catch {
-          return err9(
-            `config key ${JSON.stringify(row.key)}: stored value is not valid JSON \u2014 raw: ${row.value_json.slice(0, 200)}`
-          );
-        }
-      }
-      return ok9(result);
-    })
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/branch_report_md.ts
-function ok10(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err10(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function requireArg9(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
-  }
-  return args[name];
-}
-function wrapHandler10(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err10(e.message);
-    }
-  };
-}
-function branchReportMdTools(db2) {
-  const definitions = [
-    {
-      name: "branch_report_md",
-      description: 'Assemble a markdown report scoped to a single (issue_id, branch_id) pair. mode="summary" (default) returns task status + counts + last 5 audit events (~500 tokens). mode="detail" returns full tasks, all audit events, and all validation attempts.',
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          issue_id: { type: "string", description: "Integer issue ID as a string." },
-          branch_id: { type: "string", description: "Git branch name, e.g. feat/my-feature." },
-          mode: {
-            type: "string",
-            enum: ["summary", "detail"],
-            description: "Report depth. Default: summary (~500 tokens). Use detail for full narrative."
-          }
-        },
-        required: ["agent", "issue_id", "branch_id"]
-      }
-    }
-  ];
-  const handlers = {
-    branch_report_md: requireRoles(
-      "branch_report_md",
-      ["bro", "swe", "pr-reviewer", "consultant"],
-      wrapHandler10(async (args) => {
-        requireArg9(args, "agent");
-        const issueId = requireArg9(args, "issue_id");
-        const branchId = requireArg9(args, "branch_id");
-        const mode = args["mode"] ?? "summary";
-        if (mode !== "summary" && mode !== "detail") {
-          throw new Error(`Invalid mode: "${mode}". Allowed: summary, detail`);
-        }
-        if (!/^\d+$/.test(issueId)) {
-          throw new Error(`issue_id must be a positive integer string. Got: "${issueId}"`);
-        }
-        const issue2 = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-        if (!issue2) {
-          throw new Error(`issue_id ${issueId} not found.`);
-        }
-        const tasks = db2.all(
-          "SELECT * FROM tasks WHERE issue_id = ? AND branch_id = ? ORDER BY id ASC",
-          [issueId, branchId]
-        );
-        if (tasks.length === 0) {
-          throw new Error(
-            `No tasks found for issue_id=${issueId} branch_id="${branchId}". Verify the branch_id matches an existing task on that issue.`
-          );
-        }
-        const lines = [];
-        lines.push(`# Branch Report \u2014 ${branchId} (issue #${issueId})`);
-        lines.push("");
-        lines.push(`**Issue objective:** ${issue2.objective}`);
-        lines.push("");
-        if (mode === "summary") {
-          lines.push("## Tasks on this branch");
-          lines.push("");
-          lines.push("| ID | Title | Status | Commit |");
-          lines.push("|---|---|---|---|");
-          for (const t of tasks) {
-            const title = t.title || t.description.slice(0, 60);
-            const commit = t.commit_sha || "\u2014";
-            lines.push(`| ${t.id} | ${title} | ${t.status} | ${commit} |`);
-          }
-          lines.push("");
-          const auditCount = db2.get(
-            "SELECT COUNT(*) AS n FROM audit WHERE issue_id = ? AND branch_id = ?",
-            [issueId, branchId]
-          )?.n ?? 0;
-          lines.push(`**Audit events:** ${auditCount}`);
-          lines.push("");
-          lines.push("## Last 5 Audit Events");
-          lines.push("");
-          const recentAudit = db2.all(
-            "SELECT * FROM audit WHERE issue_id = ? AND branch_id = ? ORDER BY id DESC LIMIT 5",
-            [issueId, branchId]
-          );
-          if (recentAudit.length === 0) {
-            lines.push("_No audit events._");
-          } else {
-            lines.push("| Time | Event | From | Summary |");
-            lines.push("|---|---|---|---|");
-            for (const e of recentAudit.reverse()) {
-              lines.push(`| ${e.created_at} | ${e.event_type} | ${e.from_node} | ${e.summary} |`);
-            }
-          }
-          return ok10({ markdown: lines.join("\n"), mode: "summary" });
-        }
-        const taskIds = tasks.map((t) => String(t.id));
-        const placeholders = taskIds.map(() => "?").join(", ");
-        const validationAttempts = db2.all(
-          "SELECT * FROM validation_attempts WHERE task_id IN (" + placeholders + ") ORDER BY task_id ASC, attempt_n ASC",
-          taskIds
-        );
-        const auditEntries = db2.all(
-          "SELECT * FROM audit WHERE issue_id = ? AND branch_id = ? ORDER BY id ASC",
-          [issueId, branchId]
-        );
-        lines.push("## Tasks on this branch");
-        lines.push("");
-        lines.push("| ID | Title | Status | Commit | Created | Closed |");
-        lines.push("|---|---|---|---|---|---|");
-        for (const t of tasks) {
-          const title = t.title || t.description.slice(0, 60);
-          const commit = t.commit_sha || "\u2014";
-          const closed = t.completed_at || "\u2014";
-          lines.push(`| ${t.id} | ${title} | ${t.status} | ${commit} | ${t.created_at} | ${closed} |`);
-        }
-        lines.push("");
-        lines.push("## Audit events");
-        lines.push("");
-        if (auditEntries.length === 0) {
-          lines.push("_No audit events._");
-        } else {
-          lines.push("| Time | Event | From | Summary |");
-          lines.push("|---|---|---|---|");
-          for (const e of auditEntries) {
-            lines.push(`| ${e.created_at} | ${e.event_type} | ${e.from_node} | ${e.summary} |`);
-          }
-        }
-        lines.push("");
-        lines.push("## Validation attempts");
-        lines.push("");
-        if (validationAttempts.length === 0) {
-          lines.push("_No validation attempts._");
-        } else {
-          lines.push("| Task | Attempt | Agent | Verdict | When |");
-          lines.push("|---|---|---|---|---|");
-          for (const v of validationAttempts) {
-            lines.push(`| ${v.task_id} | ${v.attempt_n} | ${v.agent} | ${v.verdict} | ${v.created_at} |`);
-          }
-        }
-        return ok10({ markdown: lines.join("\n"), mode: "detail" });
-      })
-    )
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/stats.ts
-var ALLOWED_ROLES = ["bro", "swe", "pr-reviewer", "consultant"];
-function ok11(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err11(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function wrapHandler11(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err11(e.message);
-    }
-  };
-}
-var RATE_INPUT_PER_MTK = 15;
-var RATE_OUTPUT_PER_MTK = 75;
-var RATE_CACHE_READ_PER_MTK = 1.5;
-var RATE_CACHE_CREATION_PER_MTK = 18.75;
-function estimateCostUsd(tokensIn, tokensOut, cacheRead, cacheCreation) {
-  return (tokensIn * RATE_INPUT_PER_MTK + tokensOut * RATE_OUTPUT_PER_MTK + cacheRead * RATE_CACHE_READ_PER_MTK + cacheCreation * RATE_CACHE_CREATION_PER_MTK) / 1e6;
-}
-function statsTools(db2) {
-  const definitions = [
-    {
-      name: "task_stats",
-      description: "Return token/duration aggregate + per-spawn breakdown for one task.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string", description: "Calling agent identity" },
-          task_id: { type: "integer", description: "Task ID to query stats for" }
-        },
-        required: ["agent", "task_id"]
-      }
-    }
-  ];
-  const handlers = {
-    task_stats: requireRoles(
-      "task_stats",
-      [...ALLOWED_ROLES],
-      wrapHandler11(async (args) => {
-        normalizeAgent(args["agent"]);
-        const rawTaskId = args["task_id"];
-        const taskId = Number(rawTaskId);
-        if (!Number.isInteger(taskId) || taskId <= 0) {
-          throw new Error("task_id must be a positive integer");
-        }
-        const aggRow = db2.get(
-          "SELECT COUNT(*) as spawn_count, SUM(tokens_in) as sum_tokens_in, SUM(tokens_out) as sum_tokens_out, SUM(tokens_total) as sum_tokens_total, SUM(cache_read_tokens) as sum_cache_read, SUM(cache_creation_tokens) as sum_cache_creation, SUM(tool_uses) as sum_tool_uses, SUM(duration_ms) as sum_duration_ms FROM agent_runs WHERE task_id = ?",
-          [taskId]
-        );
-        const sumIn = aggRow?.sum_tokens_in ?? 0;
-        const sumOut = aggRow?.sum_tokens_out ?? 0;
-        const sumCacheRead = aggRow?.sum_cache_read ?? 0;
-        const sumCacheCreation = aggRow?.sum_cache_creation ?? 0;
-        const aggregate = {
-          spawn_count: aggRow?.spawn_count ?? 0,
-          tokens_in: sumIn,
-          tokens_out: sumOut,
-          tokens_total: aggRow?.sum_tokens_total ?? 0,
-          cache_read_tokens: sumCacheRead,
-          cache_creation_tokens: sumCacheCreation,
-          tool_uses: aggRow?.sum_tool_uses ?? 0,
-          duration_ms: aggRow?.sum_duration_ms ?? 0,
-          estimated_cost_usd: estimateCostUsd(sumIn, sumOut, sumCacheRead, sumCacheCreation)
-        };
-        const spawns = db2.all(
-          "SELECT id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at FROM agent_runs WHERE task_id = ? ORDER BY id",
-          [taskId]
-        );
-        return ok11({ task_id: taskId, aggregate, spawns });
-      })
-    )
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/roundtable.ts
-function ok12(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err12(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function requireArg10(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
-  }
-  return args[name];
-}
-function wrapHandler12(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err12(e.message);
-    }
-  };
-}
-function roundtableTools(db2) {
-  const definitions = [
-    {
-      name: "roundtable_create",
-      description: "Create a new roundtable. Bro-only. Returns roundtable_id. Server-gated: requires an unconsumed audit row with event_type='roundtable_slash_invoked' (written when the user types /roundtable). Human-triggered only.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string", description: "Must be bro" },
-          issue_id: { type: "number", description: "Carrier issue ID for this roundtable" },
-          topic: { type: "string", description: "Short topic description for this roundtable" },
-          expected_participants: {
-            type: "number",
-            description: "Number of non-human participants (2\u20135)"
-          },
-          waive_slash_gate: {
-            type: "boolean",
-            description: "Set true to bypass the slash-invoke gate (rarely justified \u2014 /roundtable is Human-triggered only). If false or omitted, an audit row with event_type='roundtable_slash_invoked' must exist."
-          },
-          waive_slash_gate_reason: {
-            type: "string",
-            description: "Required when waive_slash_gate=true. Min 10 chars. Explain why bro is firing roundtable_create without a /roundtable invocation."
-          }
-        },
-        required: ["agent", "issue_id", "topic", "expected_participants"]
-      }
-    },
-    {
-      name: "roundtable_vote",
-      description: 'Record a participant vote/position for a roundtable. Bro-only. One row per participant per call; participant is an agent name or "human" for ratification rows. vote is capped at 60 chars; rationale at 120 chars \u2014 over-cap values return named validation errors.',
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string", description: "Must be bro" },
-          roundtable_id: { type: "number", description: "ID returned by roundtable_create" },
-          participant: {
-            type: "string",
-            description: 'Agent name (ceo, cto, pm, architect) or "human" for ratification rows'
-          },
-          vote: { type: "string", description: "Stance summary or vote value. Max 60 chars." },
-          rationale: { type: "string", description: "Key reasoning or rationale (optional). Max 120 chars." }
-        },
-        required: ["agent", "roundtable_id", "participant", "vote"]
-      }
-    },
-    {
-      name: "roundtable_close",
-      description: "Close a roundtable and record the final outcome. Bro-only. Requires state=awaiting_human with \u22651 human vote, or skip=true to bypass.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string", description: "Must be bro" },
-          roundtable_id: { type: "number", description: "ID of the roundtable to close" },
-          outcome: { type: "string", description: "One-sentence summary of the meeting outcome" },
-          skip: {
-            type: "boolean",
-            description: "If true, bypass state checks and set state=skipped"
-          }
-        },
-        required: ["agent", "roundtable_id", "outcome"]
-      }
-    },
-    {
-      name: "roundtable_finalize_decisions",
-      description: "Atomically write all post-AUQ ratification rows (discussions + votes). Bro-only. Requires state=awaiting_human.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string", description: "Must be bro" },
-          roundtable_id: { type: "number", description: "ID of the roundtable" },
-          ratified: {
-            type: "array",
-            items: { type: "string" },
-            description: "Agreements ratified by the human"
-          },
-          unratified: {
-            type: "array",
-            items: { type: "string" },
-            description: "Agreements not ratified"
-          },
-          resolutions: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                topic_slug: { type: "string" },
-                winning_stance: { type: "string" },
-                dissenter: { type: "string" },
-                rationale: { type: "string" }
-              },
-              required: ["topic_slug", "winning_stance", "dissenter"]
-            },
-            description: "Disagreements resolved by human choice"
-          }
-        },
-        required: ["agent", "roundtable_id", "ratified", "unratified", "resolutions"]
-      }
-    },
-    {
-      name: "roundtable_summarize",
-      description: "Assemble the canonical summary of a roundtable from existing DB rows. Bro-only. Pure SELECT.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string", description: "Must be bro" },
-          roundtable_id: { type: "number", description: "ID of the roundtable" }
-        },
-        required: ["agent", "roundtable_id"]
-      }
-    },
-    {
-      name: "roundtable_close_with_decisions",
-      description: "Composite: collapses roundtable_finalize_decisions + roundtable_close + roundtable_summarize into one transactional call. Bro-only. Requires state=awaiting_human. Writes decision rows, closes the roundtable, returns the canonical summary.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string", description: "Must be bro" },
-          roundtable_id: { type: "number", description: "ID of the roundtable" },
-          outcome: { type: "string", description: "One-sentence summary of the meeting outcome" },
-          decisions: {
-            type: "object",
-            description: "Decision payload forwarded to roundtable_finalize_decisions.",
-            properties: {
-              ratified: { type: "array", items: { type: "string" }, description: "Agreements ratified by the human" },
-              unratified: { type: "array", items: { type: "string" }, description: "Agreements not ratified" },
-              resolutions: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    topic_slug: { type: "string" },
-                    winning_stance: { type: "string" },
-                    dissenter: { type: "string" },
-                    rationale: { type: "string" }
-                  },
-                  required: ["topic_slug", "winning_stance", "dissenter"]
-                },
-                description: "Disagreements resolved by human choice"
-              }
-            },
-            required: ["ratified", "unratified", "resolutions"]
-          },
-          summary: {
-            type: "string",
-            description: "Optional \u2014 passed through as outcome if provided; otherwise outcome is used."
-          }
-        },
-        required: ["agent", "roundtable_id", "outcome", "decisions"]
-      }
-    }
-  ];
-  const handlers = {
-    roundtable_create: requireRoles(
-      "roundtable_create",
-      ["bro"],
-      wrapHandler12(async (args) => {
-        normalizeAgent(args["agent"]);
-        const issueId = requireArg10(args, "issue_id");
-        const topic = requireArg10(args, "topic");
-        const expectedParticipants = requireArg10(args, "expected_participants");
-        if (!topic.trim()) {
-          throw new Error("topic must be a non-empty string");
-        }
-        if (!Number.isInteger(expectedParticipants) || expectedParticipants < 2 || expectedParticipants > 5) {
-          throw new Error("invalid_argument: expected_participants must be an integer between 2 and 5");
-        }
-        const slashGateWaived = args["waive_slash_gate"] === true;
-        const slashGateWaiverReason = args["waive_slash_gate_reason"] ?? "";
-        if (slashGateWaived) {
-          if (typeof slashGateWaiverReason !== "string" || slashGateWaiverReason.trim().length < 10) {
-            return {
-              isError: true,
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    error: "invalid_argument",
-                    message: "waive_slash_gate_reason must be a string \u226510 chars."
-                  })
-                }
-              ]
-            };
-          }
-        } else {
-          const slashRow = db2.get(
-            `SELECT id FROM audit
-             WHERE event_type = 'roundtable_slash_invoked'
-               AND created_at >= datetime('now', '-10 minutes')
-               AND (content_json IS NULL OR json_extract(content_json, '$.consumed_by_roundtable_id') IS NULL)
-             ORDER BY created_at DESC
-             LIMIT 1`
-          );
-          if (!slashRow) {
-            return {
-              isError: true,
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    error: "roundtable_slash_gate_violation",
-                    message: `Roundtable slash gate: /roundtable is Human-triggered only. No unconsumed audit row with event_type='roundtable_slash_invoked' exists within the last 10 minutes, meaning the user did not type /roundtable recently. Tell the Human to type /roundtable <topic> instead of auto-firing roundtable_create. For exceptional cases, pass waive_slash_gate=true with waive_slash_gate_reason="<why>".`
-                  })
-                }
-              ]
-            };
-          }
-        }
-        const now = nowISO();
-        const slashAuditId = slashGateWaived ? null : db2.get(
-          `SELECT id FROM audit
-               WHERE event_type = 'roundtable_slash_invoked'
-                 AND created_at >= datetime('now', '-10 minutes')
-                 AND (content_json IS NULL OR json_extract(content_json, '$.consumed_by_roundtable_id') IS NULL)
-               ORDER BY created_at DESC
-               LIMIT 1`
-        )?.id ?? null;
-        db2.run(
-          `INSERT INTO roundtables (issue_id, topic, outcome, created_at, state, expected_participants)
-           VALUES (?, ?, '', ?, 'collecting', ?)`,
-          [issueId, topic, now, expectedParticipants]
-        );
-        const row = db2.get(
-          "SELECT * FROM roundtables WHERE rowid = last_insert_rowid()"
-        );
-        if (slashAuditId !== null) {
-          db2.run(
-            `UPDATE audit
-             SET content_json = json_set(COALESCE(content_json, '{}'), '$.consumed_by_roundtable_id', ?)
-             WHERE id = ?`,
-            [row.id, slashAuditId]
-          );
-        }
-        return ok12({ roundtable_id: row.id, state: row.state });
-      })
-    ),
-    roundtable_vote: requireRoles(
-      "roundtable_vote",
-      ["bro"],
-      wrapHandler12(async (args) => {
-        normalizeAgent(args["agent"]);
-        const roundtableId = requireArg10(args, "roundtable_id");
-        const participant = requireArg10(args, "participant");
-        const vote = requireArg10(args, "vote");
-        const rationale = args["rationale"] ?? "";
-        if (!participant.trim()) {
-          throw new Error("participant must be a non-empty string");
-        }
-        if (!vote.trim()) {
-          throw new Error("vote must be a non-empty string");
-        }
-        if (vote.length > 60) {
-          return err12(`invalid_argument: vote exceeds 60-char cap (got ${vote.length} chars)`);
-        }
-        if (rationale.length > 120) {
-          return err12(`invalid_argument: rationale exceeds 120-char cap (got ${rationale.length} chars)`);
-        }
-        const roundtable = db2.get(
-          "SELECT * FROM roundtables WHERE id = ?",
-          [roundtableId]
-        );
-        if (!roundtable) {
-          throw new Error(`Not found: roundtable ${roundtableId}`);
-        }
-        const currentState = roundtable.state ?? "collecting";
-        if (currentState !== "collecting" && currentState !== "awaiting_human") {
-          throw new Error(
-            `invalid_state: roundtable ${roundtableId} is in state '${currentState}'; votes only allowed in collecting or awaiting_human`
-          );
-        }
-        const now = nowISO();
-        db2.run(
-          `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at)
-           VALUES (?, ?, ?, ?, ?)`,
-          [roundtableId, participant, vote, rationale, now]
-        );
-        const row = db2.get(
-          "SELECT * FROM roundtable_votes WHERE rowid = last_insert_rowid()"
-        );
-        let newState = currentState;
-        if (participant !== "human" && currentState === "collecting") {
-          const expectedN = roundtable.expected_participants;
-          if (expectedN !== null && expectedN !== void 0) {
-            const countRow = db2.get(
-              `SELECT COUNT(DISTINCT participant) AS cnt
-               FROM roundtable_votes
-               WHERE roundtable_id = ? AND participant != 'human'`,
-              [roundtableId]
-            );
-            if (countRow && countRow.cnt >= expectedN) {
-              db2.run(
-                `UPDATE roundtables SET state = 'awaiting_human' WHERE id = ?`,
-                [roundtableId]
-              );
-              newState = "awaiting_human";
-            }
-          }
-        }
-        return ok12({ vote_id: row.id, state: newState });
-      })
-    ),
-    roundtable_close: requireRoles(
-      "roundtable_close",
-      ["bro"],
-      wrapHandler12(async (args) => {
-        normalizeAgent(args["agent"]);
-        const roundtableId = requireArg10(args, "roundtable_id");
-        const outcome = requireArg10(args, "outcome");
-        const skip = args["skip"] ?? false;
-        const roundtable = db2.get(
-          "SELECT * FROM roundtables WHERE id = ?",
-          [roundtableId]
-        );
-        if (!roundtable) {
-          throw new Error(`Not found: roundtable ${roundtableId}`);
-        }
-        if (skip) {
-          const now2 = nowISO();
-          db2.run(
-            `UPDATE roundtables SET state = 'skipped', outcome = ?, closed_at = ? WHERE id = ?`,
-            [outcome, now2, roundtableId]
-          );
-          const updated2 = db2.get("SELECT * FROM roundtables WHERE id = ?", [roundtableId]);
-          return ok12({
-            roundtable_id: updated2.id,
-            state: updated2.state,
-            closed_at: updated2.closed_at
-          });
-        }
-        const currentState = roundtable.state ?? "collecting";
-        if (currentState !== "awaiting_human" && currentState !== "skipped") {
-          throw new Error(
-            `invalid_state: roundtable ${roundtableId} is in state '${currentState}'; close requires awaiting_human or skip:true`
-          );
-        }
-        if (currentState === "awaiting_human") {
-          const humanVote = db2.get(
-            `SELECT id FROM roundtable_votes WHERE roundtable_id = ? AND participant = 'human' LIMIT 1`,
-            [roundtableId]
-          );
-          if (!humanVote) {
-            throw new Error(
-              `precondition_failed: roundtable ${roundtableId} has no human votes; call roundtable_finalize_decisions first`
-            );
-          }
-        }
-        const now = nowISO();
-        db2.run(
-          `UPDATE roundtables SET state = 'closed', outcome = ?, closed_at = ? WHERE id = ?`,
-          [outcome, now, roundtableId]
-        );
-        const updated = db2.get("SELECT * FROM roundtables WHERE id = ?", [roundtableId]);
-        return ok12({
-          roundtable_id: updated.id,
-          state: updated.state,
-          closed_at: updated.closed_at
-        });
-      })
-    ),
-    roundtable_finalize_decisions: requireRoles(
-      "roundtable_finalize_decisions",
-      ["bro"],
-      wrapHandler12(async (args) => {
-        normalizeAgent(args["agent"]);
-        const roundtableId = requireArg10(args, "roundtable_id");
-        const ratified = requireArg10(args, "ratified");
-        const unratified = requireArg10(args, "unratified");
-        const resolutions = requireArg10(args, "resolutions");
-        const roundtable = db2.get(
-          "SELECT * FROM roundtables WHERE id = ?",
-          [roundtableId]
-        );
-        if (!roundtable) {
-          throw new Error(`Not found: roundtable ${roundtableId}`);
-        }
-        const currentState = roundtable.state ?? "collecting";
-        if (currentState !== "awaiting_human") {
-          throw new Error(
-            `invalid_state: roundtable ${roundtableId} is in state '${currentState}'; finalize_decisions requires awaiting_human`
-          );
-        }
-        if (ratified.length === 0 && unratified.length === 0 && resolutions.length === 0) {
-          throw new Error("invalid_argument: at least one of ratified, unratified, or resolutions must be non-empty");
-        }
-        for (const r of resolutions) {
-          if (r.topic_slug.length > 12) {
-            throw new Error(
-              `invalid_argument: topic_slug '${r.topic_slug}' exceeds 12 characters`
-            );
-          }
-        }
-        const issueId = roundtable.issue_id;
-        const now = nowISO();
-        let discussionRowsWritten = 0;
-        let voteRowsWritten = 0;
-        db2.transaction(() => {
-          for (const agreement of ratified) {
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "answer", body: agreement, created_at: now });
-            discussionRowsWritten++;
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Ratified: ${agreement}`, created_at: now });
-            discussionRowsWritten++;
-            db2.run(
-              `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', 'ratified', ?, ?)`,
-              [roundtableId, `Ratified: ${agreement}`, now]
-            );
-            voteRowsWritten++;
-          }
-          for (const agreement of unratified) {
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "note", body: `not ratified: ${agreement}`, created_at: now });
-            discussionRowsWritten++;
-          }
-          for (const r of resolutions) {
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, created_at: now });
-            discussionRowsWritten++;
-            db2.run(
-              `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', ?, ?, ?)`,
-              [roundtableId, r.winning_stance, r.rationale ?? "", now]
-            );
-            voteRowsWritten++;
-          }
-        });
-        return ok12({
-          discussion_rows_written: discussionRowsWritten,
-          vote_rows_written: voteRowsWritten,
-          state: "awaiting_human"
-        });
-      })
-    ),
-    roundtable_summarize: requireRoles(
-      "roundtable_summarize",
-      ["bro"],
-      wrapHandler12(async (args) => {
-        normalizeAgent(args["agent"]);
-        const roundtableId = requireArg10(args, "roundtable_id");
-        const roundtable = db2.get(
-          "SELECT * FROM roundtables WHERE id = ?",
-          [roundtableId]
-        );
-        if (!roundtable) {
-          throw new Error(`Not found: roundtable ${roundtableId}`);
-        }
-        const windowEnd = nowISO();
-        const participants = db2.all(
-          `SELECT DISTINCT participant FROM roundtable_votes
-           WHERE roundtable_id = ? AND participant != 'human' AND participant IS NOT NULL`,
-          [roundtableId]
-        ).map((r) => r.participant);
-        const answerRows = db2.all(
-          `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'answer'
-           AND created_at >= ? AND created_at <= COALESCE(?, ?)`,
-          [roundtable.issue_id, roundtable.created_at, roundtable.closed_at, windowEnd]
-        ).map((r) => r.body);
-        const noteRows = db2.all(
-          `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'note' AND body LIKE 'not ratified: %'
-           AND created_at >= ? AND created_at <= COALESCE(?, ?)`,
-          [roundtable.issue_id, roundtable.created_at, roundtable.closed_at, windowEnd]
-        ).map((r) => r.body.replace(/^not ratified: /, ""));
-        const decisionRows = db2.all(
-          `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'decision' AND body NOT LIKE 'Ratified: %'
-           AND created_at >= ? AND created_at <= COALESCE(?, ?)`,
-          [roundtable.issue_id, roundtable.created_at, roundtable.closed_at, windowEnd]
-        );
-        const disagreementsResolved = decisionRows.map((r) => ({
-          decision_body: r.body
-        }));
-        return ok12({
-          topic: roundtable.topic,
-          participants,
-          agreements_ratified: answerRows,
-          unratified: noteRows,
-          disagreements_resolved: disagreementsResolved,
-          outcome: roundtable.outcome || null,
-          state: roundtable.state ?? "collecting"
-        });
-      })
-    ),
-    roundtable_close_with_decisions: requireRoles(
-      "roundtable_close_with_decisions",
-      ["bro"],
-      wrapHandler12(async (args) => {
-        normalizeAgent(args["agent"]);
-        const roundtableId = requireArg10(args, "roundtable_id");
-        const outcome = requireArg10(args, "outcome");
-        const decisions = requireArg10(args, "decisions");
-        const roundtable = db2.get(
-          "SELECT * FROM roundtables WHERE id = ?",
-          [roundtableId]
-        );
-        if (!roundtable) {
-          throw new Error(`Not found: roundtable ${roundtableId}`);
-        }
-        const currentState = roundtable.state ?? "collecting";
-        if (currentState !== "awaiting_human") {
-          throw new Error(
-            `invalid_state: roundtable ${roundtableId} is in state '${currentState}'; roundtable_close_with_decisions requires awaiting_human`
-          );
-        }
-        if (decisions.ratified.length === 0 && decisions.unratified.length === 0 && decisions.resolutions.length === 0) {
-          throw new Error("invalid_argument: at least one of ratified, unratified, or resolutions must be non-empty");
-        }
-        for (const r of decisions.resolutions) {
-          if (r.topic_slug.length > 12) {
-            throw new Error(
-              `invalid_argument: topic_slug '${r.topic_slug}' exceeds 12 characters`
-            );
-          }
-        }
-        const issueId = roundtable.issue_id;
-        const now = nowISO();
-        let discussionRowsWritten = 0;
-        let voteRowsWritten = 0;
-        db2.transaction(() => {
-          for (const agreement of decisions.ratified) {
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "answer", body: agreement, created_at: now });
-            discussionRowsWritten++;
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Ratified: ${agreement}`, created_at: now });
-            discussionRowsWritten++;
-            db2.run(
-              `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', 'ratified', ?, ?)`,
-              [roundtableId, `Ratified: ${agreement}`, now]
-            );
-            voteRowsWritten++;
-          }
-          for (const agreement of decisions.unratified) {
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "note", body: `not ratified: ${agreement}`, created_at: now });
-            discussionRowsWritten++;
-          }
-          for (const r of decisions.resolutions) {
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, created_at: now });
-            discussionRowsWritten++;
-            db2.run(
-              `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', ?, ?, ?)`,
-              [roundtableId, r.winning_stance, r.rationale ?? "", now]
-            );
-            voteRowsWritten++;
-          }
-          db2.run(
-            `UPDATE roundtables SET state = 'closed', outcome = ?, closed_at = ? WHERE id = ?`,
-            [outcome, now, roundtableId]
-          );
-        });
-        const updated = db2.get("SELECT * FROM roundtables WHERE id = ?", [roundtableId]);
-        const participants = db2.all(
-          `SELECT DISTINCT participant FROM roundtable_votes
-           WHERE roundtable_id = ? AND participant != 'human' AND participant IS NOT NULL`,
-          [roundtableId]
-        ).map((r) => r.participant);
-        const answerRows = db2.all(
-          `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'answer'
-           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`,
-          [issueId, roundtable.created_at, updated.closed_at]
-        ).map((r) => r.body);
-        const noteRows = db2.all(
-          `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'note' AND body LIKE 'not ratified: %'
-           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`,
-          [issueId, roundtable.created_at, updated.closed_at]
-        ).map((r) => r.body.replace(/^not ratified: /, ""));
-        const decisionRows = db2.all(
-          `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'decision' AND body NOT LIKE 'Ratified: %'
-           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`,
-          [issueId, roundtable.created_at, updated.closed_at]
-        );
-        const disagreementsResolved = decisionRows.map((r) => ({
-          decision_body: r.body
-        }));
-        return ok12({
-          roundtable_id: updated.id,
-          state: updated.state,
-          closed_at: updated.closed_at,
-          discussion_rows_written: discussionRowsWritten,
-          vote_rows_written: voteRowsWritten,
-          summary: {
-            topic: roundtable.topic,
-            participants,
-            agreements_ratified: answerRows,
-            unratified: noteRows,
-            disagreements_resolved: disagreementsResolved,
-            outcome: updated.outcome || null
-          }
-        });
-      })
-    )
-  };
-  return { definitions, handlers };
-}
-
-// src/sync/bot_patterns.ts
-var DEFAULT_BOT_PATTERNS = [
-  /\[bot\]$/i,
-  /-bot$/i,
-  /^dependabot/i,
-  /^coderabbitai/i,
-  /^github-actions/i,
-  /^codecov/i,
-  /^renovate/i
-];
-function isBot(author, extra = []) {
-  const all = [...DEFAULT_BOT_PATTERNS, ...extra];
-  return all.some((p) => p.test(author));
-}
-function buildBotPatterns(configOverride) {
-  if (!configOverride || !configOverride.trim()) return DEFAULT_BOT_PATTERNS;
-  const extras = configOverride.split(",").map((s) => s.trim()).filter(Boolean).map((s) => {
-    try {
-      return new RegExp(s, "i");
-    } catch {
-      return null;
-    }
-  }).filter((r) => r !== null);
-  return [...DEFAULT_BOT_PATTERNS, ...extras];
-}
-
-// src/tools/pr_monitor.ts
-import { spawnSync as spawnSync4 } from "node:child_process";
-
-// src/utils/untrusted.ts
-var UNTRUSTED_CLOSE = "</untrusted-content>";
-function frameUntrusted(source, content) {
-  const neutralized = content.split(UNTRUSTED_CLOSE).join("</ untrusted-content>");
-  return `<untrusted-content source="${source}">
-${neutralized}
-${UNTRUSTED_CLOSE}`;
-}
-
-// src/tools/pr_monitor.ts
-function ok13(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err13(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function wrap(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err13(e.message);
-    }
-  };
-}
-function defaultSpawnFn2(cmd, args, opts) {
-  const blockReason = liveCliBlockReason();
-  if (blockReason) {
-    return { status: null, stdout: "", stderr: liveCliBlockedMessage(blockReason, cmd, args) };
-  }
-  const result = spawnSync4(cmd, args, opts);
-  return {
-    status: result.status,
-    stdout: result.stdout ? String(result.stdout) : "",
-    stderr: result.stderr ? String(result.stderr) : ""
-  };
-}
-function repoNameForSlug(db2, slug) {
-  if (!slug) return null;
-  const rows = db2.all(
-    `SELECT name, remotes FROM repos`
-  );
-  for (const row of rows) {
-    if (!row.remotes) continue;
-    let remotes;
-    try {
-      const parsed = JSON.parse(row.remotes);
-      remotes = Array.isArray(parsed) ? parsed : [];
-    } catch {
-      continue;
-    }
-    for (const r of remotes) {
-      const full = r.url ? repoSlugFromRemoteUrl(r.url) : null;
-      if (!full) continue;
-      const bare = full.replace(/^[^/]+\//, "");
-      if (slug === full || slug === bare) return row.name;
-    }
-  }
-  return null;
-}
-function resolveMonitorTaskId(db2, branch, repoSlug) {
-  if (!branch) return null;
-  const repoName = repoNameForSlug(db2, repoSlug);
-  if (repoName) {
-    const scoped = db2.all(
-      `SELECT id FROM tasks WHERE branch_id = ? AND repo = ?`,
-      [branch, repoName]
-    );
-    if (scoped.length === 1) return scoped[0].id;
-  }
-  const rows = db2.all(
-    `SELECT id FROM tasks WHERE branch_id = ?`,
-    [branch]
-  );
-  return rows.length === 1 ? rows[0].id : null;
-}
-function normalizePrState(raw) {
-  const lower = raw.toLowerCase();
-  if (lower === "open" || lower === "opened") return "open";
-  if (lower === "merged") return "merged";
-  return "closed";
-}
-function fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) {
-  const opts = { timeout: 15e3, encoding: "utf8" };
-  const ghArgs = ["pr", "view", String(prNumber), "--json", "comments,state,reviews,headRefName"];
-  if (repo) ghArgs.splice(2, 0, "-R", repo);
-  const result = spawnFn("gh", ghArgs, opts);
-  if (result.status !== 0) return null;
-  let parsed;
-  try {
-    parsed = JSON.parse(result.stdout);
-  } catch {
-    return null;
-  }
-  const prState = normalizePrState(parsed.state ?? "");
-  const rawComments = [];
-  for (const c of parsed.comments ?? []) {
-    const id = c.id ?? String(c.databaseId ?? "");
-    const author = c.author?.login ?? "unknown";
-    const created_at = c.createdAt ?? "";
-    if (since && created_at && created_at <= since) continue;
-    rawComments.push({
-      id,
-      author,
-      author_kind: isBot(author, botPatterns) ? "bot" : "human",
-      body: frameUntrusted("pr-comment", c.body ?? ""),
-      created_at,
-      is_resolved: false
-    });
-  }
-  for (const review of parsed.reviews ?? []) {
-    for (const c of review.comments ?? []) {
-      const id = c.id ?? String(c.databaseId ?? "");
-      const author = c.author?.login ?? "unknown";
-      const created_at = c.createdAt ?? "";
-      if (since && created_at && created_at <= since) continue;
-      const comment = {
-        id,
-        author,
-        author_kind: isBot(author, botPatterns) ? "bot" : "human",
-        body: frameUntrusted("pr-comment", c.body ?? ""),
-        created_at,
-        is_resolved: c.isResolved ?? false
-      };
-      if (c.path) comment.file_path = c.path;
-      if (c.line !== void 0) comment.line = c.line;
-      rawComments.push(comment);
-    }
-  }
-  return { comments: rawComments, pr_state: prState, remote_kind: "github", head_branch: parsed.headRefName ?? "" };
-}
-function fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn) {
-  const opts = { timeout: 15e3, encoding: "utf8" };
-  const glabArgs = ["mr", "view", String(prNumber), "--comments", "--output", "json"];
-  if (repo) glabArgs.splice(2, 0, "-R", repo);
-  const result = spawnFn("glab", glabArgs, opts);
-  if (result.status !== 0) return null;
-  let parsed;
-  try {
-    parsed = JSON.parse(result.stdout);
-  } catch {
-    return null;
-  }
-  const prState = normalizePrState(parsed.state ?? "");
-  const rawComments = [];
-  for (const note of parsed.notes ?? []) {
-    const id = String(note.id ?? "");
-    const author = note.author?.username ?? "unknown";
-    const created_at = note.created_at ?? "";
-    if (since && created_at && created_at <= since) continue;
-    const comment = {
-      id,
-      author,
-      author_kind: isBot(author, botPatterns) ? "bot" : "human",
-      body: frameUntrusted("pr-comment", note.body ?? ""),
-      created_at,
-      is_resolved: note.resolved ?? false
-    };
-    if (note.position?.new_path) comment.file_path = note.position.new_path;
-    if (note.position?.new_line !== void 0) comment.line = note.position.new_line;
-    rawComments.push(comment);
-  }
-  return { comments: rawComments, pr_state: prState, remote_kind: "gitlab", head_branch: parsed.source_branch ?? "" };
-}
-function resolveComments(backend, prNumber, repo, since, botPatterns, spawnFn) {
-  if (backend === "gh") {
-    return fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn);
-  }
-  if (backend === "glab") {
-    return fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn);
-  }
-  if (backend === "both") {
-    return fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) ?? fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn);
-  }
-  return fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) ?? fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn);
-}
-function prMonitorTools(db2, _spawnFn) {
-  const spawn3 = _spawnFn ?? defaultSpawnFn2;
-  const definitions = [
-    {
-      name: "pr_monitor_comments_get",
-      description: "Fetch PR/MR comments from GitHub or GitLab. Returns structured comment list with bot/human classification, file/line metadata, and PR state.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          pr_number: {
-            type: "number",
-            description: "PR or MR number to fetch comments for."
-          },
-          repo: {
-            type: "string",
-            description: "Optional repo slug (owner/repo) passed to gh -R / glab -R. When omitted, resolves to the sole registered repo's remote slug; in a multi-repo workspace it is required (a named error is returned otherwise). The cwd git remote is never used in a multi-repo workspace."
-          },
-          since: {
-            type: "string",
-            description: "ISO 8601 timestamp. Only return comments created after this time. When omitted, the server reads the cursor from pr_review_runs.last_fetched_at so the next fetch returns only comments newer than the last one."
-          }
-        },
-        required: ["pr_number"]
-      }
-    },
-    {
-      name: "pr_monitor_runs_list",
-      description: "List incremental-polling cursors for /monitor. Returns one row per (pr_number, repo) with last_fetched_at + last_comment_id. Read-only diagnostic surface for the cursor wired by pr_monitor_comments_get.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          pr_number: {
-            type: "number",
-            description: "Optional filter \u2014 only return rows for this PR number."
-          },
-          limit: { type: "number", description: "Optional \u2014 max rows to return. When provided, response includes next_cursor." },
-          cursor: { type: "string", description: "Opaque cursor from a previous response." }
-        }
-      }
-    }
-  ];
-  const handlers = {
-    pr_monitor_comments_get: requireRoles("pr_monitor_comments_get", ["bro"], wrap(async (args) => {
-      const prNumber = Number(args["pr_number"]);
-      if (!Number.isInteger(prNumber) || prNumber <= 0) {
-        return err13("pr_number must be a positive integer");
-      }
-      const explicitRepo = typeof args["repo"] === "string" && args["repo"].length > 0 ? args["repo"] : null;
-      let repo;
-      if (explicitRepo !== null) {
-        repo = explicitRepo;
-      } else {
-        const repoCount = db2.get("SELECT COUNT(*) AS c FROM repos")?.c ?? 0;
-        if (repoCount > 1) {
-          return err13(
-            'pr_monitor_comments_get: multiple repos registered and no repo slug given \u2014 pass repo="owner/repo". The cwd git remote is never used in a multi-repo workspace.'
-          );
-        }
-        const resolved = resolveRepoForSync(db2, null);
-        const slug = resolved ? resolved.remotes.map((r) => repoSlugFromRemoteUrl(r.url)).find((s) => s !== null) ?? null : null;
-        repo = slug ?? "";
-      }
-      let since = typeof args["since"] === "string" ? args["since"] : void 0;
-      if (since === void 0) {
-        const cursor = db2.get(
-          `SELECT last_fetched_at FROM pr_review_runs WHERE pr_number = ? AND repo = ?`,
-          [prNumber, repo]
-        );
-        if (cursor?.last_fetched_at) since = cursor.last_fetched_at;
-      }
-      const configRow = db2.get(
-        `SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`
-      );
-      const configValue = configRow ? JSON.parse(configRow.value_json) : "auto";
-      let backend;
-      if (configValue === "off") {
-        const ghAvail = spawn3("gh", ["auth", "status"], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" }).status === 0;
-        if (ghAvail) {
-          backend = "gh";
-        } else {
-          const glabAvail = spawn3("glab", ["auth", "status"], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" }).status === 0;
-          if (!glabAvail) {
-            return err13("Neither gh nor glab is installed/available; cannot fetch PR comments");
-          }
-          backend = "glab";
-        }
-      } else {
-        backend = resolveBackend(configValue, null, _spawnFn !== void 0);
-      }
-      const configBots = db2.get(
-        `SELECT value_json FROM plugin_config WHERE key = 'pr_review_bots'`
-      );
-      let botsOverride = "";
-      if (configBots) {
-        try {
-          const parsed = JSON.parse(configBots.value_json);
-          if (typeof parsed === "string") botsOverride = parsed;
-        } catch {
-        }
-      }
-      const botPatterns = buildBotPatterns(botsOverride);
-      const fetchResult = resolveComments(backend, prNumber, repo, since, botPatterns, spawn3);
-      if (!fetchResult) {
-        return err13("Failed to fetch PR comments \u2014 check gh/glab auth and PR number");
-      }
-      const now = nowISO();
-      const lastCommentId = fetchResult.comments.length > 0 ? fetchResult.comments[fetchResult.comments.length - 1]?.id ?? null : null;
-      const taskId = resolveMonitorTaskId(db2, fetchResult.head_branch, repo);
-      const existingCursor = db2.get(
-        "SELECT id FROM pr_review_runs WHERE pr_number = ? AND repo = ?",
-        [prNumber, repo]
-      );
-      if (existingCursor) {
-        db2.run(
-          "UPDATE pr_review_runs SET last_fetched_at = ?, last_comment_id = ?, task_id = COALESCE(?, task_id) WHERE id = ?",
-          [now, lastCommentId, taskId, existingCursor.id]
-        );
-      } else {
-        db2.run(
-          `INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id, task_id)
-           VALUES (?, ?, ?, ?, ?)`,
-          [prNumber, repo, now, lastCommentId, taskId]
-        );
-      }
-      return ok13(fetchResult);
-    })),
-    pr_monitor_runs_list: requireRoles("pr_monitor_runs_list", ["bro"], async (args) => {
-      const prFilter = args["pr_number"];
-      const filterPrNumber = prFilter === void 0 || prFilter === null ? null : Number(prFilter);
-      if (filterPrNumber !== null && (!Number.isInteger(filterPrNumber) || filterPrNumber <= 0)) {
-        return err13("pr_number must be a positive integer when provided");
-      }
-      const limitArg = args["limit"];
-      const cursorArg = args["cursor"];
-      if (limitArg === void 0 || limitArg === null) {
-        const rows2 = filterPrNumber === null ? db2.all(
-          "SELECT id, pr_number, repo, last_fetched_at, last_comment_id FROM pr_review_runs ORDER BY pr_number, repo"
-        ) : db2.all(
-          "SELECT id, pr_number, repo, last_fetched_at, last_comment_id FROM pr_review_runs WHERE pr_number = ? ORDER BY repo",
-          [filterPrNumber]
-        );
-        return ok13({ rows: rows2, count: rows2.length });
-      }
-      const limit = Math.min(Math.max(1, limitArg), 500);
-      let cursorFilter = "";
-      let cursorParams = [];
-      if (cursorArg) {
-        try {
-          const decoded = JSON.parse(
-            Buffer.from(cursorArg, "base64").toString("utf8")
-          );
-          if (typeof decoded.id === "number") {
-            cursorFilter = "AND id > ?";
-            cursorParams = [decoded.id];
-          }
-        } catch {
-        }
-      }
-      const whereBase = filterPrNumber !== null ? "WHERE pr_number = ? " : "WHERE 1=1 ";
-      const baseParams = filterPrNumber !== null ? [filterPrNumber] : [];
-      const sql = "SELECT id, pr_number, repo, last_fetched_at, last_comment_id FROM pr_review_runs " + whereBase + cursorFilter + " ORDER BY id ASC LIMIT ?";
-      const fetchedRows = db2.all(sql, [...baseParams, ...cursorParams, limit + 1]);
-      const hasMore = fetchedRows.length > limit;
-      const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
-      const last = rows[rows.length - 1];
-      const next_cursor = hasMore && last ? Buffer.from(JSON.stringify({ id: last.id })).toString("base64") : void 0;
-      return ok13({ rows, count: rows.length, next_cursor });
-    })
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/composites.ts
-import { execFileSync } from "node:child_process";
-import { existsSync as existsSync3, realpathSync as realpathSync2 } from "node:fs";
-import { resolve as resolve3, dirname as dirname6 } from "node:path";
-var WORKTREE_TIMEOUT_MS = 6e4;
-function filesToDirs(files) {
-  const dirs = /* @__PURE__ */ new Set();
-  for (const path2 of files) {
-    const slash = path2.lastIndexOf("/");
-    dirs.add(slash >= 0 ? path2.slice(0, slash) : "");
-  }
-  return [...dirs];
-}
-function parseTaskFiles(filesJson) {
-  if (!filesJson) return [];
-  try {
-    const parsed = JSON.parse(filesJson);
-    return Array.isArray(parsed) ? parsed.filter((p) => typeof p === "string") : [];
-  } catch {
-    return [];
-  }
-}
-function scopeCheckCommit(repoPath, baseRef, commitSha, files) {
-  let diffOut;
-  try {
-    diffOut = execFileSync(
-      "git",
-      ["-C", repoPath, "diff", "--name-only", `${baseRef}...${commitSha}`],
-      { stdio: ["ignore", "pipe", "pipe"], timeout: SUBPROCESS_TIMEOUT_MS }
-    ).toString();
-  } catch (e) {
-    return {
-      outOfScope: [],
-      checked: false,
-      reason: e.message.split("\n")[0] || "git diff failed"
-    };
-  }
-  const changed = diffOut.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
-  const exact = /* @__PURE__ */ new Set();
-  const prefixes = [];
-  for (const entry of files) {
-    if (entry.endsWith("/")) {
-      prefixes.push(entry);
-    } else {
-      exact.add(entry);
-      prefixes.push(`${entry}/`);
-    }
-  }
-  const outOfScope = changed.filter((path2) => {
-    if (exact.has(path2)) return false;
-    return !prefixes.some((p) => path2.startsWith(p));
-  });
-  return { outOfScope, checked: true };
-}
-function resolveRepoPath(db2, repoValue) {
-  const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db2)?.name ?? null;
-  if (!name) return null;
-  const reposRow = db2.get(`SELECT path FROM repos WHERE name = ?`, [name]);
-  if (!reposRow) return name;
-  const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname6(db2.dbPath);
-  return reposRow.path.startsWith("/") ? reposRow.path : resolve3(dbDir, reposRow.path);
-}
-function resolveBaseRef(repoPath, base) {
-  try {
-    execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", `origin/${base}`], {
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: SUBPROCESS_TIMEOUT_MS
-    });
-    return `origin/${base}`;
-  } catch {
-  }
-  try {
-    execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${base}`], {
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: SUBPROCESS_TIMEOUT_MS
-    });
-    return base;
-  } catch {
-    return null;
-  }
-}
-function readRepoTargetBranch(db2, repoValue) {
-  const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db2)?.name ?? null;
-  if (!name) return null;
-  const row = db2.get(
-    `SELECT target_branch FROM repos WHERE name = ?`,
-    [name]
-  );
-  const v = row?.target_branch;
-  return typeof v === "string" && v.length > 0 ? v : null;
-}
-function ok14(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err14(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function wrap2(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err14(e.message);
-    }
-  };
-}
-function slugify2(s) {
-  return s.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 63).replace(/-+$/g, "");
-}
-function intentToType(text) {
-  const lower = text.toLowerCase();
-  const rules = [
-    { prefix: "fix", patterns: [/\bfix\b/, /\bbug\b/, /\bbroken\b/, /\bcrash\b/, /\bregression\b/] },
-    { prefix: "feat", patterns: [/\badd\b/, /\bnew\b/, /\bimplement\b/, /\bintroduce\b/] },
-    { prefix: "refactor", patterns: [/\brename\b/, /\bextract\b/, /\brestructure\b/, /\bclean[\s-]?up\b/, /\brefactor\b/] },
-    { prefix: "docs", patterns: [/\bdocs?\b/, /\breadme\b/, /\bcomment(s|ing)?\b/] },
-    { prefix: "test", patterns: [/\btest(s|ing)?\b/, /\bcoverage\b/] },
-    { prefix: "perf", patterns: [/\bperf(ormance)?\b/, /\bspeed up\b/, /\boptimi[sz]e\b/, /\blatency\b/] },
-    { prefix: "build", patterns: [/\bbuild script\b/, /\bdependency\b/, /\bdep(s|endency) bump\b/] },
-    { prefix: "ci", patterns: [/\bci\b/, /\bpipeline\b/, /\bgithub action\b/] },
-    { prefix: "chore", patterns: [/\bchore\b/, /\bhousekeeping\b/, /\bcleanup\b/] },
-    { prefix: "style", patterns: [/\bformat(ting)?\b/, /\bwhitespace\b/, /\blint\b/] },
-    { prefix: "revert", patterns: [/\brevert\b/, /\broll back\b/] }
-  ];
-  for (const r of rules) {
-    if (r.patterns.some((p) => p.test(lower))) {
-      return { prefix: r.prefix, confidence: 0.9 };
-    }
-  }
-  return { prefix: "chore", confidence: 0.3 };
-}
-function insertIntentAndNote(db2, issueId, intentVerbatim, noteLine, now) {
-  const existing = db2.get(
-    `SELECT id FROM discussions
-      WHERE issue_id = ? AND kind = 'intent' AND body = ?
-      LIMIT 1`,
-    [issueId, `Human intent verbatim: "${intentVerbatim}"`]
-  );
-  insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "note", body: noteLine, created_at: now });
-  const written = ["note"];
-  if (!existing) {
-    insertDiscussion(db2, {
-      issue_id: issueId,
-      author: "bro",
-      kind: "intent",
-      body: `Human intent verbatim: "${intentVerbatim}"`,
-      created_at: now
-    });
-    written.push("intent");
-  }
-  return written;
-}
-function closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssueIfLast) {
-  db2.run(
-    `INSERT INTO audit
-       (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-     VALUES (?, ?, 'bro', 'bro_verification_pass', ?, ?, ?)`,
-    [
-      task.issue_id,
-      task.branch_id,
-      verificationSummary.slice(0, 200),
-      JSON.stringify({ task_id: task.id, commit_sha: commitSha }),
-      now
-    ]
-  );
-  db2.run(
-    `UPDATE tasks
-        SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?
-      WHERE id=?`,
-    [commitSha, now, now, task.id]
-  );
-  db2.run(
-    `UPDATE agent_runs
-        SET completed_at = ?,
-            duration_ms = COALESCE(
-              (strftime('%s', ?) - strftime('%s', started_at)) * 1000,
-              0
-            )
-      WHERE task_id = ?
-        AND agent_type = 'bro'
-        AND completed_at IS NULL`,
-    [now, now, task.id]
-  );
-  let issueClosed = false;
-  if (closeIssueIfLast) {
-    const remaining = db2.get(
-      `SELECT COUNT(*) AS c FROM tasks
-        WHERE issue_id = ?
-          AND status NOT IN ('closed', 'failed', 'escalated')`,
-      [task.issue_id]
-    );
-    if ((remaining?.c ?? 0) === 0) {
-      db2.run(
-        `UPDATE issues SET status='closed', closed_at=COALESCE(closed_at,?), updated_at=? WHERE id=? AND status != 'closed'`,
-        [now, now, task.issue_id]
-      );
-      issueClosed = true;
-    }
-  }
-  return { issue_closed: issueClosed };
-}
-function compositeTools(db2, dbPath2, graphHolder2 = null) {
-  const definitions = [
-    {
-      name: "branch_id_propose",
-      description: "Heuristic-only branch_id derivation from free-text intent + objective, returning { branch_id, confidence }; pure, no DB writes.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          intent: {
-            type: "string",
-            description: 'Free-text user intent \u2014 verb-led ("fix the auth crash", "add export feature").'
-          },
-          objective: {
-            type: "string",
-            description: "Optional shorter slug seed; if omitted, intent is used."
-          }
-        },
-        required: ["agent", "intent"]
-      }
-    },
-    {
-      name: "task_retry",
-      description: "Retry composite \u2014 one transaction: reads the failed task, appends rationale, creates a new task inheriting issue_id/parent_branch_id/repo (overridable). Returns the new task row.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          failed_task_id: { type: "string" },
-          new_branch_id: {
-            type: "string",
-            description: "Branch_id for the retry (must be different from the failed task's branch_id; same conventional format)."
-          },
-          corrected_spec_body: { type: "string", description: `The new spec_body \u2014 \u2264${SPEC_BODY_MAX_BYTES} chars (override via TMB_SPEC_BODY_MAX_BYTES).` },
-          retry_rationale: {
-            type: "string",
-            description: "\u2264200 chars \u2014 the root cause and corrected approach. Persisted as discussion(kind='decision')."
-          },
-          repo: {
-            type: "string",
-            description: 'Optional repo override \u2014 replaces the repo inherited from the failed task. Must not contain ".." or start with "/". Omit to inherit.'
-          },
-          title: { type: "string" },
-          description: { type: "string" }
-        },
-        required: [
-          "agent",
-          "failed_task_id",
-          "new_branch_id",
-          "corrected_spec_body",
-          "retry_rationale",
-          "description"
-        ]
-      }
-    },
-    {
-      name: "intent_start",
-      description: "Interactive planning composite \u2014 atomically runs issue_create + discussion_append(intent) + discussion_append(note) + audit_append(branch_id_proposed). Git branch creation stays caller-side. Returns {issue_id, branch_id}.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          objective: { type: "string", description: "Short one-liner issue objective." },
-          intent_verbatim: { type: "string", description: "Human intent verbatim \u2014 stored as kind=intent discussion." },
-          branch_id: { type: "string", description: "Confirmed branch_id (from branch_id_propose + Human confirm)." },
-          repo: { type: "string", description: "Optional repo name (matches a repos row) this issue belongs to. Defaults to the sole/managed repo when exactly one repos row exists. Mirrors issue_create." }
-        },
-        required: ["agent", "objective", "intent_verbatim", "branch_id"]
-      }
-    },
-    {
-      name: "bro_verification_fail_record",
-      description: "V3-fail composite \u2014 atomically writes the audit_append + discussion_append that bro emits when a verification check fails.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          task_id: { type: "string", description: "Task ID under verification." },
-          which_check: {
-            type: "string",
-            description: 'Which V1/V2/V3 check failed (e.g. "V2 \u2014 tests", "V3 \u2014 success criteria").'
-          },
-          details: {
-            type: "string",
-            description: "\u2264500 chars \u2014 root cause and specifics of the failure."
-          }
-        },
-        required: ["agent", "task_id", "which_check", "details"]
-      }
-    },
-    {
-      name: "pr_monitor_worktree",
-      description: "PR-review worktree composite \u2014 creates a per-SHA worktree at /tmp/pr-review-<sha>, runs a caller-supplied command inside it, then removes the worktree atomically.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          commit_sha: { type: "string", description: "7\u201340 hex SHA to check out." },
-          repo_path: {
-            type: "string",
-            description: "Absolute path to the git repo (CLAUDE_PLUGIN_ROOT or inner-repo root)."
-          },
-          command: {
-            type: "string",
-            description: "Shell command to run inside the worktree. Must be non-empty."
-          }
-        },
-        required: ["agent", "commit_sha", "repo_path", "command"]
-      }
-    },
-    {
-      name: "worktree_commits_fetch",
-      description: "Commit-reap composite \u2014 fetches each task's worktree HEAD into the main checkout under branch_id, returning { task_id, branch_id, commit_sha }[] ready for pr-reviewer spawn.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          task_ids: {
-            type: "array",
-            items: { type: "string" },
-            description: "Task IDs whose commits need to be reaped from worktrees."
-          },
-          repo_path: {
-            type: "string",
-            description: "Absolute path to the main git checkout (where worktrees/ lives)."
-          }
-        },
-        required: ["agent", "task_ids", "repo_path"]
-      }
-    },
-    {
-      name: "bro_atomic_close",
-      description: "Bro task-close composite \u2014 writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. PostToolUse hooks fire on bro_atomic_close (not task_update_status).",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          task_id: { type: "string" },
-          commit_sha: { type: "string" },
-          verification_summary: {
-            type: "string",
-            description: "Free-text \u2014 lands in the bro_verification_pass audit row."
-          },
-          close_issue_if_last_task: {
-            type: "boolean",
-            description: "When true and this is the issue's last open task, also close the issue in the same transaction."
-          },
-          waive_scope_gate: {
-            type: "boolean",
-            description: "When true, SKIP the server-side files[] scope gate (the close-time check that the commit's changed files all fall within the task's typed files[]) and record a waive note. Use only when closing intentionally outside a resolvable git checkout, or when the out-of-scope paths are accepted. Default false (gate enforced, fail-closed)."
-          }
-        },
-        required: ["agent", "task_id", "commit_sha", "verification_summary"]
-      }
-    },
-    {
-      name: "task_recover",
-      description: "Bro task-recovery composite \u2014 deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          task_id: { type: "string" },
-          commit_sha: {
-            type: "string",
-            description: "Optional 7..40-char hex SHA of the recovered work. Required to advance to closed."
-          },
-          verification_summary: {
-            type: "string",
-            description: "Free-text \u2014 lands in the bro_verification_pass audit row on recovery."
-          },
-          close_issue_if_last_task: {
-            type: "boolean",
-            description: "When true and this is the issue's last open task, also close the issue in the same transaction."
-          }
-        },
-        required: ["agent", "task_id"]
-      }
-    },
-    {
-      name: "task_provision",
-      description: "Bro's atomic planning composite \u2014 collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and creates the branch ref (idempotent) BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft). Returns the spawn-ready shape {task_id, branch_id, repo, slug, worktree_path, git_setup, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          issue_id: { type: "number", description: "Issue the decision + task belong to." },
-          branch_id: { type: "string", description: "Git-convention branch_id (feat/foo); doubles as the working branch + worktree slug source." },
-          decision_body: {
-            type: "string",
-            description: "Bro's chosen approach (what, why, trade-offs) \u2014 stored as a kind='decision' discussion to satisfy the decision gate."
-          },
-          base: {
-            type: "string",
-            description: "Optional start-point for the branch ref. Defaults to the repo's target_branch || 'dev'."
-          },
-          waive_registry_gate: {
-            type: "boolean",
-            description: "Bypass the world-model-cold gate (needs a deep_scan_completed audit). Only when /scan can't run."
-          },
-          waive_registry_gate_reason: {
-            type: "string",
-            description: "Required when waive_registry_gate is true (min 10 chars): why the gate is unnecessary."
-          },
-          task: {
-            type: "object",
-            description: "The single task spec.",
-            properties: {
-              title: { type: "string" },
-              description: { type: "string" },
-              spec_body: {
-                type: "string",
-                description: `Full markdown body SWE reads; max ${SPEC_BODY_MAX_BYTES} chars. Must contain a ## Success Criteria H2.`
-              },
-              files: {
-                type: "array",
-                items: { type: "string" },
-                description: "Authoritative allowlist of paths SWE may edit (swe-scope-fence hook)."
-              },
-              verification: {
-                type: "array",
-                items: { type: "string" },
-                description: "Authoritative shell commands the swe-verification-gate hook runs before SWE may complete."
-              },
-              repo: {
-                type: "string",
-                description: `Optional relative path to this task's git repo (no ".." or leading "/"); omit for single-repo CC.`
-              },
-              prompt_bearing: {
-                type: "number",
-                description: "Set to 1 when this task intentionally edits prompt-surface files. Default 0."
-              }
-            },
-            required: ["description", "spec_body", "files", "verification"]
-          }
-        },
-        required: ["agent", "issue_id", "branch_id", "decision_body", "task"]
-      }
-    },
-    {
-      name: "task_brief",
-      description: "Full context bundle for one task in a single call \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          task_id: { type: "number", description: "Task id to assemble the brief for." }
-        },
-        required: ["agent", "task_id"]
-      }
-    }
-  ];
-  const handlers = {
-    task_provision: requireRoles(
-      "task_provision",
-      ["bro"],
-      wrap2(async (args) => {
-        const agent = args["agent"] ?? "bro";
-        const issueId = args["issue_id"];
-        const branchId = args["branch_id"];
-        const decisionBody = args["decision_body"];
-        const task = args["task"];
-        if (typeof issueId !== "number" || !Number.isFinite(issueId)) {
-          return err14("issue_id must be a number");
-        }
-        if (!branchId || typeof branchId !== "string") {
-          return err14("branch_id must be a non-empty string");
-        }
-        if (!BRANCH_ID_RE.test(branchId)) {
-          return err14(`branch_id "${branchId}" does not match the conventional format <type>/<slug>.`);
-        }
-        if (!decisionBody || decisionBody.trim().length === 0) {
-          return err14("decision_body must be a non-empty string");
-        }
-        if (!task || typeof task !== "object") {
-          return err14("task must be an object");
-        }
-        if (!task.description || task.description.trim().length === 0) {
-          return err14("task.description must be a non-empty string");
-        }
-        if (!task.spec_body || typeof task.spec_body !== "string") {
-          return err14("task.spec_body must be a non-empty string");
-        }
-        if (task.spec_body.length > SPEC_BODY_MAX_BYTES) {
-          return err14(
-            `task.spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${task.spec_body.length}). Cite existing code/conventions rather than restating them. Override via TMB_SPEC_BODY_MAX_BYTES.`
-          );
-        }
-        const validateStrArray = (value, field) => {
-          if (!Array.isArray(value) || value.length === 0) {
-            throw new Error(`task.${field} must be a non-empty array of strings.`);
-          }
-          for (const el of value) {
-            if (typeof el !== "string" || el.trim().length === 0) {
-              throw new Error(`task.${field} entries must each be a non-empty string.`);
-            }
-          }
-          return value;
-        };
-        const files = validateStrArray(task.files, "files");
-        const verification = validateStrArray(task.verification, "verification");
-        let repoValue = null;
-        if (task.repo !== void 0 && task.repo !== null && task.repo !== "") {
-          if (typeof task.repo !== "string") return err14("task.repo must be a string");
-          if (task.repo.includes("..")) return err14(`Invalid repo "${task.repo}": must not contain "..".`);
-          if (task.repo.startsWith("/")) return err14(`Invalid repo "${task.repo}": must not start with "/".`);
-          repoValue = task.repo;
-        } else {
-          repoValue = resolveSoleRepo(db2)?.name ?? null;
-        }
-        const promptBearing = typeof task.prompt_bearing === "number" && task.prompt_bearing === 1 ? 1 : 0;
-        const slug = branchId.replace(/^[^/]+\//, "");
-        const registryGateWaived = args["waive_registry_gate"] === true;
-        const registryGateWaiverReason = args["waive_registry_gate_reason"] ?? "";
-        if (registryGateWaived) {
-          if (typeof registryGateWaiverReason !== "string" || registryGateWaiverReason.trim().length < 10) {
-            return err14("waive_registry_gate_reason must be a string \u226510 chars.");
-          }
-        } else {
-          const scanRow = db2.get(
-            `SELECT COUNT(*) as c FROM audit WHERE event_type = 'deep_scan_completed'`
-          );
-          if ((scanRow?.c ?? 0) === 0) {
-            return {
-              isError: true,
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    error: "registry_cold_violation",
-                    message: `task_provision: world-model-cold gate \u2014 no deep_scan_completed audit row exists. Run /scan (or call scan_run directly) to discover repos and populate the world model. For exceptional cases, pass waive_registry_gate=true with waive_registry_gate_reason="<why>".`
-                  })
-                }
-              ]
-            };
-          }
-        }
-        let repoPath = null;
-        if (repoValue) {
-          const reposRow = db2.get(
-            `SELECT path FROM repos WHERE name = ?`,
-            [repoValue]
-          );
-          if (reposRow) {
-            const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname6(db2.dbPath);
-            repoPath = reposRow.path.startsWith("/") ? reposRow.path : resolve3(dbDir, reposRow.path);
-          } else {
-            return err14(
-              `task_provision: repo '${repoValue}' is not registered (no repos row). Run /scan or pass a registered task.repo \u2014 tasks.repo is a foreign key to repos(name). No task row or branch was created.`
-            );
-          }
-        }
-        if (!repoPath) {
-          return err14(
-            `task_provision: cannot resolve a repo path for git setup (task.repo='${repoValue ?? ""}'); pass task.repo or register a single repo. No task row was created \u2014 retry once the repo resolves.`
-          );
-        }
-        const base = args["base"] ?? (readRepoTargetBranch(db2, repoValue) ?? "dev");
-        let branchReused = true;
-        try {
-          execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branchId}`], {
-            stdio: ["ignore", "pipe", "pipe"],
-            timeout: SUBPROCESS_TIMEOUT_MS
-          });
-        } catch {
-          branchReused = false;
-        }
-        if (!branchReused) {
-          const resolvedBaseRef = resolveBaseRef(repoPath, base);
-          if (!resolvedBaseRef) {
-            return err14(
-              `task_provision: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue}'. No task row was created \u2014 retry with a valid base and the same branch_id.`
-            );
-          }
-          try {
-            execFileSync("git", ["-C", repoPath, "branch", branchId, resolvedBaseRef], {
-              stdio: ["ignore", "pipe", "pipe"],
-              timeout: SUBPROCESS_TIMEOUT_MS
-            });
-          } catch (e) {
-            return err14(
-              `task_provision: failed to create branch '${branchId}' from '${resolvedBaseRef}' in repo '${repoValue}' (${e.message.split("\n")[0] || "git branch failed"}). No task row was created \u2014 retry with the same branch_id.`
-            );
-          }
-        }
-        const now = nowISO();
-        const result = db2.transaction(() => {
-          insertDiscussion(db2, { issue_id: issueId, author: agent, kind: "decision", body: decisionBody, created_at: now });
-          db2.run(
-            `INSERT INTO tasks
-               (issue_id, branch_id, parent_branch_id, title, description,
-                status, attempts, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              issueId,
-              branchId,
-              base,
-              task.title ?? "",
-              task.description,
-              task.spec_body,
-              repoValue,
-              promptBearing,
-              JSON.stringify(files),
-              JSON.stringify(verification),
-              now,
-              now
-            ]
-          );
-          const row = db2.get(
-            "SELECT id, branch_id FROM tasks WHERE rowid = last_insert_rowid()"
-          );
-          if (!row) throw new Error("task_provision: task insert succeeded but row lookup failed");
-          db2.run(
-            `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
-             VALUES (?, ?, 'bro', ?)`,
-            [row.id, issueId, now]
-          );
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'planning_complete', ?, ?, ?)`,
-            [
-              issueId,
-              branchId,
-              agent,
-              `Planning complete for issue ${issueId}: 1 task created on ${branchId}.`,
-              JSON.stringify({ issue_id: issueId, task_count: 1, task_branch_ids: [branchId] }),
-              now
-            ]
-          );
-          if (registryGateWaived) {
-            db2.run(
-              `INSERT INTO audit
-                 (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-               VALUES (?, ?, ?, 'registry_gate_waived', ?, ?, ?)`,
-              [
-                issueId,
-                branchId,
-                agent,
-                registryGateWaiverReason.slice(0, 200),
-                JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: 1 }),
-                now
-              ]
-            );
-          }
-          return { task_id: row.id };
-        });
-        let gitSetup = "created";
-        let diagnostic;
-        const worktreePath = `${repoPath}/.claude/worktrees/${slug}`;
-        try {
-          let worktreeReused = false;
-          if (existsSync3(worktreePath)) {
-            const canonicalWt = realpathSync2(worktreePath);
-            try {
-              const list = execFileSync("git", ["-C", repoPath, "worktree", "list", "--porcelain"], {
-                stdio: ["ignore", "pipe", "pipe"],
-                timeout: SUBPROCESS_TIMEOUT_MS
-              }).toString();
-              worktreeReused = list.split("\n").some((l) => l.startsWith("worktree ") && l.slice("worktree ".length) === canonicalWt);
-            } catch {
-              worktreeReused = false;
-            }
-          }
-          if (!worktreeReused) {
-            execFileSync("git", ["-C", repoPath, "worktree", "add", worktreePath, branchId], {
-              stdio: ["ignore", "pipe", "pipe"],
-              timeout: WORKTREE_TIMEOUT_MS
-            });
-          }
-          gitSetup = branchReused && worktreeReused ? "reused" : "created";
-        } catch (e) {
-          gitSetup = "error";
-          diagnostic = e.message;
-        }
-        return ok14({
-          task_id: result.task_id,
-          branch_id: branchId,
-          repo: repoValue,
-          slug,
-          worktree_path: worktreePath,
-          git_setup: gitSetup,
-          ...diagnostic ? { diagnostic } : {}
-        });
-      })
-    ),
-    task_brief: requireRoles(
-      "task_brief",
-      ["bro", "swe", "pr-reviewer"],
-      wrap2(async (args) => {
-        const taskId = args["task_id"];
-        if (taskId === void 0 || taskId === null) return err14("task_id is required");
-        const task = db2.get(
-          `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.verification, t.commit_sha, t.repo,
-                  i.objective
-             FROM tasks t JOIN issues i ON i.id = t.issue_id
-            WHERE t.id = ? LIMIT 1`,
-          [taskId]
-        );
-        if (!task) return err14(`No task with id=${taskId}`);
-        let repo = task.repo ?? "";
-        if (!repo) {
-          repo = resolveSoleRepo(db2)?.name ?? "";
-        }
-        const dirs = filesToDirs(parseTaskFiles(task.files));
-        let scope_world_model = [];
-        let world_model_warning;
-        const graph = graphHolder2?.ensureGraph() ?? null;
-        if (!graph) {
-          world_model_warning = "world-model-unavailable";
-        } else {
-          const nodes = graph.allDirectoriesForRepo(repo);
-          if (nodes.length === 0) {
-            world_model_warning = "world-model-empty";
-          } else {
-            const byPath = new Map(nodes.map((n) => [n.path, n]));
-            const childrenByParent = /* @__PURE__ */ new Map();
-            for (const n of nodes) {
-              const key = n.parent_path ?? "";
-              if (!childrenByParent.has(key)) childrenByParent.set(key, []);
-              childrenByParent.get(key).push(n);
-            }
-            scope_world_model = dirs.map((d) => ({
-              dir: d,
-              summary: byPath.get(d)?.summary ?? null,
-              children: (childrenByParent.get(d) ?? []).map((c) => ({
-                path: c.path,
-                summary: c.summary
-              }))
-            }));
-          }
-        }
-        const raw = db2.all(
-          `SELECT author, kind, body, created_at FROM discussions
-            WHERE issue_id = ? ORDER BY created_at DESC, id DESC LIMIT 200`,
-          [task.issue_id]
-        ).reverse();
-        const FULL_KINDS = /* @__PURE__ */ new Set(["decision", "intent"]);
-        const NOTE_CAP = 500;
-        const OTHER_ROW_CAP = 8;
-        const full = raw.filter((d) => FULL_KINDS.has(d.kind));
-        const other = raw.filter((d) => !FULL_KINDS.has(d.kind)).slice(-OTHER_ROW_CAP);
-        const task_discussions = raw.filter((d) => full.includes(d) || other.includes(d)).map((d) => {
-          if (FULL_KINDS.has(d.kind) || d.body.length <= NOTE_CAP) return d;
-          return {
-            ...d,
-            body: d.body.slice(0, NOTE_CAP) + `
-\u2026 [truncated; discussion_search(issue_id=${task.issue_id}) for full text]`,
-            truncated: true
-          };
-        });
-        return ok14({
-          task_id: task.id,
-          issue_id: task.issue_id,
-          branch_id: task.branch_id,
-          title: task.title,
-          objective: task.objective,
-          status: task.status,
-          commit_sha: task.commit_sha,
-          repo,
-          spec_body: task.spec_body,
-          files: parseTaskFiles(task.files),
-          verification: parseTaskFiles(task.verification),
-          scope_world_model,
-          ...world_model_warning ? { world_model_warning } : {},
-          task_discussions
-        });
-      })
-    ),
-    branch_id_propose: requireRoles(
-      "branch_id_propose",
-      ["bro"],
-      wrap2(async (args) => {
-        const intent = args["intent"];
-        if (typeof intent !== "string" || intent.trim().length === 0) {
-          return err14("intent must be a non-empty string");
-        }
-        const objective = args["objective"] ?? intent;
-        const { prefix, confidence } = intentToType(intent);
-        const slug = slugify2(objective) || slugify2(intent) || "task";
-        const branchId = `${prefix}/${slug}`;
-        if (!BRANCH_ID_RE.test(branchId)) {
-          return err14(
-            `Derived branch_id "${branchId}" does not match the conventional regex. Pick a clearer objective and re-call.`
-          );
-        }
-        return ok14({ branch_id: branchId, confidence });
-      })
-    ),
-    task_retry: requireRoles(
-      "task_retry",
-      ["bro"],
-      wrap2(async (args) => {
-        const failedTaskId = args["failed_task_id"];
-        const newBranchId = args["new_branch_id"];
-        const spec = args["corrected_spec_body"];
-        const rationale = args["retry_rationale"];
-        const description = args["description"];
-        const title = args["title"] ?? "";
-        const repoOverride = args["repo"] ?? null;
-        if (!BRANCH_ID_RE.test(newBranchId)) {
-          return err14(`Invalid new_branch_id "${newBranchId}" \u2014 does not match conventional format.`);
-        }
-        if (!spec || spec.length > SPEC_BODY_MAX_BYTES) {
-          return err14(`corrected_spec_body must be 1..${SPEC_BODY_MAX_BYTES} chars (override via TMB_SPEC_BODY_MAX_BYTES).`);
-        }
-        if (!rationale || rationale.length > 200) {
-          return err14("retry_rationale must be 1..200 chars.");
-        }
-        if (repoOverride !== null) {
-          if (repoOverride.includes("..")) {
-            return err14(`Invalid repo "${repoOverride}": must not contain "..".`);
-          }
-          if (repoOverride.startsWith("/")) {
-            return err14(`Invalid repo "${repoOverride}": must not start with "/".`);
-          }
-        }
-        const failed = db2.get(
-          `SELECT id, issue_id, branch_id, parent_branch_id, repo, status
-             FROM tasks WHERE id = ? LIMIT 1`,
-          [failedTaskId]
-        );
-        if (!failed) return err14(`No task with id=${failedTaskId}`);
-        if (failed.status !== "failed" && failed.status !== "escalated") {
-          return err14(
-            `Task ${failedTaskId} status is "${failed.status}", expected "failed" or "escalated". task_retry only operates on terminally-failed tasks.`
-          );
-        }
-        if (failed.branch_id === newBranchId) {
-          return err14("new_branch_id must differ from the failed task's branch_id.");
-        }
-        {
-          const RETRY_CAP = 3;
-          let depth = 0;
-          let currentTaskId = Number(failedTaskId);
-          while (depth < RETRY_CAP + 1) {
-            const row = db2.get(
-              `SELECT content_json FROM audit
-                WHERE event_type = 'task_retry_attempted'
-                  AND json_extract(content_json, '$.new_task_id') = ?
-                LIMIT 1`,
-              [currentTaskId]
-            );
-            if (!row) break;
-            const parsed = JSON.parse(row.content_json);
-            currentTaskId = parsed.failed_task_id;
-            depth++;
-          }
-          if (depth >= RETRY_CAP) {
-            return err14(
-              `retry limit reached (3) \u2014 escalate to Human. Task ${failedTaskId} already has ${depth} prior attempt(s) in its retry lineage. Use discussion_append(kind='question') to involve the Human before retrying further.`
-            );
-          }
-        }
-        const now = nowISO();
-        const result = db2.transaction(() => {
-          insertDiscussion(db2, {
-            issue_id: failed.issue_id,
-            author: "bro",
-            kind: "decision",
-            body: `Retry rationale (failed task ${failedTaskId}): ${rationale}`,
-            created_at: now
-          });
-          db2.run(
-            `INSERT INTO tasks
-               (issue_id, branch_id, parent_branch_id, title, description,
-                status, attempts, spec_body, repo, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`,
-            [
-              failed.issue_id,
-              newBranchId,
-              failed.parent_branch_id ?? failed.branch_id,
-              title,
-              description,
-              spec,
-              repoOverride ?? failed.repo,
-              now,
-              now
-            ]
-          );
-          const newTask = db2.get(
-            "SELECT id, branch_id FROM tasks WHERE rowid = last_insert_rowid()"
-          );
-          if (!newTask) throw new Error("insert succeeded but row lookup failed");
-          db2.run(
-            `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
-             VALUES (?, ?, 'bro', ?)`,
-            [newTask.id, failed.issue_id, now]
-          );
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'task_retry_attempted', ?, ?, ?)`,
-            [
-              failed.issue_id,
-              newBranchId,
-              `Retry of failed task ${failedTaskId}: ${rationale.slice(0, 120)}`,
-              JSON.stringify({
-                failed_task_id: failed.id,
-                new_task_id: newTask.id,
-                new_branch_id: newBranchId
-              }),
-              now
-            ]
-          );
-          return newTask;
-        });
-        return ok14({ task_id: result.id, branch_id: result.branch_id });
-      })
-    ),
-    intent_start: requireRoles(
-      "intent_start",
-      ["bro"],
-      wrap2(async (args) => {
-        const objective = args["objective"];
-        const intentVerbatim = args["intent_verbatim"];
-        const branchId = args["branch_id"];
-        if (!objective || objective.trim().length === 0) {
-          return err14("objective must be a non-empty string");
-        }
-        if (!intentVerbatim || intentVerbatim.trim().length === 0) {
-          return err14("intent_verbatim must be a non-empty string");
-        }
-        if (!branchId || branchId.trim().length === 0) {
-          return err14("branch_id must be a non-empty string");
-        }
-        if (!BRANCH_ID_RE.test(branchId)) {
-          return err14(`branch_id "${branchId}" does not match the conventional format.`);
-        }
-        const explicitRepoRaw = args["repo"];
-        const explicitRepo = typeof explicitRepoRaw === "string" && explicitRepoRaw.length > 0 ? explicitRepoRaw : null;
-        if (explicitRepo !== null) {
-          const repoRow = db2.get(`SELECT name FROM repos WHERE name = ?`, [explicitRepo]);
-          if (!repoRow) {
-            return err14(`intent_start: repo "${explicitRepo}" has no matching repos row \u2014 run /scan or pass a valid repo.`);
-          }
-        }
-        const now = nowISO();
-        const issueRepo = explicitRepo ?? resolveSoleRepo(db2)?.name ?? null;
-        const milestone = resolveDefaultMilestone(db2, null, issueRepo);
-        const result = db2.transaction(() => {
-          db2.run(
-            `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo)
-             VALUES (?, '', 'open', ?, ?, ?, ?)`,
-            [objective, now, now, milestone, issueRepo]
-          );
-          const row = db2.get(
-            `SELECT id FROM issues WHERE rowid = last_insert_rowid()`
-          );
-          if (!row) throw new Error("intent_start: failed to retrieve inserted issue");
-          const issueId = row.id;
-          insertIntentAndNote(
-            db2,
-            issueId,
-            intentVerbatim,
-            `Beginning planning on ${branchId}.`,
-            now
-          );
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'branch_id_proposed', ?, ?, ?)`,
-            [
-              issueId,
-              branchId,
-              `branch_id proposed: ${branchId} for "${objective.slice(0, 80)}"`,
-              JSON.stringify({ branch_id: branchId, objective }),
-              now
-            ]
-          );
-          return { issue_id: issueId, branch_id: branchId };
-        });
-        return ok14(result);
-      })
-    ),
-    bro_verification_fail_record: requireRoles(
-      "bro_verification_fail_record",
-      ["bro"],
-      wrap2(async (args) => {
-        const taskId = args["task_id"];
-        const whichCheck = args["which_check"];
-        const details = args["details"];
-        if (!taskId) return err14("task_id is required");
-        if (!whichCheck || whichCheck.trim().length === 0) {
-          return err14("which_check must be a non-empty string");
-        }
-        if (!details || details.trim().length === 0) {
-          return err14("details must be a non-empty string");
-        }
-        if (details.length > 500) {
-          return err14("details must be \u2264500 chars");
-        }
-        const task = db2.get(
-          "SELECT id, issue_id, branch_id FROM tasks WHERE id = ? LIMIT 1",
-          [taskId]
-        );
-        if (!task) return err14(`No task with id=${taskId}`);
-        const summary = `${whichCheck} \u2014 ${details.slice(0, 160)}`;
-        const now = nowISO();
-        db2.transaction(() => {
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'bro_verification_fail', ?, ?, ?)`,
-            [
-              task.issue_id,
-              task.branch_id,
-              summary,
-              JSON.stringify({ task_id: task.id, which_check: whichCheck, details }),
-              now
-            ]
-          );
-          insertDiscussion(db2, {
-            issue_id: task.issue_id,
-            author: "bro",
-            kind: "note",
-            body: `Verification fail: ${summary}`,
-            created_at: now
-          });
-        });
-        return ok14({ task_id: task.id, which_check: whichCheck, written: ["audit", "note"] });
-      })
-    ),
-    pr_monitor_worktree: requireRoles(
-      "pr_monitor_worktree",
-      ["pr-reviewer"],
-      wrap2(async (args) => {
-        const commitSha = (args["commit_sha"] ?? "").toLowerCase();
-        const repoPath = args["repo_path"];
-        const command = args["command"];
-        if (!commitSha || !/^[0-9a-f]{7,40}$/.test(commitSha)) {
-          return err14("commit_sha must be a 7..40-char hex SHA");
-        }
-        if (!repoPath || !repoPath.startsWith("/")) {
-          return err14("repo_path must be an absolute path");
-        }
-        if (!command || command.trim().length === 0) {
-          return err14("command must be a non-empty string");
-        }
-        const wtPath = `/tmp/pr-review-${commitSha}`;
-        let stdout = "";
-        let stderr = "";
-        let exitCode = 0;
-        try {
-          execFileSync("git", ["-C", repoPath, "worktree", "add", wtPath, commitSha], {
-            stdio: ["ignore", "pipe", "pipe"],
-            timeout: WORKTREE_TIMEOUT_MS
-          });
-        } catch (e) {
-          return err14(`worktree add failed: ${e.message}`);
-        }
-        try {
-          const result = execFileSync("bash", ["-c", command], {
-            cwd: wtPath,
-            stdio: ["ignore", "pipe", "pipe"],
-            timeout: 6e4
-          });
-          stdout = result.toString("utf8");
-        } catch (e) {
-          const spawnErr = e;
-          stdout = spawnErr.stdout?.toString("utf8") ?? "";
-          stderr = spawnErr.stderr?.toString("utf8") ?? spawnErr.message ?? "";
-          exitCode = spawnErr.status ?? 1;
-        } finally {
-          try {
-            execFileSync("git", ["-C", repoPath, "worktree", "remove", "--force", wtPath], {
-              stdio: "ignore",
-              timeout: WORKTREE_TIMEOUT_MS
-            });
-          } catch {
-          }
-        }
-        const passed = exitCode === 0;
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                worktree: wtPath,
-                exit_code: exitCode,
-                passed,
-                stdout: stdout.slice(0, 4096),
-                stderr: stderr.slice(0, 2048)
-              })
-            }
-          ],
-          isError: !passed
-        };
-      })
-    ),
-    worktree_commits_fetch: requireRoles(
-      "worktree_commits_fetch",
-      ["bro"],
-      wrap2(async (args) => {
-        const taskIds = args["task_ids"];
-        const repoPath = args["repo_path"];
-        if (!Array.isArray(taskIds) || taskIds.length === 0) {
-          return err14("task_ids must be a non-empty array");
-        }
-        if (!repoPath || !repoPath.startsWith("/")) {
-          return err14("repo_path must be an absolute path");
-        }
-        const results = [];
-        for (const tid of taskIds) {
-          const task = db2.get(
-            "SELECT id, branch_id, commit_sha FROM tasks WHERE id = ? LIMIT 1",
-            [tid]
-          );
-          if (!task) {
-            results.push({ task_id: tid, branch_id: "", slug: "", commit_sha: null, reaped: false, error: `No task with id=${tid}` });
-            continue;
-          }
-          const slug = task.branch_id.replace(/^[^/]+\//, "");
-          if (task.commit_sha) {
-            try {
-              const refSha = execFileSync(
-                "git",
-                ["-C", repoPath, "rev-parse", "--verify", `refs/heads/${task.branch_id}`],
-                { stdio: ["ignore", "pipe", "pipe"], timeout: 3e4 }
-              ).toString().trim();
-              if (refSha.toLowerCase().startsWith(task.commit_sha.toLowerCase())) {
-                results.push({ task_id: task.id, branch_id: task.branch_id, slug, commit_sha: task.commit_sha, reaped: true });
-                continue;
-              }
-            } catch {
-            }
-          }
-          const wtPath = `${repoPath}/.claude/worktrees/${slug}`;
-          try {
-            let targetSha = task.commit_sha ?? "";
-            if (!targetSha) {
-              targetSha = execFileSync(
-                "git",
-                ["-C", wtPath, "rev-parse", "HEAD"],
-                { stdio: ["ignore", "pipe", "pipe"], timeout: 3e4 }
-              ).toString().trim();
-            }
-            execFileSync(
-              "git",
-              ["-C", repoPath, "update-ref", `refs/heads/${task.branch_id}`, targetSha],
-              { stdio: ["ignore", "pipe", "pipe"], timeout: 3e4 }
-            );
-            results.push({ task_id: task.id, branch_id: task.branch_id, slug, commit_sha: task.commit_sha ?? targetSha, reaped: true });
-          } catch (e) {
-            results.push({ task_id: task.id, branch_id: task.branch_id, slug, commit_sha: task.commit_sha, reaped: false, error: e.message });
-          }
-        }
-        const anyFailed = results.some((r) => !r.reaped);
-        const allReaped = results.length > 0 && !anyFailed;
-        return {
-          content: [{ type: "text", text: JSON.stringify({ reaped: results, all_reaped: allReaped }) }],
-          isError: anyFailed
-        };
-      })
-    ),
-    bro_atomic_close: requireRoles(
-      "bro_atomic_close",
-      ["bro"],
-      wrap2(async (args) => {
-        const taskId = args["task_id"];
-        if (!taskId) return err14("Missing required arg: task_id");
-        const commitSha = (args["commit_sha"] ?? "").toLowerCase();
-        if (!commitSha || !/^[0-9a-f]{7,40}$/.test(commitSha)) {
-          return err14("commit_sha must be a 7..40-char hex SHA.");
-        }
-        const verificationSummary = args["verification_summary"];
-        if (verificationSummary === void 0 || verificationSummary === null) {
-          return err14("Missing required arg: verification_summary");
-        }
-        if (typeof verificationSummary !== "string") {
-          return err14("verification_summary must be a string");
-        }
-        const closeIssueIfLast = args["close_issue_if_last_task"] === true;
-        const waiveScopeGate = args["waive_scope_gate"] === true;
-        const task = db2.get(
-          "SELECT id, issue_id, branch_id, parent_branch_id, status, repo, files FROM tasks WHERE id = ? LIMIT 1",
-          [taskId]
-        );
-        if (!task) return err14(`No task with id=${taskId}`);
-        if (task.status !== "completed" && task.status !== "needs_validation") {
-          return err14(
-            `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". bro_atomic_close runs after SWE flips status to completed.`
-          );
-        }
-        const now = nowISO();
-        if (!waiveScopeGate) {
-          const repoPath = resolveRepoPath(db2, task.repo);
-          const base = task.parent_branch_id || "dev";
-          const baseRef = repoPath ? resolveBaseRef(repoPath, base) : null;
-          const scope = repoPath && baseRef ? scopeCheckCommit(repoPath, baseRef, commitSha, parseTaskFiles(task.files)) : {
-            outOfScope: [],
-            checked: false,
-            reason: repoPath ? `base does not resolve as 'origin/${base}' or local '${base}'` : `cannot resolve a path for repo '${task.repo ?? ""}'`
-          };
-          if (!scope.checked) {
-            return err14(
-              `bro_atomic_close scope gate: cannot resolve ${task.repo ?? "<repo>"}@${commitSha} to verify files[] scope (${scope.reason ?? "unknown"}). Pass waive_scope_gate=true if this close is intentional outside a git checkout.`
-            );
-          }
-          if (scope.outOfScope.length > 0) {
-            return err14(
-              `bro_atomic_close scope gate: these committed files are outside the task's files[] fence: ${scope.outOfScope.join(", ")}. Add them to files[] (re-plan) or revert them, then retry. Pass waive_scope_gate=true to override.`
-            );
-          }
-        }
-        const result = db2.transaction(() => {
-          if (waiveScopeGate) {
-            db2.run(
-              `INSERT INTO audit
-                 (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-               VALUES (?, ?, 'bro', 'scope_gate_waived', ?, ?, ?)`,
-              [
-                task.issue_id,
-                task.branch_id,
-                `bro_atomic_close scope gate waived for task ${task.id}`,
-                JSON.stringify({ skill: "bro_atomic_close", task_id: task.id, commit_sha: commitSha }),
-                now
-              ]
-            );
-          }
-          const { issue_closed } = closeTaskInTx(
-            db2,
-            task,
-            commitSha,
-            verificationSummary,
-            now,
-            closeIssueIfLast
-          );
-          return { task_id: task.id, issue_closed };
-        });
-        if (result.issue_closed) {
-          await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args["_spawnFn"]);
-        }
-        return ok14(result);
-      })
-    ),
-    task_recover: requireRoles(
-      "task_recover",
-      ["bro"],
-      wrap2(async (args) => {
-        const taskId = args["task_id"];
-        if (!taskId) return err14("Missing required arg: task_id");
-        const commitArg = args["commit_sha"];
-        let commitSha = null;
-        if (commitArg !== void 0 && commitArg !== null && commitArg !== "") {
-          if (typeof commitArg !== "string") return err14("commit_sha must be a string");
-          const lowered = commitArg.toLowerCase();
-          if (!/^[0-9a-f]{7,40}$/.test(lowered)) {
-            return err14("commit_sha must be a 7..40-char hex SHA.");
-          }
-          commitSha = lowered;
-        }
-        const verificationSummary = typeof args["verification_summary"] === "string" ? args["verification_summary"] : `task_recover: stuck-pending recovery for task ${taskId}`;
-        const closeIssueIfLast = args["close_issue_if_last_task"] === true;
-        const task = db2.get(
-          "SELECT id, issue_id, branch_id, status FROM tasks WHERE id = ? LIMIT 1",
-          [taskId]
-        );
-        if (!task) return err14(`No task with id=${taskId}`);
-        if (task.status !== "pending" && task.status !== "completed") {
-          return ok14({
-            recovered: false,
-            action: "noop",
-            task_id: task.id,
-            status: task.status,
-            reason: `task is "${task.status}" \u2014 not in a recoverable (pending/completed) state`
-          });
-        }
-        if (!commitSha) {
-          return ok14({
-            recovered: false,
-            action: "re-dispatch",
-            task_id: task.id,
-            reason: "no commit on a pending task \u2014 re-dispatch SWE"
-          });
-        }
-        const now = nowISO();
-        const result = db2.transaction(() => {
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'task_recovered', ?, ?, ?)`,
-            [
-              task.issue_id,
-              task.branch_id,
-              `Recovered stuck-${task.status} task ${task.id} at ${commitSha}`,
-              JSON.stringify({ task_id: task.id, commit_sha: commitSha, prior_status: task.status }),
-              now
-            ]
-          );
-          const { issue_closed } = closeTaskInTx(
-            db2,
-            task,
-            commitSha,
-            verificationSummary,
-            now,
-            closeIssueIfLast
-          );
-          return { task_id: task.id, issue_closed };
-        });
-        if (result.issue_closed) {
-          await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args["_spawnFn"]);
-        }
-        return ok14({
-          recovered: true,
-          action: "closed",
-          task_id: task.id,
-          commit_sha: commitSha,
-          issue_closed: result.issue_closed
-        });
-      })
-    )
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/onboard.ts
-import { spawnSync as spawnSync5 } from "node:child_process";
-import { existsSync as existsSync5 } from "node:fs";
-import os from "node:os";
-import { dirname as dirname7, join as join8 } from "node:path";
-import { fileURLToPath as fileURLToPath3 } from "node:url";
-
-// src/tools/onboard-hooks-shim.ts
-import { readFileSync as readFileSync3, writeFileSync as writeFileSync2, mkdirSync as mkdirSync4, existsSync as existsSync4, chmodSync } from "node:fs";
-import { join as join7 } from "node:path";
-var STABLE_RESOLVER_DIR = [".claude", "tmb-hooks"];
-var STABLE_RESOLVER_NAME = "resolve-hook.sh";
-var CANONICAL_RESOLVER_REL = ["scripts", "lib", "resolve-hook.sh"];
-var ADVISORY_HOOK_DENYLIST = /* @__PURE__ */ new Set([
-  "swe-brief-gate.sh",
-  "naming-lint.sh",
-  "code-quality-lint.sh",
-  "commit-msg-lint.sh",
-  "askuserquestion-length-lint.sh",
-  "branch-up-to-date-with-remote.sh",
-  "debug-trajectory.sh"
-]);
-function basename3(command) {
-  const parts = command.split("/");
-  return parts[parts.length - 1] ?? command;
-}
-function hookName(command) {
-  return basename3(command).replace(/\.sh$/, "");
-}
-function deriveMarketplace(pluginRoot) {
-  const segs = pluginRoot.split("/").filter((s) => s.length > 0);
-  const cacheIdx = segs.lastIndexOf("cache");
-  if (cacheIdx === -1 || cacheIdx + 1 >= segs.length) return null;
-  const mp = segs[cacheIdx + 1];
-  return mp && mp.length > 0 ? mp : null;
-}
-function readPreToolUseFromHooksJson(pluginRoot) {
-  const hooksJsonPath = join7(pluginRoot, "hooks", "hooks.json");
-  if (!existsSync4(hooksJsonPath)) return null;
-  let parsed;
-  try {
-    parsed = JSON.parse(readFileSync3(hooksJsonPath, "utf8"));
-  } catch {
-    return null;
-  }
-  const pre = parsed.hooks?.PreToolUse;
-  if (!Array.isArray(pre)) return null;
-  return pre;
-}
-function buildTmbGroups(pre, resolverPath, marketplace) {
-  const groups = [];
-  for (const group of pre) {
-    const hooks = (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(basename3(h.command))).map((h) => ({
-      type: h.type,
-      command: `bash ${resolverPath} --marketplace ${marketplace} --hook ${hookName(h.command)}`,
-      ...h.timeout !== void 0 ? { timeout: h.timeout } : {},
-      _tmb_managed: true
-    }));
-    if (hooks.length === 0) continue;
-    groups.push({
-      ...group.matcher !== void 0 ? { matcher: group.matcher } : {},
-      hooks
-    });
-  }
-  return groups;
-}
-function materializeResolver(pluginRoot, homeDir) {
-  const canonical = join7(pluginRoot, ...CANONICAL_RESOLVER_REL);
-  if (!existsSync4(canonical)) return null;
-  const resolverDir = join7(homeDir, ...STABLE_RESOLVER_DIR);
-  const resolverPath = join7(resolverDir, STABLE_RESOLVER_NAME);
-  mkdirSync4(resolverDir, { recursive: true });
-  writeFileSync2(resolverPath, readFileSync3(canonical, "utf8"));
-  chmodSync(resolverPath, 493);
-  return resolverPath;
-}
-function isTmbEntry(h, tmbHookNames) {
-  if (h._tmb_managed === true) return true;
-  const command = h.command ?? "";
-  if (command.includes("/.claude/tmb-hooks/resolve-hook.sh") || command.includes("/resolve-headless-hook.sh")) {
-    return true;
-  }
-  if (command.includes("/plugins/cache/") && command.includes("/tmb/") && command.includes("/scripts/hooks/")) {
-    return true;
-  }
-  if (command.includes("/scripts/hooks/") && tmbHookNames.has(hookName(command))) {
-    return true;
-  }
-  return false;
-}
-function purgeTmbEntries(pre, tmbHookNames) {
-  const cleaned = [];
-  for (const group of pre) {
-    const hooks = (group.hooks ?? []).filter((h) => !isTmbEntry(h, tmbHookNames));
-    if (hooks.length === 0) continue;
-    cleaned.push({ ...group, hooks });
-  }
-  return cleaned;
-}
-function writeUserSettingsEnforcementShim(opts) {
-  const { pluginRoot, homeDir } = opts;
-  if (!pluginRoot) {
-    const reason = "plugin root unresolvable";
-    serverLog({ event: "onboard_hooks_shim_skip", reason });
-    return { written: false, reason };
-  }
-  if (pluginRoot.includes("/.claude/worktrees/")) {
-    const reason = "plugin-root-in-worktree";
-    serverLog({ event: "onboard_hooks_shim_skip", reason });
-    return { written: false, reason };
-  }
-  const pre = readPreToolUseFromHooksJson(pluginRoot);
-  if (!pre) {
-    const reason = "hooks/hooks.json missing or has no PreToolUse";
-    serverLog({ event: "onboard_hooks_shim_skip", reason });
-    return { written: false, reason };
-  }
-  const marketplace = deriveMarketplace(pluginRoot);
-  if (!marketplace) {
-    const reason = "cannot derive marketplace from plugin root";
-    serverLog({ event: "onboard_hooks_shim_skip", reason });
-    return { written: false, reason };
-  }
-  const resolverPath = materializeResolver(pluginRoot, homeDir);
-  if (!resolverPath) {
-    const reason = "canonical resolver script missing";
-    serverLog({ event: "onboard_hooks_shim_skip", reason });
-    return { written: false, reason };
-  }
-  const tmbGroups = buildTmbGroups(pre, resolverPath, marketplace);
-  const settingsDir = join7(homeDir, ".claude");
-  const settingsPath = join7(settingsDir, "settings.json");
-  let settings = {};
-  if (existsSync4(settingsPath)) {
-    try {
-      const raw = readFileSync3(settingsPath, "utf8").trim();
-      if (raw.length > 0) settings = JSON.parse(raw);
-    } catch {
-      const reason = "existing settings.json is not valid JSON";
-      serverLog({ event: "onboard_hooks_shim_skip", reason });
-      return { written: false, reason };
-    }
-  }
-  const hooks = settings.hooks && typeof settings.hooks === "object" ? settings.hooks : {};
-  const existingPre = Array.isArray(hooks.PreToolUse) ? hooks.PreToolUse : [];
-  const tmbHookNames = new Set(
-    pre.flatMap((g) => (g.hooks ?? []).map((h) => hookName(h.command)))
-  );
-  const preserved = purgeTmbEntries(existingPre, tmbHookNames);
-  hooks.PreToolUse = [...preserved, ...tmbGroups];
-  settings.hooks = hooks;
-  try {
-    mkdirSync4(settingsDir, { recursive: true });
-    writeFileSync2(settingsPath, JSON.stringify(settings, null, 2) + "\n");
-  } catch (e) {
-    const reason = `settings.json write failed: ${e.message}`;
-    serverLog({ event: "onboard_hooks_shim_skip", reason });
-    return { written: false, reason };
-  }
-  serverLog({ event: "onboard_hooks_shim_written", settingsPath, groups: tmbGroups.length });
-  return { written: true };
-}
-
-// src/tools/onboard.ts
-function resolvePluginRoot2() {
-  const env = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (env && existsSync5(join8(env, ".claude-plugin", "plugin.json"))) return env;
-  let dir = dirname7(fileURLToPath3(import.meta.url));
-  for (; ; ) {
-    if (existsSync5(join8(dir, ".claude-plugin", "plugin.json"))) return dir;
-    const parent = dirname7(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return null;
-}
-function ok15(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function wrapHandler13(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return {
-        content: [{ type: "text", text: JSON.stringify({ error: e.message }) }],
-        isError: true
-      };
-    }
-  };
-}
-function probeGit(cwd) {
-  const opts = { encoding: "utf8", timeout: 3e3, cwd };
-  const inGitR = spawnSync5("git", ["rev-parse", "--show-toplevel"], opts);
-  const in_git = inGitR.status === 0;
-  if (!in_git) return { in_git: false, detected_remotes: [], origin_kind: null };
-  const remotesR = spawnSync5("git", ["remote", "-v"], opts);
-  const detected_remotes = [];
-  if (remotesR.status === 0) {
-    const seen = /* @__PURE__ */ new Set();
-    const lines = (remotesR.stdout ?? "").split("\n");
-    for (const line of lines) {
-      const m = line.match(/^(\S+)\s+(\S+)\s+\(fetch\)/);
-      if (!m) continue;
-      const [, name, url2] = m;
-      if (seen.has(name)) continue;
-      seen.add(name);
-      detected_remotes.push({ name, url: url2, provider: classifyUrl(url2) });
-    }
-  }
-  const origin = detected_remotes.find((r) => r.name === "origin");
-  return {
-    in_git,
-    detected_remotes,
-    origin_kind: origin ? origin.provider : null
-  };
-}
-function branchExists(cwd, branch) {
-  const r = spawnSync5("git", ["-C", cwd, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], {
-    encoding: "utf8",
-    timeout: 3e3
-  });
-  return r.status === 0;
-}
-function repoDefaultBranch(cwd) {
-  const opts = { encoding: "utf8", timeout: 3e3 };
-  const head = spawnSync5("git", ["-C", cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], opts);
-  if (head.status === 0) {
-    const b = (head.stdout ?? "").trim().replace(/^origin\//, "");
-    if (b) return b;
-  }
-  for (const cand of ["main", "master", "dev"]) {
-    const r = spawnSync5("git", ["-C", cwd, "show-ref", "--verify", "--quiet", `refs/heads/${cand}`], opts);
-    if (r.status === 0) return cand;
-  }
-  const cur = spawnSync5("git", ["-C", cwd, "symbolic-ref", "--short", "HEAD"], opts);
-  if (cur.status === 0) {
-    const b = (cur.stdout ?? "").trim();
-    if (b) return b;
-  }
-  return "main";
-}
-function probeCli(cmd) {
-  const which = spawnSync5("command", ["-v", cmd], { encoding: "utf8", timeout: AUTH_PROBE_TIMEOUT_MS, shell: true });
-  const installed = which.status === 0 && (which.stdout ?? "").trim().length > 0;
-  if (!installed) return { installed: false, authed: false };
-  if (liveCliBlockReason()) return { installed: true, authed: false };
-  const authR = spawnSync5(cmd, ["auth", "status"], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
-  return { installed: true, authed: authR.status === 0 };
-}
-function readConfig(db2, key) {
-  const row = db2.get(
-    `SELECT value_json FROM plugin_config WHERE key = ?`,
-    [key]
-  );
-  if (!row?.value_json) return null;
-  try {
-    return JSON.parse(row.value_json);
-  } catch {
-    return null;
-  }
-}
-function writeConfig(db2, key, value) {
-  db2.run(
-    `INSERT INTO plugin_config (key, value_json)
-     VALUES (?, ?)
-     ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
-    [key, JSON.stringify(value)]
-  );
-}
-function readRepoPolicy(db2) {
-  const row = db2.get(
-    `SELECT target_branch, branching_model, protected_branches, remotes
-       FROM repos ORDER BY name LIMIT 1`
-  );
-  const parseJson = (s) => {
-    if (!s) return null;
-    try {
-      return JSON.parse(s);
-    } catch {
-      return null;
-    }
-  };
-  return {
-    branching_model: row?.branching_model ?? null,
-    pr_target: row?.target_branch ?? null,
-    protected_branches: parseJson(row?.protected_branches ?? null),
-    remotes: parseJson(row?.remotes ?? null)
-  };
-}
-function readRepoRow(db2, repo) {
-  const row = db2.get(
-    `SELECT name, target_branch, branching_model FROM repos WHERE name = ?`,
-    [repo]
-  );
-  return row ?? null;
-}
-function readOnboardedFlag(db2) {
-  const row = db2.get(
-    `SELECT value_json FROM plugin_config WHERE key = 'onboarded'`
-  );
-  if (!row?.value_json) return false;
-  try {
-    return JSON.parse(row.value_json) === true;
-  } catch {
-    return false;
-  }
-}
-function deriveProtectedBranches(branchingModel, prTarget) {
-  if (branchingModel === "gitflow") {
-    const set2 = /* @__PURE__ */ new Set(["main", prTarget]);
-    return Array.from(set2);
-  }
-  return [prTarget];
-}
-function derivePrTargetDefault(branchingModel) {
-  return branchingModel === "gitflow" ? "dev" : "main";
-}
-var KEEP_SENTINEL = "__keep__";
-var BRANCHING_DESCRIPTIONS = {
-  "github-flow": "One long-lived branch (main). Each task gets its own short-lived branch off main; you open a PR back to main when it's ready. No release branches. Suitable for continuous deploys.",
-  gitflow: 'Two long-lived branches (main + dev). Daily work merges into the integration branch (commonly named "dev" \u2014 older repos may name it "develop"); release branches are cut from there and merged into main when shipping. Hotfixes go straight to main. Suitable for versioned releases.'
-};
-function shapeQuestion(origin_kind) {
-  const options = [
-    {
-      label: "Remote-tracked",
-      description: "Pushes to GitHub or GitLab. Issues can mirror to the remote.",
-      wire: "remote"
-    },
-    {
-      label: "Local-only",
-      description: "No GitHub/GitLab. Issues stay in the local trajectory DB; no PR/MR pushes.",
-      wire: "local"
-    }
-  ];
-  const default_index = origin_kind === "github" || origin_kind === "gitlab" ? 0 : 1;
-  return {
-    question: "Is this project local-only or remote-tracked?",
-    header: "Shape",
-    multiSelect: false,
-    options,
-    default_index
-  };
-}
-function branchingQuestion(currentModel, isReonboard) {
-  const options = [];
-  if (isReonboard && currentModel !== null) {
-    options.push({ label: `Keep "${currentModel}"`, description: "No change.", wire: KEEP_SENTINEL });
-  }
-  options.push({
-    label: "GitHub Flow",
-    description: BRANCHING_DESCRIPTIONS["github-flow"],
-    wire: "github-flow"
-  });
-  options.push({
-    label: "Git Flow",
-    description: BRANCHING_DESCRIPTIONS.gitflow,
-    wire: "gitflow"
-  });
-  return {
-    question: "How does your team branch?",
-    header: "Branching",
-    multiSelect: false,
-    options,
-    default_index: 0
-  };
-}
-function prTargetQuestion(currentTarget, branchingModel, isReonboard) {
-  const options = [];
-  if (isReonboard && currentTarget !== null) {
-    options.push({ label: `Keep "${currentTarget}"`, description: "No change.", wire: KEEP_SENTINEL });
-  }
-  options.push(
-    { label: "main", description: "Most common default.", wire: "main" },
-    { label: "dev", description: "Common for GitLab Flow + modern Git Flow variants.", wire: "dev" },
-    { label: "develop", description: "Classic Git Flow convention.", wire: "develop" }
-  );
-  let default_index = 0;
-  if (!isReonboard) {
-    const want = branchingModel === "gitflow" ? "dev" : "main";
-    default_index = options.findIndex((o) => o.label === want);
-    if (default_index < 0) default_index = 0;
-  }
-  return {
-    question: "What's your PR target branch?",
-    header: "PR target",
-    multiSelect: false,
-    options,
-    default_index
-  };
-}
-function remoteQuestion(origin_kind, gh_installed, glab_installed, _isReonboard, _currentRemotes) {
-  const options = [
-    {
-      label: gh_installed ? "GitHub" : "GitHub (CLI not installed)",
-      description: "github.com or GitHub Enterprise.",
-      wire: "github",
-      disabled: !gh_installed
-    },
-    {
-      label: glab_installed ? "GitLab" : "GitLab (CLI not installed)",
-      description: "gitlab.com or self-hosted GitLab.",
-      wire: "gitlab",
-      disabled: !glab_installed
-    }
-  ];
-  let default_index = 0;
-  const want = origin_kind === "github" ? "GitHub" : origin_kind === "gitlab" ? "GitLab" : null;
-  if (want) {
-    const idx = options.findIndex((o) => o.label === want || o.label.startsWith(want + " "));
-    if (idx >= 0 && !options[idx].disabled) default_index = idx;
-  }
-  return {
-    question: "Which remote(s) does this project use?",
-    header: "Remote",
-    multiSelect: true,
-    options,
-    default_index
-  };
-}
-function issueSyncQuestion(currentSync, isReonboard, authedAtLeastOne) {
-  const options = [];
-  if (isReonboard && currentSync !== null) {
-    options.push({ label: `Keep "${currentSync}"`, description: "No change.", wire: KEEP_SENTINEL });
-  }
-  options.push({
-    label: "Auto \u2014 sync to the remote you picked",
-    description: authedAtLeastOne ? "`issue_create` mirrors to GitHub/GitLab as well as the local DB." : "WARNING: no gh/glab auth detected. Sync will retry until you authenticate.",
-    wire: "auto"
-  });
-  options.push({
-    label: "Off \u2014 local DB only",
-    description: "Issues stay in the trajectory DB; no remote mirror.",
-    wire: "off"
-  });
-  return {
-    question: "Mirror new MCP issues to your remote?",
-    header: "Issue sync",
-    multiSelect: false,
-    options,
-    default_index: 0
-  };
-}
-function resolveOption(value, options) {
-  if (value === KEEP_SENTINEL) return KEEP_SENTINEL;
-  const wire = options.find((o) => o.wire === value);
-  if (wire) return wire.wire;
-  const byLabel = options.find((o) => o.label.toLowerCase() === value.toLowerCase());
-  if (byLabel) return byLabel.wire;
-  return null;
-}
-var BRANCHING_OPTIONS = [
-  { label: "GitHub Flow", description: "", wire: "github-flow" },
-  { label: "Git Flow", description: "", wire: "gitflow" }
-];
-var PR_TARGET_OPTIONS = [
-  { label: "main", description: "", wire: "main" },
-  { label: "dev", description: "", wire: "dev" },
-  { label: "develop", description: "", wire: "develop" }
-];
-var REMOTE_OPTIONS = [
-  { label: "GitHub", description: "", wire: "github" },
-  { label: "GitHub (CLI not installed)", description: "", wire: "github" },
-  { label: "GitLab", description: "", wire: "gitlab" },
-  { label: "GitLab (CLI not installed)", description: "", wire: "gitlab" }
-];
-var ISSUE_SYNC_OPTIONS = [
-  { label: "Auto \u2014 sync to the remote you picked", description: "", wire: "auto" },
-  { label: "Off \u2014 local DB only", description: "", wire: "off" }
-];
-function onboardTools(db2, dbPath2 = "") {
-  const definitions = [
-    {
-      name: "onboard_state_get",
-      description: "Read onboard state: first-run flag, current plugin_config, and git/CLI probe (origin URL \u2192 provider, gh/glab auth). Call once before AskUserQuestion.",
-      inputSchema: { type: "object", properties: {} }
-    },
-    {
-      name: "onboard_get_questions",
-      description: "Build AUQ-ready question objects for one /onboard round. Applies Keep options, disabled CLI options, probe defaults. Each option carries wire \u2014 pass option.wire (or label) to onboard_apply.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          shape: {
-            type: "string",
-            enum: ["local", "remote"],
-            description: "Project shape from Round 1. Not required when round='shape'."
-          },
-          round: {
-            type: "string",
-            enum: ["shape", "main", "sync"],
-            description: "'shape' = Round 1 (project shape \u2014 Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only \u2014 issue_sync)."
-          },
-          repo: {
-            type: "string",
-            description: "Optional. Scope the branching + pr_target questions to a single repos row (Keep options seed from that repo's target_branch/branching_model). Only valid with round='main', shape='remote'. Must match an existing repos.name. Omit for workspace-wide questions."
-          }
-        },
-        required: ["round"]
-      }
-    },
-    {
-      name: "onboard_apply",
-      description: "Persist /onboard answers in one transaction. Derives pr_target + protected_branches from branching_model, writes onboarded marker. Accepts wire values or human-readable labels (case-insensitive). Keep options omit the key.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          shape: { type: "string", enum: ["local", "remote"] },
-          branching_model: {
-            type: "string",
-            enum: ["github-flow", "gitflow"],
-            description: "Optional on local first-run (defaults to github-flow)."
-          },
-          pr_target: { type: "string" },
-          remote: {
-            type: "array",
-            items: { type: "string", enum: ["github", "gitlab"] },
-            description: 'Required when shape=remote. Array of provider IDs (multiSelect AUQ answer). Single-element ["github"] or ["gitlab"], or ["github","gitlab"] for dual-host. Ignored on local.'
-          },
-          issue_sync: {
-            type: "string",
-            enum: ["auto", "off"],
-            description: 'Required when shape=remote. Always "off" on local.'
-          },
-          repo: {
-            type: "string",
-            description: "Optional. Scope the write to a single repos row: only that row's target_branch/branching_model/protected_branches are updated; other repos rows, remotes, issue_sync, and the onboarded marker are NOT touched. Must match an existing repos.name. Omit for the workspace-wide apply."
-          }
-        },
-        required: ["shape"]
-      }
-    }
-  ];
-  const probeDir = () => {
-    const fromSoleRepo = resolveSoleRepoPath(db2);
-    if (fromSoleRepo) return fromSoleRepo;
-    const workspaceRoot = dbPath2 ? dbPath2.replace(/\.claude\/[^/]+\/trajectory\.db$/, "").replace(/\/$/, "") : process.cwd();
-    return workspaceRoot || process.cwd();
-  };
-  const handlers = {
-    onboard_state_get: requireRoles(
-      "onboard_state_get",
-      ["bro"],
-      wrapHandler13(async () => {
-        const git = probeGit(probeDir());
-        const gh = probeCli("gh");
-        const glab = probeCli("glab");
-        const onboarded = readOnboardedFlag(db2);
-        const first_run = !onboarded;
-        const policy = readRepoPolicy(db2);
-        return ok15({
-          first_run,
-          current: {
-            branching_model: policy.branching_model,
-            pr_target: policy.pr_target,
-            protected_branches: policy.protected_branches,
-            remotes: policy.remotes,
-            issue_sync: readConfig(db2, "issue_sync")
-          },
-          probe: {
-            in_git: git.in_git,
-            origin_kind: git.origin_kind,
-            detected_remotes: git.detected_remotes,
-            gh_installed: gh.installed,
-            gh_authed: gh.authed,
-            glab_installed: glab.installed,
-            glab_authed: glab.authed
-          }
-        });
-      })
-    ),
-    onboard_get_questions: requireRoles(
-      "onboard_get_questions",
-      ["bro"],
-      wrapHandler13(async (args) => {
-        const shape = args["shape"];
-        const round = args["round"];
-        const repo = args["repo"];
-        const git = probeGit(probeDir());
-        if (round === "shape") {
-          return ok15({ questions: [shapeQuestion(git.origin_kind)] });
-        }
-        if (repo !== void 0) {
-          if (round !== "main") {
-            throw new Error(`repo param is only valid with round='main' (got '${round}')`);
-          }
-          if (shape !== "remote") {
-            throw new Error(`repo param requires shape='remote' (got '${String(shape)}')`);
-          }
-          const repoRow = readRepoRow(db2, repo);
-          if (!repoRow) {
-            throw new Error(`unknown repo '${repo}' \u2014 no matching repos row`);
-          }
-          const isReonboardRepo = repoRow.branching_model !== null;
-          const repoQuestions = [
-            branchingQuestion(repoRow.branching_model, isReonboardRepo),
-            prTargetQuestion(repoRow.target_branch, repoRow.branching_model, isReonboardRepo)
-          ];
-          return ok15({ questions: repoQuestions });
-        }
-        const isReonboard = readOnboardedFlag(db2);
-        const policy = readRepoPolicy(db2);
-        const currentBranching = policy.branching_model;
-        const currentPrTarget = policy.pr_target;
-        const currentRemotes = policy.remotes;
-        const currentSync = readConfig(db2, "issue_sync");
-        const gh = probeCli("gh");
-        const glab = probeCli("glab");
-        const questions = [];
-        if (round === "main") {
-          if (shape === "remote" || isReonboard) {
-            questions.push(branchingQuestion(currentBranching, isReonboard));
-          }
-          if (shape === "remote") {
-            questions.push(prTargetQuestion(currentPrTarget, currentBranching, isReonboard));
-            questions.push(
-              remoteQuestion(git.origin_kind, gh.installed, glab.installed, isReonboard, currentRemotes)
-            );
-          }
-        } else if (round === "sync") {
-          if (shape !== "remote") {
-            throw new Error(`round='sync' only valid for shape='remote' (got '${String(shape)}')`);
-          }
-          questions.push(issueSyncQuestion(currentSync, isReonboard, gh.authed || glab.authed));
-        } else {
-          throw new Error(`unknown round '${String(round)}'`);
-        }
-        return ok15({ questions });
-      })
-    ),
-    onboard_apply: requireRoles(
-      "onboard_apply",
-      ["bro"],
-      wrapHandler13(async (args) => {
-        const shape = args["shape"];
-        if (shape !== "local" && shape !== "remote") {
-          throw new Error(`shape must be 'local' or 'remote' (got '${shape}')`);
-        }
-        const repo = args["repo"];
-        if (repo !== void 0) {
-          const repoRow = readRepoRow(db2, repo);
-          if (!repoRow) {
-            throw new Error(`unknown repo '${repo}' \u2014 no matching repos row`);
-          }
-          const rawBranchingRepo = args["branching_model"];
-          let branchingRepo;
-          if (rawBranchingRepo !== void 0) {
-            const resolved = resolveOption(rawBranchingRepo, BRANCHING_OPTIONS);
-            if (resolved === KEEP_SENTINEL) {
-              branchingRepo = repoRow.branching_model ?? void 0;
-            } else if (resolved !== null) {
-              branchingRepo = resolved;
-            } else {
-              branchingRepo = rawBranchingRepo;
-            }
-          } else {
-            branchingRepo = repoRow.branching_model ?? void 0;
-          }
-          branchingRepo = branchingRepo ?? "github-flow";
-          if (branchingRepo !== "github-flow" && branchingRepo !== "gitflow") {
-            throw new Error(`branching_model must be 'github-flow' or 'gitflow' (got '${branchingRepo}')`);
-          }
-          const rawPrTargetRepo = args["pr_target"];
-          let prTargetRepo;
-          if (rawPrTargetRepo !== void 0) {
-            const resolved = resolveOption(rawPrTargetRepo, PR_TARGET_OPTIONS);
-            if (resolved === KEEP_SENTINEL) {
-              prTargetRepo = repoRow.target_branch ?? derivePrTargetDefault(branchingRepo);
-            } else {
-              prTargetRepo = resolved ?? rawPrTargetRepo;
-            }
-          } else {
-            prTargetRepo = repoRow.target_branch ?? derivePrTargetDefault(branchingRepo);
-          }
-          const protectedRepo = deriveProtectedBranches(branchingRepo, prTargetRepo);
-          db2.run(
-            `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`,
-            [prTargetRepo, branchingRepo, JSON.stringify(protectedRepo), repo]
-          );
-          return ok15({
-            ok: true,
-            applied: {
-              repo,
-              branching_model: branchingRepo,
-              pr_target: prTargetRepo,
-              protected_branches: protectedRepo
-            }
-          });
-        }
-        const rawBranching = args["branching_model"];
-        let branching_model;
-        if (rawBranching !== void 0) {
-          const resolved = resolveOption(rawBranching, BRANCHING_OPTIONS);
-          if (resolved === KEEP_SENTINEL) {
-            branching_model = readRepoPolicy(db2).branching_model ?? void 0;
-          } else if (resolved !== null) {
-            branching_model = resolved;
-          } else {
-            branching_model = rawBranching;
-          }
-        }
-        branching_model = branching_model ?? (shape === "local" ? "github-flow" : void 0);
-        if (!branching_model) {
-          throw new Error("branching_model is required for shape=remote");
-        }
-        if (branching_model !== "github-flow" && branching_model !== "gitflow") {
-          throw new Error(`branching_model must be 'github-flow' or 'gitflow' (got '${branching_model}')`);
-        }
-        const rawPrTarget = args["pr_target"];
-        let pr_target;
-        if (rawPrTarget !== void 0) {
-          const resolved = resolveOption(rawPrTarget, PR_TARGET_OPTIONS);
-          if (resolved === KEEP_SENTINEL) {
-            pr_target = readRepoPolicy(db2).pr_target ?? derivePrTargetDefault(branching_model);
-          } else {
-            pr_target = resolved ?? rawPrTarget;
-          }
-        } else {
-          pr_target = derivePrTargetDefault(branching_model);
-        }
-        let remotes = [];
-        let issue_sync = "off";
-        let warning;
-        let remoteList = [];
-        if (shape === "remote") {
-          const rawRemote = args["remote"];
-          if (Array.isArray(rawRemote)) {
-            remoteList = rawRemote.filter((s) => typeof s === "string");
-          } else if (typeof rawRemote === "string") {
-            remoteList = [rawRemote];
-          } else {
-            throw new Error("'remote' is required when shape='remote'");
-          }
-          if (remoteList.length === 0) {
-            throw new Error("'remote' must include at least one of 'github' / 'gitlab' when shape='remote'");
-          }
-          remoteList = remoteList.map((r) => {
-            const resolved = resolveOption(r, REMOTE_OPTIONS);
-            if (resolved !== null) return resolved;
-            return r;
-          });
-          for (const r of remoteList) {
-            if (r !== "github" && r !== "gitlab") {
-              throw new Error(`remote entries must be 'github' or 'gitlab' (got '${r}')`);
-            }
-          }
-          const rawSync = args["issue_sync"];
-          if (rawSync !== void 0) {
-            const resolved = resolveOption(rawSync, ISSUE_SYNC_OPTIONS);
-            if (resolved === KEEP_SENTINEL) {
-              issue_sync = readConfig(db2, "issue_sync") ?? "off";
-            } else if (resolved === "auto" || resolved === "off") {
-              issue_sync = resolved;
-            } else {
-              issue_sync = rawSync ?? "off";
-            }
-          }
-          if (issue_sync !== "auto" && issue_sync !== "off") {
-            throw new Error(`issue_sync must be 'auto' or 'off' (got '${String(issue_sync)}')`);
-          }
-        }
-        const remotesForPath = (path2) => {
-          const detected = probeGit(path2).detected_remotes;
-          const findUrl = (p) => detected.find((r) => r.provider === p)?.url ?? "";
-          const out = [];
-          const wantedGh = remoteList.includes("github");
-          const wantedGl = remoteList.includes("gitlab");
-          if (wantedGh) out.push({ name: "origin", provider: "github", url: findUrl("github") });
-          if (wantedGl) {
-            out.push({ name: wantedGh ? "gitlab" : "origin", provider: "gitlab", url: findUrl("gitlab") });
-          }
-          return out;
-        };
-        if (shape === "remote") {
-          remotes = remotesForPath(probeDir());
-          const origin = remotes.find((r) => r.name === "origin");
-          if (origin && origin.url.length === 0) {
-            warning = `remote URL not detected for ${origin.provider}; issues will not sync \u2014 check the repo's git remote`;
-          }
-        }
-        const protected_branches = deriveProtectedBranches(branching_model, pr_target);
-        db2.transaction(() => {
-          writeConfig(db2, "onboarded", true);
-          writeConfig(db2, "issue_sync", issue_sync);
-          const rows = db2.all(
-            `SELECT name, path FROM repos`
-          );
-          for (const row of rows) {
-            let effModel = branching_model;
-            let effTarget = pr_target;
-            let effRemotes = shape === "remote" ? remotes : [];
-            try {
-              if (probeGit(row.path).in_git) {
-                if (effModel === "gitflow" && !branchExists(row.path, pr_target)) {
-                  effModel = "github-flow";
-                  effTarget = repoDefaultBranch(row.path);
-                }
-                if (shape === "remote") {
-                  effRemotes = remotesForPath(row.path);
-                }
-              }
-            } catch {
-              effModel = branching_model;
-              effTarget = pr_target;
-              effRemotes = shape === "remote" ? remotes : [];
-            }
-            const effProtected = deriveProtectedBranches(effModel, effTarget);
-            db2.run(
-              `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?, remotes = ? WHERE name = ?`,
-              [effTarget, effModel, JSON.stringify(effProtected), JSON.stringify(effRemotes), row.name]
-            );
-          }
-        });
-        try {
-          writeUserSettingsEnforcementShim({ pluginRoot: resolvePluginRoot2(), homeDir: os.homedir() });
-        } catch {
-        }
-        return ok15({
-          ok: true,
-          ...warning ? { warning } : {},
-          applied: {
-            onboarded: true,
-            branching_model,
-            pr_target,
-            protected_branches,
-            remotes,
-            issue_sync,
-            ...warning ? { warning } : {}
-          }
-        });
-      })
-    )
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/scan.ts
-import { spawn, spawnSync as spawnSync6 } from "node:child_process";
-import { existsSync as existsSync7, readFileSync as readFileSync4, writeFileSync as writeFileSync3, unlinkSync } from "node:fs";
-import { dirname as dirname9, join as join9 } from "node:path";
-import { fileURLToPath as fileURLToPath4 } from "node:url";
 
 // src/graph-db.ts
 import { createRequire } from "node:module";
-import { mkdirSync as mkdirSync5, existsSync as existsSync6 } from "node:fs";
-import { dirname as dirname8 } from "node:path";
+import { mkdirSync as mkdirSync2, existsSync as existsSync2 } from "node:fs";
+import { dirname as dirname4 } from "node:path";
 function single(result) {
   return Array.isArray(result) ? result[0] : result;
 }
@@ -30490,27 +22901,27 @@ function sleepSync(ms) {
 var WorldModelGraph = class _WorldModelGraph {
   db;
   conn;
-  constructor(dbPath2, opts = {}) {
+  constructor(dbPath, opts = {}) {
     const validateWritePath = () => {
-      if (dbPath2 !== ":memory:" && opts.trustedProjectRoot !== void 0) {
+      if (dbPath !== ":memory:" && opts.trustedProjectRoot !== void 0) {
         assertSafeProjectWritePath(
           opts.trustedProjectRoot,
-          dbPath2,
+          dbPath,
           "World-model database",
           "directory"
         );
       }
     };
     validateWritePath();
-    if (dbPath2 !== ":memory:" && !existsSync6(dirname8(dbPath2))) {
-      mkdirSync5(dirname8(dbPath2), { recursive: true });
+    if (dbPath !== ":memory:" && !existsSync2(dirname4(dbPath))) {
+      mkdirSync2(dirname4(dbPath), { recursive: true });
     }
     validateWritePath();
     const req = createRequire(import.meta.url);
     const kuzu = req("kuzu");
     this.db = _WorldModelGraph.openWithRetry(
       kuzu,
-      dbPath2,
+      dbPath,
       KUZU_OPEN_MAX_ATTEMPTS,
       validateWritePath
     );
@@ -30529,13 +22940,13 @@ var WorldModelGraph = class _WorldModelGraph {
   // open fails on write-lock contention. A non-lock error (missing binary,
   // corrupt file) is rethrown immediately so it still surfaces as
   // graph_db_open_failed. (#590)
-  static openWithRetry(kuzu, dbPath2, maxAttempts = KUZU_OPEN_MAX_ATTEMPTS, beforeOpen = () => {
+  static openWithRetry(kuzu, dbPath, maxAttempts = KUZU_OPEN_MAX_ATTEMPTS, beforeOpen = () => {
   }) {
     let lastErr;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         beforeOpen();
-        return new kuzu.Database(dbPath2);
+        return new kuzu.Database(dbPath);
       } catch (e) {
         if (!isKuzuLockError(e)) throw e;
         lastErr = e;
@@ -30564,8 +22975,8 @@ var WorldModelGraph = class _WorldModelGraph {
       `CREATE REL TABLE IF NOT EXISTS CONTAINS (FROM Directory TO Directory)`
     );
   }
-  static dirKey(repo, path2) {
-    return JSON.stringify([repo, path2]);
+  static dirKey(repo, path) {
+    return JSON.stringify([repo, path]);
   }
   upsertDirectory(node) {
     const key = _WorldModelGraph.dirKey(node.repo, node.path);
@@ -30757,1907 +23168,522 @@ var GraphHolder = class _GraphHolder {
   }
 };
 
-// src/tools/scan.ts
-function ok16(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err15(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function wrap3(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err15(e.message);
+// src/codex-runtime.ts
+var GIT_TIMEOUT_MS = 5e3;
+var GIT_MAX_BUFFER_BYTES = 64 * 1024;
+var CodexRuntimeError = class extends Error {
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+    this.name = "CodexRuntimeError";
+  }
+};
+var CodexRuntimeManager = class {
+  plugin;
+  capacity;
+  now;
+  runtimes = /* @__PURE__ */ new Map();
+  requests = /* @__PURE__ */ new Map();
+  activeRoots = /* @__PURE__ */ new Map();
+  usageOrder = 0;
+  closing = false;
+  constructor(opts) {
+    if (!Number.isSafeInteger(opts.capacity ?? 4) || (opts.capacity ?? 4) < 1) {
+      throw new Error("Codex runtime capacity must be a positive integer");
     }
-  };
-}
-function resolveScanScript() {
-  const here = dirname9(fileURLToPath4(import.meta.url));
-  const candidates = [
-    join9(here, "..", "..", "..", "..", "scripts", "scan.sh"),
-    join9(here, "..", "..", "..", "scripts", "scan.sh")
-  ];
-  for (const c of candidates) if (existsSync7(c)) return c;
-  const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (pluginRoot) {
-    const c = join9(pluginRoot, "scripts", "scan.sh");
-    if (existsSync7(c)) return c;
+    this.plugin = opts.plugin;
+    this.capacity = opts.capacity ?? 4;
+    this.now = opts.now ?? Date.now;
   }
-  throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
-}
-function runScanWithScript(script, sessionDir, timeoutMs) {
-  return new Promise((resolve5, reject) => {
-    const child = spawn("bash", [script, sessionDir], {
-      detached: true,
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    const stdoutChunks = [];
-    const stderrChunks = [];
-    child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
-    child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
-    let settled = false;
-    let killTimer = null;
-    function killGroup() {
-      try {
-        process.kill(-child.pid, "SIGKILL");
-      } catch {
-      }
-    }
-    killTimer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      killGroup();
-      reject(new Error("scan.sh timed out after 10 minutes"));
-    }, timeoutMs);
-    child.on("error", (e) => {
-      if (settled) return;
-      settled = true;
-      if (killTimer) clearTimeout(killTimer);
-      reject(new Error(`scan.sh spawn error: ${e.message}`));
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      if (killTimer) clearTimeout(killTimer);
-      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-      const stderr = Buffer.concat(stderrChunks).toString("utf8").slice(0, 2e3);
-      if (code !== 0) {
-        reject(new Error(`scan.sh failed (exit ${code ?? "?"}): ${stderr || "unknown error"}`));
-        return;
-      }
-      let parsed;
-      try {
-        parsed = JSON.parse(stdout);
-      } catch {
-        reject(new Error(`scan.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
-        return;
-      }
-      if (!parsed.repos || !parsed.files) {
-        reject(new Error("scan.sh emitted unexpected shape (missing repos/files)"));
-        return;
-      }
-      resolve5(parsed);
-    });
-  });
-}
-function runScan(sessionDir, timeoutMs) {
-  return runScanWithScript(resolveScanScript(), sessionDir, timeoutMs);
-}
-var VALID_SCAN_SOURCES = /* @__PURE__ */ new Set([
-  "user_manual",
-  "bro_auto_post_close",
-  "bro_auto_post_change",
-  "bro_auto_initial"
-]);
-function detectStructuralChange(db2, currentRepos, currentTopDirs) {
-  const prev = db2.get(
-    `SELECT content_json FROM audit
-     WHERE event_type = 'deep_scan_completed'
-     ORDER BY id DESC
-     LIMIT 1`
-  );
-  if (!prev?.content_json) return true;
-  let parsed = {};
-  try {
-    parsed = JSON.parse(prev.content_json);
-  } catch {
-    return true;
-  }
-  const prevRepos = new Set(parsed.repos_seen ?? []);
-  const curRepos = new Set(currentRepos.map((r) => r.name));
-  if (prevRepos.size !== curRepos.size) return true;
-  for (const r of curRepos) if (!prevRepos.has(r)) return true;
-  const prevDirs = new Set(parsed.top_dirs ?? []);
-  if (prevDirs.size !== currentTopDirs.size) return true;
-  for (const d of currentTopDirs) if (!prevDirs.has(d)) return true;
-  return false;
-}
-var README_CANDIDATES = ["README.md", "readme.md", "README.rst", "readme.rst"];
-var README_MAX_BYTES = 1024;
-var STRUCTURAL_LIST_MAX = 8;
-function basename4(p) {
-  const i = p.lastIndexOf("/");
-  return i >= 0 ? p.slice(i + 1) : p;
-}
-function deriveDirectoryEntries(out) {
-  const dirMap = /* @__PURE__ */ new Map();
-  function ensureDir(repo, dirPath) {
-    const key = `${repo} ${dirPath}`;
-    if (dirMap.has(key)) return;
-    let parent_path = null;
-    if (dirPath !== "") {
-      const lastSlash = dirPath.lastIndexOf("/");
-      parent_path = lastSlash >= 0 ? dirPath.slice(0, lastSlash) : "";
-    }
-    dirMap.set(key, { repo, path: dirPath, parent_path, file_count: 0, file_names: [] });
-    if (parent_path !== null) ensureDir(repo, parent_path);
-  }
-  for (const r of out.repos) ensureDir(r.name, "");
-  for (const f of out.files) {
-    const lastSlash = f.path.lastIndexOf("/");
-    const dirPath = lastSlash >= 0 ? f.path.slice(0, lastSlash) : "";
-    ensureDir(f.repo, dirPath);
-    const entry = dirMap.get(`${f.repo} ${dirPath}`);
-    if (entry) {
-      entry.file_count++;
-      entry.file_names.push(basename4(f.path));
-    }
-  }
-  return dirMap;
-}
-function buildStructuralSummary(dirPath, fileNames, subdirNames) {
-  const leaf = dirPath === "" ? "(repo root)" : basename4(dirPath);
-  const join11 = (names) => {
-    const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
-    const extra = names.length - STRUCTURAL_LIST_MAX;
-    return extra > 0 ? `${shown}, +${extra} more` : shown;
-  };
-  const parts = [];
-  if (fileNames.length > 0) {
-    parts.push(`${fileNames.length} file${fileNames.length === 1 ? "" : "s"} (${join11(fileNames.slice().sort())})`);
-  }
-  if (subdirNames.length > 0) {
-    parts.push(`subdirs: ${join11(subdirNames.slice().sort())}`);
-  }
-  return `${leaf}/ \u2014 ${parts.length > 0 ? parts.join("; ") : "empty directory"}`;
-}
-function readReadmeSummary(absDirPath) {
-  for (const candidate of README_CANDIDATES) {
-    const readmePath = join9(absDirPath, candidate);
-    if (!existsSync7(readmePath)) continue;
-    try {
-      const raw = readFileSync4(readmePath, "utf8");
-      const clipped = raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
-      return frameUntrusted("readme", clipped);
-    } catch {
-    }
-  }
-  return null;
-}
-function persistDirectoriesGraph(graph, out, now) {
-  const repoPaths = /* @__PURE__ */ new Map();
-  for (const r of out.repos) repoPaths.set(r.name, r.path);
-  const dirMap = deriveDirectoryEntries(out);
-  let dirs_upserted = 0;
-  let dirs_readme_summarized = 0;
-  let dirs_structural_summarized = 0;
-  const subdirsByParent = /* @__PURE__ */ new Map();
-  for (const entry of dirMap.values()) {
-    if (entry.parent_path === null) continue;
-    const key = `${entry.repo} ${entry.parent_path}`;
-    const list = subdirsByParent.get(key);
-    if (list) list.push(basename4(entry.path));
-    else subdirsByParent.set(key, [basename4(entry.path)]);
-  }
-  for (const entry of dirMap.values()) {
-    const repoPath = repoPaths.get(entry.repo);
-    if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join9(repoPath, entry.path);
-    const readmeSummary = readReadmeSummary(absDirPath);
-    const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
-    const summary = readmeSummary ?? buildStructuralSummary(entry.path, entry.file_names, subdirNames);
-    graph.upsertDirectory({
-      repo: entry.repo,
-      path: entry.path,
-      parent_path: entry.parent_path,
-      summary,
-      summary_source: readmeSummary !== null ? "readme" : "structural",
-      summary_updated_at: now,
-      file_count: entry.file_count
-    });
-    if (readmeSummary !== null) dirs_readme_summarized++;
-    else dirs_structural_summarized++;
-    dirs_upserted++;
-  }
-  for (const entry of dirMap.values()) {
-    if (entry.parent_path === null) continue;
-    graph.upsertContains(
-      { repo: entry.repo, path: entry.parent_path },
-      { repo: entry.repo, path: entry.path }
-    );
-  }
-  return { dirs_upserted, dirs_readme_summarized, dirs_structural_summarized };
-}
-function readRepoRemotes(path2) {
-  try {
-    const opts = { encoding: "utf8", timeout: 3e3 };
-    const listR = spawnSync6("git", ["-C", path2, "remote"], opts);
-    if (listR.status !== 0) return [];
-    const names = (listR.stdout ?? "").split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
-    const remotes = [];
-    for (const name of names) {
-      const urlR = spawnSync6("git", ["-C", path2, "remote", "get-url", name], opts);
-      if (urlR.status !== 0) continue;
-      const url2 = (urlR.stdout ?? "").trim();
-      if (!url2) continue;
-      remotes.push({ name, provider: classifyUrl(url2), url: url2 });
-    }
-    return remotes;
-  } catch {
-    return [];
-  }
-}
-function persistScan(db2, graph, out, sessionDir) {
-  const now = nowISO();
-  const scannedNames = new Set(out.repos.map((r) => r.name));
-  const normSession = sessionDir.replace(/\/+$/, "");
-  const existing = db2.all(
-    `SELECT name, path FROM repos`
-  );
-  const toRetire = existing.filter((r) => {
-    const normPath = r.path.replace(/\/+$/, "");
-    const underSession = normPath === normSession || normPath.startsWith(normSession + "/");
-    return underSession && !scannedNames.has(r.name);
-  });
-  let repos_upserted = 0;
-  let repos_retired = 0;
-  let dirs_retired = 0;
-  const retired = [];
-  db2.transaction(() => {
-    for (const r of out.repos) {
-      const remotesJson = JSON.stringify(readRepoRemotes(r.path));
-      db2.run(
-        `INSERT INTO repos (name, path, file_count, last_scanned_at, remotes)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(name) DO UPDATE SET
-           path = excluded.path,
-           file_count = excluded.file_count,
-           last_scanned_at = excluded.last_scanned_at,
-           remotes = excluded.remotes`,
-        [r.name, r.path, r.file_count, now, remotesJson]
+  initialize(projectRootInput) {
+    if (this.closing) {
+      return Promise.reject(
+        new CodexRuntimeError(
+          "runtime_initialization_failed",
+          "The Codex runtime manager is closed."
+        )
       );
-      repos_upserted++;
     }
-    for (const r of toRetire) {
-      try {
-        db2.run(`DELETE FROM repos WHERE name = ?`, [r.name]);
-        repos_retired++;
-        retired.push(r);
-      } catch {
+    let projectRoot;
+    try {
+      projectRoot = canonicalizeProjectRootInput(projectRootInput);
+    } catch (error2) {
+      return Promise.reject(normalizeRuntimeError(error2));
+    }
+    return this.ensureRuntime(projectRoot);
+  }
+  async withRuntime(projectRootInput, operation) {
+    if (this.closing) {
+      throw new CodexRuntimeError(
+        "runtime_initialization_failed",
+        "The Codex runtime manager is closed."
+      );
+    }
+    let projectRoot;
+    try {
+      projectRoot = canonicalizeProjectRootInput(projectRootInput);
+    } catch (error2) {
+      throw normalizeRuntimeError(error2);
+    }
+    this.activeRoots.set(
+      projectRoot,
+      (this.activeRoots.get(projectRoot) ?? 0) + 1
+    );
+    try {
+      await this.ensureRuntime(projectRoot);
+      const runtime = this.runtimes.get(projectRoot);
+      if (!runtime || runtime.closed) {
+        throw new CodexRuntimeError(
+          "runtime_initialization_failed",
+          "The initialized Codex runtime is unavailable."
+        );
       }
-    }
-  });
-  if (graph) {
-    for (const r of retired) {
-      const n = graph.pruneDirectories(r.name, /* @__PURE__ */ new Set());
-      dirs_retired += n;
+      this.touch(runtime);
+      return await operation(
+        Object.freeze({
+          context: runtime.context,
+          db: runtime.db,
+          graph: runtime.graph
+        })
+      );
+    } finally {
+      const remaining = (this.activeRoots.get(projectRoot) ?? 1) - 1;
+      if (remaining === 0) this.activeRoots.delete(projectRoot);
+      else this.activeRoots.set(projectRoot, remaining);
     }
   }
-  let dirs_upserted = 0;
-  let dirs_readme_summarized = 0;
-  let dirs_structural_summarized = 0;
-  if (graph) {
-    const stats = persistDirectoriesGraph(graph, out, now);
-    dirs_upserted = stats.dirs_upserted;
-    dirs_readme_summarized = stats.dirs_readme_summarized;
-    dirs_structural_summarized = stats.dirs_structural_summarized;
-    const dirMap = deriveDirectoryEntries(out);
-    for (const r of out.repos) {
-      const keepKeys = /* @__PURE__ */ new Set();
-      for (const [, entry] of dirMap) {
-        if (entry.repo === r.name) {
-          keepKeys.add(WorldModelGraph.dirKey(r.name, entry.path));
+  close() {
+    if (this.closing) return;
+    this.closing = true;
+    let firstError;
+    for (const runtime of this.runtimes.values()) {
+      try {
+        closeRuntime(runtime);
+      } catch (error2) {
+        firstError ??= error2;
+      }
+    }
+    this.runtimes.clear();
+    if (firstError !== void 0) throw firstError;
+  }
+  ensureRuntime(projectRoot) {
+    const existingRequest = this.requests.get(projectRoot);
+    if (existingRequest) return existingRequest;
+    const request = this.initializeCanonical(projectRoot);
+    this.requests.set(projectRoot, request);
+    void request.finally(() => {
+      if (this.requests.get(projectRoot) === request) {
+        this.requests.delete(projectRoot);
+      }
+    }).catch(() => {
+    });
+    return request;
+  }
+  async initializeCanonical(projectRoot) {
+    try {
+      await validateGitProjectRoot(projectRoot);
+    } catch (error2) {
+      throw normalizeRuntimeError(error2);
+    }
+    if (this.closing) {
+      throw new CodexRuntimeError(
+        "runtime_initialization_failed",
+        "The Codex runtime manager is closed."
+      );
+    }
+    const existing = this.runtimes.get(projectRoot);
+    if (existing && !existing.closed) {
+      this.touch(existing);
+      return resultFor(existing, "reused");
+    }
+    if (this.runtimes.size >= this.capacity && !this.findEvictionCandidate()) {
+      throw capacityError();
+    }
+    let candidate;
+    try {
+      candidate = openRuntime(
+        projectRoot,
+        this.plugin,
+        this.now(),
+        this.nextUsageOrder()
+      );
+      const result = resultFor(candidate, "created");
+      if (this.closing) {
+        throw new CodexRuntimeError(
+          "runtime_initialization_failed",
+          "The Codex runtime manager closed during initialization."
+        );
+      }
+      if (this.runtimes.size >= this.capacity) {
+        const victim = this.findEvictionCandidate();
+        if (!victim) throw capacityError();
+        try {
+          closeRuntime(victim);
+        } finally {
+          this.runtimes.delete(victim.context.projectRoot);
         }
       }
-      graph.pruneDirectories(r.name, keepKeys);
+      this.runtimes.set(projectRoot, candidate);
+      candidate = void 0;
+      return result;
+    } catch (error2) {
+      if (candidate) closeRuntime(candidate);
+      throw normalizeRuntimeError(error2);
     }
   }
-  return {
-    repos_discovered: out.repos.length,
-    repos_upserted,
-    repos_retired,
-    dirs_upserted,
-    dirs_retired,
-    dirs_readme_summarized,
-    dirs_structural_summarized
-  };
-}
-var SCAN_TIMEOUT_MS = 10 * 60 * 1e3;
-function readLock(lockPath) {
+  findEvictionCandidate() {
+    let oldest;
+    for (const runtime of this.runtimes.values()) {
+      if (runtime.closed || (this.activeRoots.get(runtime.context.projectRoot) ?? 0) > 0) {
+        continue;
+      }
+      if (!oldest || runtime.lastUsed < oldest.lastUsed || runtime.lastUsed === oldest.lastUsed && runtime.lastUsedOrder < oldest.lastUsedOrder) {
+        oldest = runtime;
+      }
+    }
+    return oldest;
+  }
+  touch(runtime) {
+    runtime.lastUsed = this.now();
+    runtime.lastUsedOrder = this.nextUsageOrder();
+  }
+  nextUsageOrder() {
+    this.usageOrder += 1;
+    return this.usageOrder;
+  }
+};
+function canonicalizeProjectRootInput(input) {
+  if (typeof input !== "string" || input.length === 0) {
+    throw new CodexRuntimeError(
+      "missing_project_root",
+      "project_root is required."
+    );
+  }
+  if (!isAbsolute2(input)) {
+    throw new CodexRuntimeError(
+      "project_root_not_absolute",
+      "project_root must be an absolute path."
+    );
+  }
+  let stat;
   try {
-    return JSON.parse(readFileSync4(lockPath, "utf8"));
+    stat = statSync2(input);
+  } catch (error2) {
+    if (error2.code === "ENOENT") {
+      throw new CodexRuntimeError(
+        "project_root_not_found",
+        "project_root must identify an existing path."
+      );
+    }
+    throw new CodexRuntimeError(
+      "project_root_not_found",
+      "project_root could not be inspected."
+    );
+  }
+  if (!stat.isDirectory()) {
+    throw new CodexRuntimeError(
+      "project_root_not_directory",
+      "project_root must identify a directory."
+    );
+  }
+  let canonical;
+  try {
+    canonical = realpathSync3(input);
   } catch {
-    return null;
+    throw new CodexRuntimeError(
+      "project_root_not_found",
+      "project_root could not be canonicalized."
+    );
+  }
+  return canonical;
+}
+async function validateGitProjectRoot(canonical) {
+  const topLevel = await runGit(canonical, ["rev-parse", "--show-toplevel"]);
+  if (!topLevel.ok) {
+    throw new CodexRuntimeError(
+      "project_root_not_git_toplevel",
+      "project_root must identify a Git worktree top level."
+    );
+  }
+  let canonicalTopLevel;
+  try {
+    canonicalTopLevel = realpathSync3(topLevel.stdout);
+  } catch {
+    throw new CodexRuntimeError(
+      "project_root_not_git_toplevel",
+      "Git returned an invalid worktree top level."
+    );
+  }
+  if (canonicalTopLevel !== canonical) {
+    throw new CodexRuntimeError(
+      "project_root_not_git_toplevel",
+      "project_root must be the Git worktree top level, not a nested directory."
+    );
+  }
+  const ignored = await runGit(canonical, [
+    "check-ignore",
+    "--no-index",
+    "--quiet",
+    ".tmb/"
+  ]);
+  if (!ignored.ok) {
+    throw stateNotIgnoredError();
+  }
+  const tracked = await runGit(canonical, ["ls-files", "-z", "--", ".tmb"]);
+  if (!tracked.ok || tracked.stdout.length > 0) {
+    throw stateNotIgnoredError();
   }
 }
-function pidAlive(pid) {
+function runGit(cwd, args) {
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_"))
+  );
+  env["GIT_TERMINAL_PROMPT"] = "0";
+  env["GIT_CONFIG_NOSYSTEM"] = "1";
+  env["GIT_CONFIG_GLOBAL"] = "/dev/null";
+  env["LC_ALL"] = "C";
+  return new Promise((resolve) => {
+    execFile(
+      "git",
+      [
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "core.excludesFile=/dev/null",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-C",
+        cwd,
+        ...args
+      ],
+      {
+        encoding: "utf8",
+        env,
+        timeout: GIT_TIMEOUT_MS,
+        maxBuffer: GIT_MAX_BUFFER_BYTES
+      },
+      (error2, stdout) => {
+        resolve({
+          ok: error2 === null,
+          stdout: stdout.trim()
+        });
+      }
+    );
+  });
+}
+function openRuntime(projectRoot, plugin2, now, lastUsedOrder) {
+  let context;
   try {
-    process.kill(pid, 0);
+    context = createCodexRuntimeContext({
+      projectRoot,
+      pluginRoot: plugin2.root,
+      pluginName: plugin2.name,
+      pluginVersion: plugin2.version
+    });
+    assertSafeProjectWritePath(
+      context.projectRoot,
+      context.paths.stateDir,
+      "Codex state directory",
+      "directory"
+    );
+    mkdirSync3(context.paths.stateDir, { recursive: true });
+  } catch (error2) {
+    if (error2 instanceof UnsafeProjectWritePathError) {
+      throw new CodexRuntimeError(
+        "unsafe_project_state_path",
+        error2.message
+      );
+    }
+    throw error2;
+  }
+  const logger = createProjectLogger({
+    logDir: context.paths.logDir,
+    trustedProjectRoot: context.projectRoot
+  });
+  let db;
+  try {
+    db = new TrajectoryDB(context.paths.trajectoryDb, {
+      pluginVersion: plugin2.version,
+      serverLog: logger.serverLog,
+      sqlLog: logger.sqlLog,
+      trustedProjectRoot: context.projectRoot
+    });
+    const graph = new GraphHolder({
+      open: () => new WorldModelGraph(context.paths.graphDb, {
+        trustedProjectRoot: context.projectRoot
+      }),
+      log: (entry) => logger.serverLogSync({ ...entry, path: context.paths.graphDb })
+    });
+    return {
+      context,
+      db,
+      graph,
+      lastUsed: now,
+      lastUsedOrder,
+      closed: false
+    };
+  } catch (error2) {
+    try {
+      db?.close();
+    } catch {
+    }
+    if (error2 instanceof UnsafeProjectWritePathError) {
+      throw new CodexRuntimeError(
+        "unsafe_project_state_path",
+        error2.message
+      );
+    }
+    throw error2;
+  }
+}
+function resultFor(runtime, status) {
+  const row = runtime.db.get(
+    "SELECT schema_version FROM plugin_meta WHERE id = 1"
+  );
+  if (!row) {
+    throw new CodexRuntimeError(
+      "runtime_initialization_failed",
+      "The initialized trajectory database has no schema metadata."
+    );
+  }
+  return Object.freeze({
+    status,
+    project_root: runtime.context.projectRoot,
+    plugin_name: runtime.context.plugin.name,
+    plugin_version: runtime.context.plugin.version,
+    state_dir: runtime.context.paths.stateDir,
+    trajectory_db: runtime.context.paths.trajectoryDb,
+    graph_db: runtime.context.paths.graphDb,
+    log_dir: runtime.context.paths.logDir,
+    schema_version: row.schema_version,
+    graph_available: graphDependencyAvailable(),
+    graph_status: graphDependencyAvailable() ? "deferred" : "unavailable"
+  });
+}
+function closeRuntime(runtime) {
+  if (runtime.closed) return;
+  runtime.closed = true;
+  try {
+    runtime.graph.graph?.close();
+  } finally {
+    runtime.db.close();
+  }
+}
+function normalizeRuntimeError(error2) {
+  if (error2 instanceof CodexRuntimeError) return error2;
+  if (error2 instanceof UnsafeProjectWritePathError) {
+    return new CodexRuntimeError("unsafe_project_state_path", error2.message);
+  }
+  return new CodexRuntimeError(
+    "runtime_initialization_failed",
+    error2 instanceof Error ? error2.message : String(error2)
+  );
+}
+function stateNotIgnoredError() {
+  return new CodexRuntimeError(
+    "project_state_not_ignored",
+    "The project must ignore .tmb/ and must not track files below it."
+  );
+}
+function capacityError() {
+  return new CodexRuntimeError(
+    "runtime_capacity_exceeded",
+    "No Codex runtime capacity is available for this initialization."
+  );
+}
+function graphDependencyAvailable() {
+  try {
+    createRequire2(import.meta.url).resolve("kuzu");
     return true;
   } catch {
     return false;
   }
 }
-function acquireLock(lockPath) {
-  const existing = readLock(lockPath);
-  if (existing) {
-    if (pidAlive(existing.pid)) return false;
-    unlinkSync(lockPath);
-  }
-  writeFileSync3(lockPath, JSON.stringify({ pid: process.pid, started_at: nowISO() }), { flag: "wx" });
-  return true;
-}
-function releaseLock(lockPath) {
-  try {
-    unlinkSync(lockPath);
-  } catch {
-  }
-}
-function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
-  const definitions = [
-    {
-      name: "scan_run",
-      description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory nodes + CONTAINS edges to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. Hard timeout: 10 minutes.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          session_dir: {
-            type: "string",
-            description: "Absolute path to the session directory (workspace root). Defaults to the MCP server's CWD."
-          },
-          source: {
-            type: "string",
-            enum: ["user_manual", "bro_auto_post_close", "bro_auto_post_change", "bro_auto_initial"],
-            description: "Who fired this scan. user_manual = the user typed /scan; bro_auto_post_close = post-task-close-rescan.sh hook; bro_auto_post_change = bro decided to rescan mid-session; bro_auto_initial = bro hit the registry-cold gate and ran scan as remediation. Defaults to bro_auto_initial."
-          }
-        },
-        required: ["agent"]
-      }
-    },
-    {
-      name: "repos_list",
-      description: "List all repos discovered by the most recent scan.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" }
-        },
-        required: ["agent"]
-      }
-    }
-  ];
-  const handlers = {
-    scan_run: requireRoles(
-      "scan_run",
-      ["bro"],
-      wrap3(async (args) => {
-        const sessionDir = args["session_dir"] ?? process.cwd();
-        const rawSource = args["source"] ?? "bro_auto_initial";
-        const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : "bro_auto_initial";
-        const graph = graphHolder2?.ensureGraph() ?? null;
-        const graphOpenError = graphHolder2?.openError ?? null;
-        if (!graph && graphOpenError) {
-          return err15(
-            `graph_db_open_failed: ${graphOpenError} \u2014 another process holds the world-model lock (identify the holder by running lsof on the world-model graph file); the server retries automatically on the next call once the holder exits`
-          );
-        }
-        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join9(dirname9(dbPath2), "scan.lock") : "";
-        if (lockPath) {
-          const existing = readLock(lockPath);
-          if (existing && pidAlive(existing.pid)) {
-            return err15(`scan already running (pid ${existing.pid}, started ${existing.started_at})`);
-          }
-          let acquired = false;
-          let acquireThrew = false;
-          try {
-            acquired = acquireLock(lockPath);
-          } catch {
-            acquireThrew = true;
-          }
-          if (!acquired) {
-            const recheck = readLock(lockPath);
-            if (recheck && pidAlive(recheck.pid)) {
-              return err15(`scan already running (pid ${recheck.pid}, started ${recheck.started_at})`);
-            }
-            if (!acquireThrew) {
-              return err15("scan lock could not be acquired");
-            }
-          }
-        }
-        try {
-          const out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
-          const stats = persistScan(db2, graph, out, sessionDir);
-          const topDirs = new Set(out.files.map((f) => f.path.split("/")[0]).filter(Boolean));
-          const structuralChange = detectStructuralChange(db2, out.repos, topDirs);
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'deep_scan_completed', ?, ?, ?)`,
-            [
-              `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} \u2014 source=${source}${structuralChange ? ", structural-change" : ""}`,
-              JSON.stringify({
-                ...stats,
-                session_dir: out.session_dir,
-                scanned_at: out.scanned_at,
-                source,
-                structural_change: structuralChange,
-                repos_seen: out.repos.map((r) => r.name),
-                top_dirs: Array.from(topDirs).sort()
-              }),
-              nowISO()
-            ]
-          );
-          return ok16({
-            session_dir: out.session_dir,
-            scanned_at: out.scanned_at,
-            repos: out.repos.map((r) => ({ name: r.name, file_count: r.file_count })),
-            source,
-            structural_change: structuralChange,
-            ...stats
-          });
-        } finally {
-          if (lockPath) releaseLock(lockPath);
-        }
-      })
-    ),
-    repos_list: requireRoles(
-      "repos_list",
-      ["bro", "swe", "pr-reviewer"],
-      wrap3(async () => {
-        const rows = db2.all(`SELECT name, path, file_count, last_scanned_at FROM repos ORDER BY name`);
-        return ok16({ repos: rows });
-      })
-    )
-  };
-  return { definitions, handlers };
-}
 
-// src/tools/cheatcode.ts
-import { spawn as spawn2 } from "node:child_process";
-import { existsSync as existsSync8, mkdirSync as mkdirSync6, readFileSync as readFileSync5, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname10, join as join10, sep as sep3 } from "node:path";
-import { fileURLToPath as fileURLToPath5 } from "node:url";
-function ok17(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err16(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function wrap4(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err16(e.message);
-    }
-  };
-}
-function resolveScriptsFile(name) {
-  const here = dirname10(fileURLToPath5(import.meta.url));
-  const candidates = [
-    join10(here, "..", "..", "..", "..", "scripts", name),
-    join10(here, "..", "..", "..", "scripts", name)
-  ];
-  for (const c of candidates) if (existsSync8(c)) return c;
-  const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (pluginRoot) {
-    const c = join10(pluginRoot, "scripts", name);
-    if (existsSync8(c)) return c;
-  }
-  throw new Error(`${name} not found \u2014 expected at <plugin>/scripts/${name}`);
-}
-var resolveSearchScript = () => resolveScriptsFile("cheatcode-search.sh");
-var resolveVetScript = () => resolveScriptsFile("cheatcode-vet.sh");
-var SEARCH_TIMEOUT_MS = 60 * 1e3;
-var VET_TIMEOUT_MS = 60 * 1e3;
-function runSearchWithScript(script, query, kind, timeoutMs) {
-  return new Promise((resolve5, reject) => {
-    const child = spawn2("bash", [script, "--query", query, "--kind", kind], {
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    const stdoutChunks = [];
-    const stderrChunks = [];
-    child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
-    child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
-    let settled = false;
-    const killTimer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        child.kill("SIGKILL");
-      } catch {
-      }
-      reject(new Error("cheatcode-search.sh timed out after 60 seconds"));
-    }, timeoutMs);
-    child.on("error", (e) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      reject(new Error(`cheatcode-search.sh spawn error: ${e.message}`));
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-      const stderr = Buffer.concat(stderrChunks).toString("utf8").slice(0, 2e3);
-      if (code !== 0) {
-        reject(new Error(`cheatcode-search.sh failed (exit ${code ?? "?"}): ${stderr || "unknown error"}`));
-        return;
-      }
-      let parsed;
-      try {
-        parsed = JSON.parse(stdout);
-      } catch {
-        reject(new Error(`cheatcode-search.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
-        return;
-      }
-      if (!Array.isArray(parsed.candidates)) {
-        reject(new Error("cheatcode-search.sh emitted unexpected shape (missing candidates[])"));
-        return;
-      }
-      resolve5(parsed);
-    });
-  });
-}
-var VALID_TIERS = /* @__PURE__ */ new Set([
-  "trusted",
-  "caution",
-  "untrusted",
-  "unknown"
-]);
-function runVetWithScript(script, candidate, timeoutMs) {
-  return new Promise((resolve5, reject) => {
-    const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    const stdoutChunks = [];
-    const stderrChunks = [];
-    child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
-    child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
-    let settled = false;
-    const killTimer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        child.kill("SIGKILL");
-      } catch {
-      }
-      reject(new Error("cheatcode-vet.sh timed out after 60 seconds"));
-    }, timeoutMs);
-    child.on("error", (e) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      reject(new Error(`cheatcode-vet.sh spawn error: ${e.message}`));
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-      const stderr = Buffer.concat(stderrChunks).toString("utf8").slice(0, 2e3);
-      if (code !== 0) {
-        reject(new Error(`cheatcode-vet.sh failed (exit ${code ?? "?"}): ${stderr || "unknown error"}`));
-        return;
-      }
-      let parsed;
-      try {
-        parsed = JSON.parse(stdout);
-      } catch {
-        reject(new Error(`cheatcode-vet.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
-        return;
-      }
-      if (!parsed || typeof parsed !== "object" || !VALID_TIERS.has(parsed.trust_tier)) {
-        reject(new Error("cheatcode-vet.sh emitted unexpected shape (missing/invalid trust_tier)"));
-        return;
-      }
-      if (!Array.isArray(parsed.capabilities)) {
-        reject(new Error("cheatcode-vet.sh emitted unexpected shape (missing capabilities[])"));
-        return;
-      }
-      resolve5(parsed);
-    });
-  });
-}
-function runInstallWithScript(script, candidate, scope, timeoutMs) {
-  return new Promise((resolve5, reject) => {
-    const child = spawn2(
-      "bash",
-      [script, "--candidate", JSON.stringify(candidate), "--scope", scope],
-      { stdio: ["ignore", "pipe", "pipe"] }
-    );
-    const stdoutChunks = [];
-    const stderrChunks = [];
-    child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
-    child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
-    let settled = false;
-    const killTimer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        child.kill("SIGKILL");
-      } catch {
-      }
-      reject(new Error("cheatcode-install.sh timed out after 60 seconds"));
-    }, timeoutMs);
-    child.on("error", (e) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      reject(new Error(`cheatcode-install.sh spawn error: ${e.message}`));
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-      const stderr = Buffer.concat(stderrChunks).toString("utf8").slice(0, 2e3);
-      if (code !== 0) {
-        reject(new Error(`cheatcode-install.sh failed (exit ${code ?? "?"}): ${stderr || "unknown error"}`));
-        return;
-      }
-      let parsed;
-      try {
-        parsed = JSON.parse(stdout);
-      } catch {
-        reject(new Error(`cheatcode-install.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
-        return;
-      }
-      if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.attachments)) {
-        reject(new Error("cheatcode-install.sh emitted unexpected shape (missing attachments[])"));
-        return;
-      }
-      resolve5(parsed);
-    });
-  });
-}
-var resolveInstallScript = () => resolveScriptsFile("cheatcode-install.sh");
-var INSTALL_TIMEOUT_MS = 60 * 1e3;
-function runUninstallWithScript(script, candidate, timeoutMs) {
-  return new Promise((resolve5, reject) => {
-    const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    const stdoutChunks = [];
-    const stderrChunks = [];
-    child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
-    child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
-    let settled = false;
-    const killTimer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        child.kill("SIGKILL");
-      } catch {
-      }
-      reject(new Error("cheatcode-uninstall.sh timed out after 60 seconds"));
-    }, timeoutMs);
-    child.on("error", (e) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      reject(new Error(`cheatcode-uninstall.sh spawn error: ${e.message}`));
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-      const stderr = Buffer.concat(stderrChunks).toString("utf8").slice(0, 2e3);
-      if (code !== 0) {
-        reject(new Error(`cheatcode-uninstall.sh failed (exit ${code ?? "?"}): ${stderr || "unknown error"}`));
-        return;
-      }
-      let parsed;
-      try {
-        parsed = JSON.parse(stdout);
-      } catch {
-        reject(new Error(`cheatcode-uninstall.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
-        return;
-      }
-      if (!parsed || typeof parsed !== "object" || typeof parsed.method !== "string") {
-        reject(new Error("cheatcode-uninstall.sh emitted unexpected shape (missing method)"));
-        return;
-      }
-      resolve5(parsed);
-    });
-  });
-}
-var resolveUninstallScript = () => resolveScriptsFile("cheatcode-uninstall.sh");
-var UNINSTALL_TIMEOUT_MS = 60 * 1e3;
-var INSTALLABLE_KINDS = /* @__PURE__ */ new Set(["skill", "mcp", "plugin"]);
-var VALID_KINDS2 = /* @__PURE__ */ new Set(["skill", "mcp", "plugin", "any"]);
-function deriveOrigin(sourceUrl) {
-  const url2 = sourceUrl.trim();
-  if (url2.startsWith("./")) return "marketplace";
-  const isUrl = /^[a-z][a-z0-9+.-]*:\/\//i.test(url2) || /^[^@\s]+@[^:\s]+:/.test(url2);
-  if (!isUrl && url2.includes("@")) return "marketplace";
-  return "external";
-}
-function parseInstallCandidate(raw) {
-  if (!raw || typeof raw !== "object") return { error: "candidate is required" };
-  const obj = raw;
-  const name = obj["name"]?.trim();
-  const sourceUrl = obj["source_url"]?.trim();
-  const rawKind = obj["kind"]?.trim();
-  if (!name) return { error: "candidate.name is required" };
-  if (!sourceUrl) return { error: "candidate.source_url is required" };
-  if (!rawKind || !INSTALLABLE_KINDS.has(rawKind)) {
-    return { error: "candidate.kind must be one of skill|mcp|plugin" };
-  }
-  const tierVal = obj["tier"];
-  return {
-    name,
-    kind: rawKind,
-    sourceUrl,
-    tier: typeof tierVal === "number" ? tierVal : void 0
-  };
-}
-function projectRootFromDbPath(dbPath2) {
-  if (!dbPath2 || dbPath2 === ":memory:") return null;
-  const segments = dbPath2.split(sep3);
-  const idx = segments.lastIndexOf(".claude");
-  if (idx <= 0) return null;
-  return segments.slice(0, idx).join(sep3) || sep3;
-}
-function resolveGlobalAgentMd(target) {
-  const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (pluginRoot) {
-    const c2 = join10(pluginRoot, "agents", `${target}.md`);
-    if (existsSync8(c2)) return c2;
-  }
-  const here = dirname10(fileURLToPath5(import.meta.url));
-  const c = join10(here, "..", "..", "..", "..", "agents", `${target}.md`);
-  if (existsSync8(c)) return c;
-  return null;
-}
-function readManifestProvidedTools(manifestPath) {
-  let manifest;
-  try {
-    manifest = JSON.parse(readFileSync5(manifestPath, "utf8"));
-  } catch {
-    return [];
-  }
-  if (!manifest || typeof manifest !== "object") return [];
-  const obj = manifest;
-  const tools = obj["tools"];
-  if (Array.isArray(tools)) {
-    return tools.map((t) => String(t).trim()).filter((t) => t.length > 0);
-  }
-  if (obj["lsp"] !== void 0 && obj["lsp"] !== null) return ["LSP"];
-  return [];
-}
-function resolveInstalledPluginManifest(name) {
-  const override = process.env["TMB_CHEATCODE_PLUGIN_MANIFEST"];
-  if (override) return existsSync8(override) ? override : null;
-  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join10(process.env["HOME"] || "", ".claude");
-  const registry2 = join10(claudeHome, "plugins", "installed_plugins.json");
-  if (!existsSync8(registry2)) return null;
-  let parsed;
-  try {
-    parsed = JSON.parse(readFileSync5(registry2, "utf8"));
-  } catch {
-    return null;
-  }
-  const plugins = parsed?.plugins;
-  if (!plugins || typeof plugins !== "object") return null;
-  for (const [key, entries] of Object.entries(plugins)) {
-    if (key.split("@")[0] !== name) continue;
-    const list = Array.isArray(entries) ? entries : [];
-    for (const e of list) {
-      const installPath = e?.installPath;
-      if (typeof installPath !== "string" || installPath.length === 0) continue;
-      const manifest = join10(installPath, ".claude-plugin", "plugin.json");
-      if (existsSync8(manifest)) return manifest;
-    }
-  }
-  return null;
-}
-function detectProvidedTools(name) {
-  const manifest = resolveInstalledPluginManifest(name);
-  if (!manifest) return [];
-  return readManifestProvidedTools(manifest);
-}
-function addToolToAgentFrontmatter(content, toolName) {
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-  if (!fmMatch) {
-    return `---
-tools: ${toolName}
----
-
-${content}`;
-  }
-  const fm = fmMatch[1];
-  const toolsLine = fm.match(/^tools:\s*(.*)$/m);
-  if (toolsLine) {
-    const entries = toolsLine[1].split(",").map((s) => s.trim()).filter((s) => s.length > 0);
-    if (entries.includes(toolName)) return content;
-    entries.push(toolName);
-    const rebuilt = `tools: ${entries.join(", ")}`;
-    const newFm2 = fm.replace(/^tools:\s*.*$/m, rebuilt);
-    return content.replace(fm, newFm2);
-  }
-  const newFm = `${fm}
-tools: ${toolName}`;
-  return content.replace(fm, newFm);
-}
-function removeToolFromAgentFrontmatter(content, toolName) {
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-  if (!fmMatch) return content;
-  const fm = fmMatch[1];
-  const toolsLine = fm.match(/^tools:\s*(.*)$/m);
-  if (!toolsLine) return content;
-  const entries = toolsLine[1].split(",").map((s) => s.trim()).filter((s) => s.length > 0);
-  if (!entries.includes(toolName)) return content;
-  const remaining = entries.filter((s) => s !== toolName);
-  const rebuilt = `tools: ${remaining.join(", ")}`;
-  const newFm = fm.replace(/^tools:\s*.*$/m, rebuilt);
-  return content.replace(fm, newFm);
-}
-function addSkillToAgentFrontmatter(content, skillName) {
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-  if (!fmMatch) {
-    return `---
-skills: [${skillName}]
----
-
-${content}`;
-  }
-  const fm = fmMatch[1];
-  const skillsLine = fm.match(/^skills:\s*\[(.*)\]\s*$/m);
-  if (skillsLine) {
-    const entries = skillsLine[1].split(",").map((s) => s.trim()).filter((s) => s.length > 0);
-    if (entries.includes(skillName)) return content;
-    entries.push(skillName);
-    const rebuilt = `skills: [${entries.join(", ")}]`;
-    const newFm2 = fm.replace(/^skills:\s*\[.*\]\s*$/m, rebuilt);
-    return content.replace(fm, newFm2);
-  }
-  const newFm = `${fm}
-skills: [${skillName}]`;
-  return content.replace(fm, newFm);
-}
-function removeSkillFromAgentFrontmatter(content, skillName) {
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-  if (!fmMatch) return content;
-  const fm = fmMatch[1];
-  const skillsLine = fm.match(/^skills:\s*\[(.*)\]\s*$/m);
-  if (!skillsLine) return content;
-  const entries = skillsLine[1].split(",").map((s) => s.trim()).filter((s) => s.length > 0);
-  if (!entries.includes(skillName)) return content;
-  const remaining = entries.filter((s) => s !== skillName);
-  const rebuilt = `skills: [${remaining.join(", ")}]`;
-  const newFm = fm.replace(/^skills:\s*\[.*\]\s*$/m, rebuilt);
-  return content.replace(fm, newFm);
-}
-function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools = []) {
-  const projectRoot = projectRootFromDbPath(dbPath2);
-  if (!projectRoot) return null;
-  const claudeDir = join10(projectRoot, ".claude");
-  if (target === "bro") {
-    const claudeMd = join10(claudeDir, "CLAUDE.md");
-    const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    let body = existsSync8(claudeMd) ? readFileSync5(claudeMd, "utf8") : "";
-    if (!body.includes(reference)) {
-      const prefix = body.length === 0 || body.endsWith("\n") ? "" : "\n";
-      body = body.length === 0 ? `${reference}
-` : `${body}${prefix}${reference}
-`;
-      mkdirSync6(claudeDir, { recursive: true });
-      writeFileSync4(claudeMd, body);
-    }
-    return { target: "bro", artifact: "claude-md:.claude/CLAUDE.md", path: claudeMd };
-  }
-  const localAgentMd = join10(claudeDir, "agents", `${target}.md`);
-  let content;
-  if (existsSync8(localAgentMd)) {
-    content = readFileSync5(localAgentMd, "utf8");
-  } else {
-    const globalAgentMd = resolveGlobalAgentMd(target);
-    if (!globalAgentMd) return null;
-    content = readFileSync5(globalAgentMd, "utf8");
-  }
-  let updated = content;
-  if (providedTools.length > 0) {
-    for (const tool of providedTools) updated = addToolToAgentFrontmatter(updated, tool);
-  } else {
-    updated = addSkillToAgentFrontmatter(updated, cheatcodeName);
-  }
-  mkdirSync6(dirname10(localAgentMd), { recursive: true });
-  writeFileSync4(localAgentMd, updated);
-  return {
-    target,
-    artifact: `agent-md:.claude/agents/${target}.md`,
-    path: localAgentMd
-  };
-}
-function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools = []) {
-  const projectRoot = projectRootFromDbPath(dbPath2);
-  if (!projectRoot) return;
-  if (artifact.startsWith("agent-md:")) {
-    const rel = artifact.slice("agent-md:".length);
-    const filePath = join10(projectRoot, rel);
-    if (!existsSync8(filePath)) return;
-    const content = readFileSync5(filePath, "utf8");
-    let updated = removeSkillFromAgentFrontmatter(content, cheatcodeName);
-    for (const tool of providedTools) updated = removeToolFromAgentFrontmatter(updated, tool);
-    if (updated !== content) writeFileSync4(filePath, updated);
-    return;
-  }
-  if (artifact.startsWith("claude-md:")) {
-    const rel = artifact.slice("claude-md:".length);
-    const filePath = join10(projectRoot, rel);
-    if (!existsSync8(filePath)) return;
-    const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    const body = readFileSync5(filePath, "utf8");
-    if (!body.includes(reference)) return;
-    const updated = body.split("\n").filter((line) => line !== reference).join("\n");
-    writeFileSync4(filePath, updated);
-  }
-}
-function cheatcodeTools(db2) {
-  const definitions = [
+// src/codex-tools.ts
+function createCodexToolRegistry(manager2) {
+  const definitions = deepFreeze([
     {
-      name: "cheatcode_search",
-      description: "Discover + deterministically rank Claude Code cheatcodes (skills, MCP toolkits, plugins) for a capability the project lacks. Forks scripts/cheatcode-search.sh (query tiered registries, rank by tier + relevance, no LLM), records a cheatcode_search audit row, returns ranked candidates.",
+      name: "runtime_initialize",
+      description: "Initialize or reuse TMB runtime state for one explicit Git worktree root.",
       inputSchema: {
         type: "object",
         properties: {
-          agent: { type: "string" },
-          capability_query: {
+          project_root: {
             type: "string",
-            description: 'The needed capability (e.g. "pdf table extraction").'
-          },
-          kind: {
-            type: "string",
-            enum: ["skill", "mcp", "plugin", "any"],
-            description: "Filter to one cheatcode kind. Defaults to any."
+            description: "Absolute path to the Git worktree root."
           }
         },
-        required: ["agent", "capability_query"]
-      }
-    },
-    {
-      name: "cheatcode_vet",
-      description: "Gather reputation + security-surface signals for ONE cheatcode candidate and emit a deterministic trust_tier (trusted|caution|untrusted|unknown) + rationale + capabilities[]. Forks scripts/cheatcode-vet.sh, records a cheatcode_vet audit row. The tier is a reproducible classification, NOT an install verdict (that stays bro + Human).",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          candidate: {
-            type: "object",
-            description: "One candidate to vet (e.g. a row from cheatcode_search).",
-            properties: {
-              name: { type: "string" },
-              kind: { type: "string", enum: ["skill", "mcp", "plugin", "any"] },
-              source_url: { type: "string", description: "The repo URL the signals key off." },
-              tier: { type: "number", description: "Registry tier carried over from the candidate (optional)." }
-            },
-            required: ["name", "kind", "source_url"]
-          }
-        },
-        required: ["agent", "candidate"]
-      }
-    },
-    {
-      name: "cheatcode_approve",
-      description: "Record the human approval for installing ONE cheatcode. Writes a cheatcode_approved audit row keyed by source_url; the PreToolUse install gate fails closed until it exists. Per-candidate, per-session \u2014 the human decision, not bro self-authorizing.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          candidate: {
-            type: "object",
-            description: "The candidate the human approved for install (from cheatcode_vet).",
-            properties: {
-              name: { type: "string" },
-              kind: { type: "string", enum: ["skill", "mcp", "plugin"] },
-              source_url: { type: "string", description: "The repo URL \u2014 the per-candidate approval key." }
-            },
-            required: ["name", "kind", "source_url"]
-          }
-        },
-        required: ["agent", "candidate"]
-      }
-    },
-    {
-      name: "cheatcode_install",
-      description: "Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope by default \u2014 pass scope=global for a user-wide install. Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|pr-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target \u2014 without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          candidate: {
-            type: "object",
-            description: "The approved candidate to install (from cheatcode_vet).",
-            properties: {
-              name: { type: "string" },
-              kind: { type: "string", enum: ["skill", "mcp", "plugin"] },
-              source_url: { type: "string", description: "The repo URL the install keys off." },
-              tier: { type: "number", description: "Registry tier carried over from the candidate (optional)." }
-            },
-            required: ["name", "kind", "source_url"]
-          },
-          trust_tier: {
-            type: "string",
-            description: "The cheatcode_vet trust_tier recorded at install time (optional)."
-          },
-          scope: {
-            type: "string",
-            enum: ["local", "global"],
-            description: "Install scope. local (default) = project-scoped, so no global/local prompt; global = user-wide. Forwarded to the install script and persisted on the cheatcodes row."
-          },
-          target: {
-            type: "string",
-            description: "The consuming agent to materialize for a skill: bro | swe | pr-reviewer | a consultant name. For a non-bro target the install copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter; target=bro materializes the project .claude/CLAUDE.md. Idempotent; writes the user project only. Omit to skip materialization."
-          }
-        },
-        required: ["agent", "candidate"]
-      }
-    },
-    {
-      name: "cheatcode_uninstall",
-      description: "Uninstall ONE installed cheatcode by cheatcode_id. Reverses the install in one transaction: forks scripts/cheatcode-uninstall.sh to reverse each attachment via the marketplace/plugin uninstall path (no manual file deletion), deletes the cheatcodes + cheatcode_attachments rows, emits a cheatcode_uninstalled audit row. Idempotent \u2014 an absent or partial install no-ops without error. An explicit Human request naming the cheatcode(s) is itself the confirmation - execute directly. When bro initiates the removal or the target is ambiguous, confirm via AskUserQuestion first. Not PreToolUse-gated.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          cheatcode_id: {
-            type: "number",
-            description: "The id of the cheatcodes row to tear down (from cheatcode_install)."
-          }
-        },
-        required: ["agent", "cheatcode_id"]
-      }
-    },
-    {
-      name: "cheatcode_activate",
-      description: "Hot-load ONE installed cheatcode by cheatcode_id and return a deterministic activation verdict. Skill-kind attachments are usable in-session (activated); plugin/MCP kinds load on the next claude -p cold start, so they return restart_required + a reason (docs/architecture/CHEATCODES.md \xA7Hot-load #660). Never throws on a known install; an unknown cheatcode_id is an error.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          cheatcode_id: {
-            type: "number",
-            description: "The id of the cheatcodes row to activate (from cheatcode_install)."
-          }
-        },
-        required: ["agent", "cheatcode_id"]
-      }
-    },
-    {
-      name: "cheatcode_list",
-      description: 'Read-only inspect of the installed cheatcode registry (the cheatcodes table) \u2014 every builtin + installed capability the project knows about, ordered by id. Returns id, name, kind, origin, source_url, version, trust_tier, scope, status, description per row. This is the inspect surface for "do the cheatcodes work / which cheatcodes are installed", distinct from the discovery pipeline (cheatcode_search \u2192 vet \u2192 install). Optionally filter by kind or status.',
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          kind: {
-            type: "string",
-            enum: ["skill", "mcp", "plugin"],
-            description: "Filter to one cheatcode kind. Omit for all kinds."
-          },
-          status: {
-            type: "string",
-            enum: ["installed", "active", "broken"],
-            description: "Filter to one lifecycle status. Omit for all statuses."
-          }
-        },
-        required: ["agent"]
+        required: ["project_root"],
+        additionalProperties: false
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false
       }
     }
-  ];
-  const handlers = {
-    cheatcode_search: requireRoles(
-      "cheatcode_search",
-      ["bro"],
-      wrap4(async (args) => {
-        const query = args["capability_query"]?.trim();
-        if (!query) return err16("capability_query is required");
-        const rawKind = args["kind"] ?? "any";
-        const kind = VALID_KINDS2.has(rawKind) ? rawKind : "any";
-        const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS);
-        db2.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'cheatcode_search', ?, ?, ?)`,
-          [
-            `Cheatcode search: '${query}' (kind=${kind}) \u2192 ${out.candidates.length} ranked candidate(s)`,
-            JSON.stringify({
-              query,
-              kind,
-              candidate_count: out.candidates.length,
-              top: out.candidates.slice(0, 5).map((c) => ({ name: c.name, kind: c.kind, score: c.score }))
-            }),
-            nowISO()
-          ]
-        );
-        return ok17({ query, kind, candidates: out.candidates });
-      })
-    ),
-    cheatcode_vet: requireRoles(
-      "cheatcode_vet",
-      ["bro"],
-      wrap4(async (args) => {
-        const raw = args["candidate"];
-        if (!raw || typeof raw !== "object") return err16("candidate is required");
-        const name = raw["name"]?.trim();
-        const sourceUrl = raw["source_url"]?.trim();
-        if (!name) return err16("candidate.name is required");
-        if (!sourceUrl) return err16("candidate.source_url is required");
-        const rawKind = raw["kind"] ?? "any";
-        const kind = VALID_KINDS2.has(rawKind) ? rawKind : "any";
-        const tierVal = raw["tier"];
-        const candidate = {
-          name,
-          kind,
-          source_url: sourceUrl
-        };
-        if (typeof tierVal === "number") candidate.tier = tierVal;
-        const out = await runVetWithScript(resolveVetScript(), candidate, VET_TIMEOUT_MS);
-        db2.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'cheatcode_vet', ?, ?, ?)`,
-          [
-            `Cheatcode vet: '${name}' (kind=${kind}) \u2192 trust_tier=${out.trust_tier}`,
-            JSON.stringify({
-              candidate: out.candidate,
-              trust_tier: out.trust_tier,
-              capabilities: out.capabilities,
-              rationale: out.rationale
-            }),
-            nowISO()
-          ]
-        );
-        return ok17(out);
-      })
-    ),
-    cheatcode_approve: requireRoles(
-      "cheatcode_approve",
-      ["bro"],
-      wrap4(async (args) => {
-        const parsed = parseInstallCandidate(args["candidate"]);
-        if ("error" in parsed) return err16(parsed.error);
-        const { name, kind, sourceUrl } = parsed;
-        db2.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'cheatcode_approved', ?, ?, ?)`,
-          [
-            `Cheatcode approved for install: '${name}' (kind=${kind})`,
-            JSON.stringify({ name, kind, source_url: sourceUrl }),
-            nowISO()
-          ]
-        );
-        return ok17({ approved: true, candidate: { name, kind, source_url: sourceUrl } });
-      })
-    ),
-    cheatcode_install: requireRoles(
-      "cheatcode_install",
-      ["bro"],
-      wrap4(async (args) => {
-        const parsed = parseInstallCandidate(args["candidate"]);
-        if ("error" in parsed) return err16(parsed.error);
-        const { name, kind, sourceUrl, tier } = parsed;
-        const trustTier = args["trust_tier"]?.trim() ?? null;
-        const rawScope = args["scope"]?.trim();
-        const scope = rawScope === "global" ? "global" : "local";
-        const target = args["target"]?.trim() || null;
-        if (kind === "skill" && !target) {
-          return err16(
-            "a skill install requires a target agent (bro|swe|pr-reviewer|consultant) so it attaches to \u22651 agent; an unattached skill is an orphan no agent loads. Resolve a target (infer by domain or AskUserQuestion) and re-call cheatcode_install with target=<agent>."
-          );
-        }
-        const existing = db2.get(
-          `SELECT * FROM cheatcodes WHERE name = ? AND source_url = ? LIMIT 1`,
-          [name, sourceUrl]
-        );
-        if (existing) {
-          const attachments = db2.all(
-            `SELECT target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
-            [existing.id]
-          );
-          return ok17({
-            installed: false,
-            idempotent: true,
-            cheatcode: existing,
-            attachments
-          });
-        }
-        const approval = db2.get(
-          `SELECT id FROM audit
-             WHERE event_type = 'cheatcode_approved'
-               AND json_extract(content_json, '$.source_url') = ?
-           LIMIT 1`,
-          [sourceUrl]
-        );
-        if (!approval) {
-          return err16(
-            `cheatcode install blocked: no approval on record for '${name}' (${sourceUrl}). Run cheatcode_approve on this candidate first, then re-call cheatcode_install.`
-          );
-        }
-        const candidate = {
-          name,
-          kind,
-          source_url: sourceUrl
-        };
-        if (typeof tier === "number") candidate.tier = tier;
-        const out = await runInstallWithScript(
-          resolveInstallScript(),
-          candidate,
-          scope,
-          INSTALL_TIMEOUT_MS
-        );
-        if (kind !== "skill" && out.installed === false && out.error) {
-          return err16(
-            `cheatcode install failed for '${name}' (${kind}): ${out.error}. No row recorded.`
-          );
-        }
-        const placementScope = scope === "global" ? "global" : "project-local";
-        const filePath = kind === "skill" ? `.claude/skills/${name}/SKILL.md` : null;
-        const description = trustTier ? `${kind} cheatcode '${name}' (installed, vetted ${trustTier})` : `${kind} cheatcode '${name}' (installed)`;
-        const materialized = [];
-        if (kind === "skill" || kind === "plugin") {
-          const targetSet = /* @__PURE__ */ new Set();
-          for (const att of out.attachments) {
-            if (att.target) targetSet.add(att.target);
-          }
-          if (target) targetSet.add(target);
-          for (const t of targetSet) {
-            const providedTools = kind === "plugin" && t !== "bro" ? detectProvidedTools(name) : [];
-            const result = materializeConsumingAgent(db2.dbPath, t, name, providedTools);
-            if (result) materialized.push(result);
-          }
-        }
-        const origin = deriveOrigin(sourceUrl);
-        const installedAt = nowISO();
-        const cheatcodeId = db2.transaction(() => {
-          const res = db2.run(
-            `INSERT INTO cheatcodes (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'installed', ?)`,
-            [name, kind, origin, description, sourceUrl, filePath, out.version ?? null, trustTier, placementScope, installedAt]
-          );
-          const id = Number(res.lastInsertRowid);
-          for (const att of out.attachments) {
-            db2.run(
-              `INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
-               VALUES (?, ?, ?, ?)`,
-              [id, att.target, att.artifact, installedAt]
-            );
-          }
-          for (const m of materialized) {
-            db2.run(
-              `INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
-               VALUES (?, ?, ?, ?)`,
-              [id, m.target, m.artifact, installedAt]
-            );
-          }
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_install', ?, ?, ?)`,
-            [
-              `Cheatcode install: '${name}' (kind=${kind}, method=${out.method})`,
-              JSON.stringify({ name, kind, source_url: sourceUrl, method: out.method }),
-              installedAt
-            ]
-          );
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_installed', ?, ?, ?)`,
-            [
-              `Cheatcode installed: '${name}' \u2192 cheatcode_id=${id}`,
-              JSON.stringify({
-                cheatcode_id: id,
-                name,
-                kind,
-                source_url: sourceUrl,
-                installed: out.installed,
-                attachments: out.attachments
-              }),
-              installedAt
-            ]
-          );
-          return id;
-        });
-        return ok17({
-          installed: out.installed,
-          cheatcode_id: cheatcodeId,
-          candidate: out.candidate,
-          method: out.method,
-          version: out.version,
-          scope: placementScope,
-          attachments: out.attachments,
-          // Every materialized prompt-surface path (the .claude/agents/<target>.md
-          // or .claude/CLAUDE.md written in the user project), one element per
-          // bound target. Empty when nothing materialized (no target, or none
-          // resolved).
-          materialized: materialized.map((m) => ({
-            target: m.target,
-            artifact: m.artifact,
-            path: m.path
-          })),
-          // Skill installs carry the install script's proposed agent-frontmatter
-          // PR payload alongside the materialized surface — the canonical
-          // upstream contribution, distinct from the project-local materialize.
-          proposed_pr: out.proposed_pr,
-          error: out.error
-        });
-      })
-    ),
-    cheatcode_uninstall: requireRoles(
-      "cheatcode_uninstall",
-      ["bro"],
-      wrap4(async (args) => {
-        const idVal = args["cheatcode_id"];
-        if (typeof idVal !== "number" || !Number.isInteger(idVal)) {
-          return err16("cheatcode_id is required (integer)");
-        }
-        const existing = db2.get(
-          `SELECT * FROM cheatcodes WHERE id = ? LIMIT 1`,
-          [idVal]
-        );
-        if (!existing) {
-          return ok17({ uninstalled: false, idempotent: true, cheatcode_id: idVal });
-        }
-        const attachments = db2.all(
-          `SELECT id, target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
-          [existing.id]
-        );
-        const candidate = {
-          name: existing.name,
-          kind: existing.kind,
-          source_url: existing.source_url ?? ""
-        };
-        const reversal = await runUninstallWithScript(
-          resolveUninstallScript(),
-          candidate,
-          UNINSTALL_TIMEOUT_MS
-        );
-        const uninstalledAt = nowISO();
-        const auditContent = JSON.stringify({
-          cheatcode_id: existing.id,
-          name: existing.name,
-          kind: existing.kind,
-          source_url: existing.source_url,
-          removed: reversal.removed,
-          method: reversal.method,
-          attachments,
-          error: reversal.error
-        });
-        const auditSummary = `Cheatcode uninstall: '${existing.name}' (kind=${existing.kind}, method=${reversal.method}, removed=${reversal.removed})`;
-        db2.transaction(() => {
-          if (reversal.removed) {
-            const reverseTools = existing.kind === "plugin" ? detectProvidedTools(existing.name) : [];
-            for (const att of attachments) {
-              if (att.artifact.startsWith("agent-md:") || att.artifact.startsWith("claude-md:")) {
-                dematerializeAttachment(db2.dbPath, att.artifact, existing.name, reverseTools);
-              }
-            }
-            db2.run(`DELETE FROM cheatcode_attachments WHERE cheatcode_id = ?`, [existing.id]);
-            db2.run(`DELETE FROM cheatcodes WHERE id = ?`, [existing.id]);
-          } else {
-            db2.run(`UPDATE cheatcodes SET status = 'broken', updated_at = ? WHERE id = ?`, [
-              uninstalledAt,
-              existing.id
-            ]);
-          }
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_uninstalled', ?, ?, ?)`,
-            [auditSummary, auditContent, uninstalledAt]
-          );
-        });
-        return ok17({
-          uninstalled: reversal.removed,
-          cheatcode_id: existing.id,
-          name: existing.name,
-          kind: existing.kind,
-          method: reversal.method,
-          removed: reversal.removed,
-          attachments,
-          error: reversal.error
-        });
-      })
-    ),
-    cheatcode_activate: requireRoles(
-      "cheatcode_activate",
-      ["bro"],
-      wrap4(async (args) => {
-        const idVal = args["cheatcode_id"];
-        if (typeof idVal !== "number" || !Number.isInteger(idVal)) {
-          return err16("cheatcode_id is required (integer)");
-        }
-        const existing = db2.get(
-          `SELECT * FROM cheatcodes WHERE id = ? LIMIT 1`,
-          [idVal]
-        );
-        if (!existing) return err16(`no cheatcode with id ${idVal}`);
-        const restartReason = {
-          plugin: "plugin manifest (skills/hooks/commands) loads on the next claude -p cold start",
-          mcp: "MCP server registers on the next claude -p cold start"
-        };
-        const verdict = existing.kind === "skill" ? { status: "activated", reason: null } : { status: "restart_required", reason: restartReason[existing.kind] };
-        const activatedAt = nowISO();
-        const rowStatus = verdict.status === "activated" ? "active" : null;
-        db2.transaction(() => {
-          if (rowStatus) {
-            db2.run(`UPDATE cheatcodes SET status = ?, updated_at = ? WHERE id = ?`, [
-              rowStatus,
-              activatedAt,
-              existing.id
-            ]);
-          }
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_activate', ?, ?, ?)`,
-            [
-              `Cheatcode activate: '${existing.name}' (kind=${existing.kind}) \u2192 ${verdict.status}`,
-              JSON.stringify({
-                cheatcode_id: existing.id,
-                name: existing.name,
-                kind: existing.kind,
-                status: verdict.status,
-                row_status: rowStatus ?? existing.status,
-                reason: verdict.reason
-              }),
-              activatedAt
-            ]
-          );
-        });
-        return ok17({
-          cheatcode_id: existing.id,
-          name: existing.name,
-          kind: existing.kind,
-          status: verdict.status,
-          row_status: rowStatus ?? existing.status,
-          reason: verdict.reason
-        });
-      })
-    ),
-    cheatcode_list: requireRoles(
-      "cheatcode_list",
-      ["bro"],
-      wrap4(async (args) => {
-        const rawKind = args["kind"]?.trim();
-        const rawStatus = args["status"]?.trim();
-        const where = [];
-        const params = [];
-        if (rawKind) {
-          where.push("kind = ?");
-          params.push(rawKind);
-        }
-        if (rawStatus) {
-          where.push("status = ?");
-          params.push(rawStatus);
-        }
-        const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
-        const rows = db2.all(
-          `SELECT id, name, kind, origin, source_url, version, trust_tier, scope, status, description
-             FROM cheatcodes ${clause} ORDER BY id`,
-          params
-        );
-        return ok17({ cheatcodes: rows });
-      })
-    )
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/world_model.ts
-import { spawnSync as spawnSync7 } from "node:child_process";
-import { resolve as resolve4, dirname as dirname11 } from "node:path";
-var WORLD_MODEL_GET_MAX_NODES = 500;
-var UNMERGED_WORK_MAX_BRANCHES = 10;
-function computeUnmergedWork(db2, repo) {
-  if (!repo) return { unmerged_work: [] };
-  const repoRow = db2.get(
-    `SELECT path, target_branch FROM repos WHERE name = ?`,
-    [repo]
-  );
-  if (!repoRow) return { unmerged_work: [] };
-  const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname11(db2.dbPath);
-  const repoPath = repoRow.path.startsWith("/") ? repoRow.path : resolve4(dbDir, repoRow.path);
-  const target = repoRow.target_branch || "dev";
-  const gitCheck = spawnSync7("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
-    encoding: "utf8",
-    timeout: SUBPROCESS_TIMEOUT_MS
-  });
-  if (gitCheck.error || gitCheck.status !== 0) {
-    return { unmerged_work: [], warning: "unmerged-work-unavailable" };
-  }
-  const rows = db2.all(
-    `SELECT branch_id, parent_branch_id, commit_sha, status
-       FROM tasks
-      WHERE repo = ? AND commit_sha IS NOT NULL
-      ORDER BY updated_at DESC, id DESC`,
-    [repo]
-  );
-  const byBranch = /* @__PURE__ */ new Map();
-  for (const r of rows) {
-    let entry = byBranch.get(r.branch_id);
-    if (!entry) {
-      entry = { parent_branch_id: r.parent_branch_id, tip: r.commit_sha, closed_tasks: 0 };
-      byBranch.set(r.branch_id, entry);
-    }
-    if (r.status === "closed") entry.closed_tasks++;
-  }
-  const unmerged_work = [];
-  for (const [branch_id, entry] of [...byBranch.entries()].slice(0, UNMERGED_WORK_MAX_BRANCHES)) {
-    const refCheck = spawnSync7(
-      "git",
-      ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branch_id}`],
-      { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
-    );
-    if (refCheck.status !== 0) continue;
-    const mergeBase = spawnSync7(
-      "git",
-      ["-C", repoPath, "merge-base", "--is-ancestor", entry.tip, target],
-      { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
-    );
-    if (mergeBase.error) {
-      return { unmerged_work: [], warning: "unmerged-work-unavailable" };
-    }
-    if (mergeBase.status === 0) continue;
-    if (mergeBase.status !== 1) continue;
-    unmerged_work.push({
-      branch_id,
-      parent_branch_id: entry.parent_branch_id,
-      tip: entry.tip,
-      closed_tasks: entry.closed_tasks,
-      merged_into_target: false
-    });
-  }
-  return { unmerged_work };
-}
-function ok18(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err17(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function wrap5(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err17(e.message);
-    }
-  };
-}
-function buildTree(rows, rootPath, depth, opts) {
-  const byParent = /* @__PURE__ */ new Map();
-  for (const r of rows) {
-    const key = r.parent_path ?? "__ROOT__";
-    if (!byParent.has(key)) byParent.set(key, []);
-    byParent.get(key).push(r);
-  }
-  const root = rows.find((r) => r.path === rootPath);
-  if (!root) return null;
-  const visited = /* @__PURE__ */ new Set();
-  const counter = opts?.nodeCounter;
-  const depthOffset = opts?.depthOffset ?? 0;
-  function descend(node, remainingDepth, currentDepth) {
-    visited.add(node.path);
-    if (counter) counter.count++;
-    const children = [];
-    if (remainingDepth === null || remainingDepth > 0) {
-      const kids = (byParent.get(node.path) ?? []).filter(
-        (k) => k.path !== node.path && !visited.has(k.path)
-      );
-      kids.sort((a, b) => a.path.localeCompare(b.path));
-      for (const k of kids) {
-        if (counter && counter.count >= counter.limit) break;
-        children.push(descend(k, remainingDepth === null ? null : remainingDepth - 1, currentDepth + 1));
-      }
-    }
-    const absoluteDepth = currentDepth + depthOffset;
-    const summary = absoluteDepth > 1 && node.summary ? node.summary.split("\n").find((l) => l.trim().length > 0) ?? node.summary : node.summary;
-    return {
-      path: node.path,
-      summary,
-      summary_source: node.summary_source,
-      summary_updated_at: node.summary_updated_at,
-      file_count: node.file_count,
-      children
-    };
-  }
-  return descend(root, depth, 0);
-}
-function worldModelTools(db2, graphHolder2) {
-  const definitions = [
-    {
-      name: "world_model_get",
-      description: "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. Also returns unmerged_work: closed-task branch tips not yet merged into the repo's target branch. Primary navigation surface for code-touching cold starts.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          repo: {
-            type: "string",
-            description: "Repo name (matches `repos.name`). Defaults to the sole registered repo when exactly one exists; required in multi-repo projects."
-          },
-          path: {
-            type: "string",
-            description: "Starting directory path, repo-relative. Defaults to the repo root ('')."
-          },
-          depth: {
-            type: ["integer", "null"],
-            description: "How deep to descend. Defaults to 2 (root + immediate children). Pass null for the full subtree."
-          }
-        },
-        required: ["agent"]
-      }
-    },
-    {
-      name: "world_model_search",
-      description: "Search the world model by summary + path match. Returns top-K dir summaries with their paths. Default mode is hybrid; falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' questions \u2014 cheaper than world_model_get.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          query: {
-            type: "string",
-            description: "Search query. For keyword/hybrid: FTS5 MATCH syntax. For semantic: natural language."
-          },
-          mode: {
-            type: "string",
-            enum: ["keyword", "semantic", "hybrid"],
-            description: "Search mode. Default: hybrid (RRF combines FTS5 + cosine)."
-          },
-          repo: {
-            type: "string",
-            description: "Optional \u2014 restrict to one repo. Defaults to the sole registered repo when exactly one exists; unrestricted in multi-repo projects."
-          },
-          k: {
-            type: "number",
-            description: "Top-K rows to return. Default 5. Max 20."
-          }
-        },
-        required: ["agent", "query"]
-      }
-    }
-  ];
-  const handlers = {
-    world_model_get: requireRoles(
-      "world_model_get",
-      ["bro", "swe", "pr-reviewer"],
-      wrap5(async (args) => {
-        let repo = args["repo"] ?? "";
-        if (!repo) {
-          const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
-          if (available.length >= 2) {
-            return ok18({ repo: "", root: null, warning: "repo-unspecified", available_repos: available });
-          }
-          repo = resolveSoleRepo(db2)?.name ?? "";
-        }
-        const path2 = args["path"] ?? "";
-        const depthArg = args["depth"];
-        const depth = depthArg === null ? null : typeof depthArg === "number" ? depthArg : 2;
-        const unmerged = computeUnmergedWork(db2, repo);
-        const graph = graphHolder2?.ensureGraph() ?? null;
-        if (!graph) {
-          return ok18({ repo, root: null, warning: "world-model-unavailable", unmerged_work: unmerged.unmerged_work });
-        }
-        const nodes = graph.allDirectoriesForRepo(repo);
-        if (nodes.length === 0) {
-          return ok18({ repo, root: null, warning: "world-model-empty", unmerged_work: unmerged.unmerged_work });
-        }
-        const rows = nodes;
-        const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
-        const tree = buildTree(rows, path2, depth, { nodeCounter });
-        if (!tree) {
-          return ok18({ repo, root: null, warning: "path-not-found", path: path2, unmerged_work: unmerged.unmerged_work });
-        }
-        const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
-        return ok18({
-          repo,
-          root: tree,
-          ...truncated ? { truncated: true } : {},
-          ...unmerged.warning ? { warning: unmerged.warning } : {},
-          unmerged_work: unmerged.unmerged_work
-        });
-      })
-    ),
-    world_model_search: requireRoles(
-      "world_model_search",
-      ["bro", "swe", "pr-reviewer"],
-      wrap5(async (args) => {
-        const query = args["query"];
-        if (!query || typeof query !== "string") return err17("query is required");
-        const mode = args["mode"] ?? "hybrid";
-        const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
-        let repo = args["repo"] ?? "";
-        if (!repo) {
-          const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
-          if (available.length >= 2) {
-            return ok18({ repo: "", results: [], total_matched: 0, warning: "repo-unspecified", available_repos: available, mode });
-          }
-          repo = resolveSoleRepo(db2)?.name ?? "";
-        }
-        const graph = graphHolder2?.ensureGraph() ?? null;
-        if (!graph) {
-          return ok18({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });
-        }
-        const hits = graph.keywordSearchDirectories(repo, query, k);
-        if (mode === "keyword") {
-          return ok18({
-            results: hits.map((h) => ({
-              repo: h.repo,
-              path: h.path,
-              summary: h.summary,
-              summary_source: h.summary_source,
-              file_count: h.file_count,
-              score: h.score
-            })),
-            total_matched: hits.length,
-            mode: "keyword"
-          });
-        }
-        if (mode === "semantic") {
-          return ok18({
-            results: [],
-            total_matched: 0,
-            warning: "semantic_unavailable",
-            mode: "semantic"
-          });
-        }
-        return ok18({
-          results: hits.map((h) => ({
-            repo: h.repo,
-            path: h.path,
-            summary: h.summary,
-            summary_source: h.summary_source,
-            file_count: h.file_count,
-            score: h.score
-          })),
-          total_matched: hits.length,
-          warning: "semantic_unavailable",
-          mode: "hybrid"
-        });
-      })
-    )
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/index.ts
-var toolDefinitions = [];
-var toolHandlers = {};
-function decorateWithAgent(tools) {
-  return tools.map((t) => {
-    const existing = t.inputSchema.properties ?? {};
-    const existingAgent = existing["agent"];
-    const mergedAgent = {
-      type: "string",
-      pattern: "^[a-z][a-z0-9_-]*$",
-      description: "Calling agent: bro, swe, pr-reviewer, or a consultant name.",
-      ...existingAgent
-    };
-    return {
-      ...t,
-      inputSchema: {
-        ...t.inputSchema,
-        properties: {
-          ...existing,
-          agent: mergedAgent
-        }
-      }
-    };
-  });
-}
-function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
-  const discussions = discussionTools(db2);
-  const issues = issueTools(db2, dbPath2);
-  const tasks = taskTools(db2);
-  const audit = auditTools(db2);
-  const validation = validationTools(db2);
-  const skills = skillTools(db2);
-  const agents = agentTools(db2, dbPath2);
-  const reports = reportTools(db2);
-  const config2 = configTools(db2);
-  const branchReport = branchReportMdTools(db2);
-  const stats = statsTools(db2);
-  const roundtable = roundtableTools(db2);
-  const prMonitor = prMonitorTools(db2);
-  const composites = compositeTools(db2, dbPath2, graphHolder2);
-  const onboard = onboardTools(db2, dbPath2);
-  const scan = scanTools(db2, graphHolder2, dbPath2);
-  const cheatcode = cheatcodeTools(db2);
-  const worldModel = worldModelTools(db2, graphHolder2);
-  toolDefinitions = decorateWithAgent([
-    ...discussions.definitions,
-    ...issues.definitions,
-    ...tasks.definitions,
-    ...audit.definitions,
-    ...validation.definitions,
-    ...skills.definitions,
-    ...agents.definitions,
-    ...reports.definitions,
-    ...config2.definitions,
-    ...branchReport.definitions,
-    ...stats.definitions,
-    ...roundtable.definitions,
-    ...prMonitor.definitions,
-    ...composites.definitions,
-    ...onboard.definitions,
-    ...scan.definitions,
-    ...cheatcode.definitions,
-    ...worldModel.definitions
   ]);
-  toolHandlers = {
-    ...discussions.handlers,
-    ...issues.handlers,
-    ...tasks.handlers,
-    ...audit.handlers,
-    ...validation.handlers,
-    ...skills.handlers,
-    ...agents.handlers,
-    ...reports.handlers,
-    ...config2.handlers,
-    ...branchReport.handlers,
-    ...stats.handlers,
-    ...roundtable.handlers,
-    ...prMonitor.handlers,
-    ...composites.handlers,
-    ...onboard.handlers,
-    ...scan.handlers,
-    ...cheatcode.handlers,
-    ...worldModel.handlers
+  const handlers = deepFreeze({
+    runtime_initialize: async (args) => {
+      try {
+        const projectRoot = typeof args === "object" && args !== null ? args["project_root"] : void 0;
+        const result = await manager2.initialize(projectRoot);
+        return jsonResult({ ok: true, runtime: result });
+      } catch (error2) {
+        return runtimeErrorResult(error2);
+      }
+    }
+  });
+  const call = async (name, args) => {
+    const handler = handlers[name];
+    if (!handler) {
+      return jsonResult(
+        {
+          ok: false,
+          error: {
+            code: "unknown_tool",
+            message: `Unknown Codex tool: ${name}`
+          }
+        },
+        true
+      );
+    }
+    return handler(args);
+  };
+  return deepFreeze({ definitions, handlers, call });
+}
+function runtimeErrorResult(error2) {
+  const runtimeError = error2 instanceof CodexRuntimeError ? error2 : new CodexRuntimeError(
+    "runtime_initialization_failed",
+    error2 instanceof Error ? error2.message : String(error2)
+  );
+  return jsonResult(
+    {
+      ok: false,
+      error: {
+        code: runtimeError.code,
+        message: runtimeError.message
+      }
+    },
+    true
+  );
+}
+function jsonResult(value, isError = false) {
+  return {
+    content: [{ type: "text", text: JSON.stringify(value) }],
+    ...isError ? { isError: true } : {}
   };
 }
-
-// src/embeddings/backfill.ts
-async function startBackfill(db2) {
-  const counts = db2.get(
-    `SELECT
-      (SELECT COUNT(*) FROM discussions WHERE id NOT IN (SELECT discussion_id FROM discussions_embeddings)) AS discussions,
-      (SELECT COUNT(*) FROM audit WHERE id NOT IN (SELECT audit_id FROM audit_embeddings)) AS audit`
-  );
-  if (!counts) return;
-  const total = counts.discussions + counts.audit;
-  serverLog({ event: "embeddings_backfill_start", total });
-  if (total === 0) return;
-  (async () => {
-    let done = 0;
-    const dRows = db2.all(
-      "SELECT id, body FROM discussions WHERE id NOT IN (SELECT discussion_id FROM discussions_embeddings)"
-    );
-    for (const r of dRows) {
-      await embedAndStore(db2, "discussions", r.id, r.body);
-      done++;
-      if (done % 50 === 0) serverLog({ event: "embeddings_backfill_progress", done, total });
+function deepFreeze(value) {
+  if (value !== null && (typeof value === "object" || typeof value === "function") && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) {
+      deepFreeze(child);
     }
-    const aRows = db2.all(
-      "SELECT id, summary, content_json FROM audit WHERE id NOT IN (SELECT audit_id FROM audit_embeddings)"
-    );
-    for (const r of aRows) {
-      const text = r.content_json ? `${r.summary} ${r.content_json}` : r.summary;
-      await embedAndStore(db2, "audit", r.id, text);
-      done++;
-      if (done % 50 === 0) serverLog({ event: "embeddings_backfill_progress", done, total });
-    }
-    serverLog({ event: "embeddings_backfill_complete", done });
-  })().catch((e) => console.error("[embeddings] backfill error:", e));
+    Object.freeze(value);
+  }
+  return value;
 }
 
 // src/shutdown.ts
@@ -32679,160 +23705,32 @@ function installShutdownHandlers(shutdown2, proc, stdin) {
   stdin.on("close", () => shutdown2("stdin-close"));
 }
 
-// src/index.ts
-var dbPath = resolveDbPath();
-if (dbPath !== ":memory:") {
-  mkdirSync7(path.dirname(dbPath), { recursive: true });
-}
-var db = new TrajectoryDB(dbPath);
-function readPackageVersion() {
-  try {
-    const here = path.dirname(new URL(import.meta.url).pathname);
-    const pkgPath = path.join(here, "..", "package.json");
-    const pkg = JSON.parse(readFileSync6(pkgPath, "utf8"));
-    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
-}
-var packageVersion = readPackageVersion();
-var graphPath = resolveGraphDbPath(dbPath);
-var graphHolder = new GraphHolder({
-  open: () => new WorldModelGraph(graphPath),
-  log: (entry) => serverLogSync({ ...entry, path: graphPath })
-});
-graphHolder.attemptOpen();
+// src/codex.ts
+var plugin = readCodexPackageMetadata();
+var manager = new CodexRuntimeManager({ plugin });
+var registry2 = createCodexToolRegistry(manager);
 var server = new Server(
-  { name: "trajectory-server", version: packageVersion },
-  { capabilities: { tools: {} } }
-);
-registerTools(server, db, dbPath, graphHolder);
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: toolDefinitions
-}));
-var debugTrajectoryEnabled = process.env["TMB_DEBUG_TRAJECTORY"] === "1" && process.env["TMB_EVAL_MODE"] === "1";
-var debugSessionId = crypto.randomUUID();
-var debugStepCounter = 0;
-function maybeRecordTrajectory(toolName, args, result) {
-  if (!debugTrajectoryEnabled) return;
-  try {
-    const agentName = args?.agent ?? null;
-    const argsJson = JSON.stringify(args ?? {}).slice(0, 4e3);
-    const firstContent = result.content?.[0];
-    const resultText = firstContent && typeof firstContent.text === "string" ? firstContent.text : "";
-    const resultJson = JSON.stringify({ text: resultText.slice(0, 4e3) });
-    db.run(
-      `INSERT INTO debug_trajectory
-       (session_id, step_n, kind, agent, tool_or_mcp_name, args_json, result_json, is_error, created_at)
-       VALUES (?, ?, 'mcp_call', ?, ?, ?, ?, ?, datetime('now'))`,
-      [
-        debugSessionId,
-        ++debugStepCounter,
-        agentName,
-        toolName,
-        argsJson,
-        resultJson,
-        result.isError ? 1 : 0
-      ]
-    );
-  } catch {
+  { name: "tmb-codex", version: plugin.version },
+  {
+    capabilities: { tools: {} },
+    instructions: "This Codex adapter only initializes project-bound TMB runtime state. Pass an explicit Git worktree root to runtime_initialize."
   }
-}
+);
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [...registry2.definitions]
+}));
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  return registry2.call(request.params.name, request.params.arguments);
+});
 var shutdown = createShutdown({
-  closeDb: () => db.close(),
-  closeGraph: () => graphHolder.graph?.close(),
-  log: (signal) => serverLogSync({ kind: "shutdown", signal, pid: process.pid }),
+  closeDb: () => manager.close(),
+  closeGraph: () => {
+  },
+  log: () => {
+  },
   exit: (code) => process.exit(code),
   pid: process.pid
 });
-process.on("uncaughtException", (err18) => {
-  serverLogSync({ kind: "uncaughtException", error_message: err18.message, stack: err18.stack, pid: process.pid });
-  process.stderr.write(`uncaughtException: ${err18.message}
-${err18.stack ?? ""}
-`);
-  process.exit(1);
-});
-process.on("unhandledRejection", (reason) => {
-  const msg = reason instanceof Error ? reason.message : String(reason);
-  const stack = reason instanceof Error ? reason.stack : void 0;
-  serverLogSync({ kind: "unhandledRejection", error_message: msg, stack, pid: process.pid });
-  process.stderr.write(`unhandledRejection: ${msg}
-`);
-  process.exit(1);
-});
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-  const handler = toolHandlers[name];
-  if (!handler) {
-    throw new Error(`Unknown tool: ${name}`);
-  }
-  const start = performance2.now();
-  const agent = args?.agent ?? null;
-  serverLog({ kind: "tool_entry", tool: name, agent });
-  if (name === "task_create_batch") {
-    const typedArgs = args;
-    const tasks = typedArgs?.["tasks"] ?? [];
-    const total_bytes = JSON.stringify(args ?? {}).length;
-    const max_spec_bytes = tasks.length > 0 ? Math.max(...tasks.map((t) => (t.spec_body ?? "").length)) : 0;
-    const n_tasks = tasks.length;
-    serverLog({ kind: "tool_size", tool: "task_create_batch", total_bytes, max_spec_bytes, n_tasks, agent });
-    if (max_spec_bytes > 8192) {
-      serverLog({
-        kind: "oversize_warning",
-        tool: "task_create_batch",
-        total_bytes,
-        max_spec_bytes,
-        n_tasks,
-        agent,
-        threshold: 8192,
-        upstream_ref: "anthropics/claude-code#36319"
-      });
-    }
-  }
-  let result;
-  try {
-    result = await handler(args ?? {});
-  } catch (err18) {
-    const duration_ms2 = Math.round(performance2.now() - start);
-    serverLog({
-      kind: "tool_exit",
-      tool: name,
-      agent,
-      is_error: true,
-      error_message: err18 instanceof Error ? err18.message : String(err18),
-      duration_ms: duration_ms2
-    });
-    throw err18;
-  }
-  const duration_ms = Math.round(performance2.now() - start);
-  serverLog({
-    kind: "tool_exit",
-    tool: name,
-    agent,
-    is_error: result.isError ?? false,
-    duration_ms
-  });
-  maybeRecordTrajectory(name, args, result);
-  return result;
-});
 installShutdownHandlers(shutdown, process, process.stdin);
-var transport = new StdioServerTransport();
-await server.connect(transport);
-serverLog({
-  kind: "startup",
-  pid: process.pid,
-  version: packageVersion,
-  db_path: dbPath,
-  legacy_db_no_plugin_meta: db.legacyNoPluginMeta
-});
-process.stderr.write(`server started (db: ${dbPath})
-`);
-if (db.legacyNoPluginMeta) {
-  process.stderr.write(
-    "WARNING: trajectory DB had tables but no plugin_meta row (pre-stamp legacy); adopted forward and stamped. Verify the upgrade.\n"
-  );
-}
-embed("warmup").catch(() => {
-});
-startBackfill(db).catch((e) => console.error("[embeddings] startBackfill error:", e));
-//# sourceMappingURL=index.js.map
+await server.connect(new StdioServerTransport());
+//# sourceMappingURL=codex.js.map

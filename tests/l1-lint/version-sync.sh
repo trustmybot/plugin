@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# Lint: enforce that the three version fields agree.
+# Lint: enforce that the four version fields agree.
 #
 #   .claude-plugin/plugin.json  → the canonical published version
+#   .codex-plugin/plugin.json   → the Codex package version
 #   mcp/trajectory-server/package.json → the MCP subpackage version
 #   package.json (root workspace)      → the workspace root version
 #
-# All three MUST equal each other on every commit.
+# All four MUST equal each other on every commit.
 #
 # Catches: stale workspace-root version (we shipped 0.3.2 through v0.1.2),
-# release-prep PRs that bump only one of the three.
+# release-prep PRs that bump only one of the four.
 
 set -euo pipefail
 
@@ -18,6 +19,7 @@ cd "$ROOT"
 CANON=$(jq -r '.version' .claude-plugin/plugin.json)
 MCP=$(jq -r '.version'   mcp/trajectory-server/package.json)
 WSROOT=$(jq -r '.version' package.json)
+CODEX=$(jq -r '.version' .codex-plugin/plugin.json)
 
 failed=0
 check() {
@@ -32,12 +34,13 @@ check() {
 
 echo "Enforcing version sync (canonical: .claude-plugin/plugin.json = $CANON)"
 check ".claude-plugin/plugin.json"            "$CANON"
+check ".codex-plugin/plugin.json"             "$CODEX"
 check "mcp/trajectory-server/package.json"    "$MCP"
 check "package.json (workspace root)"         "$WSROOT"
 
 if [ $failed -ne 0 ]; then
   echo "" >&2
-  echo "Version sync FAILED. Bump all three to match in the same commit." >&2
+  echo "Version sync FAILED. Bump all four to match in the same commit." >&2
   exit 1
 fi
 

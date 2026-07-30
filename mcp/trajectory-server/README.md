@@ -1,6 +1,6 @@
 # @trustmybot/trajectory-server
 
-MCP stdio server that persists TMB workflow trajectory to SQLite. Bundled with the TMB plugin; registered via `plugin/.mcp.json`.
+MCP stdio server that persists TMB workflow trajectory to SQLite. The Claude package starts `dist/index.js` through the root `.mcp.json`; the Codex package starts the isolated `dist/codex.js` through `adapters/codex/.mcp.json`.
 
 ## Build & run
 
@@ -11,6 +11,8 @@ node dist/index.js
 ```
 
 (The plugin spawns this automatically via `.mcp.json` — manual run is only needed for isolated testing.)
+
+The Codex entry exposes only `runtime_initialize`. It requires an explicit Git worktree root with `.tmb/` already ignored and no tracked `.tmb/` files, then creates state beneath `<project>/.tmb/tmb/`. It opens and queries SQLite during initialization but keeps the optional graph holder lazy. It does not import the Claude tool registry or write `.claude/`.
 
 ## Test
 

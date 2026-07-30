@@ -39,7 +39,7 @@ export class WorldModelGraph {
     constructor(dbPath, opts = {}) {
         const validateWritePath = () => {
             if (dbPath !== ':memory:' && opts.trustedProjectRoot !== undefined) {
-                assertSafeProjectWritePath(opts.trustedProjectRoot, dbPath, 'World-model database');
+                assertSafeProjectWritePath(opts.trustedProjectRoot, dbPath, 'World-model database', 'directory');
             }
         };
         validateWritePath();

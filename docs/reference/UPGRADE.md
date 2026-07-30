@@ -244,14 +244,15 @@ bash scripts/release.sh
 
 ### Bumping the version
 
-`bump-version.sh` keeps the three version manifests, plus the `bun.lock` workspace entry, in sync atomically:
+`bump-version.sh` keeps the Claude and Codex plugin manifests, both package manifests, and the `bun.lock` workspace entry in sync atomically:
 
 - `.claude-plugin/plugin.json`
+- `.codex-plugin/plugin.json`
 - `package.json`
 - `mcp/trajectory-server/package.json`
 - `bun.lock` (workspace `version`)
 
-`mcp/trajectory-server/src/index.ts` derives the version at runtime by reading its own `package.json`, so the startup-log line and the MCP `Server({ name, version })` handshake both pick up the new version automatically — there is no hardcoded version literal to edit.
+The Claude MCP entry derives the version from its package manifest. The Codex entry derives it from the installed `.codex-plugin/plugin.json`. The synchronized bump keeps both handshakes aligned without a hardcoded runtime version.
 
 ### Bumping the schema
 
