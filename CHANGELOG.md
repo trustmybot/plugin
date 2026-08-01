@@ -4,6 +4,9 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+### Fixed
+- **Bundle generation preserves template-literal whitespace** (GH 1163): the shared post-build pass no longer strips trailing spaces from generated JavaScript, where dependency source may contain those bytes inside runtime string constants. Git whitespace diagnostics are disabled only for the two checked-in esbuild bundles, while the dist-fresh gate continues to compare them byte-for-byte with a clean rebuild.
+
 ### Changed
 - **Codex Scope 2 packages a project-bound cold boot** (GH 1157): `.codex-plugin/plugin.json` now tracks the canonical product version and points to an isolated MCP entry plus an intentionally empty Codex hook manifest. The Codex server exposes only `runtime_initialize`, requires an explicit Git worktree root with `.tmb/` already ignored, and creates or reuses a real SQLite runtime beneath `<project>/.tmb/tmb/`. Its tool registry and startup path are separate from Claude's existing entry point and workflow tools; missing kuzu support degrades honestly while SQLite initialization remains available.
 - **Trajectory runtime gains a host-neutral foundation** (GH 1152): runtime context and path resolution now distinguish Claude's invocation cwd from Codex's explicit canonical project root; project loggers, trajectory DBs, and world-model DBs can revalidate that root at their write boundary without consulting Claude globals. Codex state derives under `<project>/.tmb/<plugin>/`; Codex writable state rejects symlink components, explicitly bound loggers refuse symlink leaves, and injected logger failures cannot change database results. The existing Claude logger keeps its historical append behavior. GH 1157 builds the first narrow Codex package on this foundation; Codex agents, workflow tools, skills, and active hooks remain unshipped.

@@ -1,0 +1,5 @@
+# esbuild preserves whitespace inside generated template-literal source. Treat
+# the two checked-in bundles as generated artifacts so git diff --check does
+# not require a semantics-changing post-build whitespace rewrite.
+mcp/trajectory-server/dist/index.js -whitespace
+mcp/trajectory-server/dist/codex.js -whitespace

@@ -43,12 +43,10 @@ fi
 # the relative climb-out to the `.bun` store as __commonJS labels + comments; the
 # depth varies by build location (symlinked worktree vs root vs CI). These are
 # cosmetic labels (modules referenced by variable, not by the string key), so a
-# consistent global collapse is runtime-safe. Strip bundled trailing whitespace
-# at the same boundary so new generated artifacts also pass git diff --check.
-# This MUST stay byte-identical to the transform in
-# mcp/trajectory-server/package.json `build:bundle` so the diff below remains a
-# strict byte comparison across build locations.
-perl -i -pe 's{(?:\.\./)+node_modules/\.bun/}{node_modules/.bun/}g; s/[ \t]+$//' \
+# consistent global collapse is runtime-safe. Use the production postprocessor
+# here as well; it deliberately preserves every other byte, including significant
+# trailing whitespace inside generated JavaScript template literals.
+perl scripts/postprocess-bundle.pl \
   "$TMPDIR/index.js" "$TMPDIR/index.js.map" \
   "$TMPDIR/codex.js" "$TMPDIR/codex.js.map"
 cp src/schema*.sql "$TMPDIR/"
