@@ -14,3 +14,4 @@ If something in `docs/` turns out to be load-bearing for bro's behavior, inline 
 | `architecture/` | Design rationale (CHEATCODES, ERD, FLOWS, GIT, REPO_RESOLUTION, RESPONSIBILITIES, TYPED_RAILS, UI, WORLD_MODEL) |
 | `prompt-engineering/` | DETERMINISM, ENFORCEMENT, PROMPT_ENGINEERING |
 | `contributing/` | Enum/label/naming registries (ENUMS, LABELS, NAMING) |
+| `adapters/` | Platform-adapter development standard (ADAPTER_CONTRACT) |
