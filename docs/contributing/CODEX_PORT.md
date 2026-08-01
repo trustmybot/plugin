@@ -2,6 +2,11 @@
 
 These are hard constraints for every Codex contribution.
 
+The adapter's current contract declaration is maintained in
+[`../adapters/codex/PARITY.md`](../adapters/codex/PARITY.md). Any change to a
+Codex capability or exposed surface must update that declaration in the same
+pull request.
+
 1. **Port, do not fork the product.** Codex is a thin adapter over TMB's shared implementation. Shared behavior remains the source of truth; platform-specific code belongs at the package, dispatch, and host-contract edges.
 2. **Claude behavior is protected.** A Codex change must not alter Claude's manifest, root `.mcp.json`, hook contract, entry point, tool registry, state paths, or runtime behavior unless a separately scoped cross-platform change is explicitly approved and validated for Claude.
 3. **Expose only completed Codex surfaces.** Do not make Claude tools, skills, agents, or hooks visible in Codex merely because the underlying files exist. Each surface needs an explicit port and its own compatibility evidence.
