@@ -28,6 +28,14 @@ Either way you still don't push to `dev` or `main` directly — branch protectio
 - Run the L6 release-gate — it needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret (forks can't read repo secrets), and it fires only on rc tags plus manual `workflow_dispatch`.
 - Tag a release, publish to a marketplace channel, or cut a GitHub release.
 
+## Platform adapters
+
+Adapters for other agent platforms (Codex, Cursor, OpenCode, Gemini CLI) are welcome — the shared core is deliberately host-neutral so an adapter is edge work, not a fork.
+
+[`docs/adapters/ADAPTER_CONTRACT.md`](docs/adapters/ADAPTER_CONTRACT.md) is the binding standard for that work: read it before writing any adapter code, and walk its conformance checklist in your PR description.
+
+Two things trip up first-time adapter PRs: the full Claude Code suite must stay green on every adapter change (a red reference suite means the adapter reached into shared code), and adapter-doctrine PRs — the contract itself, parity matrices, capability declarations — are merged by a maintainer, never auto-merged.
+
 ## TL;DR
 
 1. Open or find a **GitHub** issue. `github.com/trustmybot/plugin` is canonical (a GitLab mirror exists as backup).
