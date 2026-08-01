@@ -69,15 +69,26 @@ export class TrajectoryDB {
         this.sqlLog = resolvedDependencies.sqlLog;
         if (dbPath !== ':memory:' &&
             resolvedDependencies.trustedProjectRoot !== undefined) {
-            assertSafeProjectWritePath(resolvedDependencies.trustedProjectRoot, dbPath, 'Trajectory database');
+            assertSafeProjectWritePath(resolvedDependencies.trustedProjectRoot, dbPath, 'Trajectory database', 'file');
         }
         this.db = new DatabaseSync(dbPath);
-        this.db.exec('PRAGMA journal_mode = WAL');
-        this.db.exec('PRAGMA foreign_keys = ON');
-        this.db.exec('PRAGMA busy_timeout = 5000');
-        this.legacyNoPluginMeta = this.applySchema();
-        this.syncPluginVersion();
-        this.syncBuiltinVersions();
+        try {
+            this.db.exec('PRAGMA journal_mode = WAL');
+            this.db.exec('PRAGMA foreign_keys = ON');
+            this.db.exec('PRAGMA busy_timeout = 5000');
+            this.legacyNoPluginMeta = this.applySchema();
+            this.syncPluginVersion();
+            this.syncBuiltinVersions();
+        }
+        catch (error) {
+            try {
+                this.db.close();
+            }
+            catch {
+                // Preserve the initialization error if SQLite already closed itself.
+            }
+            throw error;
+        }
     }
     applySchema() {
         const schemaDir = dirname(fileURLToPath(import.meta.url));

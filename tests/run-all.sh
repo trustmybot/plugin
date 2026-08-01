@@ -41,7 +41,7 @@ run_step "L1 lint: shipped swe/pr-reviewer task_brief contract (#300)"  bash "$H
 run_step "L1 lint: skill frontmatter + name=dirname"  bash "$HERE/l1-lint/skill-frontmatter.sh"
 run_step "L1 lint: command frontmatter (description + argument-hint)"  bash "$HERE/l1-lint/command-frontmatter.sh"
 run_step "L1 lint: manifest shape (plugin/.mcp/hooks)" bash "$HERE/l1-lint/manifest-shape.sh"
-run_step "L1 lint: version sync (3 manifests agree)"  bash "$HERE/l1-lint/version-sync.sh"
+run_step "L1 lint: version sync (4 manifests agree)"  bash "$HERE/l1-lint/version-sync.sh"
 run_step "L1 lint: changelog top section current"     bash "$HERE/l1-lint/changelog-current.sh"
 run_step "L1 lint: link-check (relative md links)"    bash "$HERE/l1-lint/link-check.sh"
 run_step "L1 lint: shellcheck on shell scripts"       bash "$HERE/l1-lint/shellcheck-hooks.sh"

@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Lint: validate the shape of the plugin's three manifest files.
+# Lint: validate the shape of the Claude and Codex package manifests.
 #
 # Catches: typos, missing required fields, structural drift on any of:
 #   .claude-plugin/plugin.json
 #   .mcp.json
 #   hooks/hooks.json
+#   .codex-plugin/plugin.json
+#   adapters/codex/.mcp.json
+#   hooks/codex/hooks.json
+#   .agents/plugins/marketplace.json
 
 set -euo pipefail
 
@@ -35,6 +39,67 @@ else
     fail "$PLUGIN_MANIFEST .version '$ver' is not a valid semver (X.Y.Z or X.Y.Z-<pre>)"
   fi
   pass "$PLUGIN_MANIFEST has all required fields and a valid semver"
+fi
+
+# --- Codex package -------------------------------------------------------
+
+CODEX_MANIFEST=.codex-plugin/plugin.json
+CODEX_MCP=adapters/codex/.mcp.json
+CODEX_HOOKS=hooks/codex/hooks.json
+MARKETPLACE=.agents/plugins/marketplace.json
+echo ""
+echo "Validating Codex package manifests"
+
+for manifest in "$CODEX_MANIFEST" "$CODEX_MCP" "$CODEX_HOOKS" "$MARKETPLACE"; do
+  if [ ! -f "$manifest" ]; then
+    fail "$manifest does not exist"
+  elif ! jq -e . "$manifest" >/dev/null 2>&1; then
+    fail "$manifest is not valid JSON"
+  fi
+done
+
+if jq -e . "$CODEX_MANIFEST" >/dev/null 2>&1; then
+  if ! jq -e '
+    .name == "tmb" and
+    (.version | type == "string") and
+    .mcpServers == "./adapters/codex/.mcp.json" and
+    .hooks == "./hooks/codex/hooks.json"
+  ' "$CODEX_MANIFEST" >/dev/null; then
+    fail "$CODEX_MANIFEST has invalid identity or component paths"
+  else
+    pass "$CODEX_MANIFEST points only to Codex-specific MCP and hook manifests"
+  fi
+fi
+
+if jq -e . "$CODEX_MCP" >/dev/null 2>&1; then
+  codex_server_count=$(jq -r 'length' "$CODEX_MCP")
+  codex_entry=$(jq -r '."trajectory-server".args[-1] // empty' "$CODEX_MCP")
+  if [ "$codex_server_count" -ne 1 ] || [ "$codex_entry" != "mcp/trajectory-server/dist/codex.js" ]; then
+    fail "$CODEX_MCP must expose exactly the isolated Codex trajectory server"
+  else
+    pass "$CODEX_MCP exposes exactly one isolated Codex server"
+  fi
+fi
+
+if jq -e . "$CODEX_HOOKS" >/dev/null 2>&1; then
+  if ! jq -e '.hooks == {}' "$CODEX_HOOKS" >/dev/null; then
+    fail "$CODEX_HOOKS must remain empty in Codex Scope 2"
+  else
+    pass "$CODEX_HOOKS prevents Claude hooks from loading in Codex"
+  fi
+fi
+
+if jq -e . "$MARKETPLACE" >/dev/null 2>&1; then
+  if ! jq -e '
+    (.plugins | length) == 1 and
+    .plugins[0].name == "tmb" and
+    .plugins[0].source.source == "local" and
+    .plugins[0].source.path == "./"
+  ' "$MARKETPLACE" >/dev/null; then
+    fail "$MARKETPLACE must point its sole local entry at the repository root"
+  else
+    pass "$MARKETPLACE exposes the repository-root Codex package"
+  fi
 fi
 
 # --- .mcp.json -----------------------------------------------------------

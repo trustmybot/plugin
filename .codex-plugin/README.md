@@ -1,17 +1,12 @@
-# `.codex-plugin/` — placeholder for OpenAI Codex adapter
+# TMB Codex adapter
 
-> **Status: not implemented.** This directory is a placeholder so the repo's structure mirrors the multi-platform pattern (Claude / Codex / Cursor / OpenCode / Gemini). TMB ships Claude Code only.
+> **Scope 2 status:** packaged runtime initialization only. The Claude workflow, agents, skills, and hooks are not exposed to Codex yet.
 
-## What this would be
+The Codex manifest points to two platform-specific components:
 
-Once implemented, this directory would hold the OpenAI Codex adapter:
+- `adapters/codex/.mcp.json` starts the isolated `dist/codex.js` entry point.
+- `hooks/codex/hooks.json` is intentionally empty, preventing Codex from auto-loading the existing Claude hook file.
 
-- `plugin.json` — the Codex-format manifest pointing at the shared `./agents/` (workflow backbone), `./skills/` (protocol + default skills), and `./templates/agents/` (opt-in consultants) directories at the repo root
-- Any Codex-specific persona/loading file (likely `../CODEX.md` at the repo root)
-- Any Codex-specific hook scripts under `../hooks/codex/`
+The only MCP tool in this scope is `runtime_initialize`. It requires an explicit absolute Git worktree root whose Git ignore rules exclude `.tmb/` and rejects any already-tracked `.tmb/` state. State is created beneath `<project>/.tmb/tmb/`; the adapter never writes `.claude/`. The SQLite foundation opens immediately, while the optional graph holder remains lazy so graph lock contention cannot block initialization.
 
-The shared content (skills, agent templates, MCP server, planning protocol) is already platform-agnostic and would be referenced via relative paths — no duplication. See [`../docs/reference/MULTI_PLATFORM.md`](../docs/reference/MULTI_PLATFORM.md) for the strategy and [Superpowers](https://github.com/obra/superpowers) for the canonical example of this pattern.
-
-## When this gets built
-
-When (a) there's user demand for TMB on Codex, AND (b) the Claude Code experience is stable enough that maintaining a parallel adapter is sustainable. Track via the multi-platform tracking issue.
+The shared database and graph implementations remain the source of truth. Codex-specific packaging and dispatch are thin edge adapters and must not change the existing Claude entry point or tool registry. See [`../docs/contributing/CODEX_PORT.md`](../docs/contributing/CODEX_PORT.md).

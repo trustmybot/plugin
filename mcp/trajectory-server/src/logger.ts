@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import {
   assertSafeProjectWritePath,
   resolveClaudeLogDir,
+  UnsafeProjectWritePathError,
 } from './platform.js';
 
 export type ProjectLog = (entry: Record<string, unknown>) => void;
@@ -44,7 +45,46 @@ export function createProjectLogger(opts: ProjectLoggerOptions): ProjectLogger {
       opts.trustedProjectRoot,
       opts.logDir,
       'Project log directory',
+      'directory',
     );
+    try {
+      mkdirSync(opts.logDir, { recursive: true });
+    } catch (error) {
+      throw new UnsafeProjectWritePathError(
+        `Project log directory could not be created safely: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+    if (!lstatSync(opts.logDir).isDirectory()) {
+      throw new UnsafeProjectWritePathError(
+        'Project log directory must be a directory',
+      );
+    }
+    assertSafeProjectWritePath(
+      opts.trustedProjectRoot,
+      opts.logDir,
+      'Project log directory',
+      'directory',
+    );
+    for (const leaf of ['mcp-server.log', 'sql.log']) {
+      const path = join(opts.logDir, leaf);
+      assertSafeProjectWritePath(
+        opts.trustedProjectRoot,
+        path,
+        'Project log file',
+        'file',
+      );
+      try {
+        if (!lstatSync(path).isFile()) {
+          throw new UnsafeProjectWritePathError(
+            'Project log file must be a regular file',
+          );
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+    }
   }
   return createLogger(opts, (path, line) => {
     if (opts.trustedProjectRoot !== undefined) {
@@ -52,6 +92,7 @@ export function createProjectLogger(opts: ProjectLoggerOptions): ProjectLogger {
         opts.trustedProjectRoot,
         path,
         'Project log file',
+        'file',
       );
     }
     appendSecureLogLine(path, line);

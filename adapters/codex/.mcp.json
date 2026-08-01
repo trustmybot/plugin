@@ -1,0 +1,10 @@
+{
+  "trajectory-server": {
+    "command": "node",
+    "args": [
+      "--experimental-sqlite",
+      "mcp/trajectory-server/dist/codex.js"
+    ],
+    "cwd": "."
+  }
+}

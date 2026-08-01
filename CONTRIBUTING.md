@@ -89,7 +89,7 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 
 ## Release
 
-`scripts/maintenance/bump-version.sh <version>` keeps the version in sync across all three manifests.
+`scripts/maintenance/bump-version.sh <version>` keeps the version in sync across the Claude manifest, Codex manifest, workspace package, MCP package, and lockfile.
 
 **Phase A — candidate**
 1. Land everything intended for the release on `dev` via the normal PR flow (auto-merge policy applies).

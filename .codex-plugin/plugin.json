@@ -1,7 +1,32 @@
 {
   "name": "tmb",
-  "version": "0.1.1",
-  "description": "PLACEHOLDER — TMB multi-agent workflow plugin for OpenAI Codex (not yet implemented).",
-  "_status": "placeholder",
-  "_see": "https://github.com/trustmybot/plugin/blob/main/docs/reference/MULTI_PLATFORM.md"
+  "version": "1.0.2",
+  "description": "Codex adapter for TMB project-bound runtime initialization.",
+  "author": {
+    "name": "trustmybot",
+    "url": "https://github.com/trustmybot"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/trustmybot/plugin",
+  "homepage": "https://github.com/trustmybot/plugin",
+  "keywords": [
+    "agents",
+    "workflow",
+    "mcp",
+    "sqlite",
+    "orchestration"
+  ],
+  "mcpServers": "./adapters/codex/.mcp.json",
+  "hooks": "./hooks/codex/hooks.json",
+  "interface": {
+    "displayName": "TMB",
+    "shortDescription": "Initialize a project-bound TMB runtime in Codex",
+    "longDescription": "A narrow Codex adapter for the existing TMB plugin. This release exposes runtime initialization only.",
+    "developerName": "trustmybot",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Write"
+    ],
+    "websiteURL": "https://github.com/trustmybot/plugin"
+  }
 }
