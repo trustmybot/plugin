@@ -1,11 +1,26 @@
 # TMB on OpenAI Codex
 
-> **Current scope:** project-bound runtime initialization only.
+> **Current scope:** explicit, project-local Bro planning only.
 
-The Codex package currently exposes `runtime_initialize` through its bundled MCP server. It does not yet expose the bro workflow, Claude agents, skills, or lifecycle hooks.
+Invoke `$tmb-bro` when you want Codex to inspect a selected Git worktree, build
+or query TMB's project inventory and world model, clarify a request, and save an
+approved local planning issue with decision records. The Skill is deliberately
+not injected implicitly.
 
-Call `runtime_initialize` with the absolute Git worktree root after confirming the repository ignores `.tmb/` and does not track files below it. The adapter creates or reuses state only under `<project>/.tmb/tmb/`. It proves the SQLite schema during the call and leaves the optional graph holder unopened so graph lock contention cannot block the MCP process.
+Every MCP call requires the absolute Git worktree root. TMB rejects a non-root,
+unignored, tracked, or unsafe `.tmb/` state path before writing and confines all
+state to `<project>/.tmb/tmb/`. Codex never adopts or modifies `.claude/` state.
+Planning issue creation forces remote synchronization off even when the project
+has a configured Git remote.
 
-Implementation boundaries are documented in [`docs/contributing/CODEX_PORT.md`](docs/contributing/CODEX_PORT.md),
-and current capability and enforcement differences are declared in
+Scope 3 stops after planning. It does not expose task execution or status
+mutation, agent spawning, review records, branch/worktree orchestration, Git
+commit/push/merge, pull-request operations, remote issue mutation, onboarding,
+or lifecycle enforcement Hooks. The empty Codex Hook manifest remains an
+explicit degradation: native Codex shell, edit, and Git paths are outside TMB's
+Scope-3 enforcement boundary.
+
+The exact MCP allowlist and contribution boundary are documented in
+[`docs/contributing/CODEX_PORT.md`](docs/contributing/CODEX_PORT.md). Capability,
+identity, and security deltas are declared in
 [`docs/adapters/codex/PARITY.md`](docs/adapters/codex/PARITY.md).

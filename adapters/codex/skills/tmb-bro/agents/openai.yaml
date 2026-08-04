@@ -1,0 +1,13 @@
+interface:
+  display_name: "TMB Bro"
+  short_description: "Plan safely with project-local TMB context"
+  default_prompt: "Use $tmb-bro to inspect this repository and turn my request into a local TMB planning issue."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "trajectory-server"
+      description: "Bundled project-local TMB planning server"
+
+policy:
+  allow_implicit_invocation: false

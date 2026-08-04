@@ -20,7 +20,7 @@ const server = new Server(
   {
     capabilities: { tools: {} },
     instructions:
-      'This Codex adapter only initializes project-bound TMB runtime state. Pass an explicit Git worktree root to runtime_initialize.',
+      'This Codex adapter exposes the bounded TMB Bro planning surface. Every call requires an explicit Git worktree root; state and planning records stay under that project\'s ignored .tmb/tmb directory. Task execution, review, push, merge, remote issue mutation, onboarding, and lifecycle enforcement are not exposed.',
   },
 );
 
