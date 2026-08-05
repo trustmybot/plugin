@@ -52,3 +52,56 @@ project isolation, SQLite persistence, optional dependency degradation, and
 Claude compatibility. Evidence from a supported live Codex host must still be
 recorded separately before claiming that host or installation surface as
 verified.
+
+### Scope 3 — explicit `tmb-bro` planning (HAR-1)
+
+Scope 3 adds one explicitly invoked Codex-native Skill and a narrow planning
+surface. It reuses shared scan, world-model, issue, and discussion handlers
+through adapter-owned wrappers; it does not import the Claude registry or copy
+Claude persona/doctrine bodies.
+
+The immutable MCP allowlist is:
+
+- `runtime_initialize`;
+- `project_inventory`, `project_scan`;
+- `world_model_get`, `world_model_search`;
+- `planning_issue_create`, `planning_issue_get`, `planning_issue_list`,
+  `planning_issue_resume`;
+- `planning_discussion_append`, `planning_discussion_list`.
+
+Every schema requires `project_root` and disallows additional properties. The
+wrapper removes role/provenance fields from the public contract, rejects any
+caller attempt to supply `agent`, `author`, `verified_human`, `role`, or
+`provenance`, and injects the fixed `bro` identity internally. Scan routing is
+fixed to the validated project root and `bro_auto_initial`. Planning issue
+creation writes `issue_sync="off"` before calling the shared handler and does
+not accept remote linkage arguments. Discussion append and reads call the
+shared discussion handlers with server-fixed Bro authorship; the optional
+embedding dependency remains external to the installed bundle and degrades to
+FTS-only behavior when absent, so the Scope-3 workflow requires no dependency
+installation step.
+
+Machine-enforced controls are the exact tool allowlist, immutable registry,
+strict schemas and identity rejection, project-root validation, safe state-path
+checks, local-only issue sync, and the absence of mutation handlers outside the
+planning slice. The Skill supplies sequencing, clarification, and the stop
+instruction; those prompt-level controls are not claimed as hard enforcement.
+
+Still outside Scope 3:
+
+- task creation, execution, retry, close, or status mutation;
+- SWE/reviewer/consultant spawning and validation records;
+- branch or worktree orchestration;
+- commit, push, merge, PR, or remote issue operations;
+- onboarding, configuration, cheatcode, roundtable, report, and enforcement
+  Hook surfaces;
+- Human-authored records or authenticated multi-role calls;
+- state adoption or migration from Claude;
+- public Plugin Directory, stable-channel, or full Codex support claims.
+
+Automated coverage must freeze the manifest and tool allowlists, reject identity
+spoofing and out-of-scope operations with stable codes, prove remote sync stays
+off, exercise a real local planning flow, and repeat that flow from an
+installed-cache copy without source `node_modules`. A supported live Codex host
+must still verify Skill discovery, explicit invocation, and end-to-end MCP use
+before those host behaviors can be claimed as verified.

@@ -24,6 +24,7 @@ export class CodexRuntimeManager {
     plugin;
     capacity;
     now;
+    graphHolderFactory;
     runtimes = new Map();
     requests = new Map();
     activeRoots = new Map();
@@ -36,6 +37,7 @@ export class CodexRuntimeManager {
         this.plugin = opts.plugin;
         this.capacity = opts.capacity ?? 4;
         this.now = opts.now ?? Date.now;
+        this.graphHolderFactory = opts.graphHolderFactory;
     }
     initialize(projectRootInput) {
         if (this.closing) {
@@ -134,7 +136,7 @@ export class CodexRuntimeManager {
         }
         let candidate;
         try {
-            candidate = openRuntime(projectRoot, this.plugin, this.now(), this.nextUsageOrder());
+            candidate = openRuntime(projectRoot, this.plugin, this.now(), this.nextUsageOrder(), this.graphHolderFactory);
             const result = resultFor(candidate, 'created');
             if (this.closing) {
                 throw new CodexRuntimeError('runtime_initialization_failed', 'The Codex runtime manager closed during initialization.');
@@ -273,7 +275,7 @@ function runGit(cwd, args) {
         });
     });
 }
-function openRuntime(projectRoot, plugin, now, lastUsedOrder) {
+function openRuntime(projectRoot, plugin, now, lastUsedOrder, graphHolderFactory) {
     let context;
     try {
         context = createCodexRuntimeContext({
@@ -303,12 +305,13 @@ function openRuntime(projectRoot, plugin, now, lastUsedOrder) {
             sqlLog: logger.sqlLog,
             trustedProjectRoot: context.projectRoot,
         });
-        const graph = new GraphHolder({
-            open: () => new WorldModelGraph(context.paths.graphDb, {
-                trustedProjectRoot: context.projectRoot,
-            }),
-            log: (entry) => logger.serverLogSync({ ...entry, path: context.paths.graphDb }),
-        });
+        const graph = graphHolderFactory?.(context) ??
+            new GraphHolder({
+                open: () => new WorldModelGraph(context.paths.graphDb, {
+                    trustedProjectRoot: context.projectRoot,
+                }),
+                log: (entry) => logger.serverLogSync({ ...entry, path: context.paths.graphDb }),
+            });
         return {
             context,
             db,

@@ -25,7 +25,10 @@ import {
   CodexRuntimeError,
   CodexRuntimeManager,
 } from '../codex-runtime.js';
-import { createCodexToolRegistry } from '../codex-tools.js';
+import {
+  CODEX_SCOPE_3_TOOL_NAMES,
+  createCodexToolRegistry,
+} from '../codex-tools.js';
 import {
   registerTools,
   toolDefinitions,
@@ -103,6 +106,15 @@ function readIsolationMarkers(path: string): string[] {
   } finally {
     db.close();
   }
+}
+
+function toolPayload(result: Awaited<ReturnType<ReturnType<typeof createCodexToolRegistry>['call']>>): Record<string, unknown> {
+  const content = result.content[0];
+  assert.equal(content?.type, 'text');
+  if (!content || content.type !== 'text') {
+    throw new Error('Expected text MCP content');
+  }
+  return JSON.parse(content.text) as Record<string, unknown>;
 }
 
 describe('Codex runtime manager', () => {
@@ -588,13 +600,13 @@ describe('Codex runtime manager', () => {
 });
 
 describe('Codex tool surface', () => {
-  it('exposes only runtime_initialize through a deeply immutable registry', () => {
+  it('exposes exactly the frozen Scope-3 allowlist through a deeply immutable registry', () => {
     const runtimeManager = manager();
     try {
       const registry = createCodexToolRegistry(runtimeManager);
       assert.deepEqual(
         registry.definitions.map((tool) => tool.name),
-        ['runtime_initialize'],
+        CODEX_SCOPE_3_TOOL_NAMES,
       );
       assert.ok(Object.isFrozen(registry));
       assert.ok(Object.isFrozen(registry.definitions));
@@ -602,6 +614,14 @@ describe('Codex tool surface', () => {
       assert.ok(Object.isFrozen(registry.definitions[0]!.inputSchema));
       assert.ok(Object.isFrozen(registry.definitions[0]!.inputSchema.properties));
       assert.ok(Object.isFrozen(registry.handlers));
+      for (const definition of registry.definitions) {
+        const properties = definition.inputSchema.properties as Record<string, unknown>;
+        assert.equal(definition.inputSchema.additionalProperties, false);
+        assert.ok('project_root' in properties);
+        for (const identity of ['agent', 'author', 'verified_human', 'role', 'provenance']) {
+          assert.equal(identity in properties, false);
+        }
+      }
     } finally {
       runtimeManager.close();
     }
@@ -631,8 +651,8 @@ describe('Codex tool surface', () => {
       assert.notEqual(firstRegistry.handlers, secondRegistry.handlers);
       assert.equal(JSON.stringify(toolDefinitions), claudeDefinitionsBefore);
       assert.deepEqual(Object.keys(toolHandlers), claudeHandlerNamesBefore);
-      assert.deepEqual(Object.keys(firstRegistry.handlers), ['runtime_initialize']);
-      assert.deepEqual(Object.keys(secondRegistry.handlers), ['runtime_initialize']);
+      assert.deepEqual(Object.keys(firstRegistry.handlers), CODEX_SCOPE_3_TOOL_NAMES);
+      assert.deepEqual(Object.keys(secondRegistry.handlers), CODEX_SCOPE_3_TOOL_NAMES);
     } finally {
       firstManager.close();
       secondManager.close();
@@ -664,7 +684,136 @@ describe('Codex tool surface', () => {
         (JSON.parse(unknownContent.text) as { error: { code: string } }).error.code,
         'unknown_tool',
       );
-      assert.deepEqual(Object.keys(registry.handlers), ['runtime_initialize']);
+      assert.deepEqual(Object.keys(registry.handlers), CODEX_SCOPE_3_TOOL_NAMES);
+    } finally {
+      runtimeManager.close();
+    }
+  });
+
+  it('rejects caller identity and named out-of-scope workflow operations', async () => {
+    const runtimeManager = manager();
+    try {
+      const registry = createCodexToolRegistry(runtimeManager);
+      const spoofed = await registry.call('planning_discussion_append', {
+        project_root: '/not-used',
+        issue_id: '1',
+        body: 'spoofed',
+        agent: 'human',
+      });
+      const excluded = await registry.call('task_create_batch', {});
+
+      assert.equal(spoofed.isError, true);
+      assert.equal(
+        ((toolPayload(spoofed)['error'] as Record<string, unknown>)['code']),
+        'unsupported_identity_claim',
+      );
+      assert.equal(excluded.isError, true);
+      assert.equal(
+        ((toolPayload(excluded)['error'] as Record<string, unknown>)['code']),
+        'out_of_scope_operation',
+      );
+    } finally {
+      runtimeManager.close();
+    }
+  });
+
+  it('runs a local-only scan and planning flow with fixed Bro authorship', async () => {
+    const project = gitProject();
+    execFileSync('git', ['-C', project, 'config', 'user.email', 'test@example.com']);
+    execFileSync('git', ['-C', project, 'config', 'user.name', 'Codex Test']);
+    writeFileSync(join(project, 'README.md'), '# Fixture\n\nProject planning fixture.\n');
+    execFileSync('git', ['-C', project, 'add', '.gitignore', 'README.md']);
+    execFileSync('git', ['-C', project, 'commit', '--quiet', '-m', 'fixture']);
+    execFileSync('git', ['-C', project, 'remote', 'add', 'origin', 'https://github.com/example/fixture.git']);
+
+    const runtimeManager = new CodexRuntimeManager({
+      plugin: readCodexPackageMetadata(import.meta.url),
+      // Kuzu v0.11 has a known native destructor crash on Node 24/macOS; the
+      // shared graph suite covers real Kuzu in a child process. This test keeps
+      // the adapter flow in-process and exercises the documented unavailable
+      // degradation instead.
+      graphHolderFactory: () => GraphHolder.fixed(null),
+    });
+    try {
+      const registry = createCodexToolRegistry(runtimeManager);
+      const initialized = await runtimeManager.initialize(project);
+      await runtimeManager.withRuntime(project, ({ db }) => {
+        db.run(
+          `INSERT OR REPLACE INTO plugin_config (key, value_json)
+           VALUES ('issue_sync', '"gh"')`,
+        );
+      });
+
+      const scanned = await registry.call('project_scan', {
+        project_root: project,
+      });
+      assert.notEqual(scanned.isError, true);
+      const inventory = await registry.call('project_inventory', {
+        project_root: project,
+      });
+      const inventoryData = toolPayload(inventory)['data'] as {
+        repos: Array<{ path: string }>;
+      };
+      assert.equal(inventoryData.repos.length, 1);
+      assert.equal(inventoryData.repos[0]?.path, realpathSync(project));
+
+      const created = await registry.call('planning_issue_create', {
+        project_root: project,
+        objective: 'Plan fixture documentation',
+        description: 'Define a bounded documentation change.',
+        classification: 'Docs',
+        priority: 'Low',
+      });
+      assert.notEqual(created.isError, true);
+      const issue = toolPayload(created)['data'] as {
+        id: number;
+        remote_iid: number | null;
+        labels: string;
+      };
+      assert.ok(issue.id > 0);
+      assert.equal(issue.remote_iid, null);
+      assert.deepEqual(JSON.parse(issue.labels), ['Docs', 'Priority: Low']);
+
+      const appended = await registry.call('planning_discussion_append', {
+        project_root: project,
+        issue_id: String(issue.id),
+        kind: 'decision',
+        body: 'Keep the change local to documentation.',
+      });
+      assert.notEqual(appended.isError, true);
+      const discussion = toolPayload(appended)['data'] as {
+        author: string;
+        kind: string;
+      };
+      assert.equal(discussion.author, 'bro');
+      assert.equal(discussion.kind, 'decision');
+
+      const resumed = await registry.call('planning_issue_resume', {
+        project_root: project,
+        issue_id: String(issue.id),
+      });
+      assert.notEqual(resumed.isError, true);
+      const resumedData = toolPayload(resumed)['data'] as Record<string, unknown>;
+      assert.ok('issue' in resumedData);
+      assert.ok('discussions' in resumedData);
+      assert.equal('next_task' in resumedData, false);
+
+      const db = new DatabaseSync(initialized.trajectory_db);
+      try {
+        const sync = db
+          .prepare(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`)
+          .get() as { value_json: string };
+        assert.equal(JSON.parse(sync.value_json), 'off');
+        assert.equal(
+          (db.prepare('SELECT COUNT(*) AS n FROM tasks').get() as { n: number }).n,
+          0,
+        );
+      } finally {
+        db.close();
+      }
+      assert.equal(existsSync(join(project, '.claude')), false);
+      assert.equal(existsSync(join(project, '.codex')), false);
+      assert.equal(existsSync(join(project, '.agents')), false);
     } finally {
       runtimeManager.close();
     }

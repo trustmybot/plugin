@@ -37,7 +37,7 @@ fi
   --outfile="$TMPDIR/index.js" --sourcemap >/dev/null 2>&1
 ./node_modules/.bin/esbuild src/codex.ts \
   --bundle --platform=node --format=esm --target=node22 \
-  --external:kuzu \
+  --external:kuzu --external:@huggingface/transformers \
   --outfile="$TMPDIR/codex.js" --sourcemap >/dev/null 2>&1
 # Canonicalize the volatile bun-store path baked into the bundle. esbuild bakes
 # the relative climb-out to the `.bun` store as __commonJS labels + comments; the

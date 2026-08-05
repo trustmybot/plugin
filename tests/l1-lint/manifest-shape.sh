@@ -46,6 +46,7 @@ fi
 CODEX_MANIFEST=.codex-plugin/plugin.json
 CODEX_MCP=adapters/codex/.mcp.json
 CODEX_HOOKS=hooks/codex/hooks.json
+CODEX_SKILLS=adapters/codex/skills
 MARKETPLACE=.agents/plugins/marketplace.json
 echo ""
 echo "Validating Codex package manifests"
@@ -63,11 +64,29 @@ if jq -e . "$CODEX_MANIFEST" >/dev/null 2>&1; then
     .name == "tmb" and
     (.version | type == "string") and
     .mcpServers == "./adapters/codex/.mcp.json" and
-    .hooks == "./hooks/codex/hooks.json"
+    .hooks == "./hooks/codex/hooks.json" and
+    .skills == "./adapters/codex/skills/"
   ' "$CODEX_MANIFEST" >/dev/null; then
     fail "$CODEX_MANIFEST has invalid identity or component paths"
   else
-    pass "$CODEX_MANIFEST points only to Codex-specific MCP and hook manifests"
+    pass "$CODEX_MANIFEST points only to Codex-specific MCP, hook, and Skill surfaces"
+  fi
+fi
+
+if [ ! -f "$CODEX_SKILLS/tmb-bro/SKILL.md" ] || [ ! -f "$CODEX_SKILLS/tmb-bro/agents/openai.yaml" ]; then
+  fail "$CODEX_SKILLS must contain the tmb-bro Skill and its OpenAI metadata"
+else
+  skill_count=$(find "$CODEX_SKILLS" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+  skill_name=$(find "$CODEX_SKILLS" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
+  if [ "$skill_count" -ne 1 ] || [ "$skill_name" != "tmb-bro" ]; then
+    fail "$CODEX_SKILLS must expose exactly the tmb-bro Skill"
+  elif ! grep -q '^name: tmb-bro$' "$CODEX_SKILLS/tmb-bro/SKILL.md" ||
+       ! grep -q '^  allow_implicit_invocation: false$' "$CODEX_SKILLS/tmb-bro/agents/openai.yaml" ||
+       ! grep -q '^      value: "trajectory-server"$' "$CODEX_SKILLS/tmb-bro/agents/openai.yaml" ||
+       grep -R -q '\[TODO:' "$CODEX_SKILLS/tmb-bro"; then
+    fail "$CODEX_SKILLS/tmb-bro metadata or explicit-invocation policy is invalid"
+  else
+    pass "$CODEX_SKILLS exposes exactly the explicit tmb-bro Skill and bundled MCP dependency"
   fi
 fi
 
@@ -83,7 +102,7 @@ fi
 
 if jq -e . "$CODEX_HOOKS" >/dev/null 2>&1; then
   if ! jq -e '.hooks == {}' "$CODEX_HOOKS" >/dev/null; then
-    fail "$CODEX_HOOKS must remain empty in Codex Scope 2"
+    fail "$CODEX_HOOKS must remain empty in Codex Scope 3"
   else
     pass "$CODEX_HOOKS prevents Claude hooks from loading in Codex"
   fi

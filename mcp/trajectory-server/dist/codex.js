@@ -1297,21 +1297,21 @@ var require_errors = __commonJS({
     function extendErrors({ gen, keyword, schemaValue, data, errsCount, it }) {
       if (errsCount === void 0)
         throw new Error("ajv implementation error");
-      const err = gen.name("err");
+      const err5 = gen.name("err");
       gen.forRange("i", errsCount, names_1.default.errors, (i) => {
-        gen.const(err, (0, codegen_1._)`${names_1.default.vErrors}[${i}]`);
-        gen.if((0, codegen_1._)`${err}.instancePath === undefined`, () => gen.assign((0, codegen_1._)`${err}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it.errorPath)));
-        gen.assign((0, codegen_1._)`${err}.schemaPath`, (0, codegen_1.str)`${it.errSchemaPath}/${keyword}`);
+        gen.const(err5, (0, codegen_1._)`${names_1.default.vErrors}[${i}]`);
+        gen.if((0, codegen_1._)`${err5}.instancePath === undefined`, () => gen.assign((0, codegen_1._)`${err5}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it.errorPath)));
+        gen.assign((0, codegen_1._)`${err5}.schemaPath`, (0, codegen_1.str)`${it.errSchemaPath}/${keyword}`);
         if (it.opts.verbose) {
-          gen.assign((0, codegen_1._)`${err}.schema`, schemaValue);
-          gen.assign((0, codegen_1._)`${err}.data`, data);
+          gen.assign((0, codegen_1._)`${err5}.schema`, schemaValue);
+          gen.assign((0, codegen_1._)`${err5}.data`, data);
         }
       });
     }
     exports.extendErrors = extendErrors;
     function addError(gen, errObj) {
-      const err = gen.const("err", errObj);
-      gen.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen.assign(names_1.default.vErrors, (0, codegen_1._)`[${err}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err})`);
+      const err5 = gen.const("err", errObj);
+      gen.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen.assign(names_1.default.vErrors, (0, codegen_1._)`[${err5}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err5})`);
       gen.code((0, codegen_1._)`${names_1.default.errors}++`);
     }
     function returnErrors(it, errs) {
@@ -2979,7 +2979,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve.call(this, root, ref);
+      let _sch = resolve2.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a2 = root.localRefs) === null || _a2 === void 0 ? void 0 : _a2[ref];
         const { schemaId } = this.opts;
@@ -3006,7 +3006,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve(root, ref) {
+    function resolve2(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3581,7 +3581,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve(baseURI, relativeURI, options) {
+    function resolve2(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse3(baseURI, schemelessOptions), parse3(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
@@ -3808,7 +3808,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve,
+      resolve: resolve2,
       resolveComponent,
       equal,
       serialize,
@@ -7415,8 +7415,8 @@ var ZodType = class {
         } : {
           issues: ctx.common.issues
         };
-      } catch (err) {
-        if (err?.message?.toLowerCase()?.includes("encountered")) {
+      } catch (err5) {
+        if (err5?.message?.toLowerCase()?.includes("encountered")) {
           this["~standard"].async = true;
         }
         ctx.common = {
@@ -19590,7 +19590,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+        await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -19607,7 +19607,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -19685,7 +19685,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve(parseResult.data);
+            resolve2(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -19946,12 +19946,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve, interval);
+      const timeoutId = setTimeout(resolve2, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -20821,12 +20821,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve) => {
+    return new Promise((resolve2) => {
       const json2 = serializeMessage(message);
       if (this._stdout.write(json2)) {
-        resolve();
+        resolve2();
       } else {
-        this._stdout.once("drain", resolve);
+        this._stdout.once("drain", resolve2);
       }
     });
   }
@@ -21265,6 +21265,9 @@ function sqlLog(entry) {
 
 // src/db.ts
 var TARGET_SCHEMA_VERSION = 28;
+function resolvePluginName(env = process.env) {
+  return resolveClaudePluginName(env);
+}
 function resolvePluginVersion(env = process.env) {
   return resolveClaudePluginVersion(env);
 }
@@ -21413,16 +21416,16 @@ var TrajectoryDB = class {
         ok: true
       });
       return out;
-    } catch (err) {
+    } catch (err5) {
       this.sqlLog({
         kind: "run",
         sql,
         params: params ?? [],
         duration_ms: Math.round(performance.now() - start),
         ok: false,
-        error_message: err instanceof Error ? err.message : String(err)
+        error_message: err5 instanceof Error ? err5.message : String(err5)
       });
-      throw err;
+      throw err5;
     }
   }
   get(sql, params) {
@@ -21439,16 +21442,16 @@ var TrajectoryDB = class {
         ok: true
       });
       return row;
-    } catch (err) {
+    } catch (err5) {
       this.sqlLog({
         kind: "get",
         sql,
         params: params ?? [],
         duration_ms: Math.round(performance.now() - start),
         ok: false,
-        error_message: err instanceof Error ? err.message : String(err)
+        error_message: err5 instanceof Error ? err5.message : String(err5)
       });
-      throw err;
+      throw err5;
     }
   }
   all(sql, params) {
@@ -21465,16 +21468,16 @@ var TrajectoryDB = class {
         ok: true
       });
       return rows;
-    } catch (err) {
+    } catch (err5) {
       this.sqlLog({
         kind: "all",
         sql,
         params: params ?? [],
         duration_ms: Math.round(performance.now() - start),
         ok: false,
-        error_message: err instanceof Error ? err.message : String(err)
+        error_message: err5 instanceof Error ? err5.message : String(err5)
       });
-      throw err;
+      throw err5;
     }
   }
   /**
@@ -21488,12 +21491,12 @@ var TrajectoryDB = class {
       const result = fn();
       this.db.exec("COMMIT");
       return result;
-    } catch (err) {
+    } catch (err5) {
       try {
         this.db.exec("ROLLBACK");
       } catch {
       }
-      throw err;
+      throw err5;
     }
   }
   close() {
@@ -21533,6 +21536,9 @@ function noThrowTrajectoryLog(log) {
     } catch {
     }
   };
+}
+function nowISO() {
+  return (/* @__PURE__ */ new Date()).toISOString();
 }
 function backupDbBeforeMigration(db, dbPath, targetVersion) {
   if (!dbPath || dbPath === ":memory:") return;
@@ -21684,12 +21690,12 @@ function migrateV8toV9(db) {
       }
     }
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   }
 }
 function migrateV9toV10(db) {
@@ -21701,12 +21707,12 @@ function migrateV9toV10(db) {
       }
     }
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   }
 }
 function migrateV10toV11(db) {
@@ -21724,12 +21730,12 @@ function migrateV10toV11(db) {
       }
     }
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   }
 }
 function migrateV11toV12(db) {
@@ -21741,12 +21747,12 @@ function migrateV11toV12(db) {
       }
     }
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   }
 }
 function migrateV12toV13(db) {
@@ -21761,12 +21767,12 @@ function migrateV12toV13(db) {
       }
     }
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   }
 }
 function migrateV13toV14(db) {
@@ -21798,12 +21804,12 @@ function migrateV13toV14(db) {
       "CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode ON cheatcode_attachments(cheatcode_id)"
     );
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   }
 }
 function migrateV14toV15(db) {
@@ -21813,12 +21819,12 @@ function migrateV14toV15(db) {
       db.exec("ALTER TABLE cheatcodes ADD COLUMN scope TEXT NOT NULL DEFAULT 'local'");
     }
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   }
 }
 function migrateV15toV16(db) {
@@ -21827,12 +21833,12 @@ function migrateV15toV16(db) {
     db.exec("DROP TABLE IF EXISTS rule_invocations");
     db.exec("DROP TABLE IF EXISTS rules");
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   }
 }
 function migrateV16toV17(db) {
@@ -21840,12 +21846,12 @@ function migrateV16toV17(db) {
   try {
     db.exec("DROP TABLE IF EXISTS commands");
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   }
 }
 function migrateV17toV18(db) {
@@ -21883,12 +21889,12 @@ function migrateV17toV18(db) {
       );
     }
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   } finally {
     db.exec("PRAGMA foreign_keys = ON");
   }
@@ -21983,12 +21989,12 @@ function migrateV18toV19(db) {
       );
     }
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   } finally {
     db.exec("PRAGMA foreign_keys = ON");
   }
@@ -22016,12 +22022,12 @@ function migrateV19toV20(db) {
       );
     }
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   }
 }
 function migrateV20toV21(db) {
@@ -22213,12 +22219,12 @@ function migrateV22toV23(db) {
       );
     }
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   } finally {
     db.exec("PRAGMA foreign_keys = ON");
   }
@@ -22285,12 +22291,12 @@ function migrateV23toV24(db) {
       );
     }
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   } finally {
     db.exec("PRAGMA foreign_keys = ON");
   }
@@ -22322,12 +22328,12 @@ function migrateV24toV25(db) {
       );
     }
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   }
 }
 function migrateV25toV26(db) {
@@ -22370,12 +22376,12 @@ function migrateV25toV26(db) {
       );
     }
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   } finally {
     db.exec("PRAGMA foreign_keys = ON");
   }
@@ -22425,12 +22431,12 @@ function migrateV26toV27(db) {
       "DELETE FROM plugin_config WHERE key IN ('pr_target', 'branching_model', 'protected_branches', 'remotes')"
     ).run();
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   }
 }
 function migrateV7toV8(db) {
@@ -22446,12 +22452,12 @@ function migrateV7toV8(db) {
     db.exec("DROP TABLE IF EXISTS directories_fts");
     db.exec("DROP TABLE IF EXISTS directories");
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   }
 }
 function migrateV6toV7(db) {
@@ -22466,12 +22472,12 @@ function migrateV6toV7(db) {
     db.exec("DROP TABLE IF EXISTS file_registry_fts");
     db.exec("DROP TABLE IF EXISTS file_registry");
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   }
 }
 function migrateV5toV6(db) {
@@ -22505,12 +22511,12 @@ function migrateV5toV6(db) {
       "CREATE INDEX IF NOT EXISTS idx_directories_embeddings_model ON directories_embeddings(model_id)"
     );
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   }
 }
 function migrateV4toV5(db) {
@@ -22531,12 +22537,12 @@ function migrateV4toV5(db) {
       );
     }
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   }
 }
 function migrateV3toV4(db) {
@@ -22585,12 +22591,12 @@ function migrateV3toV4(db) {
       `);
     }
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   }
 }
 function migrateV2toV3(db) {
@@ -22687,12 +22693,12 @@ function migrateV2toV3(db) {
       db.exec(`INSERT INTO file_registry_fts(rowid, summary, path) SELECT rowid, summary, path FROM file_registry WHERE summary IS NOT NULL`);
     }
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   }
 }
 function migrateV1toV2(db) {
@@ -22872,12 +22878,12 @@ function migrateV1toV2(db) {
       }
     }
     db.exec("COMMIT");
-  } catch (err) {
+  } catch (err5) {
     try {
       db.exec("ROLLBACK");
     } catch {
     }
-    throw err;
+    throw err5;
   }
 }
 
@@ -23182,6 +23188,7 @@ var CodexRuntimeManager = class {
   plugin;
   capacity;
   now;
+  graphHolderFactory;
   runtimes = /* @__PURE__ */ new Map();
   requests = /* @__PURE__ */ new Map();
   activeRoots = /* @__PURE__ */ new Map();
@@ -23194,6 +23201,7 @@ var CodexRuntimeManager = class {
     this.plugin = opts.plugin;
     this.capacity = opts.capacity ?? 4;
     this.now = opts.now ?? Date.now;
+    this.graphHolderFactory = opts.graphHolderFactory;
   }
   initialize(projectRootInput) {
     if (this.closing) {
@@ -23305,7 +23313,8 @@ var CodexRuntimeManager = class {
         projectRoot,
         this.plugin,
         this.now(),
-        this.nextUsageOrder()
+        this.nextUsageOrder(),
+        this.graphHolderFactory
       );
       const result = resultFor(candidate, "created");
       if (this.closing) {
@@ -23442,7 +23451,7 @@ function runGit(cwd, args) {
   env["GIT_CONFIG_NOSYSTEM"] = "1";
   env["GIT_CONFIG_GLOBAL"] = "/dev/null";
   env["LC_ALL"] = "C";
-  return new Promise((resolve) => {
+  return new Promise((resolve2) => {
     execFile(
       "git",
       [
@@ -23463,7 +23472,7 @@ function runGit(cwd, args) {
         maxBuffer: GIT_MAX_BUFFER_BYTES
       },
       (error2, stdout) => {
-        resolve({
+        resolve2({
           ok: error2 === null,
           stdout: stdout.trim()
         });
@@ -23471,7 +23480,7 @@ function runGit(cwd, args) {
     );
   });
 }
-function openRuntime(projectRoot, plugin2, now, lastUsedOrder) {
+function openRuntime(projectRoot, plugin2, now, lastUsedOrder, graphHolderFactory) {
   let context;
   try {
     context = createCodexRuntimeContext({
@@ -23508,7 +23517,7 @@ function openRuntime(projectRoot, plugin2, now, lastUsedOrder) {
       sqlLog: logger.sqlLog,
       trustedProjectRoot: context.projectRoot
     });
-    const graph = new GraphHolder({
+    const graph = graphHolderFactory?.(context) ?? new GraphHolder({
       open: () => new WorldModelGraph(context.paths.graphDb, {
         trustedProjectRoot: context.projectRoot
       }),
@@ -23600,72 +23609,3471 @@ function graphDependencyAvailable() {
   }
 }
 
-// src/codex-tools.ts
-function createCodexToolRegistry(manager2) {
-  const definitions = deepFreeze([
+// src/middleware/agent-scope.ts
+var FIRST_CLASS_ROLES = /* @__PURE__ */ new Set(["bro", "swe", "pr-reviewer"]);
+function normalizeAgent(name) {
+  if (!name) return "unknown";
+  const lower = name.toLowerCase();
+  if (FIRST_CLASS_ROLES.has(lower)) return lower;
+  if (/^[a-z][a-z0-9_-]*$/.test(lower)) return "consultant";
+  return "unknown";
+}
+function requireRoles(toolName, allowedRoles, handler) {
+  const allowed = new Set(allowedRoles);
+  return async (args) => {
+    const agent = normalizeAgent(args["agent"]);
+    if (!allowed.has(agent)) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              error: "forbidden",
+              tool: toolName,
+              caller_role: agent,
+              allowed_roles: [...allowedRoles]
+            })
+          }
+        ]
+      };
+    }
+    return handler(args);
+  };
+}
+function redactIssue(issue2, agent, opts) {
+  if (agent === "swe" || agent === "unknown") {
+    const { description: _, ...rest } = issue2;
+    void _;
+    const truncated = rest.objective.length > 120 ? rest.objective.slice(0, 120) + "..." : rest.objective;
+    return { ...rest, objective: truncated };
+  }
+  if (!opts?.include_description) {
+    const { description: _, ...rest } = issue2;
+    void _;
+    return rest;
+  }
+  return issue2;
+}
+
+// src/embeddings/model.ts
+import { homedir as homedir2 } from "node:os";
+import { join as join5 } from "node:path";
+var pipelinePromise = null;
+var loadFailed = false;
+async function embed(text) {
+  if (loadFailed) return null;
+  if (!pipelinePromise) {
+    try {
+      const { pipeline, env } = await import("@huggingface/transformers");
+      env.cacheDir = process.env.HF_HOME ?? join5(homedir2(), ".cache", "huggingface");
+      pipelinePromise = pipeline("feature-extraction", "Xenova/bge-small-en-v1.5");
+      pipelinePromise.catch(() => {
+        loadFailed = true;
+        pipelinePromise = null;
+      });
+    } catch (e) {
+      console.error("[embeddings] model load failed:", e);
+      loadFailed = true;
+      return null;
+    }
+  }
+  try {
+    const pipe2 = await pipelinePromise;
+    const result = await pipe2(text, { pooling: "mean", normalize: true });
+    return new Float32Array(result.data);
+  } catch (e) {
+    console.error("[embeddings] embed failed:", e);
+    loadFailed = true;
+    pipelinePromise = null;
+    return null;
+  }
+}
+var MODEL_ID = "Xenova/bge-small-en-v1.5";
+
+// src/embeddings/store.ts
+function packEmbedding(v) {
+  return Buffer.from(v.buffer, v.byteOffset, v.byteLength);
+}
+function unpackEmbedding(b) {
+  const out = new Float32Array(b.byteLength / 4);
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  for (let i = 0; i < out.length; i++) out[i] = dv.getFloat32(i * 4, true);
+  return out;
+}
+function cosine(a, b) {
+  let s = 0;
+  for (let i = 0; i < a.length; i++) s += a[i] * b[i];
+  return s;
+}
+var INSERT_SQL = {
+  discussions: "INSERT OR REPLACE INTO discussions_embeddings (discussion_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)",
+  audit: "INSERT OR REPLACE INTO audit_embeddings (audit_id, embedding, model_id, embedded_at) VALUES (?, ?, ?, ?)"
+};
+var SELECT_SQL = {
+  discussions: "SELECT discussion_id AS rowid, embedding FROM discussions_embeddings WHERE model_id = ?",
+  audit: "SELECT audit_id AS rowid, embedding FROM audit_embeddings WHERE model_id = ?"
+};
+async function embedAndStore(db, table, rowid, text) {
+  const v = await embed(text);
+  if (v === null) return;
+  const sql = INSERT_SQL[table];
+  db.run(sql, [rowid, packEmbedding(v), MODEL_ID, (/* @__PURE__ */ new Date()).toISOString()]);
+}
+async function topKByCosine(db, table, query, k) {
+  const qv = await embed(query);
+  if (qv === null) return [];
+  const sql = SELECT_SQL[table];
+  const rows = db.all(sql, [MODEL_ID]);
+  const scored = rows.map((r) => {
+    const v = unpackEmbedding(r.embedding);
+    if (v.length !== qv.length) return null;
+    return { rowid: r.rowid, score: cosine(qv, v) };
+  }).filter((r) => r !== null);
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, k);
+}
+
+// src/tools/discussions.ts
+var ALLOWED_KINDS = /* @__PURE__ */ new Set(["intent", "question", "answer", "decision", "note", "analysis"]);
+var MAX_BODY_BYTES = 65536;
+function ok(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function err(message) {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    isError: true
+  };
+}
+function requireArg(args, name) {
+  if (args[name] === void 0 || args[name] === null) {
+    throw new Error(`Missing required arg: ${name}`);
+  }
+  return args[name];
+}
+function wrapHandler(fn) {
+  return async (args) => {
+    try {
+      return await fn(args);
+    } catch (e) {
+      return err(e.message);
+    }
+  };
+}
+function resolveDefaultIssueId(db) {
+  const latest = db.get(
+    `SELECT id FROM issues WHERE status = 'open' AND id != -1 ORDER BY created_at DESC LIMIT 1`
+  );
+  return latest?.id ?? -1;
+}
+function insertDiscussion(db, entry) {
+  const createdAt = entry.created_at ?? nowISO();
+  const res = db.run(
+    `INSERT INTO discussions (issue_id, author, kind, body, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt]
+  );
+  const id = Number(res.lastInsertRowid);
+  void embedAndStore(db, "discussions", id, entry.body).catch(
+    (e) => console.error("[embeddings] insertDiscussion embed failed:", e)
+  );
+  return id;
+}
+function discussionTools(db) {
+  const definitions = [
     {
-      name: "runtime_initialize",
-      description: "Initialize or reuse TMB runtime state for one explicit Git worktree root.",
+      name: "discussion_search",
+      description: "Search discussions via keyword (FTS5), semantic (cosine), or hybrid (RRF) ranking. Default mode is hybrid. Returns top-K snippets. Use instead of issue_get_with_discussions when you want ranked snippets, not a full dump.",
       inputSchema: {
         type: "object",
         properties: {
-          project_root: {
+          agent: { type: "string" },
+          query: {
             type: "string",
-            description: "Absolute path to the Git worktree root."
+            description: "Search query. For keyword/hybrid: FTS5 MATCH syntax. For semantic: natural language."
+          },
+          mode: {
+            type: "string",
+            enum: ["keyword", "semantic", "hybrid"],
+            description: "Search mode. Default: hybrid (RRF combines FTS5 + cosine + recency-decay)."
+          },
+          issue_id: { type: "string", description: "Optional \u2014 restrict to one issue." },
+          kind: {
+            type: "string",
+            enum: ["intent", "note", "question", "answer", "decision", "analysis"],
+            description: "Optional \u2014 restrict to one discussion kind."
+          },
+          k: { type: "number", description: "Top-K rows to return. Default 5. Max 20." },
+          recency_alpha: {
+            type: "number",
+            description: "Recency weight 0\u20131 (hybrid/keyword only). Default 0.3."
           }
         },
-        required: ["project_root"],
-        additionalProperties: false
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false
+        required: ["agent", "query"]
+      }
+    },
+    {
+      name: "discussion_append",
+      description: "Append a discussion entry to an issue. Captures conversational intent, questions, answers, decisions, or notes into the SQLite log. issue_id is optional \u2014 defaults to the newest open issue (excluding -1), or -1 if no open issues exist. body is capped at 64 KB; larger payloads return a named validation error.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string", description: "Caller agent name" },
+          issue_id: { type: "string", description: "The issue ID (integer as string). Optional \u2014 defaults to the newest open issue, else -1." },
+          author: { type: "string", description: "Author of this entry (agent name or human)" },
+          kind: {
+            type: "string",
+            enum: ["intent", "question", "answer", "decision", "note", "analysis"],
+            description: "Entry kind. Default: note"
+          },
+          body: { type: "string", description: "Markdown body of the discussion entry" },
+          verified_human: {
+            type: "boolean",
+            description: 'Reserved for UserPromptSubmit hook captures only. Must be true when author="human"; agents must never set this on self-authored entries. Gate-only \u2014 not persisted.'
+          }
+        },
+        required: ["agent", "author", "body"]
+      }
+    },
+    {
+      name: "discussion_list",
+      description: "Return discussion entries for an issue ordered by created_at ASC. Supports optional fields projection: pass fields=['id','kind','author','body'] to return only those columns (unknown fields return a named error). Used by bro at session resume and by snapshot generation.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          issue_id: { type: "string" },
+          limit: { type: "number", description: "Max rows to return. Capped at 200. When omitted, returns up to 200 rows (legacy bare-array shape); when provided, response includes next_cursor." },
+          offset: { type: "number", description: "Row offset for pagination. Default 0." },
+          cursor: { type: "string", description: "Opaque cursor from a previous response. When provided, overrides offset." },
+          fields: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional column projection. Allowed: id, issue_id, author, kind, body, created_at. Unknown fields return an error. Default: all columns."
+          }
+        },
+        required: ["agent", "issue_id"]
+      }
+    },
+    {
+      name: "issue_get_with_discussions",
+      description: "Convenience call: returns the issue row + its discussion list + its task list in one round-trip. Default compact mode returns counts + last 10 discussions (configurable via last_n). Pass include_full=true to return all discussions (current full behavior). Respects agent-scoped description redaction.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          issue_id: { type: "string" },
+          include_full: {
+            type: "boolean",
+            description: "When true, return all discussions (no limit). Default false \u2014 compact mode returns last_n discussions + total_count."
+          },
+          last_n: {
+            type: "number",
+            description: "In compact mode: number of most-recent discussions to return. Default 10. Max 200."
+          },
+          limit: { type: "number", description: "Deprecated alias for last_n when include_full=false. When include_full=false and limit is provided, acts as last_n cap. Prefer last_n." },
+          cursor: { type: "string", description: "Opaque cursor for paginating beyond last_n. When provided, returns next page of discussions." }
+        },
+        required: ["agent", "issue_id"]
       }
     }
+  ];
+  function decodeCursor(cursor) {
+    try {
+      return JSON.parse(Buffer.from(cursor, "base64").toString("utf8"));
+    } catch {
+      return null;
+    }
+  }
+  function encodeCursor(row) {
+    return Buffer.from(JSON.stringify({ created_at: row.created_at, id: row.id })).toString(
+      "base64"
+    );
+  }
+  const handlers = {
+    discussion_search: wrapHandler(async (args) => {
+      normalizeAgent(args["agent"]);
+      const query = requireArg(args, "query");
+      const mode = args["mode"] ?? "hybrid";
+      const issueId = args["issue_id"] ?? null;
+      const kind = args["kind"] ?? null;
+      const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
+      const alpha = Math.min(1, Math.max(0, args["recency_alpha"] ?? 0.3));
+      const fetchFtsRows = (limitK) => db.all(
+        `SELECT
+             d.id, d.issue_id, d.kind, d.author, d.created_at,
+             snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
+             bm25(discussions_fts) AS bm25_score,
+             (julianday('now') - julianday(d.created_at)) AS age_days
+           FROM discussions_fts
+           JOIN discussions d ON d.id = discussions_fts.rowid
+           WHERE discussions_fts MATCH ?
+             AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
+             AND (? IS NULL OR d.kind = ?)
+           ORDER BY bm25(discussions_fts) ASC
+           LIMIT ?`,
+        [query, issueId, issueId, kind, kind, limitK]
+      );
+      const fetchRowById = (id) => db.get(
+        `SELECT d.id, d.issue_id, d.kind, d.author, d.created_at,
+                  '' AS snippet,
+                  0.0 AS bm25_score,
+                  (julianday('now') - julianday(d.created_at)) AS age_days
+           FROM discussions d
+           WHERE d.id = ?
+             AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
+             AND (? IS NULL OR d.kind = ?)`,
+        [id, issueId, issueId, kind, kind]
+      );
+      if (mode === "keyword") {
+        const countRow = db.get(
+          `SELECT COUNT(*) AS n
+           FROM discussions_fts
+           JOIN discussions d ON d.id = discussions_fts.rowid
+           WHERE discussions_fts MATCH ?
+             AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
+             AND (? IS NULL OR d.kind = ?)`,
+          [query, issueId, issueId, kind, kind]
+        );
+        const total_matched = countRow?.n ?? 0;
+        const rows = db.all(
+          `SELECT
+             d.id, d.issue_id, d.kind, d.author, d.created_at,
+             snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
+             bm25(discussions_fts) AS bm25_score,
+             (julianday('now') - julianday(d.created_at)) AS age_days
+           FROM discussions_fts
+           JOIN discussions d ON d.id = discussions_fts.rowid
+           WHERE discussions_fts MATCH ?
+             AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
+             AND (? IS NULL OR d.kind = ?)
+           ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC
+           LIMIT ?`,
+          [query, issueId, issueId, kind, kind, alpha, alpha, k]
+        );
+        return ok({
+          results: rows.map((r) => ({
+            id: r.id,
+            issue_id: r.issue_id,
+            kind: r.kind,
+            author: r.author,
+            created_at: r.created_at,
+            snippet: r.snippet,
+            score: -r.bm25_score * (1 - alpha) + Math.exp(-r.age_days / 30) * alpha
+          })),
+          total_matched
+        });
+      }
+      if (mode === "semantic") {
+        const cosineResults2 = await topKByCosine(db, "discussions", query, k);
+        if (cosineResults2.length === 0) {
+          return ok({ results: [], total_matched: 0, warning: "semantic_unavailable" });
+        }
+        const results2 = [];
+        for (const cr of cosineResults2) {
+          const row = fetchRowById(cr.rowid);
+          if (row) {
+            results2.push({
+              id: row.id,
+              issue_id: row.issue_id,
+              kind: row.kind,
+              author: row.author,
+              created_at: row.created_at,
+              snippet: row.snippet,
+              score: cr.score
+            });
+          }
+        }
+        return ok({ results: results2, total_matched: results2.length });
+      }
+      const RRF_K = 60;
+      const ftsRows = fetchFtsRows(k * 4);
+      const cosineResults = await topKByCosine(db, "discussions", query, k * 4);
+      const semanticAvailable = cosineResults.length > 0;
+      const scoreMap = /* @__PURE__ */ new Map();
+      ftsRows.forEach((r, rank) => {
+        const rrf = 1 / (RRF_K + rank + 1);
+        const existing = scoreMap.get(r.id);
+        if (existing) {
+          existing.rrf += rrf;
+        } else {
+          scoreMap.set(r.id, { rrf, row: r });
+        }
+      });
+      cosineResults.forEach((cr, rank) => {
+        const rrf = 1 / (RRF_K + rank + 1);
+        const existing = scoreMap.get(cr.rowid);
+        if (existing) {
+          existing.rrf += rrf;
+        } else {
+          const row = fetchRowById(cr.rowid);
+          if (row) scoreMap.set(cr.rowid, { rrf, row });
+        }
+      });
+      const combined = Array.from(scoreMap.values()).map(({ rrf, row }) => {
+        const ageDays = row.age_days;
+        const decayed = rrf * (Math.exp(-ageDays / 30) * alpha + (1 - alpha));
+        return { row, score: decayed };
+      });
+      combined.sort((a, b) => b.score - a.score);
+      const topRows = combined.slice(0, k);
+      const results = topRows.map(({ row, score }) => ({
+        id: row.id,
+        issue_id: row.issue_id,
+        kind: row.kind,
+        author: row.author,
+        created_at: row.created_at,
+        snippet: row.snippet,
+        score
+      }));
+      const response = { results, total_matched: results.length };
+      if (!semanticAvailable) response["warning"] = "semantic_unavailable";
+      return ok(response);
+    }),
+    discussion_append: requireRoles(
+      "discussion_append",
+      ["bro", "swe", "pr-reviewer", "consultant"],
+      wrapHandler(async (args) => {
+        normalizeAgent(args["agent"]);
+        const rawIssueId = args["issue_id"];
+        const issueId = rawIssueId != null ? rawIssueId : String(resolveDefaultIssueId(db));
+        const author = requireArg(args, "author");
+        const body = requireArg(args, "body");
+        const kind = args["kind"] ?? "note";
+        const bodyBytes = Buffer.byteLength(body, "utf8");
+        if (bodyBytes > MAX_BODY_BYTES) {
+          return err(`body exceeds 64KB limit (${bodyBytes} bytes); truncate before calling discussion_append`);
+        }
+        if (!ALLOWED_KINDS.has(kind)) {
+          return err(
+            `Invalid kind: "${kind}". Allowed values: ${[...ALLOWED_KINDS].join(", ")}`
+          );
+        }
+        if (!author.trim()) {
+          throw new Error("author must be a non-empty string");
+        }
+        const verifiedHuman = Boolean(args["verified_human"]);
+        if (author === "human" && !verifiedHuman) {
+          throw new Error(
+            'precondition_failed: discussion_append with author="human" requires verified_human=true. This flag must only be set by legitimate UserPromptSubmit hook captures, never by agent self-attribution. Use author="bro" with body citing the human verbatim instead.'
+          );
+        }
+        const issue2 = db.get("SELECT id FROM issues WHERE id = ?", [issueId]);
+        if (!issue2) {
+          throw new Error(`Not found: issue ${issueId}`);
+        }
+        const now = nowISO();
+        const id = insertDiscussion(db, { issue_id: issueId, author, kind, body, created_at: now });
+        const row = db.get("SELECT * FROM discussions WHERE id = ?", [id]);
+        return ok(row);
+      })
+    ),
+    discussion_list: wrapHandler(async (args) => {
+      normalizeAgent(args["agent"]);
+      const issueId = requireArg(args, "issue_id");
+      const limitArg = args["limit"];
+      const cursorArg = args["cursor"];
+      const rawOffset = args["offset"] ?? 0;
+      const fieldsArg = args["fields"];
+      const ALLOWED_DISCUSSION_FIELDS = /* @__PURE__ */ new Set(["id", "issue_id", "author", "kind", "body", "created_at"]);
+      if (fieldsArg !== void 0) {
+        const unknown2 = fieldsArg.filter((f) => !ALLOWED_DISCUSSION_FIELDS.has(f));
+        if (unknown2.length > 0) {
+          return err(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_DISCUSSION_FIELDS].join(", ")}`);
+        }
+      }
+      function projectRow(row) {
+        if (!fieldsArg) return row;
+        const out = {};
+        for (const f of fieldsArg) out[f] = row[f];
+        return out;
+      }
+      const issue2 = db.get("SELECT id FROM issues WHERE id = ?", [issueId]);
+      if (!issue2) {
+        return ok({ discussions: [], warning: "issue not found" });
+      }
+      if (limitArg === void 0 || limitArg === null) {
+        const offset = Math.max(0, rawOffset);
+        const rows2 = db.all(
+          `SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC LIMIT 200 OFFSET ?`,
+          [issueId, offset]
+        );
+        return ok(rows2.map(projectRow));
+      }
+      const limit = Math.min(Math.max(1, limitArg), 200);
+      let cursorFilter = "";
+      let cursorParams = [];
+      if (cursorArg) {
+        const decoded = decodeCursor(cursorArg);
+        if (decoded) {
+          cursorFilter = "AND (created_at > ? OR (created_at = ? AND id > ?))";
+          cursorParams = [decoded.created_at, decoded.created_at, decoded.id];
+        }
+      }
+      const sql = "SELECT * FROM discussions WHERE issue_id = ? " + cursorFilter + " ORDER BY created_at ASC, id ASC LIMIT ?";
+      const fetchedRows = db.all(sql, [issueId, ...cursorParams, limit + 1]);
+      const hasMore = fetchedRows.length > limit;
+      const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
+      const last = rows[rows.length - 1];
+      const next_cursor = hasMore && last ? encodeCursor(last) : void 0;
+      return ok({ rows: rows.map(projectRow), next_cursor });
+    }),
+    issue_get_with_discussions: wrapHandler(async (args) => {
+      const agent = normalizeAgent(args["agent"]);
+      const issueId = requireArg(args, "issue_id");
+      const includeFull = args["include_full"] ?? false;
+      const lastNArg = args["last_n"];
+      const limitArg = args["limit"];
+      const cursorArg = args["cursor"];
+      const issue2 = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      if (!issue2) {
+        throw new Error(`Not found: issue ${issueId}`);
+      }
+      const tasks = db.all(
+        `SELECT id, branch_id, status, title FROM tasks WHERE issue_id = ? ORDER BY branch_id ASC`,
+        [issueId]
+      );
+      const redactedIssue = redactIssue(issue2, agent);
+      if (includeFull) {
+        const discussions2 = db.all(
+          `SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC`,
+          [issueId]
+        );
+        return ok({ issue: redactedIssue, discussions: discussions2, tasks });
+      }
+      const totalCount = db.get(
+        `SELECT COUNT(*) AS n FROM discussions WHERE issue_id = ?`,
+        [issueId]
+      )?.n ?? 0;
+      const resolvedLastN = Math.min(
+        Math.max(1, lastNArg ?? limitArg ?? 10),
+        200
+      );
+      let cursorFilter = "";
+      let cursorParams = [];
+      if (cursorArg) {
+        const decoded = decodeCursor(cursorArg);
+        if (decoded) {
+          cursorFilter = "AND (created_at < ? OR (created_at = ? AND id < ?))";
+          cursorParams = [decoded.created_at, decoded.created_at, decoded.id];
+        }
+      }
+      const sql = "SELECT * FROM discussions WHERE issue_id = ? " + cursorFilter + " ORDER BY created_at DESC, id DESC LIMIT ?";
+      const fetchedDisc = db.all(sql, [issueId, ...cursorParams, resolvedLastN + 1]);
+      const hasMore = fetchedDisc.length > resolvedLastN;
+      const sliced = hasMore ? fetchedDisc.slice(0, resolvedLastN) : fetchedDisc;
+      const oldest = sliced[sliced.length - 1];
+      const next_cursor = hasMore && oldest ? encodeCursor(oldest) : void 0;
+      const discussions = sliced.slice().reverse();
+      return ok({
+        issue: redactedIssue,
+        discussions,
+        tasks,
+        total_discussion_count: totalCount,
+        returned_count: discussions.length,
+        ...next_cursor !== void 0 ? { next_cursor } : {}
+      });
+    })
+  };
+  return { definitions, handlers };
+}
+
+// src/utils/repo-paths.ts
+function resolveRepoForSync(db, repoName) {
+  const decodeRemotes = (raw) => {
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+    }
+    return [];
+  };
+  if (repoName) {
+    const row = db.get(
+      `SELECT name, path, remotes FROM repos WHERE name = ?`,
+      [repoName]
+    );
+    if (!row) return null;
+    return { name: row.name, path: row.path, remotes: decodeRemotes(row.remotes) };
+  }
+  const rows = db.all(
+    `SELECT name, path, remotes FROM repos`
+  );
+  if (rows.length !== 1) return null;
+  const sole = rows[0];
+  return { name: sole.name, path: sole.path, remotes: decodeRemotes(sole.remotes) };
+}
+function resolveSoleRepo(db, name) {
+  if (name) {
+    const repoRow = db.get(
+      `SELECT path FROM repos WHERE name = ?`,
+      [name]
+    );
+    return repoRow?.path ? { name, path: repoRow.path } : void 0;
+  }
+  const repos = db.all(
+    `SELECT name, path FROM repos`
+  );
+  return repos.length === 1 ? { name: repos[0].name, path: repos[0].path } : void 0;
+}
+
+// src/sync/backend.ts
+import { spawnSync } from "node:child_process";
+
+// src/utils/timeouts.ts
+var SUBPROCESS_TIMEOUT_MS = 5e3;
+
+// src/utils/live-cli-guard.ts
+function liveCliBlockReason(env = process.env) {
+  if (env.TMB_FORBID_LIVE_SYNC === "1") return "TMB_FORBID_LIVE_SYNC=1";
+  if (env.NODE_TEST_CONTEXT) return `NODE_TEST_CONTEXT=${env.NODE_TEST_CONTEXT}`;
+  return null;
+}
+function liveCliBlockedMessage(reason, cmd, args) {
+  return `live CLI blocked in test context (${reason}) \u2014 refused to spawn "${cmd} ${args.join(" ")}"; inject _spawnFn`;
+}
+
+// src/utils/classify-url.ts
+function extractHost(url2) {
+  const scpMatch = url2.match(/^[^@]+@([^:/]+)[:/]/);
+  if (scpMatch) return scpMatch[1].toLowerCase();
+  try {
+    const parsed = new URL(url2);
+    if (parsed.hostname) return parsed.hostname.toLowerCase();
+  } catch {
+  }
+  return null;
+}
+function classifyHost(host) {
+  if (host === "github.com" || host.endsWith(".github.com")) return "github";
+  if (host === "gitlab.com" || /(?:^|\.)gitlab\./i.test(host)) return "gitlab";
+  if (host === "bitbucket.org" || host.endsWith(".bitbucket.org")) return "bitbucket";
+  if (host === "codeberg.org" || host.endsWith(".codeberg.org")) return "codeberg";
+  if (host === "dev.azure.com" || host.endsWith(".dev.azure.com")) return "azuredev";
+  return "other";
+}
+function classifyUrl(url2) {
+  const host = extractHost(url2);
+  if (!host) return "other";
+  return classifyHost(host);
+}
+
+// src/sync/backend.ts
+var _availabilityCache = null;
+function detectAvailable(_spawnFn) {
+  if (_spawnFn === void 0 && _availabilityCache !== null) {
+    return _availabilityCache;
+  }
+  const check2 = (cmd, args) => {
+    try {
+      if (_spawnFn) {
+        const result3 = _spawnFn(cmd, args);
+        return result3.status === 0;
+      }
+      if (liveCliBlockReason()) return false;
+      const result2 = spawnSync(cmd, args, { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" });
+      return result2.status === 0;
+    } catch {
+      return false;
+    }
+  };
+  const result = {
+    gh: check2("gh", ["auth", "status"]),
+    glab: check2("glab", ["auth", "status"])
+  };
+  if (_spawnFn === void 0) {
+    _availabilityCache = result;
+  }
+  return result;
+}
+function detectPreferred() {
+  try {
+    const result = spawnSync("git", ["remote", "get-url", "origin"], {
+      timeout: SUBPROCESS_TIMEOUT_MS,
+      encoding: "utf8"
+    });
+    if (result.status !== 0) return null;
+    const url2 = (result.stdout ?? "").trim();
+    const provider = classifyUrl(url2);
+    if (provider === "github") return "gh";
+    if (provider === "gitlab") return "glab";
+    return null;
+  } catch {
+    return null;
+  }
+}
+function resolveBackend(configValue, repoRemotes, hasSpawnFn = false, availability) {
+  if (!hasSpawnFn && (process.env.TMB_DISABLE_REMOTE_SYNC === "1" || process.env.TMB_DISABLE_REMOTE_SYNC?.toLowerCase() === "true")) {
+    return null;
+  }
+  if (configValue === "off") return "off";
+  if (configValue === "gh") return "gh";
+  if (configValue === "glab") return "glab";
+  if (configValue === "both") return "both";
+  const available = availability ?? detectAvailable();
+  const ghUsable = (repoRemotes?.github ?? false) && available.gh;
+  const glUsable = (repoRemotes?.gitlab ?? false) && available.glab;
+  if (ghUsable && glUsable) return "both";
+  if (ghUsable) return "gh";
+  if (glUsable) return "glab";
+  return null;
+}
+
+// src/sync/issue_sync.ts
+import { spawnSync as spawnSync2 } from "node:child_process";
+import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync4 } from "node:fs";
+import { homedir as homedir3 } from "node:os";
+import { join as join6 } from "node:path";
+function resolveLogDir() {
+  if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
+  return join6(homedir3(), ".claude", resolvePluginName(process.env), "logs");
+}
+var logDir = resolveLogDir();
+var syncLogPath = join6(logDir, "issue-sync.log");
+try {
+  mkdirSync4(logDir, { recursive: true });
+} catch {
+}
+function syncLog(entry) {
+  const currentLogPath = process.env.TMB_SYNC_LOG_DIR ? join6(process.env.TMB_SYNC_LOG_DIR, "issue-sync.log") : syncLogPath;
+  try {
+    const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
+    appendFileSync2(currentLogPath, line);
+  } catch {
+  }
+}
+function defaultSpawnFn(cmd, args, opts) {
+  const blockReason = liveCliBlockReason();
+  if (blockReason) {
+    const message = liveCliBlockedMessage(blockReason, cmd, args);
+    syncLog({ event: "live_cli_blocked", cmd, args, reason: blockReason });
+    return { status: null, stdout: "", stderr: message };
+  }
+  const result = spawnSync2(cmd, args, opts);
+  return {
+    status: result.status,
+    stdout: result.stdout ? String(result.stdout) : "",
+    stderr: result.stderr ? String(result.stderr) : ""
+  };
+}
+function parseRemoteIid(stdout, _kind) {
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    const urlMatch = trimmed.match(
+      /https?:\/\/([^/]+)\/([^/]+(?:\/[^/]+)+?)\/-?\/?(?:issues|work_items)\/(\d+)/
+    );
+    if (urlMatch) {
+      const host = urlMatch[1];
+      const repoPath = urlMatch[2];
+      const iid = parseInt(urlMatch[3], 10);
+      return { iid, host, repoPath };
+    }
+  }
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (/^#\d+$/.test(trimmed)) {
+      const iid = parseInt(trimmed.slice(1), 10);
+      return { iid, host: "", repoPath: "" };
+    }
+  }
+  return null;
+}
+function extractRemoteHostAndRepo(remoteUrl) {
+  if (!remoteUrl) return null;
+  const httpMatch = remoteUrl.match(/https?:\/\/([^/]+)\/([^/]+(?:\/[^/]+)+?)(?:\.git)?$/);
+  if (httpMatch) return { host: httpMatch[1], repoPath: httpMatch[2] };
+  const sshMatch = remoteUrl.match(/git@([^:]+):(.+?)(?:\.git)?$/);
+  if (sshMatch) return { host: sshMatch[1], repoPath: sshMatch[2] };
+  return null;
+}
+async function readBackVerify(backend, iid, spawnFn, spawnOpts, repoSlug) {
+  try {
+    let result;
+    if (backend === "gh") {
+      const args = ["issue", "view", String(iid), "--json", "number,url"];
+      if (repoSlug) args.push("--repo", repoSlug);
+      result = spawnFn("gh", args, spawnOpts);
+    } else {
+      const args = ["issue", "view", String(iid)];
+      if (repoSlug) args.push("-R", repoSlug);
+      result = spawnFn("glab", args, spawnOpts);
+    }
+    if (result.status !== 0) {
+      return { ok: false, reason: "read_back_non_zero_exit" };
+    }
+    if (backend === "gh") {
+      let parsed;
+      try {
+        parsed = JSON.parse(result.stdout);
+      } catch {
+        return { ok: false, reason: "read_back_parse_failed" };
+      }
+      if (parsed.url && parsed.url.includes("/pull/")) {
+        return { ok: false, reason: "read_back_is_pr" };
+      }
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: "read_back_error" };
+  }
+}
+function repoSlugFromRemoteUrl(remoteUrl) {
+  const parsed = extractRemoteHostAndRepo(remoteUrl);
+  if (!parsed) return null;
+  const repoPath = parsed.repoPath.replace(/\.git$/, "");
+  return `${parsed.host}/${repoPath}`;
+}
+async function fetchRemoteLabelNames(backend, spawnFn, spawnOpts, repoSlug) {
+  try {
+    let result;
+    if (backend === "gh") {
+      const args = ["label", "list", "--json", "name"];
+      if (repoSlug) args.push("--repo", repoSlug);
+      result = spawnFn("gh", args, spawnOpts);
+    } else {
+      const args = ["label", "list", "-F", "json"];
+      if (repoSlug) args.push("-R", repoSlug);
+      result = spawnFn("glab", args, spawnOpts);
+    }
+    if (result.status !== 0) return null;
+    let parsed;
+    try {
+      parsed = JSON.parse(result.stdout);
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(parsed)) return null;
+    const names = /* @__PURE__ */ new Set();
+    for (const entry of parsed) {
+      if (entry && typeof entry === "object" && typeof entry.name === "string") {
+        names.add(entry.name);
+      }
+    }
+    return names;
+  } catch {
+    return null;
+  }
+}
+async function verifyRemoteIssue(backend, iid, opts = {}) {
+  const spawnFn = opts.spawnFn ?? defaultSpawnFn;
+  const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
+  if (opts.cwd) spawnOpts.cwd = opts.cwd;
+  try {
+    let result;
+    if (backend === "gh") {
+      const args = ["issue", "view", String(iid), "--json", "number,title,state"];
+      if (opts.repoSlug) args.push("--repo", opts.repoSlug);
+      result = spawnFn("gh", args, spawnOpts);
+    } else {
+      const args = ["issue", "view", String(iid)];
+      if (opts.repoSlug) args.push("-R", opts.repoSlug);
+      result = spawnFn("glab", args, spawnOpts);
+    }
+    if (result.status !== 0) return { ok: false, reason: "not_found_or_error" };
+    if (backend === "gh") {
+      let parsed;
+      try {
+        parsed = JSON.parse(result.stdout);
+      } catch {
+        return { ok: false, reason: "parse_failed" };
+      }
+      if (typeof parsed.number !== "number") return { ok: false, reason: "parse_failed" };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: "spawn_error" };
+  }
+}
+function isFailure(r) {
+  return r.ok === false;
+}
+async function createOnBackend(backend, opts, spawnFn) {
+  const { title, body, labels = [], milestone } = opts;
+  const kind = backend === "gh" ? "github" : "gitlab";
+  const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
+  if (opts._cwd) {
+    spawnOpts.cwd = opts._cwd;
+  }
+  let effectiveLabels = labels;
+  let unknownLabels = [];
+  if (labels.length > 0) {
+    const known = await fetchRemoteLabelNames(backend, spawnFn, spawnOpts, opts._repoSlug);
+    if (known !== null) {
+      effectiveLabels = labels.filter((l) => known.has(l));
+      unknownLabels = labels.filter((l) => !known.has(l));
+      if (unknownLabels.length > 0) {
+        syncLog({
+          event: "issue_create_labels_filtered",
+          backend,
+          issueId: opts.issueId,
+          unknown: unknownLabels,
+          kept: effectiveLabels
+        });
+      }
+    }
+  }
+  let cmd;
+  let args;
+  if (backend === "gh") {
+    cmd = "gh";
+    args = ["issue", "create", "--title", title, "--body", body];
+    if (opts._repoSlug) {
+      args.push("--repo", opts._repoSlug);
+    }
+    for (const label of effectiveLabels) {
+      args.push("--label", label);
+    }
+    if (milestone) {
+      args.push("--milestone", milestone);
+    }
+  } else {
+    cmd = "glab";
+    args = ["issue", "create", "--title", title, "--description", body];
+    if (opts._repoSlug) {
+      args.push("-R", opts._repoSlug);
+    }
+    for (const label of effectiveLabels) {
+      args.push("--label", label);
+    }
+    if (milestone) {
+      args.push("--milestone", milestone);
+    }
+  }
+  try {
+    const result = spawnFn(cmd, args, spawnOpts);
+    if (result.status !== 0) {
+      syncLog({
+        event: "issue_create_failed",
+        backend,
+        issueId: opts.issueId,
+        stderr: result.stderr,
+        exit_code: result.status
+      });
+      return {
+        ok: false,
+        reason: "non_zero_exit",
+        backend,
+        stderr: result.stderr,
+        stdout: result.stdout,
+        exit_code: result.status ?? void 0
+      };
+    }
+    const parsed = parseRemoteIid(result.stdout, kind);
+    if (parsed === null) {
+      syncLog({
+        event: "issue_create_parse_failed",
+        backend,
+        issueId: opts.issueId,
+        stdout: result.stdout
+      });
+      return {
+        ok: false,
+        reason: "parse_failed",
+        backend,
+        stdout: result.stdout,
+        message: `could not parse remote issue id from "${cmd} ${args.join(" ")}" output`
+      };
+    }
+    if (opts._remoteUrl && parsed.host) {
+      const configured = extractRemoteHostAndRepo(opts._remoteUrl);
+      if (configured) {
+        const hostMismatch = parsed.host !== configured.host;
+        const repoMismatch = parsed.repoPath.replace(/\.git$/, "") !== configured.repoPath.replace(/\.git$/, "");
+        if (hostMismatch || repoMismatch) {
+          syncLog({
+            event: "issue_create_verify_failed",
+            backend,
+            issueId: opts.issueId,
+            reason: "host_repo_mismatch",
+            parsed_host: parsed.host,
+            parsed_repo: parsed.repoPath,
+            configured_host: configured.host,
+            configured_repo: configured.repoPath,
+            stdout: result.stdout
+          });
+          return {
+            ok: false,
+            reason: "verify_failed",
+            backend,
+            stdout: result.stdout,
+            message: `remote iid host/repo mismatch: got ${parsed.host}/${parsed.repoPath}, expected ${configured.host}/${configured.repoPath}`
+          };
+        }
+      }
+    }
+    const verifyResult = await readBackVerify(backend, parsed.iid, spawnFn, spawnOpts, opts._repoSlug);
+    if (!verifyResult.ok) {
+      syncLog({
+        event: "issue_create_verify_failed",
+        backend,
+        issueId: opts.issueId,
+        reason: verifyResult.reason,
+        iid: parsed.iid,
+        stdout: result.stdout
+      });
+      return {
+        ok: false,
+        reason: "verify_failed",
+        backend,
+        stdout: result.stdout,
+        message: `read-back verify failed for iid ${parsed.iid}: ${verifyResult.reason}`
+      };
+    }
+    syncLog({
+      event: "issue_create_success",
+      backend,
+      issueId: opts.issueId,
+      iid: parsed.iid,
+      stdout: result.stdout
+    });
+    return {
+      remote_iid: parsed.iid,
+      remote_kind: kind,
+      unknown_labels: unknownLabels.length > 0 ? unknownLabels : void 0
+    };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    syncLog({
+      event: "issue_create_error",
+      backend,
+      issueId: opts.issueId,
+      error: message
+    });
+    return {
+      ok: false,
+      reason: "spawn_error",
+      backend,
+      message
+    };
+  }
+}
+async function syncIssueCreate(opts) {
+  const spawnFn = opts._spawnFn ?? defaultSpawnFn;
+  const backend = opts._backend;
+  if (!backend) {
+    return {
+      ok: false,
+      reason: "no_backend",
+      backend: null,
+      message: "no remote backend configured (issue_sync key resolved to null)"
+    };
+  }
+  syncLog({
+    kind: "issue_sync_active",
+    backend,
+    issue_id: opts.issueId,
+    title: opts.title
+  });
+  if (backend === "gh") {
+    return createOnBackend("gh", opts, spawnFn);
+  }
+  if (backend === "glab") {
+    return createOnBackend("glab", opts, spawnFn);
+  }
+  return {
+    ok: false,
+    reason: "no_backend",
+    backend: null,
+    message: `unrecognised backend "${backend}" \u2014 use issue_create for dual-backend creates`
+  };
+}
+async function syncIssueClose(opts) {
+  const spawnFn = opts._spawnFn ?? defaultSpawnFn;
+  const { remote_iid, remote_kind } = opts;
+  const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
+  if (opts._cwd) {
+    spawnOpts.cwd = opts._cwd;
+  }
+  let cmd;
+  let args;
+  if (remote_kind === "github") {
+    cmd = "gh";
+    args = ["issue", "close", String(remote_iid)];
+    if (opts._repoSlug) {
+      args.push("--repo", opts._repoSlug);
+    }
+  } else {
+    cmd = "glab";
+    args = ["issue", "close", String(remote_iid)];
+    if (opts._repoSlug) {
+      args.push("-R", opts._repoSlug);
+    }
+  }
+  try {
+    const result = spawnFn(cmd, args, spawnOpts);
+    if (result.status !== 0) {
+      syncLog({
+        event: "issue_close_failed",
+        remote_kind,
+        remote_iid,
+        stderr: result.stderr,
+        exit_code: result.status
+      });
+      return {
+        ok: false,
+        reason: "non_zero_exit",
+        stderr: result.stderr,
+        stdout: result.stdout,
+        exit_code: result.status ?? void 0
+      };
+    }
+    return { ok: true };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    syncLog({
+      event: "issue_close_error",
+      remote_kind,
+      remote_iid,
+      error: message
+    });
+    return { ok: false, reason: "spawn_error", message };
+  }
+}
+
+// src/tools/issues.ts
+var DEFAULT_CLASSIFICATION_LABELS = [
+  "Bug",
+  "Feature",
+  "Improvement",
+  "Docs",
+  "Test",
+  "Chore"
+];
+var DEFAULT_PRIORITY_LABELS = [
+  "Priority: Urgent",
+  "Priority: High",
+  "Priority: Medium",
+  "Priority: Low"
+];
+function readStringArrayConfig(db, key) {
+  const row = db.get(
+    `SELECT value_json FROM plugin_config WHERE key = ?`,
+    [key]
+  );
+  if (!row) return null;
+  try {
+    const parsed = JSON.parse(row.value_json);
+    if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((v) => typeof v === "string")) {
+      return parsed;
+    }
+  } catch {
+  }
+  return null;
+}
+function resolveLabelTaxonomy(db) {
+  const classification = readStringArrayConfig(db, "issue_classification_labels") ?? [
+    ...DEFAULT_CLASSIFICATION_LABELS
+  ];
+  const priorityLabels = readStringArrayConfig(db, "issue_priority_labels") ?? [
+    ...DEFAULT_PRIORITY_LABELS
+  ];
+  return { classification, priorityLabels };
+}
+function defaultSyncLabels(db) {
+  const { classification, priorityLabels } = resolveLabelTaxonomy(db);
+  const labels = [];
+  if (classification.length > 0) labels.push(classification[0]);
+  if (priorityLabels.length > 0) labels.push(priorityLabels[0]);
+  return labels;
+}
+function validateIssueLabels(db, labels) {
+  const { classification, priorityLabels } = resolveLabelTaxonomy(db);
+  const classificationSet = new Set(classification);
+  const prioritySet = new Set(priorityLabels);
+  const hasPriority = labels.some((l) => prioritySet.has(l));
+  const hasClassification = labels.some((l) => classificationSet.has(l));
+  if (hasPriority && hasClassification) return null;
+  const missing = [];
+  if (!hasClassification) {
+    missing.push(`a classification label (one of: ${classification.join(", ")})`);
+  }
+  if (!hasPriority) {
+    missing.push(`a priority label (one of: ${priorityLabels.join(", ")})`);
+  }
+  return `missing_required_labels: issue_create requires ${missing.join(" AND ")}. Got labels: [${labels.join(", ")}]`;
+}
+function ensureMilestoneRow(db, milestone, repo) {
+  if (repo === null) return;
+  db.run(
+    `INSERT INTO milestones (name, repo) VALUES (?, ?)
+     ON CONFLICT(name, repo) DO NOTHING`,
+    [milestone, repo]
+  );
+}
+function resolveDefaultMilestone(db, explicitMilestone, repo) {
+  if (explicitMilestone !== null && explicitMilestone !== "") {
+    ensureMilestoneRow(db, explicitMilestone, repo);
+    return explicitMilestone;
+  }
+  if (repo === null) return null;
+  const open = db.all(
+    `SELECT name FROM milestones WHERE repo = ? AND state = 'open'`,
+    [repo]
+  );
+  return open.length === 1 ? open[0].name : null;
+}
+var DEDUP_THRESHOLD = 0.6;
+function normalizeObjective(text) {
+  return text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((t) => t.length > 0);
+}
+function objectiveSimilarity(a, b) {
+  const setA = new Set(normalizeObjective(a));
+  const setB = new Set(normalizeObjective(b));
+  if (setA.size === 0 && setB.size === 0) return 1;
+  let intersection2 = 0;
+  for (const t of setA) {
+    if (setB.has(t)) intersection2 += 1;
+  }
+  const union2 = setA.size + setB.size - intersection2;
+  if (union2 === 0) return 0;
+  return intersection2 / union2;
+}
+function decodeIssue(row) {
+  return { ...row };
+}
+function ok2(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function err2(message) {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    isError: true
+  };
+}
+function requireArg2(args, name) {
+  if (args[name] === void 0 || args[name] === null) {
+    throw new Error(`Missing required arg: ${name}`);
+  }
+  return args[name];
+}
+function wrapHandler2(fn) {
+  return async (args) => {
+    try {
+      return await fn(args);
+    } catch (e) {
+      return err2(e.message);
+    }
+  };
+}
+function resolveIssueSyncContext(db, repoName) {
+  const resolved = resolveRepoForSync(db, repoName);
+  if (!resolved) return null;
+  return {
+    repoName: resolved.name,
+    cwd: resolved.path,
+    remoteFor(backend) {
+      const provider = backend === "gh" ? "github" : "gitlab";
+      const entry = resolved.remotes.find((r) => r.provider === provider);
+      if (!entry) return null;
+      return { url: entry.url, slug: repoSlugFromRemoteUrl(entry.url) };
+    }
+  };
+}
+async function verifyAdoptionRemote(db, issueRepo, remoteBackendArg, remoteIid, spawnFn) {
+  if (!Number.isInteger(remoteIid) || remoteIid <= 0) {
+    return { ok: false, error: `invalid_remote_iid: must be a positive integer, got ${String(remoteIid)}` };
+  }
+  const syncCtx = resolveIssueSyncContext(db, issueRepo);
+  let backend = remoteBackendArg;
+  if (!backend) {
+    const hasGh = syncCtx?.remoteFor("gh") != null;
+    const hasGl = syncCtx?.remoteFor("glab") != null;
+    if (hasGh && !hasGl) backend = "github";
+    else if (hasGl && !hasGh) backend = "gitlab";
+    else if (hasGh && hasGl) {
+      return { ok: false, error: "remote_backend_ambiguous: repo has both github and gitlab remotes \u2014 pass remote_backend" };
+    } else {
+      return { ok: false, error: "remote_backend_unresolved: repo has no configured remote \u2014 pass remote_backend" };
+    }
+  }
+  const cliBackend = backend === "github" ? "gh" : "glab";
+  const remote = syncCtx?.remoteFor(cliBackend);
+  const verify = await verifyRemoteIssue(cliBackend, remoteIid, {
+    spawnFn,
+    cwd: syncCtx?.cwd,
+    repoSlug: remote?.slug ?? void 0
+  });
+  if (!verify.ok) {
+    return {
+      ok: false,
+      error: `remote_verify_failed: ${backend} issue #${remoteIid} not found or not viewable (${verify.reason ?? "unknown"})`
+    };
+  }
+  return { ok: true, backend };
+}
+async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
+  const remoteRow = db.get(
+    `SELECT remote_iid, remote_kind, gh_iid, gl_iid, repo FROM issues WHERE id = ?`,
+    [issueId]
+  );
+  const closeCtx = resolveIssueSyncContext(db, remoteRow?.repo ?? null);
+  const closeCwd = closeCtx?.cwd;
+  const closeTargets = [];
+  if (remoteRow?.gh_iid != null) {
+    closeTargets.push({ remote_iid: remoteRow.gh_iid, remote_kind: "github" });
+  } else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === "github") {
+    closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: "github" });
+  }
+  if (remoteRow?.gl_iid != null) {
+    closeTargets.push({ remote_iid: remoteRow.gl_iid, remote_kind: "gitlab" });
+  } else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === "gitlab") {
+    closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: "gitlab" });
+  }
+  for (const target of closeTargets) {
+    const closeSlug = closeCtx?.remoteFor(target.remote_kind === "github" ? "gh" : "glab")?.slug ?? void 0;
+    const closeResult = await syncIssueClose({
+      remote_iid: target.remote_iid,
+      remote_kind: target.remote_kind,
+      _cwd: closeCwd,
+      _repoSlug: closeSlug,
+      _spawnFn: spawnFn
+    });
+    if (!closeResult.ok) {
+      serverLog({
+        event: "issue_close_sync_failed",
+        issueId,
+        remote_iid: target.remote_iid,
+        remote_kind: target.remote_kind,
+        reason: closeResult.reason,
+        exit_code: closeResult.exit_code,
+        stderr: closeResult.stderr?.slice(0, 1024),
+        message: closeResult.message
+      });
+    }
+  }
+}
+function issueTools(db, dbPath = "") {
+  const definitions = [
+    {
+      name: "issue_create",
+      description: "Create a new issue with an objective and an optional full markdown description.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string", description: "Caller agent name" },
+          objective: { type: "string", description: "Short one-liner summary" },
+          description: { type: "string", description: "Full issue description: requirements, context, acceptance criteria. Markdown. Gated from SWE for info isolation." },
+          labels: { type: "array", items: { type: "string" }, description: "Required. Must include at least one priority label AND at least one classification label, drawn from the project's configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore). Extra labels are allowed. Applied to the remote issue." },
+          milestone: { type: "string", description: 'Optional milestone name (e.g. "v1.2.0"). Persisted on the issue row and set on the remote issue. Omit for no milestone.' },
+          repo: { type: "string", description: "Optional repo name (matches a repos row) this issue belongs to. Drives issue-scoped sync (explicit gh --repo / glab -R from that repo's remotes). Defaults to the sole/managed repo when exactly one repos row exists." },
+          allow_duplicate: { type: "boolean", description: "When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating." },
+          remote_iid: { type: "number", description: "Optional. Adopt an existing remote issue instead of creating one: verifies the remote issue exists, links it, and skips remote creation. A failed verification creates nothing." },
+          remote_backend: { type: "string", enum: ["github", "gitlab"], description: "Optional backend for remote_iid adoption. Defaults to the repo's sole configured remote." }
+        },
+        required: ["agent", "objective", "labels"]
+      }
+    },
+    {
+      name: "issue_get",
+      description: "Fetch a single issue by ID.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          issue_id: { type: "string", description: "The issue string ID" },
+          include_description: { type: "boolean", description: "Whether to include the full description (default false). Architect + bro only." }
+        },
+        required: ["agent", "issue_id"]
+      }
+    },
+    {
+      name: "issue_resume",
+      description: "Return an issue with its first actionable pending/failed task.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          issue_id: { type: "string" }
+        },
+        required: ["agent", "issue_id"]
+      }
+    },
+    {
+      name: "issue_close",
+      description: "Close an issue by setting its status to closed.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          issue_id: { type: "string" }
+        },
+        required: ["agent", "issue_id"]
+      }
+    },
+    {
+      name: "issue_get_phase",
+      description: "Return the current workflow phase and task completion counts for an issue.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          issue_id: { type: "string" }
+        },
+        required: ["agent", "issue_id"]
+      }
+    },
+    {
+      name: "issue_list",
+      description: "List issues ordered by updated_at DESC. Returns a thin index (id, objective, status, created_at, updated_at). Optional fields projection via fields=['id','status','objective']; unknown fields return a named error.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          status: {
+            type: "string",
+            enum: ["open", "closed"],
+            description: "Optional status filter. Omit to return all issues."
+          },
+          limit: { type: "number", description: "Max rows. Default 50, max 200." },
+          offset: { type: "number", description: "Row offset. Default 0." },
+          fields: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional column projection. Allowed: id, objective, status, created_at, updated_at. Unknown fields return a named error. Default: all five columns."
+          }
+        },
+        required: ["agent"]
+      }
+    },
+    {
+      name: "issue_update_description",
+      description: "Update an issue's description. Used by bro to backfill issues whose descriptions were truncated on import (e.g., from Linear).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
+          issue_id: { type: "string", description: "Issue ID as string" },
+          description: { type: "string", description: "Full markdown description (no length cap)" }
+        },
+        required: ["agent", "issue_id", "description"]
+      }
+    },
+    {
+      name: "issue_sync_retry",
+      description: "Manually retry remote sync for an issue where auto-sync failed. Bro only.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
+          issue_id: { type: "string", description: "Issue ID as string" }
+        },
+        required: ["agent", "issue_id"]
+      }
+    },
+    {
+      name: "issue_adopt_remote",
+      description: "Link an existing local issue to an existing remote issue after verifying it exists. Bro only. Errors if the row is already linked to a different iid; re-adopting the same iid is idempotent.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
+          issue_id: { type: "string", description: "Local issue ID" },
+          remote_iid: { type: "number", description: "Remote issue number to adopt" },
+          remote_backend: { type: "string", enum: ["github", "gitlab"], description: "Optional. Defaults to the repo's sole configured remote." }
+        },
+        required: ["agent", "issue_id", "remote_iid"]
+      }
+    },
+    {
+      name: "issue_link",
+      description: "Record a remote issue linkage (gh_iid/gl_iid) for a manually-mirrored issue. Bro only. Rejects if the backend iid is already set unless force=true.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
+          issue_id: { type: "string", description: "Local issue ID" },
+          backend: { type: "string", enum: ["github", "gitlab"], description: "Remote backend" },
+          iid: { type: "number", description: "Remote issue number" },
+          force: { type: "boolean", description: "Overwrite existing iid if already set (default false)" }
+        },
+        required: ["agent", "issue_id", "backend", "iid"]
+      }
+    }
+  ];
+  const handlers = {
+    issue_create: requireRoles("issue_create", ["bro"], wrapHandler2(async (args) => {
+      const agent = normalizeAgent(args["agent"]);
+      requireArg2(args, "objective");
+      const objective = args["objective"];
+      const description = args["description"] ?? "";
+      const labels = args["labels"] ?? [];
+      const labelError = validateIssueLabels(db, labels);
+      if (labelError !== null) {
+        return err2(labelError);
+      }
+      const explicitRepo = args["repo"] ?? null;
+      const issueRepo = explicitRepo ?? resolveRepoForSync(db, null)?.name ?? null;
+      const allowDuplicate = args["allow_duplicate"] ?? false;
+      if (!allowDuplicate) {
+        const openIssues = db.all(
+          `SELECT id, objective FROM issues WHERE status = 'open' AND (repo IS NULL OR repo = ?)`,
+          [issueRepo]
+        );
+        let best = null;
+        for (const candidate of openIssues) {
+          const similarity = objectiveSimilarity(objective, candidate.objective);
+          if (best === null || similarity > best.similarity) {
+            best = { id: candidate.id, objective: candidate.objective, similarity };
+          }
+        }
+        if (best !== null && best.similarity >= DEDUP_THRESHOLD) {
+          return ok2({
+            duplicate: true,
+            duplicate_of: best.id,
+            matched_objective: best.objective,
+            similarity: best.similarity
+          });
+        }
+      }
+      const explicitMilestone = args["milestone"] ?? null;
+      const milestone = resolveDefaultMilestone(db, explicitMilestone, issueRepo);
+      const spawnFn = args["_spawnFn"] ?? void 0;
+      const now = nowISO();
+      const remoteIidRaw = args["remote_iid"];
+      if (remoteIidRaw !== void 0 && remoteIidRaw !== null) {
+        const remoteIid = typeof remoteIidRaw === "number" ? remoteIidRaw : Number(remoteIidRaw);
+        const remoteBackendArg = args["remote_backend"];
+        const adoption = await verifyAdoptionRemote(db, issueRepo, remoteBackendArg, remoteIid, spawnFn);
+        if (!adoption.ok) {
+          return err2(adoption.error);
+        }
+        db.run(
+          `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
+           VALUES (?, ?, 'open', ?, ?, ?, ?, ?)`,
+          [objective, description, now, now, milestone, issueRepo, JSON.stringify(labels)]
+        );
+        const adoptRowId = db.get(
+          `SELECT id FROM issues WHERE rowid = last_insert_rowid()`
+        );
+        if (!adoptRowId) {
+          throw new Error("issue_create: failed to retrieve inserted row");
+        }
+        const adoptId = adoptRowId.id;
+        const ghIid = adoption.backend === "github" ? remoteIid : null;
+        const glIid = adoption.backend === "gitlab" ? remoteIid : null;
+        db.run(
+          `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
+          [remoteIid, adoption.backend, ghIid, glIid, now, adoptId]
+        );
+        db.run(
+          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
+           VALUES (?, 'executor', 'issue_adopted', ?, ?, ?)`,
+          [
+            adoptId,
+            `issue ${adoptId} adopted ${adoption.backend} #${remoteIid} at create`,
+            JSON.stringify({ issue_id: adoptId, backend: adoption.backend, remote_iid: remoteIid, at_create: true }),
+            now
+          ]
+        );
+        const adoptedRow = db.get("SELECT * FROM issues WHERE id = ?", [adoptId]);
+        const adoptedIssue = decodeIssue(adoptedRow);
+        const adoptedRedacted = redactIssue(adoptedIssue, agent, { include_description: true });
+        const adoptedPayload = { ...adoptedRedacted };
+        adoptedPayload._adopted = { backend: adoption.backend, remote_iid: remoteIid };
+        return ok2(adoptedPayload);
+      }
+      db.run(
+        `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
+         VALUES (?, ?, 'open', ?, ?, ?, ?, ?)`,
+        [objective, description, now, now, milestone, issueRepo, JSON.stringify(labels)]
+      );
+      const rowId = db.get(
+        `SELECT id FROM issues WHERE rowid = last_insert_rowid()`
+      );
+      if (!rowId) {
+        throw new Error("issue_create: failed to retrieve inserted row");
+      }
+      const issueId = rowId.id;
+      const syncConfigRow = db.get(
+        `SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`
+      );
+      const syncConfig = syncConfigRow ? JSON.parse(syncConfigRow.value_json) : "off";
+      let syncDiagnostic;
+      if (syncConfig !== "off") {
+        const syncCtx = resolveIssueSyncContext(db, issueRepo);
+        const repoRemotes = syncCtx ? { github: syncCtx.remoteFor("gh") !== null, gitlab: syncCtx.remoteFor("glab") !== null } : null;
+        const backend = resolveBackend(syncConfig, repoRemotes, !!spawnFn);
+        if (backend === null) {
+          serverLog({ event: "issue_sync_skip", reason: "no_remote_configured", issueId });
+        } else if (backend !== "off") {
+          if (syncCtx === null) {
+            serverLog({ event: "issue_sync_skip", reason: "unresolvable_repo", issueId, repo: issueRepo, backend });
+            syncDiagnostic = {
+              sync_failed: true,
+              reason: "unresolvable_repo",
+              repo: issueRepo,
+              backend,
+              hint: issueRepo ? `issue repo "${issueRepo}" has no matching repos row \u2014 run /scan or pass a valid repo.` : "multiple repos registered and no issue repo selected \u2014 pass repo= on issue_create."
+            };
+            const row2 = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+            const issue3 = decodeIssue(row2);
+            const redacted2 = redactIssue(issue3, agent, { include_description: true });
+            const payload2 = { ...redacted2 };
+            payload2._sync = syncDiagnostic;
+            return ok2(payload2);
+          }
+          const syncCwd = syncCtx.cwd;
+          if (backend === "both") {
+            const ghRemote = syncCtx.remoteFor("gh");
+            const glRemote = syncCtx.remoteFor("glab");
+            const ghRemoteUrl = ghRemote?.url ?? null;
+            const glRemoteUrl = glRemote?.url ?? null;
+            const ghBlank = !ghRemoteUrl;
+            const glBlank = !glRemoteUrl;
+            if (ghBlank && glBlank) {
+              serverLog({ event: "issue_sync_skip", reason: "blank_remote_url", issueId, backend });
+              syncDiagnostic = {
+                sync_skipped: true,
+                reason: "blank_remote_url",
+                backend,
+                hint: "Configure remote URLs via /onboard before syncing issues."
+              };
+            } else {
+              const [ghResult, glResult] = await Promise.all([
+                !ghBlank ? syncIssueCreate({
+                  issueId,
+                  title: objective,
+                  body: description,
+                  labels,
+                  milestone: milestone ?? void 0,
+                  _backend: "gh",
+                  _spawnFn: spawnFn,
+                  _cwd: syncCwd,
+                  _remoteUrl: ghRemoteUrl ?? void 0,
+                  _repoSlug: ghRemote?.slug ?? void 0
+                }) : Promise.resolve({ ok: false, reason: "no_backend", backend: "gh", message: "blank remote URL for gh" }),
+                !glBlank ? syncIssueCreate({
+                  issueId,
+                  title: objective,
+                  body: description,
+                  labels,
+                  milestone: milestone ?? void 0,
+                  _backend: "glab",
+                  _spawnFn: spawnFn,
+                  _cwd: syncCwd,
+                  _remoteUrl: glRemoteUrl ?? void 0,
+                  _repoSlug: glRemote?.slug ?? void 0
+                }) : Promise.resolve({ ok: false, reason: "no_backend", backend: "glab", message: "blank remote URL for glab" })
+              ]);
+              const ghIid = !isFailure(ghResult) && ghResult.remote_kind === "github" ? ghResult.remote_iid : null;
+              const glIid = !isFailure(glResult) && glResult.remote_kind === "gitlab" ? glResult.remote_iid : null;
+              const firstSuccess = !isFailure(ghResult) ? ghResult : !isFailure(glResult) ? glResult : null;
+              if (firstSuccess !== null) {
+                db.run(
+                  `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
+                  [firstSuccess.remote_iid, firstSuccess.remote_kind, ghIid, glIid, now, issueId]
+                );
+              } else {
+                const failures = [];
+                if (isFailure(ghResult)) {
+                  serverLog({ event: "issue_sync_failed", issueId, backend: "gh", reason: ghResult.reason, exit_code: ghResult.exit_code, stderr: ghResult.stderr?.slice(0, 1024), message: ghResult.message });
+                  failures.push("gh");
+                }
+                if (isFailure(glResult)) {
+                  serverLog({ event: "issue_sync_failed", issueId, backend: "glab", reason: glResult.reason, exit_code: glResult.exit_code, stderr: glResult.stderr?.slice(0, 1024), message: glResult.message });
+                  failures.push("glab");
+                }
+                syncDiagnostic = {
+                  sync_failed: true,
+                  reason: "both_remotes_failed",
+                  backends: failures,
+                  hint: "Try `issue_sync_retry` or run the underlying gh/glab command manually to debug."
+                };
+              }
+              if (ghIid !== null || glIid !== null) {
+                const partial2 = [];
+                if (isFailure(ghResult)) partial2.push("gh");
+                if (isFailure(glResult)) partial2.push("glab");
+                if (partial2.length > 0) {
+                  syncDiagnostic = {
+                    sync_partial: true,
+                    failed_backends: partial2,
+                    gh_iid: ghIid,
+                    gl_iid: glIid,
+                    hint: "Try `issue_sync_retry` to retry the failed remote."
+                  };
+                }
+              }
+              const droppedLabels = /* @__PURE__ */ new Set();
+              if (!isFailure(ghResult) && ghResult.unknown_labels) {
+                for (const l of ghResult.unknown_labels) droppedLabels.add(l);
+              }
+              if (!isFailure(glResult) && glResult.unknown_labels) {
+                for (const l of glResult.unknown_labels) droppedLabels.add(l);
+              }
+              if (droppedLabels.size > 0 && !syncDiagnostic) {
+                syncDiagnostic = {
+                  labels_dropped: [...droppedLabels],
+                  reason: "labels_not_in_remote_taxonomy",
+                  hint: "These requested labels do not exist on the remote and were omitted from the remote issue; all labels are still kept on the local issue."
+                };
+              }
+            }
+          } else {
+            const remote = syncCtx.remoteFor(backend);
+            const remoteUrl = remote?.url ?? null;
+            if (!remoteUrl) {
+              serverLog({ event: "issue_sync_skip", reason: "blank_remote_url", issueId, backend });
+              syncDiagnostic = {
+                sync_skipped: true,
+                reason: "blank_remote_url",
+                backend,
+                hint: "Configure remote URLs via /onboard before syncing issues."
+              };
+            } else {
+              const syncResult = await syncIssueCreate({
+                issueId,
+                title: objective,
+                body: description,
+                labels,
+                milestone: milestone ?? void 0,
+                _backend: backend,
+                _spawnFn: spawnFn,
+                _cwd: syncCwd,
+                _remoteUrl: remoteUrl ?? void 0,
+                _repoSlug: remote?.slug ?? void 0
+              });
+              if (!isFailure(syncResult)) {
+                const ghIid = syncResult.remote_kind === "github" ? syncResult.remote_iid : null;
+                const glIid = syncResult.remote_kind === "gitlab" ? syncResult.remote_iid : null;
+                db.run(
+                  `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
+                  [syncResult.remote_iid, syncResult.remote_kind, ghIid, glIid, now, issueId]
+                );
+                if (syncResult.unknown_labels && syncResult.unknown_labels.length > 0) {
+                  syncDiagnostic = {
+                    labels_dropped: syncResult.unknown_labels,
+                    reason: "labels_not_in_remote_taxonomy",
+                    hint: "These requested labels do not exist on the remote and were omitted from the remote issue; all labels are still kept on the local issue."
+                  };
+                }
+              } else {
+                serverLog({
+                  event: "issue_sync_failed",
+                  issueId,
+                  backend,
+                  reason: syncResult.reason,
+                  exit_code: syncResult.exit_code,
+                  stderr: syncResult.stderr?.slice(0, 1024),
+                  message: syncResult.message
+                });
+                syncDiagnostic = {
+                  sync_failed: true,
+                  reason: syncResult.reason,
+                  backend: syncResult.backend,
+                  exit_code: syncResult.exit_code,
+                  stderr: syncResult.stderr?.slice(0, 4096),
+                  stdout: syncResult.stdout?.slice(0, 4096),
+                  message: syncResult.message,
+                  hint: "Try `issue_sync_retry` or run the underlying gh/glab command manually to debug."
+                };
+              }
+            }
+          }
+        }
+      } else {
+        db.run(
+          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
+           VALUES (?, 'executor', 'sync_skipped', ?, ?, ?)`,
+          [
+            issueId,
+            `issue ${issueId} sync skipped: issue_sync is off`,
+            JSON.stringify({ issue_id: issueId, reason: "issue_sync_off" }),
+            nowISO()
+          ]
+        );
+        const preferred = detectPreferred();
+        if (preferred !== null) {
+          syncDiagnostic = {
+            sync_skipped: true,
+            reason: 'issue_sync is "off" but origin points at ' + preferred,
+            hint: 'If this project should mirror issues to the remote, run `config_set(key="issue_sync", value="auto")`.'
+          };
+        }
+      }
+      const row = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      const issue2 = decodeIssue(row);
+      const redacted = redactIssue(issue2, agent, { include_description: true });
+      const payload = { ...redacted };
+      if (syncDiagnostic) payload._sync = syncDiagnostic;
+      return ok2(payload);
+    })),
+    issue_get: wrapHandler2(async (args) => {
+      const agent = normalizeAgent(args["agent"]);
+      const issueId = requireArg2(args, "issue_id");
+      const includeDescription = args["include_description"] ?? false;
+      const row = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      if (!row) {
+        throw new Error(`Not found: ${issueId}`);
+      }
+      const issue2 = decodeIssue(row);
+      return ok2(redactIssue(issue2, agent, { include_description: includeDescription }));
+    }),
+    issue_resume: wrapHandler2(async (args) => {
+      const agent = normalizeAgent(args["agent"]);
+      const issueId = requireArg2(args, "issue_id");
+      const row = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      if (!row) {
+        throw new Error(`Not found: ${issueId}`);
+      }
+      const issue2 = decodeIssue(row);
+      const task = db.get(
+        `SELECT * FROM tasks
+         WHERE issue_id = ? AND status IN ('pending', 'failed')
+         ORDER BY branch_id ASC
+         LIMIT 1`,
+        [issueId]
+      );
+      return ok2({ issue: redactIssue(issue2, agent), next_task: task ?? null });
+    }),
+    issue_close: requireRoles("issue_close", ["bro"], wrapHandler2(async (args) => {
+      requireArg2(args, "agent");
+      const issueId = requireArg2(args, "issue_id");
+      const now = nowISO();
+      const existing = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      if (!existing) {
+        throw new Error(`Not found: ${issueId}`);
+      }
+      db.run(
+        `UPDATE issues
+         SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?)
+         WHERE id = ?`,
+        [now, now, issueId]
+      );
+      await syncIssueCloseRemotes(db, dbPath, issueId, args["_spawnFn"]);
+      const updated = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      return ok2(decodeIssue(updated));
+    })),
+    issue_get_phase: wrapHandler2(async (args) => {
+      requireArg2(args, "agent");
+      const issueId = requireArg2(args, "issue_id");
+      const issueRow = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      if (!issueRow) {
+        throw new Error(`Not found: ${issueId}`);
+      }
+      const issue2 = decodeIssue(issueRow);
+      const rawCounts = db.get(
+        `SELECT
+           COUNT(*) as tasks_total,
+           SUM(CASE WHEN status IN ('completed', 'closed') THEN 1 ELSE 0 END) as tasks_completed,
+           SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as tasks_failed
+         FROM tasks WHERE issue_id = ?`,
+        [issueId]
+      );
+      const counts = {
+        tasks_total: rawCounts?.tasks_total ?? 0,
+        tasks_completed: rawCounts?.tasks_completed ?? 0,
+        tasks_failed: rawCounts?.tasks_failed ?? 0
+      };
+      let phase;
+      if (issue2.status === "closed") {
+        phase = "done";
+      } else if (counts.tasks_total === 0) {
+        phase = "discussion";
+      } else if (counts.tasks_completed >= counts.tasks_total) {
+        phase = "ready_to_close";
+      } else {
+        phase = "tasks";
+      }
+      return ok2({ phase, counts });
+    }),
+    issue_list: wrapHandler2(async (args) => {
+      normalizeAgent(args["agent"]);
+      const rawStatus = args["status"];
+      const rawLimit = args["limit"] ?? 50;
+      const rawOffset = args["offset"] ?? 0;
+      const fieldsArg = args["fields"];
+      const limit = Math.min(Math.max(1, rawLimit), 200);
+      const offset = Math.max(0, rawOffset);
+      const VALID_ISSUE_STATUSES = /* @__PURE__ */ new Set(["open", "closed"]);
+      if (rawStatus !== void 0 && !VALID_ISSUE_STATUSES.has(rawStatus)) {
+        return err2(
+          `Invalid status: "${rawStatus}". Allowed values: ${[...VALID_ISSUE_STATUSES].join(", ")}`
+        );
+      }
+      const ALLOWED_ISSUE_LIST_FIELDS = /* @__PURE__ */ new Set(["id", "objective", "status", "created_at", "updated_at"]);
+      if (fieldsArg !== void 0) {
+        const unknown2 = fieldsArg.filter((f) => !ALLOWED_ISSUE_LIST_FIELDS.has(f));
+        if (unknown2.length > 0) {
+          return err2(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_ISSUE_LIST_FIELDS].join(", ")}`);
+        }
+      }
+      function projectRow(row) {
+        if (!fieldsArg) return row;
+        const out = {};
+        for (const f of fieldsArg) out[f] = row[f];
+        return out;
+      }
+      let rows;
+      if (rawStatus !== void 0) {
+        rows = db.all(
+          "SELECT id, objective, status, created_at, updated_at FROM issues WHERE status = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+          [rawStatus, limit, offset]
+        );
+      } else {
+        rows = db.all(
+          "SELECT id, objective, status, created_at, updated_at FROM issues ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+          [limit, offset]
+        );
+      }
+      return ok2(rows.map(projectRow));
+    }),
+    issue_update_description: requireRoles("issue_update_description", ["bro"], wrapHandler2(async (args) => {
+      const issueId = requireArg2(args, "issue_id");
+      const description = requireArg2(args, "description");
+      const MAX_DESCRIPTION_BYTES = 1024 * 1024;
+      if (Buffer.byteLength(description, "utf8") > MAX_DESCRIPTION_BYTES) {
+        return err2("description exceeds 1MB limit");
+      }
+      const existing = db.get("SELECT id FROM issues WHERE id = ?", [issueId]);
+      if (!existing) {
+        return err2(`not_found: issue ${issueId}`);
+      }
+      const now = nowISO();
+      db.run(
+        "UPDATE issues SET description = ?, updated_at = ? WHERE id = ?",
+        [description, now, issueId]
+      );
+      const updated = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      return ok2(decodeIssue(updated));
+    })),
+    issue_sync_retry: requireRoles("issue_sync_retry", ["bro"], wrapHandler2(async (args) => {
+      const issueId = requireArg2(args, "issue_id");
+      const spawnFn = args["_spawnFn"] ?? void 0;
+      const row = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      if (!row) {
+        return err2(`not_found: issue ${issueId}`);
+      }
+      const syncConfigRow = db.get(
+        `SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`
+      );
+      const syncConfig = syncConfigRow ? JSON.parse(syncConfigRow.value_json) : "off";
+      if (syncConfig === "off") {
+        return ok2({ skipped: true, reason: "issue_sync is off" });
+      }
+      const retryCtx = resolveIssueSyncContext(db, row.repo ?? null);
+      const retryRemotes = retryCtx ? { github: retryCtx.remoteFor("gh") !== null, gitlab: retryCtx.remoteFor("glab") !== null } : null;
+      const backend = resolveBackend(syncConfig, retryRemotes, !!spawnFn);
+      if (backend === null || backend === "off") {
+        return ok2({ skipped: true, reason: "no remote backend configured" });
+      }
+      if (retryCtx === null) {
+        return ok2({
+          skipped: true,
+          reason: "unresolvable_repo",
+          repo: row.repo ?? null,
+          hint: row.repo ? `issue repo "${row.repo}" has no matching repos row.` : "multiple repos registered and no issue repo selected."
+        });
+      }
+      const issue2 = decodeIssue(row);
+      if (row.status === "closed") {
+        const retryCwd2 = retryCtx.cwd;
+        const retryTargets = [];
+        if (row.gh_iid != null) {
+          retryTargets.push({ remote_iid: row.gh_iid, remote_kind: "github" });
+        } else if (row.remote_iid != null && row.remote_kind === "github") {
+          retryTargets.push({ remote_iid: row.remote_iid, remote_kind: "github" });
+        }
+        if (row.gl_iid != null) {
+          retryTargets.push({ remote_iid: row.gl_iid, remote_kind: "gitlab" });
+        } else if (row.remote_iid != null && row.remote_kind === "gitlab") {
+          retryTargets.push({ remote_iid: row.remote_iid, remote_kind: "gitlab" });
+        }
+        if (retryTargets.length === 0) {
+          return ok2({ action: "close", success: false, error: { reason: "no_remote_iid" } });
+        }
+        const closeErrors = [];
+        for (const target of retryTargets) {
+          const closeResult = await syncIssueClose({
+            remote_iid: target.remote_iid,
+            remote_kind: target.remote_kind,
+            _spawnFn: spawnFn,
+            _cwd: retryCwd2,
+            _repoSlug: retryCtx.remoteFor(target.remote_kind === "github" ? "gh" : "glab")?.slug ?? void 0
+          });
+          if (!closeResult.ok) {
+            closeErrors.push({
+              remote_kind: target.remote_kind,
+              reason: closeResult.reason,
+              exit_code: closeResult.exit_code,
+              stderr: closeResult.stderr?.slice(0, 4096),
+              stdout: closeResult.stdout?.slice(0, 4096),
+              message: closeResult.message
+            });
+          }
+        }
+        if (closeErrors.length === 0) {
+          return ok2({ action: "close", success: true });
+        }
+        return ok2({ action: "close", success: false, errors: closeErrors });
+      }
+      const retryCwd = retryCtx.cwd;
+      const createTargets = [];
+      if (backend === "gh" || backend === "both") {
+        if (row.gh_iid == null && !(row.remote_kind === "github" && row.remote_iid != null)) {
+          createTargets.push("gh");
+        }
+      }
+      if (backend === "glab" || backend === "both") {
+        if (row.gl_iid == null && !(row.remote_kind === "gitlab" && row.remote_iid != null)) {
+          createTargets.push("glab");
+        }
+      }
+      if (createTargets.length === 0) {
+        return ok2({ action: "create", success: true, skipped: true, reason: "already_synced" });
+      }
+      let retryLabels;
+      if (row.labels == null) {
+        retryLabels = defaultSyncLabels(db);
+      } else {
+        try {
+          const parsed = JSON.parse(row.labels);
+          retryLabels = Array.isArray(parsed) ? parsed : defaultSyncLabels(db);
+        } catch {
+          retryLabels = defaultSyncLabels(db);
+        }
+      }
+      const createErrors = [];
+      let lastSuccess = null;
+      for (const target of createTargets) {
+        const retryRemote = retryCtx.remoteFor(target);
+        const syncResult = await syncIssueCreate({
+          issueId: row.id,
+          title: issue2.objective,
+          body: row.description,
+          labels: retryLabels,
+          milestone: row.milestone ?? void 0,
+          _backend: target,
+          _spawnFn: spawnFn,
+          _cwd: retryCwd,
+          _remoteUrl: retryRemote?.url ?? void 0,
+          _repoSlug: retryRemote?.slug ?? void 0
+        });
+        if (!isFailure(syncResult)) {
+          lastSuccess = { remote_iid: syncResult.remote_iid, remote_kind: syncResult.remote_kind };
+          const retryGhIid = syncResult.remote_kind === "github" ? syncResult.remote_iid : null;
+          const retryGlIid = syncResult.remote_kind === "gitlab" ? syncResult.remote_iid : null;
+          db.run(
+            `UPDATE issues SET remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, ?), gh_iid = COALESCE(gh_iid, ?), gl_iid = COALESCE(gl_iid, ?), updated_at = ? WHERE id = ?`,
+            [syncResult.remote_iid, syncResult.remote_kind, retryGhIid, retryGlIid, nowISO(), issueId]
+          );
+        } else {
+          createErrors.push({
+            backend: syncResult.backend,
+            reason: syncResult.reason,
+            exit_code: syncResult.exit_code,
+            stderr: syncResult.stderr?.slice(0, 4096),
+            stdout: syncResult.stdout?.slice(0, 4096),
+            message: syncResult.message
+          });
+        }
+      }
+      if (createErrors.length === 0 && lastSuccess !== null) {
+        return ok2({ action: "create", success: true, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind });
+      }
+      if (lastSuccess !== null) {
+        return ok2({ action: "create", success: true, partial: true, errors: createErrors, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind });
+      }
+      return ok2({
+        action: "create",
+        success: false,
+        errors: createErrors
+      });
+    })),
+    issue_link: requireRoles("issue_link", ["bro"], wrapHandler2(async (args) => {
+      const issueId = requireArg2(args, "issue_id");
+      const backend = requireArg2(args, "backend");
+      const iid = requireArg2(args, "iid");
+      const force = args["force"] ?? false;
+      if (!Number.isInteger(iid) || iid <= 0) {
+        return err2(`invalid iid: must be a positive integer`);
+      }
+      const row = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      if (!row) {
+        return err2(`not_found: issue ${issueId}`);
+      }
+      const iidColumn = backend === "github" ? "gh_iid" : "gl_iid";
+      const existingIid = backend === "github" ? row.gh_iid : row.gl_iid;
+      if (existingIid != null && !force) {
+        return err2(`already_linked: issue ${issueId} already has ${backend} iid ${existingIid} \u2014 pass force=true to overwrite`);
+      }
+      const now = nowISO();
+      if (backend === "github") {
+        db.run(
+          `UPDATE issues SET gh_iid = ?, remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, 'github'), updated_at = ? WHERE id = ?`,
+          [iid, iid, now, issueId]
+        );
+      } else {
+        db.run(
+          `UPDATE issues SET gl_iid = ?, remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, 'gitlab'), updated_at = ? WHERE id = ?`,
+          [iid, iid, now, issueId]
+        );
+      }
+      db.run(
+        `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
+         VALUES (?, 'executor', 'issue_linked', ?, ?, ?)`,
+        [
+          parseInt(issueId, 10),
+          `issue ${issueId} linked to ${backend} #${iid}${force && existingIid != null ? ` (forced, was ${existingIid})` : ""}`,
+          JSON.stringify({ issue_id: issueId, backend, iid, forced: force && existingIid != null }),
+          now
+        ]
+      );
+      const updated = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      return ok2({ linked: true, backend, iid, issue: decodeIssue(updated) });
+    })),
+    issue_adopt_remote: requireRoles("issue_adopt_remote", ["bro"], wrapHandler2(async (args) => {
+      const issueId = requireArg2(args, "issue_id");
+      const remoteIidRaw = requireArg2(args, "remote_iid");
+      const remoteIid = typeof remoteIidRaw === "number" ? remoteIidRaw : Number(remoteIidRaw);
+      const remoteBackendArg = args["remote_backend"];
+      const spawnFn = args["_spawnFn"] ?? void 0;
+      const row = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      if (!row) {
+        return err2(`not_found: issue ${issueId}`);
+      }
+      const adoption = await verifyAdoptionRemote(db, row.repo ?? null, remoteBackendArg, remoteIid, spawnFn);
+      if (!adoption.ok) {
+        return err2(adoption.error);
+      }
+      const existingIid = adoption.backend === "github" ? row.gh_iid : row.gl_iid;
+      if (existingIid != null && existingIid !== remoteIid) {
+        return err2(`already_linked: issue ${issueId} already has a ${adoption.backend} link (#${existingIid}); re-adopt is only idempotent for the same iid`);
+      }
+      const idempotent = existingIid === remoteIid;
+      const now = nowISO();
+      const ghIid = adoption.backend === "github" ? remoteIid : null;
+      const glIid = adoption.backend === "gitlab" ? remoteIid : null;
+      db.run(
+        `UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, ?), updated_at = ? WHERE id = ?`,
+        [ghIid, glIid, remoteIid, adoption.backend, now, issueId]
+      );
+      if (!idempotent) {
+        db.run(
+          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
+           VALUES (?, 'executor', 'issue_adopted', ?, ?, ?)`,
+          [
+            parseInt(issueId, 10),
+            `issue ${issueId} adopted ${adoption.backend} #${remoteIid}`,
+            JSON.stringify({ issue_id: issueId, backend: adoption.backend, remote_iid: remoteIid, at_create: false }),
+            now
+          ]
+        );
+      }
+      const updated = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      return ok2({ adopted: true, backend: adoption.backend, remote_iid: remoteIid, idempotent, issue: decodeIssue(updated) });
+    }))
+  };
+  return { definitions, handlers };
+}
+
+// src/tools/scan.ts
+import { spawn, spawnSync as spawnSync3 } from "node:child_process";
+import { existsSync as existsSync3, readFileSync as readFileSync4, writeFileSync, unlinkSync } from "node:fs";
+import { dirname as dirname5, join as join7 } from "node:path";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
+
+// src/utils/untrusted.ts
+var UNTRUSTED_CLOSE = "</untrusted-content>";
+function frameUntrusted(source, content) {
+  const neutralized = content.split(UNTRUSTED_CLOSE).join("</ untrusted-content>");
+  return `<untrusted-content source="${source}">
+${neutralized}
+${UNTRUSTED_CLOSE}`;
+}
+
+// src/tools/scan.ts
+function ok3(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function err3(message) {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    isError: true
+  };
+}
+function wrap(fn) {
+  return async (args) => {
+    try {
+      return await fn(args);
+    } catch (e) {
+      return err3(e.message);
+    }
+  };
+}
+function resolveScanScript() {
+  const here = dirname5(fileURLToPath3(import.meta.url));
+  const candidates = [
+    join7(here, "..", "..", "..", "..", "scripts", "scan.sh"),
+    join7(here, "..", "..", "..", "scripts", "scan.sh")
+  ];
+  for (const c of candidates) if (existsSync3(c)) return c;
+  const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
+  if (pluginRoot) {
+    const c = join7(pluginRoot, "scripts", "scan.sh");
+    if (existsSync3(c)) return c;
+  }
+  throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
+}
+function runScanWithScript(script, sessionDir, timeoutMs) {
+  return new Promise((resolve2, reject) => {
+    const child = spawn("bash", [script, sessionDir], {
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const stdoutChunks = [];
+    const stderrChunks = [];
+    child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
+    child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
+    let settled = false;
+    let killTimer = null;
+    function killGroup() {
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch {
+      }
+    }
+    killTimer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      killGroup();
+      reject(new Error("scan.sh timed out after 10 minutes"));
+    }, timeoutMs);
+    child.on("error", (e) => {
+      if (settled) return;
+      settled = true;
+      if (killTimer) clearTimeout(killTimer);
+      reject(new Error(`scan.sh spawn error: ${e.message}`));
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      if (killTimer) clearTimeout(killTimer);
+      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
+      const stderr = Buffer.concat(stderrChunks).toString("utf8").slice(0, 2e3);
+      if (code !== 0) {
+        reject(new Error(`scan.sh failed (exit ${code ?? "?"}): ${stderr || "unknown error"}`));
+        return;
+      }
+      let parsed;
+      try {
+        parsed = JSON.parse(stdout);
+      } catch {
+        reject(new Error(`scan.sh emitted non-JSON output (first 500 chars): ${stdout.slice(0, 500)}`));
+        return;
+      }
+      if (!parsed.repos || !parsed.files) {
+        reject(new Error("scan.sh emitted unexpected shape (missing repos/files)"));
+        return;
+      }
+      resolve2(parsed);
+    });
+  });
+}
+function runScan(sessionDir, timeoutMs) {
+  return runScanWithScript(resolveScanScript(), sessionDir, timeoutMs);
+}
+var VALID_SCAN_SOURCES = /* @__PURE__ */ new Set([
+  "user_manual",
+  "bro_auto_post_close",
+  "bro_auto_post_change",
+  "bro_auto_initial"
+]);
+function detectStructuralChange(db, currentRepos, currentTopDirs) {
+  const prev = db.get(
+    `SELECT content_json FROM audit
+     WHERE event_type = 'deep_scan_completed'
+     ORDER BY id DESC
+     LIMIT 1`
+  );
+  if (!prev?.content_json) return true;
+  let parsed = {};
+  try {
+    parsed = JSON.parse(prev.content_json);
+  } catch {
+    return true;
+  }
+  const prevRepos = new Set(parsed.repos_seen ?? []);
+  const curRepos = new Set(currentRepos.map((r) => r.name));
+  if (prevRepos.size !== curRepos.size) return true;
+  for (const r of curRepos) if (!prevRepos.has(r)) return true;
+  const prevDirs = new Set(parsed.top_dirs ?? []);
+  if (prevDirs.size !== currentTopDirs.size) return true;
+  for (const d of currentTopDirs) if (!prevDirs.has(d)) return true;
+  return false;
+}
+var README_CANDIDATES = ["README.md", "readme.md", "README.rst", "readme.rst"];
+var README_MAX_BYTES = 1024;
+var STRUCTURAL_LIST_MAX = 8;
+function basename3(p) {
+  const i = p.lastIndexOf("/");
+  return i >= 0 ? p.slice(i + 1) : p;
+}
+function deriveDirectoryEntries(out) {
+  const dirMap = /* @__PURE__ */ new Map();
+  function ensureDir(repo, dirPath) {
+    const key = `${repo} ${dirPath}`;
+    if (dirMap.has(key)) return;
+    let parent_path = null;
+    if (dirPath !== "") {
+      const lastSlash = dirPath.lastIndexOf("/");
+      parent_path = lastSlash >= 0 ? dirPath.slice(0, lastSlash) : "";
+    }
+    dirMap.set(key, { repo, path: dirPath, parent_path, file_count: 0, file_names: [] });
+    if (parent_path !== null) ensureDir(repo, parent_path);
+  }
+  for (const r of out.repos) ensureDir(r.name, "");
+  for (const f of out.files) {
+    const lastSlash = f.path.lastIndexOf("/");
+    const dirPath = lastSlash >= 0 ? f.path.slice(0, lastSlash) : "";
+    ensureDir(f.repo, dirPath);
+    const entry = dirMap.get(`${f.repo} ${dirPath}`);
+    if (entry) {
+      entry.file_count++;
+      entry.file_names.push(basename3(f.path));
+    }
+  }
+  return dirMap;
+}
+function buildStructuralSummary(dirPath, fileNames, subdirNames) {
+  const leaf = dirPath === "" ? "(repo root)" : basename3(dirPath);
+  const join8 = (names) => {
+    const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
+    const extra = names.length - STRUCTURAL_LIST_MAX;
+    return extra > 0 ? `${shown}, +${extra} more` : shown;
+  };
+  const parts = [];
+  if (fileNames.length > 0) {
+    parts.push(`${fileNames.length} file${fileNames.length === 1 ? "" : "s"} (${join8(fileNames.slice().sort())})`);
+  }
+  if (subdirNames.length > 0) {
+    parts.push(`subdirs: ${join8(subdirNames.slice().sort())}`);
+  }
+  return `${leaf}/ \u2014 ${parts.length > 0 ? parts.join("; ") : "empty directory"}`;
+}
+function readReadmeSummary(absDirPath) {
+  for (const candidate of README_CANDIDATES) {
+    const readmePath = join7(absDirPath, candidate);
+    if (!existsSync3(readmePath)) continue;
+    try {
+      const raw = readFileSync4(readmePath, "utf8");
+      const clipped = raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
+      return frameUntrusted("readme", clipped);
+    } catch {
+    }
+  }
+  return null;
+}
+function persistDirectoriesGraph(graph, out, now) {
+  const repoPaths = /* @__PURE__ */ new Map();
+  for (const r of out.repos) repoPaths.set(r.name, r.path);
+  const dirMap = deriveDirectoryEntries(out);
+  let dirs_upserted = 0;
+  let dirs_readme_summarized = 0;
+  let dirs_structural_summarized = 0;
+  const subdirsByParent = /* @__PURE__ */ new Map();
+  for (const entry of dirMap.values()) {
+    if (entry.parent_path === null) continue;
+    const key = `${entry.repo} ${entry.parent_path}`;
+    const list = subdirsByParent.get(key);
+    if (list) list.push(basename3(entry.path));
+    else subdirsByParent.set(key, [basename3(entry.path)]);
+  }
+  for (const entry of dirMap.values()) {
+    const repoPath = repoPaths.get(entry.repo);
+    if (!repoPath) continue;
+    const absDirPath = entry.path === "" ? repoPath : join7(repoPath, entry.path);
+    const readmeSummary = readReadmeSummary(absDirPath);
+    const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
+    const summary = readmeSummary ?? buildStructuralSummary(entry.path, entry.file_names, subdirNames);
+    graph.upsertDirectory({
+      repo: entry.repo,
+      path: entry.path,
+      parent_path: entry.parent_path,
+      summary,
+      summary_source: readmeSummary !== null ? "readme" : "structural",
+      summary_updated_at: now,
+      file_count: entry.file_count
+    });
+    if (readmeSummary !== null) dirs_readme_summarized++;
+    else dirs_structural_summarized++;
+    dirs_upserted++;
+  }
+  for (const entry of dirMap.values()) {
+    if (entry.parent_path === null) continue;
+    graph.upsertContains(
+      { repo: entry.repo, path: entry.parent_path },
+      { repo: entry.repo, path: entry.path }
+    );
+  }
+  return { dirs_upserted, dirs_readme_summarized, dirs_structural_summarized };
+}
+function readRepoRemotes(path) {
+  try {
+    const opts = { encoding: "utf8", timeout: 3e3 };
+    const listR = spawnSync3("git", ["-C", path, "remote"], opts);
+    if (listR.status !== 0) return [];
+    const names = (listR.stdout ?? "").split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
+    const remotes = [];
+    for (const name of names) {
+      const urlR = spawnSync3("git", ["-C", path, "remote", "get-url", name], opts);
+      if (urlR.status !== 0) continue;
+      const url2 = (urlR.stdout ?? "").trim();
+      if (!url2) continue;
+      remotes.push({ name, provider: classifyUrl(url2), url: url2 });
+    }
+    return remotes;
+  } catch {
+    return [];
+  }
+}
+function persistScan(db, graph, out, sessionDir) {
+  const now = nowISO();
+  const scannedNames = new Set(out.repos.map((r) => r.name));
+  const normSession = sessionDir.replace(/\/+$/, "");
+  const existing = db.all(
+    `SELECT name, path FROM repos`
+  );
+  const toRetire = existing.filter((r) => {
+    const normPath = r.path.replace(/\/+$/, "");
+    const underSession = normPath === normSession || normPath.startsWith(normSession + "/");
+    return underSession && !scannedNames.has(r.name);
+  });
+  let repos_upserted = 0;
+  let repos_retired = 0;
+  let dirs_retired = 0;
+  const retired = [];
+  db.transaction(() => {
+    for (const r of out.repos) {
+      const remotesJson = JSON.stringify(readRepoRemotes(r.path));
+      db.run(
+        `INSERT INTO repos (name, path, file_count, last_scanned_at, remotes)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(name) DO UPDATE SET
+           path = excluded.path,
+           file_count = excluded.file_count,
+           last_scanned_at = excluded.last_scanned_at,
+           remotes = excluded.remotes`,
+        [r.name, r.path, r.file_count, now, remotesJson]
+      );
+      repos_upserted++;
+    }
+    for (const r of toRetire) {
+      try {
+        db.run(`DELETE FROM repos WHERE name = ?`, [r.name]);
+        repos_retired++;
+        retired.push(r);
+      } catch {
+      }
+    }
+  });
+  if (graph) {
+    for (const r of retired) {
+      const n = graph.pruneDirectories(r.name, /* @__PURE__ */ new Set());
+      dirs_retired += n;
+    }
+  }
+  let dirs_upserted = 0;
+  let dirs_readme_summarized = 0;
+  let dirs_structural_summarized = 0;
+  if (graph) {
+    const stats = persistDirectoriesGraph(graph, out, now);
+    dirs_upserted = stats.dirs_upserted;
+    dirs_readme_summarized = stats.dirs_readme_summarized;
+    dirs_structural_summarized = stats.dirs_structural_summarized;
+    const dirMap = deriveDirectoryEntries(out);
+    for (const r of out.repos) {
+      const keepKeys = /* @__PURE__ */ new Set();
+      for (const [, entry] of dirMap) {
+        if (entry.repo === r.name) {
+          keepKeys.add(WorldModelGraph.dirKey(r.name, entry.path));
+        }
+      }
+      graph.pruneDirectories(r.name, keepKeys);
+    }
+  }
+  return {
+    repos_discovered: out.repos.length,
+    repos_upserted,
+    repos_retired,
+    dirs_upserted,
+    dirs_retired,
+    dirs_readme_summarized,
+    dirs_structural_summarized
+  };
+}
+var SCAN_TIMEOUT_MS = 10 * 60 * 1e3;
+function readLock(lockPath) {
+  try {
+    return JSON.parse(readFileSync4(lockPath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function acquireLock(lockPath) {
+  const existing = readLock(lockPath);
+  if (existing) {
+    if (pidAlive(existing.pid)) return false;
+    unlinkSync(lockPath);
+  }
+  writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started_at: nowISO() }), { flag: "wx" });
+  return true;
+}
+function releaseLock(lockPath) {
+  try {
+    unlinkSync(lockPath);
+  } catch {
+  }
+}
+function scanTools(db, graphHolder = null, dbPath = "") {
+  const definitions = [
+    {
+      name: "scan_run",
+      description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory nodes + CONTAINS edges to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. Hard timeout: 10 minutes.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          session_dir: {
+            type: "string",
+            description: "Absolute path to the session directory (workspace root). Defaults to the MCP server's CWD."
+          },
+          source: {
+            type: "string",
+            enum: ["user_manual", "bro_auto_post_close", "bro_auto_post_change", "bro_auto_initial"],
+            description: "Who fired this scan. user_manual = the user typed /scan; bro_auto_post_close = post-task-close-rescan.sh hook; bro_auto_post_change = bro decided to rescan mid-session; bro_auto_initial = bro hit the registry-cold gate and ran scan as remediation. Defaults to bro_auto_initial."
+          }
+        },
+        required: ["agent"]
+      }
+    },
+    {
+      name: "repos_list",
+      description: "List all repos discovered by the most recent scan.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" }
+        },
+        required: ["agent"]
+      }
+    }
+  ];
+  const handlers = {
+    scan_run: requireRoles(
+      "scan_run",
+      ["bro"],
+      wrap(async (args) => {
+        const sessionDir = args["session_dir"] ?? process.cwd();
+        const rawSource = args["source"] ?? "bro_auto_initial";
+        const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : "bro_auto_initial";
+        const graph = graphHolder?.ensureGraph() ?? null;
+        const graphOpenError = graphHolder?.openError ?? null;
+        if (!graph && graphOpenError) {
+          return err3(
+            `graph_db_open_failed: ${graphOpenError} \u2014 another process holds the world-model lock (identify the holder by running lsof on the world-model graph file); the server retries automatically on the next call once the holder exits`
+          );
+        }
+        const lockPath = dbPath && dbPath !== ":memory:" ? join7(dirname5(dbPath), "scan.lock") : "";
+        if (lockPath) {
+          const existing = readLock(lockPath);
+          if (existing && pidAlive(existing.pid)) {
+            return err3(`scan already running (pid ${existing.pid}, started ${existing.started_at})`);
+          }
+          let acquired = false;
+          let acquireThrew = false;
+          try {
+            acquired = acquireLock(lockPath);
+          } catch {
+            acquireThrew = true;
+          }
+          if (!acquired) {
+            const recheck = readLock(lockPath);
+            if (recheck && pidAlive(recheck.pid)) {
+              return err3(`scan already running (pid ${recheck.pid}, started ${recheck.started_at})`);
+            }
+            if (!acquireThrew) {
+              return err3("scan lock could not be acquired");
+            }
+          }
+        }
+        try {
+          const out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
+          const stats = persistScan(db, graph, out, sessionDir);
+          const topDirs = new Set(out.files.map((f) => f.path.split("/")[0]).filter(Boolean));
+          const structuralChange = detectStructuralChange(db, out.repos, topDirs);
+          db.run(
+            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
+             VALUES (-1, NULL, 'bro', 'deep_scan_completed', ?, ?, ?)`,
+            [
+              `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} \u2014 source=${source}${structuralChange ? ", structural-change" : ""}`,
+              JSON.stringify({
+                ...stats,
+                session_dir: out.session_dir,
+                scanned_at: out.scanned_at,
+                source,
+                structural_change: structuralChange,
+                repos_seen: out.repos.map((r) => r.name),
+                top_dirs: Array.from(topDirs).sort()
+              }),
+              nowISO()
+            ]
+          );
+          return ok3({
+            session_dir: out.session_dir,
+            scanned_at: out.scanned_at,
+            repos: out.repos.map((r) => ({ name: r.name, file_count: r.file_count })),
+            source,
+            structural_change: structuralChange,
+            ...stats
+          });
+        } finally {
+          if (lockPath) releaseLock(lockPath);
+        }
+      })
+    ),
+    repos_list: requireRoles(
+      "repos_list",
+      ["bro", "swe", "pr-reviewer"],
+      wrap(async () => {
+        const rows = db.all(`SELECT name, path, file_count, last_scanned_at FROM repos ORDER BY name`);
+        return ok3({ repos: rows });
+      })
+    )
+  };
+  return { definitions, handlers };
+}
+
+// src/tools/world_model.ts
+import { spawnSync as spawnSync4 } from "node:child_process";
+import { resolve, dirname as dirname6 } from "node:path";
+var WORLD_MODEL_GET_MAX_NODES = 500;
+var UNMERGED_WORK_MAX_BRANCHES = 10;
+function computeUnmergedWork(db, repo) {
+  if (!repo) return { unmerged_work: [] };
+  const repoRow = db.get(
+    `SELECT path, target_branch FROM repos WHERE name = ?`,
+    [repo]
+  );
+  if (!repoRow) return { unmerged_work: [] };
+  const dbDir = db.dbPath === ":memory:" ? process.cwd() : dirname6(db.dbPath);
+  const repoPath = repoRow.path.startsWith("/") ? repoRow.path : resolve(dbDir, repoRow.path);
+  const target = repoRow.target_branch || "dev";
+  const gitCheck = spawnSync4("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
+    encoding: "utf8",
+    timeout: SUBPROCESS_TIMEOUT_MS
+  });
+  if (gitCheck.error || gitCheck.status !== 0) {
+    return { unmerged_work: [], warning: "unmerged-work-unavailable" };
+  }
+  const rows = db.all(
+    `SELECT branch_id, parent_branch_id, commit_sha, status
+       FROM tasks
+      WHERE repo = ? AND commit_sha IS NOT NULL
+      ORDER BY updated_at DESC, id DESC`,
+    [repo]
+  );
+  const byBranch = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    let entry = byBranch.get(r.branch_id);
+    if (!entry) {
+      entry = { parent_branch_id: r.parent_branch_id, tip: r.commit_sha, closed_tasks: 0 };
+      byBranch.set(r.branch_id, entry);
+    }
+    if (r.status === "closed") entry.closed_tasks++;
+  }
+  const unmerged_work = [];
+  for (const [branch_id, entry] of [...byBranch.entries()].slice(0, UNMERGED_WORK_MAX_BRANCHES)) {
+    const refCheck = spawnSync4(
+      "git",
+      ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branch_id}`],
+      { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
+    );
+    if (refCheck.status !== 0) continue;
+    const mergeBase = spawnSync4(
+      "git",
+      ["-C", repoPath, "merge-base", "--is-ancestor", entry.tip, target],
+      { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
+    );
+    if (mergeBase.error) {
+      return { unmerged_work: [], warning: "unmerged-work-unavailable" };
+    }
+    if (mergeBase.status === 0) continue;
+    if (mergeBase.status !== 1) continue;
+    unmerged_work.push({
+      branch_id,
+      parent_branch_id: entry.parent_branch_id,
+      tip: entry.tip,
+      closed_tasks: entry.closed_tasks,
+      merged_into_target: false
+    });
+  }
+  return { unmerged_work };
+}
+function ok4(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function err4(message) {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    isError: true
+  };
+}
+function wrap2(fn) {
+  return async (args) => {
+    try {
+      return await fn(args);
+    } catch (e) {
+      return err4(e.message);
+    }
+  };
+}
+function buildTree(rows, rootPath, depth, opts) {
+  const byParent = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const key = r.parent_path ?? "__ROOT__";
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key).push(r);
+  }
+  const root = rows.find((r) => r.path === rootPath);
+  if (!root) return null;
+  const visited = /* @__PURE__ */ new Set();
+  const counter = opts?.nodeCounter;
+  const depthOffset = opts?.depthOffset ?? 0;
+  function descend(node, remainingDepth, currentDepth) {
+    visited.add(node.path);
+    if (counter) counter.count++;
+    const children = [];
+    if (remainingDepth === null || remainingDepth > 0) {
+      const kids = (byParent.get(node.path) ?? []).filter(
+        (k) => k.path !== node.path && !visited.has(k.path)
+      );
+      kids.sort((a, b) => a.path.localeCompare(b.path));
+      for (const k of kids) {
+        if (counter && counter.count >= counter.limit) break;
+        children.push(descend(k, remainingDepth === null ? null : remainingDepth - 1, currentDepth + 1));
+      }
+    }
+    const absoluteDepth = currentDepth + depthOffset;
+    const summary = absoluteDepth > 1 && node.summary ? node.summary.split("\n").find((l) => l.trim().length > 0) ?? node.summary : node.summary;
+    return {
+      path: node.path,
+      summary,
+      summary_source: node.summary_source,
+      summary_updated_at: node.summary_updated_at,
+      file_count: node.file_count,
+      children
+    };
+  }
+  return descend(root, depth, 0);
+}
+function worldModelTools(db, graphHolder) {
+  const definitions = [
+    {
+      name: "world_model_get",
+      description: "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. Also returns unmerged_work: closed-task branch tips not yet merged into the repo's target branch. Primary navigation surface for code-touching cold starts.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          repo: {
+            type: "string",
+            description: "Repo name (matches `repos.name`). Defaults to the sole registered repo when exactly one exists; required in multi-repo projects."
+          },
+          path: {
+            type: "string",
+            description: "Starting directory path, repo-relative. Defaults to the repo root ('')."
+          },
+          depth: {
+            type: ["integer", "null"],
+            description: "How deep to descend. Defaults to 2 (root + immediate children). Pass null for the full subtree."
+          }
+        },
+        required: ["agent"]
+      }
+    },
+    {
+      name: "world_model_search",
+      description: "Search the world model by summary + path match. Returns top-K dir summaries with their paths. Default mode is hybrid; falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' questions \u2014 cheaper than world_model_get.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          query: {
+            type: "string",
+            description: "Search query. For keyword/hybrid: FTS5 MATCH syntax. For semantic: natural language."
+          },
+          mode: {
+            type: "string",
+            enum: ["keyword", "semantic", "hybrid"],
+            description: "Search mode. Default: hybrid (RRF combines FTS5 + cosine)."
+          },
+          repo: {
+            type: "string",
+            description: "Optional \u2014 restrict to one repo. Defaults to the sole registered repo when exactly one exists; unrestricted in multi-repo projects."
+          },
+          k: {
+            type: "number",
+            description: "Top-K rows to return. Default 5. Max 20."
+          }
+        },
+        required: ["agent", "query"]
+      }
+    }
+  ];
+  const handlers = {
+    world_model_get: requireRoles(
+      "world_model_get",
+      ["bro", "swe", "pr-reviewer"],
+      wrap2(async (args) => {
+        let repo = args["repo"] ?? "";
+        if (!repo) {
+          const available = db.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+          if (available.length >= 2) {
+            return ok4({ repo: "", root: null, warning: "repo-unspecified", available_repos: available });
+          }
+          repo = resolveSoleRepo(db)?.name ?? "";
+        }
+        const path = args["path"] ?? "";
+        const depthArg = args["depth"];
+        const depth = depthArg === null ? null : typeof depthArg === "number" ? depthArg : 2;
+        const unmerged = computeUnmergedWork(db, repo);
+        const graph = graphHolder?.ensureGraph() ?? null;
+        if (!graph) {
+          return ok4({ repo, root: null, warning: "world-model-unavailable", unmerged_work: unmerged.unmerged_work });
+        }
+        const nodes = graph.allDirectoriesForRepo(repo);
+        if (nodes.length === 0) {
+          return ok4({ repo, root: null, warning: "world-model-empty", unmerged_work: unmerged.unmerged_work });
+        }
+        const rows = nodes;
+        const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
+        const tree = buildTree(rows, path, depth, { nodeCounter });
+        if (!tree) {
+          return ok4({ repo, root: null, warning: "path-not-found", path, unmerged_work: unmerged.unmerged_work });
+        }
+        const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
+        return ok4({
+          repo,
+          root: tree,
+          ...truncated ? { truncated: true } : {},
+          ...unmerged.warning ? { warning: unmerged.warning } : {},
+          unmerged_work: unmerged.unmerged_work
+        });
+      })
+    ),
+    world_model_search: requireRoles(
+      "world_model_search",
+      ["bro", "swe", "pr-reviewer"],
+      wrap2(async (args) => {
+        const query = args["query"];
+        if (!query || typeof query !== "string") return err4("query is required");
+        const mode = args["mode"] ?? "hybrid";
+        const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
+        let repo = args["repo"] ?? "";
+        if (!repo) {
+          const available = db.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
+          if (available.length >= 2) {
+            return ok4({ repo: "", results: [], total_matched: 0, warning: "repo-unspecified", available_repos: available, mode });
+          }
+          repo = resolveSoleRepo(db)?.name ?? "";
+        }
+        const graph = graphHolder?.ensureGraph() ?? null;
+        if (!graph) {
+          return ok4({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });
+        }
+        const hits = graph.keywordSearchDirectories(repo, query, k);
+        if (mode === "keyword") {
+          return ok4({
+            results: hits.map((h) => ({
+              repo: h.repo,
+              path: h.path,
+              summary: h.summary,
+              summary_source: h.summary_source,
+              file_count: h.file_count,
+              score: h.score
+            })),
+            total_matched: hits.length,
+            mode: "keyword"
+          });
+        }
+        if (mode === "semantic") {
+          return ok4({
+            results: [],
+            total_matched: 0,
+            warning: "semantic_unavailable",
+            mode: "semantic"
+          });
+        }
+        return ok4({
+          results: hits.map((h) => ({
+            repo: h.repo,
+            path: h.path,
+            summary: h.summary,
+            summary_source: h.summary_source,
+            file_count: h.file_count,
+            score: h.score
+          })),
+          total_matched: hits.length,
+          warning: "semantic_unavailable",
+          mode: "hybrid"
+        });
+      })
+    )
+  };
+  return { definitions, handlers };
+}
+
+// src/codex-tools.ts
+var FIXED_AGENT = "bro";
+var IDENTITY_KEYS = /* @__PURE__ */ new Set([
+  "agent",
+  "author",
+  "provenance",
+  "role",
+  "verified_human"
+]);
+var OUT_OF_SCOPE_TOOL = /^(?:agent|branch|cheatcode|config|discussion|issue|milestone|onboard|pr_monitor|report|repos|roundtable|scan|skill|stats|task|validation|worktree)(?:_|$)/;
+var CODEX_SCOPE_3_TOOL_NAMES = Object.freeze([
+  "runtime_initialize",
+  "project_inventory",
+  "project_scan",
+  "world_model_get",
+  "world_model_search",
+  "planning_issue_create",
+  "planning_issue_get",
+  "planning_issue_list",
+  "planning_issue_resume",
+  "planning_discussion_append",
+  "planning_discussion_list"
+]);
+function createCodexToolRegistry(manager2) {
+  const definitions = deepFreeze([
+    tool(
+      "runtime_initialize",
+      "Initialize or reuse project-local TMB state for one explicit Git worktree root.",
+      {},
+      [],
+      { idempotent: true }
+    ),
+    tool(
+      "project_inventory",
+      "List repositories recorded by the latest project-local scan.",
+      {},
+      [],
+      { readOnly: true }
+    ),
+    tool(
+      "project_scan",
+      "Scan the selected project root into its project-local repository inventory and world model.",
+      {},
+      [],
+      { idempotent: true }
+    ),
+    tool(
+      "world_model_get",
+      "Read an annotated directory subtree from the selected project world model.",
+      {
+        repo: { type: "string", description: "Repository name when the project contains more than one repository." },
+        path: { type: "string", description: "Repository-relative directory path. Defaults to the repository root." },
+        depth: { type: ["integer", "null"], description: "Subtree depth. Defaults to 2; null requests the complete subtree." }
+      },
+      [],
+      { readOnly: true }
+    ),
+    tool(
+      "world_model_search",
+      "Search project-local world-model paths and summaries.",
+      {
+        query: { type: "string", description: "Natural-language or keyword search query." },
+        mode: { type: "string", enum: ["keyword", "semantic", "hybrid"], description: "Search mode. Defaults to hybrid." },
+        repo: { type: "string", description: "Optional repository-name restriction." },
+        k: { type: "integer", minimum: 1, maximum: 20, description: "Maximum result count. Defaults to 5." }
+      },
+      ["query"],
+      { readOnly: true }
+    ),
+    tool(
+      "planning_issue_create",
+      "Create a local-only TMB planning issue. Remote issue synchronization is forced off.",
+      {
+        objective: { type: "string", description: "Concise planning objective." },
+        description: { type: "string", description: "Markdown context, requirements, and acceptance criteria." },
+        classification: {
+          type: "string",
+          enum: ["Bug", "Feature", "Improvement", "Docs", "Test", "Chore"],
+          description: "Local classification. Defaults to Feature."
+        },
+        priority: {
+          type: "string",
+          enum: ["Urgent", "High", "Medium", "Low"],
+          description: "Local priority. Defaults to Medium."
+        },
+        repo: { type: "string", description: "Optional repository name from project_inventory." },
+        allow_duplicate: { type: "boolean", description: "Allow an objective similar to an existing open local issue." }
+      },
+      ["objective"]
+    ),
+    tool(
+      "planning_issue_get",
+      "Read one project-local planning issue, including its description.",
+      {
+        issue_id: { type: "string", description: "Local TMB issue identifier." }
+      },
+      ["issue_id"],
+      { readOnly: true }
+    ),
+    tool(
+      "planning_issue_list",
+      "List project-local planning issues.",
+      {
+        status: { type: "string", enum: ["open", "closed"], description: "Optional local status filter." },
+        limit: { type: "integer", minimum: 1, maximum: 200, description: "Maximum rows. Defaults to 50." },
+        offset: { type: "integer", minimum: 0, description: "Row offset. Defaults to 0." }
+      },
+      [],
+      { readOnly: true }
+    ),
+    tool(
+      "planning_issue_resume",
+      "Read one project-local planning issue with its recent discussion record; no task execution state is exposed.",
+      {
+        issue_id: { type: "string", description: "Local TMB issue identifier." },
+        discussion_limit: { type: "integer", minimum: 1, maximum: 200, description: "Maximum discussion rows. Defaults to 50." }
+      },
+      ["issue_id"],
+      { readOnly: true }
+    ),
+    tool(
+      "planning_discussion_append",
+      "Append a Bro-authored decision, question, or note to a local planning issue.",
+      {
+        issue_id: { type: "string", description: "Local TMB issue identifier." },
+        kind: { type: "string", enum: ["decision", "question", "note"], description: "Planning record kind. Defaults to note." },
+        body: { type: "string", description: "Markdown discussion body." }
+      },
+      ["issue_id", "body"]
+    ),
+    tool(
+      "planning_discussion_list",
+      "List project-local discussion records for a planning issue.",
+      {
+        issue_id: { type: "string", description: "Local TMB issue identifier." },
+        limit: { type: "integer", minimum: 1, maximum: 200, description: "Maximum rows. Defaults to 50." },
+        cursor: { type: "string", description: "Opaque cursor from a prior response." }
+      },
+      ["issue_id"],
+      { readOnly: true }
+    )
   ]);
   const handlers = deepFreeze({
-    runtime_initialize: async (args) => {
-      try {
-        const projectRoot = typeof args === "object" && args !== null ? args["project_root"] : void 0;
-        const result = await manager2.initialize(projectRoot);
-        return jsonResult({ ok: true, runtime: result });
-      } catch (error2) {
-        return runtimeErrorResult(error2);
+    runtime_initialize: async (args) => runAdapter(args, ["project_root"], async (input) => ({
+      runtime: await manager2.initialize(input["project_root"])
+    })),
+    project_inventory: async (args) => runWithRuntime(manager2, args, ["project_root"], async (runtime) => {
+      const shared = scanTools(
+        runtime.db,
+        runtime.graph,
+        runtime.context.paths.trajectoryDb
+      );
+      return callShared(shared.handlers["repos_list"], { agent: FIXED_AGENT });
+    }),
+    project_scan: async (args) => runWithRuntime(manager2, args, ["project_root"], async (runtime) => {
+      const shared = scanTools(
+        runtime.db,
+        runtime.graph,
+        runtime.context.paths.trajectoryDb
+      );
+      return callShared(shared.handlers["scan_run"], {
+        agent: FIXED_AGENT,
+        session_dir: runtime.context.projectRoot,
+        source: "bro_auto_initial"
+      });
+    }),
+    world_model_get: async (args) => runWithRuntime(
+      manager2,
+      args,
+      ["project_root", "repo", "path", "depth"],
+      async (runtime, input) => {
+        optionalString(input, "repo");
+        optionalString(input, "path");
+        if (input["depth"] !== null) optionalInteger(input, "depth", 0);
+        const shared = worldModelTools(runtime.db, runtime.graph);
+        return callShared(shared.handlers["world_model_get"], compact({
+          agent: FIXED_AGENT,
+          repo: input["repo"],
+          path: input["path"],
+          depth: input["depth"]
+        }));
       }
-    }
+    ),
+    world_model_search: async (args) => runWithRuntime(
+      manager2,
+      args,
+      ["project_root", "query", "mode", "repo", "k"],
+      async (runtime, input) => {
+        requireString(input, "query");
+        optionalEnum(input, "mode", ["keyword", "semantic", "hybrid"]);
+        optionalString(input, "repo");
+        optionalInteger(input, "k", 1, 20);
+        const shared = worldModelTools(runtime.db, runtime.graph);
+        return callShared(shared.handlers["world_model_search"], compact({
+          agent: FIXED_AGENT,
+          query: input["query"],
+          mode: input["mode"],
+          repo: input["repo"],
+          k: input["k"]
+        }));
+      }
+    ),
+    planning_issue_create: async (args) => runWithRuntime(
+      manager2,
+      args,
+      [
+        "project_root",
+        "objective",
+        "description",
+        "classification",
+        "priority",
+        "repo",
+        "allow_duplicate"
+      ],
+      async (runtime, input) => {
+        requireString(input, "objective");
+        optionalString(input, "description");
+        optionalEnum(input, "classification", [
+          "Bug",
+          "Feature",
+          "Improvement",
+          "Docs",
+          "Test",
+          "Chore"
+        ]);
+        optionalEnum(input, "priority", [
+          "Urgent",
+          "High",
+          "Medium",
+          "Low"
+        ]);
+        optionalString(input, "repo");
+        optionalBoolean(input, "allow_duplicate");
+        forceLocalIssueSync(runtime);
+        const shared = issueTools(
+          runtime.db,
+          runtime.context.paths.trajectoryDb
+        );
+        return callShared(shared.handlers["issue_create"], compact({
+          agent: FIXED_AGENT,
+          objective: input["objective"],
+          description: input["description"],
+          labels: [
+            input["classification"] ?? "Feature",
+            `Priority: ${String(input["priority"] ?? "Medium")}`
+          ],
+          repo: input["repo"],
+          allow_duplicate: input["allow_duplicate"]
+        }));
+      }
+    ),
+    planning_issue_get: async (args) => runWithRuntime(
+      manager2,
+      args,
+      ["project_root", "issue_id"],
+      async (runtime, input) => {
+        requireString(input, "issue_id");
+        const shared = issueTools(
+          runtime.db,
+          runtime.context.paths.trajectoryDb
+        );
+        return callShared(shared.handlers["issue_get"], {
+          agent: FIXED_AGENT,
+          issue_id: input["issue_id"],
+          include_description: true
+        });
+      }
+    ),
+    planning_issue_list: async (args) => runWithRuntime(
+      manager2,
+      args,
+      ["project_root", "status", "limit", "offset"],
+      async (runtime, input) => {
+        optionalEnum(input, "status", ["open", "closed"]);
+        optionalInteger(input, "limit", 1, 200);
+        optionalInteger(input, "offset", 0);
+        const shared = issueTools(
+          runtime.db,
+          runtime.context.paths.trajectoryDb
+        );
+        return callShared(shared.handlers["issue_list"], compact({
+          agent: FIXED_AGENT,
+          status: input["status"],
+          limit: input["limit"],
+          offset: input["offset"]
+        }));
+      }
+    ),
+    planning_issue_resume: async (args) => runWithRuntime(
+      manager2,
+      args,
+      ["project_root", "issue_id", "discussion_limit"],
+      async (runtime, input) => {
+        requireString(input, "issue_id");
+        optionalInteger(input, "discussion_limit", 1, 200);
+        const issues = issueTools(
+          runtime.db,
+          runtime.context.paths.trajectoryDb
+        );
+        const discussions = discussionTools(runtime.db);
+        const issue2 = await callShared(issues.handlers["issue_get"], {
+          agent: FIXED_AGENT,
+          issue_id: input["issue_id"],
+          include_description: true
+        });
+        const records = await callShared(
+          discussions.handlers["discussion_list"],
+          {
+            agent: FIXED_AGENT,
+            issue_id: input["issue_id"],
+            limit: input["discussion_limit"] ?? 50
+          }
+        );
+        return { issue: issue2, discussions: records };
+      }
+    ),
+    planning_discussion_append: async (args) => runWithRuntime(
+      manager2,
+      args,
+      ["project_root", "issue_id", "kind", "body"],
+      async (runtime, input) => {
+        requireString(input, "issue_id");
+        requireString(input, "body");
+        optionalEnum(input, "kind", ["decision", "question", "note"]);
+        const shared = discussionTools(runtime.db);
+        return callShared(shared.handlers["discussion_append"], {
+          agent: FIXED_AGENT,
+          author: FIXED_AGENT,
+          issue_id: input["issue_id"],
+          kind: input["kind"] ?? "note",
+          body: input["body"]
+        });
+      }
+    ),
+    planning_discussion_list: async (args) => runWithRuntime(
+      manager2,
+      args,
+      ["project_root", "issue_id", "limit", "cursor"],
+      async (runtime, input) => {
+        requireString(input, "issue_id");
+        optionalInteger(input, "limit", 1, 200);
+        optionalString(input, "cursor");
+        const shared = discussionTools(runtime.db);
+        return callShared(shared.handlers["discussion_list"], compact({
+          agent: FIXED_AGENT,
+          issue_id: input["issue_id"],
+          limit: input["limit"] ?? 50,
+          cursor: input["cursor"]
+        }));
+      }
+    )
   });
   const call = async (name, args) => {
     const handler = handlers[name];
     if (!handler) {
-      return jsonResult(
-        {
-          ok: false,
-          error: {
-            code: "unknown_tool",
-            message: `Unknown Codex tool: ${name}`
-          }
-        },
-        true
-      );
+      const code = OUT_OF_SCOPE_TOOL.test(name) ? "out_of_scope_operation" : "unknown_tool";
+      return errorResult(code, `Codex Scope 3 does not expose tool: ${name}`);
     }
     return handler(args);
   };
   return deepFreeze({ definitions, handlers, call });
 }
-function runtimeErrorResult(error2) {
-  const runtimeError = error2 instanceof CodexRuntimeError ? error2 : new CodexRuntimeError(
-    "runtime_initialization_failed",
+function tool(name, description, properties, required2, annotations = {}) {
+  return {
+    name,
+    description,
+    inputSchema: {
+      type: "object",
+      properties: {
+        project_root: {
+          type: "string",
+          description: "Absolute path to the selected Git worktree root."
+        },
+        ...properties
+      },
+      required: ["project_root", ...required2],
+      additionalProperties: false
+    },
+    annotations: {
+      readOnlyHint: annotations.readOnly ?? false,
+      destructiveHint: false,
+      idempotentHint: annotations.idempotent ?? false,
+      openWorldHint: false
+    }
+  };
+}
+async function runWithRuntime(manager2, args, allowedKeys, operation) {
+  return runAdapter(
+    args,
+    allowedKeys,
+    async (input) => manager2.withRuntime(
+      input["project_root"],
+      (runtime) => operation(runtime, input)
+    )
+  );
+}
+async function runAdapter(args, allowedKeys, operation) {
+  try {
+    const input = validateInput(args, allowedKeys);
+    const data = await operation(input);
+    return jsonResult({ ok: true, data });
+  } catch (error2) {
+    return adapterErrorResult(error2);
+  }
+}
+function validateInput(args, allowedKeys) {
+  if (typeof args !== "object" || args === null || Array.isArray(args)) {
+    throw new CodexAdapterError(
+      "invalid_arguments",
+      "Tool arguments must be a JSON object."
+    );
+  }
+  const input = args;
+  for (const key of Object.keys(input)) {
+    if (IDENTITY_KEYS.has(key)) {
+      throw new CodexAdapterError(
+        "unsupported_identity_claim",
+        `Caller-supplied ${key} is not accepted; Codex Scope 3 fixes identity to Bro.`
+      );
+    }
+    if (!allowedKeys.includes(key)) {
+      throw new CodexAdapterError(
+        "invalid_arguments",
+        `Unsupported argument: ${key}`
+      );
+    }
+  }
+  return input;
+}
+function requireString(input, key) {
+  const value = input[key];
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new CodexAdapterError(
+      "invalid_arguments",
+      `${key} must be a non-empty string.`
+    );
+  }
+  return value;
+}
+function optionalString(input, key) {
+  if (input[key] !== void 0 && typeof input[key] !== "string") {
+    throw new CodexAdapterError(
+      "invalid_arguments",
+      `${key} must be a string when provided.`
+    );
+  }
+}
+function optionalBoolean(input, key) {
+  if (input[key] !== void 0 && typeof input[key] !== "boolean") {
+    throw new CodexAdapterError(
+      "invalid_arguments",
+      `${key} must be a boolean when provided.`
+    );
+  }
+}
+function optionalInteger(input, key, minimum, maximum = Number.MAX_SAFE_INTEGER) {
+  const value = input[key];
+  if (value !== void 0 && (!Number.isSafeInteger(value) || value < minimum || value > maximum)) {
+    throw new CodexAdapterError(
+      "invalid_arguments",
+      `${key} must be an integer from ${minimum} to ${maximum}.`
+    );
+  }
+}
+function optionalEnum(input, key, allowed) {
+  const value = input[key];
+  if (value !== void 0 && (typeof value !== "string" || !allowed.includes(value))) {
+    throw new CodexAdapterError(
+      "invalid_arguments",
+      `${key} must be one of: ${allowed.join(", ")}.`
+    );
+  }
+}
+function forceLocalIssueSync(runtime) {
+  runtime.db.run(
+    `INSERT INTO plugin_config (key, value_json)
+     VALUES ('issue_sync', '"off"')
+     ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`
+  );
+}
+async function callShared(handler, args) {
+  const result = await handler(args);
+  const first = result.content[0];
+  if (!first || first.type !== "text") {
+    throw new CodexAdapterError(
+      "operation_failed",
+      "Shared TMB handler returned no JSON text result."
+    );
+  }
+  let payload;
+  try {
+    payload = JSON.parse(first.text);
+  } catch {
+    throw new CodexAdapterError(
+      "operation_failed",
+      "Shared TMB handler returned malformed JSON."
+    );
+  }
+  if (result.isError) {
+    const message = sharedErrorMessage(payload);
+    const match = /^([a-z][a-z0-9_-]+):/.exec(message);
+    throw new CodexAdapterError(match?.[1] ?? "operation_failed", message);
+  }
+  return payload;
+}
+function sharedErrorMessage(payload) {
+  if (typeof payload === "object" && payload !== null && typeof payload["error"] === "string") {
+    return payload["error"];
+  }
+  return "Shared TMB operation failed.";
+}
+function compact(value) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== void 0)
+  );
+}
+var CodexAdapterError = class extends Error {
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+    this.name = "CodexAdapterError";
+  }
+};
+function adapterErrorResult(error2) {
+  if (error2 instanceof CodexRuntimeError) {
+    return errorResult(error2.code, error2.message);
+  }
+  if (error2 instanceof CodexAdapterError) {
+    return errorResult(error2.code, error2.message);
+  }
+  return errorResult(
+    "operation_failed",
     error2 instanceof Error ? error2.message : String(error2)
   );
+}
+function errorResult(code, message) {
   return jsonResult(
     {
       ok: false,
-      error: {
-        code: runtimeError.code,
-        message: runtimeError.message
-      }
+      error: { code, message }
     },
     true
   );
@@ -23713,7 +27121,7 @@ var server = new Server(
   { name: "tmb-codex", version: plugin.version },
   {
     capabilities: { tools: {} },
-    instructions: "This Codex adapter only initializes project-bound TMB runtime state. Pass an explicit Git worktree root to runtime_initialize."
+    instructions: "This Codex adapter exposes the bounded TMB Bro planning surface. Every call requires an explicit Git worktree root; state and planning records stay under that project's ignored .tmb/tmb directory. Task execution, review, push, merge, remote issue mutation, onboarding, and lifecycle enforcement are not exposed."
   }
 );
 server.setRequestHandler(ListToolsRequestSchema, async () => ({

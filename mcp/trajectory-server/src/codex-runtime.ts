@@ -73,6 +73,9 @@ export interface CodexRuntimeManagerOptions {
   readonly plugin: CodexPluginMetadata;
   readonly capacity?: number;
   readonly now?: () => number;
+  readonly graphHolderFactory?: (
+    context: CodexRuntimeContext,
+  ) => GraphHolder;
 }
 
 /**
@@ -83,6 +86,9 @@ export class CodexRuntimeManager {
   private readonly plugin: CodexPluginMetadata;
   private readonly capacity: number;
   private readonly now: () => number;
+  private readonly graphHolderFactory?: (
+    context: CodexRuntimeContext,
+  ) => GraphHolder;
   private readonly runtimes = new Map<string, RuntimeResources>();
   private readonly requests = new Map<
     string,
@@ -99,6 +105,7 @@ export class CodexRuntimeManager {
     this.plugin = opts.plugin;
     this.capacity = opts.capacity ?? 4;
     this.now = opts.now ?? Date.now;
+    this.graphHolderFactory = opts.graphHolderFactory;
   }
 
   initialize(projectRootInput: unknown): Promise<RuntimeInitializeResult> {
@@ -233,6 +240,7 @@ export class CodexRuntimeManager {
         this.plugin,
         this.now(),
         this.nextUsageOrder(),
+        this.graphHolderFactory,
       );
       const result = resultFor(candidate, 'created');
 
@@ -429,6 +437,9 @@ function openRuntime(
   plugin: CodexPluginMetadata,
   now: number,
   lastUsedOrder: number,
+  graphHolderFactory?: (
+    context: CodexRuntimeContext,
+  ) => GraphHolder,
 ): RuntimeResources {
   let context: CodexRuntimeContext;
   try {
@@ -467,14 +478,15 @@ function openRuntime(
       sqlLog: logger.sqlLog,
       trustedProjectRoot: context.projectRoot,
     });
-    const graph = new GraphHolder({
-      open: () =>
-        new WorldModelGraph(context.paths.graphDb, {
-          trustedProjectRoot: context.projectRoot,
-        }),
-      log: (entry) =>
-        logger.serverLogSync({ ...entry, path: context.paths.graphDb }),
-    });
+    const graph = graphHolderFactory?.(context) ??
+      new GraphHolder({
+        open: () =>
+          new WorldModelGraph(context.paths.graphDb, {
+            trustedProjectRoot: context.projectRoot,
+          }),
+        log: (entry) =>
+          logger.serverLogSync({ ...entry, path: context.paths.graphDb }),
+      });
 
     return {
       context,

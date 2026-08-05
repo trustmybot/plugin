@@ -1,7 +1,7 @@
 {
   "name": "tmb",
   "version": "1.0.2",
-  "description": "Codex adapter for TMB project-bound runtime initialization.",
+  "description": "Codex adapter for project-bound TMB planning with the tmb-bro Skill.",
   "author": {
     "name": "trustmybot",
     "url": "https://github.com/trustmybot"
@@ -18,14 +18,18 @@
   ],
   "mcpServers": "./adapters/codex/.mcp.json",
   "hooks": "./hooks/codex/hooks.json",
+  "skills": "./adapters/codex/skills/",
   "interface": {
     "displayName": "TMB",
-    "shortDescription": "Initialize a project-bound TMB runtime in Codex",
-    "longDescription": "A narrow Codex adapter for the existing TMB plugin. This release exposes runtime initialization only.",
+    "shortDescription": "Plan safely with project-local TMB context",
+    "longDescription": "A bounded Codex adapter for repository scanning, world-model reads, and local TMB planning issues through the explicit tmb-bro Skill.",
     "developerName": "trustmybot",
     "category": "Developer Tools",
     "capabilities": [
       "Write"
+    ],
+    "defaultPrompt": [
+      "Use $tmb-bro to inspect this repository and draft a local planning issue."
     ],
     "websiteURL": "https://github.com/trustmybot/plugin"
   }
