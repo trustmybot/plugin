@@ -21,7 +21,7 @@
   "devDependencies": {
     "typescript": "^5.4",
     "@types/node": "^22.0",
-    "esbuild": "^0.25"
+    "esbuild": "^0.28"
   },
   "engines": {
     "node": ">=22"
