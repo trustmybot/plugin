@@ -24179,6 +24179,84 @@ function discussionTools(db) {
   return { definitions, handlers };
 }
 
+// src/tools/config.ts
+var KEY_REGEX = /^[a-z][a-z0-9_.-]{0,63}$/i;
+function storedConfigParseErrorPrefix(key) {
+  return `config key ${JSON.stringify(key)}: stored value is not valid JSON`;
+}
+function setConfigValues(db, entries) {
+  const serialized = entries.map(({ key, value }) => ({
+    key,
+    valueJson: serializeConfigValue(key, value)
+  }));
+  db.transaction(() => {
+    for (const { key, valueJson } of serialized) {
+      db.run(
+        `INSERT INTO plugin_config (key, value_json)
+         VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
+        [key, valueJson]
+      );
+    }
+  });
+}
+function getConfigValues(db, keys) {
+  if (keys.length === 0) return Object.freeze({});
+  const placeholders = keys.map(() => "?").join(", ");
+  const rows = db.all(
+    `SELECT key, value_json
+     FROM plugin_config
+     WHERE key IN (${placeholders})`,
+    [...keys]
+  );
+  const result = Object.fromEntries(
+    keys.map((key) => [key, null])
+  );
+  for (const row of rows) {
+    try {
+      result[row.key] = JSON.parse(row.value_json);
+    } catch {
+      throw new Error(
+        `${storedConfigParseErrorPrefix(row.key)} \u2014 raw: ${row.value_json.slice(0, 200)}`
+      );
+    }
+  }
+  return Object.freeze(result);
+}
+function serializeConfigValue(key, rawValue) {
+  if (typeof key !== "string" || !KEY_REGEX.test(key)) {
+    throw new Error(
+      `Invalid config key ${JSON.stringify(key)}: must match /^[a-z][a-z0-9_.-]{0,63}$/i`
+    );
+  }
+  if (rawValue === void 0 || rawValue === null) {
+    throw new Error("Missing required arg: value");
+  }
+  if (typeof rawValue === "string") {
+    const trimmed = rawValue.trim();
+    if (trimmed.startsWith("[") && trimmed.endsWith("]") || trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (typeof parsed === "object" && parsed !== null) {
+          throw new Error(
+            `config value for key=${JSON.stringify(key)} looks like a pre-serialized JSON ${Array.isArray(parsed) ? "array" : "object"} (passed as a string). Pass the raw value directly \u2014 e.g. value=["main"], not value="[\\"main\\"]". The server calls JSON.stringify() on whatever you pass; double-encoding it breaks downstream consumers that expect the original shape.`
+          );
+        }
+      } catch (error2) {
+        if (error2 instanceof SyntaxError) {
+        } else {
+          throw error2;
+        }
+      }
+    }
+  }
+  try {
+    return JSON.stringify(rawValue);
+  } catch {
+    throw new Error("config value not JSON-serializable");
+  }
+}
+
 // src/utils/repo-paths.ts
 function resolveRepoForSync(db, repoName) {
   const decodeRemotes = (raw) => {
@@ -24778,8 +24856,8 @@ function defaultSyncLabels(db) {
   if (priorityLabels.length > 0) labels.push(priorityLabels[0]);
   return labels;
 }
-function validateIssueLabels(db, labels) {
-  const { classification, priorityLabels } = resolveLabelTaxonomy(db);
+function validateIssueLabels(db, labels, taxonomy) {
+  const { classification, priorityLabels } = taxonomy ?? resolveLabelTaxonomy(db);
   const classificationSet = new Set(classification);
   const prioritySet = new Set(priorityLabels);
   const hasPriority = labels.some((l) => prioritySet.has(l));
@@ -24944,7 +25022,7 @@ async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
     }
   }
 }
-function issueTools(db, dbPath = "") {
+function issueTools(db, dbPath = "", options = {}) {
   const definitions = [
     {
       name: "issue_create",
@@ -25099,7 +25177,7 @@ function issueTools(db, dbPath = "") {
       const objective = args["objective"];
       const description = args["description"] ?? "";
       const labels = args["labels"] ?? [];
-      const labelError = validateIssueLabels(db, labels);
+      const labelError = validateIssueLabels(db, labels, options.labelTaxonomy);
       if (labelError !== null) {
         return err2(labelError);
       }
@@ -26536,6 +26614,22 @@ function worldModelTools(db, graphHolder) {
 
 // src/codex-tools.ts
 var FIXED_AGENT = "bro";
+var DEFAULT_CLASSIFICATION_LABELS2 = Object.freeze([
+  "Bug",
+  "Feature",
+  "Improvement",
+  "Docs",
+  "Test",
+  "Chore"
+]);
+var DEFAULT_PRIORITY_LABELS2 = Object.freeze([
+  "Priority: Urgent",
+  "Priority: High",
+  "Priority: Medium",
+  "Priority: Low"
+]);
+var CLASSIFICATION_TAXONOMY_KEY = "issue_classification_labels";
+var PRIORITY_TAXONOMY_KEY = "issue_priority_labels";
 var IDENTITY_KEYS = /* @__PURE__ */ new Set([
   "agent",
   "author",
@@ -26550,6 +26644,8 @@ var CODEX_SCOPE_3_TOOL_NAMES = Object.freeze([
   "project_scan",
   "world_model_get",
   "world_model_search",
+  "planning_label_taxonomy_get",
+  "planning_label_taxonomy_set",
   "planning_issue_create",
   "planning_issue_get",
   "planning_issue_list",
@@ -26604,6 +26700,33 @@ function createCodexToolRegistry(manager2) {
       { readOnly: true }
     ),
     tool(
+      "planning_label_taxonomy_get",
+      "Read the exact classification and priority labels accepted by the selected project.",
+      {},
+      [],
+      { readOnly: true }
+    ),
+    tool(
+      "planning_label_taxonomy_set",
+      "Configure the exact project-local classification and priority labels accepted by Codex planning.",
+      {
+        classification_labels: {
+          type: "array",
+          minItems: 1,
+          items: { type: "string", minLength: 1, pattern: "\\S" },
+          description: "Complete non-empty classification-label taxonomy for this Codex project state."
+        },
+        priority_labels: {
+          type: "array",
+          minItems: 1,
+          items: { type: "string", minLength: 1, pattern: "\\S" },
+          description: "Complete non-empty priority-label taxonomy for this Codex project state."
+        }
+      },
+      ["classification_labels", "priority_labels"],
+      { destructive: true, idempotent: true }
+    ),
+    tool(
       "planning_issue_create",
       "Create a local-only TMB planning issue. Remote issue synchronization is forced off.",
       {
@@ -26619,10 +26742,23 @@ function createCodexToolRegistry(manager2) {
           enum: ["Urgent", "High", "Medium", "Low"],
           description: "Local priority. Defaults to Medium."
         },
+        labels: {
+          type: "array",
+          minItems: 1,
+          items: { type: "string", minLength: 1, pattern: "\\S" },
+          description: "Labels passed verbatim to shared issue validation. Must include at least one classification and one priority from the project taxonomy; additional explicit labels are allowed. Cannot be combined with classification or priority."
+        },
         repo: { type: "string", description: "Optional repository name from project_inventory." },
         allow_duplicate: { type: "boolean", description: "Allow an objective similar to an existing open local issue." }
       },
-      ["objective"]
+      ["objective"],
+      {},
+      {
+        allOf: [
+          { not: { required: ["labels", "classification"] } },
+          { not: { required: ["labels", "priority"] } }
+        ]
+      }
     ),
     tool(
       "planning_issue_get",
@@ -26736,6 +26872,40 @@ function createCodexToolRegistry(manager2) {
         }));
       }
     ),
+    planning_label_taxonomy_get: async (args) => runWithRuntime(
+      manager2,
+      args,
+      ["project_root"],
+      async (runtime) => resolvePlanningLabelTaxonomy(runtime)
+    ),
+    planning_label_taxonomy_set: async (args) => runWithRuntime(
+      manager2,
+      args,
+      ["project_root", "classification_labels", "priority_labels"],
+      async (runtime, input) => {
+        const classificationLabels = requireTaxonomyArray(
+          input,
+          "classification_labels",
+          CLASSIFICATION_TAXONOMY_KEY
+        );
+        const priorityLabels = requireTaxonomyArray(
+          input,
+          "priority_labels",
+          PRIORITY_TAXONOMY_KEY
+        );
+        setConfigValues(runtime.db, [
+          {
+            key: CLASSIFICATION_TAXONOMY_KEY,
+            value: classificationLabels
+          },
+          {
+            key: PRIORITY_TAXONOMY_KEY,
+            value: priorityLabels
+          }
+        ]);
+        return resolvePlanningLabelTaxonomy(runtime);
+      }
+    ),
     planning_issue_create: async (args) => runWithRuntime(
       manager2,
       args,
@@ -26745,12 +26915,20 @@ function createCodexToolRegistry(manager2) {
         "description",
         "classification",
         "priority",
+        "labels",
         "repo",
         "allow_duplicate"
       ],
       async (runtime, input) => {
         requireString(input, "objective");
         optionalString(input, "description");
+        const hasExactLabels = input["labels"] !== void 0;
+        if (hasExactLabels && (input["classification"] !== void 0 || input["priority"] !== void 0)) {
+          throw new CodexAdapterError(
+            "invalid_arguments",
+            "labels cannot be combined with classification or priority."
+          );
+        }
         optionalEnum(input, "classification", [
           "Bug",
           "Feature",
@@ -26765,18 +26943,26 @@ function createCodexToolRegistry(manager2) {
           "Medium",
           "Low"
         ]);
+        optionalStringArray(input, "labels");
         optionalString(input, "repo");
         optionalBoolean(input, "allow_duplicate");
+        const taxonomy = await resolvePlanningLabelTaxonomy(runtime);
         forceLocalIssueSync(runtime);
         const shared = issueTools(
           runtime.db,
-          runtime.context.paths.trajectoryDb
+          runtime.context.paths.trajectoryDb,
+          {
+            labelTaxonomy: {
+              classification: taxonomy.classification_labels,
+              priorityLabels: taxonomy.priority_labels
+            }
+          }
         );
         return callShared(shared.handlers["issue_create"], compact({
           agent: FIXED_AGENT,
           objective: input["objective"],
           description: input["description"],
-          labels: [
+          labels: hasExactLabels ? input["labels"] : [
             input["classification"] ?? "Feature",
             `Priority: ${String(input["priority"] ?? "Medium")}`
           ],
@@ -26896,7 +27082,7 @@ function createCodexToolRegistry(manager2) {
   };
   return deepFreeze({ definitions, handlers, call });
 }
-function tool(name, description, properties, required2, annotations = {}) {
+function tool(name, description, properties, required2, annotations = {}, schemaConstraints = {}) {
   return {
     name,
     description,
@@ -26910,11 +27096,12 @@ function tool(name, description, properties, required2, annotations = {}) {
         ...properties
       },
       required: ["project_root", ...required2],
-      additionalProperties: false
+      additionalProperties: false,
+      ...schemaConstraints
     },
     annotations: {
       readOnlyHint: annotations.readOnly ?? false,
-      destructiveHint: false,
+      destructiveHint: annotations.destructive ?? false,
       idempotentHint: annotations.idempotent ?? false,
       openWorldHint: false
     }
@@ -26989,6 +27176,17 @@ function optionalBoolean(input, key) {
     );
   }
 }
+function optionalStringArray(input, key) {
+  const value = input[key];
+  if (value !== void 0 && (!Array.isArray(value) || value.length === 0 || !value.every(
+    (item) => typeof item === "string" && item.trim().length > 0
+  ))) {
+    throw new CodexAdapterError(
+      "invalid_arguments",
+      `${key} must be a non-empty array of non-empty strings when provided.`
+    );
+  }
+}
 function optionalInteger(input, key, minimum, maximum = Number.MAX_SAFE_INTEGER) {
   const value = input[key];
   if (value !== void 0 && (!Number.isSafeInteger(value) || value < minimum || value > maximum)) {
@@ -27013,6 +27211,74 @@ function forceLocalIssueSync(runtime) {
      VALUES ('issue_sync', '"off"')
      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`
   );
+}
+async function resolvePlanningLabelTaxonomy(runtime) {
+  let values;
+  try {
+    values = getConfigValues(runtime.db, [
+      CLASSIFICATION_TAXONOMY_KEY,
+      PRIORITY_TAXONOMY_KEY
+    ]);
+  } catch (error2) {
+    if (error2 instanceof Error && [CLASSIFICATION_TAXONOMY_KEY, PRIORITY_TAXONOMY_KEY].some(
+      (key) => error2.message.startsWith(storedConfigParseErrorPrefix(key))
+    )) {
+      const key = error2.message.startsWith(
+        storedConfigParseErrorPrefix(CLASSIFICATION_TAXONOMY_KEY)
+      ) ? CLASSIFICATION_TAXONOMY_KEY : PRIORITY_TAXONOMY_KEY;
+      throw invalidLabelTaxonomy(key);
+    }
+    throw error2;
+  }
+  const classification = readTaxonomyConfig(
+    values[CLASSIFICATION_TAXONOMY_KEY],
+    CLASSIFICATION_TAXONOMY_KEY,
+    DEFAULT_CLASSIFICATION_LABELS2
+  );
+  const priority = readTaxonomyConfig(
+    values[PRIORITY_TAXONOMY_KEY],
+    PRIORITY_TAXONOMY_KEY,
+    DEFAULT_PRIORITY_LABELS2
+  );
+  return {
+    classification_labels: classification.labels,
+    priority_labels: priority.labels,
+    classification_source: classification.source,
+    priority_source: priority.source
+  };
+}
+function requireTaxonomyArray(input, inputKey, configKey) {
+  const value = input[inputKey];
+  if (!Array.isArray(value) || value.length === 0 || !value.every(
+    (item) => typeof item === "string" && item.trim().length > 0
+  )) {
+    throw invalidLabelTaxonomy(configKey);
+  }
+  return [...value];
+}
+function readTaxonomyConfig(value, key, defaults) {
+  if (value === null) {
+    return { labels: [...defaults], source: "default" };
+  }
+  if (!Array.isArray(value) || value.length === 0 || !value.every(
+    (item) => typeof item === "string" && item.trim().length > 0
+  )) {
+    throw invalidLabelTaxonomy(key);
+  }
+  const labels = value;
+  return {
+    labels: [...labels],
+    source: arraysEqual(labels, defaults) ? "default" : "configured"
+  };
+}
+function invalidLabelTaxonomy(key) {
+  return new CodexAdapterError(
+    "invalid_label_taxonomy",
+    `${key} must be a non-empty array of non-empty strings.`
+  );
+}
+function arraysEqual(left, right) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 async function callShared(handler, args) {
   const result = await handler(args);

@@ -1054,6 +1054,35 @@ describe('issue_create mandatory tagging (#93/#777)', () => {
         assert.match(data.error, /P0, P1, P2/);
         db.close();
     });
+    it('validates against a caller-resolved taxonomy snapshot without re-reading config', async () => {
+        const db = tempDB();
+        const tools = issueTools(db, '', {
+            labelTaxonomy: {
+                classification: ['Doctrine'],
+                priorityLabels: ['P1'],
+            },
+        });
+        const cfg = configTools(db);
+        await call(cfg.handlers, 'config_set', {
+            agent: 'bro',
+            key: 'issue_classification_labels',
+            value: ['Bug'],
+        });
+        await call(cfg.handlers, 'config_set', {
+            agent: 'bro',
+            key: 'issue_priority_labels',
+            value: ['Priority: High'],
+        });
+        const result = await call(tools.handlers, 'issue_create', {
+            agent: 'bro',
+            objective: 'snapshot taxonomy remains authoritative',
+            labels: ['Doctrine', 'P1'],
+        });
+        const issue = parseResult(result);
+        assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
+        assert.equal(issue.objective, 'snapshot taxonomy remains authoritative');
+        db.close();
+    });
 });
 describe('issueTools — milestone (#83/#763)', () => {
     it('issue_create persists the milestone on the row', async () => {

@@ -8,7 +8,21 @@ import { DatabaseSync } from 'node:sqlite';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { it } from 'node:test';
-import { CODEX_SCOPE_3_TOOL_NAMES } from '../codex-tools.js';
+const EXPECTED_SCOPE_3_TOOL_NAMES = [
+    'runtime_initialize',
+    'project_inventory',
+    'project_scan',
+    'world_model_get',
+    'world_model_search',
+    'planning_label_taxonomy_get',
+    'planning_label_taxonomy_set',
+    'planning_issue_create',
+    'planning_issue_get',
+    'planning_issue_list',
+    'planning_issue_resume',
+    'planning_discussion_append',
+    'planning_discussion_list',
+];
 function payloadOf(result) {
     const content = result.content[0];
     assert.equal(content?.type, 'text');
@@ -73,7 +87,21 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
         assert.equal(readFileSync(claudeState, 'utf8'), 'existing Claude state must remain untouched');
         assert.equal(existsSync(join(cacheRoot, '.tmb')), false);
         const listed = await client.listTools();
-        assert.deepEqual(listed.tools.map((tool) => tool.name), CODEX_SCOPE_3_TOOL_NAMES);
+        assert.deepEqual(listed.tools.map((tool) => tool.name), EXPECTED_SCOPE_3_TOOL_NAMES);
+        assert.equal(listed.tools.length, 13);
+        const installedTaxonomySet = listed.tools.find((tool) => tool.name === 'planning_label_taxonomy_set');
+        assert.deepEqual(installedTaxonomySet?.inputSchema.required, [
+            'project_root',
+            'classification_labels',
+            'priority_labels',
+        ]);
+        const installedIssueCreate = listed.tools.find((tool) => tool.name === 'planning_issue_create');
+        const installedIssueProperties = installedIssueCreate?.inputSchema.properties;
+        assert.deepEqual((installedIssueProperties?.['labels'])['items'], { type: 'string', minLength: 1, pattern: '\\S' });
+        assert.deepEqual(installedIssueCreate?.inputSchema['allOf'], [
+            { not: { required: ['labels', 'classification'] } },
+            { not: { required: ['labels', 'priority'] } },
+        ]);
         assert.equal(existsSync(join(project, '.tmb')), false);
         assert.equal(readFileSync(claudeState, 'utf8'), 'existing Claude state must remain untouched');
         assert.equal(existsSync(join(cacheRoot, '.tmb')), false);
@@ -136,14 +164,51 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
         const inventory = payloadOf(inventoryCall)['data'];
         assert.equal(inventory.repos.length, 1);
         assert.equal(inventory.repos[0]?.path, canonicalProject);
+        const configuredTaxonomy = await client.callTool({
+            name: 'planning_label_taxonomy_set',
+            arguments: {
+                project_root: project,
+                classification_labels: ['Defect', 'Capability'],
+                priority_labels: ['P0', 'P1', 'P2'],
+            },
+        });
+        assert.notEqual(configuredTaxonomy.isError, true);
+        assert.deepEqual(payloadOf(configuredTaxonomy)['data'], {
+            classification_labels: ['Defect', 'Capability'],
+            priority_labels: ['P0', 'P1', 'P2'],
+            classification_source: 'configured',
+            priority_source: 'configured',
+        });
+        // Taxonomy setup above is intentionally public-MCP-only. This direct DB
+        // mutation is a separate adversarial precondition proving issue creation
+        // forces an existing remote-sync setting back to local-only.
+        const configuredDb = new DatabaseSync(createdRuntime.trajectory_db);
+        try {
+            configuredDb
+                .prepare(`UPDATE plugin_config SET value_json = '"gh"' WHERE key = 'issue_sync'`)
+                .run();
+        }
+        finally {
+            configuredDb.close();
+        }
+        const taxonomyCall = await client.callTool({
+            name: 'planning_label_taxonomy_get',
+            arguments: { project_root: project },
+        });
+        assert.notEqual(taxonomyCall.isError, true);
+        assert.deepEqual(payloadOf(taxonomyCall)['data'], {
+            classification_labels: ['Defect', 'Capability'],
+            priority_labels: ['P0', 'P1', 'P2'],
+            classification_source: 'configured',
+            priority_source: 'configured',
+        });
         const planningCall = await client.callTool({
             name: 'planning_issue_create',
             arguments: {
                 project_root: project,
                 objective: 'Plan the installed-cache fixture',
                 description: 'Prove local planning works without source node_modules.',
-                classification: 'Test',
-                priority: 'High',
+                labels: ['Capability', 'P1', 'cache-proof'],
             },
         });
         assert.notEqual(planningCall.isError, true);
@@ -188,6 +253,14 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
                 .prepare("SELECT value_json FROM plugin_config WHERE key = 'issue_sync'")
                 .get();
             assert.equal(JSON.parse(sync.value_json), 'off');
+            const labels = persisted
+                .prepare('SELECT labels FROM issues WHERE id = ?')
+                .get(planningIssue.id);
+            assert.deepEqual(JSON.parse(labels.labels), [
+                'Capability',
+                'P1',
+                'cache-proof',
+            ]);
         }
         finally {
             persisted.close();

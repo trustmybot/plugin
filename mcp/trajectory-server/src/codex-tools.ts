@@ -5,6 +5,11 @@ import {
   type CodexRuntimeManager,
 } from './codex-runtime.js';
 import { discussionTools } from './tools/discussions.js';
+import {
+  getConfigValues,
+  setConfigValues,
+  storedConfigParseErrorPrefix,
+} from './tools/config.js';
 import { issueTools } from './tools/issues.js';
 import { scanTools } from './tools/scan.js';
 import { worldModelTools } from './tools/world_model.js';
@@ -15,6 +20,22 @@ type SharedToolHandler = (
 ) => Promise<CallToolResult>;
 
 const FIXED_AGENT = 'bro';
+const DEFAULT_CLASSIFICATION_LABELS = Object.freeze([
+  'Bug',
+  'Feature',
+  'Improvement',
+  'Docs',
+  'Test',
+  'Chore',
+] as const);
+const DEFAULT_PRIORITY_LABELS = Object.freeze([
+  'Priority: Urgent',
+  'Priority: High',
+  'Priority: Medium',
+  'Priority: Low',
+] as const);
+const CLASSIFICATION_TAXONOMY_KEY = 'issue_classification_labels';
+const PRIORITY_TAXONOMY_KEY = 'issue_priority_labels';
 const IDENTITY_KEYS = new Set([
   'agent',
   'author',
@@ -30,6 +51,8 @@ export const CODEX_SCOPE_3_TOOL_NAMES = Object.freeze([
   'project_scan',
   'world_model_get',
   'world_model_search',
+  'planning_label_taxonomy_get',
+  'planning_label_taxonomy_set',
   'planning_issue_create',
   'planning_issue_get',
   'planning_issue_list',
@@ -96,6 +119,33 @@ export function createCodexToolRegistry(
       { readOnly: true },
     ),
     tool(
+      'planning_label_taxonomy_get',
+      'Read the exact classification and priority labels accepted by the selected project.',
+      {},
+      [],
+      { readOnly: true },
+    ),
+    tool(
+      'planning_label_taxonomy_set',
+      'Configure the exact project-local classification and priority labels accepted by Codex planning.',
+      {
+        classification_labels: {
+          type: 'array',
+          minItems: 1,
+          items: { type: 'string', minLength: 1, pattern: '\\S' },
+          description: 'Complete non-empty classification-label taxonomy for this Codex project state.',
+        },
+        priority_labels: {
+          type: 'array',
+          minItems: 1,
+          items: { type: 'string', minLength: 1, pattern: '\\S' },
+          description: 'Complete non-empty priority-label taxonomy for this Codex project state.',
+        },
+      },
+      ['classification_labels', 'priority_labels'],
+      { destructive: true, idempotent: true },
+    ),
+    tool(
       'planning_issue_create',
       'Create a local-only TMB planning issue. Remote issue synchronization is forced off.',
       {
@@ -111,10 +161,23 @@ export function createCodexToolRegistry(
           enum: ['Urgent', 'High', 'Medium', 'Low'],
           description: 'Local priority. Defaults to Medium.',
         },
+        labels: {
+          type: 'array',
+          minItems: 1,
+          items: { type: 'string', minLength: 1, pattern: '\\S' },
+          description: 'Labels passed verbatim to shared issue validation. Must include at least one classification and one priority from the project taxonomy; additional explicit labels are allowed. Cannot be combined with classification or priority.',
+        },
         repo: { type: 'string', description: 'Optional repository name from project_inventory.' },
         allow_duplicate: { type: 'boolean', description: 'Allow an objective similar to an existing open local issue.' },
       },
       ['objective'],
+      {},
+      {
+        allOf: [
+          { not: { required: ['labels', 'classification'] } },
+          { not: { required: ['labels', 'priority'] } },
+        ],
+      },
     ),
     tool(
       'planning_issue_get',
@@ -239,6 +302,44 @@ export function createCodexToolRegistry(
         },
       ),
 
+    planning_label_taxonomy_get: async (args: unknown) =>
+      runWithRuntime(
+        manager,
+        args,
+        ['project_root'],
+        async (runtime) => resolvePlanningLabelTaxonomy(runtime),
+      ),
+
+    planning_label_taxonomy_set: async (args: unknown) =>
+      runWithRuntime(
+        manager,
+        args,
+        ['project_root', 'classification_labels', 'priority_labels'],
+        async (runtime, input) => {
+          const classificationLabels = requireTaxonomyArray(
+            input,
+            'classification_labels',
+            CLASSIFICATION_TAXONOMY_KEY,
+          );
+          const priorityLabels = requireTaxonomyArray(
+            input,
+            'priority_labels',
+            PRIORITY_TAXONOMY_KEY,
+          );
+          setConfigValues(runtime.db, [
+            {
+              key: CLASSIFICATION_TAXONOMY_KEY,
+              value: classificationLabels,
+            },
+            {
+              key: PRIORITY_TAXONOMY_KEY,
+              value: priorityLabels,
+            },
+          ]);
+          return resolvePlanningLabelTaxonomy(runtime);
+        },
+      ),
+
     planning_issue_create: async (args: unknown) =>
       runWithRuntime(
         manager,
@@ -249,12 +350,23 @@ export function createCodexToolRegistry(
           'description',
           'classification',
           'priority',
+          'labels',
           'repo',
           'allow_duplicate',
         ],
         async (runtime, input) => {
           requireString(input, 'objective');
           optionalString(input, 'description');
+          const hasExactLabels = input['labels'] !== undefined;
+          if (
+            hasExactLabels &&
+            (input['classification'] !== undefined || input['priority'] !== undefined)
+          ) {
+            throw new CodexAdapterError(
+              'invalid_arguments',
+              'labels cannot be combined with classification or priority.',
+            );
+          }
           optionalEnum(input, 'classification', [
             'Bug',
             'Feature',
@@ -269,21 +381,31 @@ export function createCodexToolRegistry(
             'Medium',
             'Low',
           ]);
+          optionalStringArray(input, 'labels');
           optionalString(input, 'repo');
           optionalBoolean(input, 'allow_duplicate');
+          const taxonomy = await resolvePlanningLabelTaxonomy(runtime);
           forceLocalIssueSync(runtime);
           const shared = issueTools(
             runtime.db,
             runtime.context.paths.trajectoryDb,
+            {
+              labelTaxonomy: {
+                classification: taxonomy.classification_labels,
+                priorityLabels: taxonomy.priority_labels,
+              },
+            },
           );
           return callShared(shared.handlers['issue_create']!, compact({
             agent: FIXED_AGENT,
             objective: input['objective'],
             description: input['description'],
-            labels: [
-              input['classification'] ?? 'Feature',
-              `Priority: ${String(input['priority'] ?? 'Medium')}`,
-            ],
+            labels: hasExactLabels
+              ? input['labels']
+              : [
+                  input['classification'] ?? 'Feature',
+                  `Priority: ${String(input['priority'] ?? 'Medium')}`,
+                ],
             repo: input['repo'],
             allow_duplicate: input['allow_duplicate'],
           }));
@@ -423,7 +545,12 @@ function tool(
   description: string,
   properties: Record<string, unknown>,
   required: string[],
-  annotations: { readOnly?: boolean; idempotent?: boolean } = {},
+  annotations: {
+    readOnly?: boolean;
+    destructive?: boolean;
+    idempotent?: boolean;
+  } = {},
+  schemaConstraints: Record<string, unknown> = {},
 ): Tool {
   return {
     name,
@@ -439,10 +566,11 @@ function tool(
       },
       required: ['project_root', ...required],
       additionalProperties: false,
+      ...schemaConstraints,
     },
     annotations: {
       readOnlyHint: annotations.readOnly ?? false,
-      destructiveHint: false,
+      destructiveHint: annotations.destructive ?? false,
       idempotentHint: annotations.idempotent ?? false,
       openWorldHint: false,
     },
@@ -536,6 +664,26 @@ function optionalBoolean(input: Record<string, unknown>, key: string): void {
   }
 }
 
+function optionalStringArray(
+  input: Record<string, unknown>,
+  key: string,
+): void {
+  const value = input[key];
+  if (
+    value !== undefined &&
+    (!Array.isArray(value) ||
+      value.length === 0 ||
+      !value.every(
+        (item) => typeof item === 'string' && item.trim().length > 0,
+      ))
+  ) {
+    throw new CodexAdapterError(
+      'invalid_arguments',
+      `${key} must be a non-empty array of non-empty strings when provided.`,
+    );
+  }
+}
+
 function optionalInteger(
   input: Record<string, unknown>,
   key: string,
@@ -575,6 +723,112 @@ function forceLocalIssueSync(runtime: CodexRuntimeAccess): void {
     `INSERT INTO plugin_config (key, value_json)
      VALUES ('issue_sync', '"off"')
      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
+  );
+}
+
+interface PlanningLabelTaxonomy {
+  classification_labels: string[];
+  priority_labels: string[];
+  classification_source: 'configured' | 'default';
+  priority_source: 'configured' | 'default';
+}
+
+async function resolvePlanningLabelTaxonomy(
+  runtime: CodexRuntimeAccess,
+): Promise<PlanningLabelTaxonomy> {
+  let values: Readonly<Record<string, unknown | null>>;
+  try {
+    values = getConfigValues(runtime.db, [
+      CLASSIFICATION_TAXONOMY_KEY,
+      PRIORITY_TAXONOMY_KEY,
+    ]);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      [CLASSIFICATION_TAXONOMY_KEY, PRIORITY_TAXONOMY_KEY].some((key) =>
+        error.message.startsWith(storedConfigParseErrorPrefix(key)),
+      )
+    ) {
+      const key = error.message.startsWith(
+        storedConfigParseErrorPrefix(CLASSIFICATION_TAXONOMY_KEY),
+      )
+        ? CLASSIFICATION_TAXONOMY_KEY
+        : PRIORITY_TAXONOMY_KEY;
+      throw invalidLabelTaxonomy(key);
+    }
+    throw error;
+  }
+  const classification = readTaxonomyConfig(
+    values[CLASSIFICATION_TAXONOMY_KEY],
+    CLASSIFICATION_TAXONOMY_KEY,
+    DEFAULT_CLASSIFICATION_LABELS,
+  );
+  const priority = readTaxonomyConfig(
+    values[PRIORITY_TAXONOMY_KEY],
+    PRIORITY_TAXONOMY_KEY,
+    DEFAULT_PRIORITY_LABELS,
+  );
+  return {
+    classification_labels: classification.labels,
+    priority_labels: priority.labels,
+    classification_source: classification.source,
+    priority_source: priority.source,
+  };
+}
+
+function requireTaxonomyArray(
+  input: Record<string, unknown>,
+  inputKey: string,
+  configKey: string,
+): string[] {
+  const value = input[inputKey];
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    !value.every(
+      (item) => typeof item === 'string' && item.trim().length > 0,
+    )
+  ) {
+    throw invalidLabelTaxonomy(configKey);
+  }
+  return [...value] as string[];
+}
+
+function readTaxonomyConfig(
+  value: unknown,
+  key: string,
+  defaults: readonly string[],
+): { labels: string[]; source: 'configured' | 'default' } {
+  if (value === null) {
+    return { labels: [...defaults], source: 'default' };
+  }
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    !value.every(
+      (item) => typeof item === 'string' && item.trim().length > 0,
+    )
+  ) {
+    throw invalidLabelTaxonomy(key);
+  }
+  const labels = value as string[];
+  return {
+    labels: [...labels],
+    source: arraysEqual(labels, defaults) ? 'default' : 'configured',
+  };
+}
+
+function invalidLabelTaxonomy(key: string): CodexAdapterError {
+  return new CodexAdapterError(
+    'invalid_label_taxonomy',
+    `${key} must be a non-empty array of non-empty strings.`,
+  );
+}
+
+function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
   );
 }
 

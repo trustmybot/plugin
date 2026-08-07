@@ -14,11 +14,18 @@ with Bro-authored decision records. Every MCP tool requires an absolute
 `project_root`; writable state stays under `<project>/.tmb/tmb/`, and local issue
 creation forces `issue_sync="off"`.
 
-The adapter exports an immutable 11-tool allowlist. It does not expose task,
-agent, validation, branch, worktree, Git delivery, remote issue, onboarding,
-configuration, or lifecycle-enforcement operations. Caller-provided identity or
-Human provenance is rejected; the server supplies the fixed Bro identity for
-the few workflow writes it permits.
+The adapter exports an immutable 13-tool allowlist. Its only configuration write
+is `planning_label_taxonomy_set`, which atomically replaces the two project-local
+label arrays when the user explicitly requests it. Before creating a local
+planning issue, `planning_label_taxonomy_get` reports the exact labels accepted
+by the project. `planning_issue_create` keeps its default
+classification/priority inputs and also accepts a mutually exclusive exact
+`labels` array containing the required configured categories plus any explicitly
+requested extra labels. It does not expose arbitrary configuration, task, agent,
+validation, branch, worktree, Git delivery, remote issue, onboarding, or
+lifecycle-enforcement operations. Caller-provided identity or Human provenance
+is rejected; the server supplies the fixed Bro identity for the few workflow
+writes it permits.
 
 The shared database, graph, scan, issue, and discussion handlers remain the
 source of truth. Codex packaging and argument translation are thin edge
