@@ -1534,6 +1534,16 @@ describe('taskTools', () => {
     it('task_create_batch auto-creates branch from parent_branch_id and emits tmb_branch_autocreated audit (#529)', async () => {
         const { dir: repoDir, cleanup } = makeGitSubdir('test-git-fixture-autocreate-from-parent');
         try {
+            const parentCommitResult = spawnSync('git', ['-C', repoDir, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
+            assert.equal(parentCommitResult.status, 0, 'Fixture HEAD must resolve');
+            const parentCommit = parentCommitResult.stdout.trim();
+            const parentRefResult = spawnSync('git', ['-C', repoDir, 'branch', 'test/parent-base', parentCommit], { encoding: 'utf8' });
+            assert.equal(parentRefResult.status, 0, 'Fixture test/parent-base ref must be created');
+            const advanceHeadResult = spawnSync('git', ['-C', repoDir, 'commit', '--allow-empty', '-m', 'advance HEAD past parent'], { encoding: 'utf8' });
+            assert.equal(advanceHeadResult.status, 0, 'Fixture HEAD must advance past test/parent-base');
+            const advancedHeadResult = spawnSync('git', ['-C', repoDir, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
+            assert.equal(advancedHeadResult.status, 0, 'Advanced fixture HEAD must resolve');
+            assert.notEqual(advancedHeadResult.stdout.trim(), parentCommit, 'Fixture parent ref must differ from HEAD');
             const db = tempDB();
             db.run(`INSERT INTO repos (name, path, file_count) VALUES (?, ?, 0)`, ['fixture-from-parent', repoDir]);
             const issueId = await createIssue(db);
@@ -1547,7 +1557,7 @@ describe('taskTools', () => {
                 issue_id: String(issueId),
                 tasks: [{
                         branch_id: 'feat/new-from-parent',
-                        parent_branch_id: 'master',
+                        parent_branch_id: 'test/parent-base',
                         description: 'auto-create from parent',
                         repo: 'fixture-from-parent',
                     }],
@@ -1555,10 +1565,11 @@ describe('taskTools', () => {
             assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
             const branchCheck = spawnSync('git', ['-C', repoDir, 'rev-parse', '--verify', 'feat/new-from-parent'], { encoding: 'utf8' });
             assert.equal(branchCheck.status, 0, 'Branch must have been created');
+            assert.equal(branchCheck.stdout.trim(), parentCommit, 'Branch must start from the caller-provided parent branch commit');
             const auditRow = db.get(`SELECT summary, content_json FROM audit WHERE event_type = 'tmb_branch_autocreated' LIMIT 1`);
             assert.ok(auditRow !== undefined, 'tmb_branch_autocreated audit row must exist');
             const content = JSON.parse(auditRow.content_json);
-            assert.equal(content.start_point, 'master', 'Start point must be parent_branch_id');
+            assert.equal(content.start_point, 'test/parent-base', 'Start point must be parent_branch_id');
             db.close();
         }
         finally {
