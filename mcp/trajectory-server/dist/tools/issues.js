@@ -75,8 +75,8 @@ function defaultSyncLabels(db) {
 // checked against the project's configured (or generic-default) taxonomy.
 // Returns a named error string listing what is missing and the valid options,
 // or null when the labels are valid. Extra labels (in neither set) are allowed.
-function validateIssueLabels(db, labels) {
-    const { classification, priorityLabels } = resolveLabelTaxonomy(db);
+function validateIssueLabels(db, labels, taxonomy) {
+    const { classification, priorityLabels } = taxonomy ?? resolveLabelTaxonomy(db);
     const classificationSet = new Set(classification);
     const prioritySet = new Set(priorityLabels);
     const hasPriority = labels.some((l) => prioritySet.has(l));
@@ -286,7 +286,7 @@ export async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
         }
     }
 }
-export function issueTools(db, dbPath = '') {
+export function issueTools(db, dbPath = '', options = {}) {
     const definitions = [
         {
             name: 'issue_create',
@@ -445,7 +445,7 @@ export function issueTools(db, dbPath = '') {
             // instead of re-deriving defaultSyncLabels.
             const labels = args['labels'] ?? [];
             // Mandatory tagging (#93/#777): fail closed before any insert/sync.
-            const labelError = validateIssueLabels(db, labels);
+            const labelError = validateIssueLabels(db, labels, options.labelTaxonomy);
             if (labelError !== null) {
                 return err(labelError);
             }

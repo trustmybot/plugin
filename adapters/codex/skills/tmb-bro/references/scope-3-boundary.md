@@ -8,6 +8,8 @@ workflow.
 - initialize a validated, ignored project-local runtime;
 - scan and list repository inventory;
 - read and search the project world model;
+- discover the exact project classification and priority label taxonomy;
+- atomically configure only that taxonomy when the user explicitly requests it;
 - create, read, list, or resume a local planning issue;
 - append and list Bro-authored planning decisions, questions, and notes.
 
@@ -23,8 +25,8 @@ synchronization off.
 - branch or worktree creation and cleanup;
 - Git commit, push, merge, or pull-request orchestration;
 - remote issue creation, adoption, linking, sync, or closure;
-- onboarding, configuration mutation, cheatcodes, roundtables, reports, and
-  lifecycle enforcement hooks;
+- onboarding, arbitrary configuration mutation, cheatcodes, roundtables,
+  reports, and lifecycle enforcement hooks;
 - writes attributed to a Human or to any role other than Bro.
 
 Do not reproduce these operations with shell commands as part of this Skill.

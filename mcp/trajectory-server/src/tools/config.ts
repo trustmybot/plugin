@@ -27,6 +27,116 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
 
 const KEY_REGEX = /^[a-z][a-z0-9_.-]{0,63}$/i;
 
+export interface ConfigValueInput {
+  readonly key: string;
+  readonly value: unknown;
+}
+
+export type ConfigValues = Readonly<Record<string, unknown | null>>;
+
+export function storedConfigParseErrorPrefix(key: string): string {
+  return `config key ${JSON.stringify(key)}: stored value is not valid JSON`;
+}
+
+/**
+ * Persist one or more shared plugin-config values atomically. Callers remain
+ * responsible for exposing only the keys their host contract permits.
+ */
+export function setConfigValues(
+  db: TrajectoryDB,
+  entries: readonly ConfigValueInput[],
+): void {
+  const serialized = entries.map(({ key, value }) => ({
+    key,
+    valueJson: serializeConfigValue(key, value),
+  }));
+  db.transaction(() => {
+    for (const { key, valueJson } of serialized) {
+      db.run(
+        `INSERT INTO plugin_config (key, value_json)
+         VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
+        [key, valueJson],
+      );
+    }
+  });
+}
+
+/**
+ * Read a bounded set of shared plugin-config values from one SQLite statement.
+ * A single statement gives callers one database snapshot even when another
+ * host process atomically replaces related keys at the same time.
+ */
+export function getConfigValues(
+  db: TrajectoryDB,
+  keys: readonly string[],
+): ConfigValues {
+  if (keys.length === 0) return Object.freeze({});
+
+  const placeholders = keys.map(() => '?').join(', ');
+  const rows = db.all<{ key: string; value_json: string }>(
+    `SELECT key, value_json
+     FROM plugin_config
+     WHERE key IN (${placeholders})`,
+    [...keys],
+  );
+  const result: Record<string, unknown | null> = Object.fromEntries(
+    keys.map((key) => [key, null]),
+  );
+  for (const row of rows) {
+    try {
+      result[row.key] = JSON.parse(row.value_json);
+    } catch {
+      throw new Error(
+        `${storedConfigParseErrorPrefix(row.key)} — raw: ${row.value_json.slice(0, 200)}`,
+      );
+    }
+  }
+  return Object.freeze(result);
+}
+
+function serializeConfigValue(key: unknown, rawValue: unknown): string {
+  if (typeof key !== 'string' || !KEY_REGEX.test(key)) {
+    throw new Error(
+      `Invalid config key ${JSON.stringify(key)}: must match /^[a-z][a-z0-9_.-]{0,63}$/i`,
+    );
+  }
+  if (rawValue === undefined || rawValue === null) {
+    throw new Error('Missing required arg: value');
+  }
+  if (typeof rawValue === 'string') {
+    const trimmed = rawValue.trim();
+    if (
+      (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+      (trimmed.startsWith('{') && trimmed.endsWith('}'))
+    ) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (typeof parsed === 'object' && parsed !== null) {
+          throw new Error(
+            `config value for key=${JSON.stringify(key)} looks like a pre-serialized JSON ${Array.isArray(parsed) ? 'array' : 'object'} (passed as a string). Pass the raw value directly — e.g. value=["main"], not value="[\\"main\\"]". The server calls JSON.stringify() on whatever you pass; double-encoding it breaks downstream consumers that expect the original shape.`,
+          );
+        }
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          // not valid JSON — fall through, treat as a plain string value
+        } else {
+          throw error;
+        }
+      }
+    }
+  }
+
+  try {
+    // Preserve config_set's existing runtime behavior for JSON.stringify
+    // inputs whose result is undefined; node:sqlite remains the final binder
+    // check for those unsupported values.
+    return JSON.stringify(rawValue) as string;
+  } catch {
+    throw new Error('config value not JSON-serializable');
+  }
+}
+
 export function configTools(db: TrajectoryDB): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
@@ -68,74 +178,13 @@ export function configTools(db: TrajectoryDB): {
   const handlers: Record<string, Fn> = {
     config_set: requireRoles('config_set', ['bro'], wrapHandler(async (args) => {
       const key = args['key'];
-      if (typeof key !== 'string' || !KEY_REGEX.test(key)) {
-        return err(
-          `Invalid config key ${JSON.stringify(key)}: must match /^[a-z][a-z0-9_.-]{0,63}$/i`,
-        );
-      }
-
-      if (args['value'] === undefined || args['value'] === null) {
-        return err('Missing required arg: value');
-      }
-
-      const rawValue = args['value'];
-      if (typeof rawValue === 'string') {
-        const trimmed = rawValue.trim();
-        if (
-          (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
-          (trimmed.startsWith('{') && trimmed.endsWith('}'))
-        ) {
-          try {
-            const parsed = JSON.parse(trimmed);
-            if (typeof parsed === 'object' && parsed !== null) {
-              return err(
-                `config value for key=${JSON.stringify(key)} looks like a pre-serialized JSON ${Array.isArray(parsed) ? 'array' : 'object'} (passed as a string). Pass the raw value directly — e.g. value=["main"], not value="[\\"main\\"]". The server calls JSON.stringify() on whatever you pass; double-encoding it breaks downstream consumers that expect the original shape.`,
-              );
-            }
-          } catch {
-            // not valid JSON — fall through, treat as a plain string value
-          }
-        }
-      }
-
-      let valueJson: string;
-      try {
-        valueJson = JSON.stringify(rawValue);
-      } catch {
-        return err('config value not JSON-serializable');
-      }
-
-      db.run(
-        `INSERT INTO plugin_config (key, value_json)
-         VALUES (?, ?)
-         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
-        [key, valueJson],
-      );
-
+      setConfigValues(db, [{ key: key as string, value: args['value'] }]);
       return ok({ key });
     })),
 
     config_get: wrapHandler(async (args) => {
       const key = args['key'] as string;
-      const row = db.get<{ key: string; value_json: string }>(
-        `SELECT key, value_json FROM plugin_config WHERE key = ?`,
-        [key],
-      );
-
-      if (!row) {
-        return ok(null);
-      }
-
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(row.value_json);
-      } catch {
-        return err(
-          `config key ${JSON.stringify(key)}: stored value is not valid JSON — raw: ${row.value_json.slice(0, 200)}`,
-        );
-      }
-
-      return ok(parsed);
+      return ok(getConfigValues(db, [key])[key] ?? null);
     }),
 
     config_list: wrapHandler(async () => {
@@ -149,7 +198,7 @@ export function configTools(db: TrajectoryDB): {
           result[row.key] = JSON.parse(row.value_json);
         } catch {
           return err(
-            `config key ${JSON.stringify(row.key)}: stored value is not valid JSON — raw: ${row.value_json.slice(0, 200)}`,
+            `${storedConfigParseErrorPrefix(row.key)} — raw: ${row.value_json.slice(0, 200)}`,
           );
         }
       }

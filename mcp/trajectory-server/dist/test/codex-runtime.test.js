@@ -13,6 +13,21 @@ import { CodexRuntimeError, CodexRuntimeManager, } from '../codex-runtime.js';
 import { CODEX_SCOPE_3_TOOL_NAMES, createCodexToolRegistry, } from '../codex-tools.js';
 import { registerTools, toolDefinitions, toolHandlers, } from '../tools/index.js';
 const cleanup = [];
+const EXPECTED_SCOPE_3_TOOL_NAMES = [
+    'runtime_initialize',
+    'project_inventory',
+    'project_scan',
+    'world_model_get',
+    'world_model_search',
+    'planning_label_taxonomy_get',
+    'planning_label_taxonomy_set',
+    'planning_issue_create',
+    'planning_issue_get',
+    'planning_issue_list',
+    'planning_issue_resume',
+    'planning_discussion_append',
+    'planning_discussion_list',
+];
 afterEach(() => {
     for (const path of cleanup.splice(0)) {
         rmSync(path, { recursive: true, force: true });
@@ -487,7 +502,8 @@ describe('Codex tool surface', () => {
         const runtimeManager = manager();
         try {
             const registry = createCodexToolRegistry(runtimeManager);
-            assert.deepEqual(registry.definitions.map((tool) => tool.name), CODEX_SCOPE_3_TOOL_NAMES);
+            assert.deepEqual(registry.definitions.map((tool) => tool.name), EXPECTED_SCOPE_3_TOOL_NAMES);
+            assert.deepEqual(CODEX_SCOPE_3_TOOL_NAMES, EXPECTED_SCOPE_3_TOOL_NAMES);
             assert.ok(Object.isFrozen(registry));
             assert.ok(Object.isFrozen(registry.definitions));
             assert.ok(Object.isFrozen(registry.definitions[0]));
@@ -502,6 +518,28 @@ describe('Codex tool surface', () => {
                     assert.equal(identity in properties, false);
                 }
             }
+            const taxonomy = registry.definitions.find((definition) => definition.name === 'planning_label_taxonomy_get');
+            assert.equal(taxonomy?.annotations?.readOnlyHint, true);
+            const taxonomySet = registry.definitions.find((definition) => definition.name === 'planning_label_taxonomy_set');
+            assert.equal(taxonomySet?.annotations?.readOnlyHint, false);
+            assert.equal(taxonomySet?.annotations?.destructiveHint, true);
+            assert.equal(taxonomySet?.annotations?.idempotentHint, true);
+            assert.deepEqual(taxonomySet?.inputSchema.required, [
+                'project_root',
+                'classification_labels',
+                'priority_labels',
+            ]);
+            const taxonomySetProperties = taxonomySet?.inputSchema.properties;
+            assert.deepEqual((taxonomySetProperties?.['classification_labels'])['items'], { type: 'string', minLength: 1, pattern: '\\S' });
+            assert.deepEqual((taxonomySetProperties?.['priority_labels'])['items'], { type: 'string', minLength: 1, pattern: '\\S' });
+            const issueCreate = registry.definitions.find((definition) => definition.name === 'planning_issue_create');
+            const issueProperties = issueCreate?.inputSchema.properties;
+            assert.ok(issueProperties && 'labels' in issueProperties);
+            assert.deepEqual(issueProperties['labels']['items'], { type: 'string', minLength: 1, pattern: '\\S' });
+            assert.deepEqual(issueCreate?.inputSchema['allOf'], [
+                { not: { required: ['labels', 'classification'] } },
+                { not: { required: ['labels', 'priority'] } },
+            ]);
         }
         finally {
             runtimeManager.close();
@@ -557,21 +595,515 @@ describe('Codex tool surface', () => {
             runtimeManager.close();
         }
     });
-    it('rejects caller identity and named out-of-scope workflow operations', async () => {
+    it('rejects caller identity, remote linkage, and named out-of-scope operations', async () => {
+        const project = gitProject();
         const runtimeManager = manager();
         try {
             const registry = createCodexToolRegistry(runtimeManager);
-            const spoofed = await registry.call('planning_discussion_append', {
-                project_root: '/not-used',
-                issue_id: '1',
-                body: 'spoofed',
+            for (const identity of [
+                'agent',
+                'author',
+                'verified_human',
+                'role',
+                'provenance',
+            ]) {
+                const spoofed = await registry.call('planning_issue_create', {
+                    project_root: project,
+                    objective: `Reject caller ${identity}`,
+                    labels: ['Feature', 'Priority: Medium'],
+                    [identity]: 'human',
+                });
+                assert.equal(spoofed.isError, true);
+                assert.equal((toolPayload(spoofed)['error']['code']), 'unsupported_identity_claim');
+            }
+            for (const remoteArgument of [
+                { remote_iid: 1171 },
+                { remote_backend: 'github' },
+                { issue_sync: 'gh' },
+            ]) {
+                const rejected = await registry.call('planning_issue_create', {
+                    project_root: project,
+                    objective: 'Reject remote planning input',
+                    labels: ['Feature', 'Priority: Medium'],
+                    ...remoteArgument,
+                });
+                assert.equal(rejected.isError, true);
+                assert.equal((toolPayload(rejected)['error']['code']), 'invalid_arguments');
+            }
+            const spoofedTaxonomyWrite = await registry.call('planning_label_taxonomy_set', {
+                project_root: project,
+                classification_labels: ['Defect'],
+                priority_labels: ['P1'],
                 agent: 'human',
             });
+            assert.equal(spoofedTaxonomyWrite.isError, true);
+            assert.equal((toolPayload(spoofedTaxonomyWrite)['error']['code']), 'unsupported_identity_claim');
+            const arbitraryConfigWrite = await registry.call('planning_label_taxonomy_set', {
+                project_root: project,
+                classification_labels: ['Defect'],
+                priority_labels: ['P1'],
+                issue_sync: 'gh',
+            });
+            assert.equal(arbitraryConfigWrite.isError, true);
+            assert.equal((toolPayload(arbitraryConfigWrite)['error']['code']), 'invalid_arguments');
             const excluded = await registry.call('task_create_batch', {});
-            assert.equal(spoofed.isError, true);
-            assert.equal((toolPayload(spoofed)['error']['code']), 'unsupported_identity_claim');
             assert.equal(excluded.isError, true);
             assert.equal((toolPayload(excluded)['error']['code']), 'out_of_scope_operation');
+            assert.equal(existsSync(join(project, '.tmb')), false);
+        }
+        finally {
+            runtimeManager.close();
+        }
+    });
+    it('reports the default project label taxonomy through the shared config reader', async () => {
+        const project = gitProject();
+        const runtimeManager = manager();
+        try {
+            const registry = createCodexToolRegistry(runtimeManager);
+            const result = await registry.call('planning_label_taxonomy_get', {
+                project_root: project,
+            });
+            assert.notEqual(result.isError, true);
+            assert.deepEqual(toolPayload(result)['data'], {
+                classification_labels: [
+                    'Bug',
+                    'Feature',
+                    'Improvement',
+                    'Docs',
+                    'Test',
+                    'Chore',
+                ],
+                priority_labels: [
+                    'Priority: Urgent',
+                    'Priority: High',
+                    'Priority: Medium',
+                    'Priority: Low',
+                ],
+                classification_source: 'default',
+                priority_source: 'default',
+            });
+        }
+        finally {
+            runtimeManager.close();
+        }
+    });
+    it('falls back to the default taxonomy when the config rows are absent', async () => {
+        const project = gitProject();
+        const runtimeManager = manager();
+        try {
+            const registry = createCodexToolRegistry(runtimeManager);
+            await runtimeManager.initialize(project);
+            await runtimeManager.withRuntime(project, ({ db }) => {
+                db.run(`DELETE FROM plugin_config
+           WHERE key IN ('issue_classification_labels', 'issue_priority_labels')`);
+            });
+            const result = await registry.call('planning_label_taxonomy_get', {
+                project_root: project,
+            });
+            assert.notEqual(result.isError, true);
+            assert.deepEqual(toolPayload(result)['data'], {
+                classification_labels: [
+                    'Bug',
+                    'Feature',
+                    'Improvement',
+                    'Docs',
+                    'Test',
+                    'Chore',
+                ],
+                priority_labels: [
+                    'Priority: Urgent',
+                    'Priority: High',
+                    'Priority: Medium',
+                    'Priority: Low',
+                ],
+                classification_source: 'default',
+                priority_source: 'default',
+            });
+        }
+        finally {
+            runtimeManager.close();
+        }
+    });
+    it('reads both taxonomy arrays from one snapshot during a concurrent replacement', async () => {
+        const project = gitProject();
+        const runtimeManager = manager();
+        let restoreAll;
+        let external;
+        try {
+            const registry = createCodexToolRegistry(runtimeManager);
+            const initialized = await runtimeManager.initialize(project);
+            await registry.call('planning_label_taxonomy_set', {
+                project_root: project,
+                classification_labels: ['Old classification'],
+                priority_labels: ['Old priority'],
+            });
+            external = new DatabaseSync(initialized.trajectory_db);
+            external.exec('PRAGMA busy_timeout = 5000');
+            await runtimeManager.withRuntime(project, ({ db }) => {
+                const originalAll = db.all.bind(db);
+                let replaced = false;
+                db.all = ((sql, params) => {
+                    const rows = originalAll(sql, params);
+                    if (!replaced && sql.includes('FROM plugin_config')) {
+                        replaced = true;
+                        external.exec('BEGIN IMMEDIATE');
+                        external
+                            .prepare('UPDATE plugin_config SET value_json = ? WHERE key = ?')
+                            .run(JSON.stringify(['New classification']), 'issue_classification_labels');
+                        external
+                            .prepare('UPDATE plugin_config SET value_json = ? WHERE key = ?')
+                            .run(JSON.stringify(['New priority']), 'issue_priority_labels');
+                        external.exec('COMMIT');
+                    }
+                    return rows;
+                });
+                restoreAll = () => {
+                    db.all = originalAll;
+                };
+            });
+            const duringReplacement = await registry.call('planning_label_taxonomy_get', { project_root: project });
+            assert.deepEqual(toolPayload(duringReplacement)['data'], {
+                classification_labels: ['Old classification'],
+                priority_labels: ['Old priority'],
+                classification_source: 'configured',
+                priority_source: 'configured',
+            });
+            restoreAll?.();
+            restoreAll = undefined;
+            const afterReplacement = await registry.call('planning_label_taxonomy_get', { project_root: project });
+            assert.deepEqual(toolPayload(afterReplacement)['data'], {
+                classification_labels: ['New classification'],
+                priority_labels: ['New priority'],
+                classification_source: 'configured',
+                priority_source: 'configured',
+            });
+        }
+        finally {
+            restoreAll?.();
+            external?.close();
+            runtimeManager.close();
+        }
+    });
+    it('creates a local issue with exact configured labels and keeps sync off', async () => {
+        const project = gitProject();
+        const runtimeManager = manager();
+        try {
+            const registry = createCodexToolRegistry(runtimeManager);
+            const configured = await registry.call('planning_label_taxonomy_set', {
+                project_root: project,
+                classification_labels: ['Defect', 'Capability'],
+                priority_labels: ['P0', 'P1', 'P2'],
+            });
+            assert.notEqual(configured.isError, true);
+            assert.deepEqual(toolPayload(configured)['data'], {
+                classification_labels: ['Defect', 'Capability'],
+                priority_labels: ['P0', 'P1', 'P2'],
+                classification_source: 'configured',
+                priority_source: 'configured',
+            });
+            await runtimeManager.withRuntime(project, ({ db }) => {
+                db.run(`UPDATE plugin_config SET value_json = '"gh"' WHERE key = 'issue_sync'`);
+            });
+            const taxonomy = await registry.call('planning_label_taxonomy_get', {
+                project_root: project,
+            });
+            assert.deepEqual(toolPayload(taxonomy)['data'], {
+                classification_labels: ['Defect', 'Capability'],
+                priority_labels: ['P0', 'P1', 'P2'],
+                classification_source: 'configured',
+                priority_source: 'configured',
+            });
+            const created = await registry.call('planning_issue_create', {
+                project_root: project,
+                objective: 'Plan a custom taxonomy fixture',
+                labels: ['Capability', 'P1', 'needs-review'],
+            });
+            assert.notEqual(created.isError, true);
+            const issue = toolPayload(created)['data'];
+            assert.ok(issue.id > 0);
+            assert.equal(issue.remote_iid, null);
+            assert.deepEqual(JSON.parse(issue.labels), [
+                'Capability',
+                'P1',
+                'needs-review',
+            ]);
+            await runtimeManager.withRuntime(project, ({ db }) => {
+                const sync = db.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
+                assert.equal(JSON.parse(sync.value_json), 'off');
+                assert.equal(db.get('SELECT COUNT(*) AS n FROM issues WHERE id != -1').n, 1);
+            });
+        }
+        finally {
+            runtimeManager.close();
+        }
+    });
+    it('rejects invalid taxonomy configuration without changing either taxonomy', async () => {
+        const project = gitProject();
+        const runtimeManager = manager();
+        try {
+            const registry = createCodexToolRegistry(runtimeManager);
+            const expected = toolPayload(await registry.call('planning_label_taxonomy_get', {
+                project_root: project,
+            }))['data'];
+            for (const invalid of [
+                { classification_labels: [], priority_labels: ['P1'] },
+                { classification_labels: ['Defect'], priority_labels: [] },
+                { classification_labels: ['   '], priority_labels: ['P1'] },
+                { classification_labels: ['Defect'], priority_labels: [1] },
+            ]) {
+                const result = await registry.call('planning_label_taxonomy_set', {
+                    project_root: project,
+                    ...invalid,
+                });
+                assert.equal(result.isError, true);
+                assert.equal((toolPayload(result)['error']['code']), 'invalid_label_taxonomy');
+                const unchanged = await registry.call('planning_label_taxonomy_get', {
+                    project_root: project,
+                });
+                assert.deepEqual(toolPayload(unchanged)['data'], expected);
+            }
+        }
+        finally {
+            runtimeManager.close();
+        }
+    });
+    it('rolls back both taxonomy values when the second config write fails', async () => {
+        const project = gitProject();
+        const runtimeManager = manager();
+        try {
+            const registry = createCodexToolRegistry(runtimeManager);
+            await runtimeManager.initialize(project);
+            await runtimeManager.withRuntime(project, ({ db }) => {
+                db.run(`CREATE TRIGGER reject_priority_taxonomy_update
+           BEFORE UPDATE OF value_json ON plugin_config
+           WHEN OLD.key = 'issue_priority_labels'
+           BEGIN
+             SELECT RAISE(ABORT, 'forced taxonomy write failure');
+           END`);
+            });
+            const result = await registry.call('planning_label_taxonomy_set', {
+                project_root: project,
+                classification_labels: ['Defect'],
+                priority_labels: ['P1'],
+            });
+            assert.equal(result.isError, true);
+            assert.equal((toolPayload(result)['error']['code']), 'operation_failed');
+            const taxonomy = await registry.call('planning_label_taxonomy_get', {
+                project_root: project,
+            });
+            assert.deepEqual(toolPayload(taxonomy)['data'], {
+                classification_labels: [
+                    'Bug',
+                    'Feature',
+                    'Improvement',
+                    'Docs',
+                    'Test',
+                    'Chore',
+                ],
+                priority_labels: [
+                    'Priority: Urgent',
+                    'Priority: High',
+                    'Priority: Medium',
+                    'Priority: Low',
+                ],
+                classification_source: 'default',
+                priority_source: 'default',
+            });
+        }
+        finally {
+            runtimeManager.close();
+        }
+    });
+    it('rejects mixed legacy and exact-label inputs before issue creation', async () => {
+        const project = gitProject();
+        const runtimeManager = manager();
+        try {
+            const registry = createCodexToolRegistry(runtimeManager);
+            await runtimeManager.initialize(project);
+            await runtimeManager.withRuntime(project, ({ db }) => {
+                db.run(`UPDATE plugin_config SET value_json = '"gh"' WHERE key = 'issue_sync'`);
+            });
+            for (const legacyArgument of [
+                { classification: 'Feature' },
+                { priority: 'Medium' },
+            ]) {
+                const result = await registry.call('planning_issue_create', {
+                    project_root: project,
+                    objective: 'Reject mixed label inputs',
+                    labels: ['Feature', 'Priority: Medium'],
+                    ...legacyArgument,
+                });
+                assert.equal(result.isError, true);
+                assert.equal((toolPayload(result)['error']['code']), 'invalid_arguments');
+            }
+            await runtimeManager.withRuntime(project, ({ db }) => {
+                assert.equal(db.get('SELECT COUNT(*) AS n FROM issues WHERE id != -1').n, 0);
+                assert.equal(JSON.parse(db.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`).value_json), 'gh');
+            });
+        }
+        finally {
+            runtimeManager.close();
+        }
+    });
+    it('rejects invalid exact-label input shapes without side effects', async () => {
+        const project = gitProject();
+        const runtimeManager = manager();
+        try {
+            const registry = createCodexToolRegistry(runtimeManager);
+            await runtimeManager.initialize(project);
+            let auditBefore = 0;
+            await runtimeManager.withRuntime(project, ({ db }) => {
+                db.run(`UPDATE plugin_config SET value_json = '"gh"' WHERE key = 'issue_sync'`);
+                auditBefore = db.get('SELECT COUNT(*) AS n FROM audit').n;
+            });
+            for (const labels of [
+                [],
+                'Feature',
+                ['Feature', 1],
+                ['Feature', '   '],
+            ]) {
+                const result = await registry.call('planning_issue_create', {
+                    project_root: project,
+                    objective: 'Reject invalid exact labels',
+                    labels,
+                });
+                assert.equal(result.isError, true);
+                assert.equal((toolPayload(result)['error']['code']), 'invalid_arguments');
+            }
+            await runtimeManager.withRuntime(project, ({ db }) => {
+                assert.equal(db.get('SELECT COUNT(*) AS n FROM issues WHERE id != -1').n, 0);
+                assert.equal(db.get('SELECT COUNT(*) AS n FROM audit').n, auditBefore);
+                assert.equal(JSON.parse(db.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`).value_json), 'gh');
+            });
+        }
+        finally {
+            runtimeManager.close();
+        }
+    });
+    it('rejects empty or malformed taxonomies without side effects', async () => {
+        for (const { key, invalidValue } of [
+            { key: 'issue_classification_labels', invalidValue: '[]' },
+            { key: 'issue_classification_labels', invalidValue: '[1]' },
+            { key: 'issue_classification_labels', invalidValue: '["   "]' },
+            { key: 'issue_classification_labels', invalidValue: '{}' },
+            { key: 'issue_classification_labels', invalidValue: 'not-json' },
+            { key: 'issue_priority_labels', invalidValue: '[]' },
+        ]) {
+            const project = gitProject();
+            const runtimeManager = manager();
+            try {
+                const registry = createCodexToolRegistry(runtimeManager);
+                await runtimeManager.initialize(project);
+                let auditBefore = 0;
+                await runtimeManager.withRuntime(project, ({ db }) => {
+                    db.run(`UPDATE plugin_config SET value_json = ? WHERE key = ?`, [invalidValue, key]);
+                    db.run(`UPDATE plugin_config SET value_json = '"gh"' WHERE key = 'issue_sync'`);
+                    auditBefore = db.get('SELECT COUNT(*) AS n FROM audit').n;
+                });
+                const taxonomy = await registry.call('planning_label_taxonomy_get', {
+                    project_root: project,
+                });
+                assert.equal(taxonomy.isError, true);
+                assert.equal((toolPayload(taxonomy)['error']['code']), 'invalid_label_taxonomy');
+                const created = await registry.call('planning_issue_create', {
+                    project_root: project,
+                    objective: `Reject taxonomy ${invalidValue}`,
+                    labels: ['Feature', 'Priority: Medium'],
+                });
+                assert.equal(created.isError, true);
+                assert.equal((toolPayload(created)['error']['code']), 'invalid_label_taxonomy');
+                await runtimeManager.withRuntime(project, ({ db }) => {
+                    assert.equal(db.get('SELECT COUNT(*) AS n FROM issues WHERE id != -1').n, 0);
+                    assert.equal(db.get('SELECT COUNT(*) AS n FROM audit').n, auditBefore);
+                    assert.equal(JSON.parse(db.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`).value_json), 'gh');
+                    assert.equal(db.get(`SELECT value_json FROM plugin_config WHERE key = ?`, [key]).value_json, invalidValue);
+                });
+            }
+            finally {
+                runtimeManager.close();
+            }
+        }
+    });
+    it('does not misreport operational config-read failures as invalid taxonomy', async () => {
+        const project = gitProject();
+        const runtimeManager = manager();
+        let restoreAll;
+        try {
+            const registry = createCodexToolRegistry(runtimeManager);
+            await runtimeManager.initialize(project);
+            await runtimeManager.withRuntime(project, ({ db }) => {
+                const originalAll = db.all.bind(db);
+                db.all = ((sql, params) => {
+                    if (sql.includes('FROM plugin_config')) {
+                        throw new Error('simulated database read failure');
+                    }
+                    return originalAll(sql, params);
+                });
+                restoreAll = () => {
+                    db.all = originalAll;
+                };
+            });
+            const result = await registry.call('planning_label_taxonomy_get', {
+                project_root: project,
+            });
+            assert.equal(result.isError, true);
+            assert.equal((toolPayload(result)['error']['code']), 'operation_failed');
+        }
+        finally {
+            restoreAll?.();
+            runtimeManager.close();
+        }
+    });
+    it('preserves the legacy Feature and Medium defaults for default projects', async () => {
+        const project = gitProject();
+        const runtimeManager = manager();
+        try {
+            const registry = createCodexToolRegistry(runtimeManager);
+            await runtimeManager.initialize(project);
+            await runtimeManager.withRuntime(project, ({ db }) => {
+                db.run(`UPDATE plugin_config SET value_json = '"gh"' WHERE key = 'issue_sync'`);
+            });
+            const created = await registry.call('planning_issue_create', {
+                project_root: project,
+                objective: 'Preserve default planning labels',
+            });
+            assert.notEqual(created.isError, true);
+            const issue = toolPayload(created)['data'];
+            assert.equal(issue.remote_iid, null);
+            assert.deepEqual(JSON.parse(issue.labels), [
+                'Feature',
+                'Priority: Medium',
+            ]);
+            await runtimeManager.withRuntime(project, ({ db }) => {
+                assert.equal(JSON.parse(db.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`).value_json), 'off');
+            });
+        }
+        finally {
+            runtimeManager.close();
+        }
+    });
+    it('leaves invalid configured labels to shared validation with sync disabled', async () => {
+        const project = gitProject();
+        const runtimeManager = manager();
+        try {
+            const registry = createCodexToolRegistry(runtimeManager);
+            await runtimeManager.initialize(project);
+            await runtimeManager.withRuntime(project, ({ db }) => {
+                db.run(`UPDATE plugin_config SET value_json = ? WHERE key = 'issue_classification_labels'`, [JSON.stringify(['Defect', 'Capability'])]);
+                db.run(`UPDATE plugin_config SET value_json = ? WHERE key = 'issue_priority_labels'`, [JSON.stringify(['P0', 'P1', 'P2'])]);
+                db.run(`UPDATE plugin_config SET value_json = '"gh"' WHERE key = 'issue_sync'`);
+            });
+            const result = await registry.call('planning_issue_create', {
+                project_root: project,
+                objective: 'Reject labels outside the configured taxonomy',
+                labels: ['Feature', 'Priority: Medium'],
+            });
+            assert.equal(result.isError, true);
+            assert.equal((toolPayload(result)['error']['code']), 'missing_required_labels');
+            await runtimeManager.withRuntime(project, ({ db }) => {
+                assert.equal(db.get('SELECT COUNT(*) AS n FROM issues WHERE id != -1').n, 0);
+                assert.equal(JSON.parse(db.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`).value_json), 'off');
+            });
         }
         finally {
             runtimeManager.close();

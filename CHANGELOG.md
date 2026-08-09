@@ -5,6 +5,7 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 ## Unreleased
 
 ### Fixed
+- **Codex planning supports project-specific label taxonomies** (GH 1171): the Scope-3 adapter now exposes a bounded atomic taxonomy setter, a read-only taxonomy query, and an exact mutually exclusive `labels` array for local planning issues. Default classification/priority callers remain compatible, invalid or malformed taxonomy config fails with `invalid_label_taxonomy`, and shared issue validation still requires at least one configured classification and one configured priority before any Issue row is created.
 - **Bundle generation preserves template-literal whitespace** (GH 1163): the shared post-build pass no longer strips trailing spaces from generated JavaScript, where dependency source may contain those bytes inside runtime string constants. Git whitespace diagnostics are disabled only for the two checked-in esbuild bundles, while the dist-fresh gate continues to compare them byte-for-byte with a clean rebuild.
 
 ### Changed

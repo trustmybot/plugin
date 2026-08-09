@@ -23905,8 +23905,8 @@ function defaultSyncLabels(db2) {
   if (priorityLabels.length > 0) labels.push(priorityLabels[0]);
   return labels;
 }
-function validateIssueLabels(db2, labels) {
-  const { classification, priorityLabels } = resolveLabelTaxonomy(db2);
+function validateIssueLabels(db2, labels, taxonomy) {
+  const { classification, priorityLabels } = taxonomy ?? resolveLabelTaxonomy(db2);
   const classificationSet = new Set(classification);
   const prioritySet = new Set(priorityLabels);
   const hasPriority = labels.some((l) => prioritySet.has(l));
@@ -24071,7 +24071,7 @@ async function syncIssueCloseRemotes(db2, dbPath2, issueId, spawnFn) {
     }
   }
 }
-function issueTools(db2, dbPath2 = "") {
+function issueTools(db2, dbPath2 = "", options = {}) {
   const definitions = [
     {
       name: "issue_create",
@@ -24226,7 +24226,7 @@ function issueTools(db2, dbPath2 = "") {
       const objective = args["objective"];
       const description = args["description"] ?? "";
       const labels = args["labels"] ?? [];
-      const labelError = validateIssueLabels(db2, labels);
+      const labelError = validateIssueLabels(db2, labels, options.labelTaxonomy);
       if (labelError !== null) {
         return err2(labelError);
       }
@@ -26956,6 +26956,81 @@ function wrapHandler9(fn) {
   };
 }
 var KEY_REGEX = /^[a-z][a-z0-9_.-]{0,63}$/i;
+function storedConfigParseErrorPrefix(key) {
+  return `config key ${JSON.stringify(key)}: stored value is not valid JSON`;
+}
+function setConfigValues(db2, entries) {
+  const serialized = entries.map(({ key, value }) => ({
+    key,
+    valueJson: serializeConfigValue(key, value)
+  }));
+  db2.transaction(() => {
+    for (const { key, valueJson } of serialized) {
+      db2.run(
+        `INSERT INTO plugin_config (key, value_json)
+         VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
+        [key, valueJson]
+      );
+    }
+  });
+}
+function getConfigValues(db2, keys) {
+  if (keys.length === 0) return Object.freeze({});
+  const placeholders = keys.map(() => "?").join(", ");
+  const rows = db2.all(
+    `SELECT key, value_json
+     FROM plugin_config
+     WHERE key IN (${placeholders})`,
+    [...keys]
+  );
+  const result = Object.fromEntries(
+    keys.map((key) => [key, null])
+  );
+  for (const row of rows) {
+    try {
+      result[row.key] = JSON.parse(row.value_json);
+    } catch {
+      throw new Error(
+        `${storedConfigParseErrorPrefix(row.key)} \u2014 raw: ${row.value_json.slice(0, 200)}`
+      );
+    }
+  }
+  return Object.freeze(result);
+}
+function serializeConfigValue(key, rawValue) {
+  if (typeof key !== "string" || !KEY_REGEX.test(key)) {
+    throw new Error(
+      `Invalid config key ${JSON.stringify(key)}: must match /^[a-z][a-z0-9_.-]{0,63}$/i`
+    );
+  }
+  if (rawValue === void 0 || rawValue === null) {
+    throw new Error("Missing required arg: value");
+  }
+  if (typeof rawValue === "string") {
+    const trimmed = rawValue.trim();
+    if (trimmed.startsWith("[") && trimmed.endsWith("]") || trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (typeof parsed === "object" && parsed !== null) {
+          throw new Error(
+            `config value for key=${JSON.stringify(key)} looks like a pre-serialized JSON ${Array.isArray(parsed) ? "array" : "object"} (passed as a string). Pass the raw value directly \u2014 e.g. value=["main"], not value="[\\"main\\"]". The server calls JSON.stringify() on whatever you pass; double-encoding it breaks downstream consumers that expect the original shape.`
+          );
+        }
+      } catch (error2) {
+        if (error2 instanceof SyntaxError) {
+        } else {
+          throw error2;
+        }
+      }
+    }
+  }
+  try {
+    return JSON.stringify(rawValue);
+  } catch {
+    throw new Error("config value not JSON-serializable");
+  }
+}
 function configTools(db2) {
   const definitions = [
     {
@@ -26993,61 +27068,12 @@ function configTools(db2) {
   const handlers = {
     config_set: requireRoles("config_set", ["bro"], wrapHandler9(async (args) => {
       const key = args["key"];
-      if (typeof key !== "string" || !KEY_REGEX.test(key)) {
-        return err9(
-          `Invalid config key ${JSON.stringify(key)}: must match /^[a-z][a-z0-9_.-]{0,63}$/i`
-        );
-      }
-      if (args["value"] === void 0 || args["value"] === null) {
-        return err9("Missing required arg: value");
-      }
-      const rawValue = args["value"];
-      if (typeof rawValue === "string") {
-        const trimmed = rawValue.trim();
-        if (trimmed.startsWith("[") && trimmed.endsWith("]") || trimmed.startsWith("{") && trimmed.endsWith("}")) {
-          try {
-            const parsed = JSON.parse(trimmed);
-            if (typeof parsed === "object" && parsed !== null) {
-              return err9(
-                `config value for key=${JSON.stringify(key)} looks like a pre-serialized JSON ${Array.isArray(parsed) ? "array" : "object"} (passed as a string). Pass the raw value directly \u2014 e.g. value=["main"], not value="[\\"main\\"]". The server calls JSON.stringify() on whatever you pass; double-encoding it breaks downstream consumers that expect the original shape.`
-              );
-            }
-          } catch {
-          }
-        }
-      }
-      let valueJson;
-      try {
-        valueJson = JSON.stringify(rawValue);
-      } catch {
-        return err9("config value not JSON-serializable");
-      }
-      db2.run(
-        `INSERT INTO plugin_config (key, value_json)
-         VALUES (?, ?)
-         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
-        [key, valueJson]
-      );
+      setConfigValues(db2, [{ key, value: args["value"] }]);
       return ok9({ key });
     })),
     config_get: wrapHandler9(async (args) => {
       const key = args["key"];
-      const row = db2.get(
-        `SELECT key, value_json FROM plugin_config WHERE key = ?`,
-        [key]
-      );
-      if (!row) {
-        return ok9(null);
-      }
-      let parsed;
-      try {
-        parsed = JSON.parse(row.value_json);
-      } catch {
-        return err9(
-          `config key ${JSON.stringify(key)}: stored value is not valid JSON \u2014 raw: ${row.value_json.slice(0, 200)}`
-        );
-      }
-      return ok9(parsed);
+      return ok9(getConfigValues(db2, [key])[key] ?? null);
     }),
     config_list: wrapHandler9(async () => {
       const rows = db2.all(
@@ -27059,7 +27085,7 @@ function configTools(db2) {
           result[row.key] = JSON.parse(row.value_json);
         } catch {
           return err9(
-            `config key ${JSON.stringify(row.key)}: stored value is not valid JSON \u2014 raw: ${row.value_json.slice(0, 200)}`
+            `${storedConfigParseErrorPrefix(row.key)} \u2014 raw: ${row.value_json.slice(0, 200)}`
           );
         }
       }

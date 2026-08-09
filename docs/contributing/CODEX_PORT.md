@@ -65,6 +65,7 @@ The immutable MCP allowlist is:
 - `runtime_initialize`;
 - `project_inventory`, `project_scan`;
 - `world_model_get`, `world_model_search`;
+- `planning_label_taxonomy_get`, `planning_label_taxonomy_set`;
 - `planning_issue_create`, `planning_issue_get`, `planning_issue_list`,
   `planning_issue_resume`;
 - `planning_discussion_append`, `planning_discussion_list`.
@@ -73,9 +74,16 @@ Every schema requires `project_root` and disallows additional properties. The
 wrapper removes role/provenance fields from the public contract, rejects any
 caller attempt to supply `agent`, `author`, `verified_human`, `role`, or
 `provenance`, and injects the fixed `bro` identity internally. Scan routing is
-fixed to the validated project root and `bro_auto_initial`. Planning issue
-creation writes `issue_sync="off"` before calling the shared handler and does
-not accept remote linkage arguments. Discussion append and reads call the
+fixed to the validated project root and `bro_auto_initial`. Configuration is
+limited to an atomic replacement of the classification and priority arrays
+through the shared config foundation; the replacement is advertised as
+destructive and arbitrary keys remain unreachable. Planning issue creation
+reads both taxonomy rows from one SQLite snapshot and accepts either the
+backward-compatible default
+classification/priority inputs or one mutually exclusive exact `labels` array
+containing at least one configured classification and priority plus any explicit
+extra labels, writes `issue_sync="off"` before calling the shared issue handler,
+and does not accept remote linkage arguments. Discussion append and reads call the
 shared discussion handlers with server-fixed Bro authorship; the optional
 embedding dependency remains external to the installed bundle and degrades to
 FTS-only behavior when absent, so the Scope-3 workflow requires no dependency
@@ -93,8 +101,8 @@ Still outside Scope 3:
 - SWE/reviewer/consultant spawning and validation records;
 - branch or worktree orchestration;
 - commit, push, merge, PR, or remote issue operations;
-- onboarding, configuration, cheatcode, roundtable, report, and enforcement
-  Hook surfaces;
+- onboarding, arbitrary configuration, cheatcode, roundtable, report, and
+  enforcement Hook surfaces;
 - Human-authored records or authenticated multi-role calls;
 - state adoption or migration from Claude;
 - public Plugin Directory, stable-channel, or full Codex support claims.

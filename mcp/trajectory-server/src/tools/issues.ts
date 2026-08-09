@@ -19,6 +19,21 @@ type SpawnFn = (
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
+export interface IssueLabelTaxonomy {
+  readonly classification: readonly string[];
+  readonly priorityLabels: readonly string[];
+}
+
+export interface IssueToolOptions {
+  /**
+   * Optional caller-resolved taxonomy snapshot. Codex supplies its strict
+   * config_get result so shared issue validation uses the same fail-closed
+   * snapshot instead of re-reading configuration with Claude's legacy
+   * malformed-value fallback.
+   */
+  readonly labelTaxonomy?: IssueLabelTaxonomy;
+}
+
 // Mandatory issue tagging (#93/#777): every issue must carry one priority tag
 // AND one classification tag. The valid sets are configurable per project via
 // plugin_config (issue_classification_labels / issue_priority_labels); when
@@ -99,8 +114,12 @@ function defaultSyncLabels(db: TrajectoryDB): string[] {
 // checked against the project's configured (or generic-default) taxonomy.
 // Returns a named error string listing what is missing and the valid options,
 // or null when the labels are valid. Extra labels (in neither set) are allowed.
-function validateIssueLabels(db: TrajectoryDB, labels: string[]): string | null {
-  const { classification, priorityLabels } = resolveLabelTaxonomy(db);
+function validateIssueLabels(
+  db: TrajectoryDB,
+  labels: string[],
+  taxonomy?: IssueLabelTaxonomy,
+): string | null {
+  const { classification, priorityLabels } = taxonomy ?? resolveLabelTaxonomy(db);
   const classificationSet = new Set(classification);
   const prioritySet = new Set(priorityLabels);
   const hasPriority = labels.some((l) => prioritySet.has(l));
@@ -350,7 +369,11 @@ export async function syncIssueCloseRemotes(
   }
 }
 
-export function issueTools(db: TrajectoryDB, dbPath = ''): {
+export function issueTools(
+  db: TrajectoryDB,
+  dbPath = '',
+  options: IssueToolOptions = {},
+): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
 } {
@@ -514,7 +537,7 @@ export function issueTools(db: TrajectoryDB, dbPath = ''): {
       // instead of re-deriving defaultSyncLabels.
       const labels = (args['labels'] as string[] | undefined) ?? [];
       // Mandatory tagging (#93/#777): fail closed before any insert/sync.
-      const labelError = validateIssueLabels(db, labels);
+      const labelError = validateIssueLabels(db, labels, options.labelTaxonomy);
       if (labelError !== null) {
         return err(labelError);
       }

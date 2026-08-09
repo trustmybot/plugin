@@ -12,7 +12,7 @@ understanding and local planning (HAR-1)
 **Reference adapter:** Claude Code
 
 The Codex package selects an empty Hook manifest, one explicitly invoked
-`tmb-bro` Skill, and an immutable 11-tool MCP allowlist for project inventory,
+`tmb-bro` Skill, and an immutable 13-tool MCP allowlist for project inventory,
 world-model reads, local planning issues, and Bro-authored planning records.
 Server wrappers require an explicit validated project root, fix workflow writes
 to the Bro identity, and force remote issue sync off. Task execution, agents,
@@ -24,6 +24,7 @@ shell, edit, Git, or other non-TMB tool paths.
 
 The complete allowlist is `runtime_initialize`, `project_inventory`,
 `project_scan`, `world_model_get`, `world_model_search`,
+`planning_label_taxonomy_get`, `planning_label_taxonomy_set`,
 `planning_issue_create`, `planning_issue_get`, `planning_issue_list`,
 `planning_issue_resume`, `planning_discussion_append`, and
 `planning_discussion_list`.
@@ -74,7 +75,7 @@ in any Tier-3 row remains a candidate, not a capability that ships today.
 | Reviewer session evidence | Requires validation records to name the independent reviewer session. | Bro/pr-reviewer matrices | Tier 3 | Shared `validation_record` handler (Tier 1 candidate) | No validation tool is exposed. |
 | Validation MCP-availability evidence | Requires reviewer records to provide the typed `mcp_available` boolean. | Shared `validation_record` handler | Tier 3 | Shared handler validation (Tier 1 candidate) | No validation write is exposed. |
 | Verified-Human discussion write | Rejects Human-authored discussion claims without the required verification assertion. | Bro matrix | **Tier 1 for the Scope-3 slice** | Adapter wrapper | The public append schema has no author/provenance fields, rejects attempts to add them, and always writes `author="bro"`; Human-authored writes are unavailable. |
-| Remote issue-sync default-off | Prevents remote synchronization unless explicitly enabled. | Bro matrix | **Tier 1** | Adapter wrapper plus shared issue handler | `planning_issue_create` forces project-local `issue_sync="off"`, omits remote linkage fields, and exposes no config or sync tool. |
+| Remote issue-sync default-off | Prevents remote synchronization unless explicitly enabled. | Bro matrix | **Tier 1** | Adapter wrapper plus shared issue handler | `planning_label_taxonomy_get` reads the exact label sets, while `planning_label_taxonomy_set` can atomically replace only those two project-local arrays. `planning_issue_create` forces `issue_sync="off"`, supports exact configured labels, omits remote linkage fields, and exposes no arbitrary config or sync tool. |
 | Roundtable state transitions | Rejects invalid roundtable lifecycle transitions. | Bro matrix | Tier 3 | Shared roundtable handlers (Tier 1 candidate) | No roundtable tool is exposed. |
 | Roundtable question shape | Requires the discrete Human-question shape during roundtable voting. | Bro matrix | Tier 3 | No portable mechanism declared | No roundtable tool or trusted structured-question contract is exposed. |
 | Task decision audit | Requires task creation to carry its preceding decision evidence. | Bro matrix | Tier 3 | Shared task handler (Tier 1 candidate) | No task-creation tool is exposed. |
