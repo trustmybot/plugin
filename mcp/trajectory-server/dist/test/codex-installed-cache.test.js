@@ -42,6 +42,11 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
         const sourceDist = dirname(dirname(testFile));
         const sourceRoot = dirname(dirname(dirname(sourceDist)));
         const manifest = JSON.parse(readFileSync(join(sourceRoot, '.codex-plugin', 'plugin.json'), 'utf8'));
+        assert.deepEqual(manifest.commands, []);
+        assert.equal(manifest.skills, './adapters/codex/skills/');
+        assert.deepEqual(manifest.interface.defaultPrompt, [
+            'Use $tmb:tmb-bro for local planning, or $tmb:tmb-agent-setup to inspect, install, or remove the two project Agents.',
+        ]);
         const cacheRoot = join(fixture, 'cache', manifest.name, manifest.version);
         const cacheDist = join(cacheRoot, 'mcp', 'trajectory-server', 'dist');
         const cacheAdapter = join(cacheRoot, 'adapters', 'codex');

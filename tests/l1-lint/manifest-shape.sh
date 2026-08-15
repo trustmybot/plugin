@@ -65,14 +65,20 @@ if jq -e . "$CODEX_MANIFEST" >/dev/null 2>&1; then
     (.version | type == "string") and
     .mcpServers == "./adapters/codex/.mcp.json" and
     .hooks == "./hooks/codex/hooks.json" and
+    .commands == [] and
     .skills == "./adapters/codex/skills/" and
+    (.interface.defaultPrompt | all(.[]; contains("$tmb:tmb-"))) and
     (.interface.defaultPrompt | type == "array" and length > 0) and
     all(.interface.defaultPrompt[]; type == "string" and utf8bytelength <= 128)
   ' "$CODEX_MANIFEST" >/dev/null; then
-    fail "$CODEX_MANIFEST has invalid identity, component paths, or defaultPrompt length"
+    fail "$CODEX_MANIFEST has invalid identity, component paths, command isolation, or defaultPrompt"
   else
-    pass "$CODEX_MANIFEST points only to Codex-specific MCP, hook, and Skill surfaces"
+    pass "$CODEX_MANIFEST disables Claude command migration and points only to Codex-specific surfaces"
   fi
+fi
+
+if [ -d .codex-plugin/migrated-command-skills ]; then
+  fail ".codex-plugin/migrated-command-skills must be install-time output, never a source surface"
 fi
 
 if [ ! -f "$CODEX_SKILLS/tmb-bro/SKILL.md" ] ||

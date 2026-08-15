@@ -1,6 +1,6 @@
 ---
 name: tmb-agent-setup
-description: Inspect, install, or remove TrustMyBot's two fixed project-level Codex Agents. Use only when the user explicitly invokes $tmb-agent-setup and confirms the exact project-local file changes.
+description: Inspect, install, or remove TrustMyBot's two fixed project-level Codex Agents. Use only when the user explicitly invokes $tmb:tmb-agent-setup and confirms the exact project-local file changes.
 ---
 
 # TMB Agent Setup

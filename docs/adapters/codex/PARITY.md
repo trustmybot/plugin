@@ -16,12 +16,18 @@ workflow.
 The Codex package selects an empty Hook manifest, exactly two explicit-only
 Skills, and an immutable 15-tool MCP registry.
 
-- `$tmb-bro` uses 13 project-local tools for inventory, scanning, world-model
+- `$tmb:tmb-bro` uses 13 project-local tools for inventory, scanning, world-model
   reads, label taxonomy, local planning Issues, and Bro-authored discussions.
-- `$tmb-agent-setup` uses `agent_materialization_get` and
+- `$tmb:tmb-agent-setup` uses `agent_materialization_get` and
   `agent_materialization_set` to manage two fixed files:
   `.codex/agents/tmb_swe.toml` and
   `.codex/agents/tmb_pr_reviewer.toml`.
+
+The manifest also declares an empty `commands` surface. This prevents Codex
+from migrating the plugin's Claude commands into `source-command-*` Skills.
+Because both package Skills disable implicit invocation, a generic model-visible
+Skill list may omit them; package inspection plus direct namespaced invocation
+is the acceptance contract.
 
 Every MCP call requires a canonical Git worktree root whose `.tmb/` state is
 ignored and untracked. Planning state remains below `<project>/.tmb/tmb/`.
@@ -95,7 +101,7 @@ not server gates.
 | Capability | Codex value | Current use and limitation |
 |---|---|---|
 | Functional lifecycle Hooks | **No** | The selected Codex Hook manifest is empty. No activation, source-edit, Git, review, or Push gate ships. |
-| Explicit project-local Skills | **Yes** | Exactly `$tmb-bro` and `$tmb-agent-setup`; both set `allow_implicit_invocation: false`. |
+| Explicit project-local Skills | **Yes** | Exactly `$tmb:tmb-bro` and `$tmb:tmb-agent-setup`; both set `allow_implicit_invocation: false`. A generic model-visible list may omit them, so acceptance uses package inspection and direct invocation. |
 | Project-level custom Agents | **Yes, explicit setup** | Setup can materialize exactly `tmb_swe` and `tmb_pr_reviewer`; Bro does not spawn them. |
 | Per-Agent sandbox default | **Yes, overridable** | SWE requests `workspace-write`; reviewer requests `read-only`. Parent permissions remain authoritative. |
 | Per-Agent TMB MCP isolation | **Static same-name MCP shadow** | Both templates define `mcp_servers."trajectory-server"` as disabled with inert transport metadata. Live child tool-surface checks remain required. |

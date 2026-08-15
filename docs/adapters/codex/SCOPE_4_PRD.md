@@ -45,7 +45,7 @@ Scope 4 的目标很直接：让用户在当前项目里安装两个固定角色
 - `tmb_swe` 接收完整实施简报，在当前工作区修改代码并运行验证。
 - `tmb_pr_reviewer` 阅读指定变更，给出审查意见，不修改代码。
 
-Codex 从项目的 `.codex/agents/` 读取自定义 Agent，但插件 manifest 不能直接把文件放到这个目录。因此，本期增加一个需要用户主动调用的 Skill `$tmb-agent-setup`，再给它两个用途受限的 MCP 工具：
+Codex 从项目的 `.codex/agents/` 读取自定义 Agent，但插件 manifest 不能直接把文件放到这个目录。因此，本期增加一个需要用户主动调用的 Skill `$tmb:tmb-agent-setup`，再给它两个用途受限的 MCP 工具：
 
 - `agent_materialization_get`
 - `agent_materialization_set`
@@ -104,7 +104,7 @@ trajectory-server 工具，就返回 `BLOCKED_TMB_MCP_ISOLATION`，不读取仓�
 
 当前 `origin/dev` 已提供：
 
-- 一个显式调用 Skill：`$tmb-bro`。
+- 一个源 Skill `tmb-bro`；安装后由 Codex 以 `$tmb:tmb-bro` 暴露。
 - `allow_implicit_invocation: false` 的 Codex Skill 策略。
 - 项目扫描、world model、本地规划 Issue 和 planning discussion。
 - 固定 Bro 身份和 caller identity / provenance 拒绝。
@@ -117,12 +117,13 @@ Scope 3 不提供 Agent、task、validation、worktree、Git 交付或功能性 
 
 ### 3.3 当前命名与包身份
 
-Scope 4 必须以 `origin/dev` 为准：
+Scope 4 保留 `origin/dev` 里的 Skill 目录名和 frontmatter 名称。插件安装后，
+Codex 会加上插件命名空间；用户实际看到和调用的是 namespaced 名称：
 
 | 对象 | 当前值 | Scope 4 决策 |
 |---|---|---|
-| 已有 Skill | `$tmb-bro` | 保持不变 |
-| 新 Setup Skill | 不存在 | 命名为 `$tmb-agent-setup` |
+| 已有 Skill | 源名称 `tmb-bro` | 保持源名称；用户调用名为 `$tmb:tmb-bro` |
+| 新 Setup Skill | 不存在 | 源名称 `tmb-agent-setup`；用户调用名为 `$tmb:tmb-agent-setup` |
 | Plugin manifest name | `tmb` | 保持不变 |
 | 本地 Marketplace name | `trustmybot-local` | 保持开发安装来源，不进入 Agent 隔离键 |
 | 完整本地 plugin ID | `tmb@trustmybot-local` | 用于本地安装证据，不进入 Agent TOML |
@@ -130,7 +131,14 @@ Scope 4 必须以 `origin/dev` 为准：
 | SWE Agent | 不存在 | `tmb_swe` |
 | Reviewer Agent | 不存在 | `tmb_pr_reviewer` |
 
-不得使用旧草案中的 `$tmb:tmb-bro`、`$tmb:tmb-agent-setup` 或 `[plugins.tmb...]` 写法。
+已安装插件的精确调用名不能写成裸 `$tmb-bro` 或 `$tmb-agent-setup`。旧草案里的
+`[plugins.tmb...]` Agent MCP 配置也不再使用。`tmb` 是 Codex 安装时加上的插件命名空间，
+并不是 Skill 源目录名的一部分。
+
+Codex 安装插件时会处理插件根目录的 `commands/`，但 TrustMyBot 的这个目录是 Claude
+入口，不能混入 Codex Skill surface。为此，`.codex-plugin/plugin.json` 必须显式声明
+`"commands": []`，避免 Codex 回退扫描后生成 `source-command-*` Skills。`skills` 仍只指向
+`adapters/codex/skills/`。
 
 ### 3.4 当前 Codex 宿主契约
 
@@ -143,7 +151,9 @@ Scope 4 必须以 `origin/dev` 为准：
 - 未固定 `model` 或 `model_reasoning_effort` 时，由显式 spawn 参数、`[agents]` 默认值和父 task 配置按宿主优先级解析。
 - 父 task 的实时 sandbox / approval 覆盖会在 spawn 时重新应用，可能覆盖 Agent TOML 的默认值。
 - 插件支持 Codex Desktop 和 Codex CLI；IDE extension 当前不支持插件。
-- 插件安装或配置变化后，需要新 task 或新 CLI session 才能可靠发现新的 Skill、工具和 Agent。
+- 插件安装或配置变化后，需要新 task 或新 CLI session 才能可靠加载新的 Skill、工具和 Agent。
+- 两个 Skill 都设置了 `allow_implicit_invocation: false`，所以模型在回答“有哪些可用 Skill”时可能不会列出它们。验收不能依赖这类泛化回答，而要先解析 installed manifest 的 `skills` 路径，确认该目录恰好包含两个源 Skill，再分别按 namespaced 名称直接调用。插件根目录的 Claude `skills/` 与 `commands/` 仍须原样保留。
+- Codex `0.147.0` 已验证 `$tmb:tmb-bro` 和 `$tmb:tmb-agent-setup` 可直接调用，且未生成 `source-command-*` Skill。
 - plugin-scoped MCP override 在真实 child task 中表现不可靠，本期不采用。
 - `mcp_servers."trajectory-server"` 同名禁用项在 CLI `0.146.0` 和 `0.147.0` 的 disposable 项目中都隐藏了 TMB 工具。
 
@@ -238,7 +248,7 @@ Scope 3 的 Bro 能理解项目并保存规划。接下来真正写代码和审�
 
 ### 6.1 主要用户
 
-主要用户是同时使用 TrustMyBot 与 Codex CLI/Desktop 的开发者。他们已经用 `$tmb-bro` 做本地规划，现在需要固定的实施和审查角色，但暂时不需要自动 task 编排、Push gate 或完整 Claude parity。
+主要用户是同时使用 TrustMyBot 与 Codex CLI/Desktop 的开发者。他们已经用 `$tmb:tmb-bro` 做本地规划，现在需要固定的实施和审查角色，但暂时不需要自动 task 编排、Push gate 或完整 Claude parity。
 
 ### 6.2 次要利益相关者
 
@@ -264,7 +274,7 @@ Scope 3 的 Bro 能理解项目并保存规划。接下来真正写代码和审�
 
 Scope 4 明确不包含：
 
-- `$tmb-bro` 自动安装或自动 spawn Agent；
+- `$tmb:tmb-bro` 自动安装或自动 spawn Agent；
 - TMB task 创建、领取、重试、关闭或状态更新；
 - validation record、reviewer session 签名或可信 provenance；
 - server-issued role token；
@@ -283,7 +293,7 @@ Scope 4 明确不包含：
 
 ## 9. 产品原则
 
-1. **显式触发**：普通对话和 `$tmb-bro` 不得安装 Agent。
+1. **显式触发**：普通对话和 `$tmb:tmb-bro` 不得安装 Agent。
 2. **项目本地**：不写 `~/.codex/agents/`。
 3. **精确目标**：只管理两个固定文件。
 4. **未知即冲突**：无法证明是当前模板，就不覆盖、不删除。
@@ -315,7 +325,7 @@ Scope 4 明确不包含：
 
 ### 11.1 首次检查与安装
 
-1. 用户在目标 Git worktree 中显式调用 `$tmb-agent-setup`。
+1. 用户在目标 Git worktree 中显式调用 `$tmb:tmb-agent-setup`。
 2. Skill 确定当前项目的绝对 Git top-level。
 3. Skill 调用只读的 `agent_materialization_get`。Getter 会自行检查 canonical root 和 `.tmb/` ignore 门禁，不打开 TMB 规划数据库。
 4. Skill 显示两个目标路径及 `absent/current/conflict` 状态。
@@ -369,7 +379,7 @@ Scope 4 明确不包含：
 
 ### 11.5 移除
 
-1. 用户显式调用 `$tmb-agent-setup` 并选择移除。
+1. 用户显式调用 `$tmb:tmb-agent-setup` 并选择移除。
 2. Skill 显示两个精确目标。
 3. 用户明确确认。
 4. Skill 调用 `agent_materialization_set`，传入 `desired_state="absent"`。
@@ -406,7 +416,7 @@ Scope 4 明确不包含：
 
 ```mermaid
 flowchart LR
-    U["用户显式调用 $tmb-agent-setup"] --> S["Setup Skill"]
+    U["用户显式调用 $tmb:tmb-agent-setup"] --> S["Setup Skill"]
     S --> G["agent_materialization_get"]
     G --> C{"需要变更且用户确认？"}
     C -->|否| X["不写入"]
@@ -418,7 +428,7 @@ flowchart LR
     N --> REV["tmb_pr_reviewer"]
     SWE -. "静态关闭 TMB trajectory-server" .-> W["当前工作区"]
     REV -. "静态关闭 TMB trajectory-server" .-> W
-    BRO["$tmb-bro"] -. "Scope 4 不自动 spawn" .-> SWE
+    BRO["$tmb:tmb-bro"] -. "Scope 4 不自动 spawn" .-> SWE
 ```
 
 ### 12.1 代码归属
@@ -453,10 +463,10 @@ flowchart LR
 
 Scope 4 完成后，Codex 插件只公开两个 Skill：
 
-1. `$tmb-bro`
-2. `$tmb-agent-setup`
+1. `$tmb:tmb-bro`
+2. `$tmb:tmb-agent-setup`
 
-`$tmb-agent-setup` 必须有自己的 `agents/openai.yaml`，并设置：
+`$tmb:tmb-agent-setup` 必须有自己的 `agents/openai.yaml`，并设置：
 
 ```yaml
 policy:
@@ -940,7 +950,7 @@ enabled = false
 ```
 
 - `node --version` 只是满足 Codex 完整 transport schema 的惰性占位，禁用时不得启动；
-- 明确禁止调用 `$tmb-bro` 和 `$tmb-agent-setup`；
+- 明确禁止调用 `$tmb:tmb-bro` 和 `$tmb:tmb-agent-setup`；
 - 明确禁止修改 `.tmb/`、`.claude/` 和 `.codex/`；
 - 明确声明自身不是服务器认证的 TMB workflow role；
 - 明确声明自身不会创建 TMB task、validation 或 audit record；
@@ -1114,7 +1124,7 @@ sandbox_mode = "read-only"
 
 ### 20.1 固定流程
 
-`$tmb-agent-setup` 必须按以下顺序执行：
+`$tmb:tmb-agent-setup` 必须按以下顺序执行：
 
 1. 确定当前项目绝对 Git top-level。
 2. 确认用户要检查、安装还是移除。
@@ -1135,7 +1145,7 @@ sandbox_mode = "read-only"
 Skill 不得：
 
 - 自动 spawn Agent；
-- 修改 `$tmb-bro` 的规划记录；
+- 修改 `$tmb:tmb-bro` 的规划记录；
 - 创建 TMB task 或 validation；
 - 执行 Git 写操作；
 - 自动处理 conflict；
@@ -1176,7 +1186,7 @@ Skill 不得：
 
 Partial：
 
-> 至少一个 Agent 文件已经变化，但两个文件没有达到同一目标状态。不要覆盖或批量删除 `.codex/agents`。请重新运行 `$tmb-agent-setup` 检查状态；如果仍是 safe mixed，可重复同一安装或移除操作。错误详情会保留导致中断的原始原因。
+> 至少一个 Agent 文件已经变化，但两个文件没有达到同一目标状态。不要覆盖或批量删除 `.codex/agents`。请重新运行 `$tmb:tmb-agent-setup` 检查状态；如果仍是 safe mixed，可重复同一安装或移除操作。错误详情会保留导致中断的原始原因。
 
 ## 21. 功能需求
 
@@ -1184,7 +1194,7 @@ Partial：
 
 | ID | 需求 |
 |---|---|
-| S4-FR-001 | Codex 精确公开 `$tmb-bro` 与 `$tmb-agent-setup` 两个 Skill |
+| S4-FR-001 | Codex 精确公开 `$tmb:tmb-bro` 与 `$tmb:tmb-agent-setup` 两个 Skill |
 | S4-FR-002 | 两个 Skill 都设置 `allow_implicit_invocation: false` |
 | S4-FR-003 | Codex 精确公开 15 个 MCP 工具 |
 | S4-FR-004 | Getter 准确返回 absent/current/conflict 和 overall mixed |
@@ -1205,7 +1215,7 @@ Partial：
 | S4-FR-019 | SWE 不创建 worktree、不 commit、不 push、不写 TMB workflow |
 | S4-FR-020 | Reviewer 只提供建议性结论且永不输出 PASS |
 | S4-FR-021 | Reviewer 不编辑文件、不写 validation |
-| S4-FR-022 | `$tmb-bro` 不自动安装或 spawn Agent |
+| S4-FR-022 | `$tmb:tmb-bro` 不自动安装或 spawn Agent |
 | S4-FR-023 | 不写 `.claude`、全局 Agent、installed cache、Git index 或 remote |
 | S4-FR-024 | 不修改 Claude manifest、registry、Hooks 或运行时行为 |
 | S4-FR-025 | CLI 和 Desktop 使用 disposable 项目完成固定 SHA 验收 |
@@ -1565,6 +1575,19 @@ Desktop 测试是本 Scope 唯一可能触及当前 Codex profile 的步骤，�
 14. 验证第三方 Agent 和目录保留。
 15. 验证 `.claude`、installed cache、Git index 和 source checkout 无变化。
 
+复制 installed-cache 的测试不能覆盖 Codex installer 的 command migration。
+因此还要针对同一 fixed-SHA artifact 单独运行：
+
+```bash
+bash tests/l0-install/codex-plugin-surface-smoke.sh <artifact-root>
+```
+
+脚本必须使用临时 `CODEX_HOME`，通过真实 `codex plugin marketplace add` 与
+`codex plugin add` 安装产物，并确认 manifest `skills` 指向的目录恰好有两个
+Scope 4 Skill、没有 `source-command-*`，同时根级 Claude `commands/` 的常规文件，
+以及 `skills/` 的目录和常规文件保持不变。symlink 的打包行为仍由 Codex installer
+负责，不在本脚本里重新定义。这个本地宿主 smoke 不替代 25.7 的端到端 Agent 验收。
+
 ### 25.4 Scope 3 回归
 
 重复验证原有 13 个工具：
@@ -1608,11 +1631,12 @@ Scope 3 已有自动化证据。live CLI turn 曾因网络超时中断，Desktop
 在 CLI 和 Desktop 分别验证：
 
 1. 使用合并 SHA `390cdcde...` 的 installed-cache/local Marketplace 产物。
-2. 新 task 发现 `$tmb-bro`。
-3. 普通 prompt 不隐式启动 Bro。
-4. 显式调用完成一次 disposable 项目的 local planning write。
-5. 验证 remote sync 关闭。
-6. 记录 Codex 版本、宿主、SHA、时间和结果。
+2. installed manifest 的 `skills` 路径所指目录只包含 Scope 3 已交付的 `tmb-bro`；该固定 SHA 尚未提供 `tmb-agent-setup` 或 `commands: []`，因此不把 Scope 4 的双 Skill 与 command-migration 条件套用到这次验收。插件根目录的 Claude `skills/` 与 `commands/` 必须原样保留。
+3. 新 task 可按该固定 SHA 的实际宿主调用名直接调用 Bro，并记录该名称；不得倒推成 Scope 4 的 namespaced 命名证据。
+4. 普通 prompt 不隐式启动 Bro。
+5. 显式调用完成一次 disposable 项目的 local planning write。
+6. 验证 remote sync 关闭。
+7. 记录 Codex 版本、宿主、SHA、时间和结果。
 
 如果宿主因外部网络或账号问题失败：
 
@@ -1626,9 +1650,9 @@ Scope 3 已有自动化证据。live CLI turn 曾因网络超时中断，Desktop
 在 disposable 项目中：
 
 1. 从 Scope 4 PR 固定 SHA 安装 `tmb@trustmybot-local`。
-2. 新 session 中看到精确两个 Skill。
+2. installed manifest 的 `skills` 路径所指目录只包含 `tmb-bro` 与 `tmb-agent-setup`，Codex 生成或迁移后的 Skill surface 没有 `source-command-*`；插件根目录的 Claude `skills/` 与 `commands/` 原样保留。
 3. 普通 prompt 不创建 `.codex/agents`。
-4. 显式运行 `$tmb-agent-setup`。
+4. 在新 session 中分别直接调用 `$tmb:tmb-bro` 与 `$tmb:tmb-agent-setup`，确认 namespaced 调用有效；不要把模型泛化生成的 Skill 列表当作安装清单。
 5. 验证 getter 预览和独立用户确认。
 6. 安装两个 Agent。
 7. 当前 session 不声称热加载成功。
@@ -1641,7 +1665,7 @@ Scope 3 已有自动化证据。live CLI turn 曾因网络超时中断，Desktop
 14. Reviewer 不输出 PASS，不修改文件。
 15. 至少在 CLI `0.146.0` 和 `0.147.0` 各完成一次同名 MCP 覆盖项的 child 工具面探针。
 16. Setup Skill 移除两个 Agent。
-17. 新 session 确认两个 Agent 不再可发现。
+17. 新 session 确认两个 Agent 不再可调用。
 18. 第三方 sentinel Agent 保留。
 19. 保存 fixed SHA、两个 body hash、Codex 版本和 before/after 哨兵。
 
@@ -1686,7 +1710,7 @@ Scope 4 只有在以下条件全部满足时才完成：
 - 基线仍包含已合并 PR #1174，Issue #1173 保持关闭。
 - Scope 4 从最新 `origin/dev` 的独立 worktree 开发。
 - 独立 Scope 4 Issue #1175 和 feature branch 已建立。
-- 两个 Skill 在 CLI/Desktop 新 task 中可发现，且均为 explicit-only。
+- installed manifest 的 `skills` 路径恰好包含两个源 Skill，二者均为 explicit-only，并能在 CLI/Desktop 新 task 中按 namespaced 名称直接调用；不以模型泛化生成的 Skill 列表为准。
 - Getter 真实只读。
 - Materializer 不覆盖或误删用户文件。
 - symlink、非普通文件和 conflict 测试通过。
@@ -1845,7 +1869,7 @@ feat/<scope4-issue-id>-codex-agent-materialization
 5. 实现 getter 和 focused tests。
 6. 实现 setter present/absent 和 focused tests。
 7. 接入两个 MCP 工具，冻结 15-tool allowlist。
-8. 添加 `$tmb-agent-setup`，冻结 2-Skill allowlist。
+8. 添加 `$tmb:tmb-agent-setup`，冻结 2-Skill allowlist。
 9. 完成 installed-cache 测试。
 10. 完成 Scope 3 自动化回归。
 11. 更新用户文档和 PARITY。
@@ -1874,7 +1898,7 @@ feat/<scope4-issue-id>-codex-agent-materialization
 
 ### 31.1 正常移除
 
-1. 在当前版本运行 `$tmb-agent-setup`。
+1. 在当前版本运行 `$tmb:tmb-agent-setup`。
 2. 选择移除。
 3. 确认两个目标 absent。
 4. 新建 task，确认两个 Agent 不再可发现。
@@ -1892,7 +1916,7 @@ feat/<scope4-issue-id>-codex-agent-materialization
   2. 从官方仓库 fetch 该精确 Git object，并用 `git cat-file -e '<sha>^{commit}'` 验证对象存在；后续读取都使用该不可变 Git object，不使用可移动分支名。
   3. 从该 Git object 中的 canonical catalog，或与该 SHA 一同提交且明确记录 artifact checksum 的验收证据，导出两个 expected full-file hash。若使用 installed artifact，必须先用同一 Git object 中记录的 artifact checksum 验证其完整性，再读取它的 catalog。
   4. 只有目标完整文件 hash 与 trusted expected full-file hash 完全一致时才可删除。ownership header 和 body hash 只作辅助核对，不能替代完整文件 hash。
-- 如果无法取得完整 SHA、官方 Git object、与 SHA 绑定的 catalog/证据，或任一步校验不一致，不要手工删除。应重新安装仍提供 Scope 4 setter 的可信版本，再通过 `$tmb-agent-setup` 移除。
+- 如果无法取得完整 SHA、官方 Git object、与 SHA 绑定的 catalog/证据，或任一步校验不一致，不要手工删除。应重新安装仍提供 Scope 4 setter 的可信版本，再通过 `$tmb:tmb-agent-setup` 移除。
 - 不删除 `.codex/agents` 目录。
 - 不删除其他 Agent。
 - 不需要数据库 migration 或 state rollback。
@@ -1912,7 +1936,7 @@ feat/<scope4-issue-id>-codex-agent-materialization
 1. 备份冲突文件。
 2. 核对路径和 ownership header。
 3. 手工改名或删除该单个目标。
-4. 重新运行 `$tmb-agent-setup`。
+4. 重新运行 `$tmb:tmb-agent-setup`。
 
 ## 32. 后置硬化（P1 / Scope 4.1 候选）
 
@@ -1975,7 +1999,7 @@ feat/<scope4-issue-id>-codex-agent-materialization
 1. Scope 4 不与 Scope 5/6 合并。
 2. Agent 只 materialize 到项目 `.codex/agents/`。
 3. 精确交付两个 Agent，不做通用 creator。
-4. 新 Skill 名为 `$tmb-agent-setup`，已有 Skill 保持 `$tmb-bro`。
+4. 新 Skill 名为 `$tmb:tmb-agent-setup`，已有 Skill 保持 `$tmb:tmb-bro`。
 5. 两个 Agent 可独立使用，Bro 不自动 spawn。
 6. SWE 使用当前工作区，不创建 worktree。
 7. Reviewer 只给建议性结论，不输出 PASS。

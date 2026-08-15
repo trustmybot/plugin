@@ -111,8 +111,11 @@ Automated coverage must freeze the manifest and tool allowlists, reject identity
 spoofing and out-of-scope operations with stable codes, prove remote sync stays
 off, exercise a real local planning flow, and repeat that flow from an
 installed-cache copy without source `node_modules`. A supported live Codex host
-must still verify Skill discovery, explicit invocation, and end-to-end MCP use
-before those host behaviors can be claimed as verified.
+must still resolve the installed manifest's `skills` path, verify that
+directory's exact contents, exercise direct namespaced invocation, and confirm
+end-to-end MCP use before those host behaviors can be claimed as verified.
+Explicit-only Skills may be absent from a generic model-visible Skill list by
+design.
 
 ### Scope 4 — explicit project-Agent materialization (GH 1175)
 
@@ -121,9 +124,18 @@ not widen the 13 planning handlers or connect Agents to TMB workflow state.
 
 The Codex package now exposes exactly two Skills:
 
-- `$tmb-bro` for Scope-3 project understanding and local planning;
-- `$tmb-agent-setup` for inspecting, installing, and removing two fixed
+- `$tmb:tmb-bro` for Scope-3 project understanding and local planning;
+- `$tmb:tmb-agent-setup` for inspecting, installing, and removing two fixed
   project-level Agent files after user confirmation.
+
+Both are explicit-only. Acceptance therefore resolves the manifest's `skills`
+path, verifies that directory contains exactly these two source directories,
+and calls both namespaced Skills directly; it does not treat a generic "list
+available Skills" response as the authoritative package surface. The
+manifest's empty `commands` array also prevents Codex from migrating the
+plugin's Claude commands into additional `source-command-*` Skills. The root
+Claude `skills/` and `commands/` directories remain part of the installed
+artifact and must not be changed or removed.
 
 The immutable registry now contains 15 tools. The only additions are
 `agent_materialization_get` and `agent_materialization_set`. Their schemas

@@ -13,7 +13,7 @@ Start only when the caller provides objective, allowed_paths, acceptance_criteri
 
 Before editing, resolve the Git top-level, current branch, and git status --short. Confirm that the active task has workspace-write or stronger file permission. Refuse to implement on main, master, dev, develop, release/*, or rc/*. If an existing user change overlaps allowed_paths, stop and report the conflict. Preserve unrelated user changes.
 
-Modify only allowed_paths and keep the acceptance criteria fixed. Leave unrelated changes exactly as found. Commands that reset, checkout, clean, stash, create or switch a branch or worktree, format unrelated code, or modify .tmb/, .claude/, or .codex/ are outside this role. The $tmb-bro and $tmb-agent-setup Skills and the TMB trajectory server are unavailable to this Agent. Keep refactors within the stated objective.
+Modify only allowed_paths and keep the acceptance criteria fixed. Leave unrelated changes exactly as found. Commands that reset, checkout, clean, stash, create or switch a branch or worktree, format unrelated code, or modify .tmb/, .claude/, or .codex/ are outside this role. The $tmb:tmb-bro and $tmb:tmb-agent-setup Skills and the TMB trajectory server are unavailable to this Agent. Keep refactors within the stated objective.
 
 Run the smallest relevant focused test first, then every command in required_tests. If any required test fails or cannot run, use status BLOCKED and never COMPLETED. Test caches and ignored build output are allowed; tracked changes must remain inside allowed_paths. Finish by checking git diff --stat and git status --short. If tracked changes fall outside the brief, stop, report them, and leave user files intact.
 
@@ -37,7 +37,7 @@ Before reading the repository or running a command, inspect the tools the host m
 
 Require requirements, diff_scope, and test_evidence. test_evidence may explicitly say not run. When requirements or diff_scope is missing, return NEEDS_CONTEXT and leave the review unopened.
 
-Review only the requested working-tree diff, commit, or commit range. Read nearby code and tests when they clarify the change, while keeping the review inside the requested boundary. Source edits, fixes, probe files, changes to .tmb/, .claude/, or .codex/, the $tmb-bro and $tmb-agent-setup Skills, and the TMB trajectory server are unavailable to this Agent.
+Review only the requested working-tree diff, commit, or commit range. Read nearby code and tests when they clarify the change, while keeping the review inside the requested boundary. Source edits, fixes, probe files, changes to .tmb/, .claude/, or .codex/, the $tmb:tmb-bro and $tmb:tmb-agent-setup Skills, and the TMB trajectory server are unavailable to this Agent.
 
 Each finding must include severity P0, P1, P2, or P3; file path; the most precise useful line number; trigger; user or engineering impact; suggested repair direction; and whether the evidence comes from the diff, code, tests, or execution. P0 means severe security, data loss, or system availability risk. P1 means a likely functional regression or failed core acceptance criterion. P2 means a limited-case defect, clear maintenance risk, or important missing test. P3 means a low-risk improvement.
 

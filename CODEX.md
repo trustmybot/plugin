@@ -4,12 +4,21 @@
 
 TMB exposes exactly two Codex Skills, and both require an explicit invocation:
 
-- `$tmb-bro` inspects a selected Git worktree, builds or queries TMB's project
+- `$tmb:tmb-bro` inspects a selected Git worktree, builds or queries TMB's project
   inventory and world model, clarifies a request, and saves an approved local
   planning issue with Bro-authored decision records.
-- `$tmb-agent-setup` checks, installs, or removes the fixed `tmb_swe` and
+- `$tmb:tmb-agent-setup` checks, installs, or removes the fixed `tmb_swe` and
   `tmb_pr_reviewer` Agent files in that project. It previews the exact paths and
   asks before changing them.
+
+Because both Skills set `allow_implicit_invocation: false`, a generic request
+to list model-available Skills may omit them. Verify the installed Codex surface
+by resolving the manifest's `skills` path and checking that this directory
+contains only `tmb-bro` and `tmb-agent-setup`, then invoke each Skill directly by
+its namespaced name. The Codex package declares an empty `commands` surface so
+Claude commands are not migrated into `source-command-*` Skills during
+installation. The package's root `skills/` and `commands/` directories belong
+to Claude and must remain unchanged.
 
 Before issue creation, the Skill reads the project's exact classification and
 priority taxonomy. Generic projects keep the `Feature` + `Priority: Medium`
@@ -34,7 +43,7 @@ session so the host can reload project Agent configuration.
 
 ## Install, inspect, and remove Agents
 
-Run `$tmb-agent-setup` from the Git worktree that should receive the Agents. The
+Run `$tmb:tmb-agent-setup` from the Git worktree that should receive the Agents. The
 Skill validates the canonical project root, inspects both targets, and explains
 the intended change. It calls the setter only after a separate confirmation.
 If both files already match the current templates, it reports `current` without
@@ -52,7 +61,7 @@ or ignore them as part of the project. TMB does neither automatically.
 Scope 4 has no historical-template upgrade path. After a plugin update, an
 older TMB file is therefore a conflict, just like a user-edited or unknown
 same-name file. Back up or rename that file yourself, then run
-`$tmb-agent-setup` again. There is no force or adopt option.
+`$tmb:tmb-agent-setup` again. There is no force or adopt option.
 
 Setup is a single-user, single-process operation. It has no lock, rollback,
 fsync, or crash recovery. If one target changes before the second operation

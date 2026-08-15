@@ -75,7 +75,7 @@ status result.
 ## `agent_materialization_set`
 
 Converges both fixed targets toward present or absent. Calling this tool
-directly is an advanced explicit operation; `$tmb-agent-setup` provides the
+directly is an advanced explicit operation; `$tmb:tmb-agent-setup` provides the
 normal preview and confirmation flow.
 
 Input:

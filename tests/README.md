@@ -10,7 +10,7 @@ Each layer catches a different class of bug; skipping one means shipping a bug t
 
 | Layer | What | Where | Catches |
 |---|---|---|---|
-| **L0** | Install-smoke (Docker `bun install --ignore-scripts`) | [`l0-install/install-smoke.Dockerfile`](./l0-install/) | dist/ shipping, prebuild, MCP server cold-spawn |
+| **L0** | Install-smoke (Docker `bun install --ignore-scripts`) plus an isolated local Codex installer smoke | [`l0-install/`](./l0-install/) | dist/ shipping, prebuild, MCP server cold-spawn, Codex Skill selection, accidental Claude command migration |
 | **L1** | Lint (version sync, link check, dist freshness, layer-budget, etc.) | [`l1-lint/*.sh`](./l1-lint/) | Stale CHANGELOG, broken links, version drift, agent-template line caps, doctrine doc parity |
 | **L2** | MCP unit — handler logic against synthetic args; no protocol, no LLM | `mcp/trajectory-server/src/test/*.test.ts` (see [`l2-mcp-unit/`](./l2-mcp-unit/)) | Handler bugs, constraint violations, return-shape drift |
 | **L3** | Integration — real server subprocess + JSON-RPC stdio + hook scripts | [`l3-integration/mcp/*.test.mjs`](./l3-integration/mcp/), [`l3-integration/hooks/*.sh`](./l3-integration/hooks/) | Schema drift, missing `agent` param, protocol plumbing, role enforcement, hook deny/inject behavior |
@@ -81,6 +81,22 @@ bash tests/run-all.sh
 ```
 
 Runs L1 lint → L2 unit → L3 integration → L3 hooks → L4 workflow-sim. Exit non-zero if any suite fails. Run before every push to `dev`.
+
+Scope 4 also has a host-dependent L0 smoke that invokes the installed Codex CLI
+inside a fresh temporary `CODEX_HOME`. Run it separately against the checkout or
+a fixed-SHA artifact:
+
+```bash
+bash tests/l0-install/codex-plugin-surface-smoke.sh [artifact-root]
+CODEX_BIN=/path/to/codex bash tests/l0-install/codex-plugin-surface-smoke.sh [artifact-root]
+```
+
+It verifies that the manifest-selected Codex Skill directory contains exactly
+`tmb-bro` and `tmb-agent-setup`, that no `source-command-*` migration appears,
+and that the root Claude `commands/` regular files plus `skills/` directories
+and regular files survive installation unchanged. Symlink packaging remains the
+installer's responsibility. The smoke never reads or writes the user's normal
+Codex home.
 
 ## Run an individual suite
 

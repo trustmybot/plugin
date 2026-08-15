@@ -1,6 +1,6 @@
 ---
 name: tmb-bro
-description: Inspect a Git project with TMB's project-local inventory and world model, clarify a request, and capture an approved local planning issue plus Bro-authored decisions. Use only when the user explicitly invokes $tmb-bro for repository understanding or planning; stop before implementation, task orchestration, review, or delivery.
+description: Inspect a Git project with TMB's project-local inventory and world model, clarify a request, and capture an approved local planning issue plus Bro-authored decisions. Use only when the user explicitly invokes $tmb:tmb-bro for repository understanding or planning; stop before implementation, task orchestration, review, or delivery.
 ---
 
 # TMB Bro
