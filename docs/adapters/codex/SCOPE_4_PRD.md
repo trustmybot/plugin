@@ -1255,13 +1255,14 @@ Partial：
 
 性能验证使用 disposable Git 项目，分别测量 absent、current 和 conflict 三种 getter 路径。固定协议如下：
 
-1. 每种状态使用一个新 fixture 和一个新启动的 installed-cache MCP 进程。启动前准备好 Git root、`.tmb` ignore 状态和目标文件；getter 全程只读，所以采样期间 fixture 不重置。
-2. 状态按 `absent`、`current`、`conflict` 的固定顺序执行。每种状态先启动 MCP 进程，再发送请求；进程启动时间不计入 getter latency。
+1. 每种状态都使用独立的 fixture 和 measurement MCP 进程。`current` 比较特殊：先启动另一个 installed-cache MCP 进程完成安装，关闭这个准备进程后，再启动 measurement 进程。采样开始前，Git root、`.tmb` ignore 状态和目标文件必须全部就绪。Getter 全程只读，采样期间不重置 fixture。
+2. 测试按 `absent`、`current`、`conflict` 的固定顺序执行。每种状态都先启动自己的 measurement MCP 进程，再发送请求。准备进程和 measurement 进程的启动时间都不计入 getter latency。
 3. Harness 使用 `process.hrtime.bigint()`：在写出完整 JSON-RPC 请求前开始计时，在收到并解析对应完整响应后停止。计时包含本地 stdio 往返、参数验证、Git/root 检查、文件检查和响应序列化。
-4. 每种状态的第 1 个请求记为 `cold`；接着运行 10 次 warm-up；然后在同一进程、同一 fixture 上连续记录 100 个 warm 样本。三段顺序不得互换，也不手工清理操作系统文件缓存。
-5. Copied artifact 根目录必须包含测试专用 `.tmb-artifact-provenance.json`，且只能有一个 40 位小写 `source_sha` 字段。正式测试要从同一 commit 的干净 checkout 运行 Harness。采样前，Harness 先核对 SHA，再逐项比较 artifact 与 checkout 的 tracked 文件、文件类型、可执行位和仓库内 symlink 目标。只要出现 `.git`、`node_modules`、断链或逃出 artifact 的 symlink，就立即终止。Artifact hash 覆盖文件、目录、mode、symlink 目标和 provenance 文件。原始结果保存为 JSONL；每行至少包含 `plugin_sha`、`harness_source_sha`、Codex/Node 版本、操作系统、架构、文件系统、状态、样本类型、样本序号和 `duration_ns`。PR 证据还要保存 Harness 文件 hash。
-6. 每种状态分别报告 cold、warm p50、p95 和 max。百分位使用排序后的 nearest-rank 方法；100 个样本的 p95 取第 95 个值。
-7. 本机验收目标为每种状态的 warm p95 不高于 100 ms；超出时必须调查并记录原因。这个数值是本机观察门槛，不作为不同 CI runner 之间的硬性能 gate。后续 PR 只有复用同一 harness、fixture 协议和计时边界时才可比较回归。
+4. 单个 JSON-RPC 请求如果 10 秒内没有返回，Harness 必须终止测试并限时回收对应 MCP 进程，不能无限等待。这个超时只用于识别协议或进程故障，不参与 getter latency 统计。
+5. 每种状态的第 1 个请求记为 `cold`；接着运行 10 次 warm-up；然后在同一进程、同一 fixture 上连续记录 100 个 warm 样本。三段顺序不得互换，也不手工清理操作系统文件缓存。
+6. Copied artifact 根目录必须包含测试专用 `.tmb-artifact-provenance.json`，且只能有一个 40 位小写 `source_sha` 字段。正式测试要从同一 commit 的干净 checkout 运行 Harness。采样前，Harness 先核对 SHA，再逐项比较 artifact 与 checkout 的 tracked 文件、文件类型、可执行位和仓库内 symlink 目标。只要出现 `.git`、`node_modules`、断链或逃出 artifact 的 symlink，就立即终止。Artifact hash 覆盖文件、目录、mode、symlink 目标和 provenance 文件。原始结果保存为 JSONL；每行至少包含 `plugin_sha`、`harness_source_sha`、Codex/Node 版本、操作系统、架构、文件系统、状态、样本类型、样本序号和 `duration_ns`。PR 证据还要保存 Harness 文件 hash。
+7. 每种状态分别报告 cold、warm p50、p95 和 max。百分位使用排序后的 nearest-rank 方法；100 个样本的 p95 取第 95 个值。
+8. 本机验收目标为每种状态的 warm p95 不高于 100 ms；超出时必须调查并记录原因。这个数值是本机观察门槛，不作为不同 CI runner 之间的硬性能 gate。后续 PR 只有复用同一 harness、fixture 协议和计时边界时才可比较回归。
 
 受版本控制的唯一 harness 路径为：
 

@@ -2,7 +2,6 @@
 
 import { createHash } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
-import { once } from 'node:events';
 import {
   lstatSync,
   mkdirSync,
@@ -22,6 +21,8 @@ const STATES = Object.freeze(['absent', 'current', 'conflict']);
 const WARMUP_COUNT = 10;
 const WARM_SAMPLE_COUNT = 100;
 const THRESHOLD_NS = 100_000_000;
+const MCP_SHUTDOWN_GRACE_MS = 1_000;
+const MCP_RESPONSE_TIMEOUT_MS = 10_000;
 const ARTIFACT_PROVENANCE_FILE = '.tmb-artifact-provenance.json';
 
 export function parseArguments(argv) {
@@ -358,7 +359,8 @@ async function main() {
       warm_sample_count: WARM_SAMPLE_COUNT,
       threshold_ns: THRESHOLD_NS,
       percentile_method: 'nearest-rank',
-      process_lifecycle: 'one fresh installed-cache MCP process per state',
+      process_lifecycle:
+        'one fresh measurement MCP process per state; current uses one separate preparation process',
     },
     states: summaries,
     threshold_status: thresholdStatus,
@@ -395,7 +397,12 @@ async function withClient(installedRoot, config, isolatedHome, operation) {
   }
 }
 
-async function openJsonRpcClient(options) {
+export async function openJsonRpcClient(options) {
+  const responseTimeoutMs =
+    options.responseTimeoutMs ?? MCP_RESPONSE_TIMEOUT_MS;
+  if (!Number.isInteger(responseTimeoutMs) || responseTimeoutMs <= 0) {
+    throw new Error('MCP response timeout must be a positive integer.');
+  }
   const child = spawn(options.command, options.args, {
     cwd: options.cwd,
     env: options.env,
@@ -407,10 +414,17 @@ async function openJsonRpcClient(options) {
   let stderr = '';
   let terminalError;
   let closing = false;
+  let shutdownPromise;
+  const childClosed = new Promise((resolveChildClose) => {
+    child.once('close', (code, signal) => resolveChildClose({ code, signal }));
+  });
 
   const failPending = (error) => {
     terminalError ??= error;
-    for (const request of pending.values()) request.reject(error);
+    for (const request of pending.values()) {
+      clearTimeout(request.timer);
+      request.reject(error);
+    }
     pending.clear();
   };
 
@@ -436,10 +450,15 @@ async function openJsonRpcClient(options) {
       failPending(new Error('Installed MCP returned malformed JSON-RPC output.'));
       return;
     }
+    if (typeof message !== 'object' || message === null || Array.isArray(message)) {
+      failPending(new Error('Installed MCP returned a malformed JSON-RPC message.'));
+      return;
+    }
     if (!Object.hasOwn(message, 'id')) return;
     const request = pending.get(message.id);
     if (!request) return;
     pending.delete(message.id);
+    clearTimeout(request.timer);
     if (message.error) {
       request.reject(new Error(`MCP JSON-RPC error: ${JSON.stringify(message.error)}`));
     } else {
@@ -458,24 +477,80 @@ async function openJsonRpcClient(options) {
     }
     const id = nextId;
     nextId += 1;
-    pending.set(id, { resolve: resolveRequest, reject: rejectRequest });
+    const timer = setTimeout(() => {
+      failPending(new Error(
+        `Installed MCP did not respond to ${method} within ${responseTimeoutMs} ms.`,
+      ));
+    }, responseTimeoutMs);
+    pending.set(id, {
+      resolve: resolveRequest,
+      reject: rejectRequest,
+      timer,
+    });
     try {
       send({ jsonrpc: '2.0', id, method, params });
     } catch (error) {
+      const failedRequest = pending.get(id);
+      if (failedRequest) clearTimeout(failedRequest.timer);
       pending.delete(id);
       rejectRequest(error);
     }
   });
 
-  await request('initialize', {
-    protocolVersion: '2024-11-05',
-    capabilities: {},
-    clientInfo: {
-      name: 'tmb-scope4-materialization-benchmark',
-      version: '1.0.0',
-    },
-  });
-  send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+  const shutdown = () => {
+    if (shutdownPromise) return shutdownPromise;
+    shutdownPromise = (async () => {
+      closing = true;
+      lines.close();
+      if (!child.stdin.destroyed) child.stdin.end();
+
+      let outcome = await waitForChildClose(
+        childClosed,
+        MCP_SHUTDOWN_GRACE_MS,
+      );
+      if (!outcome) {
+        child.kill('SIGTERM');
+        outcome = await waitForChildClose(
+          childClosed,
+          MCP_SHUTDOWN_GRACE_MS,
+        );
+      }
+      if (!outcome) {
+        child.kill('SIGKILL');
+        outcome = await waitForChildClose(
+          childClosed,
+          MCP_SHUTDOWN_GRACE_MS,
+        );
+      }
+      if (!outcome) {
+        throw new Error('Installed MCP did not exit after forced shutdown.');
+      }
+      return outcome;
+    })();
+    return shutdownPromise;
+  };
+
+  try {
+    await request('initialize', {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: {
+        name: 'tmb-scope4-materialization-benchmark',
+        version: '1.0.0',
+      },
+    });
+    send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+  } catch (initializationError) {
+    try {
+      await shutdown();
+    } catch (shutdownError) {
+      throw new AggregateError(
+        [initializationError, shutdownError],
+        'Installed MCP initialization and cleanup both failed.',
+      );
+    }
+    throw initializationError;
+  }
 
   return {
     callTool: ({ name, arguments: args }) => request('tools/call', {
@@ -483,20 +558,28 @@ async function openJsonRpcClient(options) {
       arguments: args,
     }),
     async close() {
-      closing = true;
-      child.stdin.end();
-      if (child.exitCode === null && child.signalCode === null) {
-        await once(child, 'exit');
-      }
-      lines.close();
-      if (child.exitCode !== 0 && child.exitCode !== null) {
+      const outcome = await shutdown();
+      if (
+        !terminalError &&
+        (outcome.code !== 0 || outcome.signal !== null)
+      ) {
         const detail = stderr.trim();
         throw new Error(
-          `Installed MCP exited with code ${child.exitCode}${detail ? `: ${detail}` : ''}`,
+          `Installed MCP exited with code ${String(outcome.code)} and signal ${String(outcome.signal)}${detail ? `: ${detail}` : ''}`,
         );
       }
     },
   };
+}
+
+async function waitForChildClose(childClosed, timeoutMs) {
+  let timer;
+  const timeout = new Promise((resolveTimeout) => {
+    timer = setTimeout(() => resolveTimeout(null), timeoutMs);
+  });
+  const outcome = await Promise.race([childClosed, timeout]);
+  clearTimeout(timer);
+  return outcome;
 }
 
 function createProject(path) {

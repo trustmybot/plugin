@@ -530,6 +530,30 @@ describe('Scope 4 tool and root contracts', () => {
         assert.equal(existsSync(join(project, '.tmb')), false);
         assert.equal(existsSync(join(project, '.codex')), false);
     });
+    it('isolates fixture Git commands from inherited repository overrides', () => {
+        const sentinel = gitProject();
+        const sentinelHeadBefore = runFixtureGit([
+            '-C',
+            sentinel,
+            'rev-parse',
+            'HEAD',
+        ]).toString('utf8');
+        const sentinelTreeBefore = runFixtureGit([
+            '-C',
+            sentinel,
+            'write-tree',
+        ]).toString('utf8');
+        const isolated = gitProject({
+            ...process.env,
+            GIT_DIR: join(sentinel, '.git'),
+            GIT_WORK_TREE: sentinel,
+            GIT_INDEX_FILE: join(sentinel, '.git', 'index'),
+            GIT_CONFIG_COUNT: '1',
+        });
+        assert.notEqual(realpathSync(isolated), realpathSync(sentinel));
+        assert.equal(runFixtureGit(['-C', sentinel, 'rev-parse', 'HEAD']).toString('utf8'), sentinelHeadBefore);
+        assert.equal(runFixtureGit(['-C', sentinel, 'write-tree']).toString('utf8'), sentinelTreeBefore);
+    });
     it('returns the full getter root-error matrix without creating state', async () => {
         const project = gitProject();
         const nested = join(project, 'nested');
@@ -539,7 +563,7 @@ describe('Scope 4 tool and root contracts', () => {
         const file = join(nonGit, 'file');
         writeFileSync(file, 'not a directory');
         const unignored = tempDirectory('tmb-codex-agent-unignored-');
-        execFileSync('git', ['init', '--quiet', unignored]);
+        runFixtureGit(['init', '--quiet', unignored]);
         const unsafeNonGit = tempDirectory('tmb-codex-agent-root-first-');
         const unsafeOutside = tempDirectory('tmb-codex-agent-root-outside-');
         symlinkSync(unsafeOutside, join(unsafeNonGit, '.codex'));
@@ -547,7 +571,7 @@ describe('Scope 4 tool and root contracts', () => {
         const trackedState = join(tracked, '.tmb', 'tmb', 'tracked.txt');
         mkdirSync(dirname(trackedState), { recursive: true });
         writeFileSync(trackedState, 'preserve me');
-        execFileSync('git', ['-C', tracked, 'add', '--force', trackedState]);
+        runFixtureGit(['-C', tracked, 'add', '--force', trackedState]);
         const runtimeManager = manager();
         try {
             const registry = createCodexToolRegistry(runtimeManager);
@@ -638,12 +662,12 @@ describe('Scope 4 tool and root contracts', () => {
         }
     });
 });
-function gitProject() {
+function gitProject(environment = process.env) {
     const project = tempDirectory('tmb-codex-agent-project-');
-    execFileSync('git', ['init', '--quiet', project]);
+    runFixtureGit(['init', '--quiet', project], environment);
     writeFileSync(join(project, '.gitignore'), '.tmb/\n');
     writeFileSync(join(project, 'README.md'), '# Fixture\n');
-    execFileSync('git', [
+    runFixtureGit([
         '-C',
         project,
         '-c',
@@ -653,8 +677,8 @@ function gitProject() {
         'add',
         '.gitignore',
         'README.md',
-    ]);
-    execFileSync('git', [
+    ], environment);
+    runFixtureGit([
         '-C',
         project,
         '-c',
@@ -665,8 +689,28 @@ function gitProject() {
         '--quiet',
         '-m',
         'fixture',
-    ]);
+    ], environment);
     return project;
+}
+function runFixtureGit(args, environment = process.env) {
+    const sanitized = Object.fromEntries(Object.entries(environment).filter(([key]) => !key.startsWith('GIT_')));
+    return execFileSync('git', [
+        '-c',
+        'core.fsmonitor=false',
+        '-c',
+        'core.excludesFile=/dev/null',
+        '-c',
+        'core.hooksPath=/dev/null',
+        ...args,
+    ], {
+        env: {
+            ...sanitized,
+            GIT_TERMINAL_PROMPT: '0',
+            GIT_CONFIG_NOSYSTEM: '1',
+            GIT_CONFIG_GLOBAL: '/dev/null',
+            LC_ALL: 'C',
+        },
+    });
 }
 function tempDirectory(prefix) {
     const path = mkdtempSync(join(tmpdir(), prefix));

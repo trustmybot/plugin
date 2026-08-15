@@ -19,6 +19,7 @@ import {
   assertMaterializationStatus,
   hashDirectory,
   nearestRank,
+  openJsonRpcClient,
   parseArguments,
   parseArtifactProvenance,
   readArtifactProvenance,
@@ -31,6 +32,7 @@ import {
 
 const tempRoot = process.argv[2];
 assert.ok(tempRoot && isAbsolute(tempRoot), 'selftest temp root must be absolute');
+const SELFTEST_RESPONSE_TIMEOUT_MS = 500;
 
 assert.deepEqual(
   parseArguments([
@@ -175,6 +177,115 @@ assert.throws(
   () => readArtifactProvenance(artifactWithProvenanceLink),
   /must be a regular file/,
 );
+
+const rpcStub = join(tempRoot, 'rpc-stub.mjs');
+writeFileSync(
+  rpcStub,
+  `import { writeFileSync } from 'node:fs';
+const [mode, marker] = process.argv.slice(2);
+let buffered = '';
+const forcedMode = ['hung-error', 'silent-init', 'silent-tool'].includes(mode);
+if (forcedMode) {
+  writeFileSync(marker, String(process.pid));
+  setInterval(() => {}, 1_000);
+}
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+  buffered += chunk;
+  for (;;) {
+    const newline = buffered.indexOf('\\n');
+    if (newline === -1) break;
+    const line = buffered.slice(0, newline);
+    buffered = buffered.slice(newline + 1);
+    if (!line) continue;
+    const message = JSON.parse(line);
+    if (message.method === 'initialize' && mode === 'silent-init') continue;
+    if (message.method === 'initialize' && mode === 'silent-tool') {
+      process.stdout.write(JSON.stringify({
+        jsonrpc: '2.0',
+        id: message.id,
+        result: { protocolVersion: '2024-11-05', capabilities: {} },
+      }) + '\\n');
+    } else if (
+      message.method === 'initialize' &&
+      (mode === 'error' || mode === 'hung-error')
+    ) {
+      process.stdout.write(JSON.stringify({
+        jsonrpc: '2.0',
+        id: message.id,
+        error: { code: -32000, message: 'fixture rejection' },
+      }) + '\\n');
+    } else if (message.method === 'initialize') {
+      process.stdout.write('null\\n');
+    }
+  }
+});
+process.stdin.on('end', () => {
+  if (!forcedMode) writeFileSync(marker, 'closed\\n');
+});
+`,
+);
+for (const mode of ['error', 'malformed']) {
+  const marker = join(tempRoot, `rpc-${mode}-closed`);
+  await assert.rejects(
+    () => openJsonRpcClient({
+      command: process.execPath,
+      args: [rpcStub, mode, marker],
+      cwd: tempRoot,
+      env: { ...process.env },
+    }),
+    mode === 'error' ? /MCP JSON-RPC error/ : /malformed JSON-RPC message/,
+  );
+  assert.equal(existsSync(marker), true);
+}
+const hungMarker = join(tempRoot, 'rpc-hung-error-pid');
+await assert.rejects(
+  () => openJsonRpcClient({
+    command: process.execPath,
+    args: [rpcStub, 'hung-error', hungMarker],
+    cwd: tempRoot,
+    env: { ...process.env },
+  }),
+  /MCP JSON-RPC error/,
+);
+const terminatedPid = Number.parseInt(readFileSync(hungMarker, 'utf8'), 10);
+assert.ok(Number.isSafeInteger(terminatedPid) && terminatedPid > 0);
+assert.throws(() => process.kill(terminatedPid, 0), { code: 'ESRCH' });
+const silentInitMarker = join(tempRoot, 'rpc-silent-init-pid');
+await assert.rejects(
+  () => openJsonRpcClient({
+    command: process.execPath,
+    args: [rpcStub, 'silent-init', silentInitMarker],
+    cwd: tempRoot,
+    env: { ...process.env },
+    responseTimeoutMs: SELFTEST_RESPONSE_TIMEOUT_MS,
+  }),
+  /did not respond to initialize within 500 ms/,
+);
+const silentInitPid = Number.parseInt(
+  readFileSync(silentInitMarker, 'utf8'),
+  10,
+);
+assert.throws(() => process.kill(silentInitPid, 0), { code: 'ESRCH' });
+
+const silentToolMarker = join(tempRoot, 'rpc-silent-tool-pid');
+const silentToolClient = await openJsonRpcClient({
+  command: process.execPath,
+  args: [rpcStub, 'silent-tool', silentToolMarker],
+  cwd: tempRoot,
+  env: { ...process.env },
+  responseTimeoutMs: SELFTEST_RESPONSE_TIMEOUT_MS,
+});
+await assert.rejects(
+  () => silentToolClient.callTool({ name: 'fixture', arguments: {} }),
+  /did not respond to tools\/call within 500 ms/,
+);
+await silentToolClient.close();
+const silentToolPid = Number.parseInt(
+  readFileSync(silentToolMarker, 'utf8'),
+  10,
+);
+assert.throws(() => process.kill(silentToolPid, 0), { code: 'ESRCH' });
 symlinkSync(installedDir, installedParentLink);
 assert.throws(
   () => resolveOutputCandidate(
