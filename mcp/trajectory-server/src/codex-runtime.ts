@@ -53,6 +53,15 @@ interface RuntimeResources {
   closed: boolean;
 }
 
+export interface CodexProjectRootValidationOptions {
+  readonly runGit?: CodexGitRunner;
+}
+
+export type CodexGitRunner = (
+  cwd: string,
+  args: readonly string[],
+) => Promise<{ readonly ok: boolean; readonly stdout: string }>;
+
 export interface CodexRuntimeAccess {
   readonly context: CodexRuntimeContext;
   readonly db: TrajectoryDB;
@@ -208,7 +217,7 @@ export class CodexRuntimeManager {
     projectRoot: string,
   ): Promise<RuntimeInitializeResult> {
     try {
-      await validateGitProjectRoot(projectRoot);
+      await validateGitProjectRoot(projectRoot, runGit);
     } catch (error) {
       throw normalizeRuntimeError(error);
     }
@@ -302,6 +311,20 @@ export class CodexRuntimeManager {
   }
 }
 
+export async function validateCodexProjectRoot(
+  input: unknown,
+  options: CodexProjectRootValidationOptions = {},
+): Promise<string> {
+  let canonical: string;
+  try {
+    canonical = canonicalizeProjectRootInput(input);
+    await validateGitProjectRoot(canonical, options.runGit ?? runGit);
+  } catch (error) {
+    throw normalizeRuntimeError(error);
+  }
+  return canonical;
+}
+
 function canonicalizeProjectRootInput(input: unknown): string {
   if (typeof input !== 'string' || input.length === 0) {
     throw new CodexRuntimeError(
@@ -349,8 +372,11 @@ function canonicalizeProjectRootInput(input: unknown): string {
   return canonical;
 }
 
-async function validateGitProjectRoot(canonical: string): Promise<void> {
-  const topLevel = await runGit(canonical, ['rev-parse', '--show-toplevel']);
+async function validateGitProjectRoot(
+  canonical: string,
+  git: CodexGitRunner,
+): Promise<void> {
+  const topLevel = await git(canonical, ['rev-parse', '--show-toplevel']);
   if (!topLevel.ok) {
     throw new CodexRuntimeError(
       'project_root_not_git_toplevel',
@@ -374,7 +400,7 @@ async function validateGitProjectRoot(canonical: string): Promise<void> {
     );
   }
 
-  const ignored = await runGit(canonical, [
+  const ignored = await git(canonical, [
     'check-ignore',
     '--no-index',
     '--quiet',
@@ -384,16 +410,16 @@ async function validateGitProjectRoot(canonical: string): Promise<void> {
     throw stateNotIgnoredError();
   }
 
-  const tracked = await runGit(canonical, ['ls-files', '-z', '--', '.tmb']);
+  const tracked = await git(canonical, ['ls-files', '-z', '--', '.tmb']);
   if (!tracked.ok || tracked.stdout.length > 0) {
     throw stateNotIgnoredError();
   }
 }
 
-function runGit(
+const runGit: CodexGitRunner = (
   cwd: string,
   args: readonly string[],
-): Promise<{ readonly ok: boolean; readonly stdout: string }> {
+): Promise<{ readonly ok: boolean; readonly stdout: string }> => {
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')),
   );
@@ -430,7 +456,7 @@ function runGit(
       },
     );
   });
-}
+};
 
 function openRuntime(
   projectRoot: string,

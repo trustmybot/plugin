@@ -113,3 +113,61 @@ off, exercise a real local planning flow, and repeat that flow from an
 installed-cache copy without source `node_modules`. A supported live Codex host
 must still verify Skill discovery, explicit invocation, and end-to-end MCP use
 before those host behaviors can be claimed as verified.
+
+### Scope 4 — explicit project-Agent materialization (GH 1175)
+
+Scope 4 adds one explicit-only setup Skill and two bounded MCP tools. It does
+not widen the 13 planning handlers or connect Agents to TMB workflow state.
+
+The Codex package now exposes exactly two Skills:
+
+- `$tmb-bro` for Scope-3 project understanding and local planning;
+- `$tmb-agent-setup` for inspecting, installing, and removing two fixed
+  project-level Agent files after user confirmation.
+
+The immutable registry now contains 15 tools. The only additions are
+`agent_materialization_get` and `agent_materialization_set`. Their schemas
+accept an absolute `project_root`; the setter also accepts only
+`desired_state="present"` or `desired_state="absent"`. Callers cannot supply a
+path, Agent name, template body, role, identity, or provenance.
+
+The single catalog owns the canonical bytes for:
+
+- `.codex/agents/tmb_swe.toml`;
+- `.codex/agents/tmb_pr_reviewer.toml`.
+
+The getter reports `absent`, `current`, `conflict`, or overall `mixed` without
+creating `.tmb` or `.codex`. A file is current only when its full UTF-8 bytes
+match the catalog. Conflict responses disclose no current hash or file body.
+The setter revalidates the project and paths, blocks the whole call on a
+preflight conflict, uses exclusive no-follow creation, rechecks exact bytes
+before deletion, preserves every other Agent, and returns stable error codes.
+Once one managed directory entry changes, any later failure is reported as
+`agent_materialization_partial` with the original cause code and final known
+states.
+
+Both Agent templates disable the TMB trajectory server under the static
+development identity `tmb@trustmybot-local`. They inherit model and reasoning
+settings. SWE requests `workspace-write` and requires a complete, path-bounded
+brief. The reviewer requests `read-only`, never returns `PASS`, and describes
+its findings as advisory. Parent permissions can override these sandbox
+defaults, and Agent names do not authenticate workflow roles.
+
+Scope 4 deliberately leaves the following work for later scopes or hardening:
+
+- Bro-driven Agent spawning or task lifecycle integration;
+- validation records, authenticated roles, or Push-gate evidence;
+- worktree creation, branch management, commit, push, PR, merge, or remote
+  Issue operations;
+- functional Codex Hooks;
+- historical-template upgrades and a `stale` state;
+- process locking, compensating rollback, fsync, crash recovery, and stronger
+  same-user TOCTOU protection;
+- dynamic Marketplace plugin identities;
+- IDE, cloud, non-macOS, stable-channel, or complete-parity claims.
+
+Automated coverage must include catalog/TOML contracts, byte conflicts,
+symlink and non-regular paths, idempotent present/absent reconciliation,
+fault-injected partial results, exact Skill/tool surfaces, copied installed-cache
+execution, Scope-3 regression, and the full Claude gate. Final host evidence is
+recorded separately against a fixed SHA on macOS arm64 Codex CLI and Desktop.

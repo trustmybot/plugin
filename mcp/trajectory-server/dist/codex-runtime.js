@@ -117,7 +117,7 @@ export class CodexRuntimeManager {
     }
     async initializeCanonical(projectRoot) {
         try {
-            await validateGitProjectRoot(projectRoot);
+            await validateGitProjectRoot(projectRoot, runGit);
         }
         catch (error) {
             throw normalizeRuntimeError(error);
@@ -187,6 +187,17 @@ export class CodexRuntimeManager {
         return this.usageOrder;
     }
 }
+export async function validateCodexProjectRoot(input, options = {}) {
+    let canonical;
+    try {
+        canonical = canonicalizeProjectRootInput(input);
+        await validateGitProjectRoot(canonical, options.runGit ?? runGit);
+    }
+    catch (error) {
+        throw normalizeRuntimeError(error);
+    }
+    return canonical;
+}
 function canonicalizeProjectRootInput(input) {
     if (typeof input !== 'string' || input.length === 0) {
         throw new CodexRuntimeError('missing_project_root', 'project_root is required.');
@@ -216,8 +227,8 @@ function canonicalizeProjectRootInput(input) {
     }
     return canonical;
 }
-async function validateGitProjectRoot(canonical) {
-    const topLevel = await runGit(canonical, ['rev-parse', '--show-toplevel']);
+async function validateGitProjectRoot(canonical, git) {
+    const topLevel = await git(canonical, ['rev-parse', '--show-toplevel']);
     if (!topLevel.ok) {
         throw new CodexRuntimeError('project_root_not_git_toplevel', 'project_root must identify a Git worktree top level.');
     }
@@ -231,7 +242,7 @@ async function validateGitProjectRoot(canonical) {
     if (canonicalTopLevel !== canonical) {
         throw new CodexRuntimeError('project_root_not_git_toplevel', 'project_root must be the Git worktree top level, not a nested directory.');
     }
-    const ignored = await runGit(canonical, [
+    const ignored = await git(canonical, [
         'check-ignore',
         '--no-index',
         '--quiet',
@@ -240,12 +251,12 @@ async function validateGitProjectRoot(canonical) {
     if (!ignored.ok) {
         throw stateNotIgnoredError();
     }
-    const tracked = await runGit(canonical, ['ls-files', '-z', '--', '.tmb']);
+    const tracked = await git(canonical, ['ls-files', '-z', '--', '.tmb']);
     if (!tracked.ok || tracked.stdout.length > 0) {
         throw stateNotIgnoredError();
     }
 }
-function runGit(cwd, args) {
+const runGit = (cwd, args) => {
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
     env['GIT_TERMINAL_PROMPT'] = '0';
     env['GIT_CONFIG_NOSYSTEM'] = '1';
@@ -274,7 +285,7 @@ function runGit(cwd, args) {
             });
         });
     });
-}
+};
 function openRuntime(projectRoot, plugin, now, lastUsedOrder, graphHolderFactory) {
     let context;
     try {

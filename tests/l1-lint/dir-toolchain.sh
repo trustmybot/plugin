@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Lint: verify that shell scripts in guarded directories only use interpreters
 # from the directory's declared allowlist. Encodes the B13 incident where a
-# Python3 script was added to tests/benchmarks/ — a directory whose spec
-# requires only bash scripts.
+# Python3 script was added to tests/benchmarks/ without updating the directory
+# contract. The current contract allows bash wrappers, Python stdlib parsers,
+# and the Node-based Codex MCP latency harness.
 #
 # Allowlist map (dir → space-separated allowed interpreter tokens):
-#   tests/benchmarks → bash
+#   tests/benchmarks → bash, python3, node
 #
 # Detection strategy: scan each .sh file's shebang line and any heredoc
 # markers (python3, python, node, ruby, etc.) embedded as interpreter calls.
@@ -22,7 +23,7 @@ FAIL=0
 # Add new directory constraints by appending entries here.
 # ---------------------------------------------------------------------------
 declare -a ALLOWLIST_MAP=(
-  "tests/benchmarks:bash:python3"
+  "tests/benchmarks:bash:python3:node"
 )
 
 check_dir() {

@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { it } from 'node:test';
-const EXPECTED_SCOPE_3_TOOL_NAMES = [
+const EXPECTED_SCOPE_4_TOOL_NAMES = [
     'runtime_initialize',
     'project_inventory',
     'project_scan',
@@ -22,6 +22,8 @@ const EXPECTED_SCOPE_3_TOOL_NAMES = [
     'planning_issue_resume',
     'planning_discussion_append',
     'planning_discussion_list',
+    'agent_materialization_get',
+    'agent_materialization_set',
 ];
 function payloadOf(result) {
     const content = result.content[0];
@@ -65,9 +67,10 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
         writeFileSync(join(cacheRoot, '.codex-plugin', 'plugin.json'), readFileSync(join(sourceRoot, '.codex-plugin', 'plugin.json')));
         const mcpConfig = JSON.parse(readFileSync(join(cacheAdapter, '.mcp.json'), 'utf8'));
         const configured = mcpConfig['trajectory-server'];
-        const installedSkillEntries = readdirSync(join(cacheAdapter, 'skills'));
-        assert.deepEqual(installedSkillEntries, ['tmb-bro']);
+        const installedSkillEntries = readdirSync(join(cacheAdapter, 'skills')).sort();
+        assert.deepEqual(installedSkillEntries, ['tmb-agent-setup', 'tmb-bro']);
         assert.match(readFileSync(join(cacheAdapter, 'skills', 'tmb-bro', 'agents', 'openai.yaml'), 'utf8'), /allow_implicit_invocation: false/);
+        assert.match(readFileSync(join(cacheAdapter, 'skills', 'tmb-agent-setup', 'agents', 'openai.yaml'), 'utf8'), /allow_implicit_invocation: false/);
         const transport = new StdioClientTransport({
             command: configured.command,
             args: configured.args,
@@ -87,8 +90,8 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
         assert.equal(readFileSync(claudeState, 'utf8'), 'existing Claude state must remain untouched');
         assert.equal(existsSync(join(cacheRoot, '.tmb')), false);
         const listed = await client.listTools();
-        assert.deepEqual(listed.tools.map((tool) => tool.name), EXPECTED_SCOPE_3_TOOL_NAMES);
-        assert.equal(listed.tools.length, 13);
+        assert.deepEqual(listed.tools.map((tool) => tool.name), EXPECTED_SCOPE_4_TOOL_NAMES);
+        assert.equal(listed.tools.length, 15);
         const installedTaxonomySet = listed.tools.find((tool) => tool.name === 'planning_label_taxonomy_set');
         assert.deepEqual(installedTaxonomySet?.inputSchema.required, [
             'project_root',
@@ -105,6 +108,75 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
         assert.equal(existsSync(join(project, '.tmb')), false);
         assert.equal(readFileSync(claudeState, 'utf8'), 'existing Claude state must remain untouched');
         assert.equal(existsSync(join(cacheRoot, '.tmb')), false);
+        const indexBefore = execFileSync('git', ['-C', project, 'write-tree'], {
+            encoding: 'utf8',
+        }).trim();
+        const absentAgents = await client.callTool({
+            name: 'agent_materialization_get',
+            arguments: { project_root: project },
+        });
+        assert.notEqual(absentAgents.isError, true);
+        assert.equal(payloadOf(absentAgents)['data'].overall_status, 'absent');
+        assert.equal(existsSync(join(project, '.codex')), false);
+        assert.equal(existsSync(join(project, '.tmb')), false);
+        const installedAgents = await client.callTool({
+            name: 'agent_materialization_set',
+            arguments: { project_root: project, desired_state: 'present' },
+        });
+        assert.notEqual(installedAgents.isError, true);
+        assert.deepEqual(payloadOf(installedAgents)['data'], {
+            project_root: realpathSync(project),
+            desired_state: 'present',
+            changed: [
+                '.codex/agents/tmb_swe.toml',
+                '.codex/agents/tmb_pr_reviewer.toml',
+            ],
+            unchanged: [],
+            overall_status: 'current',
+            restart_required: true,
+        });
+        const agentDirectory = join(project, '.codex', 'agents');
+        assert.deepEqual(readdirSync(agentDirectory).sort(), [
+            'tmb_pr_reviewer.toml',
+            'tmb_swe.toml',
+        ]);
+        for (const file of ['tmb_swe.toml', 'tmb_pr_reviewer.toml']) {
+            const target = join(agentDirectory, file);
+            execFileSync('bun', [
+                '-e',
+                'Bun.TOML.parse(await Bun.file(process.argv[1]).text())',
+                target,
+            ]);
+            const content = readFileSync(target, 'utf8');
+            assert.match(content, /\[plugins\."tmb@trustmybot-local"\.mcp_servers\."trajectory-server"\]\nenabled = false/);
+            assert.doesNotMatch(content, /^model\s*=/m);
+            assert.doesNotMatch(content, /^model_reasoning_effort\s*=/m);
+        }
+        const currentAgents = await client.callTool({
+            name: 'agent_materialization_get',
+            arguments: { project_root: project },
+        });
+        assert.equal(payloadOf(currentAgents)['data'].overall_status, 'current');
+        const repeatedInstall = await client.callTool({
+            name: 'agent_materialization_set',
+            arguments: { project_root: project, desired_state: 'present' },
+        });
+        assert.deepEqual(payloadOf(repeatedInstall)['data'].changed, []);
+        const sentinelAgent = join(agentDirectory, 'sentinel.toml');
+        writeFileSync(sentinelAgent, 'name = "sentinel"\n');
+        const removedAgents = await client.callTool({
+            name: 'agent_materialization_set',
+            arguments: { project_root: project, desired_state: 'absent' },
+        });
+        assert.notEqual(removedAgents.isError, true);
+        assert.deepEqual(payloadOf(removedAgents)['data'].changed, [
+            '.codex/agents/tmb_swe.toml',
+            '.codex/agents/tmb_pr_reviewer.toml',
+        ]);
+        assert.equal(readFileSync(sentinelAgent, 'utf8'), 'name = "sentinel"\n');
+        assert.deepEqual(readdirSync(agentDirectory), ['sentinel.toml']);
+        assert.equal(execFileSync('git', ['-C', project, 'write-tree'], { encoding: 'utf8' }).trim(), indexBefore);
+        assert.equal(existsSync(join(project, '.tmb')), false);
         const createdCall = await client.callTool({
             name: 'runtime_initialize',
             arguments: { project_root: project },

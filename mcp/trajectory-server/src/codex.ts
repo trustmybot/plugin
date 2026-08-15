@@ -20,7 +20,7 @@ const server = new Server(
   {
     capabilities: { tools: {} },
     instructions:
-      'This Codex adapter exposes the bounded TMB Bro planning surface. Every call requires an explicit Git worktree root; state and planning records stay under that project\'s ignored .tmb/tmb directory. Task execution, review, push, merge, remote issue mutation, onboarding, and lifecycle enforcement are not exposed.',
+      'This Codex adapter exposes bounded local Bro planning and explicit management of two fixed project-level Agent files. Every call requires an explicit Git worktree root. Planning state stays under the project\'s ignored .tmb/tmb directory; Agent setup can only inspect, create, or remove .codex/agents/tmb_swe.toml and .codex/agents/tmb_pr_reviewer.toml. Task workflow, validation records, Agent spawning, Git delivery, remote issue mutation, onboarding, and lifecycle Hooks are not exposed.',
   },
 );
 

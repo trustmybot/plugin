@@ -1,13 +1,8 @@
 #!/usr/bin/env bash
-# selftest.sh — run all four benchmark tools against fixtures and assert sane output.
+# selftest.sh — run all benchmark tools against fixtures and assert sane output.
 # Exit 0 if all assertions pass, non-zero on any failure.
 
 set -euo pipefail
-
-if ! command -v python3 >/dev/null 2>&1; then
-  printf 'WARNING: python3 not available — skipping benchmark selftest\n'
-  exit 0
-fi
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FIXTURES="$HERE/fixtures/sessions"
@@ -44,6 +39,30 @@ check_nonempty() {
 
 TMPDIR_ST="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_ST"' EXIT
+
+printf '=== codex-agent-materialization.mjs ===\n'
+
+if command -v node >/dev/null 2>&1; then
+  CAM_OUT="$(node "$HERE/codex-agent-materialization.selftest.mjs" "$TMPDIR_ST")"
+  check "materialization benchmark helpers" "$CAM_OUT" 'selftest passed'
+  if node "$HERE/codex-agent-materialization.mjs" >/dev/null 2>&1; then
+    printf '  FAIL: materialization benchmark rejects missing arguments\n' >&2
+    FAIL=$((FAIL + 1))
+  else
+    printf '  PASS: materialization benchmark rejects missing arguments\n'
+    PASS=$((PASS + 1))
+  fi
+else
+  printf 'WARNING: node not available — skipping Codex materialization benchmark selftest\n'
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  printf 'WARNING: python3 not available — skipping Python benchmark selftests\n'
+  printf '\n========================================\n'
+  printf 'Benchmark selftest: %d passed, %d failed\n' "$PASS" "$FAIL"
+  [ "$FAIL" -eq 0 ]
+  exit
+fi
 
 printf '=== replay-session.sh ===\n'
 

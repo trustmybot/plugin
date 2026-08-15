@@ -4,6 +4,9 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+### Added
+- **Codex can install two project-level development Agents explicitly** (GH 1175): `$tmb-agent-setup` previews and, after confirmation, installs or removes the fixed `tmb_swe` and `tmb_pr_reviewer` files under the selected project's `.codex/agents/` directory. Two bounded MCP tools enforce canonical project routing, exact-byte ownership, conflict-safe behavior, path-type checks, idempotent reconciliation, and preservation of third-party Agents. The resulting 15-tool adapter keeps both new Agents outside TMB task and validation workflows, disables their access to the TMB trajectory server for the static development plugin identity, and documents the reviewer's read-only setting as an overridable default rather than a Push gate.
+
 ### Fixed
 - **Codex planning supports project-specific label taxonomies** (GH 1171): the Scope-3 adapter now exposes a bounded atomic taxonomy setter, a read-only taxonomy query, and an exact mutually exclusive `labels` array for local planning issues. Default classification/priority callers remain compatible, invalid or malformed taxonomy config fails with `invalid_label_taxonomy`, and shared issue validation still requires at least one configured classification and one configured priority before any Issue row is created.
 - **Bundle generation preserves template-literal whitespace** (GH 1163): the shared post-build pass no longer strips trailing spaces from generated JavaScript, where dependency source may contain those bytes inside runtime string constants. Git whitespace diagnostics are disabled only for the two checked-in esbuild bundles, while the dist-fresh gate continues to compare them byte-for-byte with a clean rebuild.

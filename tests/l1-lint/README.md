@@ -54,6 +54,7 @@ bash tests/l1-lint/link-check.sh
 | [`no-file-registry-refs.sh`](./no-file-registry-refs.sh) | References to the retired file registry |
 | [`rag-schema-invariants.sh`](./rag-schema-invariants.sh) | RAG/embedding schema invariants |
 | [`manifest-shape.sh`](./manifest-shape.sh) | Plugin manifest shape |
+| [`codex-scope4-contract.sh`](./codex-scope4-contract.sh) | Exact Codex Agent catalog, sandbox defaults, MCP isolation, and 15-tool surface |
 | [`valid-permission-decisions.sh`](./valid-permission-decisions.sh) | Invalid hook permission decisions |
 
 ### Hooks, toolchain & secrets
