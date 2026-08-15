@@ -29,7 +29,7 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Use $tmb-bro to inspect this repository and draft a local planning issue, or $tmb-agent-setup to inspect the two project-level Agent files before asking to install or remove them."
+      "Use $tmb-bro for local planning, or $tmb-agent-setup to inspect, install, or remove the two project Agents."
     ],
     "websiteURL": "https://github.com/trustmybot/plugin"
   }

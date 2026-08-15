@@ -65,9 +65,11 @@ if jq -e . "$CODEX_MANIFEST" >/dev/null 2>&1; then
     (.version | type == "string") and
     .mcpServers == "./adapters/codex/.mcp.json" and
     .hooks == "./hooks/codex/hooks.json" and
-    .skills == "./adapters/codex/skills/"
+    .skills == "./adapters/codex/skills/" and
+    (.interface.defaultPrompt | type == "array" and length > 0) and
+    all(.interface.defaultPrompt[]; type == "string" and utf8bytelength <= 128)
   ' "$CODEX_MANIFEST" >/dev/null; then
-    fail "$CODEX_MANIFEST has invalid identity or component paths"
+    fail "$CODEX_MANIFEST has invalid identity, component paths, or defaultPrompt length"
   else
     pass "$CODEX_MANIFEST points only to Codex-specific MCP, hook, and Skill surfaces"
   fi
