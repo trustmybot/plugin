@@ -147,8 +147,13 @@ Once one managed directory entry changes, any later failure is reported as
 states.
 
 Both Agent templates disable the TMB trajectory server under the static
-development identity `tmb@trustmybot-local`. They inherit model and reasoning
-settings. SWE requests `workspace-write` and requires a complete, path-bounded
+development identity `tmb@trustmybot-local`. Scope 4 requires Codex 0.147.0 or
+newer: 0.146.0 can parse the same TOML while leaving the TMB tools exposed.
+Setup checks the CLI version before installation, and each Agent stops before
+repository access if its live tool surface still contains a TMB trajectory-server
+tool. The runtime check is prompt-level defense in depth, not a server-enforced
+permission boundary. The templates inherit model and reasoning settings. SWE
+requests `workspace-write` and requires a complete, path-bounded
 brief. The reviewer requests `read-only`, never returns `PASS`, and describes
 its findings as advisory. Parent permissions can override these sandbox
 defaults, and Agent names do not authenticate workflow roles.
@@ -171,3 +176,5 @@ symlink and non-regular paths, idempotent present/absent reconciliation,
 fault-injected partial results, exact Skill/tool surfaces, copied installed-cache
 execution, Scope-3 regression, and the full Claude gate. Final host evidence is
 recorded separately against a fixed SHA on macOS arm64 Codex CLI and Desktop.
+The record must include the host version and the child Agent's observed tool
+surface; parsing the generated TOML alone is insufficient.

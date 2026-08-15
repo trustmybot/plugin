@@ -14,6 +14,13 @@ install, or remove `.codex/agents/tmb_swe.toml` and
 the fixed paths and asks for confirmation before writing or deleting either
 file; when a file changes, start a new Codex task or CLI session.
 
+Agent setup requires Codex 0.147.0 or newer. Version 0.146.0 can discover the
+files but ignore their plugin-scoped MCP override. Setup therefore checks
+`codex --version` before installation, and each Agent blocks before repository
+access if a TMB trajectory-server tool remains visible at runtime.
+Direct calls to `agent_materialization_set` bypass the Skill version check; the
+Agent preflight still applies.
+
 The adapter exports an immutable 15-tool allowlist. Thirteen tools retain the
 Scope-3 planning contract. Its only planning configuration write
 is `planning_label_taxonomy_set`, which atomically replaces the two project-local
@@ -28,8 +35,10 @@ overwrites them nor deletes them. Symlink and non-regular paths fail closed, and
 other `.codex/agents` entries stay untouched.
 
 The generated Agents are standalone Codex roles, not TMB task-workflow roles.
-They cannot call the TMB trajectory server under `tmb@trustmybot-local`, do not
-receive authenticated identity, and do not create task or validation records.
+On the supported 0.147.0-or-newer baseline, their static
+`tmb@trustmybot-local` override hides the TMB trajectory server. They also run a
+prompt-level live tool-surface check and stop if isolation is missing. They do
+not receive authenticated identity or create task or validation records.
 The reviewer is advisory even though its template requests a read-only sandbox.
 Scope 4 still exposes no Agent spawn orchestration, branch/worktree setup, Git
 delivery, remote Issue operations, or lifecycle Hooks.

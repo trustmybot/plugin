@@ -74,8 +74,12 @@ The remaining placeholders explicitly say "not implemented." Codex documentation
 
 ## Verified Codex surfaces
 
-Scope 4 supports Codex CLI and Desktop on macOS arm64 once fixed-SHA acceptance
-is recorded. The project-level Agent files follow Codex's shared custom-Agent
+Scope 4 targets Codex 0.147.0 or newer on CLI and Desktop for macOS arm64 once
+fixed-SHA acceptance is recorded. Codex 0.146.0 is explicitly unsupported for
+the Agent path because it can ignore plugin-scoped MCP overrides. In Desktop,
+the shell's `codex --version` does not prove the Desktop engine version, so the
+acceptance run must also inspect the child Agent's live tool surface. The
+project-level Agent files follow Codex's shared custom-Agent
 format, but this scope does not claim verified IDE, cloud, non-macOS, or
 stable-channel behavior. A host appearing to read the same configuration is not
 enough evidence for a support claim.

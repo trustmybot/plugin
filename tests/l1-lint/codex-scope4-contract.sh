@@ -49,6 +49,9 @@ bun -e '
       parsed.plugins["tmb@trustmybot-local"].mcp_servers["trajectory-server"].enabled,
       false,
     );
+    assert.match(parsed.developer_instructions, /Before reading the repository or running a command/);
+    assert.match(parsed.developer_instructions, /mcp__trajectory_server__/);
+    assert.match(parsed.developer_instructions, /BLOCKED_TMB_MCP_ISOLATION/);
   }
 
   assert.equal(Bun.TOML.parse(CODEX_AGENT_CATALOG[0].expectedBytes.toString()).sandbox_mode, "workspace-write");
@@ -74,5 +77,10 @@ node --experimental-sqlite --input-type=module -e '
 grep -q 'reviewer never returns `PASS`' docs/adapters/codex/PARITY.md
 grep -q 'Reviewer read-only and independence | Tier 3' docs/adapters/codex/PARITY.md
 grep -q 'Static plugin identity' docs/adapters/codex/PARITY.md
+grep -q '0.147.0' adapters/codex/skills/tmb-agent-setup/SKILL.md
+grep -q '0.146.0 can parse and discover' adapters/codex/skills/tmb-agent-setup/SKILL.md
+grep -q '`codex --version`' adapters/codex/skills/tmb-agent-setup/SKILL.md
+grep -q 'Do not apply this gate to inspection or removal' adapters/codex/skills/tmb-agent-setup/SKILL.md
+grep -q 'BLOCKED_TMB_MCP_ISOLATION' docs/adapters/codex/PARITY.md
 
 echo "Codex Scope-4 contract: PASS"
