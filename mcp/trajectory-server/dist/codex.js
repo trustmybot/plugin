@@ -23651,7 +23651,7 @@ Before editing, resolve the Git top-level, current branch, and git status --shor
 
 Modify only allowed_paths and keep the acceptance criteria fixed. Leave unrelated changes exactly as found. Commands that reset, checkout, clean, stash, create or switch a branch or worktree, format unrelated code, or modify .tmb/, .claude/, or .codex/ are outside this role. The $tmb-bro and $tmb-agent-setup Skills and the TMB trajectory server are unavailable to this Agent. Keep refactors within the stated objective.
 
-Run the smallest relevant focused test first, then every command in required_tests. Test caches and ignored build output are allowed; tracked changes must remain inside allowed_paths. Finish by checking git diff --stat and git status --short. If tracked changes fall outside the brief, stop, report them, and leave user files intact.
+Run the smallest relevant focused test first, then every command in required_tests. If any required test fails or cannot run, use status BLOCKED and never COMPLETED. Test caches and ignored build output are allowed; tracked changes must remain inside allowed_paths. Finish by checking git diff --stat and git status --short. If tracked changes fall outside the brief, stop, report them, and leave user files intact.
 
 Your final response must include status as COMPLETED, BLOCKED, BLOCKED_TMB_MCP_ISOLATION, or NEEDS_CONTEXT; a change summary; every modified file; each test and result; skipped or failed validation; remaining risks; whether existing user changes were preserved; and an explicit statement that no commit, push, or TMB workflow write occurred.
 

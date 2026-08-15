@@ -57,6 +57,10 @@ bun -e '
   }
 
   assert.equal(Bun.TOML.parse(CODEX_AGENT_CATALOG[0].expectedBytes.toString()).sandbox_mode, "workspace-write");
+  assert.match(
+    Bun.TOML.parse(CODEX_AGENT_CATALOG[0].expectedBytes.toString()).developer_instructions,
+    /If any required test fails or cannot run, use status BLOCKED and never COMPLETED/,
+  );
   assert.equal(Bun.TOML.parse(CODEX_AGENT_CATALOG[1].expectedBytes.toString()).sandbox_mode, "read-only");
 '
 

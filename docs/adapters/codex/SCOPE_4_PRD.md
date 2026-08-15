@@ -1020,8 +1020,9 @@ SWE 必须拒绝在以下分支实施：
 
 1. 运行与改动最接近的 focused test。
 2. 运行简报中列出的 required tests。
-3. 检查最终 `git diff --stat` 和 `git status --short`。
-4. 发现超范围 tracked 变更时停止并报告，不自行清理用户文件。
+3. 任一 required test 失败或无法运行时，status 必须为 `BLOCKED`，不能写成 `COMPLETED`。
+4. 检查最终 `git diff --stat` 和 `git status --short`。
+5. 发现超范围 tracked 变更时停止并报告，不自行清理用户文件。
 
 ### 18.6 最终输出
 
