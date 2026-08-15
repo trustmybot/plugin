@@ -1330,13 +1330,14 @@ node tests/benchmarks/codex-agent-materialization.mjs \
 
 Scope 4 不得在已有 dirty worktree 中开发或测试。
 
-当前 PRD 已使用以下独立 detached worktree：
+Scope 4 的 PRD、实现和测试都在以下独立 worktree 中完成：
 
 ```text
 <workspace-parent>/plugin-scope4-prd-review
 ```
 
-这个 worktree 来自 `origin/dev` 的 `390cdcde...`，没有绑定开发分支。用户批准创建 Scope 4 Issue 后，正式实施要从最新 `origin/dev` 另建 worktree 和 feature branch。
+这个 worktree 以 `origin/dev` 的 `390cdcde...` 为 merge base，当前绑定
+`feat/1175-codex-agent-materialization`，对应 Scope 4 Issue #1175。后续工作继续在这里完成；使用前先确认分支、merge base 和工作区状态，不再重复创建另一个 Scope 4 worktree。
 
 禁止：
 
