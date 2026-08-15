@@ -317,21 +317,20 @@ Scope 4 明确不包含：
 
 1. 用户在目标 Git worktree 中显式调用 `$tmb-agent-setup`。
 2. Skill 确定当前项目的绝对 Git top-level。
-3. Skill 调用 `runtime_initialize`，复用 Scope 3 的 canonical root 和 `.tmb/` ignore 门禁。
-4. Skill 调用 `agent_materialization_get`。
-5. Skill 显示两个目标路径及 `absent/current/conflict` 状态。
-6. 当需要写入时，Skill 显示精确动作并请求明确确认。
-7. 用户确认后，Skill 调用 `agent_materialization_set`，传入 `desired_state="present"`。
-8. Skill 再次调用 `agent_materialization_get`。
-9. 只有两个文件都为 `current` 时，Skill 报告安装完成。
-10. 如果文件发生变化，Skill 要求用户新建 Codex task 或重启 CLI session。
+3. Skill 调用只读的 `agent_materialization_get`。Getter 会自行检查 canonical root 和 `.tmb/` ignore 门禁，不打开 TMB 规划数据库。
+4. Skill 显示两个目标路径及 `absent/current/conflict` 状态。
+5. 当需要写入时，Skill 显示精确动作并请求明确确认。
+6. 用户确认后，Skill 调用 `agent_materialization_set`，传入 `desired_state="present"`。
+7. Skill 再次调用 `agent_materialization_get`。
+8. 只有两个文件都为 `current` 时，Skill 报告安装完成。
+9. 如果文件发生变化，Skill 要求用户新建 Codex task 或重启 CLI session。
 
 ### 11.2 已安装且为当前版本
 
 当两个文件都与当前模板逐字节一致：
 
 - `overall_status="current"`；
-- 不调用 setter，也不写两个 Agent 文件；此前的 `runtime_initialize` 仍可能创建或复用 `.tmb/tmb/`；
+- 不调用 setter，也不写两个 Agent 文件；检查过程不会创建或打开 `.tmb/tmb/`；
 - 不要求安装确认；
 - 不要求 restart；
 - 可以提示用户直接在新 task 中调用 Agent。
@@ -408,7 +407,6 @@ Scope 4 明确不包含：
 ```mermaid
 flowchart LR
     U["用户显式调用 $tmb-agent-setup"] --> S["Setup Skill"]
-    S --> R["runtime_initialize"]
     S --> G["agent_materialization_get"]
     G --> C{"需要变更且用户确认？"}
     C -->|否| X["不写入"]
@@ -514,7 +512,7 @@ policy:
 }
 ```
 
-Getter 不能创建 `.tmb/`、`.codex/` 或任何其他文件。Setup Skill 会先调用 `runtime_initialize`，但那是另一个显式步骤，不能把 getter 自身的写操作算到它头上。
+Getter 不能创建 `.tmb/`、`.codex/` 或任何其他文件。Setup Skill 直接用 Getter 做首次检查。即使 TMB 规划数据库损坏、版本较新，或用户已经降级插件，检查和移除 Agent 也不受影响。
 
 成功返回示例：
 
@@ -1120,18 +1118,17 @@ sandbox_mode = "read-only"
 
 1. 确定当前项目绝对 Git top-level。
 2. 确认用户要检查、安装还是移除。
-3. 调用 `runtime_initialize`。
-4. 调用 `agent_materialization_get`。
-5. 解释 overall 和每个 Agent 状态。
-6. 如果无需变更，直接结束。
-7. 如果有 conflict，停止，不调用 setter。
-8. 显示将创建或删除的精确路径。
-9. 告知文件可能出现在 `git status`，TMB 不会 stage/commit/ignore。
-10. 请求用户明确确认。
-11. 只有确认后调用 `agent_materialization_set`。
-12. 再次调用 `agent_materialization_get`。
-13. 只有最终状态正确时报告成功。
-14. 有文件变化时，要求新 task 或重启 CLI session。
+3. 调用 `agent_materialization_get`。
+4. 解释 overall 和每个 Agent 状态。
+5. 如果无需变更，直接结束。
+6. 如果有 conflict，停止，不调用 setter。
+7. 显示将创建或删除的精确路径。
+8. 告知文件可能出现在 `git status`，TMB 不会 stage/commit/ignore。
+9. 请求用户明确确认。
+10. 只有确认后调用 `agent_materialization_set`。
+11. 再次调用 `agent_materialization_get`。
+12. 只有最终状态正确时报告成功。
+13. 有文件变化时，要求新 task 或重启 CLI session。
 
 ### 20.2 禁止行为
 
@@ -1262,7 +1259,7 @@ Partial：
 2. 状态按 `absent`、`current`、`conflict` 的固定顺序执行。每种状态先启动 MCP 进程，再发送请求；进程启动时间不计入 getter latency。
 3. Harness 使用 `process.hrtime.bigint()`：在写出完整 JSON-RPC 请求前开始计时，在收到并解析对应完整响应后停止。计时包含本地 stdio 往返、参数验证、Git/root 检查、文件检查和响应序列化。
 4. 每种状态的第 1 个请求记为 `cold`；接着运行 10 次 warm-up；然后在同一进程、同一 fixture 上连续记录 100 个 warm 样本。三段顺序不得互换，也不手工清理操作系统文件缓存。
-5. Copied artifact 根目录必须包含测试专用 `.tmb-artifact-provenance.json`，且只有一个 40 位小写 `source_sha` 字段。Harness 从该文件记录 `plugin_sha`，把自身 checkout 另记为 `harness_source_sha`，并把 provenance 文件计入 artifact hash。原始结果保存为 JSONL；每行至少包含这两个 SHA、Codex/Node 版本、操作系统、架构、文件系统、状态、样本类型、样本序号和 `duration_ns`。PR 证据同时保存 harness 文件 hash。
+5. Copied artifact 根目录必须包含测试专用 `.tmb-artifact-provenance.json`，且只能有一个 40 位小写 `source_sha` 字段。正式测试要从同一 commit 的干净 checkout 运行 Harness。采样前，Harness 先核对 SHA，再逐项比较 artifact 与 checkout 的 tracked 文件、文件类型、可执行位和仓库内 symlink 目标。只要出现 `.git`、`node_modules`、断链或逃出 artifact 的 symlink，就立即终止。Artifact hash 覆盖文件、目录、mode、symlink 目标和 provenance 文件。原始结果保存为 JSONL；每行至少包含 `plugin_sha`、`harness_source_sha`、Codex/Node 版本、操作系统、架构、文件系统、状态、样本类型、样本序号和 `duration_ns`。PR 证据还要保存 Harness 文件 hash。
 6. 每种状态分别报告 cold、warm p50、p95 和 max。百分位使用排序后的 nearest-rank 方法；100 个样本的 p95 取第 95 个值。
 7. 本机验收目标为每种状态的 warm p95 不高于 100 ms；超出时必须调查并记录原因。这个数值是本机观察门槛，不作为不同 CI runner 之间的硬性能 gate。后续 PR 只有复用同一 harness、fixture 协议和计时边界时才可比较回归。
 
@@ -1281,7 +1278,7 @@ node tests/benchmarks/codex-agent-materialization.mjs \
 ```
 
 - 两个参数都必填且必须是绝对路径；不提供可改变状态顺序、warm-up 数量、样本数量、计时边界或门槛的参数。
-- `--installed-plugin-root` 必须指向本次固定 SHA copied installed artifact，并带有上述 provenance 文件；harness 不从源码目录加载依赖，也不修改该目录。
+- `--installed-plugin-root` 必须指向本次固定 SHA copied installed artifact，并带有上述 provenance 文件；Harness 只用干净 checkout 绑定 provenance 和 artifact 内容，不从源码目录加载运行依赖，也不修改 artifact。
 - `--output-dir` 必须位于 disposable 测试空间且尚不存在。Harness 必须 canonicalize 其已存在父目录，拒绝通过 symlink 父目录写入 installed artifact；创建后再次确认 canonical output 仍在 artifact 外。Harness 在其中创建 fixture，并固定输出 `codex-agent-materialization.samples.jsonl` 与 `codex-agent-materialization.summary.json`。
 - Harness 的所有 Git 子进程必须移除继承的 `GIT_*` override，关闭 terminal prompt、system/global config、hooks 和 fsmonitor，避免 fixture 初始化、add 或 commit 作用到其他仓库。
 - summary 必须包含三个状态的 cold/p50/p95/max、环境字段、artifact SHA、harness file SHA-256 和 `threshold_status`。`threshold_status` 只能是 `pass` 或 `investigate`。

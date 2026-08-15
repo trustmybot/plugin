@@ -388,6 +388,7 @@ function validateInput(args, allowedKeys) {
             throw new CodexAdapterError('unsupported_identity_claim', `Caller-supplied ${key} is not accepted by the Codex adapter.`);
         }
     }
+    requireProjectRoot(input);
     for (const key of Object.keys(input)) {
         if (!allowedKeys.includes(key)) {
             throw new CodexAdapterError('invalid_arguments', `Unsupported argument: ${key}`);

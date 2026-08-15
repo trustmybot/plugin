@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import {
+  lstatSync,
   mkdirSync,
+  readlinkSync,
   readFileSync,
   readdirSync,
   realpathSync,
@@ -12,9 +15,8 @@ import {
 } from 'node:fs';
 import { arch, platform } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { createInterface } from 'node:readline';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const STATES = Object.freeze(['absent', 'current', 'conflict']);
 const WARMUP_COUNT = 10;
@@ -117,6 +119,14 @@ export function parseArtifactProvenance(text) {
   return { source_sha: value.source_sha };
 }
 
+export function readArtifactProvenance(installedPluginRoot) {
+  const provenancePath = join(installedPluginRoot, ARTIFACT_PROVENANCE_FILE);
+  if (!lstatSync(provenancePath).isFile()) {
+    throw new Error(`Installed artifact ${ARTIFACT_PROVENANCE_FILE} must be a regular file.`);
+  }
+  return parseArtifactProvenance(readFileSync(provenancePath, 'utf8'));
+}
+
 export function sanitizedGitEnvironment(environment = process.env) {
   const sanitized = Object.fromEntries(
     Object.entries(environment).filter(([key]) => !key.startsWith('GIT_')),
@@ -137,6 +147,99 @@ export function resolveOutputCandidate(installedPluginRoot, outputDir) {
   return canonicalOutputCandidate;
 }
 
+export function assertInstalledArtifactIsolation(installedPluginRoot) {
+  for (const forbiddenEntry of ['.git', 'node_modules']) {
+    try {
+      lstatSync(join(installedPluginRoot, forbiddenEntry));
+    } catch (error) {
+      if (error?.code === 'ENOENT') continue;
+      throw error;
+    }
+    throw new Error(`Installed artifact must not contain ${forbiddenEntry}.`);
+  }
+  recursiveEntries(installedPluginRoot);
+}
+
+export function assertArtifactMatchesSource(
+  installedPluginRoot,
+  sourceRoot,
+  sourceSha,
+) {
+  const sourceHead = gitHead(sourceRoot);
+  if (sourceHead !== sourceSha) {
+    throw new Error(
+      `Installed artifact source_sha ${sourceSha} does not match harness HEAD ${sourceHead}.`,
+    );
+  }
+  try {
+    runGit(['-C', sourceRoot, 'diff', '--quiet', 'HEAD', '--']);
+  } catch {
+    throw new Error(
+      'The benchmark harness checkout must have no tracked changes from HEAD.',
+    );
+  }
+
+  const tracked = trackedEntries(sourceRoot);
+  const artifactLeaves = recursiveEntries(installedPluginRoot)
+    .filter((entry) => entry.type !== 'directory')
+    .filter((entry) => entry.relativePath !== ARTIFACT_PROVENANCE_FILE);
+  const artifactByPath = new Map(
+    artifactLeaves.map((entry) => [entry.relativePath, entry]),
+  );
+  const trackedPaths = new Set(tracked.map((entry) => entry.relativePath));
+
+  const missing = tracked
+    .filter((entry) => !artifactByPath.has(entry.relativePath))
+    .map((entry) => entry.relativePath);
+  const extra = artifactLeaves
+    .filter((entry) => !trackedPaths.has(entry.relativePath))
+    .map((entry) => entry.relativePath);
+  if (missing.length > 0 || extra.length > 0) {
+    throw new Error(
+      `Installed artifact file set does not match source_sha: missing=${summarizePaths(missing)} extra=${summarizePaths(extra)}.`,
+    );
+  }
+
+  for (const trackedEntry of tracked) {
+    const artifactEntry = artifactByPath.get(trackedEntry.relativePath);
+    const sourcePath = join(sourceRoot, trackedEntry.relativePath);
+    const sourceStat = lstatSync(sourcePath);
+    const sourceType = sourceStat.isSymbolicLink()
+      ? 'symlink'
+      : sourceStat.isFile()
+        ? 'file'
+        : 'unsupported';
+    const sourceMode = sourceType === 'symlink'
+      ? '120000'
+      : sourceStat.mode & 0o111
+        ? '100755'
+        : '100644';
+    if (
+      sourceType === 'unsupported' ||
+      artifactEntry.type !== sourceType ||
+      trackedEntry.mode !== sourceMode ||
+      artifactEntry.gitMode !== trackedEntry.mode
+    ) {
+      throw new Error(
+        `Installed artifact entry type or mode does not match source_sha: ${trackedEntry.relativePath}.`,
+      );
+    }
+    if (sourceType === 'symlink') {
+      if (readlinkSync(sourcePath) !== artifactEntry.linkTarget) {
+        throw new Error(
+          `Installed artifact symlink does not match source_sha: ${trackedEntry.relativePath}.`,
+        );
+      }
+    } else if (
+      !readFileSync(sourcePath).equals(readFileSync(artifactEntry.path))
+    ) {
+      throw new Error(
+        `Installed artifact file does not match source_sha: ${trackedEntry.relativePath}.`,
+      );
+    }
+  }
+}
+
 async function main() {
   const { installedPluginRoot: inputRoot, outputDir } = parseArguments(
     process.argv.slice(2),
@@ -145,15 +248,14 @@ async function main() {
   if (!statSync(installedPluginRoot).isDirectory()) {
     throw new Error('--installed-plugin-root must identify a directory.');
   }
+  assertInstalledArtifactIsolation(installedPluginRoot);
   const manifest = JSON.parse(
     readFileSync(join(installedPluginRoot, '.codex-plugin', 'plugin.json'), 'utf8'),
   );
   const mcpConfig = JSON.parse(
     readFileSync(join(installedPluginRoot, 'adapters', 'codex', '.mcp.json'), 'utf8'),
   )['trajectory-server'];
-  const provenance = parseArtifactProvenance(
-    readFileSync(join(installedPluginRoot, ARTIFACT_PROVENANCE_FILE), 'utf8'),
-  );
+  const provenance = readArtifactProvenance(installedPluginRoot);
   if (
     !mcpConfig ||
     typeof mcpConfig.command !== 'string' ||
@@ -162,6 +264,15 @@ async function main() {
   ) {
     throw new Error('The installed Codex MCP configuration is invalid.');
   }
+
+  const scriptPath = fileURLToPath(import.meta.url);
+  const sourceRoot = resolve(dirname(scriptPath), '..', '..');
+  assertArtifactMatchesSource(
+    installedPluginRoot,
+    sourceRoot,
+    provenance.source_sha,
+  );
+  const harnessSourceSha = gitHead(sourceRoot);
 
   const canonicalOutputCandidate = resolveOutputCandidate(
     installedPluginRoot,
@@ -180,11 +291,9 @@ async function main() {
   const isolatedHome = join(canonicalOutputDir, 'isolated-home');
   mkdirSync(isolatedHome);
 
-  const scriptPath = fileURLToPath(import.meta.url);
-  const sourceRoot = resolve(dirname(scriptPath), '..', '..');
   const environment = {
     plugin_sha: provenance.source_sha,
-    harness_source_sha: gitHead(sourceRoot),
+    harness_source_sha: harnessSourceSha,
     plugin_version: manifest.version,
     artifact_sha256: hashDirectory(installedPluginRoot),
     harness_sha256: sha256(readFileSync(scriptPath)),
@@ -269,7 +378,7 @@ async function timedGet(client, projectRoot, expectedStatus) {
 }
 
 async function withClient(installedRoot, config, isolatedHome, operation) {
-  const transport = new StdioClientTransport({
+  const client = await openJsonRpcClient({
     command: config.command,
     args: config.args,
     cwd: join(installedRoot, config.cwd),
@@ -278,18 +387,116 @@ async function withClient(installedRoot, config, isolatedHome, operation) {
       HOME: isolatedHome,
       NODE_PATH: '',
     },
-    stderr: 'pipe',
-  });
-  const client = new Client({
-    name: 'tmb-scope4-materialization-benchmark',
-    version: '1.0.0',
   });
   try {
-    await client.connect(transport);
     return await operation(client);
   } finally {
     await client.close();
   }
+}
+
+async function openJsonRpcClient(options) {
+  const child = spawn(options.command, options.args, {
+    cwd: options.cwd,
+    env: options.env,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const pending = new Map();
+  const lines = createInterface({ input: child.stdout });
+  let nextId = 1;
+  let stderr = '';
+  let terminalError;
+  let closing = false;
+
+  const failPending = (error) => {
+    terminalError ??= error;
+    for (const request of pending.values()) request.reject(error);
+    pending.clear();
+  };
+
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk) => {
+    stderr = `${stderr}${chunk}`.slice(-64 * 1024);
+  });
+  child.on('error', (error) => failPending(error));
+  child.stdin.on('error', (error) => failPending(error));
+  child.on('exit', (code, signal) => {
+    if (!closing || pending.size > 0) {
+      const detail = stderr.trim();
+      failPending(new Error(
+        `Installed MCP exited before the benchmark completed (code=${String(code)}, signal=${String(signal)})${detail ? `: ${detail}` : ''}`,
+      ));
+    }
+  });
+  lines.on('line', (line) => {
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      failPending(new Error('Installed MCP returned malformed JSON-RPC output.'));
+      return;
+    }
+    if (!Object.hasOwn(message, 'id')) return;
+    const request = pending.get(message.id);
+    if (!request) return;
+    pending.delete(message.id);
+    if (message.error) {
+      request.reject(new Error(`MCP JSON-RPC error: ${JSON.stringify(message.error)}`));
+    } else {
+      request.resolve(message.result);
+    }
+  });
+
+  const send = (message) => {
+    if (terminalError) throw terminalError;
+    child.stdin.write(`${JSON.stringify(message)}\n`);
+  };
+  const request = (method, params) => new Promise((resolveRequest, rejectRequest) => {
+    if (terminalError) {
+      rejectRequest(terminalError);
+      return;
+    }
+    const id = nextId;
+    nextId += 1;
+    pending.set(id, { resolve: resolveRequest, reject: rejectRequest });
+    try {
+      send({ jsonrpc: '2.0', id, method, params });
+    } catch (error) {
+      pending.delete(id);
+      rejectRequest(error);
+    }
+  });
+
+  await request('initialize', {
+    protocolVersion: '2024-11-05',
+    capabilities: {},
+    clientInfo: {
+      name: 'tmb-scope4-materialization-benchmark',
+      version: '1.0.0',
+    },
+  });
+  send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+
+  return {
+    callTool: ({ name, arguments: args }) => request('tools/call', {
+      name,
+      arguments: args,
+    }),
+    async close() {
+      closing = true;
+      child.stdin.end();
+      if (child.exitCode === null && child.signalCode === null) {
+        await once(child, 'exit');
+      }
+      lines.close();
+      if (child.exitCode !== 0 && child.exitCode !== null) {
+        const detail = stderr.trim();
+        throw new Error(
+          `Installed MCP exited with code ${child.exitCode}${detail ? `: ${detail}` : ''}`,
+        );
+      }
+    },
+  };
 }
 
 function createProject(path) {
@@ -373,27 +580,103 @@ export function assertMaterializationStatus(result, expectedStatus) {
   }
 }
 
-function hashDirectory(root) {
+export function hashDirectory(root) {
   const hash = createHash('sha256');
-  for (const file of recursiveFiles(root)) {
-    const rel = relative(root, file);
-    hash.update(rel);
+  for (const entry of recursiveEntries(root)) {
+    hash.update(entry.relativePath);
     hash.update('\0');
-    hash.update(readFileSync(file));
+    hash.update(entry.type);
+    hash.update('\0');
+    hash.update(entry.gitMode);
+    hash.update('\0');
+    if (entry.type === 'file') hash.update(readFileSync(entry.path));
+    if (entry.type === 'symlink') hash.update(entry.linkTarget);
     hash.update('\0');
   }
   return hash.digest('hex');
 }
 
-function recursiveFiles(root) {
-  const files = [];
-  for (const entry of readdirSync(root, { withFileTypes: true })) {
-    if (entry.name === '.git' || entry.name === 'node_modules') continue;
-    const path = join(root, entry.name);
-    if (entry.isDirectory()) files.push(...recursiveFiles(path));
-    else if (entry.isFile()) files.push(path);
+function recursiveEntries(root, current) {
+  if (current === undefined) {
+    const canonicalRoot = realpathSync(root);
+    return recursiveEntries(canonicalRoot, canonicalRoot);
   }
-  return files.sort();
+  const entries = [];
+  for (const dirent of readdirSync(current, { withFileTypes: true })) {
+    const path = join(current, dirent.name);
+    const relativePath = relative(root, path);
+    const stat = lstatSync(path);
+    if (stat.isDirectory()) {
+      entries.push({
+        path,
+        relativePath,
+        type: 'directory',
+        gitMode: '040000',
+      });
+      entries.push(...recursiveEntries(root, path));
+    } else if (stat.isFile()) {
+      entries.push({
+        path,
+        relativePath,
+        type: 'file',
+        gitMode: stat.mode & 0o111 ? '100755' : '100644',
+      });
+    } else if (stat.isSymbolicLink()) {
+      let resolvedTarget;
+      try {
+        resolvedTarget = realpathSync(path);
+      } catch {
+        throw new Error(`Installed artifact contains a broken symlink: ${relativePath}.`);
+      }
+      if (!isWithin(root, resolvedTarget)) {
+        throw new Error(`Installed artifact symlink escapes its root: ${relativePath}.`);
+      }
+      entries.push({
+        path,
+        relativePath,
+        type: 'symlink',
+        gitMode: '120000',
+        linkTarget: readlinkSync(path),
+      });
+    } else {
+      throw new Error(`Installed artifact contains an unsupported file type: ${relativePath}.`);
+    }
+  }
+  return entries.sort((left, right) =>
+    left.relativePath < right.relativePath
+      ? -1
+      : left.relativePath > right.relativePath
+        ? 1
+        : 0);
+}
+
+function trackedEntries(sourceRoot) {
+  const output = runGit(['-C', sourceRoot, 'ls-files', '-s', '-z']);
+  return output
+    .toString('utf8')
+    .split('\0')
+    .filter(Boolean)
+    .map((record) => {
+      const tab = record.indexOf('\t');
+      if (tab === -1) throw new Error('Could not parse tracked source files.');
+      const [mode, , stage] = record.slice(0, tab).split(' ');
+      if (stage !== '0' || (mode !== '100644' && mode !== '100755' && mode !== '120000')) {
+        throw new Error(`Unsupported tracked source entry: ${record.slice(tab + 1)}.`);
+      }
+      return { mode, relativePath: record.slice(tab + 1) };
+    })
+    .sort((left, right) =>
+      left.relativePath < right.relativePath
+        ? -1
+        : left.relativePath > right.relativePath
+          ? 1
+          : 0);
+}
+
+function summarizePaths(paths) {
+  if (paths.length === 0) return 'none';
+  const visible = paths.slice(0, 5).join(',');
+  return paths.length > 5 ? `${visible},...(${paths.length} total)` : visible;
 }
 
 function sha256(bytes) {
@@ -476,7 +759,7 @@ function usage() {
 }
 
 const invokedPath = process.argv[1]
-  ? pathToFileURL(resolve(process.argv[1])).href
+  ? pathToFileURL(realpathSync(resolve(process.argv[1]))).href
   : '';
 if (import.meta.url === invokedPath) {
   main().catch((error) => {

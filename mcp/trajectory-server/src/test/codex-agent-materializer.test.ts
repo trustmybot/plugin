@@ -879,6 +879,17 @@ describe('Scope 4 tool and root contracts', () => {
         desired_state: 'wrong',
       });
       assert.equal(errorCode(missing), 'missing_project_root');
+      for (const projectRoot of [undefined, '', 42]) {
+        const missingBeforeExtra = await registry.call(
+          'agent_materialization_set',
+          {
+            project_root: projectRoot,
+            desired_state: 'wrong',
+            unexpected: true,
+          },
+        );
+        assert.equal(errorCode(missingBeforeExtra), 'missing_project_root');
+      }
       const identityFirst = await registry.call('agent_materialization_set', {
         project_root: 'relative',
         desired_state: 'wrong',

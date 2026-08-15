@@ -1,19 +1,27 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
   realpathSync,
   symlinkSync,
+  unlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import {
+  assertArtifactMatchesSource,
+  assertInstalledArtifactIsolation,
   assertMaterializationStatus,
+  hashDirectory,
   nearestRank,
   parseArguments,
   parseArtifactProvenance,
+  readArtifactProvenance,
   resolveOutputCandidate,
   sanitizedGitEnvironment,
   summarizeDurations,
@@ -62,6 +70,111 @@ assert.equal(gitEnvironment.GIT_CONFIG_GLOBAL, '/dev/null');
 const installedDir = join(tempRoot, 'installed-artifact');
 const installedParentLink = join(tempRoot, 'installed-parent-link');
 mkdirSync(installedDir);
+assert.doesNotThrow(() => assertInstalledArtifactIsolation(installedDir));
+const artifactWithDependencies = join(tempRoot, 'artifact-with-dependencies');
+mkdirSync(join(artifactWithDependencies, 'node_modules'), { recursive: true });
+assert.throws(
+  () => assertInstalledArtifactIsolation(artifactWithDependencies),
+  /must not contain node_modules/,
+);
+const artifactWithGit = join(tempRoot, 'artifact-with-git');
+mkdirSync(join(artifactWithGit, '.git'), { recursive: true });
+assert.throws(
+  () => assertInstalledArtifactIsolation(artifactWithGit),
+  /must not contain \.git/,
+);
+
+const sourceCheckout = join(tempRoot, 'source-checkout');
+const matchedArtifact = join(tempRoot, 'matched-artifact');
+mkdirSync(join(sourceCheckout, 'scripts'), { recursive: true });
+mkdirSync(join(sourceCheckout, 'skills'), { recursive: true });
+writeFileSync(join(sourceCheckout, 'README.md'), 'fixed source\n');
+writeFileSync(join(sourceCheckout, 'scripts', 'tool.sh'), '#!/bin/sh\nexit 0\n');
+chmodSync(join(sourceCheckout, 'scripts', 'tool.sh'), 0o755);
+symlinkSync('../scripts/tool.sh', join(sourceCheckout, 'skills', 'tool.sh'));
+const fixtureGit = (args) => execFileSync(
+  'git',
+  [
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
+    'core.hooksPath=/dev/null',
+    ...args,
+  ],
+  { encoding: 'utf8', env: sanitizedGitEnvironment() },
+);
+fixtureGit(['init', '--quiet', sourceCheckout]);
+fixtureGit(['-C', sourceCheckout, 'add', '.']);
+fixtureGit([
+  '-C',
+  sourceCheckout,
+  '-c',
+  'user.name=Scope 4 Selftest',
+  '-c',
+  'user.email=scope4-selftest@example.invalid',
+  'commit',
+  '--quiet',
+  '-m',
+  'fixture',
+]);
+const sourceSha = fixtureGit(['-C', sourceCheckout, 'rev-parse', 'HEAD']).trim();
+
+mkdirSync(join(matchedArtifact, 'scripts'), { recursive: true });
+mkdirSync(join(matchedArtifact, 'skills'), { recursive: true });
+writeFileSync(join(matchedArtifact, 'README.md'), 'fixed source\n');
+writeFileSync(join(matchedArtifact, 'scripts', 'tool.sh'), '#!/bin/sh\nexit 0\n');
+chmodSync(join(matchedArtifact, 'scripts', 'tool.sh'), 0o755);
+symlinkSync('../scripts/tool.sh', join(matchedArtifact, 'skills', 'tool.sh'));
+writeFileSync(
+  join(matchedArtifact, '.tmb-artifact-provenance.json'),
+  `${JSON.stringify({ source_sha: sourceSha })}\n`,
+);
+assert.doesNotThrow(() =>
+  assertArtifactMatchesSource(matchedArtifact, sourceCheckout, sourceSha));
+assert.throws(
+  () => assertArtifactMatchesSource(matchedArtifact, sourceCheckout, 'a'.repeat(40)),
+  /does not match harness HEAD/,
+);
+
+writeFileSync(join(matchedArtifact, 'README.md'), 'mutated artifact\n');
+assert.throws(
+  () => assertArtifactMatchesSource(matchedArtifact, sourceCheckout, sourceSha),
+  /file does not match source_sha/,
+);
+writeFileSync(join(matchedArtifact, 'README.md'), 'fixed source\n');
+chmodSync(join(matchedArtifact, 'scripts', 'tool.sh'), 0o644);
+assert.throws(
+  () => assertArtifactMatchesSource(matchedArtifact, sourceCheckout, sourceSha),
+  /type or mode does not match source_sha/,
+);
+chmodSync(join(matchedArtifact, 'scripts', 'tool.sh'), 0o755);
+writeFileSync(join(sourceCheckout, 'README.md'), 'dirty source\n');
+assert.throws(
+  () => assertArtifactMatchesSource(matchedArtifact, sourceCheckout, sourceSha),
+  /must have no tracked changes/,
+);
+writeFileSync(join(sourceCheckout, 'README.md'), 'fixed source\n');
+
+const originalArtifactHash = hashDirectory(matchedArtifact);
+unlinkSync(join(matchedArtifact, 'skills', 'tool.sh'));
+symlinkSync('../README.md', join(matchedArtifact, 'skills', 'tool.sh'));
+assert.notEqual(hashDirectory(matchedArtifact), originalArtifactHash);
+
+const artifactWithEscapingLink = join(tempRoot, 'artifact-with-escaping-link');
+mkdirSync(artifactWithEscapingLink);
+symlinkSync(sourceCheckout, join(artifactWithEscapingLink, 'outside'));
+assert.throws(
+  () => assertInstalledArtifactIsolation(artifactWithEscapingLink),
+  /symlink escapes its root/,
+);
+const artifactWithProvenanceLink = join(tempRoot, 'artifact-with-provenance-link');
+mkdirSync(artifactWithProvenanceLink);
+writeFileSync(join(artifactWithProvenanceLink, 'payload'), '{}\n');
+symlinkSync('payload', join(artifactWithProvenanceLink, '.tmb-artifact-provenance.json'));
+assert.throws(
+  () => readArtifactProvenance(artifactWithProvenanceLink),
+  /must be a regular file/,
+);
 symlinkSync(installedDir, installedParentLink);
 assert.throws(
   () => resolveOutputCandidate(

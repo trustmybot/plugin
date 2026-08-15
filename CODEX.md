@@ -38,9 +38,9 @@ Run `$tmb-agent-setup` from the Git worktree that should receive the Agents. The
 Skill validates the canonical project root, inspects both targets, and explains
 the intended change. It calls the setter only after a separate confirmation.
 If both files already match the current templates, it reports `current` without
-asking for a no-op confirmation or writing either Agent file. The required
-`runtime_initialize` step may create or reuse ignored project state under
-`.tmb/tmb/` before that inspection.
+asking for a no-op confirmation or writing either Agent file. Inspection uses
+the read-only materialization getter, so checking or removing Agents does not
+depend on opening the TMB planning database.
 
 Choose removal through the same Skill. TMB deletes only a target whose bytes
 still match the current catalog, leaving `.codex/agents/` and every other file

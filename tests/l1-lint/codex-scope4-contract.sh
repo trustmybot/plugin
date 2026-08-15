@@ -87,6 +87,10 @@ if grep -q '`codex --version`' adapters/codex/skills/tmb-agent-setup/SKILL.md; t
   echo "setup must not carry a host-version gate" >&2
   exit 1
 fi
+if grep -q 'runtime_initialize' adapters/codex/skills/tmb-agent-setup/SKILL.md; then
+  echo "setup inspection and removal must not depend on the planning database" >&2
+  exit 1
+fi
 grep -q 'BLOCKED_TMB_MCP_ISOLATION' docs/adapters/codex/PARITY.md
 
 echo "Codex Scope-4 contract: PASS"

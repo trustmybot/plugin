@@ -22,25 +22,23 @@ visible at runtime.
    as `project_root` on every TMB call.
 2. Determine whether the user wants to inspect the files or make them present
    or absent. Ask when the desired action is not explicit.
-3. Call `runtime_initialize`. Stop on any error. Do not edit `.gitignore`, choose
-   another worktree, or weaken the project checks.
-4. Call `agent_materialization_get` and report the overall state plus both Agent
+3. Call `agent_materialization_get` and report the overall state plus both Agent
    states.
-5. If the requested state is already satisfied, finish without calling the
+4. If the requested state is already satisfied, finish without calling the
    setter and without asking for a no-op confirmation.
-6. If either Agent is `conflict`, stop and explain that the user must resolve
+5. If either Agent is `conflict`, stop and explain that the user must resolve
    the file manually. Setter, force, overwrite, adopt, automatic backup, and
    automatic repair are unavailable in this state.
-7. Show the two fixed paths and explain whether each one will be created or
+6. Show the two fixed paths and explain whether each one will be created or
    removed. State that the files may appear in `git status`; TMB will not stage,
    commit, or ignore them.
-8. Ask for explicit confirmation. Do not treat the original Skill invocation as
+7. Ask for explicit confirmation. Do not treat the original Skill invocation as
    confirmation of the file mutation.
-9. Only after confirmation, call `agent_materialization_set` once with
+8. Only after confirmation, call `agent_materialization_set` once with
    `desired_state` set to `present` or `absent`.
-10. Call `agent_materialization_get` again. Report success only when both Agents
+9. Call `agent_materialization_get` again. Report success only when both Agents
     match the requested final state.
-11. When files changed, tell the user to start a new Codex task or CLI session.
+10. When files changed, tell the user to start a new Codex task or CLI session.
     Do not say the current task has hot-loaded the Agent files.
 
 ## Confirmation text

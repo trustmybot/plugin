@@ -43,9 +43,14 @@ trap 'rm -rf "$TMPDIR_ST"' EXIT
 printf '=== codex-agent-materialization.mjs ===\n'
 
 if command -v node >/dev/null 2>&1; then
-  CAM_OUT="$(node "$HERE/codex-agent-materialization.selftest.mjs" "$TMPDIR_ST")"
+  CAM_ISOLATED="$TMPDIR_ST/isolated-benchmark"
+  mkdir -p "$CAM_ISOLATED"
+  cp "$HERE/codex-agent-materialization.mjs" "$CAM_ISOLATED/"
+  cp "$HERE/codex-agent-materialization.selftest.mjs" "$CAM_ISOLATED/"
+  mkdir -p "$TMPDIR_ST/selftest-state"
+  CAM_OUT="$(node "$CAM_ISOLATED/codex-agent-materialization.selftest.mjs" "$TMPDIR_ST/selftest-state")"
   check "materialization benchmark helpers" "$CAM_OUT" 'selftest passed'
-  if node "$HERE/codex-agent-materialization.mjs" >/dev/null 2>&1; then
+  if node "$CAM_ISOLATED/codex-agent-materialization.mjs" >/dev/null 2>&1; then
     printf '  FAIL: materialization benchmark rejects missing arguments\n' >&2
     FAIL=$((FAIL + 1))
   else

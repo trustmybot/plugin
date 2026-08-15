@@ -82,7 +82,7 @@ node tests/benchmarks/codex-agent-materialization.mjs \
   --output-dir /absolute/path/to/new-evidence-directory
 ```
 
-The copied artifact must contain `.tmb-artifact-provenance.json` with exactly one `source_sha` field containing the 40-character lowercase commit SHA used to build it. The harness records that value as `plugin_sha`, records its own checkout separately as `harness_source_sha`, and hashes the complete artifact including the provenance file.
+The copied artifact must contain `.tmb-artifact-provenance.json`. Its only field is `source_sha`, set to the 40-character lowercase commit SHA used to build the artifact. Run the harness from a clean checkout of that commit. Before sampling, the harness compares the artifact with the checkout, including tracked files, file types, executable bits, and in-repository symlink targets. It rejects `.git`, `node_modules`, broken symlinks, and symlinks that leave the artifact. The artifact hash covers every file, directory, mode, symlink target, and the provenance file.
 
 The harness starts one fresh MCP process per state, takes one cold sample, discards 10 warm-up calls, and records 100 warm samples. It verifies every response matches the intended state, then writes one JSONL sample file and one JSON summary. The summary uses nearest-rank p50 and p95 values and reports `pass` when every warm p95 is at or below 100 ms. A slower result reports `investigate` but still exits zero so machine-specific latency remains an advisory signal; protocol, fixture, or output failures exit non-zero.
 

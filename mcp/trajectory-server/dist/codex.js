@@ -27730,6 +27730,7 @@ function validateInput(args, allowedKeys) {
       );
     }
   }
+  requireProjectRoot(input);
   for (const key of Object.keys(input)) {
     if (!allowedKeys.includes(key)) {
       throw new CodexAdapterError(

@@ -678,6 +678,7 @@ function validateInput(
       );
     }
   }
+  requireProjectRoot(input);
   for (const key of Object.keys(input)) {
     if (!allowedKeys.includes(key)) {
       throw new CodexAdapterError(
