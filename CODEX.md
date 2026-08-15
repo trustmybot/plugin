@@ -34,17 +34,6 @@ session so the host can reload project Agent configuration.
 
 ## Install, inspect, and remove Agents
 
-Scope 4 requires Codex 0.147.0 or newer. Codex 0.146.0 can load the Agent
-files while still exposing the TMB trajectory server to them. The setup Skill
-checks `codex --version` and stops before installation when the version is too
-old, missing, or unclear. In Desktop, that command checks the installed CLI,
-not the Desktop engine itself, so fixed-SHA Desktop acceptance must still
-inspect the child Agent's actual tool surface.
-
-The MCP setter does not receive a trustworthy host version. A direct advanced
-`agent_materialization_set` call can therefore bypass the Skill's version check;
-the Agent's live tool-surface preflight is the remaining fail-closed guard.
-
 Run `$tmb-agent-setup` from the Git worktree that should receive the Agents. The
 Skill validates the canonical project root, inspects both targets, and explains
 the intended change. It calls the setter only after a separate confirmation.
@@ -85,10 +74,11 @@ instead of guessing ownership.
 The installed Agents are intentionally independent of TMB workflow state.
 `tmb_swe` can implement a complete, path-bounded brief in the current worktree;
 `tmb_pr_reviewer` provides an advisory review. Their names are not authenticated
-roles, and Bro does not spawn them. On the supported Codex 0.147.0-or-newer
-baseline, the static `tmb@trustmybot-local` override removes the TMB trajectory
-server from both Agents. Each Agent also checks its live tool surface before it
-reads the repository and returns `BLOCKED_TMB_MCP_ISOLATION` if a TMB tool is
+roles, and Bro does not spawn them. Each template shadows the plugin-provided
+`trajectory-server` with a disabled same-name entry in its own `mcp_servers`
+table. The required transport is the inert `node --version`; it never starts
+while the entry is disabled. Each Agent also checks its live tool surface before
+it reads the repository and returns `BLOCKED_TMB_MCP_ISOLATION` if a TMB tool is
 still visible. That self-check is prompt-level defense in depth, not a server
 gate. The reviewer requests read-only sandboxing, but a parent
 task can override that default, so its verdict is never a Push gate or a trusted

@@ -43,14 +43,15 @@ discoverable in a new task after setup. They are not TMB workflow principals.
 Their names do not authenticate a role, and they cannot create TMB tasks,
 validation records, audit entries, or delivery state.
 
-Both templates disable the bundled trajectory server under the static
-development plugin identity `tmb@trustmybot-local`. The supported Agent baseline
-is Codex 0.147.0 or newer. Live testing found that 0.146.0 parsed the same TOML
-but left all 15 TMB tools visible to a child Agent; 0.147.0 hid them. Setup
-checks the installed CLI version, and both Agents inspect their live tool list
-before repository access. If a TMB tool is visible they return
-`BLOCKED_TMB_MCP_ISOLATION` without continuing. The self-check is prompt-level
-defense in depth, not a machine-enforced server gate.
+Both templates define a disabled ordinary MCP entry named `trajectory-server`.
+It shadows the plugin-provided server in the Agent configuration layer without
+depending on a Marketplace ID. Codex requires a complete transport shape even
+for a disabled entry, so the template uses inert `node --version` metadata.
+Live testing on CLI `0.146.0` and `0.147.0` hid the TMB tools with this shape.
+Both Agents still inspect their live tool list before repository access. If a
+TMB tool is visible they return `BLOCKED_TMB_MCP_ISOLATION` without continuing.
+The self-check is prompt-level defense in depth, not a machine-enforced server
+gate.
 
 Neither template fixes a model or reasoning effort. `tmb_swe` requests
 `workspace-write` and works from a
@@ -97,7 +98,7 @@ not server gates.
 | Explicit project-local Skills | **Yes** | Exactly `$tmb-bro` and `$tmb-agent-setup`; both set `allow_implicit_invocation: false`. |
 | Project-level custom Agents | **Yes, explicit setup** | Setup can materialize exactly `tmb_swe` and `tmb_pr_reviewer`; Bro does not spawn them. |
 | Per-Agent sandbox default | **Yes, overridable** | SWE requests `workspace-write`; reviewer requests `read-only`. Parent permissions remain authoritative. |
-| Per-Agent TMB MCP isolation | **Static identity, Codex 0.147.0+** | Both templates disable `plugins."tmb@trustmybot-local".mcp_servers."trajectory-server"`. Version 0.146.0 and other plugin identities are not supported. |
+| Per-Agent TMB MCP isolation | **Static same-name MCP shadow** | Both templates define `mcp_servers."trajectory-server"` as disabled with inert transport metadata. Live child tool-surface checks remain required. |
 | Authenticated workflow role | **No** | Agent names are labels. No server-issued role or Human-provenance token exists. |
 | Native worktree isolation | **Desktop-only host feature** | Scope 4 does not create, switch, or clean worktrees. SWE operates in the worktree supplied by the caller. |
 | Writable project state | **Yes** | Planning state is confined to ignored `.tmb/tmb`; setup manages only two `.codex/agents` paths. |
@@ -111,7 +112,7 @@ not server gates.
 | Local-only planning writes | Tier 1 | Public schemas omit identity/provenance fields, wrappers inject Bro authorship, and Issue sync is forced off. |
 | Agent target allowlist | Tier 1 | The setter accepts no path, Agent name, or content input; only two catalog targets are reachable. |
 | Conflict and path safety | Tier 1 within the single-process contract | Unknown bytes, symlinks, directories, and non-regular targets fail closed. Same-user TOCTOU resistance beyond exclusive create remains deferred. |
-| Agent MCP isolation | Tier 2 for the supported host and static identity | Codex 0.147.0 hid the server in live testing. Setup rejects an older CLI, and Agent prompts stop if a TMB tool is visible. Direct MCP materialization, another plugin identity, and the prompt-level self-check remain outside a hard server gate. |
+| Agent MCP isolation | Tier 2 for tested hosts and the fixed server name | CLI `0.146.0` and `0.147.0` hid the server in live testing. Agent prompts stop if a TMB tool is visible. A future server rename, host config-composition change, and the prompt-level self-check remain outside a hard server gate. |
 | SWE scope, branch, and Git-delivery rules | Tier 3 | Developer instructions require a complete brief and protected-branch refusal. No Hook or workflow gate enforces those instructions. |
 | Reviewer read-only and independence | Tier 3 | Read-only is a default the parent may override. The reviewer is advisory and cannot return `PASS`. |
 | Agent role separation | Tier 3 | The two prompts describe different duties, but neither Agent has authenticated TMB role identity. |
@@ -127,9 +128,8 @@ and the wrappers inject only the fixed Bro label. That label limits the reachabl
 authority; it does not prove who called the tool.
 
 The two materialized Agent names carry no server authority at all. On the
-supported host baseline, disabling the trajectory server removes the direct TMB
-write path under the static identity. A later scope must add server-verifiable
-role identity before exposing
+tested host baseline, the disabled same-name shadow removes the direct TMB
+write path. A later scope must add server-verifiable role identity before exposing
 task or validation writes to Codex Agents.
 
 ## Security differences from Claude Code
@@ -139,8 +139,8 @@ task or validation writes to Codex Agents.
 | No functional Codex Hooks ship | Native shell, edit, Git, and external MCP paths are outside TMB enforcement. |
 | Parent tasks can override Agent sandbox settings | Reviewer read-only cannot be treated as proven independence. |
 | No documented Claude-style per-tool allowlist is used | Prompt rules remain advisory outside the fixed TMB MCP disablement. |
-| Host-version-sensitive plugin override | Codex 0.146.0 ignored the override in live testing. Scope 4 requires 0.147.0 or newer and still checks the child tool surface. |
-| Static plugin identity in generated TOML | MCP isolation is claimed only for `tmb@trustmybot-local`. |
+| Fixed MCP server name in generated TOML | Isolation depends on the plugin continuing to expose the server as `trajectory-server`; each Agent checks the live tool surface and stops if that assumption fails. |
+| Plugin-scoped overrides are unreliable | Live testing reproduced [openai/codex#35289](https://github.com/openai/codex/issues/35289), so Scope 4 uses an ordinary same-name Agent entry instead. |
 | No Agent authentication | `tmb_swe` and `tmb_pr_reviewer` cannot safely receive TMB workflow-write authority. |
 | No lock, rollback, or crash recovery | Setup is single-user and single-process by contract; races or interruption can leave `mixed` or `conflict` state for explicit recovery. |
 | No historical template catalog | Any old or edited managed file is a conflict, not an automatic upgrade candidate. |
@@ -155,13 +155,14 @@ full Claude test gate. The local performance harness measures absent, current,
 and conflict getter paths with one cold sample, 10 discarded warm-ups, and 100
 recorded warm samples per state.
 
-Supported-host acceptance is limited to Codex 0.147.0 or newer on macOS arm64
-CLI and Desktop for this scope. It must record a fixed implementation SHA,
-Codex version, plugin
+Supported-host acceptance is limited to Codex CLI and Desktop on macOS arm64
+for this scope. CLI `0.146.0` and `0.147.0` have live evidence for the same-name
+shadow; Desktop remains a separate host gate. Each record must include a fixed
+implementation SHA, Codex version, plugin
 source, template hashes, setup confirmation, new-task Agent discovery, SWE and
 reviewer behavior, MCP isolation, removal, and preservation of a third-party
-Agent. The CLI version check does not prove the Desktop engine version, so each
-host record must include the child Agent's observed tool surface. IDE, cloud,
+Agent. Each host record must include the child Agent's observed tool surface.
+IDE, cloud,
 and other operating-system claims remain unverified.
 
 The fixed-SHA acceptance record is added after the implementation commit exists;
@@ -174,8 +175,7 @@ alone.
 - [OpenAI Codex Skills](https://developers.openai.com/codex/skills)
 - [OpenAI Codex subagents](https://developers.openai.com/codex/subagents)
 - [OpenAI Codex configuration reference](https://developers.openai.com/codex/config-reference)
-- [Codex issue #35289: plugin MCP overrides ignored by subagents](https://github.com/openai/codex/issues/35289)
-- [Codex CLI 0.147.0 release](https://github.com/openai/codex/releases/tag/rust-v0.147.0)
+- [Codex issue #35289: plugin MCP overrides ignored](https://github.com/openai/codex/issues/35289)
 - [`hooks/codex/hooks.json`](../../../hooks/codex/hooks.json)
 - [`CODEX_PORT.md`](../../contributing/CODEX_PORT.md)
 

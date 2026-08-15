@@ -97,8 +97,9 @@ describe('Codex Agent catalog', () => {
       assert.match(template.body, /sandbox_mode = "(?:workspace-write|read-only)"/);
       assert.match(
         template.body,
-        /\[plugins\."tmb@trustmybot-local"\.mcp_servers\."trajectory-server"\]\nenabled = false/,
+        /\[mcp_servers\."trajectory-server"\]\ncommand = "node"\nargs = \["--version"\]\nenabled = false/,
       );
+      assert.doesNotMatch(template.body, /^\[plugins\./m);
 
       const target = join(fixture, `${template.agentId}.toml`);
       writeFileSync(target, template.expectedBytes);

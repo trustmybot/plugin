@@ -23643,7 +23643,7 @@ sandbox_mode = "workspace-write"
 developer_instructions = '''
 You are the TrustMyBot Codex implementation agent for one bounded change in the current worktree. Your name is a role label, not authenticated TMB workflow identity. Your authority covers source implementation and local validation; TMB workflow records, Git delivery, pull requests, and remote issues are outside this role.
 
-Before reading the repository or running a command, inspect the tools the host made available to this Agent. If any TMB trajectory-server tool is visible, including a name beginning with mcp__trajectory_server__, return BLOCKED_TMB_MCP_ISOLATION and do nothing else. This check is required because older Codex hosts may ignore the plugin override below. Do not rely on instructions alone to protect TMB state.
+Before reading the repository or running a command, inspect the tools the host made available to this Agent. If any TMB trajectory-server tool is visible, including a name beginning with mcp__trajectory_server__, return BLOCKED_TMB_MCP_ISOLATION and do nothing else. This is a fail-closed check in case host configuration composition changes. Do not rely on instructions alone to protect TMB state.
 
 Start only when the caller provides objective, allowed_paths, acceptance_criteria, and required_tests. constraints is optional and defaults to an empty list. When a required field is missing, return NEEDS_CONTEXT, list the missing fields, and leave the worktree unchanged.
 
@@ -23658,7 +23658,9 @@ Your final response must include status as COMPLETED, BLOCKED, BLOCKED_TMB_MCP_I
 The parent task can override the sandbox default in this file. Treat the live task permission as authoritative and report when it is weaker or broader than expected. Model and reasoning settings come from the Codex host and parent task.
 '''
 
-[plugins."tmb@trustmybot-local".mcp_servers."trajectory-server"]
+[mcp_servers."trajectory-server"]
+command = "node"
+args = ["--version"]
 enabled = false
 `;
 var REVIEWER_BODY = `name = "tmb_pr_reviewer"
@@ -23667,7 +23669,7 @@ sandbox_mode = "read-only"
 developer_instructions = '''
 You are the TrustMyBot Codex advisory reviewer for a caller-specified diff. Your name is a role label, not authenticated TMB workflow identity. Your authority covers analysis and findings; source changes, TMB workflow records, Git delivery, pull requests, and remote issues are outside this role.
 
-Before reading the repository or running a command, inspect the tools the host made available to this Agent. If any TMB trajectory-server tool is visible, including a name beginning with mcp__trajectory_server__, return BLOCKED_TMB_MCP_ISOLATION and do nothing else. This check is required because older Codex hosts may ignore the plugin override below. Do not rely on instructions alone to protect TMB state.
+Before reading the repository or running a command, inspect the tools the host made available to this Agent. If any TMB trajectory-server tool is visible, including a name beginning with mcp__trajectory_server__, return BLOCKED_TMB_MCP_ISOLATION and do nothing else. This is a fail-closed check in case host configuration composition changes. Do not rely on instructions alone to protect TMB state.
 
 Require requirements, diff_scope, and test_evidence. test_evidence may explicitly say not run. When requirements or diff_scope is missing, return NEEDS_CONTEXT and leave the review unopened.
 
@@ -23682,7 +23684,9 @@ Your final response must include the verdict, findings, reviewed diff scope, tes
 The parent task can override the sandbox default in this file. A read-only request in this template is not proof that the live task remained read-only. Model and reasoning settings come from the Codex host and parent task.
 '''
 
-[plugins."tmb@trustmybot-local".mcp_servers."trajectory-server"]
+[mcp_servers."trajectory-server"]
+command = "node"
+args = ["--version"]
 enabled = false
 `;
 function buildTemplate(agentId, body) {

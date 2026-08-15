@@ -146,13 +146,14 @@ Once one managed directory entry changes, any later failure is reported as
 `agent_materialization_partial` with the original cause code and final known
 states.
 
-Both Agent templates disable the TMB trajectory server under the static
-development identity `tmb@trustmybot-local`. Scope 4 requires Codex 0.147.0 or
-newer: 0.146.0 can parse the same TOML while leaving the TMB tools exposed.
-Setup checks the CLI version before installation, and each Agent stops before
-repository access if its live tool surface still contains a TMB trajectory-server
-tool. The runtime check is prompt-level defense in depth, not a server-enforced
-permission boundary. The templates inherit model and reasoning settings. SWE
+Both Agent templates shadow the plugin-provided TMB server with a disabled
+ordinary `mcp_servers."trajectory-server"` entry. Codex requires transport
+metadata even when the entry is disabled, so the templates use inert
+`node --version`. This shape hid the TMB tools in live CLI `0.146.0` and
+`0.147.0` tests. Each Agent still stops before repository access if its live
+tool surface contains a TMB trajectory-server tool. The runtime check is
+prompt-level defense in depth, not a server-enforced permission boundary. The
+templates inherit model and reasoning settings. SWE
 requests `workspace-write` and requires a complete, path-bounded
 brief. The reviewer requests `read-only`, never returns `PASS`, and describes
 its findings as advisory. Parent permissions can override these sandbox
@@ -168,7 +169,7 @@ Scope 4 deliberately leaves the following work for later scopes or hardening:
 - historical-template upgrades and a `stale` state;
 - process locking, compensating rollback, fsync, crash recovery, and stronger
   same-user TOCTOU protection;
-- dynamic Marketplace plugin identities;
+- a renamed TMB MCP server or broader dynamic MCP policy;
 - IDE, cloud, non-macOS, stable-channel, or complete-parity claims.
 
 Automated coverage must include catalog/TOML contracts, byte conflicts,

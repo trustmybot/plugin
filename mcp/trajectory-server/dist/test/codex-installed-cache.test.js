@@ -148,7 +148,8 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
                 target,
             ]);
             const content = readFileSync(target, 'utf8');
-            assert.match(content, /\[plugins\."tmb@trustmybot-local"\.mcp_servers\."trajectory-server"\]\nenabled = false/);
+            assert.match(content, /\[mcp_servers\."trajectory-server"\]\ncommand = "node"\nargs = \["--version"\]\nenabled = false/);
+            assert.doesNotMatch(content, /^\[plugins\./m);
             assert.doesNotMatch(content, /^model\s*=/m);
             assert.doesNotMatch(content, /^model_reasoning_effort\s*=/m);
         }

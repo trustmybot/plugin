@@ -57,18 +57,31 @@ Codex 从项目的 `.codex/agents/` 读取自定义 Agent，但插件 manifest �
 
 首版故意保持简单。文件只有三种状态：不存在、与当前模板完全相同、同名冲突。只要同名文件不是当前模板，工具就停下来，不覆盖，也不删除。历史模板升级、并发锁、双文件回滚和崩溃恢复留到后续硬化。
 
-两个 Agent 都通过下面的静态配置关闭本地开发 Marketplace 中的 TMB MCP：
+两个 Agent 都在自己的普通 `mcp_servers` 配置层里定义一个同名且禁用的
+`trajectory-server`：
 
 ```toml
-[plugins."tmb@trustmybot-local".mcp_servers."trajectory-server"]
+[mcp_servers."trajectory-server"]
+command = "node"
+args = ["--version"]
 enabled = false
 ```
 
-这段配置只支持本地开发 Marketplace `trustmybot-local`。如果插件来自其他 Marketplace，本期不保证 MCP 隔离有效。动态 plugin ID、公共目录发布和跨版本兼容以后再做。
+Codex 即使在 `enabled = false` 时也要求完整 transport，所以这里使用不会访问 TMB
+的 `node --version` 作为惰性占位。该 transport 在禁用状态下不会启动。同名条目在
+Agent 配置层覆盖插件提供的 server，不依赖 Marketplace ID。下文把它称为“同名 MCP
+覆盖项”。
 
-本地真实测试还发现了一个宿主版本边界。Codex 0.146.0 能解析这段 TOML，也能发现 Agent，但会继续向 child Agent 暴露全部 15 个 TMB 工具。0.147.0 在相同测试中正确隐藏了这些工具。因此，Scope 4 的 Agent 路径最低支持 Codex 0.147.0。Setup Skill 在安装前检查 `codex --version`；两个 Agent 启动后还会检查自己实际拿到的工具列表。只要看到 TMB trajectory-server 工具，就返回 `BLOCKED_TMB_MCP_ISOLATION`，不读取仓库，也不执行命令。
+本地真实测试先复现了 plugin-scoped override 不可靠的问题：同一台机器上，Codex
+`0.147.0` 的 Reviewer child 仍拿到了 TMB 工具。改用上面的同名 MCP 覆盖项后，CLI
+`0.146.0` 和 `0.147.0` 的 Reviewer child 都看不到 TMB trajectory-server，并能完成
+审查。Scope 4 因此不再设置人为的最低 CLI 版本，也不在 Setup Skill 中加入版本门。
 
-这两个保护的可信度不同。0.147.0 及以上的静态 override 是已实测的宿主隔离；Agent 自检只是提示词级补充，不能写成服务器强制门禁。Desktop 中的 shell 命令只能证明本机 CLI 版本，不能证明 Desktop 内部 runtime。Desktop 验收仍要直接检查 child Agent 的工具面。
+两个 Agent 启动后还会检查自己实际拿到的工具列表。只要看到 TMB
+trajectory-server 工具，就返回 `BLOCKED_TMB_MCP_ISOLATION`，不读取仓库，也不执行
+命令。同名 MCP 覆盖项是已实测的宿主配置隔离；Agent 自检只是提示词级补充，不能
+写成服务器强制门禁。Desktop 仍要直接检查 child Agent 的工具面，不能从 shell CLI
+的结果推断 Desktop 已通过。
 
 这不是完整的 TMB 自动工作流。Bro 不会自动派工，Agent 不会管理 TMB task，也不会创建 worktree、提交代码或充当 Hook 门禁。Reviewer 也不输出 `PASS`；它最多只能说，在指定范围内没有发现阻断问题。
 
@@ -111,9 +124,9 @@ Scope 4 必须以 `origin/dev` 为准：
 | 已有 Skill | `$tmb-bro` | 保持不变 |
 | 新 Setup Skill | 不存在 | 命名为 `$tmb-agent-setup` |
 | Plugin manifest name | `tmb` | 保持不变 |
-| 本地 Marketplace name | `trustmybot-local` | Scope 4 静态 MCP 禁用键使用此值 |
-| 完整本地 plugin ID | `tmb@trustmybot-local` | Scope 4 唯一支持的 Agent MCP override ID |
-| MCP server name | `trajectory-server` | 保持不变 |
+| 本地 Marketplace name | `trustmybot-local` | 保持开发安装来源，不进入 Agent 隔离键 |
+| 完整本地 plugin ID | `tmb@trustmybot-local` | 用于本地安装证据，不进入 Agent TOML |
+| MCP server name | `trajectory-server` | 同名 MCP 覆盖项依赖该固定名称 |
 | SWE Agent | 不存在 | `tmb_swe` |
 | Reviewer Agent | 不存在 | `tmb_pr_reviewer` |
 
@@ -131,8 +144,8 @@ Scope 4 必须以 `origin/dev` 为准：
 - 父 task 的实时 sandbox / approval 覆盖会在 spawn 时重新应用，可能覆盖 Agent TOML 的默认值。
 - 插件支持 Codex Desktop 和 Codex CLI；IDE extension 当前不支持插件。
 - 插件安装或配置变化后，需要新 task 或新 CLI session 才能可靠发现新的 Skill、工具和 Agent。
-- `0.146.0` 会忽略本场景中的 plugin-scoped MCP override，不属于 Scope 4 Agent 支持版本。
-- `0.147.0` 在同一 disposable 项目中正确隐藏了 TMB trajectory-server 工具，是当前最低支持版本。
+- plugin-scoped MCP override 在真实 child task 中表现不可靠，本期不采用。
+- `mcp_servers."trajectory-server"` 同名禁用项在 CLI `0.146.0` 和 `0.147.0` 的 disposable 项目中都隐藏了 TMB 工具。
 
 Scope 4 可以设置 Agent 的默认权限和行为，但这些默认值会受父 task 影响，不能当作不可绕过的安全边界。
 
@@ -145,7 +158,7 @@ Scope 4 可以设置 Agent 的默认权限和行为，但这些默认值会受�
 3. 增加两个窄化 MCP 工具，最终工具总数为 15。
 4. 不覆盖或删除用户同名文件。
 5. 两个 Agent 都关闭 TMB `trajectory-server`，并在工具仍可见时停止工作。
-6. Agent 路径最低支持 Codex 0.147.0，只支持 CLI 和 Desktop 的本地开发 Marketplace 验收。
+6. Agent 路径只对 CLI 和 Desktop 的本地安装做验收；每个宿主都要检查 child 的真实工具面。
 7. 所有真实宿主测试都使用 disposable Git 项目，不使用任何现有开发项目。
 8. 保持 Claude Code 行为不变。
 
@@ -168,7 +181,6 @@ Scope 4 可以设置 Agent 的默认权限和行为，但这些默认值会受�
 - 崩溃后自动清理或恢复；
 - 历史模板 catalog；
 - BOM / CRLF / 空白规范化；
-- 动态 Marketplace / plugin ID 解析；
 - Reviewer 的可信 `PASS` 和只读证明。
 
 首版只支持单用户操作，并假设一次调用期间目录不会被其他进程恶意替换。在这个前提下，工具仍要守住三条线：只碰检查过的固定路径，不覆盖用户文件，不删除未知文件。对抗恶意本地进程的 OS 级隔离留到后续硬化。
@@ -267,7 +279,6 @@ Scope 4 明确不包含：
 - Claude/Codex 完整 parity；
 - 任意 Agent creator；
 - 用户自定义 Agent 的通用管理；
-- 跨 Marketplace 的动态 plugin ID 解析；
 - 旧模板自动升级。
 
 ## 9. 产品原则
@@ -924,10 +935,13 @@ Scope 4 首版只支持单用户一次运行一个 setup，不承诺多进程安
 - 显式包含：
 
 ```toml
-[plugins."tmb@trustmybot-local".mcp_servers."trajectory-server"]
+[mcp_servers."trajectory-server"]
+command = "node"
+args = ["--version"]
 enabled = false
 ```
 
+- `node --version` 只是满足 Codex 完整 transport schema 的惰性占位，禁用时不得启动；
 - 明确禁止调用 `$tmb-bro` 和 `$tmb-agent-setup`；
 - 明确禁止修改 `.tmb/`、`.claude/` 和 `.codex/`；
 - 明确声明自身不是服务器认证的 TMB workflow role；
@@ -937,7 +951,8 @@ enabled = false
 - 发现 `mcp__trajectory_server__*` 或其他明确属于 TMB trajectory-server 的工具时，立即返回 `BLOCKED_TMB_MCP_ISOLATION`，不继续工作；
 - 不引用 Claude 专用 MCP 名称、Hook payload 或 task brief 工具。
 
-Scope 4 只支持 Codex 0.147.0 及以上版本和静态 plugin ID `tmb@trustmybot-local`。Setup Skill 和用户文档都要写清楚这两个条件。版本更旧或换用其他 Marketplace ID 后，MCP 隔离就属于未验证状态，不能沿用本期结论。
+Scope 4 的隔离依赖固定 MCP server 名 `trajectory-server`，不依赖 Marketplace ID。任何
+宿主或插件改名都必须重新做 live tool-surface 验收，不能只看 TOML 推断仍然安全。
 
 ## 18. `tmb_swe` 契约
 
@@ -1104,22 +1119,18 @@ sandbox_mode = "read-only"
 
 1. 确定当前项目绝对 Git top-level。
 2. 确认用户要检查、安装还是移除。
-3. 如果要安装，运行 `codex --version` 并解析第一个语义版本号。命令不可用、版本无法解析或低于 0.147.0 时，在调用 setter 前停止并解释原因。
-4. 检查和移除不受最低版本门禁影响；用户降级后仍要能安全移除已托管文件。
-5. 调用 `runtime_initialize`。
-6. 调用 `agent_materialization_get`。
-7. 解释 overall 和每个 Agent 状态。
-8. 如果无需变更，直接结束。
-9. 如果有 conflict，停止，不调用 setter。
-10. 显示将创建或删除的精确路径。
-11. 告知文件可能出现在 `git status`，TMB 不会 stage/commit/ignore。
-12. 请求用户明确确认。
-13. 只有确认后调用 `agent_materialization_set`。
-14. 再次调用 `agent_materialization_get`。
-15. 只有最终状态正确时报告成功。
-16. 有文件变化时，要求新 task 或重启 CLI session。
-
-在 Desktop 中，`codex --version` 只是本机 CLI 的兼容性证据。它不能替代 Desktop child Agent 的实际工具面检查，也不能单独证明 Desktop runtime 已达到支持版本。
+3. 调用 `runtime_initialize`。
+4. 调用 `agent_materialization_get`。
+5. 解释 overall 和每个 Agent 状态。
+6. 如果无需变更，直接结束。
+7. 如果有 conflict，停止，不调用 setter。
+8. 显示将创建或删除的精确路径。
+9. 告知文件可能出现在 `git status`，TMB 不会 stage/commit/ignore。
+10. 请求用户明确确认。
+11. 只有确认后调用 `agent_materialization_set`。
+12. 再次调用 `agent_materialization_get`。
+13. 只有最终状态正确时报告成功。
+14. 有文件变化时，要求新 task 或重启 CLI session。
 
 ### 20.2 禁止行为
 
@@ -1189,8 +1200,8 @@ Partial：
 | S4-FR-012 | 不自动升级未知或旧模板 |
 | S4-FR-013 | mixed safe state 可通过重复 desired state 收敛 |
 | S4-FR-014 | 文件变化后要求新 task/session |
-| S4-FR-015 | 两个 Agent 都使用静态 `tmb@trustmybot-local` MCP disable 配置 |
-| S4-FR-016 | Setup Skill 在安装前要求可解析且不低于 0.147.0 的 Codex CLI 版本，但旧版本仍可检查和移除 |
+| S4-FR-015 | 两个 Agent 都使用完整、禁用的同名 `trajectory-server` MCP 覆盖项，不依赖 Marketplace ID |
+| S4-FR-016 | Setup Skill 不做 CLI 版本拦截；是否支持某个宿主，以 child 的实际工具面为准 |
 | S4-FR-017 | 两个 Agent 在看到 TMB trajectory-server 工具时返回 `BLOCKED_TMB_MCP_ISOLATION` 并停止 |
 | S4-FR-018 | SWE 在完整简报下修改允许路径并运行测试 |
 | S4-FR-019 | SWE 不创建 worktree、不 commit、不 push、不写 TMB workflow |
@@ -1306,9 +1317,9 @@ node tests/benchmarks/codex-agent-materialization.mjs \
 | 第二个文件操作失败 | 只变更一个 Agent | 返回 partial，允许重复同一 desired state | 不自动回滚 |
 | 进程在写入时崩溃 | 截断文件或 mixed | 下次 getter 报 conflict/mixed | 自动恢复后置 |
 | 插件升级改变模板 | 老文件不能自动更新 | 老文件 conflict，不覆盖 | 历史 catalog 后置 |
-| 旧 Codex 忽略 plugin override | Agent 看到全部 TMB 工具 | 安装要求 0.147.0 及以上；Agent 启动后检查 live tool surface | 直接 MCP materialization 会绕过 Skill 版本检查；Agent 自检仍是 prompt 级 |
-| Desktop CLI 与内部 runtime 版本不同 | 版本预检给出错误安全感 | Desktop 验收直接检查 child Agent 工具面 | 未完成该证据前不能声明 Desktop 通过 |
-| Agent 继承 TMB MCP | 绕过 Scope 4 写规划数据 | 支持版本静态关闭本地 plugin ID 的 server；工具仍可见时停止 | 其他 Marketplace ID 不受支持 |
+| plugin-scoped override 被忽略 | Agent 看到全部 TMB 工具 | 不采用该层；使用普通同名 MCP 覆盖项 | Codex 配置合并语义变化时仍需重测 |
+| Desktop CLI 与内部 runtime 不一致 | 错误推断宿主安全 | Desktop 验收直接检查 child Agent 工具面 | 未完成该证据前不能声明 Desktop 通过 |
+| Agent 继承 TMB MCP | 绕过 Scope 4 写规划数据 | 同名 server 在 Agent 层禁用；工具仍可见时停止 | server 改名或宿主变更后需重新验收 |
 | Reviewer 父 task 可写 | Reviewer 能力超出默认 read-only | 不输出 PASS；明确 override 风险 | 仍是 prompt 级约束 |
 | 外部 MCP 可写 | Reviewer 不是硬只读 | 明确建议性结论 | 不提供外部 MCP allowlist |
 | Repo prompt injection | Agent 偏离角色 | developer instructions、范围检查、TMB MCP 隔离 | 不声明完全防护 |
@@ -1424,9 +1435,9 @@ Desktop 测试是本 Scope 唯一可能触及当前 Codex profile 的步骤，�
 7. SWE 为 `workspace-write`。
 8. Reviewer 为 `read-only`。
 9. 两个模板都不固定 model/reasoning。
-10. 两个模板都包含精确静态 MCP disable table。
+10. 两个模板都包含精确的同名 MCP 覆盖项：`command = "node"`、`args = ["--version"]`、`enabled = false`。
 11. 两个模板都要求在仓库读取前检查 live tool surface，并包含 `BLOCKED_TMB_MCP_ISOLATION`。
-12. Setup Skill 明确检查 `codex --version`，最低为 0.147.0。
+12. Setup Skill 不包含宿主版本门，也不依赖 Marketplace ID。
 13. 模板不引用 Claude 专用 MCP、Hook 或 task workflow。
 14. ownership header 和 body hash 一致。
 15. catalog 只有两个 template entry。
@@ -1614,26 +1625,25 @@ Scope 3 已有自动化证据。live CLI turn 曾因网络超时中断，Desktop
 
 在 disposable 项目中：
 
-1. 用 Codex 0.146.0 运行负向控制，确认 Setup Skill 在 setter 前停止。
-2. 如果绕过 Skill 直接 materialize，Agent 必须看到泄漏的 TMB 工具后返回 `BLOCKED_TMB_MCP_ISOLATION`，且不读取仓库或修改 fixture。
-3. 切换到 Codex 0.147.0 或更新版本，从 Scope 4 PR 固定 SHA 安装 `tmb@trustmybot-local`。
-4. 新 session 中看到精确两个 Skill。
-5. 普通 prompt 不创建 `.codex/agents`。
-6. 显式运行 `$tmb-agent-setup`。
-7. 验证版本检查、getter 预览和用户确认。
-8. 安装两个 Agent。
-9. 当前 session 不声称热加载成功。
-10. 新 session 发现两个 Agent。
-11. 调用两个 Agent，确认它们的 live tool surface 中没有 TMB `trajectory-server`。
-12. SWE 在非保护测试分支修改一个 fixture 文件。
-13. SWE 只修改 allowed paths 并运行 required test。
-14. SWE 不 commit、不 push、不写 TMB workflow 数据。
-15. Reviewer 审查同一 diff，输出带行号 findings 或 `NO_BLOCKING_FINDINGS`。
-16. Reviewer 不输出 PASS，不修改文件。
-17. Setup Skill 移除两个 Agent。
-18. 新 session 确认两个 Agent 不再可发现。
-19. 第三方 sentinel Agent 保留。
-20. 保存 fixed SHA、两个 body hash、Codex 版本和 before/after 哨兵。
+1. 从 Scope 4 PR 固定 SHA 安装 `tmb@trustmybot-local`。
+2. 新 session 中看到精确两个 Skill。
+3. 普通 prompt 不创建 `.codex/agents`。
+4. 显式运行 `$tmb-agent-setup`。
+5. 验证 getter 预览和独立用户确认。
+6. 安装两个 Agent。
+7. 当前 session 不声称热加载成功。
+8. 新 session 发现两个 Agent。
+9. 调用两个 Agent，确认它们的 live tool surface 中没有 TMB `trajectory-server`。
+10. SWE 在非保护测试分支修改一个 fixture 文件。
+11. SWE 只修改 allowed paths 并运行 required test。
+12. SWE 不 commit、不 push、不写 TMB workflow 数据。
+13. Reviewer 审查同一 diff，输出带行号 findings 或 `NO_BLOCKING_FINDINGS`。
+14. Reviewer 不输出 PASS，不修改文件。
+15. 至少在 CLI `0.146.0` 和 `0.147.0` 各完成一次同名 MCP 覆盖项的 child 工具面探针。
+16. Setup Skill 移除两个 Agent。
+17. 新 session 确认两个 Agent 不再可发现。
+18. 第三方 sentinel Agent 保留。
+19. 保存 fixed SHA、两个 body hash、Codex 版本和 before/after 哨兵。
 
 ### 25.8 Scope 4 Desktop 真实验收
 
@@ -1652,15 +1662,22 @@ Scope 3 已有自动化证据。live CLI turn 曾因网络超时中断，Desktop
 在实施前可以运行以下无产品代码写入的本地探针：
 
 - 当前 Codex CLI 是否接受自定义 Agent TOML；
-- `tmb@trustmybot-local` plugin-scoped MCP override 是否可解析；
+- 普通同名 `mcp_servers."trajectory-server"` 禁用条目是否可解析；
 - 新 session 是否能发现 disposable 项目里的测试 Agent；
 - 父 task 权限覆盖是否仍按官方文档表现。
 
 探针只能写 disposable 项目，不得把临时 Agent 放进任何真实项目。
 
-2026-08-15 已在同一 disposable Git 项目中做过版本对照。Codex CLI `0.146.0` 能解析、发现并 spawn Agent，但 child 仍能看到全部 15 个 TMB 工具；即使额外写入 `disabled_tools`，工具面也没有变化。Codex CLI `0.147.0` 使用相同静态 override 时，child 工具列表中不再出现 TMB trajectory-server。这个结果与仍处于 OPEN 状态的 [openai/codex#35289](https://github.com/openai/codex/issues/35289) 一致。
+2026-08-15 已在同一 disposable Git 项目中做过配置对照。plugin-scoped override
+表现不可靠：Codex CLI `0.147.0` 的 Reviewer child 仍看到
+`mcp__trajectory_server__*`，并按 fail-closed 自检停止。这个失败与仍处于 OPEN 状态的
+[openai/codex#35289](https://github.com/openai/codex/issues/35289) 描述的插件配置覆盖问题一致。
 
-两个版本的探针都只写 disposable 项目。它们确定了最低支持版本和失败模式，但不能代替 Scope 4 固定实现 SHA 的完整 CLI/Desktop 验收。
+改用同名 MCP 覆盖项后，Codex 要求即使 disabled 也提供 transport。最终候选使用
+`command = "node"`、`args = ["--version"]`、`enabled = false`。CLI `0.146.0` 和
+`0.147.0` 的 Reviewer child 都报告没有 TMB 工具，并完成了同一 fixture diff 审查。
+这些探针都只写 disposable 项目，仍不能代替 Scope 4 固定实现 SHA 的完整
+CLI/Desktop 验收。
 
 ## 26. 验收标准
 
@@ -1673,9 +1690,8 @@ Scope 4 只有在以下条件全部满足时才完成：
 - Getter 真实只读。
 - Materializer 不覆盖或误删用户文件。
 - symlink、非普通文件和 conflict 测试通过。
-- CLI 和 Desktop 的 Scope 4 Agent 验收版本都不低于 0.147.0。
-- 两个 Agent 使用静态 `tmb@trustmybot-local` 隔离 TMB MCP，live tool surface 中没有 TMB 工具。
-- 0.146.0 负向控制能在安装或 Agent 启动阶段失败关闭。
+- 两个 Agent 使用完整的同名 MCP 覆盖项隔离 TMB，live tool surface 中没有 TMB 工具。
+- CLI `0.146.0` 和 `0.147.0` 的兼容性探针通过；每个正式支持宿主仍有独立 fixed-SHA 证据。
 - SWE disposable 实施流程通过。
 - Reviewer 建议性审查流程通过且不输出 PASS。
 - installed-cache 测试通过。
@@ -1707,8 +1723,8 @@ Parity 必须明确：
 - Agent 可以项目级 materialize。
 - Agent 未接入 TMB task workflow。
 - Agent 名称不是 authenticated identity。
-- TMB MCP 只针对 `tmb@trustmybot-local` 静态关闭并完成本地验证。
-- Agent 路径最低支持 Codex 0.147.0，0.146.0 的 override 失效属于已知不兼容。
+- TMB MCP 通过固定 server name 的同名 MCP 覆盖项静态关闭，不依赖 Marketplace ID。
+- plugin-scoped override 不可靠，因此不作为 Scope 4 隔离机制。
 - 两个 Agent 在 TMB 工具仍可见时返回 `BLOCKED_TMB_MCP_ISOLATION`，但该自检属于提示词级补充保护。
 - Reviewer 是 Tier 3 建议性角色。
 - Reviewer 不输出 PASS。
@@ -1753,7 +1769,7 @@ CLI 和 Desktop 各保存一份 Markdown 或 JSON 记录，字段至少包括：
 | 字段 | 要求 |
 |---|---|
 | `host` | `cli` 或 `desktop` |
-| `codex_version` | 完整版本；Scope 4 Agent 正向验收必须不低于 0.147.0 |
+| `codex_version` | 完整版本 |
 | `os` | OS 版本和架构 |
 | `plugin_sha` | 40 位固定提交 |
 | `plugin_id` | 必须为 `tmb@trustmybot-local` |
@@ -1770,15 +1786,18 @@ CLI 和 Desktop 各保存一份 Markdown 或 JSON 记录，字段至少包括：
 
 真实宿主中的 Agent MCP 隔离使用三层证据：
 
-1. 记录宿主版本。CLI 必须不低于 0.147.0；Desktop 还要记录 app build，不能用 shell 中的 CLI 版本代替。
-2. 解析 materialized TOML，确认精确存在静态 disable table。
+1. 记录宿主版本。Desktop 还要记录 app build，不能用 shell 中的 CLI 版本代替。
+2. 解析 materialized TOML，确认精确存在完整的静态同名 MCP 覆盖项。
 3. 在 disposable 项目中要求每个 child Agent 先列出自己可见的 TMB 工具，再发出调用 `agent_materialization_get` 的对抗性请求。测试通过必须同时满足：
    - child 明确报告 live tool surface 中没有 TMB trajectory-server 工具；
    - child task 没有成功的 TMB MCP tool event；
    - child 明确报告该工具不可用或拒绝越过 Agent 契约；
    - fixture `.tmb/tmb` 的表计数和文件 hash 不因 child 请求变化。
 
-如果日志分不清“工具不存在”和“模型没有选择调用”，结果只能记为 `UNVERIFIED`。只看到“没有调用事件”不算通过，因为 0.146.0 已证明工具可能可见但未被调用。Scope 4 PR 至少要保存一份 CLI 原始证据，明确记录 child 的工具面。Desktop 截图和 before/after state 可以补充说明，不能替代 Desktop child 的工具面证据。
+如果日志分不清“工具不存在”和“模型没有选择调用”，结果只能记为 `UNVERIFIED`。
+只看到“没有调用事件”不算通过；Scope 4 PR 至少要保存一份 CLI 原始证据，明确记录
+child 的工具面。Desktop 截图和 before/after state 可以补充说明，不能替代 Desktop
+child 的工具面证据。
 
 ## 29. 依赖与门禁
 
@@ -1812,8 +1831,8 @@ feat/<scope4-issue-id>-codex-agent-materialization
 ### 外部依赖
 
 - Codex project custom agents 保持可用。
-- Codex 0.147.0 及以上版本的 plugin-scoped MCP override 保持可用。
-- 本地 Marketplace ID 保持 `tmb@trustmybot-local`。
+- Codex custom Agent 的普通 `mcp_servers` 配置层继续支持同名禁用条目。
+- TMB MCP server name 保持 `trajectory-server`。
 - 不依赖 Issue #1170 或功能性 Hooks。
 - 不依赖新 npm 包。
 
@@ -1899,21 +1918,20 @@ feat/<scope4-issue-id>-codex-agent-materialization
 
 以下项目以后再做，不影响 Scope 4 首版验收：
 
-1. 动态解析当前安装的完整 plugin ID，支持 RC、stable 和第三方 Marketplace。
-2. 历史模板 catalog 和 `stale` 状态。
-3. 对未修改旧模板执行安全升级。
-4. project-local materialization lock。
-5. stale lock PID/时间回收。
-6. 双文件补偿事务和自动 rollback。
-7. temp file + fsync + crash journal。
-8. 崩溃残留的自动识别和清理。
-9. BOM、CRLF、权限位和规范化策略。
-10. 更完整的多进程竞争和 TOCTOU 防护。
-11. Reviewer 的受控 read-only 正向/负向证明矩阵。
-12. 可信 `PASS` 语义和 validation record。
-13. Server-issued role token 和独立 reviewer provenance。
-14. 更丰富的 problem/cause/fix 错误结构。
-15. 公共 Plugin Directory 与升级/降级兼容矩阵。
+1. 历史模板 catalog 和 `stale` 状态。
+2. 对未修改旧模板执行安全升级。
+3. project-local materialization lock。
+4. stale lock PID/时间回收。
+5. 双文件补偿事务和自动 rollback。
+6. temp file + fsync + crash journal。
+7. 崩溃残留的自动识别和清理。
+8. BOM、CRLF、权限位和规范化策略。
+9. 更完整的多进程竞争和 TOCTOU 防护。
+10. Reviewer 的受控 read-only 正向/负向证明矩阵。
+11. 可信 `PASS` 语义和 validation record。
+12. Server-issued role token 和独立 reviewer provenance。
+13. 更丰富的 problem/cause/fix 错误结构。
+14. 公共 Plugin Directory 与升级/降级兼容矩阵。
 
 文档不能把这些后置项写成现有能力。
 
@@ -1961,8 +1979,8 @@ feat/<scope4-issue-id>-codex-agent-materialization
 5. 两个 Agent 可独立使用，Bro 不自动 spawn。
 6. SWE 使用当前工作区，不创建 worktree。
 7. Reviewer 只给建议性结论，不输出 PASS。
-8. 两个 Agent 静态关闭 `tmb@trustmybot-local` 的 `trajectory-server`。
-9. Scope 4 Agent 路径最低支持 Codex 0.147.0；Setup Skill 检查版本，Agent 检查 live tool surface。
+8. 两个 Agent 用同名 MCP 覆盖项静态关闭 `trajectory-server`，不依赖 Marketplace ID。
+9. Setup Skill 不设置 CLI 版本门；每个 Agent 和支持宿主都检查 live tool surface。
 10. 两个 Agent 不固定 model/reasoning。
 11. 安装和移除只能显式运行 Setup Skill 或直接高级 MCP 调用。
 12. 同名非 current 文件一律 conflict。
@@ -1984,14 +2002,14 @@ feat/<scope4-issue-id>-codex-agent-materialization
 
 - 用户可以在当前 Git 项目中显式、可逆地管理两个 Agent。
 - Materializer 不覆盖或误删未知用户文件。
-- Agent 在 Codex 0.147.0 及以上的 CLI/Desktop 新 task 中实际可发现和调用。
-- 静态 `tmb@trustmybot-local` MCP 隔离在真实宿主中通过，child 工具面不含 TMB 工具。
-- Codex 0.146.0 负向控制在安装或 Agent 启动阶段失败关闭。
+- Agent 在 CLI/Desktop 新 task 中实际可发现和调用。
+- 静态同名 MCP 覆盖项在真实宿主中通过，child 工具面不含 TMB 工具。
+- CLI `0.146.0` 和 `0.147.0` 的配置兼容性探针都通过。
 - SWE 完成一次受控 fixture 实施，只修改允许路径，不触碰 Git 交付或 TMB workflow。
 - Reviewer 完成一次受控审查，不编辑文件，不输出 PASS。
 - installed-cache、Scope 3 和 Claude L1-L4 gates 全部通过。
 - Scope 3 合并 SHA 与 Scope 4 固定 SHA 都有 CLI/Desktop 真实证据。
-- 文档准确说明 static ID、单进程、无 rollback、无 hard read-only 等限制。
+- 文档准确说明固定 server name、单进程、无 rollback、无 hard read-only 等限制。
 - PR 经维护者审查后合入 `dev`。
 - Parent Issue #1151 保持打开，Scope 5 和 Scope 6 继续独立推进。
 
@@ -2000,6 +2018,5 @@ feat/<scope4-issue-id>-codex-agent-materialization
 - [Codex Subagents](https://developers.openai.com/codex/subagents/)
 - [Codex Configuration Reference](https://developers.openai.com/codex/config-reference/)
 - [Codex Plugins](https://developers.openai.com/codex/plugins/)
-- [Codex issue #35289: plugin MCP overrides ignored by subagents](https://github.com/openai/codex/issues/35289)
-- [Codex CLI 0.147.0 release](https://github.com/openai/codex/releases/tag/rust-v0.147.0)
+- [Codex issue #35289: plugin MCP overrides ignored](https://github.com/openai/codex/issues/35289)
 - [Plugin Concepts](https://developers.openai.com/plugins/concepts/plugins/)

@@ -10,12 +10,11 @@ description: Inspect, install, or remove TrustMyBot's two fixed project-level Co
 - `.codex/agents/tmb_swe.toml`
 - `.codex/agents/tmb_pr_reviewer.toml`
 
-This installed package supports the static plugin identity
-`tmb@trustmybot-local`. Treat Agent MCP isolation as unverified under any other
-Marketplace identity.
-
-Scope 4 requires Codex 0.147.0 or newer. Codex 0.146.0 can parse and discover
-these Agent files but may ignore their plugin-scoped MCP override.
+Each generated Agent carries a disabled same-name `trajectory-server` entry in
+its own `mcp_servers` table. The entry has an inert `node --version` transport
+only because Codex requires a complete transport shape even when the server is
+disabled. The Agent also stops before repository access if a TMB tool is still
+visible at runtime.
 
 ## Workflow
 
@@ -23,35 +22,25 @@ these Agent files but may ignore their plugin-scoped MCP override.
    as `project_root` on every TMB call.
 2. Determine whether the user wants to inspect the files or make them present
    or absent. Ask when the desired action is not explicit.
-3. Before an installation, run `codex --version` and parse the first semantic
-   version. Compare major, minor, and patch as integers rather than comparing
-   the text lexicographically. Treat a 0.147.0 prerelease as below the supported
-   stable release. Stop before the setter when the command is unavailable, the
-   version cannot be parsed, or the result is older than 0.147.0. Explain that 0.146.0
-   can expose the TMB trajectory server to a child Agent even when the TOML
-   disables it. Do not apply this gate to inspection or removal; users must be
-   able to remove managed files after a downgrade. In Desktop, this command is
-   compatibility evidence for the installed CLI, not proof of the Desktop
-   runtime; live Agent tool-surface verification is still required.
-4. Call `runtime_initialize`. Stop on any error. Do not edit `.gitignore`, choose
+3. Call `runtime_initialize`. Stop on any error. Do not edit `.gitignore`, choose
    another worktree, or weaken the project checks.
-5. Call `agent_materialization_get` and report the overall state plus both Agent
+4. Call `agent_materialization_get` and report the overall state plus both Agent
    states.
-6. If the requested state is already satisfied, finish without calling the
+5. If the requested state is already satisfied, finish without calling the
    setter and without asking for a no-op confirmation.
-7. If either Agent is `conflict`, stop and explain that the user must resolve
+6. If either Agent is `conflict`, stop and explain that the user must resolve
    the file manually. Setter, force, overwrite, adopt, automatic backup, and
    automatic repair are unavailable in this state.
-8. Show the two fixed paths and explain whether each one will be created or
+7. Show the two fixed paths and explain whether each one will be created or
    removed. State that the files may appear in `git status`; TMB will not stage,
    commit, or ignore them.
-9. Ask for explicit confirmation. Do not treat the original Skill invocation as
+8. Ask for explicit confirmation. Do not treat the original Skill invocation as
    confirmation of the file mutation.
-10. Only after confirmation, call `agent_materialization_set` once with
+9. Only after confirmation, call `agent_materialization_set` once with
    `desired_state` set to `present` or `absent`.
-11. Call `agent_materialization_get` again. Report success only when both Agents
+10. Call `agent_materialization_get` again. Report success only when both Agents
     match the requested final state.
-12. When files changed, tell the user to start a new Codex task or CLI session.
+11. When files changed, tell the user to start a new Codex task or CLI session.
     Do not say the current task has hot-loaded the Agent files.
 
 ## Confirmation text

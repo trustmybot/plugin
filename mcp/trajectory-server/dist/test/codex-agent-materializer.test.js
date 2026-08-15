@@ -50,7 +50,8 @@ describe('Codex Agent catalog', () => {
             assert.doesNotMatch(template.body, /^model\s*=/m);
             assert.doesNotMatch(template.body, /^model_reasoning_effort\s*=/m);
             assert.match(template.body, /sandbox_mode = "(?:workspace-write|read-only)"/);
-            assert.match(template.body, /\[plugins\."tmb@trustmybot-local"\.mcp_servers\."trajectory-server"\]\nenabled = false/);
+            assert.match(template.body, /\[mcp_servers\."trajectory-server"\]\ncommand = "node"\nargs = \["--version"\]\nenabled = false/);
+            assert.doesNotMatch(template.body, /^\[plugins\./m);
             const target = join(fixture, `${template.agentId}.toml`);
             writeFileSync(target, template.expectedBytes);
             execFileSync('bun', [
