@@ -12,7 +12,14 @@ node dist/index.js
 
 (The plugin spawns this automatically via `.mcp.json` — manual run is only needed for isolated testing.)
 
-The Codex entry exposes only `runtime_initialize`. It requires an explicit Git worktree root with `.tmb/` already ignored and no tracked `.tmb/` files, then creates state beneath `<project>/.tmb/tmb/`. It opens and queries SQLite during initialization but keeps the optional graph holder lazy. It does not import the Claude tool registry or write `.claude/`.
+The Codex entry exposes an immutable 15-tool adapter registry: 13 local Bro planning tools plus `agent_materialization_get` and `agent_materialization_set`. Every call requires an explicit Git worktree root with `.tmb/` already ignored and no tracked `.tmb/` files. Planning state stays beneath `<project>/.tmb/tmb/`.
+
+The two materialization tools manage only `.codex/agents/tmb_swe.toml` and `.codex/agents/tmb_pr_reviewer.toml`. The getter is read-only and does not create `.tmb` or `.codex`. The setter installs or removes both current templates without overwriting unknown bytes. It rejects symlinks and unexpected file types, preserves all third-party Agent files, and reports a partial result if one managed target changes before a later failure. Scope 4 intentionally has no historical-template upgrades, process lock, rollback, fsync, or crash recovery.
+
+The Codex entry does not import the Claude tool registry, write `.claude/`, create workflow tasks or validation records, or perform Git delivery operations.
+
+See the [Codex MCP tool reference](../../docs/adapters/codex/TOOLS.md) for the
+exact materialization schemas, states, results, and recovery errors.
 
 ## Test
 

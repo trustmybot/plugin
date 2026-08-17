@@ -65,28 +65,42 @@ if jq -e . "$CODEX_MANIFEST" >/dev/null 2>&1; then
     (.version | type == "string") and
     .mcpServers == "./adapters/codex/.mcp.json" and
     .hooks == "./hooks/codex/hooks.json" and
-    .skills == "./adapters/codex/skills/"
+    .commands == [] and
+    .skills == "./adapters/codex/skills/" and
+    (.interface.defaultPrompt | all(.[]; contains("$tmb:tmb-"))) and
+    (.interface.defaultPrompt | type == "array" and length > 0) and
+    all(.interface.defaultPrompt[]; type == "string" and utf8bytelength <= 128)
   ' "$CODEX_MANIFEST" >/dev/null; then
-    fail "$CODEX_MANIFEST has invalid identity or component paths"
+    fail "$CODEX_MANIFEST has invalid identity, component paths, command isolation, or defaultPrompt"
   else
-    pass "$CODEX_MANIFEST points only to Codex-specific MCP, hook, and Skill surfaces"
+    pass "$CODEX_MANIFEST disables Claude command migration and points only to Codex-specific surfaces"
   fi
 fi
 
-if [ ! -f "$CODEX_SKILLS/tmb-bro/SKILL.md" ] || [ ! -f "$CODEX_SKILLS/tmb-bro/agents/openai.yaml" ]; then
-  fail "$CODEX_SKILLS must contain the tmb-bro Skill and its OpenAI metadata"
+if [ -d .codex-plugin/migrated-command-skills ]; then
+  fail ".codex-plugin/migrated-command-skills must be install-time output, never a source surface"
+fi
+
+if [ ! -f "$CODEX_SKILLS/tmb-bro/SKILL.md" ] ||
+   [ ! -f "$CODEX_SKILLS/tmb-bro/agents/openai.yaml" ] ||
+   [ ! -f "$CODEX_SKILLS/tmb-agent-setup/SKILL.md" ] ||
+   [ ! -f "$CODEX_SKILLS/tmb-agent-setup/agents/openai.yaml" ]; then
+  fail "$CODEX_SKILLS must contain the tmb-bro and tmb-agent-setup Skills with OpenAI metadata"
 else
   skill_count=$(find "$CODEX_SKILLS" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
-  skill_name=$(find "$CODEX_SKILLS" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
-  if [ "$skill_count" -ne 1 ] || [ "$skill_name" != "tmb-bro" ]; then
-    fail "$CODEX_SKILLS must expose exactly the tmb-bro Skill"
+  skill_names=$(find "$CODEX_SKILLS" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort | tr '\n' ' ')
+  if [ "$skill_count" -ne 2 ] || [ "$skill_names" != "tmb-agent-setup tmb-bro " ]; then
+    fail "$CODEX_SKILLS must expose exactly tmb-bro and tmb-agent-setup"
   elif ! grep -q '^name: tmb-bro$' "$CODEX_SKILLS/tmb-bro/SKILL.md" ||
        ! grep -q '^  allow_implicit_invocation: false$' "$CODEX_SKILLS/tmb-bro/agents/openai.yaml" ||
        ! grep -q '^      value: "trajectory-server"$' "$CODEX_SKILLS/tmb-bro/agents/openai.yaml" ||
-       grep -R -q '\[TODO:' "$CODEX_SKILLS/tmb-bro"; then
-    fail "$CODEX_SKILLS/tmb-bro metadata or explicit-invocation policy is invalid"
+       ! grep -q '^name: tmb-agent-setup$' "$CODEX_SKILLS/tmb-agent-setup/SKILL.md" ||
+       ! grep -q '^  allow_implicit_invocation: false$' "$CODEX_SKILLS/tmb-agent-setup/agents/openai.yaml" ||
+       ! grep -q '^      value: "trajectory-server"$' "$CODEX_SKILLS/tmb-agent-setup/agents/openai.yaml" ||
+       grep -R -q '\[TODO:' "$CODEX_SKILLS"; then
+    fail "$CODEX_SKILLS metadata or explicit-invocation policy is invalid"
   else
-    pass "$CODEX_SKILLS exposes exactly the explicit tmb-bro Skill and bundled MCP dependency"
+    pass "$CODEX_SKILLS exposes exactly two explicit-only Skills with the bundled MCP dependency"
   fi
 fi
 
@@ -102,7 +116,7 @@ fi
 
 if jq -e . "$CODEX_HOOKS" >/dev/null 2>&1; then
   if ! jq -e '.hooks == {}' "$CODEX_HOOKS" >/dev/null; then
-    fail "$CODEX_HOOKS must remain empty in Codex Scope 3"
+    fail "$CODEX_HOOKS must remain empty in Codex Scope 4"
   else
     pass "$CODEX_HOOKS prevents Claude hooks from loading in Codex"
   fi

@@ -1,0 +1,13 @@
+interface:
+  display_name: "TMB Agent Setup"
+  short_description: "Install or remove two project-local TMB Agents"
+  default_prompt: "Use $tmb:tmb-agent-setup to inspect this project and ask before installing or removing the two fixed TMB Codex Agents."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "trajectory-server"
+      description: "Bundled project-local TMB planning and Agent setup server"
+
+policy:
+  allow_implicit_invocation: false

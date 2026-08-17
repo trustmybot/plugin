@@ -1,5 +1,10 @@
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import {
+  CodexAgentMaterializationError,
+  CodexAgentMaterializer,
+  type CodexAgentDesiredState,
+} from './codex-agent-materializer.js';
+import {
   CodexRuntimeError,
   type CodexRuntimeAccess,
   type CodexRuntimeManager,
@@ -61,6 +66,12 @@ export const CODEX_SCOPE_3_TOOL_NAMES = Object.freeze([
   'planning_discussion_list',
 ] as const);
 
+export const CODEX_SCOPE_4_TOOL_NAMES = Object.freeze([
+  ...CODEX_SCOPE_3_TOOL_NAMES,
+  'agent_materialization_get',
+  'agent_materialization_set',
+] as const);
+
 export interface CodexToolRegistry {
   readonly definitions: readonly Tool[];
   readonly handlers: Readonly<Record<string, CodexToolHandler>>;
@@ -73,6 +84,7 @@ export interface CodexToolRegistry {
 export function createCodexToolRegistry(
   manager: CodexRuntimeManager,
 ): CodexToolRegistry {
+  const materializer = new CodexAgentMaterializer();
   const definitions = deepFreeze([
     tool(
       'runtime_initialize',
@@ -229,6 +241,26 @@ export function createCodexToolRegistry(
       },
       ['issue_id'],
       { readOnly: true },
+    ),
+    tool(
+      'agent_materialization_get',
+      'Inspect the two fixed project-level TMB Codex Agent files without creating project state or host configuration.',
+      {},
+      [],
+      { readOnly: true, idempotent: true },
+    ),
+    tool(
+      'agent_materialization_set',
+      'Create or remove the two fixed project-level TMB Codex Agent files after explicit confirmation.',
+      {
+        desired_state: {
+          type: 'string',
+          enum: ['present', 'absent'],
+          description: 'Whether both fixed TMB Codex Agent files must be present or absent.',
+        },
+      },
+      ['desired_state'],
+      { destructive: true, idempotent: true },
     ),
   ] satisfies Tool[]);
 
@@ -521,6 +553,26 @@ export function createCodexToolRegistry(
           }));
         },
       ),
+
+    agent_materialization_get: async (args: unknown) =>
+      runAdapter(args, ['project_root'], async (input) => {
+        requireProjectRoot(input);
+        return materializer.get(input['project_root']);
+      }),
+
+    agent_materialization_set: async (args: unknown) =>
+      runAdapter(args, ['project_root', 'desired_state'], async (input) => {
+        requireProjectRoot(input);
+        const desiredState = requireEnum(
+          input,
+          'desired_state',
+          ['present', 'absent'] as const,
+        );
+        return materializer.set(
+          input['project_root'],
+          desiredState as CodexAgentDesiredState,
+        );
+      }),
   });
 
   const call = async (
@@ -532,7 +584,7 @@ export function createCodexToolRegistry(
       const code = OUT_OF_SCOPE_TOOL.test(name)
         ? 'out_of_scope_operation'
         : 'unknown_tool';
-      return errorResult(code, `Codex Scope 3 does not expose tool: ${name}`);
+      return errorResult(code, `Codex Scope 4 does not expose tool: ${name}`);
     }
     return handler(args);
   };
@@ -618,13 +670,16 @@ function validateInput(
     );
   }
   const input = args as Record<string, unknown>;
-  for (const key of Object.keys(input)) {
-    if (IDENTITY_KEYS.has(key)) {
+  for (const key of IDENTITY_KEYS) {
+    if (Object.hasOwn(input, key)) {
       throw new CodexAdapterError(
         'unsupported_identity_claim',
-        `Caller-supplied ${key} is not accepted; Codex Scope 3 fixes identity to Bro.`,
+        `Caller-supplied ${key} is not accepted by the Codex adapter.`,
       );
     }
+  }
+  requireProjectRoot(input);
+  for (const key of Object.keys(input)) {
     if (!allowedKeys.includes(key)) {
       throw new CodexAdapterError(
         'invalid_arguments',
@@ -633,6 +688,32 @@ function validateInput(
     }
   }
   return input;
+}
+
+function requireProjectRoot(input: Record<string, unknown>): string {
+  const value = input['project_root'];
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new CodexAdapterError(
+      'missing_project_root',
+      'project_root is required.',
+    );
+  }
+  return value;
+}
+
+function requireEnum<const T extends readonly string[]>(
+  input: Record<string, unknown>,
+  key: string,
+  allowed: T,
+): T[number] {
+  const value = input[key];
+  if (typeof value !== 'string' || !allowed.includes(value)) {
+    throw new CodexAdapterError(
+      'invalid_arguments',
+      `${key} must be one of: ${allowed.join(', ')}.`,
+    );
+  }
+  return value;
 }
 
 function requireString(input: Record<string, unknown>, key: string): string {
@@ -884,6 +965,7 @@ class CodexAdapterError extends Error {
   constructor(
     readonly code: string,
     message: string,
+    readonly details?: Readonly<Record<string, unknown>>,
   ) {
     super(message);
     this.name = 'CodexAdapterError';
@@ -895,7 +977,10 @@ function adapterErrorResult(error: unknown): CallToolResult {
     return errorResult(error.code, error.message);
   }
   if (error instanceof CodexAdapterError) {
-    return errorResult(error.code, error.message);
+    return errorResult(error.code, error.message, error.details);
+  }
+  if (error instanceof CodexAgentMaterializationError) {
+    return errorResult(error.code, error.message, error.details);
   }
   return errorResult(
     'operation_failed',
@@ -903,11 +988,15 @@ function adapterErrorResult(error: unknown): CallToolResult {
   );
 }
 
-function errorResult(code: string, message: string): CallToolResult {
+function errorResult(
+  code: string,
+  message: string,
+  details?: Readonly<Record<string, unknown>>,
+): CallToolResult {
   return jsonResult(
     {
       ok: false,
-      error: { code, message },
+      error: { code, message, ...(details ? { details } : {}) },
     },
     true,
   );

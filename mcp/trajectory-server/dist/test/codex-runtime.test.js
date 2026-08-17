@@ -10,7 +10,7 @@ import { TrajectoryDB } from '../db.js';
 import { GraphHolder } from '../graph-db.js';
 import { readCodexPackageMetadata } from '../codex-package.js';
 import { CodexRuntimeError, CodexRuntimeManager, } from '../codex-runtime.js';
-import { CODEX_SCOPE_3_TOOL_NAMES, createCodexToolRegistry, } from '../codex-tools.js';
+import { CODEX_SCOPE_3_TOOL_NAMES, CODEX_SCOPE_4_TOOL_NAMES, createCodexToolRegistry, } from '../codex-tools.js';
 import { registerTools, toolDefinitions, toolHandlers, } from '../tools/index.js';
 const cleanup = [];
 const EXPECTED_SCOPE_3_TOOL_NAMES = [
@@ -27,6 +27,11 @@ const EXPECTED_SCOPE_3_TOOL_NAMES = [
     'planning_issue_resume',
     'planning_discussion_append',
     'planning_discussion_list',
+];
+const EXPECTED_SCOPE_4_TOOL_NAMES = [
+    ...EXPECTED_SCOPE_3_TOOL_NAMES,
+    'agent_materialization_get',
+    'agent_materialization_set',
 ];
 afterEach(() => {
     for (const path of cleanup.splice(0)) {
@@ -498,12 +503,13 @@ describe('Codex runtime manager', () => {
     });
 });
 describe('Codex tool surface', () => {
-    it('exposes exactly the frozen Scope-3 allowlist through a deeply immutable registry', () => {
+    it('exposes the 15-tool Scope-4 registry while preserving the frozen Scope-3 prefix', () => {
         const runtimeManager = manager();
         try {
             const registry = createCodexToolRegistry(runtimeManager);
-            assert.deepEqual(registry.definitions.map((tool) => tool.name), EXPECTED_SCOPE_3_TOOL_NAMES);
+            assert.deepEqual(registry.definitions.map((tool) => tool.name), EXPECTED_SCOPE_4_TOOL_NAMES);
             assert.deepEqual(CODEX_SCOPE_3_TOOL_NAMES, EXPECTED_SCOPE_3_TOOL_NAMES);
+            assert.deepEqual(CODEX_SCOPE_4_TOOL_NAMES, EXPECTED_SCOPE_4_TOOL_NAMES);
             assert.ok(Object.isFrozen(registry));
             assert.ok(Object.isFrozen(registry.definitions));
             assert.ok(Object.isFrozen(registry.definitions[0]));
@@ -563,8 +569,8 @@ describe('Codex tool surface', () => {
             assert.notEqual(firstRegistry.handlers, secondRegistry.handlers);
             assert.equal(JSON.stringify(toolDefinitions), claudeDefinitionsBefore);
             assert.deepEqual(Object.keys(toolHandlers), claudeHandlerNamesBefore);
-            assert.deepEqual(Object.keys(firstRegistry.handlers), CODEX_SCOPE_3_TOOL_NAMES);
-            assert.deepEqual(Object.keys(secondRegistry.handlers), CODEX_SCOPE_3_TOOL_NAMES);
+            assert.deepEqual(Object.keys(firstRegistry.handlers), CODEX_SCOPE_4_TOOL_NAMES);
+            assert.deepEqual(Object.keys(secondRegistry.handlers), CODEX_SCOPE_4_TOOL_NAMES);
         }
         finally {
             firstManager.close();
@@ -589,7 +595,7 @@ describe('Codex tool surface', () => {
             assert.equal(JSON.parse(missingContent.text).error.code, 'missing_project_root');
             assert.equal(unknown.isError, true);
             assert.equal(JSON.parse(unknownContent.text).error.code, 'unknown_tool');
-            assert.deepEqual(Object.keys(registry.handlers), CODEX_SCOPE_3_TOOL_NAMES);
+            assert.deepEqual(Object.keys(registry.handlers), CODEX_SCOPE_4_TOOL_NAMES);
         }
         finally {
             runtimeManager.close();

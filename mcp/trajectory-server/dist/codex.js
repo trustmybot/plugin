@@ -405,11 +405,11 @@ var require_codegen = __commonJS({
         const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
         return `${varKind} ${this.name}${rhs};` + _n;
       }
-      optimizeNames(names, constants2) {
+      optimizeNames(names, constants3) {
         if (!names[this.name.str])
           return;
         if (this.rhs)
-          this.rhs = optimizeExpr(this.rhs, names, constants2);
+          this.rhs = optimizeExpr(this.rhs, names, constants3);
         return this;
       }
       get names() {
@@ -426,10 +426,10 @@ var require_codegen = __commonJS({
       render({ _n }) {
         return `${this.lhs} = ${this.rhs};` + _n;
       }
-      optimizeNames(names, constants2) {
+      optimizeNames(names, constants3) {
         if (this.lhs instanceof code_1.Name && !names[this.lhs.str] && !this.sideEffects)
           return;
-        this.rhs = optimizeExpr(this.rhs, names, constants2);
+        this.rhs = optimizeExpr(this.rhs, names, constants3);
         return this;
       }
       get names() {
@@ -490,8 +490,8 @@ var require_codegen = __commonJS({
       optimizeNodes() {
         return `${this.code}` ? this : void 0;
       }
-      optimizeNames(names, constants2) {
-        this.code = optimizeExpr(this.code, names, constants2);
+      optimizeNames(names, constants3) {
+        this.code = optimizeExpr(this.code, names, constants3);
         return this;
       }
       get names() {
@@ -520,12 +520,12 @@ var require_codegen = __commonJS({
         }
         return nodes.length > 0 ? this : void 0;
       }
-      optimizeNames(names, constants2) {
+      optimizeNames(names, constants3) {
         const { nodes } = this;
         let i = nodes.length;
         while (i--) {
           const n = nodes[i];
-          if (n.optimizeNames(names, constants2))
+          if (n.optimizeNames(names, constants3))
             continue;
           subtractNames(names, n.names);
           nodes.splice(i, 1);
@@ -578,12 +578,12 @@ var require_codegen = __commonJS({
           return void 0;
         return this;
       }
-      optimizeNames(names, constants2) {
+      optimizeNames(names, constants3) {
         var _a2;
-        this.else = (_a2 = this.else) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants2);
-        if (!(super.optimizeNames(names, constants2) || this.else))
+        this.else = (_a2 = this.else) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants3);
+        if (!(super.optimizeNames(names, constants3) || this.else))
           return;
-        this.condition = optimizeExpr(this.condition, names, constants2);
+        this.condition = optimizeExpr(this.condition, names, constants3);
         return this;
       }
       get names() {
@@ -606,10 +606,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.iteration})` + super.render(opts);
       }
-      optimizeNames(names, constants2) {
-        if (!super.optimizeNames(names, constants2))
+      optimizeNames(names, constants3) {
+        if (!super.optimizeNames(names, constants3))
           return;
-        this.iteration = optimizeExpr(this.iteration, names, constants2);
+        this.iteration = optimizeExpr(this.iteration, names, constants3);
         return this;
       }
       get names() {
@@ -645,10 +645,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
       }
-      optimizeNames(names, constants2) {
-        if (!super.optimizeNames(names, constants2))
+      optimizeNames(names, constants3) {
+        if (!super.optimizeNames(names, constants3))
           return;
-        this.iterable = optimizeExpr(this.iterable, names, constants2);
+        this.iterable = optimizeExpr(this.iterable, names, constants3);
         return this;
       }
       get names() {
@@ -690,11 +690,11 @@ var require_codegen = __commonJS({
         (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNodes();
         return this;
       }
-      optimizeNames(names, constants2) {
+      optimizeNames(names, constants3) {
         var _a2, _b;
-        super.optimizeNames(names, constants2);
-        (_a2 = this.catch) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants2);
-        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants2);
+        super.optimizeNames(names, constants3);
+        (_a2 = this.catch) === null || _a2 === void 0 ? void 0 : _a2.optimizeNames(names, constants3);
+        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants3);
         return this;
       }
       get names() {
@@ -995,7 +995,7 @@ var require_codegen = __commonJS({
     function addExprNames(names, from) {
       return from instanceof code_1._CodeOrName ? addNames(names, from.names) : names;
     }
-    function optimizeExpr(expr, names, constants2) {
+    function optimizeExpr(expr, names, constants3) {
       if (expr instanceof code_1.Name)
         return replaceName(expr);
       if (!canOptimize(expr))
@@ -1010,14 +1010,14 @@ var require_codegen = __commonJS({
         return items;
       }, []));
       function replaceName(n) {
-        const c = constants2[n.str];
+        const c = constants3[n.str];
         if (c === void 0 || names[n.str] !== 1)
           return n;
         delete names[n.str];
         return c;
       }
       function canOptimize(e) {
-        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants2[c.str] !== void 0);
+        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants3[c.str] !== void 0);
       }
     }
     function subtractNames(names, from) {
@@ -3587,49 +3587,49 @@ var require_fast_uri = __commonJS({
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative2, options, skipNormalization) {
+    function resolveComponent(base, relative3, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse3(serialize(base, options), options);
-        relative2 = parse3(serialize(relative2, options), options);
+        relative3 = parse3(serialize(relative3, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative2.scheme) {
-        target.scheme = relative2.scheme;
-        target.userinfo = relative2.userinfo;
-        target.host = relative2.host;
-        target.port = relative2.port;
-        target.path = removeDotSegments(relative2.path || "");
-        target.query = relative2.query;
+      if (!options.tolerant && relative3.scheme) {
+        target.scheme = relative3.scheme;
+        target.userinfo = relative3.userinfo;
+        target.host = relative3.host;
+        target.port = relative3.port;
+        target.path = removeDotSegments(relative3.path || "");
+        target.query = relative3.query;
       } else {
-        if (relative2.userinfo !== void 0 || relative2.host !== void 0 || relative2.port !== void 0) {
-          target.userinfo = relative2.userinfo;
-          target.host = relative2.host;
-          target.port = relative2.port;
-          target.path = removeDotSegments(relative2.path || "");
-          target.query = relative2.query;
+        if (relative3.userinfo !== void 0 || relative3.host !== void 0 || relative3.port !== void 0) {
+          target.userinfo = relative3.userinfo;
+          target.host = relative3.host;
+          target.port = relative3.port;
+          target.path = removeDotSegments(relative3.path || "");
+          target.query = relative3.query;
         } else {
-          if (!relative2.path) {
+          if (!relative3.path) {
             target.path = base.path;
-            if (relative2.query !== void 0) {
-              target.query = relative2.query;
+            if (relative3.query !== void 0) {
+              target.query = relative3.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative2.path[0] === "/") {
-              target.path = removeDotSegments(relative2.path);
+            if (relative3.path[0] === "/") {
+              target.path = removeDotSegments(relative3.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative2.path;
+                target.path = "/" + relative3.path;
               } else if (!base.path) {
-                target.path = relative2.path;
+                target.path = relative3.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative2.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative3.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative2.query;
+            target.query = relative3.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -3637,7 +3637,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative2.fragment;
+      target.fragment = relative3.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -23289,7 +23289,7 @@ var CodexRuntimeManager = class {
   }
   async initializeCanonical(projectRoot) {
     try {
-      await validateGitProjectRoot(projectRoot);
+      await validateGitProjectRoot(projectRoot, runGit);
     } catch (error2) {
       throw normalizeRuntimeError(error2);
     }
@@ -23361,6 +23361,16 @@ var CodexRuntimeManager = class {
     return this.usageOrder;
   }
 };
+async function validateCodexProjectRoot(input, options = {}) {
+  let canonical;
+  try {
+    canonical = canonicalizeProjectRootInput(input);
+    await validateGitProjectRoot(canonical, options.runGit ?? runGit);
+  } catch (error2) {
+    throw normalizeRuntimeError(error2);
+  }
+  return canonical;
+}
 function canonicalizeProjectRootInput(input) {
   if (typeof input !== "string" || input.length === 0) {
     throw new CodexRuntimeError(
@@ -23406,8 +23416,8 @@ function canonicalizeProjectRootInput(input) {
   }
   return canonical;
 }
-async function validateGitProjectRoot(canonical) {
-  const topLevel = await runGit(canonical, ["rev-parse", "--show-toplevel"]);
+async function validateGitProjectRoot(canonical, git) {
+  const topLevel = await git(canonical, ["rev-parse", "--show-toplevel"]);
   if (!topLevel.ok) {
     throw new CodexRuntimeError(
       "project_root_not_git_toplevel",
@@ -23429,7 +23439,7 @@ async function validateGitProjectRoot(canonical) {
       "project_root must be the Git worktree top level, not a nested directory."
     );
   }
-  const ignored = await runGit(canonical, [
+  const ignored = await git(canonical, [
     "check-ignore",
     "--no-index",
     "--quiet",
@@ -23438,12 +23448,12 @@ async function validateGitProjectRoot(canonical) {
   if (!ignored.ok) {
     throw stateNotIgnoredError();
   }
-  const tracked = await runGit(canonical, ["ls-files", "-z", "--", ".tmb"]);
+  const tracked = await git(canonical, ["ls-files", "-z", "--", ".tmb"]);
   if (!tracked.ok || tracked.stdout.length > 0) {
     throw stateNotIgnoredError();
   }
 }
-function runGit(cwd, args) {
+var runGit = (cwd, args) => {
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_"))
   );
@@ -23479,7 +23489,7 @@ function runGit(cwd, args) {
       }
     );
   });
-}
+};
 function openRuntime(projectRoot, plugin2, now, lastUsedOrder, graphHolderFactory) {
   let context;
   try {
@@ -23609,6 +23619,542 @@ function graphDependencyAvailable() {
   }
 }
 
+// src/codex-agent-materializer.ts
+import {
+  closeSync as closeSync2,
+  constants as constants2,
+  lstatSync as lstatSync3,
+  mkdirSync as mkdirSync4,
+  openSync as openSync2,
+  readFileSync as readFileSync4,
+  realpathSync as realpathSync4,
+  unlinkSync,
+  writeSync
+} from "node:fs";
+import { dirname as dirname5, isAbsolute as isAbsolute3, join as join5, relative as relative2 } from "node:path";
+
+// src/codex-agent-catalog.ts
+import { createHash } from "node:crypto";
+var CODEX_AGENT_TEMPLATE_SET_VERSION = 1;
+var CODEX_AGENT_TEMPLATE_VERSION = 1;
+var SWE_BODY = `name = "tmb_swe"
+description = "Implement and verify a complete brief in the current worktree without TMB workflow or Git delivery operations."
+sandbox_mode = "workspace-write"
+developer_instructions = '''
+You are the TrustMyBot Codex implementation agent for one bounded change in the current worktree. Your name is a role label, not authenticated TMB workflow identity. Your authority covers source implementation and local validation; TMB workflow records, Git delivery, pull requests, and remote issues are outside this role.
+
+Before reading the repository or running a command, inspect the tools the host made available to this Agent. If any TMB trajectory-server tool is visible, including a name beginning with mcp__trajectory_server__, return BLOCKED_TMB_MCP_ISOLATION and do nothing else. This is a fail-closed check in case host configuration composition changes. Do not rely on instructions alone to protect TMB state.
+
+Start only when the caller provides objective, allowed_paths, acceptance_criteria, and required_tests. constraints is optional and defaults to an empty list. When a required field is missing, return NEEDS_CONTEXT, list the missing fields, and leave the worktree unchanged.
+
+Before editing, resolve the Git top-level, current branch, and git status --short. Confirm that the active task has workspace-write or stronger file permission. Refuse to implement on main, master, dev, develop, release/*, or rc/*. If an existing user change overlaps allowed_paths, stop and report the conflict. Preserve unrelated user changes.
+
+Modify only allowed_paths and keep the acceptance criteria fixed. Leave unrelated changes exactly as found. Commands that reset, checkout, clean, stash, create or switch a branch or worktree, format unrelated code, or modify .tmb/, .claude/, or .codex/ are outside this role. The $tmb:tmb-bro and $tmb:tmb-agent-setup Skills and the TMB trajectory server are unavailable to this Agent. Keep refactors within the stated objective.
+
+Run the smallest relevant focused test first, then every command in required_tests. If any required test fails or cannot run, use status BLOCKED and never COMPLETED. Test caches and ignored build output are allowed; tracked changes must remain inside allowed_paths. Finish by checking git diff --stat and git status --short. If tracked changes fall outside the brief, stop, report them, and leave user files intact.
+
+Your final response must include status as COMPLETED, BLOCKED, BLOCKED_TMB_MCP_ISOLATION, or NEEDS_CONTEXT; a change summary; every modified file; each test and result; skipped or failed validation; remaining risks; whether existing user changes were preserved; and an explicit statement that no commit, push, or TMB workflow write occurred.
+
+The parent task can override the sandbox default in this file. Treat the live task permission as authoritative and report when it is weaker or broader than expected. Model and reasoning settings come from the Codex host and parent task.
+'''
+
+[mcp_servers."trajectory-server"]
+command = "node"
+args = ["--version"]
+enabled = false
+`;
+var REVIEWER_BODY = `name = "tmb_pr_reviewer"
+description = "Review a specified diff as an advisory reviewer without editing code or creating trusted TMB validation."
+sandbox_mode = "read-only"
+developer_instructions = '''
+You are the TrustMyBot Codex advisory reviewer for a caller-specified diff. Your name is a role label, not authenticated TMB workflow identity. Your authority covers analysis and findings; source changes, TMB workflow records, Git delivery, pull requests, and remote issues are outside this role.
+
+Before reading the repository or running a command, inspect the tools the host made available to this Agent. If any TMB trajectory-server tool is visible, including a name beginning with mcp__trajectory_server__, return BLOCKED_TMB_MCP_ISOLATION and do nothing else. This is a fail-closed check in case host configuration composition changes. Do not rely on instructions alone to protect TMB state.
+
+Require requirements, diff_scope, and test_evidence. test_evidence may explicitly say not run. When requirements or diff_scope is missing, return NEEDS_CONTEXT and leave the review unopened.
+
+Review only the requested working-tree diff, commit, or commit range. Read nearby code and tests when they clarify the change, while keeping the review inside the requested boundary. Source edits, fixes, probe files, changes to .tmb/, .claude/, or .codex/, the $tmb:tmb-bro and $tmb:tmb-agent-setup Skills, and the TMB trajectory server are unavailable to this Agent.
+
+Each finding must include severity P0, P1, P2, or P3; file path; the most precise useful line number; trigger; user or engineering impact; suggested repair direction; and whether the evidence comes from the diff, code, tests, or execution. P0 means severe security, data loss, or system availability risk. P1 means a likely functional regression or failed core acceptance criterion. P2 means a limited-case defect, clear maintenance risk, or important missing test. P3 means a low-risk improvement.
+
+Use REQUEST_CHANGES when any P0 or P1 exists or a core acceptance criterion is unmet. Use NEEDS_CONTEXT when required context is missing. Otherwise use NO_BLOCKING_FINDINGS. BLOCKED_TMB_MCP_ISOLATION is the preflight result when the TMB tool-surface check fails. PASS, approved, safe-to-merge language, and Push-gate claims are unavailable verdicts.
+
+Your final response must include the verdict, findings, reviewed diff scope, tests you checked, a permission note, unverified areas, remaining risks, and a statement that the result is not a TMB validation record or push gate. The permission note must say that read-only is only the Agent default and that the parent task can override it.
+
+The parent task can override the sandbox default in this file. A read-only request in this template is not proof that the live task remained read-only. Model and reasoning settings come from the Codex host and parent task.
+'''
+
+[mcp_servers."trajectory-server"]
+command = "node"
+args = ["--version"]
+enabled = false
+`;
+function buildTemplate(agentId, body) {
+  const bodySha256 = sha256(body);
+  const header = [
+    "# Managed by TrustMyBot Codex Scope 4.",
+    `# tmb-template-id: ${agentId}`,
+    `# tmb-template-version: ${CODEX_AGENT_TEMPLATE_VERSION}`,
+    `# tmb-body-sha256: ${bodySha256}`,
+    "",
+    ""
+  ].join("\n");
+  const expectedBytes = Buffer.from(`${header}${body}`, "utf8");
+  return Object.freeze({
+    agentId,
+    targetPath: `.codex/agents/${agentId}.toml`,
+    templateVersion: CODEX_AGENT_TEMPLATE_VERSION,
+    body,
+    bodySha256,
+    expectedBytes,
+    expectedContentSha256: sha256(expectedBytes)
+  });
+}
+var CODEX_AGENT_CATALOG = Object.freeze([
+  buildTemplate("tmb_swe", SWE_BODY),
+  buildTemplate("tmb_pr_reviewer", REVIEWER_BODY)
+]);
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+// src/codex-agent-materializer.ts
+var DEFAULT_FILE_SYSTEM = Object.freeze({
+  lstat: lstatSync3,
+  mkdir: (path) => mkdirSync4(path, { mode: 493 }),
+  realpath: realpathSync4,
+  readFile: (path) => readFileSync4(path),
+  openExclusive: (path) => openSync2(
+    path,
+    constants2.O_WRONLY | constants2.O_CREAT | constants2.O_EXCL | (constants2.O_NOFOLLOW ?? 0),
+    420
+  ),
+  write: (fd, bytes) => writeSync(fd, bytes, 0, bytes.length),
+  close: closeSync2,
+  unlink: unlinkSync
+});
+var CodexAgentMaterializationError = class extends Error {
+  constructor(code, message, details) {
+    super(message);
+    this.code = code;
+    this.details = details;
+    this.name = "CodexAgentMaterializationError";
+  }
+};
+var CodexAgentMaterializer = class {
+  fs;
+  validateProjectRoot;
+  constructor(options = {}) {
+    this.fs = options.fileSystem ?? DEFAULT_FILE_SYSTEM;
+    this.validateProjectRoot = options.validateProjectRoot ?? validateCodexProjectRoot;
+  }
+  async get(projectRootInput) {
+    const projectRoot = await this.validateProjectRoot(projectRootInput);
+    const inspections = inspectAll(projectRoot, this.fs);
+    return getResult(projectRoot, inspections);
+  }
+  async set(projectRootInput, desiredState) {
+    const projectRoot = await this.validateProjectRoot(projectRootInput);
+    const preflight = inspectAll(projectRoot, this.fs);
+    const conflicts = preflight.filter((entry) => entry.status === "conflict");
+    if (conflicts.length > 0) throw conflictError(conflicts);
+    const changed = [];
+    const unchanged = [];
+    try {
+      if (desiredState === "present") {
+        ensureAgentDirectory(projectRoot, this.fs);
+        for (const template of CODEX_AGENT_CATALOG) {
+          const before = preflight.find(
+            (entry) => entry.template.agentId === template.agentId
+          );
+          if (before.status === "current") {
+            unchanged.push(template.targetPath);
+            continue;
+          }
+          const outcome = createTarget(projectRoot, template, this.fs, changed);
+          if (outcome === "unchanged") unchanged.push(template.targetPath);
+        }
+      } else {
+        for (const template of CODEX_AGENT_CATALOG) {
+          const before = preflight.find(
+            (entry) => entry.template.agentId === template.agentId
+          );
+          if (before.status === "absent") {
+            unchanged.push(template.targetPath);
+            continue;
+          }
+          const outcome = removeTarget(projectRoot, template, this.fs, changed);
+          if (outcome === "unchanged") unchanged.push(template.targetPath);
+        }
+      }
+      const final = inspectAll(projectRoot, this.fs);
+      const converged = final.every(
+        (entry) => desiredState === "present" ? entry.status === "current" : entry.status === "absent"
+      );
+      if (!converged) {
+        const cause = final.some((entry) => entry.status === "conflict") ? conflictError(final.filter((entry) => entry.status === "conflict")) : ioError("Agent targets did not converge after the operation.");
+        throw cause;
+      }
+      const coverage = /* @__PURE__ */ new Set([...changed, ...unchanged]);
+      if (coverage.size !== CODEX_AGENT_CATALOG.length) {
+        throw ioError("Agent materialization result did not cover every catalog target.");
+      }
+      return Object.freeze({
+        project_root: projectRoot,
+        desired_state: desiredState,
+        changed: Object.freeze([...changed]),
+        unchanged: Object.freeze([...unchanged]),
+        overall_status: desiredState === "present" ? "current" : "absent",
+        restart_required: changed.length > 0
+      });
+    } catch (error2) {
+      throw materializationFailure(
+        error2,
+        projectRoot,
+        desiredState,
+        changed,
+        this.fs
+      );
+    }
+  }
+};
+function layoutFor(projectRoot) {
+  return {
+    projectRoot,
+    codexDir: join5(projectRoot, ".codex"),
+    agentsDir: join5(projectRoot, ".codex", "agents")
+  };
+}
+function inspectAll(projectRoot, fs) {
+  const layout = layoutFor(projectRoot);
+  const codexExists = inspectDirectory(layout.codexDir, layout.projectRoot, fs);
+  if (!codexExists) return absentInspections();
+  const agentsExists = inspectDirectory(layout.agentsDir, layout.projectRoot, fs);
+  if (!agentsExists) return absentInspections();
+  const fileKinds = CODEX_AGENT_CATALOG.map((template) => {
+    const absolutePath = targetPath(layout, template);
+    return {
+      template,
+      absolutePath,
+      stat: inspectRegularTarget(absolutePath, projectRoot, fs)
+    };
+  });
+  const inspections = [];
+  let firstReadError;
+  for (const target of fileKinds) {
+    if (target.stat === void 0) {
+      inspections.push({
+        template: target.template,
+        status: "absent"
+      });
+      continue;
+    }
+    if (target.stat.size !== target.template.expectedBytes.length) {
+      inspections.push({
+        template: target.template,
+        status: "conflict"
+      });
+      continue;
+    }
+    try {
+      const bytes = fs.readFile(target.absolutePath);
+      const current = bytes.equals(target.template.expectedBytes);
+      inspections.push({
+        template: target.template,
+        status: current ? "current" : "conflict",
+        ...current ? { currentContentSha256: sha256(bytes) } : {}
+      });
+    } catch (error2) {
+      firstReadError ??= error2;
+    }
+  }
+  if (firstReadError !== void 0) {
+    const conflicts = inspections.filter((entry) => entry.status === "conflict");
+    if (conflicts.length > 0) throw conflictError(conflicts);
+    throw ioError("A managed Agent target could not be read.", firstReadError);
+  }
+  return inspections;
+}
+function absentInspections() {
+  return CODEX_AGENT_CATALOG.map((template) => ({
+    template,
+    status: "absent"
+  }));
+}
+function inspectDirectory(path, projectRoot, fs) {
+  let stat;
+  try {
+    stat = fs.lstat(path);
+  } catch (error2) {
+    if (isMissing(error2)) return false;
+    throw unsafePathError(projectRoot, path, "could not be inspected");
+  }
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    throw unsafePathError(projectRoot, path, "must be a real directory");
+  }
+  let canonical;
+  try {
+    canonical = fs.realpath(path);
+  } catch {
+    throw unsafePathError(projectRoot, path, "could not be canonicalized");
+  }
+  if (!isWithin(projectRoot, canonical) || canonical !== path) {
+    throw unsafePathError(
+      projectRoot,
+      path,
+      "resolves outside the canonical project path"
+    );
+  }
+  return true;
+}
+function inspectRegularTarget(path, projectRoot, fs) {
+  let stat;
+  try {
+    stat = fs.lstat(path);
+  } catch (error2) {
+    if (isMissing(error2)) return void 0;
+    throw unsafePathError(projectRoot, path, "could not be inspected");
+  }
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    throw unsafePathError(projectRoot, path, "must be a regular file");
+  }
+  return stat;
+}
+function ensureAgentDirectory(projectRoot, fs) {
+  const layout = layoutFor(projectRoot);
+  ensureDirectory(layout.codexDir, layout.projectRoot, fs);
+  ensureDirectory(layout.agentsDir, layout.projectRoot, fs);
+  assertSafeParents(layout, fs);
+}
+function ensureDirectory(path, projectRoot, fs) {
+  if (inspectDirectoryIfPresent(path, projectRoot, fs)) return;
+  try {
+    fs.mkdir(path);
+  } catch (error2) {
+    if (!isAlreadyExists(error2)) {
+      throw ioError(`Could not create ${relative2(projectRoot, path)}.`, error2);
+    }
+  }
+  if (!inspectDirectoryIfPresent(path, projectRoot, fs)) {
+    throw ioError(`Directory creation did not materialize ${relative2(projectRoot, path)}.`);
+  }
+}
+function inspectDirectoryIfPresent(path, projectRoot, fs) {
+  return inspectDirectory(path, projectRoot, fs);
+}
+function assertSafeParents(layout, fs) {
+  if (!inspectDirectory(layout.codexDir, layout.projectRoot, fs) || !inspectDirectory(layout.agentsDir, layout.projectRoot, fs)) {
+    throw unsafePathError(
+      layout.projectRoot,
+      layout.agentsDir,
+      "is not a stable directory path"
+    );
+  }
+}
+function createTarget(projectRoot, template, fs, changed) {
+  const layout = layoutFor(projectRoot);
+  assertSafeParents(layout, fs);
+  const absolutePath = targetPath(layout, template);
+  const before = inspectOne(projectRoot, template, absolutePath, fs);
+  if (before.status === "current") return "unchanged";
+  if (before.status === "conflict") throw conflictError([before]);
+  let fd;
+  try {
+    fd = fs.openExclusive(absolutePath);
+  } catch (error2) {
+    if (isAlreadyExists(error2)) {
+      const raced = inspectOne(projectRoot, template, absolutePath, fs);
+      if (raced.status === "current") return "unchanged";
+      if (raced.status === "conflict") throw conflictError([raced]);
+      throw ioError(`Agent target disappeared during create: ${template.targetPath}.`);
+    }
+    throw ioError(`Could not create ${template.targetPath}.`, error2);
+  }
+  changed.push(template.targetPath);
+  let failure;
+  try {
+    const written = fs.write(fd, template.expectedBytes);
+    if (written !== template.expectedBytes.length) {
+      throw new Error(
+        `Short write: expected ${template.expectedBytes.length} bytes, wrote ${written}.`
+      );
+    }
+  } catch (error2) {
+    failure = error2;
+  }
+  try {
+    fs.close(fd);
+  } catch (error2) {
+    failure ??= error2;
+  }
+  if (failure !== void 0) {
+    throw ioError(`Could not finish writing ${template.targetPath}.`, failure);
+  }
+  const final = inspectOne(projectRoot, template, absolutePath, fs);
+  if (final.status !== "current") {
+    throw final.status === "conflict" ? conflictError([final]) : ioError(`Agent target vanished after create: ${template.targetPath}.`);
+  }
+  return "changed";
+}
+function removeTarget(projectRoot, template, fs, changed) {
+  const layout = layoutFor(projectRoot);
+  if (!inspectDirectory(layout.codexDir, layout.projectRoot, fs) || !inspectDirectory(layout.agentsDir, layout.projectRoot, fs)) {
+    return "unchanged";
+  }
+  assertSafeParents(layout, fs);
+  const absolutePath = targetPath(layout, template);
+  const before = inspectOne(projectRoot, template, absolutePath, fs);
+  if (before.status === "absent") return "unchanged";
+  if (before.status === "conflict") throw conflictError([before]);
+  try {
+    fs.unlink(absolutePath);
+  } catch (error2) {
+    if (isMissing(error2)) return "unchanged";
+    throw ioError(`Could not remove ${template.targetPath}.`, error2);
+  }
+  changed.push(template.targetPath);
+  return "changed";
+}
+function inspectOne(projectRoot, template, absolutePath, fs) {
+  const stat = inspectRegularTarget(absolutePath, projectRoot, fs);
+  if (stat === void 0) {
+    return { template, status: "absent" };
+  }
+  if (stat.size !== template.expectedBytes.length) {
+    return { template, status: "conflict" };
+  }
+  let bytes;
+  try {
+    bytes = fs.readFile(absolutePath);
+  } catch (error2) {
+    throw ioError(`Could not read ${template.targetPath}.`, error2);
+  }
+  const current = bytes.equals(template.expectedBytes);
+  return {
+    template,
+    status: current ? "current" : "conflict",
+    ...current ? { currentContentSha256: sha256(bytes) } : {}
+  };
+}
+function targetPath(layout, template) {
+  const path = join5(layout.projectRoot, template.targetPath);
+  if (!isWithin(layout.agentsDir, path) || dirname5(path) !== layout.agentsDir) {
+    throw unsafePathError(
+      layout.projectRoot,
+      path,
+      "is outside the fixed Agent directory"
+    );
+  }
+  return path;
+}
+function isWithin(parent, child) {
+  if (!isAbsolute3(parent) || !isAbsolute3(child)) return false;
+  const rel = relative2(parent, child);
+  return rel === "" || !rel.startsWith("..") && !isAbsolute3(rel);
+}
+function getResult(projectRoot, inspections) {
+  return Object.freeze({
+    project_root: projectRoot,
+    template_set_version: CODEX_AGENT_TEMPLATE_SET_VERSION,
+    overall_status: overallStatus(inspections),
+    agents: Object.freeze(inspections.map(publicEntry))
+  });
+}
+function publicEntry(inspection) {
+  return Object.freeze({
+    agent_id: inspection.template.agentId,
+    target_path: inspection.template.targetPath,
+    status: inspection.status,
+    expected_template_version: inspection.template.templateVersion,
+    expected_body_sha256: inspection.template.bodySha256,
+    ...inspection.status === "current" ? { current_content_sha256: inspection.currentContentSha256 } : {},
+    ...inspection.status === "conflict" ? { conflict_reason: "content_mismatch" } : {}
+  });
+}
+function overallStatus(inspections) {
+  if (inspections.some((entry) => entry.status === "conflict")) return "conflict";
+  if (inspections.every((entry) => entry.status === "current")) return "current";
+  if (inspections.every((entry) => entry.status === "absent")) return "absent";
+  return "mixed";
+}
+function conflictError(inspections) {
+  return new CodexAgentMaterializationError(
+    "agent_materialization_conflict",
+    "A managed Agent target conflicts with the current template.",
+    {
+      conflicts: inspections.map((entry) => ({
+        agent_id: entry.template.agentId,
+        target_path: entry.template.targetPath,
+        reason: "content_mismatch"
+      }))
+    }
+  );
+}
+function unsafePathError(projectRoot, path, reason) {
+  return new CodexAgentMaterializationError(
+    "unsafe_codex_agents_path",
+    "The project Codex Agent path could not be verified safely.",
+    { target_path: relative2(projectRoot, path) || ".", reason }
+  );
+}
+function ioError(message, cause) {
+  const osErrorCode = cause?.code;
+  return new CodexAgentMaterializationError(
+    "agent_materialization_io_failed",
+    message,
+    typeof osErrorCode === "string" ? { os_error_code: osErrorCode } : void 0
+  );
+}
+function materializationFailure(error2, projectRoot, desiredState, changed, fs) {
+  const cause = error2 instanceof CodexAgentMaterializationError ? error2 : ioError("Agent materialization failed.", error2);
+  if (changed.length === 0) return cause;
+  return new CodexAgentMaterializationError(
+    "agent_materialization_partial",
+    "Agent targets did not converge after one target changed.",
+    {
+      desired_state: desiredState,
+      cause_code: cause.code,
+      changed: [...changed],
+      agents: finalAgentStates(projectRoot, fs),
+      restart_required: true
+    }
+  );
+}
+function finalAgentStates(projectRoot, fs) {
+  const layout = layoutFor(projectRoot);
+  return CODEX_AGENT_CATALOG.map((template) => {
+    try {
+      if (!inspectDirectory(layout.codexDir, layout.projectRoot, fs) || !inspectDirectory(layout.agentsDir, layout.projectRoot, fs)) {
+        return partialEntry(template, "absent");
+      }
+      return partialEntry(
+        template,
+        inspectOne(
+          projectRoot,
+          template,
+          targetPath(layout, template),
+          fs
+        ).status
+      );
+    } catch {
+      return partialEntry(template, "unknown");
+    }
+  });
+}
+function partialEntry(template, status) {
+  return {
+    agent_id: template.agentId,
+    target_path: template.targetPath,
+    status
+  };
+}
+function isMissing(error2) {
+  return error2.code === "ENOENT";
+}
+function isAlreadyExists(error2) {
+  return error2.code === "EEXIST";
+}
+
 // src/middleware/agent-scope.ts
 var FIRST_CLASS_ROLES = /* @__PURE__ */ new Set(["bro", "swe", "pr-reviewer"]);
 function normalizeAgent(name) {
@@ -23658,7 +24204,7 @@ function redactIssue(issue2, agent, opts) {
 
 // src/embeddings/model.ts
 import { homedir as homedir2 } from "node:os";
-import { join as join5 } from "node:path";
+import { join as join6 } from "node:path";
 var pipelinePromise = null;
 var loadFailed = false;
 async function embed(text) {
@@ -23666,7 +24212,7 @@ async function embed(text) {
   if (!pipelinePromise) {
     try {
       const { pipeline, env } = await import("@huggingface/transformers");
-      env.cacheDir = process.env.HF_HOME ?? join5(homedir2(), ".cache", "huggingface");
+      env.cacheDir = process.env.HF_HOME ?? join6(homedir2(), ".cache", "huggingface");
       pipelinePromise = pipeline("feature-extraction", "Xenova/bge-small-en-v1.5");
       pipelinePromise.catch(() => {
         loadFailed = true;
@@ -24401,21 +24947,21 @@ function resolveBackend(configValue, repoRemotes, hasSpawnFn = false, availabili
 
 // src/sync/issue_sync.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
-import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync4 } from "node:fs";
+import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync5 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { join as join6 } from "node:path";
+import { join as join7 } from "node:path";
 function resolveLogDir() {
   if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
-  return join6(homedir3(), ".claude", resolvePluginName(process.env), "logs");
+  return join7(homedir3(), ".claude", resolvePluginName(process.env), "logs");
 }
 var logDir = resolveLogDir();
-var syncLogPath = join6(logDir, "issue-sync.log");
+var syncLogPath = join7(logDir, "issue-sync.log");
 try {
-  mkdirSync4(logDir, { recursive: true });
+  mkdirSync5(logDir, { recursive: true });
 } catch {
 }
 function syncLog(entry) {
-  const currentLogPath = process.env.TMB_SYNC_LOG_DIR ? join6(process.env.TMB_SYNC_LOG_DIR, "issue-sync.log") : syncLogPath;
+  const currentLogPath = process.env.TMB_SYNC_LOG_DIR ? join7(process.env.TMB_SYNC_LOG_DIR, "issue-sync.log") : syncLogPath;
   try {
     const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
     appendFileSync2(currentLogPath, line);
@@ -25849,8 +26395,8 @@ function issueTools(db, dbPath = "", options = {}) {
 
 // src/tools/scan.ts
 import { spawn, spawnSync as spawnSync3 } from "node:child_process";
-import { existsSync as existsSync3, readFileSync as readFileSync4, writeFileSync, unlinkSync } from "node:fs";
-import { dirname as dirname5, join as join7 } from "node:path";
+import { existsSync as existsSync3, readFileSync as readFileSync5, writeFileSync, unlinkSync as unlinkSync2 } from "node:fs";
+import { dirname as dirname6, join as join8 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/utils/untrusted.ts
@@ -25882,15 +26428,15 @@ function wrap(fn) {
   };
 }
 function resolveScanScript() {
-  const here = dirname5(fileURLToPath3(import.meta.url));
+  const here = dirname6(fileURLToPath3(import.meta.url));
   const candidates = [
-    join7(here, "..", "..", "..", "..", "scripts", "scan.sh"),
-    join7(here, "..", "..", "..", "scripts", "scan.sh")
+    join8(here, "..", "..", "..", "..", "scripts", "scan.sh"),
+    join8(here, "..", "..", "..", "scripts", "scan.sh")
   ];
   for (const c of candidates) if (existsSync3(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join7(pluginRoot, "scripts", "scan.sh");
+    const c = join8(pluginRoot, "scripts", "scan.sh");
     if (existsSync3(c)) return c;
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
@@ -26017,26 +26563,26 @@ function deriveDirectoryEntries(out) {
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames) {
   const leaf = dirPath === "" ? "(repo root)" : basename3(dirPath);
-  const join8 = (names) => {
+  const join9 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
   };
   const parts = [];
   if (fileNames.length > 0) {
-    parts.push(`${fileNames.length} file${fileNames.length === 1 ? "" : "s"} (${join8(fileNames.slice().sort())})`);
+    parts.push(`${fileNames.length} file${fileNames.length === 1 ? "" : "s"} (${join9(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts.push(`subdirs: ${join8(subdirNames.slice().sort())}`);
+    parts.push(`subdirs: ${join9(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts.length > 0 ? parts.join("; ") : "empty directory"}`;
 }
 function readReadmeSummary(absDirPath) {
   for (const candidate of README_CANDIDATES) {
-    const readmePath = join7(absDirPath, candidate);
+    const readmePath = join8(absDirPath, candidate);
     if (!existsSync3(readmePath)) continue;
     try {
-      const raw = readFileSync4(readmePath, "utf8");
+      const raw = readFileSync5(readmePath, "utf8");
       const clipped = raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
       return frameUntrusted("readme", clipped);
     } catch {
@@ -26062,7 +26608,7 @@ function persistDirectoriesGraph(graph, out, now) {
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join7(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join8(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(entry.path, entry.file_names, subdirNames);
@@ -26185,7 +26731,7 @@ function persistScan(db, graph, out, sessionDir) {
 var SCAN_TIMEOUT_MS = 10 * 60 * 1e3;
 function readLock(lockPath) {
   try {
-    return JSON.parse(readFileSync4(lockPath, "utf8"));
+    return JSON.parse(readFileSync5(lockPath, "utf8"));
   } catch {
     return null;
   }
@@ -26202,14 +26748,14 @@ function acquireLock(lockPath) {
   const existing = readLock(lockPath);
   if (existing) {
     if (pidAlive(existing.pid)) return false;
-    unlinkSync(lockPath);
+    unlinkSync2(lockPath);
   }
   writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started_at: nowISO() }), { flag: "wx" });
   return true;
 }
 function releaseLock(lockPath) {
   try {
-    unlinkSync(lockPath);
+    unlinkSync2(lockPath);
   } catch {
   }
 }
@@ -26262,7 +26808,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
             `graph_db_open_failed: ${graphOpenError} \u2014 another process holds the world-model lock (identify the holder by running lsof on the world-model graph file); the server retries automatically on the next call once the holder exits`
           );
         }
-        const lockPath = dbPath && dbPath !== ":memory:" ? join7(dirname5(dbPath), "scan.lock") : "";
+        const lockPath = dbPath && dbPath !== ":memory:" ? join8(dirname6(dbPath), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -26334,7 +26880,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
 
 // src/tools/world_model.ts
 import { spawnSync as spawnSync4 } from "node:child_process";
-import { resolve, dirname as dirname6 } from "node:path";
+import { resolve, dirname as dirname7 } from "node:path";
 var WORLD_MODEL_GET_MAX_NODES = 500;
 var UNMERGED_WORK_MAX_BRANCHES = 10;
 function computeUnmergedWork(db, repo) {
@@ -26344,7 +26890,7 @@ function computeUnmergedWork(db, repo) {
     [repo]
   );
   if (!repoRow) return { unmerged_work: [] };
-  const dbDir = db.dbPath === ":memory:" ? process.cwd() : dirname6(db.dbPath);
+  const dbDir = db.dbPath === ":memory:" ? process.cwd() : dirname7(db.dbPath);
   const repoPath = repoRow.path.startsWith("/") ? repoRow.path : resolve(dbDir, repoRow.path);
   const target = repoRow.target_branch || "dev";
   const gitCheck = spawnSync4("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
@@ -26653,7 +27199,13 @@ var CODEX_SCOPE_3_TOOL_NAMES = Object.freeze([
   "planning_discussion_append",
   "planning_discussion_list"
 ]);
+var CODEX_SCOPE_4_TOOL_NAMES = Object.freeze([
+  ...CODEX_SCOPE_3_TOOL_NAMES,
+  "agent_materialization_get",
+  "agent_materialization_set"
+]);
 function createCodexToolRegistry(manager2) {
+  const materializer = new CodexAgentMaterializer();
   const definitions = deepFreeze([
     tool(
       "runtime_initialize",
@@ -26810,6 +27362,26 @@ function createCodexToolRegistry(manager2) {
       },
       ["issue_id"],
       { readOnly: true }
+    ),
+    tool(
+      "agent_materialization_get",
+      "Inspect the two fixed project-level TMB Codex Agent files without creating project state or host configuration.",
+      {},
+      [],
+      { readOnly: true, idempotent: true }
+    ),
+    tool(
+      "agent_materialization_set",
+      "Create or remove the two fixed project-level TMB Codex Agent files after explicit confirmation.",
+      {
+        desired_state: {
+          type: "string",
+          enum: ["present", "absent"],
+          description: "Whether both fixed TMB Codex Agent files must be present or absent."
+        }
+      },
+      ["desired_state"],
+      { destructive: true, idempotent: true }
     )
   ]);
   const handlers = deepFreeze({
@@ -27070,13 +27642,29 @@ function createCodexToolRegistry(manager2) {
           cursor: input["cursor"]
         }));
       }
-    )
+    ),
+    agent_materialization_get: async (args) => runAdapter(args, ["project_root"], async (input) => {
+      requireProjectRoot(input);
+      return materializer.get(input["project_root"]);
+    }),
+    agent_materialization_set: async (args) => runAdapter(args, ["project_root", "desired_state"], async (input) => {
+      requireProjectRoot(input);
+      const desiredState = requireEnum(
+        input,
+        "desired_state",
+        ["present", "absent"]
+      );
+      return materializer.set(
+        input["project_root"],
+        desiredState
+      );
+    })
   });
   const call = async (name, args) => {
     const handler = handlers[name];
     if (!handler) {
       const code = OUT_OF_SCOPE_TOOL.test(name) ? "out_of_scope_operation" : "unknown_tool";
-      return errorResult(code, `Codex Scope 3 does not expose tool: ${name}`);
+      return errorResult(code, `Codex Scope 4 does not expose tool: ${name}`);
     }
     return handler(args);
   };
@@ -27134,13 +27722,16 @@ function validateInput(args, allowedKeys) {
     );
   }
   const input = args;
-  for (const key of Object.keys(input)) {
-    if (IDENTITY_KEYS.has(key)) {
+  for (const key of IDENTITY_KEYS) {
+    if (Object.hasOwn(input, key)) {
       throw new CodexAdapterError(
         "unsupported_identity_claim",
-        `Caller-supplied ${key} is not accepted; Codex Scope 3 fixes identity to Bro.`
+        `Caller-supplied ${key} is not accepted by the Codex adapter.`
       );
     }
+  }
+  requireProjectRoot(input);
+  for (const key of Object.keys(input)) {
     if (!allowedKeys.includes(key)) {
       throw new CodexAdapterError(
         "invalid_arguments",
@@ -27149,6 +27740,26 @@ function validateInput(args, allowedKeys) {
     }
   }
   return input;
+}
+function requireProjectRoot(input) {
+  const value = input["project_root"];
+  if (typeof value !== "string" || value.length === 0) {
+    throw new CodexAdapterError(
+      "missing_project_root",
+      "project_root is required."
+    );
+  }
+  return value;
+}
+function requireEnum(input, key, allowed) {
+  const value = input[key];
+  if (typeof value !== "string" || !allowed.includes(value)) {
+    throw new CodexAdapterError(
+      "invalid_arguments",
+      `${key} must be one of: ${allowed.join(", ")}.`
+    );
+  }
+  return value;
 }
 function requireString(input, key) {
   const value = input[key];
@@ -27317,9 +27928,10 @@ function compact(value) {
   );
 }
 var CodexAdapterError = class extends Error {
-  constructor(code, message) {
+  constructor(code, message, details) {
     super(message);
     this.code = code;
+    this.details = details;
     this.name = "CodexAdapterError";
   }
 };
@@ -27328,18 +27940,21 @@ function adapterErrorResult(error2) {
     return errorResult(error2.code, error2.message);
   }
   if (error2 instanceof CodexAdapterError) {
-    return errorResult(error2.code, error2.message);
+    return errorResult(error2.code, error2.message, error2.details);
+  }
+  if (error2 instanceof CodexAgentMaterializationError) {
+    return errorResult(error2.code, error2.message, error2.details);
   }
   return errorResult(
     "operation_failed",
     error2 instanceof Error ? error2.message : String(error2)
   );
 }
-function errorResult(code, message) {
+function errorResult(code, message, details) {
   return jsonResult(
     {
       ok: false,
-      error: { code, message }
+      error: { code, message, ...details ? { details } : {} }
     },
     true
   );
@@ -27387,7 +28002,7 @@ var server = new Server(
   { name: "tmb-codex", version: plugin.version },
   {
     capabilities: { tools: {} },
-    instructions: "This Codex adapter exposes the bounded TMB Bro planning surface. Every call requires an explicit Git worktree root; state and planning records stay under that project's ignored .tmb/tmb directory. Task execution, review, push, merge, remote issue mutation, onboarding, and lifecycle enforcement are not exposed."
+    instructions: "This Codex adapter exposes bounded local Bro planning and explicit management of two fixed project-level Agent files. Every call requires an explicit Git worktree root. Planning state stays under the project's ignored .tmb/tmb directory; Agent setup can only inspect, create, or remove .codex/agents/tmb_swe.toml and .codex/agents/tmb_pr_reviewer.toml. Task workflow, validation records, Agent spawning, Git delivery, remote issue mutation, onboarding, and lifecycle Hooks are not exposed."
   }
 );
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
