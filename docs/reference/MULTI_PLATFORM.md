@@ -37,14 +37,14 @@ plugin/
 └── GEMINI.md               # placeholder
 ```
 
-The pattern, copied from [`obra/superpowers`](https://github.com/obra/superpowers): **a single shared source-of-truth for skills/agents/MCP, with thin per-platform manifests in `.<platform>-plugin/` directories that point at the shared content via relative paths.** No content duplication; version coordinated via the per-platform manifests' `version` field.
+The pattern, copied from [`obra/superpowers`](https://github.com/obra/superpowers): **a single shared source of truth for protected workflow skills, shared protected personas, and MCP, with thin per-platform manifests in `.<platform>-plugin/` directories that point at shared content via relative paths.** Host-local standalone surfaces are narrow, declared exceptions under the [adapter contract](../adapters/ADAPTER_CONTRACT.md); they do not duplicate protected workflow content or receive protected-core authority. Versions remain coordinated through the per-platform manifests' `version` field.
 
 ## What's already portable
 
 | Asset | Status | Notes |
 |---|---|---|
 | Claude `skills/*` | ⚠️ Portable ideas, host-specific packaging | Codex exposes two separately authored adapter Skills; it does not load the Claude skill catalog. |
-| `agents/*.md` body (swe + pr-reviewer) | ⚠️ Portable doctrine, host-specific contract | Codex generates separate TOML templates from its own catalog rather than copying Claude frontmatter or role claims. |
+| `agents/*.md` body (swe + pr-reviewer) | ⚠️ Portable workflow doctrine, host-specific standalone contract | Codex Scope 4 generates separately authored TOML personas because its Agents have no task, validation, or delivery authority. Before a later scope grants that authority, Codex must use a shared host-neutral source or mechanical edge translation. |
 | `agents/*.md` frontmatter | ⚠️ CC-shaped | `tools:`, `model:`, `isolation:`, `skills:` are Claude Code conventions. Other platforms may need adapter-side translation. |
 | `templates/agents/*.md` (consultants) | ✓ Portable bodies, ⚠️ CC-shaped frontmatter (same as above) | Opt-in templates, not auto-installed |
 | `mcp/trajectory-server/` | ⚠️ Shared core with isolated entries | Claude retains `dist/index.js` and its full registry. Codex uses `dist/codex.js` and a fixed 15-tool registry: 13 local planning tools plus two Agent materialization tools. |

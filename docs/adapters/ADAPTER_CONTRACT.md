@@ -15,7 +15,7 @@ Two terms carry the whole document.
 - The **doctrine chain** — Human → bro → SWE with bro as the task gate and pr-reviewer as the push gate.
 - The **trajectory DB schema** — [`../../mcp/trajectory-server/src/schema.sql`](../../mcp/trajectory-server/src/schema.sql) and its migrations.
 - The **MCP tool contracts** — tool names, argument shapes, role scoping, and return shapes served by `mcp/trajectory-server/`.
-- The **shared skills and agent-persona bodies** — `skills/*/SKILL.md`, the prose bodies of `agents/*.md`, and `templates/agents/*.md`.
+- The **shared workflow skills and shared protected persona bodies** — `skills/*/SKILL.md`, the prose bodies of `agents/*.md`, and `templates/agents/*.md`. Protected personas include workflow principals and shared consultant templates.
 - The **world model** — the kuzu graph, its node/edge shape, and the scan that populates it.
 
 **Adapter.** The per-platform edge, and nothing more:
@@ -23,6 +23,7 @@ Two terms carry the whole document.
 - The host's plugin **manifest** (`.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, and their peers).
 - The host's **hook wiring** — event names, the decision protocol, and the per-host hook config that maps doctrine gates onto native events.
 - The host's **persona file** (`CLAUDE.md`, `CODEX.md`, `CURSOR.md`, `GEMINI.md`) — the bro doctrine expressed in that host's tool grammar and trigger mechanism.
+- A host-local **standalone persona** for a deliberately narrower capability surface, provided the adapter's parity declaration states that it is not a TMB workflow principal and grants it no protected-core authority.
 - The host's **state-location config** — where TMB writes the trajectory DB, the world model, and worktrees on that host.
 
 Everything an adapter needs to change lives in that second list. If a change seems to require touching the first list, it is a core change: file it as core work under its own issue, land it as core, and let every adapter inherit it.
@@ -96,9 +97,15 @@ The list grows as hosts reveal new axes of difference. Adding a capability is a 
 
 ## 7. Rule 6 — Single source, edge translation (MUST)
 
-**Skill bodies, agent personas, and doctrine prose exist exactly once, in the shared tree.** Adapters translate only at the edge: manifests, filenames, tool-name grammar, hook event names.
+**Shared workflow skill bodies, shared protected personas, and doctrine prose exist exactly once, in the shared tree.** Adapters translate only at the edge: manifests, filenames, tool-name grammar, hook event names.
 
-**A pull request that copies shared content into an adapter directory MUST be rejected.** Duplication is the failure this repo's whole structure is built to avoid — the moment a skill body exists twice, the two copies drift, and hosts start behaving differently for reasons nobody chose. When shared content does not fit a host, the fix is to make the shared content host-neutral, or to add an edge translation that rewrites it mechanically at load time. It is never a second copy with edits.
+A workflow principal participates in the protected Human → bro → SWE chain, receives TMB task or validation authority, or produces evidence used by a delivery gate. Reusing a familiar role label does not grant that status.
+
+To qualify as standalone, the adapter's public registry and live acceptance evidence MUST show that the persona has no TMB task, validation, audit, or delivery-write tool; no server or hook consumes its output as workflow or delivery-gate evidence; and the parity declaration describes its result as advisory or otherwise outside the workflow. If any condition is false, the persona is a workflow principal and the shared-source rule applies.
+
+Host-local standalone personas may exist only for a narrower capability surface that the parity declaration identifies as outside the TMB workflow. Their text may describe host-specific inputs, sandbox defaults, unavailable tools, and advisory output, but it MUST NOT copy a shared persona body or claim workflow authority that the host does not provide. Before a later scope grants task, validation, or delivery authority to that Agent, the adapter MUST replace the standalone body with a shared host-neutral source or a mechanical edge translation.
+
+**A pull request that copies shared content into an adapter directory MUST be rejected.** Duplication is the failure this repo's whole structure is built to avoid. The moment a workflow body exists twice, the copies can drift and hosts can behave differently for reasons nobody chose. When shared content does not fit a host, make the shared content host-neutral or add a mechanical edge translation. Do not create a second edited copy.
 
 ## 8. Rule 7 — Version lockstep (MUST)
 
@@ -123,7 +130,7 @@ That suite is planned as WS7 of the v1.1.0 program. Until it exists, the followi
 - [ ] **Rule 3 — Env compatibility.** State resolves to the host-prescribed writable location; `schema.sql` is unchanged, or changed once for all hosts.
 - [ ] **Rule 4 — Parity matrix.** Every load-bearing gate has a row with a tier; every Tier-3 row carries a rationale.
 - [ ] **Rule 5 — Capability declaration.** All seven capability fields declared with honest values; no host-name branch introduced in shared code.
-- [ ] **Rule 6 — Single source.** No shared skill, persona, or doctrine prose copied into an adapter directory.
+- [ ] **Rule 6 — Single source.** No shared workflow skill, shared protected persona, or doctrine prose copied into an adapter directory. Any host-local standalone persona is declared outside the TMB workflow and holds no protected-core authority.
 - [ ] **Rule 7 — Version lockstep.** The new manifest carries the current version and is registered with the bump tooling.
 - [ ] **Rule 8 — Identity.** Identity mechanism and spoofing surface documented in the parity matrix.
 

@@ -171,6 +171,11 @@ brief. The reviewer requests `read-only`, never returns `PASS`, and describes
 its findings as advisory. Parent permissions can override these sandbox
 defaults, and Agent names do not authenticate workflow roles.
 
+The two persona bodies are intentionally authored for this standalone Codex
+surface. They do not copy the shared workflow personas, which assume TMB
+task authority, isolated worktrees, validation records, and delivery gates.
+Their familiar names are labels for users, not claims of workflow equivalence.
+
 Scope 4 deliberately leaves the following work for later scopes or hardening:
 
 - Bro-driven Agent spawning or task lifecycle integration;
@@ -191,3 +196,53 @@ execution, Scope-3 regression, and the full Claude gate. Final host evidence is
 recorded separately against a fixed SHA on macOS arm64 Codex CLI and Desktop.
 The record must include the host version and the child Agent's observed tool
 surface; parsing the generated TOML alone is insufficient.
+
+#### Scope 4 host-version compatibility gate
+
+This narrow gate revalidates the same-name MCP shadow and managed-Agent
+lifecycle. Run it before adding a Codex version or client surface to the support
+claim, and again when a supported host changes how custom-Agent or plugin MCP
+configuration is composed. It does not replace the full fixed-SHA host
+acceptance described above.
+
+1. Use a disposable Git project. For CLI testing, also use an isolated
+   `CODEX_HOME`. For Desktop, use a disposable local project, record whether the
+   exact plugin was already installed, including its source and content hash,
+   and capture the before-state sentinels required by `SCOPE_4_PRD.md`.
+2. If TMB is absent, install the plugin from the exact candidate commit and mark
+   it as introduced by this check. If the installed plugin already matches the
+   candidate source and content hash, reuse it without replacing it. If another
+   TMB build is installed, or the match cannot be proved, stop without changing
+   the active profile and use an isolated profile or a later test window. Start
+   a fresh parent task or CLI session so the positive control cannot use a stale
+   plugin instance.
+3. From that fresh parent, successfully call the read-only
+   `agent_materialization_get` tool and record the response as the positive
+   control that the candidate plugin MCP is active. Confirm that its expected
+   template hashes match the candidate commit. Materialize both Agents and start
+   a fresh child-discovery task.
+4. Invoke `tmb_swe` and `tmb_pr_reviewer`. Record each child Agent's live tool
+   surface and fail the gate if any TMB `trajectory-server` tool is visible.
+   Ask each child to attempt the read-only `agent_materialization_get` operation;
+   require explicit unavailable or refused evidence, zero successful TMB MCP
+   events, and unchanged `.tmb` before/after sentinels. Otherwise record the
+   isolation result as unverified.
+5. Remove the managed Agents, start another fresh task, and confirm that both
+   TMB Agents are gone while an unrelated third-party Agent remains unchanged.
+6. If this check installed the plugin into an existing Desktop profile, remove
+   that exact plugin through the normal plugin-removal flow. Compare the
+   before/after sentinels and preserve every plugin and profile entry that
+   existed before the check.
+
+Do not infer a pass from generated TOML, the parent task's tool list, or an
+older Codex version. A pass proves only the tested child MCP isolation and
+managed-Agent lifecycle; a full support claim still requires the SWE, reviewer,
+and evidence checks listed in the fixed-SHA acceptance record. If this gate
+fails, open a compatibility issue and keep the last passing evidence scoped to
+the versions it actually tested. This is a credentialed local-host check, not a
+background monitor or a default `tests/run-all.sh` step.
+
+Record the candidate SHA, Codex client and build version, operating system and
+architecture, plugin source, template hashes, parent positive control, both
+child tool surfaces, before/after sentinels, and cleanup result in the candidate
+PR or its linked compatibility issue.
