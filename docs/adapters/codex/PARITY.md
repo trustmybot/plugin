@@ -5,7 +5,7 @@ This declaration is required by the
 Codex adapter enforces today and where it still differs from the Claude Code
 workflow.
 
-**Declaration date:** 2026-08-15
+**Declaration date:** 2026-08-18
 
 **Implemented scope:** Scope 4, explicit project-Agent materialization
 
@@ -48,6 +48,15 @@ recovery.
 discoverable in a new task after setup. They are not TMB workflow principals.
 Their names do not authenticate a role, and they cannot create TMB tasks,
 validation records, audit entries, or delivery state.
+
+The names intentionally reuse familiar role labels, but the persona bodies are
+separately authored for this narrower Codex surface. They are standalone
+adapter personas, not edited copies or translations of the shared workflow
+principals in `agents/swe.md` and `agents/pr-reviewer.md`. Those shared Agents
+assume task lifecycle, isolated worktrees, validation records, and delivery
+gates that Scope 4 does not expose. A later scope must move Codex to a shared
+host-neutral source or mechanical edge translation before granting either
+Agent workflow authority.
 
 Both templates define a disabled ordinary MCP entry named `trajectory-server`.
 It shadows the plugin-provided server in the Agent configuration layer without
@@ -146,7 +155,7 @@ task or validation writes to Codex Agents.
 | Parent tasks can override Agent sandbox settings | Reviewer read-only cannot be treated as proven independence. |
 | No documented Claude-style per-tool allowlist is used | Prompt rules remain advisory outside the fixed TMB MCP disablement. |
 | Fixed MCP server name in generated TOML | Isolation depends on the plugin continuing to expose the server as `trajectory-server`; each Agent checks the live tool surface and stops if that assumption fails. |
-| Plugin-scoped overrides are unreliable | Live testing reproduced [openai/codex#35289](https://github.com/openai/codex/issues/35289), so Scope 4 uses an ordinary same-name Agent entry instead. |
+| Plugin-scoped overrides are unreliable | [openai/codex#35289](https://github.com/openai/codex/issues/35289) documents a related CLI `-c` override failure for plugin-provided MCP servers. It does not reproduce the custom-Agent same-name shadow used here, which remains an empirically tested compatibility behavior rather than a documented Codex guarantee. |
 | No Agent authentication | `tmb_swe` and `tmb_pr_reviewer` cannot safely receive TMB workflow-write authority. |
 | No lock, rollback, or crash recovery | Setup is single-user and single-process by contract; races or interruption can leave `mixed` or `conflict` state for explicit recovery. |
 | No historical template catalog | Any old or edited managed file is a conflict, not an automatic upgrade candidate. |
@@ -175,13 +184,20 @@ The fixed-SHA acceptance record is added after the implementation commit exists;
 it must not be inferred from `tools/list`, template presence, or automated tests
 alone.
 
+The repeatable host-version gate lives in
+[`CODEX_PORT.md`](../../contributing/CODEX_PORT.md#scope-4-host-version-compatibility-gate).
+It revalidates child MCP isolation and managed-Agent lifecycle for a specific
+host version. Passing it is necessary but not sufficient for a full support
+claim; the fixed-SHA acceptance record above still applies. Static TOML checks
+do not establish child MCP isolation.
+
 ## Sources and maintenance
 
 - [OpenAI Codex plugin Skills](https://developers.openai.com/codex/plugins/skills)
 - [OpenAI Codex Skills](https://developers.openai.com/codex/skills)
 - [OpenAI Codex subagents](https://developers.openai.com/codex/subagents)
 - [OpenAI Codex configuration reference](https://developers.openai.com/codex/config-reference)
-- [Codex issue #35289: plugin MCP overrides ignored](https://github.com/openai/codex/issues/35289)
+- [Codex issue #35289: CLI overrides ignored for plugin MCP servers](https://github.com/openai/codex/issues/35289)
 - [`hooks/codex/hooks.json`](../../../hooks/codex/hooks.json)
 - [`CODEX_PORT.md`](../../contributing/CODEX_PORT.md)
 

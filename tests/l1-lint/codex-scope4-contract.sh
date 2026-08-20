@@ -80,9 +80,19 @@ node --experimental-sqlite --input-type=module -e '
   ]);
 '
 
-grep -q 'reviewer never returns `PASS`' docs/adapters/codex/PARITY.md
-grep -q 'Reviewer read-only and independence | Tier 3' docs/adapters/codex/PARITY.md
-grep -q 'Static same-name MCP shadow' docs/adapters/codex/PARITY.md
+require_doc_contract() {
+  local file="$1"
+  local expected="$2"
+  local contract="$3"
+  if ! grep -Fq -- "$expected" "$file"; then
+    echo "missing Scope-4 documentation contract: $contract ($file)" >&2
+    exit 1
+  fi
+}
+
+require_doc_contract docs/adapters/codex/PARITY.md 'reviewer never returns `PASS`' 'Reviewer cannot return PASS'
+require_doc_contract docs/adapters/codex/PARITY.md 'Reviewer read-only and independence | Tier 3' 'Reviewer remains Tier 3'
+require_doc_contract docs/adapters/codex/PARITY.md 'Static same-name MCP shadow' 'same-name MCP shadow disclosure'
 if grep -q '`codex --version`' adapters/codex/skills/tmb-agent-setup/SKILL.md; then
   echo "setup must not carry a host-version gate" >&2
   exit 1
@@ -91,6 +101,39 @@ if grep -q 'runtime_initialize' adapters/codex/skills/tmb-agent-setup/SKILL.md; 
   echo "setup inspection and removal must not depend on the planning database" >&2
   exit 1
 fi
-grep -q 'BLOCKED_TMB_MCP_ISOLATION' docs/adapters/codex/PARITY.md
+require_doc_contract docs/adapters/codex/PARITY.md 'BLOCKED_TMB_MCP_ISOLATION' 'child isolation failure verdict'
+require_doc_contract docs/adapters/codex/PARITY.md 'does not reproduce the custom-Agent same-name shadow' '#35289 is not the same reproduction'
+require_doc_contract docs/adapters/codex/PARITY.md 'remains an empirically tested compatibility behavior rather than a documented Codex guarantee' 'MCP shadow remains empirical'
+require_doc_contract docs/adapters/codex/SCOPE_4_PRD.md '但不是同一个复现' 'PRD distinguishes #35289 from the Agent shadow'
+require_doc_contract docs/contributing/CODEX_PORT.md 'Scope 4 host-version compatibility gate' 'host-version gate exists'
+require_doc_contract docs/contributing/CODEX_PORT.md 'fail the gate if any TMB `trajectory-server` tool is visible' 'both child tool surfaces must hide TMB MCP'
+require_doc_contract docs/contributing/CODEX_PORT.md 'start another fresh task, and confirm that both' 'removal requires a fresh task'
+require_doc_contract docs/contributing/CODEX_PORT.md 'third-party Agent remains unchanged' 'removal preserves third-party Agents'
+require_doc_contract docs/contributing/CODEX_PORT.md 'exact plugin was already installed' 'Desktop captures pre-test plugin state'
+require_doc_contract docs/contributing/CODEX_PORT.md 'including its source and content hash' 'Desktop captures the installed plugin identity'
+require_doc_contract docs/contributing/CODEX_PORT.md 'before/after sentinels and preserve every plugin and profile entry that' 'Desktop cleanup preserves pre-existing profile state'
+require_doc_contract docs/contributing/CODEX_PORT.md 'install the plugin from the exact candidate commit' 'compatibility check uses the candidate build'
+require_doc_contract docs/contributing/CODEX_PORT.md 'reuse it without replacing it' 'matching Desktop candidate is preserved'
+require_doc_contract docs/contributing/CODEX_PORT.md 'stop without changing' 'different Desktop plugin builds fail closed'
+require_doc_contract docs/contributing/CODEX_PORT.md 'fresh parent task or CLI session' 'parent positive control cannot use a stale plugin instance'
+require_doc_contract docs/contributing/CODEX_PORT.md 'record the response as the positive' 'parent TMB MCP call is a positive control'
+require_doc_contract docs/contributing/CODEX_PORT.md 'template hashes match the candidate commit' 'parent positive control verifies the candidate template set'
+require_doc_contract docs/contributing/CODEX_PORT.md 'Materialize both Agents and' 'compatibility check materializes both Agents'
+require_doc_contract docs/contributing/CODEX_PORT.md 'fresh child-discovery task' 'initial Agent discovery uses a fresh task'
+require_doc_contract docs/contributing/CODEX_PORT.md 'Ask each child to attempt the read-only `agent_materialization_get` operation' 'child isolation includes a negative MCP call'
+require_doc_contract docs/contributing/CODEX_PORT.md 'zero successful TMB MCP' 'child isolation records no successful TMB MCP events'
+require_doc_contract docs/contributing/CODEX_PORT.md 'unchanged `.tmb` before/after sentinels' 'child isolation preserves TMB state'
+require_doc_contract docs/contributing/CODEX_PORT.md 'If this check installed the plugin into an existing Desktop profile' 'Desktop cleanup is conditional on test installation'
+require_doc_contract docs/contributing/CODEX_PORT.md 'that exact plugin through the normal plugin-removal flow' 'Desktop cleanup removes only the test-installed plugin'
+require_doc_contract docs/contributing/CODEX_PORT.md 'A pass proves only the tested child MCP isolation' 'MCP check is not full host acceptance'
+require_doc_contract docs/contributing/CODEX_PORT.md 'Record the candidate SHA, Codex client and build version' 'compatibility evidence records the tested build'
+require_doc_contract docs/adapters/ADAPTER_CONTRACT.md 'Host-local standalone personas may exist only' 'standalone persona exception is narrow'
+require_doc_contract docs/adapters/ADAPTER_CONTRACT.md 'Protected personas include workflow principals and shared consultant templates' 'protected persona definition includes consultants'
+require_doc_contract docs/adapters/ADAPTER_CONTRACT.md 'no TMB task, validation, audit, or delivery-write tool' 'standalone status requires an authority-free tool surface'
+require_doc_contract docs/adapters/ADAPTER_CONTRACT.md 'no server or hook consumes its output as workflow or delivery-gate evidence' 'standalone output cannot satisfy a gate'
+require_doc_contract docs/adapters/ADAPTER_CONTRACT.md 'MUST NOT copy a shared persona body or claim workflow authority' 'standalone personas cannot copy or claim workflow authority'
+require_doc_contract docs/adapters/ADAPTER_CONTRACT.md 'MUST replace the standalone body with a shared host-neutral source or a mechanical edge translation' 'workflow authority requires a shared source'
+require_doc_contract docs/adapters/codex/PARITY.md 'A later scope must move Codex to a shared' 'Codex future workflow authority requires convergence'
+require_doc_contract docs/reference/MULTI_PLATFORM.md 'Host-local standalone surfaces are narrow, declared exceptions' 'multi-platform strategy matches the adapter exception'
 
 echo "Codex Scope-4 contract: PASS"

@@ -1694,8 +1694,9 @@ Scope 3 已有自动化证据。live CLI turn 曾因网络超时中断，Desktop
 
 2026-08-15 已在同一 disposable Git 项目中做过配置对照。plugin-scoped override
 表现不可靠：Codex CLI `0.147.0` 的 Reviewer child 仍看到
-`mcp__trajectory_server__*`，并按 fail-closed 自检停止。这个失败与仍处于 OPEN 状态的
-[openai/codex#35289](https://github.com/openai/codex/issues/35289) 描述的插件配置覆盖问题一致。
+`mcp__trajectory_server__*`，并按 fail-closed 自检停止。这个失败和仍处于 OPEN 状态的
+[openai/codex#35289](https://github.com/openai/codex/issues/35289) 都说明插件配置覆盖不可靠，
+但不是同一个复现；#35289 具体讨论的是 CLI `-c` 覆盖无法关闭插件提供的 MCP server。
 
 改用同名 MCP 覆盖项后，Codex 要求即使 disabled 也提供 transport。最终候选使用
 `command = "node"`、`args = ["--version"]`、`enabled = false`。CLI `0.146.0` 和
@@ -2042,5 +2043,5 @@ feat/<scope4-issue-id>-codex-agent-materialization
 - [Codex Subagents](https://developers.openai.com/codex/subagents/)
 - [Codex Configuration Reference](https://developers.openai.com/codex/config-reference/)
 - [Codex Plugins](https://developers.openai.com/codex/plugins/)
-- [Codex issue #35289: plugin MCP overrides ignored](https://github.com/openai/codex/issues/35289)
+- [Codex issue #35289: CLI overrides ignored for plugin MCP servers](https://github.com/openai/codex/issues/35289)
 - [Plugin Concepts](https://developers.openai.com/plugins/concepts/plugins/)
