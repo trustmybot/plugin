@@ -61,7 +61,21 @@ bun -e '
     Bun.TOML.parse(CODEX_AGENT_CATALOG[0].expectedBytes.toString()).developer_instructions,
     /If any required test fails or cannot run, use status BLOCKED and never COMPLETED/,
   );
+  const swe = Bun.TOML.parse(CODEX_AGENT_CATALOG[0].expectedBytes.toString());
+  assert.match(swe.description, /without TMB workflow or Git delivery operations/);
+  assert.match(swe.developer_instructions, /name is a role label, not authenticated TMB workflow identity/);
+  assert.match(swe.developer_instructions, /create or switch a branch or worktree/);
+  assert.match(swe.developer_instructions, /no commit, push, or TMB workflow write occurred/);
   assert.equal(Bun.TOML.parse(CODEX_AGENT_CATALOG[1].expectedBytes.toString()).sandbox_mode, "read-only");
+  const reviewer = Bun.TOML.parse(CODEX_AGENT_CATALOG[1].expectedBytes.toString());
+  assert.match(reviewer.description, /advisory reviewer without editing code or creating trusted TMB validation/);
+  assert.match(reviewer.developer_instructions, /name is a role label, not authenticated TMB workflow identity/);
+  for (const persona of [swe, reviewer]) {
+    assert.match(
+      persona.developer_instructions,
+      /TMB workflow records, Git delivery, pull requests, and remote issues are outside this role/,
+    );
+  }
 '
 
 node --experimental-sqlite --input-type=module -e '
@@ -131,6 +145,13 @@ require_doc_contract docs/adapters/ADAPTER_CONTRACT.md 'Host-local standalone pe
 require_doc_contract docs/adapters/ADAPTER_CONTRACT.md 'Protected personas include workflow principals and shared consultant templates' 'protected persona definition includes consultants'
 require_doc_contract docs/adapters/ADAPTER_CONTRACT.md 'no TMB task, validation, audit, or delivery-write tool' 'standalone status requires an authority-free tool surface'
 require_doc_contract docs/adapters/ADAPTER_CONTRACT.md 'no server or hook consumes its output as workflow or delivery-gate evidence' 'standalone output cannot satisfy a gate'
+require_doc_contract docs/adapters/ADAPTER_CONTRACT.md 'MUST NOT create or switch branches or worktrees, commit, push, open or merge pull requests' 'standalone personas cannot perform Git or remote delivery'
+require_doc_contract docs/adapters/ADAPTER_CONTRACT.md 'strongest restriction the host can enforce' 'standalone delivery limits prefer host enforcement'
+require_doc_contract docs/adapters/ADAPTER_CONTRACT.md 'A prompt prohibition is not a hard boundary' 'prompt-only delivery limits remain a declared degradation'
+require_doc_contract docs/adapters/ADAPTER_CONTRACT.md 'where users discover and select it' 'role-name ambiguity is disclosed before Agent selection'
+require_doc_contract docs/adapters/ADAPTER_CONTRACT.md 'naming at least one corresponding TMB workflow, validation, or delivery authority that the persona lacks' 'visible disclaimer names a missing protected authority'
+require_doc_contract docs/adapters/ADAPTER_CONTRACT.md 'do not satisfy it by themselves' 'advisory or standalone labels alone are insufficient'
+require_doc_contract docs/adapters/ADAPTER_CONTRACT.md 'Developer instructions alone do not satisfy this requirement' 'internal instructions do not satisfy the visible disclaimer'
 require_doc_contract docs/adapters/ADAPTER_CONTRACT.md 'MUST NOT copy a shared persona body or claim workflow authority' 'standalone personas cannot copy or claim workflow authority'
 require_doc_contract docs/adapters/ADAPTER_CONTRACT.md 'MUST replace the standalone body with a shared host-neutral source or a mechanical edge translation' 'workflow authority requires a shared source'
 require_doc_contract docs/adapters/codex/PARITY.md 'A later scope must move Codex to a shared' 'Codex future workflow authority requires convergence'
