@@ -103,6 +103,10 @@ A workflow principal participates in the protected Human → bro → SWE chain, 
 
 To qualify as standalone, the adapter's public registry and live acceptance evidence MUST show that the persona has no TMB task, validation, audit, or delivery-write tool; no server or hook consumes its output as workflow or delivery-gate evidence; and the parity declaration describes its result as advisory or otherwise outside the workflow. If any condition is false, the persona is a workflow principal and the shared-source rule applies.
 
+Standalone personas do not perform Git or remote delivery. A standalone persona MUST NOT create or switch branches or worktrees, commit, push, open or merge pull requests, mutate remote issues, or publish a release. The adapter MUST use the strongest restriction the host can enforce. If the host cannot deny a path, the persona instructions MUST forbid it, the parity matrix MUST classify it as Tier 3, and live acceptance MUST show that no prohibited action occurred. A prompt prohibition is not a hard boundary.
+
+A standalone persona whose name or label matches or resembles a protected workflow principal MUST explain the difference where users discover and select it. The description shown next to the name MUST make the non-equivalence clear by naming at least one corresponding TMB workflow, validation, or delivery authority that the persona lacks. Labels such as advisory or standalone may support this disclosure, but do not satisfy it by themselves. Developer instructions alone do not satisfy this requirement because the Human may choose an Agent before those instructions are visible.
+
 Host-local standalone personas may exist only for a narrower capability surface that the parity declaration identifies as outside the TMB workflow. Their text may describe host-specific inputs, sandbox defaults, unavailable tools, and advisory output, but it MUST NOT copy a shared persona body or claim workflow authority that the host does not provide. Before a later scope grants task, validation, or delivery authority to that Agent, the adapter MUST replace the standalone body with a shared host-neutral source or a mechanical edge translation.
 
 **A pull request that copies shared content into an adapter directory MUST be rejected.** Duplication is the failure this repo's whole structure is built to avoid. The moment a workflow body exists twice, the copies can drift and hosts can behave differently for reasons nobody chose. When shared content does not fit a host, make the shared content host-neutral or add a mechanical edge translation. Do not create a second edited copy.
@@ -130,7 +134,7 @@ That suite is planned as WS7 of the v1.1.0 program. Until it exists, the followi
 - [ ] **Rule 3 — Env compatibility.** State resolves to the host-prescribed writable location; `schema.sql` is unchanged, or changed once for all hosts.
 - [ ] **Rule 4 — Parity matrix.** Every load-bearing gate has a row with a tier; every Tier-3 row carries a rationale.
 - [ ] **Rule 5 — Capability declaration.** All seven capability fields declared with honest values; no host-name branch introduced in shared code.
-- [ ] **Rule 6 — Single source.** No shared workflow skill, shared protected persona, or doctrine prose copied into an adapter directory. Any host-local standalone persona is declared outside the TMB workflow and holds no protected-core authority.
+- [ ] **Rule 6 — Single source.** No shared workflow skill, shared protected persona, or doctrine prose copied into an adapter directory. Any host-local standalone persona is declared outside the TMB workflow, cannot perform Git or remote delivery, and visibly distinguishes itself from any protected principal whose name it resembles.
 - [ ] **Rule 7 — Version lockstep.** The new manifest carries the current version and is registered with the bump tooling.
 - [ ] **Rule 8 — Identity.** Identity mechanism and spoofing surface documented in the parity matrix.
 
