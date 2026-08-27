@@ -1,12 +1,15 @@
 # TMB Codex adapter
 
-> **Scope 4 status:** local Bro planning and explicit project-Agent setup.
+> **Scope 5 candidate:** local Bro planning, explicit project-Agent setup, and a
+> bounded repository-write Hook. Release support still requires fixed-commit CLI
+> and Desktop acceptance.
 
 The Codex manifest selects three isolated components:
 
 - `adapters/codex/.mcp.json` starts the bundled Codex-only MCP entry point;
 - `adapters/codex/skills/` contains exactly `tmb-bro` and `tmb-agent-setup`;
-- `hooks/codex/hooks.json` remains empty so Claude Hooks cannot load in Codex.
+- `hooks/codex/hooks.json` loads the Codex-only `PreToolUse` dispatcher. Its
+  runtime is pinned by digest and does not load the Claude Hook set.
 
 Invoke `$tmb:tmb-bro` for project-local planning. Invoke `$tmb:tmb-agent-setup` to inspect,
 install, or remove `.codex/agents/tmb_swe.toml` and
@@ -39,8 +42,14 @@ They also run a prompt-level live tool-surface check and stop if isolation is
 missing. They do not receive authenticated identity or create task or
 validation records.
 The reviewer is advisory even though its template requests a read-only sandbox.
-Scope 4 still exposes no Agent spawn orchestration, branch/worktree setup, Git
-delivery, remote Issue operations, or lifecycle Hooks.
+The adapter still exposes no Agent spawn orchestration, branch/worktree setup,
+Git delivery, remote Issue operations, or workflow-lifecycle Hooks. Scope 5 is
+limited to repository-write policy: primary checkouts are read-only, while a
+linked worktree gets contained `apply_patch` plus a small validation-entrypoint
+allowlist. Project-level `.codex/config.toml` disables TMB MCP calls because the
+Hook cannot authenticate a same-name provider. A 4-second launcher watchdog
+returns deny before Codex's 5-second process timeout. See the linked contract
+documents for host and sandbox boundaries.
 
 Every MCP tool requires an absolute `project_root`. Planning state stays under
 `<project>/.tmb/tmb/`, and local Issue creation forces `issue_sync="off"`. The

@@ -1,6 +1,6 @@
 # TMB on OpenAI Codex
 
-> **Current scope:** local Bro planning plus explicit installation of two project-level Agents.
+> **Current scope:** local Bro planning, explicit installation of two project-level Agents, and a bounded repository-write Hook.
 
 TMB exposes exactly two Codex Skills, and both require an explicit invocation:
 
@@ -10,6 +10,20 @@ TMB exposes exactly two Codex Skills, and both require an explicit invocation:
 - `$tmb:tmb-agent-setup` checks, installs, or removes the fixed `tmb_swe` and
   `tmb_pr_reviewer` Agent files in that project. It previews the exact paths and
   asks before changing them.
+
+The installed package also exposes one broad `PreToolUse` Hook. In a primary
+checkout it permits only reviewed read-only commands and the fixed TMB MCP
+surface. TMB MCP calls must target that same canonical checkout and are denied
+when project-level `.codex/config.toml` could shadow the bundled server.
+In a branch-backed linked worktree, canonical `apply_patch` calls may
+modify ordinary in-root paths; Git/forge writes, direct write tools, persistent
+command receivers, and unknown payloads remain blocked. The Hook is not a
+general operating-system sandbox. Approved validation scripts still depend on
+the host sandbox for their child processes. The launcher has a 4-second
+fail-closed watchdog; Codex's 5-second process timeout is not itself an
+authorization decision. See
+[`docs/adapters/codex/SCOPE_5_PRD.md`](docs/adapters/codex/SCOPE_5_PRD.md) for
+the exact allowlist, failure behavior, trust cost, and residual risks.
 
 Because both Skills set `allow_implicit_invocation: false`, a generic request
 to list model-available Skills may omit them. Verify the installed Codex surface
@@ -96,8 +110,10 @@ validation record.
 Give `tmb_swe` an objective, allowed paths, acceptance criteria, and required
 tests. It refuses protected branches, stops when existing user changes overlap
 the allowed paths, and reports `NEEDS_CONTEXT` when the brief is incomplete.
-These are Agent instructions, not a Hook-enforced safety boundary. Review its
-diff and Git status after every run.
+These Agent instructions remain broader than the Hook contract. Scope 5 blocks
+model-driven collaboration spawn until child Hook inheritance is proved on the
+host; user-started Agent tasks still need their own fresh-session verification.
+Review the diff and Git status after every run.
 
 Give `tmb_pr_reviewer` the requirements, an exact working-tree or commit-range
 diff boundary, and available test evidence. It reports findings from P0 through
@@ -106,11 +122,12 @@ P3 and returns `REQUEST_CHANGES`, `NEEDS_CONTEXT`, or
 `BLOCKED_TMB_MCP_ISOLATION`. It never returns `PASS` because the parent task can
 broaden its permissions and Scope 4 records no independent read-only proof.
 
-Scope 4 still does not expose task execution or status mutation, validation
+Scope 5 still does not expose task execution or status mutation, validation
 records, branch/worktree orchestration, commit/push/merge, pull-request or remote
-Issue operations, onboarding, or lifecycle enforcement Hooks. Native Codex
-shell, edit, Git, and external MCP paths remain outside TMB's enforcement
-boundary.
+Issue operations, onboarding, or Claude-equivalent lifecycle enforcement.
+Native Codex shell and patch calls are covered only where the Scope 5 dispatcher
+can parse them. External MCP tools and approved validation sub-processes remain
+outside its strong containment boundary.
 
 The exact MCP schemas and result states are documented in
 [`docs/adapters/codex/TOOLS.md`](docs/adapters/codex/TOOLS.md), and the

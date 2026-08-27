@@ -84,6 +84,7 @@ node --experimental-sqlite --input-type=module -e '
     CODEX_SCOPE_3_TOOL_NAMES,
     CODEX_SCOPE_4_TOOL_NAMES,
   } from "./mcp/trajectory-server/dist/codex-tools.js";
+  import { TMB_TOOL_NAMES } from "./adapters/codex/hooks/repo-policy.mjs";
 
   assert.equal(CODEX_SCOPE_3_TOOL_NAMES.length, 13);
   assert.equal(CODEX_SCOPE_4_TOOL_NAMES.length, 15);
@@ -92,6 +93,7 @@ node --experimental-sqlite --input-type=module -e '
     "agent_materialization_get",
     "agent_materialization_set",
   ]);
+  assert.deepEqual(TMB_TOOL_NAMES, CODEX_SCOPE_4_TOOL_NAMES);
 '
 
 require_doc_contract() {
