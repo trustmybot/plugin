@@ -75,11 +75,12 @@ The remaining placeholders explicitly say "not implemented." Codex documentation
 
 ## Verified Codex surfaces
 
-Scope 5 targets Codex CLI and Desktop on macOS arm64 once fixed-SHA acceptance
-is recorded. CLI `0.146.0` loaded the plugin Hook from installed-cache and
+Scope 5 targets Codex CLI and Desktop on macOS arm64. Clean-commit automated
+acceptance passed on CLI `0.146.0` and Desktop 26.820.60940's bundled
+`codex-cli 0.150.0-alpha.8`. Both loaded the plugin Hook from installed-cache and
 blocked primary `apply_patch`, redirected shell writes, and persistent command
-receivers before execution; a linked-worktree patch succeeded. CLI `0.146.0`
-does not expose MCP provider identity to the Hook, so TMB MCP calls fail closed
+receivers before execution; a linked-worktree patch succeeded. The Hook payload
+in these runs did not expose MCP provider identity, so TMB MCP calls fail closed
 when project-level `.codex/config.toml` could shadow the bundled server. The
 launcher returns an internal deny after four seconds rather than relying on the
 host's five-second timeout, which can continue the tool call. Separately, CLI

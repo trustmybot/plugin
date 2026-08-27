@@ -651,7 +651,8 @@ function isReviewedReadCommand(tokens, repoContext) {
     return true;
   }
   if (program === "rg") {
-    if (args.some((arg) => arg === "--pre" || arg.startsWith("--pre=")
+    if (!args.includes("--no-config")
+      || args.some((arg) => arg === "--pre" || arg.startsWith("--pre=")
       || arg === "--pre-glob" || arg.startsWith("--pre-glob=")
       || arg === "--hostname-bin" || arg.startsWith("--hostname-bin=")
       || arg === "--search-zip" || /^-[^-]*z/u.test(arg))) {

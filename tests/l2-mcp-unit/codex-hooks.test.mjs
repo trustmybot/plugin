@@ -93,6 +93,32 @@ function dispatch(input, digest = runtimeDigest()) {
   });
 }
 
+function dispatchWithPolicySource(name, policySource) {
+  const runtime = join(fixtureRoot, `${name}-runtime`);
+  mkdirSync(runtime);
+  const dispatcher = join(runtime, "dispatcher.mjs");
+  const policy = join(runtime, "repo-policy.mjs");
+  copyFileSync(DISPATCHER_PATH, dispatcher);
+  writeFileSync(policy, policySource);
+  const digest = createHash("sha256")
+    .update(readFileSync(dispatcher))
+    .update("\0")
+    .update(readFileSync(policy))
+    .digest("hex");
+  const started = process.hrtime.bigint();
+  const result = spawnSync(process.execPath, [dispatcher, "--policy-sha256", digest], {
+    cwd: primary,
+    encoding: "utf8",
+    input: JSON.stringify(payload(primary, "Read", {})),
+    timeout: 5_000,
+  });
+  return {
+    elapsedMs: Number(process.hrtime.bigint() - started) / 1_000_000,
+    output: JSON.parse(result.stdout),
+    result,
+  };
+}
+
 before(() => {
   fixtureRoot = mkdtempSync(join(tmpdir(), "tmb-codex-hooks-unit-"));
   primary = join(fixtureRoot, "repo");
@@ -251,7 +277,7 @@ test("primary checkout allows reviewed read-only shell commands", async () => {
   for (const command of [
     "pwd",
     "ls -la src",
-    "rg -n seed src",
+    "rg --no-config -n seed src",
     "cat src/tracked.txt",
     "head -n 1 src/tracked.txt",
     "tail -n 1 src/tracked.txt",
@@ -287,8 +313,61 @@ test("primary checkout allows reviewed read-only shell commands", async () => {
     "wc -l",
     "stat -f src/tracked.txt",
     "du -a",
+    "rg -n seed src",
   ]) {
     assert.equal((await decision(primary, "Bash", { command })).decision, "deny", command);
+  }
+});
+
+test("reviewed ripgrep reads disable environment-provided helper configuration", async () => {
+  const configPath = join(outside, "ripgrep.conf");
+  writeFileSync(configPath, "--pre=/path/that/must/not/run\n");
+  const originalConfig = process.env.RIPGREP_CONFIG_PATH;
+  try {
+    process.env.RIPGREP_CONFIG_PATH = configPath;
+    assert.equal(
+      (await decision(primary, "Bash", { command: "rg -n seed src" })).decision,
+      "deny",
+    );
+    assert.equal(
+      (await decision(primary, "Bash", { command: "rg --no-config -n seed src" })).decision,
+      "allow",
+    );
+  } finally {
+    if (originalConfig === undefined) delete process.env.RIPGREP_CONFIG_PATH;
+    else process.env.RIPGREP_CONFIG_PATH = originalConfig;
+  }
+});
+
+test("reviewed forge queries have positive coverage for every allowed action", async () => {
+  const trustedBin = join(fixtureRoot, "trusted-forge-bin");
+  mkdirSync(trustedBin);
+  for (const program of ["gh", "glab"]) {
+    writeFileSync(join(trustedBin, program), "#!/bin/sh\nexit 0\n");
+    chmodSync(join(trustedBin, program), 0o755);
+  }
+
+  const originalHostPath = process.env.TMB_CODEX_HOOK_HOST_PATH;
+  try {
+    process.env.TMB_CODEX_HOOK_HOST_PATH = `${trustedBin}:/usr/bin:/bin`;
+    const commands = ["gh auth status", "glab auth status"];
+    for (const group of ["issue", "pr", "release", "repo", "run", "workflow"]) {
+      for (const action of ["list", "view", "status", "diff", "checks"]) {
+        commands.push(`gh ${group} ${action}`);
+      }
+    }
+    for (const group of ["issue", "mr", "release", "repo", "ci"]) {
+      for (const action of ["list", "view", "status", "diff"]) {
+        commands.push(`glab ${group} ${action}`);
+      }
+    }
+    for (const command of commands) {
+      const result = await decision(primary, "Bash", { command });
+      assert.equal(result.decision, "allow", `${command}: ${result.reason ?? ""}`);
+    }
+  } finally {
+    if (originalHostPath === undefined) delete process.env.TMB_CODEX_HOOK_HOST_PATH;
+    else process.env.TMB_CODEX_HOOK_HOST_PATH = originalHostPath;
   }
 });
 
@@ -787,52 +866,37 @@ test("dispatcher denies stdin beyond 8 MiB without crashing", () => {
 });
 
 test("dispatcher supervisor converts a policy import crash into deny", () => {
-  const runtime = join(fixtureRoot, "crash-runtime");
-  mkdirSync(runtime);
-  const dispatcher = join(runtime, "dispatcher.mjs");
-  const policy = join(runtime, "repo-policy.mjs");
-  copyFileSync(DISPATCHER_PATH, dispatcher);
-  writeFileSync(policy, "this is not valid JavaScript\n");
-  const digest = createHash("sha256")
-    .update(readFileSync(dispatcher))
-    .update("\0")
-    .update(readFileSync(policy))
-    .digest("hex");
-  const result = spawnSync(process.execPath, [dispatcher, "--policy-sha256", digest], {
-    cwd: primary,
-    encoding: "utf8",
-    input: JSON.stringify(payload(primary, "Read", {})),
-    timeout: 5_000,
-  });
+  const { output, result } = dispatchWithPolicySource("crash", "this is not valid JavaScript\n");
   assert.equal(result.status, 0, result.stderr);
-  const output = JSON.parse(result.stdout);
   assert.equal(output.hookSpecificOutput.permissionDecision, "deny");
   assert.match(output.hookSpecificOutput.permissionDecisionReason, /worker crashed/u);
 });
 
 test("dispatcher supervisor denies a hung policy before the host timeout", () => {
-  const runtime = join(fixtureRoot, "hung-runtime");
-  mkdirSync(runtime);
-  const dispatcher = join(runtime, "dispatcher.mjs");
-  const policy = join(runtime, "repo-policy.mjs");
-  copyFileSync(DISPATCHER_PATH, dispatcher);
-  writeFileSync(policy, "export async function evaluatePreToolUse() { await new Promise(() => { setInterval(() => {}, 1000); }); }\n");
-  const digest = createHash("sha256")
-    .update(readFileSync(dispatcher))
-    .update("\0")
-    .update(readFileSync(policy))
-    .digest("hex");
-  const started = process.hrtime.bigint();
-  const result = spawnSync(process.execPath, [dispatcher, "--policy-sha256", digest], {
-    cwd: primary,
-    encoding: "utf8",
-    input: JSON.stringify(payload(primary, "Read", {})),
-    timeout: 5_000,
-  });
-  const elapsedMs = Number(process.hrtime.bigint() - started) / 1_000_000;
+  const { elapsedMs, output, result } = dispatchWithPolicySource(
+    "hung",
+    "export async function evaluatePreToolUse() { await new Promise(() => { setInterval(() => {}, 1000); }); }\n",
+  );
   assert.equal(result.status, 0, result.stderr);
-  const output = JSON.parse(result.stdout);
   assert.equal(output.hookSpecificOutput.permissionDecision, "deny");
   assert.match(output.hookSpecificOutput.permissionDecisionReason, /internal timeout/u);
   assert.ok(elapsedMs < 4_500, `supervisor took ${elapsedMs.toFixed(1)}ms`);
+});
+
+test("dispatcher rejects policies that return no auditable decision", () => {
+  const { output, result } = dispatchWithPolicySource(
+    "no-decision",
+    "export async function evaluatePreToolUse() { return {}; }\n",
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(output.hookSpecificOutput.permissionDecisionReason, /no auditable decision/u);
+});
+
+test("dispatcher rejects a worker that exits cleanly without a decision", () => {
+  const { output, result } = dispatchWithPolicySource(
+    "clean-exit",
+    "process.exit(0); export async function evaluatePreToolUse() { return { decision: 'allow' }; }\n",
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(output.hookSpecificOutput.permissionDecisionReason, /exited without a decision/u);
 });

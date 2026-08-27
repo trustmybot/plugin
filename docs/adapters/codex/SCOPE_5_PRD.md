@@ -2,11 +2,11 @@
 
 ## 状态
 
-Scope 5 已有候选实现，发布前仍要对同一个干净提交完成 CLI 和 Desktop 验收。当前自动测试、Docker L0、installed-cache 和本机 CLI 探针绑定到以下环境：
+Scope 5 已完成本地实现和干净提交自动化验收。发布前仍要补 Desktop UI 的交互 trust，以及真实企业环境的 managed-only 验收。当前自动测试、Docker L0、installed-cache 和本机 CLI 探针绑定到以下环境：
 
 - macOS arm64；
-- 独立 `codex-cli 0.146.0`，以及 ChatGPT/Codex Desktop 26.818.61809 内置的 `codex-cli 0.149.0-alpha.4.3`；
-- Hook runtime digest `f88e26d3cba4e9a06099a3ed4d39304353817d051bd665fd5efbfb6c8864deb3`；
+- 独立 `codex-cli 0.146.0`，以及 Codex Desktop 26.820.60940 内置的 `codex-cli 0.150.0-alpha.8`；
+- Hook runtime digest `c766a8edd445e52a68856da5de48cb2ab8dd7899c8741d10b80a27bea029cc4c`；
 - manifest hard timeout：5 秒。
 
 这份文档说的是实际边界，不把 Hook 写成操作系统沙箱。
@@ -39,7 +39,7 @@ Scope 5 已有候选实现，发布前仍要对同一个干净提交完成 CLI �
 
 Git 查询只接受固定前缀：`git --no-pager --no-optional-locks --no-lazy-fetch -c core.fsmonitor=false -c core.hooksPath=/dev/null ...`。`--no-lazy-fetch` 防止 partial clone 在查询缺失对象时写入 pack。子命令限于 `status`、`diff`、`log`、`show`、`rev-parse`、`ls-files`、`ls-tree` 和 `worktree list`；其中 `diff`、`log`、`show` 还必须显式带 `--no-ext-diff --no-textconv`。带 `--output`、`--exec`、`--config-env`、`--recurse-submodules`、签名验证等参数的调用不会放行，`git -C` 也不在范围内。
 
-shell 命令按执行前的字面参数审核；环境变量、glob、brace、tilde、shell comment 和续行等二次展开语法直接拒绝。外部命令必须通过当前 `PATH` 解析到 checkout 和 Git 元数据之外的普通可执行文件，项目内同名程序与常见 toolchain shim 目录不会放行；dispatcher 自己固定调用 `/usr/bin/git`。读取命令也要满足有限参数形状：例如 `cat`、`head`、`wc` 和 `jq` 只能读取 checkout 内的普通文件，`rg` 不能启用外部解压程序，`tail` 不能 follow，forge 查询不能 watch、显示凭据或打开浏览器。
+shell 命令按执行前的字面参数审核；环境变量、glob、brace、tilde、shell comment 和续行等二次展开语法直接拒绝。外部命令必须通过当前 `PATH` 解析到 checkout 和 Git 元数据之外的普通可执行文件，项目内同名程序与常见 toolchain shim 目录不会放行；dispatcher 自己固定调用 `/usr/bin/git`。读取命令也要满足有限参数形状：例如 `cat`、`head`、`wc` 和 `jq` 只能读取 checkout 内的普通文件；`rg` 必须显式使用 `--no-config`，也不能启用外部预处理或解压程序；`tail` 不能 follow；forge 查询不能 watch、显示凭据或打开浏览器。
 
 linked worktree 的验证入口包括仓库的 `bash tests/run-all.sh`，以及受限的 `node --test`、Bun、npm、pnpm、pytest、Cargo 和 Go 测试/检查形状。package manager、Cargo 和 `tests/run-all.sh` 这类固定签名只能从 worktree root 启动。Node 和 pytest 的直接测试目标按实际 cwd 解析，必须留在当前 worktree；Go 还要求目标写成 `.` 或 `./...` 这类明确的本地文件系统形式。`all`、`std` 和模块导入路径不会放行。这里只审核入口，不能证明脚本内部的每一次文件访问。运行这些命令时仍要依赖 Codex sandbox。
 
@@ -80,9 +80,9 @@ installed-cache 的插件 Hook 能被 CLI 加载，`${PLUGIN_ROOT}` 指向缓存
 - `permission_mode=bypassPermissions` 没有改变判定；
 - `--disable hooks` 和插件卸载后，disposable primary patch 会执行，证明这两种状态确实没有 Scope 5 保护；
 - Docker L0 的 31 个构建步骤全部通过，覆盖零 `node_modules` 冷启动、真实 Claude marketplace 安装缓存、SQLite 首次写入、语义搜索降级和 v1 数据库迁移；ShellCheck 0.11.0 也通过了仓库全部 shell 文件；
-- 最新全量门禁中，40 次 warm 完整 Hook 调用的结果为 median 99.424 ms、p95 100.603 ms，cold 101.841 ms。该测量包含 canonical worktree 解析、Node launcher、父进程、启动链 watchdog 和受监督 worker。median 距 100 ms 预算很近，发布 SHA 必须在目标环境重跑。
+- 最近一次完整门禁中，40 次 warm Hook 调用的结果为 median 92.706 ms、p95 94.502 ms，cold 93.593 ms。该测量包含 canonical worktree 解析、Node launcher、父进程、启动链 watchdog 和受监督 worker。性能结果仍需要在每个发布候选上重跑。
 
-上述完整 CLI 矩阵已分别在独立 0.146.0 和 Desktop 内置 0.149.0 alpha 上通过。后者使用隔离 `CODEX_HOME`，证明 Desktop 所携带宿主二进制没有产生策略漂移；它不能替代 Desktop UI 的交互 trust 和 managed-only 验收。
+上述完整 CLI 矩阵已分别在独立 0.146.0 和 Desktop 内置 0.150.0 alpha 上通过。两者都使用隔离 `CODEX_HOME`，并要求 `candidate_dirty=false`；后者证明 Desktop 所携带宿主二进制没有产生策略漂移，但不能替代 Desktop UI 的交互 trust 和 managed-only 验收。
 
 这次 CLI 环境没有建立出可运行的 collaboration child，无法证明子 Agent 继承同一 Hook。策略因此拒绝 `collaborationspawn_agent`。这不影响用户直接启动独立 Agent task，但不能把 model-driven spawn 当成已支持能力。
 
@@ -116,12 +116,12 @@ Hook definition 的任何改动都会使原有信任失效。更新带有 load-b
 自动门禁包括：
 
 - L1：manifest shape、runtime 文件边界、零依赖和 digest；
-- L2：29 项 policy、dispatcher、oversize 和 malformed input 测试；
+- L2：33 项 policy、dispatcher、oversize 和 malformed input 测试；
 - L3：58 项 sentinel、Git tree、persistent receiver、Node launcher、完整进程组回收和 patch containment 测试；
 - L0：真实 Codex installer、installed-cache 字节一致性和缓存内 dispatcher；
 - MCP installed-cache：无源码 `node_modules` 的冷启动和 Hook 调用；
 - 全量 Claude L1-L4 回归。
 
-发布候选必须是干净提交。提交前的 dirty-worktree 结果只能作为实现验证，不能当发布证据。形成候选 SHA 后，CLI 和 Desktop 必须在同一提交上重跑 trust、managed-only、bypass、disabled Hook、卸载和回滚矩阵。任一已知 primary source-write 产生副作用，或者 Desktop 无法从 installed-cache 加载同一 Hook，均停止发布。
+发布候选必须是干净提交。提交前的 dirty-worktree 结果只能作为实现验证，不能当发布证据。形成候选 SHA 后，独立 CLI 和 Desktop 内置 CLI 必须在同一提交上重跑 bypass、disabled Hook、卸载和回滚矩阵；Desktop UI 另行验收交互 trust，managed-only 只在真实受管环境验收。任一已知 primary source-write 产生副作用，或者 Desktop 无法从 installed-cache 加载同一 Hook，均停止发布。
 
 回滚不写全局配置。卸载当前插件，或安装最后一个空 Codex Hook manifest 的可信版本，然后开新 task。回滚后要复查两个 TMB Agent 文件和 `.tmb/` 状态；插件卸载不会替用户删除项目文件。
