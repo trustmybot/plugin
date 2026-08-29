@@ -6,7 +6,7 @@ Scope 5 已完成本地实现和干净提交自动化验收。发布前仍要补
 
 - macOS arm64；
 - 独立 `codex-cli 0.146.0`，以及 Codex Desktop 26.820.60940 内置的 `codex-cli 0.150.0-alpha.8`；
-- Hook runtime digest `c766a8edd445e52a68856da5de48cb2ab8dd7899c8741d10b80a27bea029cc4c`；
+- Hook runtime digest `39009949440eefea3fbd24f5b665bf0daad2af540b008601e72e3997c0f89691`；
 - manifest hard timeout：5 秒。
 
 这份文档说的是实际边界，不把 Hook 写成操作系统沙箱。
@@ -80,7 +80,7 @@ installed-cache 的插件 Hook 能被 CLI 加载，`${PLUGIN_ROOT}` 指向缓存
 - `permission_mode=bypassPermissions` 没有改变判定；
 - `--disable hooks` 和插件卸载后，disposable primary patch 会执行，证明这两种状态确实没有 Scope 5 保护；
 - Docker L0 的 31 个构建步骤全部通过，覆盖零 `node_modules` 冷启动、真实 Claude marketplace 安装缓存、SQLite 首次写入、语义搜索降级和 v1 数据库迁移；ShellCheck 0.11.0 也通过了仓库全部 shell 文件；
-- 最近一次完整门禁中，40 次 warm Hook 调用的结果为 median 92.706 ms、p95 94.502 ms，cold 93.593 ms。该测量包含 canonical worktree 解析、Node launcher、父进程、启动链 watchdog 和受监督 worker。性能结果仍需要在每个发布候选上重跑。
+- 最近一次完整门禁中，40 次 warm Hook 调用的结果为 median 77.403 ms、p95 79.845 ms，cold 77.088 ms。该测量包含 canonical worktree 解析、Node launcher、dispatcher、启动链 watchdog 和内联 policy。性能结果仍需要在每个发布候选上重跑。
 
 上述完整 CLI 矩阵已分别在独立 0.146.0 和 Desktop 内置 0.150.0 alpha 上通过。两者都使用隔离 `CODEX_HOME`，并要求 `candidate_dirty=false`；后者证明 Desktop 所携带宿主二进制没有产生策略漂移，但不能替代 Desktop UI 的交互 trust 和 managed-only 验收。
 
@@ -90,7 +90,9 @@ installed-cache 的插件 Hook 能被 CLI 加载，`${PLUGIN_ROOT}` 指向缓存
 
 dispatcher 只依赖 Node 内置模块，不读取 `node_modules`，不访问网络，也不写日志或数据库。manifest 先用固定 `/usr/bin/git` 和清理后的 Git 环境解析 canonical worktree root，再从宿主 `PATH` 找到 Node launcher，并用 `process.execPath` 解析真实可执行文件；checkout、插件缓存、Git 目录和 `node_modules/.bin` 中的 launcher 或真实文件都会被拒绝。这个检查在 cwd 位于仓库子目录时同样成立。nvm、fnm、asdf、mise、Volta 一类仓库外版本管理器可以继续工作；解析失败时才尝试四个固定系统路径。启动 dispatcher 前会清空环境，只传入最小 `PATH`、原始宿主 `PATH` 和插件目录。
 
-父进程监督一个 policy worker；worker 最多运行 3.5 秒，崩溃、卡住或输出坏 JSON 时，父进程改为 deny。manifest 另有一个固定 4 秒 watchdog，覆盖它前面的 Git、`realpath`、Node launcher 和 dispatcher 启动链。超时后先向独立 launcher 进程组发送 TERM，0.2 秒后再发送 KILL，watcher 以状态 `124` 告知父 shell。即使 launcher 捕获 TERM 后返回成功，父 shell 仍会 deny。Node 缺失、启动失败或启动链卡住时，这条路径会在 Codex 的 5 秒 host timeout 前完成。stdin 上限为 8 MiB，单条 shell command 上限为 256 KiB。
+manifest 用一次固定 Git 查询取得 canonical root、Git dir 和 common dir，并把这三个值传给 dispatcher。policy 会根据 `.git`、`commondir` 和 `HEAD` 核对这些值；验证通过后，policy 在受 digest 固定的 dispatcher 进程内执行，不再为常规同 checkout Hook 创建新的 Node isolate。宿主 Hook 进程的 `$PWD` 与 payload `cwd` 不一致、证明字段缺失或证明无法覆盖 payload `cwd` 时，dispatcher 会丢弃证明并回退到最长 3.5 秒的 policy worker；worker 继续使用固定 `/usr/bin/git` 和清理后的环境独立解析 payload `cwd`，不会把不一致当成放行。直接调用 dispatcher 时也走这条受监督路径。
+
+manifest 另有固定 4 秒 watchdog，覆盖 Git、`realpath`、Node launcher、dispatcher 启动和内联 policy。超时后先向独立 launcher 进程组发送 TERM，0.2 秒后再发送 KILL；watcher 以状态 `124` 通知父 shell。即使 launcher 捕获 TERM 后返回成功，父 shell 也会 deny。Node 缺失、启动失败或启动链卡住时，这条路径会在 Codex 的 5 秒 host timeout 前结束。stdin 上限为 8 MiB，单条 shell command 上限为 256 KiB。
 
 以下情况返回稳定 deny：
 
@@ -116,8 +118,8 @@ Hook definition 的任何改动都会使原有信任失效。更新带有 load-b
 自动门禁包括：
 
 - L1：manifest shape、runtime 文件边界、零依赖和 digest；
-- L2：33 项 policy、dispatcher、oversize 和 malformed input 测试；
-- L3：58 项 sentinel、Git tree、persistent receiver、Node launcher、完整进程组回收和 patch containment 测试；
+- L2：38 项 policy、dispatcher、oversize 和 malformed input 测试；
+- L3：64 项 sentinel、Git tree、persistent receiver、Node launcher、完整进程组回收和 patch containment 测试；
 - L0：真实 Codex installer、installed-cache 字节一致性和缓存内 dispatcher；
 - MCP installed-cache：无源码 `node_modules` 的冷启动和 Hook 调用；
 - 全量 Claude L1-L4 回归。

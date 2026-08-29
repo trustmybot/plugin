@@ -123,17 +123,20 @@ if jq -e . "$CODEX_HOOKS" >/dev/null 2>&1; then
     .hooks.PreToolUse[0].hooks[0].type == "command" and
     .hooks.PreToolUse[0].hooks[0].timeout == 5 and
     (.hooks.PreToolUse[0].hooks[0].command as $command |
-      ($command | startswith("/bin/sh -c '\''set -m; ( WORK_ROOT=")) and
+      ($command | startswith("/bin/sh -c '\''set -m; ( REPO_CONTEXT=")) and
       ($command | contains("command -v node")) and
       ($command | contains("process.execPath")) and
       ($command | contains("/bin/realpath")) and
       ($command | contains("GIT_CONFIG_GLOBAL=\"/dev/null\"")) and
-      ($command | contains("/usr/bin/git -C \"$PWD\" --no-optional-locks -c core.fsmonitor=false -c core.hooksPath=/dev/null rev-parse --show-toplevel")) and
+      ($command | contains("/usr/bin/git -C \"$PWD\" --no-optional-locks -c core.fsmonitor=false -c core.hooksPath=/dev/null rev-parse --show-toplevel --absolute-git-dir --path-format=absolute --git-common-dir")) and
       ($command | contains("/opt/homebrew/bin/node")) and
       ($command | contains("node_modules/.bin")) and
       ($command | contains("*/mise/shims/*")) and
       ($command | contains("/usr/bin/env -i PATH=\"/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin\"")) and
       ($command | contains("TMB_CODEX_HOOK_HOST_PATH=\"${PATH}\"")) and
+      ($command | contains("TMB_CODEX_HOOK_ROOT=\"$WORK_ROOT\"")) and
+      ($command | contains("TMB_CODEX_HOOK_GIT_DIR=\"$ATTESTED_GIT_DIR\"")) and
+      ($command | contains("TMB_CODEX_HOOK_COMMON_DIR=\"$ATTESTED_COMMON_DIR\"")) and
       ($command | test("--policy-sha256 [a-f0-9]{64}; else false; fi \\) <&0 & HOOK_PID=\\$!")) and
       ($command | contains("TIMED_OUT=0; trap")) and
       ($command | contains("/bin/sleep 4 & SLEEP_PID=$!")) and

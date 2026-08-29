@@ -25,6 +25,12 @@ const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(TEST_DIR, "..", "..");
 const DISPATCHER_PATH = join(REPO_ROOT, "adapters", "codex", "hooks", "dispatcher.mjs");
 const POLICY_PATH = join(REPO_ROOT, "adapters", "codex", "hooks", "repo-policy.mjs");
+const WORKER_POLICY_BRIDGE = `
+import { parentPort, workerData } from "node:worker_threads";
+if (workerData?.mode === "evaluate-pre-tool-use") {
+  parentPort?.postMessage(await evaluatePreToolUse(workerData.input, workerData.options));
+}
+`;
 
 function git(cwd, ...args) {
   return execFileSync("git", args, {
@@ -46,6 +52,25 @@ function git(cwd, ...args) {
     },
     stdio: ["ignore", "pipe", "pipe"],
   }).trim();
+}
+
+function repoAttestation(cwd) {
+  const [root, gitDir, commonDir] = git(cwd,
+    "rev-parse",
+    "--show-toplevel",
+    "--absolute-git-dir",
+    "--path-format=absolute",
+    "--git-common-dir").split("\n");
+  return { root, gitDir, commonDir };
+}
+
+function repoAttestationEnv(cwd) {
+  const { root, gitDir, commonDir } = repoAttestation(cwd);
+  return {
+    TMB_CODEX_HOOK_ROOT: root,
+    TMB_CODEX_HOOK_GIT_DIR: gitDir,
+    TMB_CODEX_HOOK_COMMON_DIR: commonDir,
+  };
 }
 
 function payload(cwd, toolName, toolInput, extra = {}) {
@@ -83,23 +108,24 @@ function runtimeDigest() {
     .digest("hex");
 }
 
-function dispatch(input, digest = runtimeDigest()) {
+function dispatch(input, digest = runtimeDigest(), extraEnv = {}) {
   return spawnSync(process.execPath, [DISPATCHER_PATH, "--policy-sha256", digest], {
     cwd: REPO_ROOT,
     encoding: "utf8",
+    env: { ...process.env, ...extraEnv },
     input: typeof input === "string" ? input : JSON.stringify(input),
     maxBuffer: 12 * 1024 * 1024,
     timeout: 5_000,
   });
 }
 
-function dispatchWithPolicySource(name, policySource) {
+function dispatchWithPolicySource(name, policySource, extraEnv = {}) {
   const runtime = join(fixtureRoot, `${name}-runtime`);
   mkdirSync(runtime);
   const dispatcher = join(runtime, "dispatcher.mjs");
   const policy = join(runtime, "repo-policy.mjs");
   copyFileSync(DISPATCHER_PATH, dispatcher);
-  writeFileSync(policy, policySource);
+  writeFileSync(policy, `${policySource}${WORKER_POLICY_BRIDGE}`);
   const digest = createHash("sha256")
     .update(readFileSync(dispatcher))
     .update("\0")
@@ -109,12 +135,13 @@ function dispatchWithPolicySource(name, policySource) {
   const result = spawnSync(process.execPath, [dispatcher, "--policy-sha256", digest], {
     cwd: primary,
     encoding: "utf8",
+    env: { ...process.env, ...extraEnv },
     input: JSON.stringify(payload(primary, "Read", {})),
     timeout: 5_000,
   });
   return {
     elapsedMs: Number(process.hrtime.bigint() - started) / 1_000_000,
-    output: JSON.parse(result.stdout),
+    output: result.stdout === "" ? null : JSON.parse(result.stdout),
     result,
   };
 }
@@ -152,6 +179,30 @@ test("resolves primary, linked, detached, and non-repository contexts", () => {
   assert.equal(resolveRepoContext(join(linked, "src")).kind, "linked");
   assert.equal(resolveRepoContext(detached).kind, "detached");
   assert.equal(resolveRepoContext(outside).kind, "outside");
+});
+
+test("validated repository attestation avoids a second Git query", () => {
+  const rejectGit = () => {
+    throw new Error("attested resolution must not invoke Git");
+  };
+  assert.equal(resolveRepoContext(primary, {
+    gitRunner: rejectGit,
+    repoAttestation: repoAttestation(primary),
+  }).kind, "primary");
+  assert.equal(resolveRepoContext(join(linked, "src"), {
+    gitRunner: rejectGit,
+    repoAttestation: repoAttestation(linked),
+  }).kind, "linked");
+});
+
+test("repository attestation fails closed when its root or common directory is inconsistent", () => {
+  const attestation = repoAttestation(primary);
+  assert.equal(resolveRepoContext(primary, {
+    repoAttestation: { ...attestation, root: outside },
+  }).kind, "outside");
+  assert.equal(resolveRepoContext(primary, {
+    repoAttestation: { ...attestation, commonDir: outside },
+  }).kind, "outside");
 });
 
 test("repository classification ignores inherited Git routing variables", () => {
@@ -818,6 +869,58 @@ test("dispatcher is silent on allow and emits stable deny JSON", () => {
   assert.equal(output.hookSpecificOutput.hookEventName, "PreToolUse");
   assert.equal(output.hookSpecificOutput.permissionDecision, "deny");
   assert.match(output.hookSpecificOutput.permissionDecisionReason, /^TMB-CODEX-HOOK:/u);
+});
+
+test("dispatcher handles complete, incomplete, and mismatched repository attestation", () => {
+  const allowed = dispatch(payload(primary, "Read", {}), runtimeDigest(), repoAttestationEnv(primary));
+  assert.equal(allowed.status, 0, allowed.stderr);
+  assert.equal(allowed.stdout, "");
+
+  const incomplete = dispatch(payload(primary, "Read", {}), runtimeDigest(), {
+    TMB_CODEX_HOOK_ROOT: primary,
+    TMB_CODEX_HOOK_GIT_DIR: "",
+    TMB_CODEX_HOOK_COMMON_DIR: "",
+  });
+  assert.equal(incomplete.status, 0, incomplete.stderr);
+  assert.equal(incomplete.stdout, "");
+
+  const mismatched = dispatch(payload(primary, "Read", {}), runtimeDigest(), repoAttestationEnv(linked));
+  assert.equal(mismatched.status, 0, mismatched.stderr);
+  assert.equal(mismatched.stdout, "");
+});
+
+test("dispatcher uses the inline fast path only for complete repository attestation", () => {
+  const policySource = `
+import { isMainThread } from "node:worker_threads";
+export async function evaluatePreToolUse() {
+  return isMainThread
+    ? { decision: "allow" }
+    : { decision: "deny", reason: "TMB-CODEX-HOOK: worker path selected" };
+}
+`;
+  const inline = dispatchWithPolicySource(
+    "deterministic-inline",
+    policySource,
+    repoAttestationEnv(primary),
+  );
+  assert.equal(inline.result.status, 0, inline.result.stderr);
+  assert.equal(inline.result.stdout, "");
+
+  const worker = dispatchWithPolicySource("deterministic-worker", policySource);
+  assert.equal(worker.result.status, 0, worker.result.stderr);
+  assert.equal(worker.output.hookSpecificOutput.permissionDecision, "deny");
+  assert.match(worker.output.hookSpecificOutput.permissionDecisionReason, /worker path selected/u);
+});
+
+test("attested inline policy converts process exit into a stable deny", () => {
+  const { output, result } = dispatchWithPolicySource(
+    "attested-exit",
+    "process.exit(0); export async function evaluatePreToolUse() { return { decision: 'allow' }; }\n",
+    repoAttestationEnv(primary),
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(output.hookSpecificOutput.permissionDecision, "deny");
+  assert.match(output.hookSpecificOutput.permissionDecisionReason, /policy evaluation crashed/u);
 });
 
 test("dispatcher fails closed for malformed input and digest mismatch", () => {

@@ -1,6 +1,9 @@
-import { execFileSync } from "node:child_process";
 import { accessSync, constants, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { createRequire } from "node:module";
 import { delimiter, dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { isMainThread, parentPort, workerData } from "node:worker_threads";
+
+const requireBuiltin = createRequire(import.meta.url);
 
 export const MAX_COMMAND_BYTES = 256 * 1024;
 export const REPO_RESOLUTION_TIMEOUT_MS = 700;
@@ -197,6 +200,7 @@ function normalizeToolName(toolName) {
 }
 
 function runGit(cwd, args, timeout = REPO_RESOLUTION_TIMEOUT_MS) {
+  const { execFileSync } = requireBuiltin("node:child_process");
   return execFileSync("/usr/bin/git", args, {
     cwd,
     encoding: "utf8",
@@ -222,6 +226,88 @@ function canonicalExistingPath(path) {
   }
 }
 
+function readSmallOrdinaryFile(path) {
+  const stats = lstatSync(path);
+  if (!stats.isFile() || stats.nlink > 1 || stats.size > 4_096) {
+    return null;
+  }
+  return readFileSync(path, "utf8").trim();
+}
+
+function gitDirMatchesRoot(root, gitDir) {
+  const dotGitPath = resolve(root, ".git");
+  const stats = lstatSync(dotGitPath);
+  if (stats.isDirectory()) {
+    return canonicalExistingPath(dotGitPath) === gitDir;
+  }
+  if (!stats.isFile() || stats.nlink > 1 || stats.size > 4_096) {
+    return false;
+  }
+  const pointer = readFileSync(dotGitPath, "utf8").trim();
+  const rawGitDir = pointer.startsWith("gitdir: ") ? pointer.slice("gitdir: ".length) : "";
+  if (rawGitDir.length === 0) {
+    return false;
+  }
+  const candidate = isAbsolute(rawGitDir) ? rawGitDir : resolve(root, rawGitDir);
+  return canonicalExistingPath(candidate) === gitDir;
+}
+
+function commonDirMatchesGitDir(gitDir, commonDir) {
+  const commonPointerPath = resolve(gitDir, "commondir");
+  try {
+    const rawCommonDir = readSmallOrdinaryFile(commonPointerPath);
+    if (!rawCommonDir) {
+      return false;
+    }
+    const candidate = isAbsolute(rawCommonDir) ? rawCommonDir : resolve(gitDir, rawCommonDir);
+    return gitDir !== commonDir && canonicalExistingPath(candidate) === commonDir;
+  } catch (error) {
+    return error && typeof error === "object" && error.code === "ENOENT" && gitDir === commonDir;
+  }
+}
+
+function resolveAttestedRepoContext(canonicalCwd, attestation) {
+  try {
+    if (!attestation || typeof attestation !== "object" || Array.isArray(attestation)) {
+      return { kind: "outside" };
+    }
+    const { root: rawRoot, gitDir: rawGitDir, commonDir: rawCommonDir } = attestation;
+    if (![rawRoot, rawGitDir, rawCommonDir]
+      .every((value) => typeof value === "string" && value.length > 0)) {
+      return { kind: "outside" };
+    }
+    if (![rawRoot, rawGitDir, rawCommonDir].every(isAbsolute)) {
+      return { kind: "outside" };
+    }
+
+    const root = canonicalExistingPath(rawRoot);
+    const gitDir = canonicalExistingPath(rawGitDir);
+    const commonDir = canonicalExistingPath(rawCommonDir);
+    if (!root || !gitDir || !commonDir || !isWithin(root, canonicalCwd)) {
+      return { kind: "outside" };
+    }
+    if (!gitDirMatchesRoot(root, gitDir) || !commonDirMatchesGitDir(gitDir, commonDir)) {
+      return { kind: "outside" };
+    }
+    const head = readSmallOrdinaryFile(resolve(gitDir, "HEAD"));
+    const branchRef = head?.startsWith("ref: ") ? head.slice("ref: ".length) : "";
+    if (!branchRef.startsWith("refs/heads/") || branchRef.length === "refs/heads/".length) {
+      return { kind: "outside" };
+    }
+
+    return {
+      kind: gitDir === commonDir ? "primary" : "linked",
+      cwd: canonicalCwd,
+      root,
+      gitDir,
+      commonDir,
+      branch: branchRef.slice("refs/heads/".length),
+    };
+  } catch {
+    return { kind: "outside" };
+  }
+}
+
 export function resolveRepoContext(cwd, options = {}) {
   if (typeof cwd !== "string" || cwd.length === 0) {
     return { kind: "outside" };
@@ -230,6 +316,10 @@ export function resolveRepoContext(cwd, options = {}) {
   const canonicalCwd = canonicalExistingPath(cwd);
   if (!canonicalCwd) {
     return { kind: "outside" };
+  }
+
+  if (options.repoAttestation !== undefined) {
+    return resolveAttestedRepoContext(canonicalCwd, options.repoAttestation);
   }
 
   try {
@@ -820,6 +910,13 @@ export async function evaluatePreToolUse(input, options = {}) {
 
   const toolName = normalizeToolName(input.tool_name);
   const squashedToolName = toolName.replace(/[^a-z0-9]/gu, "");
+  let repoContext;
+  if (options.repoAttestation !== undefined) {
+    repoContext = resolveRepoContext(input.cwd, options);
+    if (repoContext.kind === "outside" || repoContext.kind === "detached") {
+      return deny("tool call is not attached to a branch-backed Git checkout");
+    }
+  }
   if (READ_ONLY_TOOLS.has(toolName)) {
     return DECISION_ALLOW;
   }
@@ -836,7 +933,7 @@ export async function evaluatePreToolUse(input, options = {}) {
     return deny("subagent Hook inheritance has not been qualified for this host");
   }
 
-  const repoContext = resolveRepoContext(input.cwd);
+  repoContext ??= resolveRepoContext(input.cwd, options);
   if (repoContext.kind === "outside" || repoContext.kind === "detached") {
     return deny("tool call is not attached to a branch-backed Git checkout");
   }
@@ -874,4 +971,8 @@ export async function evaluatePreToolUse(input, options = {}) {
     return evaluateShell(input.tool_input, repoContext);
   }
   return deny("tool name or payload shape is not on the reviewed allowlist");
+}
+
+if (!isMainThread && workerData?.mode === "evaluate-pre-tool-use") {
+  parentPort?.postMessage(await evaluatePreToolUse(workerData.input, workerData.options));
 }
