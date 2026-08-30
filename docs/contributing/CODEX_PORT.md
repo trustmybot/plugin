@@ -246,3 +246,123 @@ Record the candidate SHA, Codex client and build version, operating system and
 architecture, plugin source, template hashes, parent positive control, both
 child tool surfaces, before/after sentinels, and cleanup result in the candidate
 PR or its linked compatibility issue.
+
+### Scope 5: bounded repository-write Hook
+
+Scope 5 adds one broad `PreToolUse` matcher and a zero-dependency dispatcher.
+The runtime is limited to:
+
+- `hooks/codex/hooks.json`;
+- `adapters/codex/hooks/dispatcher.mjs`;
+- `adapters/codex/hooks/repo-policy.mjs`.
+
+The manifest command pins both ESM files by SHA-256. A fixed 4-second launcher
+watchdog returns a deny before the host's `timeout: 5`; the host timeout is only
+a process-reclamation ceiling because current Codex builds may continue a tool
+call after a command Hook times out.
+Runtime code may import Node built-ins only. It must not use `node_modules`,
+network access, a database, or a log file. Installed-cache tests must run the
+dispatcher with `NODE_PATH` empty and `PLUGIN_ROOT` set to the cached package.
+The manifest resolves version-managed Node launchers through `process.execPath`,
+rejects launchers or resolved binaries inside the checkout, plugin cache, Git
+metadata, or `node_modules/.bin`, and starts the dispatcher with a minimal
+environment. It resolves the canonical worktree root with fixed `/usr/bin/git`
+and sanitized Git configuration, so a repository shim stays rejected from a
+nested cwd. Failure to resolve a trusted Node executable must deny the call.
+
+Protected branches use a read-only allowlist plus one recovery operation:
+creating a recognized feature branch with `git switch -c`, `git switch
+--create`, or `git checkout -b`. Unknown tools, unknown payloads, scripts,
+interpreters, compound shell syntax, redirection, and direct write tools deny.
+The fixed 15-tool TMB MCP surface
+remains available only under an exact observed host prefix, when its canonical
+`project_root` matches the current branch-backed checkout, and when no
+project-level `.codex/config.toml` exists between the cwd and repository root.
+The Hook event does not carry separate provider identity, so user or enterprise
+same-name server composition must be requalified for each supported host. Its server
+and materializer continue to enforce their own project write boundaries.
+
+In a branch-backed primary checkout or linked worktree, a recognized feature
+branch may use `apply_patch` only after every add, update, delete, and move target
+passes canonical containment. Reject protected branches, detached worktrees,
+absolute and parent paths, symbolic or hard-link aliases, mixed-case reserved
+paths, parse failures, Git/TMB state, Hook configuration, and the two
+materialized Agent files. A small validation-command allowlist is separate from
+this guarantee. Go test targets
+must use explicit local forms such as `.` or `./...`; package names, `all`, and
+`std` are outside the allowlist. Fixed command signatures run only from the
+worktree root; direct test paths resolve from the actual Hook cwd and must stay
+inside the worktree. Approved scripts and their children still rely on the host
+sandbox.
+
+Recognized feature branches have a bounded delivery lane: explicit-path
+`git add`, explicit-path `git restore --staged`, one-message `git commit`, a
+non-force push of the current branch to `origin`, `gh pr create/edit/ready`, and
+`glab mr create`. Shared branches, broad staging, merge/rebase/reset, force-push,
+PR/MR merge, remote Issue writes, and every other Git/forge mutation deny. The
+Hook does not parse Human approval text or persist an approval token; the main
+task carries the Human's original directive, as in the Claude Code flow. Bare
+shells, REPLs, TTY shapes, later stdin, code-mode wrappers, and model-driven
+collaboration spawn also deny. Do not allow collaboration spawn until a fixed
+host build proves the child receives the same Hook before its first tool call.
+
+Only the observed exact `Bash {command: string}` shell shape is eligible for the
+read and validation allowlists. Path-qualified executables, extra execution
+fields, shell expansion syntax, and unqualified shell aliases deny. File reads
+must use finite argument shapes; content-reading tools accept only ordinary
+repository files, while external decompression, follow/watch, credential-display,
+and web-launch flags deny. External programs must resolve outside the checkout
+and common shim directories. Git queries must carry the fixed no-pager,
+no-optional-locks, no-lazy-fetch, fsmonitor-off, hooks-off prefix; diff-like queries
+also disable external diff and text conversion. Validation commands use exact
+package signatures or repository-relative test targets; cwd/prefix/manifest
+redirection and additional runtime loaders deny.
+
+The dispatcher writes nothing for an allow decision. A deny returns
+`hookSpecificOutput.hookEventName="PreToolUse"`,
+`permissionDecision="deny"`, and a non-empty reason beginning with
+`TMB-CODEX-HOOK:`. Codex `0.146.0` rejects an explicit
+`permissionDecision="allow"`, so success must remain silent.
+
+#### Scope 5 host-version compatibility gate
+
+Use the same clean candidate commit for CLI and Desktop. Do not install a dirty
+working tree into a profile used for release evidence.
+
+1. Record the candidate SHA, runtime digest, Codex build, operating system,
+   architecture, plugin source, Hook definition, trust state, and sandbox.
+2. Install through the normal local Marketplace flow. Resolve the installed
+   cache path and compare the manifest, dispatcher, and policy bytes with the
+   candidate.
+3. In a disposable protected checkout, attempt canonical patch, redirected
+   shell, interpreter, wrapper, package/build, dangerous Git/forge write, and
+   unknown-tool probes. Hash the target files, index, refs, Git common dir, local
+   bare origin, and fake forge log before and after. Every value must remain
+   unchanged except the separately tested feature-branch creation recovery.
+4. In branch-backed primary and linked feature checkouts, require one valid
+   in-root patch and the bounded delivery sequence to pass. Absolute, parent,
+   symlink, rename, protected-path, detached, broad-stage, force-push, and merge
+   probes must deny without unintended side effects.
+5. Start bare shell and REPL probes. Require denial before a session ID exists;
+   no later stdin channel may remain available. Exercise code mode and every
+   Bash-like surface exposed by that host.
+6. Test untrusted, modified, disabled, `--dangerously-bypass-hook-trust`, and
+   `permission_mode=bypassPermissions` separately. The CLI flag skips trust
+   review but still runs the Hook. Permission mode never weakens TMB policy.
+7. Measure one cold invocation and at least 40 warm invocations. Cold must be at
+   most 1 second, warm median at most 100 ms, warm p95 at most 250 ms, and the
+   manifest timeout exactly 5 seconds.
+8. Uninstall or roll back to the last trusted empty-Hook build. Start a fresh
+   task and verify that Scope 4 Skills, MCP tools, Agent files, unrelated profile
+   entries, and project state match their before-state.
+
+Any protected-branch or out-of-lane write side effect, missing installed-cache
+Hook, post-deny execution, persistent receiver, digest fail-open, or Desktop
+mismatch stops the release. A policy edit invalidates the runtime digest and
+the previous live record. Recompute the digest, accept the user re-trust cost,
+and rerun the full matrix.
+
+The repeatable behavior and known limits are recorded in
+[`SCOPE_5_PRD.md`](../adapters/codex/SCOPE_5_PRD.md). Scope 5 never writes
+`~/.codex/hooks.json`; plugin Hook discovery is a release prerequisite, not a
+reason to expand installation permissions.

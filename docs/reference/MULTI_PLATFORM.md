@@ -2,7 +2,7 @@
 
 ## Current state
 
-**TMB's complete workflow ships on Claude Code.** Codex Scope 4 supports explicit local planning and can install two standalone project-level Agents. Those Agents are not connected to TMB task lifecycle, trusted validation, delivery gates, or functional Hooks.
+**TMB's complete workflow ships on Claude Code.** Codex Scope 5 supports local planning, explicit setup of two standalone project-level Agents, and a bounded repository-write Hook. It still has no TMB task lifecycle, trusted validation, or delivery workflow.
 
 ## Vision
 
@@ -15,7 +15,7 @@ This doc describes how the repo is structured to make that port realistic when t
 ```
 plugin/
 ├── .claude-plugin/         # Claude Code adapter — IMPLEMENTED
-├── .codex-plugin/          # OpenAI Codex adapter — planning + Agent setup
+├── .codex-plugin/          # OpenAI Codex adapter — planning + Agent setup + Hook
 ├── .cursor-plugin/         # Cursor adapter — placeholder
 ├── .opencode/              # OpenCode adapter — placeholder
 ├── gemini-extension.json   # Gemini CLI manifest — placeholder
@@ -26,8 +26,9 @@ plugin/
 ├── templates/agents/       # opt-in consultant templates (architect, cto, ceo, pm)
 ├── mcp/trajectory-server/  # Shared MCP core with isolated Claude/Codex entries
 │
-├── # Per-platform hook configs (CC only today; future: hooks/<platform>/)
+├── # Per-platform hook configs
 ├── hooks/hooks.json        # Claude Code event protocol
+├── hooks/codex/hooks.json  # Codex PreToolUse dispatcher
 ├── scripts/hooks/          # Shell scripts; logic portable, event-name protocol CC-specific
 │
 ├── # Per-platform persona/loading files
@@ -48,7 +49,7 @@ The pattern, copied from [`obra/superpowers`](https://github.com/obra/superpower
 | `agents/*.md` frontmatter | ⚠️ CC-shaped | `tools:`, `model:`, `isolation:`, `skills:` are Claude Code conventions. Other platforms may need adapter-side translation. |
 | `templates/agents/*.md` (consultants) | ✓ Portable bodies, ⚠️ CC-shaped frontmatter (same as above) | Opt-in templates, not auto-installed |
 | `mcp/trajectory-server/` | ⚠️ Shared core with isolated entries | Claude retains `dist/index.js` and its full registry. Codex uses `dist/codex.js` and a fixed 15-tool registry: 13 local planning tools plus two Agent materialization tools. |
-| `hooks/hooks.json` | ✗ CC-only | Each platform has different hook event names + decision protocol |
+| Hook manifests | ⚠️ Host-specific | Claude keeps `hooks/hooks.json`; Codex uses `hooks/codex/hooks.json` plus a zero-dependency ESM policy. Event and decision protocols are not shared. |
 | `scripts/hooks/*.sh` | ⚠️ Partly | Shell logic is portable; the JSON-decision contract is CC-specific |
 | `CLAUDE.md` (bro persona) | ⚠️ Partly | Doctrine is portable; trigger-word mechanism is CC-specific |
 
@@ -70,14 +71,22 @@ Two reasons:
 1. **Discoverability.** Anyone browsing the repo sees `.codex-plugin/` and immediately understands TMB's vision. No conversation needed.
 2. **Path-precedent.** When we do ship Codex/Cursor/Gemini support, the directory structure already separates shared content from platform adapters. A real adapter still needs verified installation, runtime dispatch, configuration, and validation; filling in a placeholder manifest alone is not sufficient.
 
-The remaining placeholders explicitly say "not implemented." Codex documentation states its narrower Scope-4 boundary instead of implying the complete Claude workflow is available.
+The remaining placeholders explicitly say "not implemented." Codex documentation states its narrower Scope-5 boundary instead of implying the complete Claude workflow is available.
 
 ## Verified Codex surfaces
 
-Scope 4 targets Codex CLI and Desktop on macOS arm64 once fixed-SHA acceptance
-is recorded. CLI `0.146.0` and `0.147.0` both hid the TMB server when the Agent
+Scope 5 targets Codex CLI and Desktop on macOS arm64. Clean-commit automated
+acceptance passed on CLI `0.146.0` and Desktop 26.820.60940's bundled
+`codex-cli 0.150.0-alpha.8`. Both loaded the plugin Hook from installed-cache and
+blocked primary `apply_patch`, redirected shell writes, and persistent command
+receivers before execution; a linked-worktree patch succeeded. The Hook payload
+in these runs did not expose MCP provider identity, so TMB MCP calls fail closed
+when project-level `.codex/config.toml` could shadow the bundled server. The
+launcher returns an internal deny after four seconds rather than relying on the
+host's five-second timeout, which can continue the tool call. Separately, CLI
+`0.146.0` and `0.147.0` both hid the TMB server when the Agent
 used the disabled same-name `mcp_servers` shadow; a plugin-scoped override was
-not reliable. Desktop acceptance must still inspect the child Agent's live tool
+not reliable. Desktop Hook and Agent acceptance must still inspect the live tool
 surface rather than infer support from the shell CLI. The project-level Agent
 files follow Codex's shared custom-Agent
 format, but this scope does not claim verified IDE, cloud, non-macOS, or

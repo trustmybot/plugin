@@ -41,6 +41,7 @@ run_step "L1 lint: shipped swe/pr-reviewer task_brief contract (#300)"  bash "$H
 run_step "L1 lint: skill frontmatter + name=dirname"  bash "$HERE/l1-lint/skill-frontmatter.sh"
 run_step "L1 lint: command frontmatter (description + argument-hint)"  bash "$HERE/l1-lint/command-frontmatter.sh"
 run_step "L1 lint: manifest shape (plugin/.mcp/hooks)" bash "$HERE/l1-lint/manifest-shape.sh"
+run_step "L1 lint: Codex Scope-5 Hook runtime"       bash "$HERE/l1-lint/codex-hook-runtime.sh"
 run_step "L1 lint: Codex Scope-4 Agent contract"      bash "$HERE/l1-lint/codex-scope4-contract.sh"
 run_step "L1 lint: version sync (4 manifests agree)"  bash "$HERE/l1-lint/version-sync.sh"
 run_step "L1 lint: changelog top section current"     bash "$HERE/l1-lint/changelog-current.sh"
@@ -81,8 +82,11 @@ run_step "L1 lint: main-source-guard + CODEOWNERS present" bash "$HERE/l1-lint/m
 # ----- L1-adjacent: benchmark selftest (fast, deterministic) ------------
 
 run_step "L1 bench: measurement harness selftest"     bash "$HERE/benchmarks/selftest.sh"
+run_step "L1 bench: Codex Hook latency budgets"        node "$HERE/benchmarks/codex-hooks.mjs"
 
 # ----- L2 — Unit + L3 — Integration -------------------------------------
+
+run_step "L2 unit: Codex Scope-5 Hook policy"        node --test "$HERE/l2-mcp-unit/codex-hooks.test.mjs"
 
 printf "\n=== L2 unit: MCP handlers (node --test on built dist/) ===\n"
 if (cd "$PLUGIN_ROOT/mcp/trajectory-server" && bun run build && node --experimental-sqlite --test dist/test/*.test.js); then

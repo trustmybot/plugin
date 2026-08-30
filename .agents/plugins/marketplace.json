@@ -10,7 +10,7 @@
         "source": "local",
         "path": "./"
       },
-      "description": "Local development package for the TMB Codex adapter.",
+      "description": "Local development package for the TMB Codex planning, Agent setup, and repository-write adapter.",
       "policy": {
         "installation": "AVAILABLE",
         "authentication": "ON_INSTALL"

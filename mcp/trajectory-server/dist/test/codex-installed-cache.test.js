@@ -50,9 +50,13 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
         const cacheRoot = join(fixture, 'cache', manifest.name, manifest.version);
         const cacheDist = join(cacheRoot, 'mcp', 'trajectory-server', 'dist');
         const cacheAdapter = join(cacheRoot, 'adapters', 'codex');
+        const cacheAdapterHooks = join(cacheAdapter, 'hooks');
+        const cacheHooks = join(cacheRoot, 'hooks', 'codex');
         mkdirSync(project, { recursive: true });
         mkdirSync(join(cacheRoot, '.codex-plugin'), { recursive: true });
         mkdirSync(cacheAdapter, { recursive: true });
+        mkdirSync(cacheAdapterHooks, { recursive: true });
+        mkdirSync(cacheHooks, { recursive: true });
         mkdirSync(cacheDist, { recursive: true });
         execFileSync('git', ['init', '--quiet', project]);
         writeFileSync(join(project, '.gitignore'), '.tmb/\n');
@@ -69,7 +73,43 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
         cpSync(join(sourceDist, 'schema.sql'), join(cacheDist, 'schema.sql'));
         cpSync(join(sourceRoot, 'adapters', 'codex', '.mcp.json'), join(cacheAdapter, '.mcp.json'));
         cpSync(join(sourceRoot, 'adapters', 'codex', 'skills'), join(cacheAdapter, 'skills'), { recursive: true });
+        cpSync(join(sourceRoot, 'adapters', 'codex', 'hooks'), cacheAdapterHooks, { recursive: true });
+        cpSync(join(sourceRoot, 'hooks', 'codex', 'hooks.json'), join(cacheHooks, 'hooks.json'));
         writeFileSync(join(cacheRoot, '.codex-plugin', 'plugin.json'), readFileSync(join(sourceRoot, '.codex-plugin', 'plugin.json')));
+        const installedHookManifest = JSON.parse(readFileSync(join(cacheHooks, 'hooks.json'), 'utf8'));
+        const installedHook = installedHookManifest.hooks.PreToolUse[0].hooks[0];
+        assert.equal(installedHookManifest.hooks.PreToolUse[0].matcher, '');
+        assert.equal(installedHook.timeout, 5);
+        const digest = /--policy-sha256 ([a-f0-9]{64})/.exec(installedHook.command)?.[1];
+        assert.ok(digest);
+        const installedDispatcher = join(cacheAdapterHooks, 'dispatcher.mjs');
+        const installedPolicy = join(cacheAdapterHooks, 'repo-policy.mjs');
+        assert.ok(!readFileSync(installedDispatcher, 'utf8').includes(sourceRoot));
+        assert.ok(!readFileSync(installedPolicy, 'utf8').includes(sourceRoot));
+        const hookInput = (toolName, toolInput) => JSON.stringify({
+            cwd: project,
+            hook_event_name: 'PreToolUse',
+            model: 'gpt-test',
+            permission_mode: 'bypassPermissions',
+            session_id: 'installed-cache-test',
+            tool_input: toolInput,
+            tool_name: toolName,
+            tool_use_id: 'installed-cache-tool',
+            transcript_path: null,
+            turn_id: 'installed-cache-turn',
+        });
+        const hookEnv = {
+            ...process.env,
+            NODE_PATH: '',
+            PLUGIN_ROOT: cacheRoot,
+            PLUGIN_DATA: join(fixture, 'plugin-data'),
+        };
+        const allowOutput = execFileSync(process.execPath, [installedDispatcher, '--policy-sha256', digest], { cwd: project, encoding: 'utf8', env: hookEnv, input: hookInput('Read', { file_path: 'README.md' }) });
+        assert.equal(allowOutput, '');
+        const denyOutput = JSON.parse(execFileSync(process.execPath, [installedDispatcher, '--policy-sha256', digest], { cwd: project, encoding: 'utf8', env: hookEnv, input: hookInput('Bash', { command: 'touch blocked' }) }));
+        assert.equal(denyOutput.hookSpecificOutput.permissionDecision, 'deny');
+        assert.match(denyOutput.hookSpecificOutput.permissionDecisionReason, /^TMB-CODEX-HOOK:/);
+        assert.equal(existsSync(join(project, 'blocked')), false);
         const mcpConfig = JSON.parse(readFileSync(join(cacheAdapter, '.mcp.json'), 'utf8'));
         const configured = mcpConfig['trajectory-server'];
         const installedSkillEntries = readdirSync(join(cacheAdapter, 'skills')).sort();

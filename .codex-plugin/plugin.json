@@ -1,7 +1,7 @@
 {
   "name": "tmb",
-  "version": "1.0.2",
-  "description": "Codex adapter for project-bound TMB planning and explicit installation of two advisory development Agents.",
+  "version": "1.0.5",
+  "description": "Codex adapter for project-bound TMB planning, explicit Agent setup, and bounded repository-write Hooks.",
   "author": {
     "name": "trustmybot",
     "url": "https://github.com/trustmybot"
@@ -22,8 +22,8 @@
   "skills": "./adapters/codex/skills/",
   "interface": {
     "displayName": "TMB",
-    "shortDescription": "Plan locally and install two project Agents",
-    "longDescription": "A bounded Codex adapter for local TMB planning plus explicit, reversible installation of project-level SWE and advisory reviewer Agents.",
+    "shortDescription": "Plan locally with bounded write gates",
+    "longDescription": "A bounded Codex adapter for local TMB planning, explicit and reversible setup of two project Agents, and a repository-write PreToolUse gate.",
     "developerName": "trustmybot",
     "category": "Developer Tools",
     "capabilities": [

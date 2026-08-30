@@ -115,10 +115,44 @@ if jq -e . "$CODEX_MCP" >/dev/null 2>&1; then
 fi
 
 if jq -e . "$CODEX_HOOKS" >/dev/null 2>&1; then
-  if ! jq -e '.hooks == {}' "$CODEX_HOOKS" >/dev/null; then
-    fail "$CODEX_HOOKS must remain empty in Codex Scope 4"
+  if ! jq -e '
+    (.hooks | keys) == ["PreToolUse"] and
+    (.hooks.PreToolUse | length) == 1 and
+    .hooks.PreToolUse[0].matcher == "" and
+    (.hooks.PreToolUse[0].hooks | length) == 1 and
+    .hooks.PreToolUse[0].hooks[0].type == "command" and
+    .hooks.PreToolUse[0].hooks[0].timeout == 5 and
+    (.hooks.PreToolUse[0].hooks[0].command as $command |
+      ($command | startswith("/bin/sh -c '\''set -m; ( REPO_CONTEXT=")) and
+      ($command | contains("command -v node")) and
+      ($command | contains("process.execPath")) and
+      ($command | contains("/bin/realpath")) and
+      ($command | contains("GIT_CONFIG_GLOBAL=\"/dev/null\"")) and
+      ($command | contains("/usr/bin/git -C \"$PWD\" --no-optional-locks -c core.fsmonitor=false -c core.hooksPath=/dev/null rev-parse --show-toplevel --absolute-git-dir --path-format=absolute --git-common-dir")) and
+      ($command | contains("/opt/homebrew/bin/node")) and
+      ($command | contains("node_modules/.bin")) and
+      ($command | contains("*/mise/shims/*")) and
+      ($command | contains("/usr/bin/env -i PATH=\"/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin\"")) and
+      ($command | contains("TMB_CODEX_HOOK_HOST_PATH=\"${PATH}\"")) and
+      ($command | contains("TMB_CODEX_HOOK_ROOT=\"$WORK_ROOT\"")) and
+      ($command | contains("TMB_CODEX_HOOK_GIT_DIR=\"$ATTESTED_GIT_DIR\"")) and
+      ($command | contains("TMB_CODEX_HOOK_COMMON_DIR=\"$ATTESTED_COMMON_DIR\"")) and
+      ($command | test("--policy-sha256 [a-f0-9]{64}; else false; fi \\) <&0 & HOOK_PID=\\$!")) and
+      ($command | contains("TIMED_OUT=0; trap")) and
+      ($command | contains("/bin/sleep 4 & SLEEP_PID=$!")) and
+      ($command | contains("TIMED_OUT=1; /bin/kill -TERM \"-$HOOK_PID\"")) and
+      ($command | contains("/bin/sleep 0.2 & SLEEP_PID=$!")) and
+      ($command | contains("/bin/kill -KILL \"-$HOOK_PID\" 2>/dev/null || true; exit 124")) and
+      ($command | contains("set +m; wait \"$HOOK_PID\" 2>/dev/null")) and
+      ($command | contains("/bin/kill -TERM \"$WATCH_PID\"")) and
+      ($command | contains("WATCH_STATUS=$?")) and
+      ($command | contains("[ \"$HOOK_STATUS\" -ne 0 ] || [ \"$WATCH_STATUS\" -eq 124 ]")) and
+      ($command | contains("\\\"permissionDecision\\\":\\\"deny\\\"")) and
+      ($command | contains("TMB-CODEX-HOOK: dispatcher process failed or exceeded the internal 4 second launcher timeout")))
+  ' "$CODEX_HOOKS" >/dev/null; then
+    fail "$CODEX_HOOKS must expose exactly one broad, synchronous, 5-second Codex PreToolUse dispatcher"
   else
-    pass "$CODEX_HOOKS prevents Claude hooks from loading in Codex"
+    pass "$CODEX_HOOKS exposes only the bounded Codex Scope 5 dispatcher"
   fi
 fi
 
