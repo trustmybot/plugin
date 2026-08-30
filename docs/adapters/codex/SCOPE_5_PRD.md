@@ -2,7 +2,7 @@
 
 ## 状态
 
-Scope 5 正在修复 Git/GitHub 交付自锁。`1.0.5` 采用 Claude Code 的基本逻辑：Human 已经发出的交付指令由主对话继续执行，Hook 只检查分支、命令和路径状态，不要求第二次批准，也不生成授权令牌。当前 Hook 仍保持禁用；旧 `1.0.4` 缓存、trust 和全新会话证据不能证明这次改动。形成干净候选提交后，才能刷新缓存、重新 trust，并在同一 SHA 上重跑宿主矩阵。
+Scope 5 的 Git/GitHub 交付自锁修复已经完成 `1.0.5` 候选闭环。实现沿用 Claude Code 的基本逻辑：Human 已经发出的交付指令由主对话继续执行，Hook 只检查分支、命令和路径状态，不要求第二次批准，也不生成授权令牌。旧 `1.0.4` 缓存已删除，`1.0.5` 已重新安装、重新 trust 并启用；CLI 与 Desktop 全新会话回归均已通过。
 
 当前源码候选绑定到以下环境：
 
@@ -71,7 +71,7 @@ dispatcher 从 patch header 提取 `Add File`、`Update File`、`Delete File` �
 
 ## 验证状态
 
-源码级自动测试覆盖了 feature-branch patch、验证、暂存、commit、push 和 PR 交付，以及受保护分支和危险操作的拒绝。`codex-plugin-surface-smoke.sh` 还在隔离 `CODEX_HOME` 中故意污染缓存，确认卸载会删除旧路径，并验证重装后的 manifest、dispatcher 和 policy 与 `1.0.5` 源码逐字节一致。这些 dirty-worktree 结果是实现验证，不能替代干净候选提交上的本机 trust 和全新会话验收。
+源码级自动测试覆盖了 feature-branch patch、验证、暂存、commit、push 和 PR 交付，以及受保护分支和危险操作的拒绝。`codex-plugin-surface-smoke.sh` 还在隔离 `CODEX_HOME` 中故意污染缓存，确认卸载会删除旧路径，并验证重装后的 manifest、dispatcher 和 policy 与 `1.0.5` 源码逐字节一致。这些结果证明源码和隔离安装链；本机 trust、缓存状态和全新会话证据单独记录在下方。
 
 原 `1.0.4` 宿主基线还确认了以下 payload 事实，它们仍用于兼容回归：
 
@@ -90,13 +90,16 @@ dispatcher 从 patch header 提取 `Add File`、`Update File`、`Delete File` �
 - bare `bash` 未启动；`write_stdin` 的空轮询和单个 Ctrl-C 可以收尾已获准的进程，其他字符和额外字段会被拒绝；
 - `functions.exec`、只读任务诊断和精确的 TMB 卸载恢复入口可达，其他插件卸载仍被拒绝；
 - installed-cache policy 字节被修改后，runtime digest mismatch 拒绝了工具调用；
-- 40 次 warm Hook 调用的 median 为 77.216 ms、p95 为 79.464 ms，cold 为 76.2 ms，低于 100 ms、250 ms 和 1 秒的对应门限。
+- 40 次 warm Hook 调用的 median 为 77.216 ms、p95 为 79.464 ms，cold 为 76.2 ms，低于 100 ms、250 ms 和 1 秒的对应门限；
+- 干净候选形成后，本机删除了旧 `1.0.4` 缓存，重新安装 `1.0.5`，确认 Hook manifest、dispatcher 和 policy 与源码逐字节一致，再通过 CLI `/hooks` 审阅、trust 并启用当前定义；
+- 全新 CLI 会话允许 `pwd`，并在执行前拒绝无副作用的广泛暂存探针 `git add --dry-run .`。会话正常退出，没有重试或生命周期循环；
+- 全新 Desktop task 可以调用 `read_thread_terminal`，也能通过 `functions.exec` 完成嵌套 `pwd`，两项均未被 Hook 拒绝。
 
 原 `1.0.4` 的真实宿主矩阵还证明：installed-cache Hook 能被 CLI 加载，`${PLUGIN_ROOT}` 指向缓存副本；`codex mcp list --json` 确认 installed provider 已启用；`mcp__trajectory_server__agent_materialization_get` 产生配对的 started/completed 事件，返回 `status=completed`、`ok=true`，且 canonical `project_root` 与当前 checkout 一致。此外：
 
 - `--dangerously-bypass-hook-trust` 下 Hook 仍执行；
 - `permission_mode=bypassPermissions` 没有改变判定；
-- `--disable hooks` 和插件卸载后的旧基线证明这两种状态没有 Scope 5 保护；`1.0.5` 仍需在干净候选 SHA 上重跑；
+- `--disable hooks` 和插件卸载后的旧基线证明这两种状态没有 Scope 5 保护；`1.0.5` 已在 `codex-cli 0.150.1` 上完成本机闭环，历史 0.146.0、0.150.0 alpha 和 Docker 矩阵仍只算旧版兼容基线；
 - Docker L0 的 31 个构建步骤全部通过，覆盖零 `node_modules` 冷启动、真实 Claude marketplace 安装缓存、SQLite 首次写入、语义搜索降级和 v1 数据库迁移；ShellCheck 0.11.0 也通过了仓库全部 shell 文件。
 
 旧矩阵曾在独立 0.146.0 和 Desktop 内置 0.150.0 alpha 上通过。由于 Hook definition 和 runtime digest 已变化，这些结果只说明宿主基础兼容，不是 `1.0.5` 发布证据。
