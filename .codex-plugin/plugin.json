@@ -1,6 +1,6 @@
 {
   "name": "tmb",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Codex adapter for project-bound TMB planning, explicit Agent setup, and bounded repository-write Hooks.",
   "author": {
     "name": "trustmybot",

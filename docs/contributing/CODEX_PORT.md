@@ -270,9 +270,11 @@ environment. It resolves the canonical worktree root with fixed `/usr/bin/git`
 and sanitized Git configuration, so a repository shim stays rejected from a
 nested cwd. Failure to resolve a trusted Node executable must deny the call.
 
-The primary checkout policy is an allowlist. Unknown tools, unknown payloads,
-scripts, interpreters, package commands, compound shell syntax, redirection,
-direct write tools, and `apply_patch` deny. The fixed 15-tool TMB MCP surface
+Protected branches use a read-only allowlist plus one recovery operation:
+creating a recognized feature branch with `git switch -c`, `git switch
+--create`, or `git checkout -b`. Unknown tools, unknown payloads, scripts,
+interpreters, compound shell syntax, redirection, and direct write tools deny.
+The fixed 15-tool TMB MCP surface
 remains available only under an exact observed host prefix, when its canonical
 `project_root` matches the current branch-backed checkout, and when no
 project-level `.codex/config.toml` exists between the cwd and repository root.
@@ -280,22 +282,29 @@ The Hook event does not carry separate provider identity, so user or enterprise
 same-name server composition must be requalified for each supported host. Its server
 and materializer continue to enforce their own project write boundaries.
 
-In a branch-backed linked worktree, `apply_patch` may touch an ordinary path
-only after every add, update, delete, and move target passes canonical
-containment. Reject detached worktrees, absolute and parent paths, symbolic or
-hard-link aliases, mixed-case reserved paths, parse failures, Git/TMB state,
-Hook configuration, and the two materialized Agent files. A small
-validation-command allowlist is separate from this guarantee. Go test targets
+In a branch-backed primary checkout or linked worktree, a recognized feature
+branch may use `apply_patch` only after every add, update, delete, and move target
+passes canonical containment. Reject protected branches, detached worktrees,
+absolute and parent paths, symbolic or hard-link aliases, mixed-case reserved
+paths, parse failures, Git/TMB state, Hook configuration, and the two
+materialized Agent files. A small validation-command allowlist is separate from
+this guarantee. Go test targets
 must use explicit local forms such as `.` or `./...`; package names, `all`, and
 `std` are outside the allowlist. Fixed command signatures run only from the
 worktree root; direct test paths resolve from the actual Hook cwd and must stay
 inside the worktree. Approved scripts and their children still rely on the host
 sandbox.
 
-All checkouts deny direct Git and forge mutations. Bare shells, REPLs, TTY
-shapes, later stdin, code-mode wrappers, and model-driven collaboration spawn
-also deny. Do not allow collaboration spawn until a fixed host build proves the
-child receives the same Hook before its first tool call.
+Recognized feature branches have a bounded delivery lane: explicit-path
+`git add`, explicit-path `git restore --staged`, one-message `git commit`, a
+non-force push of the current branch to `origin`, `gh pr create/edit/ready`, and
+`glab mr create`. Shared branches, broad staging, merge/rebase/reset, force-push,
+PR/MR merge, remote Issue writes, and every other Git/forge mutation deny. The
+Hook does not parse Human approval text or persist an approval token; the main
+task carries the Human's original directive, as in the Claude Code flow. Bare
+shells, REPLs, TTY shapes, later stdin, code-mode wrappers, and model-driven
+collaboration spawn also deny. Do not allow collaboration spawn until a fixed
+host build proves the child receives the same Hook before its first tool call.
 
 Only the observed exact `Bash {command: string}` shell shape is eligible for the
 read and validation allowlists. Path-qualified executables, extra execution
@@ -325,18 +334,19 @@ working tree into a profile used for release evidence.
 2. Install through the normal local Marketplace flow. Resolve the installed
    cache path and compare the manifest, dispatcher, and policy bytes with the
    candidate.
-3. In a disposable primary checkout, attempt canonical patch, redirected shell,
-   interpreter, wrapper, package/build, Git/forge write, and unknown-tool
-   probes. Hash the target files, index, refs, Git common dir, local bare origin,
-   and fake forge log before and after. Every value must remain unchanged.
-4. In a branch-backed linked worktree, require one valid in-root patch to pass.
-   Absolute, parent, symlink, rename, protected-path, detached, and malformed
-   patches must deny without side effects.
+3. In a disposable protected checkout, attempt canonical patch, redirected
+   shell, interpreter, wrapper, package/build, dangerous Git/forge write, and
+   unknown-tool probes. Hash the target files, index, refs, Git common dir, local
+   bare origin, and fake forge log before and after. Every value must remain
+   unchanged except the separately tested feature-branch creation recovery.
+4. In branch-backed primary and linked feature checkouts, require one valid
+   in-root patch and the bounded delivery sequence to pass. Absolute, parent,
+   symlink, rename, protected-path, detached, broad-stage, force-push, and merge
+   probes must deny without unintended side effects.
 5. Start bare shell and REPL probes. Require denial before a session ID exists;
    no later stdin channel may remain available. Exercise code mode and every
    Bash-like surface exposed by that host.
-6. Test untrusted, modified, disabled, managed-only,
-   `--dangerously-bypass-hook-trust`, and
+6. Test untrusted, modified, disabled, `--dangerously-bypass-hook-trust`, and
    `permission_mode=bypassPermissions` separately. The CLI flag skips trust
    review but still runs the Hook. Permission mode never weakens TMB policy.
 7. Measure one cold invocation and at least 40 warm invocations. Cold must be at
@@ -346,11 +356,11 @@ working tree into a profile used for release evidence.
    task and verify that Scope 4 Skills, MCP tools, Agent files, unrelated profile
    entries, and project state match their before-state.
 
-Any primary source-write side effect, missing installed-cache Hook, post-deny
-execution, persistent receiver, digest fail-open, or Desktop mismatch stops the
-release. A policy edit invalidates the runtime digest and the previous live
-record. Recompute the digest, accept the user re-trust cost, and rerun the full
-matrix.
+Any protected-branch or out-of-lane write side effect, missing installed-cache
+Hook, post-deny execution, persistent receiver, digest fail-open, or Desktop
+mismatch stops the release. A policy edit invalidates the runtime digest and
+the previous live record. Recompute the digest, accept the user re-trust cost,
+and rerun the full matrix.
 
 The repeatable behavior and known limits are recorded in
 [`SCOPE_5_PRD.md`](../adapters/codex/SCOPE_5_PRD.md). Scope 5 never writes

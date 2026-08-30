@@ -126,6 +126,31 @@ assert_deny "$(run_hook "$input")"
 input="$(make_input "$PRIMARY" "Bash" '{"command":"git push origin HEAD"}')"
 assert_deny "$(run_hook "$input")"
 
+test_case "feature-branch delivery is state-gated instead of permanently blocked"
+input="$(make_input "$PRIMARY" "Bash" '{"command":"git switch -c codex/from-main"}')"
+assert_eq "" "$(run_hook "$input")" "protected branch can create a feature branch recovery path"
+input="$(make_input "$PRIMARY" "Bash" '{"command":"git checkout -b feat/from-main"}')"
+assert_eq "" "$(run_hook "$input")" "Claude-compatible checkout -b feature creation is allowed"
+for command in \
+  "git add -- src/tracked.txt" \
+  "git commit -m changed" \
+  "git push -u origin feat/codex-hook-test"; do
+  input="$(make_input "$LINKED" "Bash" "$(jq -nc --arg command "$command" '{command:$command}')")"
+  assert_eq "" "$(run_hook "$input")" "$command is allowed on the current feature branch"
+done
+for command in \
+  "git add ." \
+  "git commit --amend -m changed" \
+  "git push --force origin feat/codex-hook-test" \
+  "git merge main"; do
+  input="$(make_input "$LINKED" "Bash" "$(jq -nc --arg command "$command" '{command:$command}')")"
+  assert_deny "$(run_hook "$input")"
+done
+
+nested_delivery='text(JSON.stringify(await tools.exec_command({"cmd":"git push origin feat/codex-hook-test","login":false})));'
+input="$(make_input "$LINKED" "functions.exec" "$(jq -nc --arg source "$nested_delivery" '$source')")"
+assert_eq "" "$(run_hook "$input")" "nested delivery is checked by the same feature-branch policy"
+
 test_case "linked apply_patch is contained to the canonical worktree"
 valid_patch='*** Begin Patch
 *** Update File: src/tracked.txt

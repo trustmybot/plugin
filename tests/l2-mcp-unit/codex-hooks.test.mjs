@@ -18,6 +18,7 @@ import {
 
 let fixtureRoot;
 let primary;
+let primaryFeature;
 let linked;
 let detached;
 let outside;
@@ -149,6 +150,7 @@ function dispatchWithPolicySource(name, policySource, extraEnv = {}) {
 before(() => {
   fixtureRoot = mkdtempSync(join(tmpdir(), "tmb-codex-hooks-unit-"));
   primary = join(fixtureRoot, "repo");
+  primaryFeature = join(fixtureRoot, "feature-repo");
   linked = join(fixtureRoot, "linked");
   detached = join(fixtureRoot, "detached");
   outside = join(fixtureRoot, "outside");
@@ -166,6 +168,14 @@ before(() => {
   git(primary, "worktree", "add", "-q", "-b", "feat/phase5-test", linked);
   git(primary, "worktree", "add", "-q", "--detach", detached, "HEAD");
   symlinkSync(outside, join(linked, "escape-link"));
+
+  mkdirSync(primaryFeature);
+  git(primaryFeature, "init", "-q", "-b", "codex/phase5-test");
+  mkdirSync(join(primaryFeature, "src"));
+  writeFileSync(join(primaryFeature, "src", "tracked.txt"), "seed\n");
+  writeFileSync(join(primaryFeature, "package.json"), "{}\n");
+  git(primaryFeature, "add", "src/tracked.txt", "package.json");
+  git(primaryFeature, "commit", "-q", "-m", "seed");
 });
 
 after(() => {
@@ -445,7 +455,7 @@ test("Hook-internal Git and reviewed shell commands cannot resolve to repository
   }
 });
 
-test("linked validation entrypoints use a narrow command and action table", async () => {
+test("feature-branch validation entrypoints use a narrow command and action table", async () => {
   const trustedBin = join(fixtureRoot, "trusted-validation-bin");
   const nested = join(linked, "nested-validation-cwd");
   mkdirSync(trustedBin);
@@ -630,32 +640,96 @@ test("shell parsing rejects values that Bash would expand after the Hook decisio
   }
 });
 
-test("all checkout types deny Git and forge mutations", async () => {
-  for (const cwd of [primary, linked]) {
-    for (const command of [
-      "git add src/tracked.txt",
-      "git commit -m changed",
-      "git merge other",
-      "git rebase main",
-      "git reset --hard HEAD",
-      "git checkout -- src/tracked.txt",
-      "git switch main",
-      "git push origin HEAD",
-      "git branch changed",
-      "git tag changed",
-      "git update-ref refs/heads/changed HEAD",
-      "git remote add other /tmp/other",
-      "git submodule add /tmp/other vendor/other",
-      "git worktree add ../other",
-      "git -C . add src/tracked.txt",
-      "gh issue create --title changed",
-      "gh pr merge 1",
-      "glab mr create",
+test("feature branches allow the bounded Claude-style delivery lane", async () => {
+  const trustedBin = join(fixtureRoot, "trusted-delivery-bin");
+  mkdirSync(trustedBin);
+  for (const program of ["gh", "glab"]) {
+    writeFileSync(join(trustedBin, program), "#!/bin/sh\nexit 0\n");
+    chmodSync(join(trustedBin, program), 0o755);
+  }
+
+  const originalHostPath = process.env.TMB_CODEX_HOOK_HOST_PATH;
+  try {
+    process.env.TMB_CODEX_HOOK_HOST_PATH = `${trustedBin}:/usr/bin:/bin`;
+    for (const [cwd, command] of [
+      [primary, "git switch -c codex/from-main"],
+      [primary, "git switch --create fix/from-main"],
+      [primary, "git checkout -b feat/from-main"],
+      [primaryFeature, "git add -- src/tracked.txt"],
+      [primaryFeature, "git add -u -- src/tracked.txt"],
+      [primaryFeature, "git restore --staged -- src/tracked.txt"],
+      [primaryFeature, "git commit -m changed"],
+      [primaryFeature, "git push -u origin codex/phase5-test"],
+      [primaryFeature, "git push origin HEAD:codex/phase5-test"],
+      [linked, "git add -- src/tracked.txt"],
+      [linked, "git commit -m changed"],
+      [linked, "git push origin feat/phase5-test"],
+      [primaryFeature, "gh pr create --base dev --head codex/phase5-test --draft --title changed --body details"],
+      [primaryFeature, "gh pr edit 1183 --body updated"],
+      [primaryFeature, "gh pr ready 1183"],
+      [primaryFeature, "glab mr create --target-branch dev --source-branch codex/phase5-test --draft --title changed --description details"],
     ]) {
       const result = await decision(cwd, "Bash", { command });
-      assert.equal(result.decision, "deny", `${cwd}: ${command}`);
+      assert.equal(result.decision, "allow", `${cwd}: ${command}: ${result.reason ?? ""}`);
     }
+  } finally {
+    if (originalHostPath === undefined) delete process.env.TMB_CODEX_HOOK_HOST_PATH;
+    else process.env.TMB_CODEX_HOOK_HOST_PATH = originalHostPath;
   }
+
+  assert.equal((await decision(
+    primaryFeature,
+    "apply_patch",
+    patch("*** Update File: src/tracked.txt", "@@", "-seed", "+changed"),
+  )).decision, "allow");
+  assert.equal(
+    (await decision(primaryFeature, "Bash", { command: "node --test tests/candidate.test.mjs" })).decision,
+    "allow",
+  );
+});
+
+test("delivery lane remains closed on protected branches and destructive operations", async () => {
+  for (const [cwd, command] of [
+    [primary, "git add -- src/tracked.txt"],
+    [primary, "git commit -m changed"],
+    [primary, "git push origin main"],
+    [primaryFeature, "git add ."],
+    [primaryFeature, "git add -- .git/config"],
+    [primaryFeature, "git add -- .codex/hooks.json"],
+    [primaryFeature, "git commit --amend -m changed"],
+    [primaryFeature, "git commit -m changed --no-verify"],
+    [primaryFeature, "git push --force origin codex/phase5-test"],
+    [primaryFeature, "git push other codex/phase5-test"],
+    [primaryFeature, "git push origin main"],
+    [primaryFeature, "git merge other"],
+    [primaryFeature, "git rebase main"],
+    [primaryFeature, "git reset --hard HEAD"],
+    [primaryFeature, "git checkout -- src/tracked.txt"],
+    [primaryFeature, "git switch main"],
+    [primaryFeature, "git branch changed"],
+    [primaryFeature, "git tag changed"],
+    [primaryFeature, "git update-ref refs/heads/changed HEAD"],
+    [primaryFeature, "git remote add other /tmp/other"],
+    [primaryFeature, "git submodule add /tmp/other vendor/other"],
+    [primaryFeature, "git worktree add ../other"],
+    [primaryFeature, "git -C . add src/tracked.txt"],
+    [primaryFeature, "git switch -c production/changed"],
+    [primaryFeature, "git checkout -b main"],
+    [primaryFeature, "gh issue create --title changed"],
+    [primaryFeature, "gh pr create --base dev --head other --title changed --body details"],
+    [primaryFeature, "gh pr edit 1183 --base main"],
+    [primaryFeature, "gh pr merge 1183"],
+    [primaryFeature, "glab mr merge 1183"],
+  ]) {
+    const result = await decision(cwd, "Bash", { command });
+    assert.equal(result.decision, "deny", `${cwd}: ${command}`);
+  }
+
+  assert.equal((await decision(
+    primary,
+    "apply_patch",
+    patch("*** Update File: src/tracked.txt", "@@", "-seed", "+changed"),
+  )).decision, "deny");
 });
 
 test("persistent command receivers are denied and lifecycle stdin is bounded", async () => {
@@ -810,7 +884,7 @@ test("observed Codex collaboration spawn surface is denied until child inheritan
   assert.match(result.reason, /inheritance has not been qualified/u);
 });
 
-test("primary apply_patch is denied", async () => {
+test("protected-branch apply_patch is denied", async () => {
   const result = await decision(
     primary,
     "apply_patch",

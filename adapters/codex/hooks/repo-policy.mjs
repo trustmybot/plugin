@@ -143,6 +143,27 @@ const ALLOWED_GIT_SUBCOMMANDS = new Set([
   "ls-files",
   "ls-tree",
 ]);
+const PROTECTED_DELIVERY_BRANCHES = new Set([
+  "main",
+  "master",
+  "dev",
+  "develop",
+  "development",
+  "trunk",
+]);
+const DELIVERY_BRANCH_PREFIXES = new Set([
+  "bugfix",
+  "chore",
+  "codex",
+  "docs",
+  "feat",
+  "feature",
+  "fix",
+  "hotfix",
+  "perf",
+  "refactor",
+  "test",
+]);
 const INTERACTIVE_VALIDATION_FLAGS = new Set([
   "--hot",
   "--inspect",
@@ -285,7 +306,7 @@ function parseOrchestrationWrapper(source) {
   }
 }
 
-function evaluateNestedExecCommand(toolInput, repoContext) {
+function evaluateNestedExecCommand(toolInput, repoContext, options) {
   if (!hasOnlyKeys(toolInput, EXEC_COMMAND_KEYS)
     || typeof toolInput.cmd !== "string"
     || toolInput.login !== false
@@ -299,7 +320,7 @@ function evaluateNestedExecCommand(toolInput, repoContext) {
       || canonicalExistingPath(toolInput.workdir) !== repoContext.cwd)) {
     return deny("nested exec_command workdir must match the current canonical checkout directory");
   }
-  return evaluateShell({ command: toolInput.cmd }, repoContext);
+  return evaluateShell({ command: toolInput.cmd }, repoContext, options);
 }
 
 async function evaluateOrchestrationWrapper(input, options, repoContext) {
@@ -311,7 +332,7 @@ async function evaluateOrchestrationWrapper(input, options, repoContext) {
     return deny("nested orchestration and lifecycle calls are not allowed");
   }
   if (nestedCall.toolName === "exec_command") {
-    return evaluateNestedExecCommand(nestedCall.toolInput, repoContext);
+    return evaluateNestedExecCommand(nestedCall.toolInput, repoContext, options);
   }
   const nestedToolInput = nestedCall.toolName === "apply_patch"
     ? { command: nestedCall.toolInput }
@@ -591,7 +612,7 @@ function validatePatchTarget(root, cwd, rawPath, options) {
 
   const candidate = resolve(cwd, rawPath);
   if (!isWithin(root, candidate)) {
-    return deny("patch target escapes the linked worktree");
+    return deny("patch target escapes the current checkout");
   }
   if (hasUnsafeLinkComponent(root, candidate)) {
     return deny("patch target crosses a symbolic link or aliases a hard-linked file");
@@ -608,7 +629,7 @@ function validatePatchTarget(root, cwd, rawPath, options) {
 
   const ancestor = nearestExistingAncestor(candidate);
   if (!ancestor || !isWithin(root, ancestor)) {
-    return deny("patch target cannot be resolved inside the linked worktree");
+    return deny("patch target cannot be resolved inside the current checkout");
   }
   if (isProtectedPath(root, candidate, options)) {
     return deny("patch target is a protected TMB or Git path");
@@ -779,6 +800,247 @@ function isForgeRead(tokens) {
   return false;
 }
 
+function isSafeBranchName(branch) {
+  return typeof branch === "string"
+    && branch.length > 0
+    && branch.length <= 255
+    && !branch.startsWith("-")
+    && !branch.startsWith("/")
+    && !branch.endsWith("/")
+    && !branch.endsWith(".")
+    && !branch.endsWith(".lock")
+    && !branch.includes("..")
+    && !branch.includes("@{")
+    && !branch.includes("//")
+    && !/[\s~^:?*[\\\x00-\x1f\x7f]/u.test(branch);
+}
+
+function isDeliveryBranch(branch) {
+  if (!isSafeBranchName(branch) || PROTECTED_DELIVERY_BRANCHES.has(branch.toLowerCase())) {
+    return false;
+  }
+  const separator = branch.indexOf("/");
+  return separator > 0 && DELIVERY_BRANCH_PREFIXES.has(branch.slice(0, separator).toLowerCase());
+}
+
+function validateDeliveryPath(rawPath, repoContext, options) {
+  if (typeof rawPath !== "string" || rawPath.length === 0 || rawPath.startsWith("-")
+    || isAbsolute(rawPath) || rawPath.includes("\\")
+    || "*?[]{}~".split("").some((char) => rawPath.includes(char))) {
+    return deny("delivery paths must be explicit repository-relative paths");
+  }
+  const segments = rawPath.split("/");
+  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
+    return deny("delivery path contains an unsafe path segment");
+  }
+  const candidate = resolve(repoContext.cwd, rawPath);
+  if (!isWithin(repoContext.root, candidate) || hasUnsafeLinkComponent(repoContext.root, candidate)) {
+    return deny("delivery path escapes or aliases the current checkout");
+  }
+  if (isProtectedPath(repoContext.root, candidate, options)) {
+    return deny("delivery path is protected TMB or Git state");
+  }
+  try {
+    if (lstatSync(candidate).isDirectory()) {
+      return deny("delivery staging requires explicit file paths, not directories");
+    }
+  } catch (error) {
+    if (!(error && typeof error === "object" && error.code === "ENOENT")) {
+      return deny("delivery path cannot be inspected safely");
+    }
+  }
+  const ancestor = nearestExistingAncestor(candidate);
+  if (!ancestor || !isWithin(repoContext.root, ancestor)) {
+    return deny("delivery path cannot be resolved inside the checkout");
+  }
+  return DECISION_ALLOW;
+}
+
+function validateDeliveryPaths(paths, repoContext, options) {
+  if (!Array.isArray(paths) || paths.length === 0) {
+    return deny("delivery staging requires at least one explicit file path");
+  }
+  for (const path of paths) {
+    const result = validateDeliveryPath(path, repoContext, options);
+    if (result.decision === "deny") return result;
+  }
+  return DECISION_ALLOW;
+}
+
+function protectedBranchDeny(branch) {
+  return deny(`delivery is blocked on protected branch ${branch}; create a feature branch with git switch -c codex/<name>`);
+}
+
+function evaluateGitDelivery(tokens, repoContext, options) {
+  if (!isTrustedExecutable("git", repoContext)) {
+    return deny("Git delivery executable is not trusted");
+  }
+  const args = tokens.slice(1);
+  const [subcommand] = args;
+
+  const createsDeliveryBranch = args.length === 3
+    && ((subcommand === "switch" && ["-c", "--create"].includes(args[1]))
+      || (subcommand === "checkout" && args[1] === "-b"));
+  if (createsDeliveryBranch) {
+    return isDeliveryBranch(args[2])
+      ? DECISION_ALLOW
+      : deny("new delivery branch name is missing, protected, or malformed");
+  }
+
+  if (subcommand === "restore" && args[1] === "--staged" && args[2] === "--") {
+    return validateDeliveryPaths(args.slice(3), repoContext, options);
+  }
+
+  if (!isDeliveryBranch(repoContext.branch)) {
+    return protectedBranchDeny(repoContext.branch);
+  }
+
+  if (subcommand === "add") {
+    const pathMarker = args.indexOf("--");
+    if (pathMarker < 1 || pathMarker > 2) {
+      return deny("git add requires explicit file paths after --");
+    }
+    if (pathMarker === 2 && !["-u", "--update"].includes(args[1])) {
+      return deny("git add option is outside the bounded delivery lane");
+    }
+    return validateDeliveryPaths(args.slice(pathMarker + 1), repoContext, options);
+  }
+
+  if (subcommand === "commit") {
+    return args.length === 3
+      && ["-m", "--message"].includes(args[1])
+      && typeof args[2] === "string"
+      && args[2].trim().length > 0
+      ? DECISION_ALLOW
+      : deny("git commit is limited to one explicit -m/--message value without amend or bypass flags");
+  }
+
+  if (subcommand === "push") {
+    let cursor = 1;
+    if (["-u", "--set-upstream"].includes(args[cursor])) cursor += 1;
+    const remote = args[cursor];
+    const refspec = args[cursor + 1];
+    const allowedRefspecs = new Set([
+      repoContext.branch,
+      "HEAD",
+      `HEAD:${repoContext.branch}`,
+    ]);
+    return args.length === cursor + 2
+      && remote === "origin"
+      && allowedRefspecs.has(refspec)
+      ? DECISION_ALLOW
+      : deny("git push is limited to the current feature branch on origin without force or extra refspecs");
+  }
+
+  return deny("Git mutation is outside the bounded feature-branch delivery lane");
+}
+
+function parseForgeOptions(args, valueFlags, booleanFlags, positionalLimit = 0) {
+  const values = new Map();
+  const booleans = new Set();
+  const positionals = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+    if (!token.startsWith("--")) {
+      positionals.push(token);
+      if (positionals.length > positionalLimit) return null;
+      continue;
+    }
+    const equals = token.indexOf("=");
+    const flag = equals < 0 ? token : token.slice(0, equals);
+    if (booleanFlags.has(flag)) {
+      if (equals >= 0 || booleans.has(flag)) return null;
+      booleans.add(flag);
+      continue;
+    }
+    if (!valueFlags.has(flag) || values.has(flag)) return null;
+    const value = equals >= 0 ? token.slice(equals + 1) : args[index += 1];
+    if (typeof value !== "string" || value.length === 0 || value.startsWith("--")) return null;
+    values.set(flag, value);
+  }
+  return { booleans, positionals, values };
+}
+
+function numericPrTarget(value) {
+  return value === undefined || /^\d+$/u.test(value);
+}
+
+function evaluateGhDelivery(tokens, repoContext) {
+  const [, group, action, ...args] = tokens;
+  if (group !== "pr") return deny("GitHub writes are limited to pull-request delivery");
+
+  if (action === "create") {
+    const parsed = parseForgeOptions(
+      args,
+      new Set(["--base", "--head", "--title", "--body"]),
+      new Set(["--draft", "--no-maintainer-edit"]),
+    );
+    const base = parsed?.values.get("--base");
+    const head = parsed?.values.get("--head");
+    return parsed
+      && isSafeBranchName(base)
+      && base !== head
+      && head === repoContext.branch
+      ? DECISION_ALLOW
+      : deny("gh pr create requires explicit --base and --head matching the current feature branch");
+  }
+
+  if (action === "edit") {
+    const parsed = parseForgeOptions(
+      args,
+      new Set(["--title", "--body"]),
+      new Set(),
+      1,
+    );
+    return parsed
+      && numericPrTarget(parsed.positionals[0])
+      && (parsed.values.has("--title") || parsed.values.has("--body"))
+      ? DECISION_ALLOW
+      : deny("gh pr edit is limited to title or body updates on the current or a numeric pull request");
+  }
+
+  if (action === "ready") {
+    return args.length <= 1 && numericPrTarget(args[0])
+      ? DECISION_ALLOW
+      : deny("gh pr ready accepts only the current or a numeric pull request");
+  }
+
+  return deny("GitHub pull-request mutation is outside create, edit, or ready delivery");
+}
+
+function evaluateGlabDelivery(tokens, repoContext) {
+  const [, group, action, ...args] = tokens;
+  if (group !== "mr" || action !== "create") {
+    return deny("GitLab writes are limited to merge-request creation");
+  }
+  const parsed = parseForgeOptions(
+    args,
+    new Set(["--target-branch", "--source-branch", "--title", "--description"]),
+    new Set(["--draft", "--yes"]),
+  );
+  const base = parsed?.values.get("--target-branch");
+  const head = parsed?.values.get("--source-branch");
+  return parsed
+    && isSafeBranchName(base)
+    && base !== head
+    && head === repoContext.branch
+    ? DECISION_ALLOW
+    : deny("glab mr create requires explicit target and source matching the current feature branch");
+}
+
+function evaluateDeliveryCommand(tokens, repoContext, options) {
+  const program = tokens[0];
+  if (!["git", "gh", "glab"].includes(program)) return null;
+  if (program === "git") return evaluateGitDelivery(tokens, repoContext, options);
+  if (!isTrustedExecutable(program, repoContext)) {
+    return deny("forge delivery executable is not trusted");
+  }
+  if (!isDeliveryBranch(repoContext.branch)) return protectedBranchDeny(repoContext.branch);
+  return program === "gh"
+    ? evaluateGhDelivery(tokens, repoContext)
+    : evaluateGlabDelivery(tokens, repoContext);
+}
+
 function isTrustedExecutable(program, repoContext) {
   if (TRUSTED_SHELL_BUILTINS.has(program)) {
     return true;
@@ -921,7 +1183,7 @@ function isSafeValidationPath(rawPath, cwd, root) {
   return isWithin(root, candidate) && !hasUnsafeLinkComponent(root, candidate);
 }
 
-function isLinkedValidationCommand(tokens, repoContext) {
+function isApprovedValidationCommand(tokens, repoContext) {
   const program = tokens[0];
   if (program.includes("/") || program.includes("\\") || !isTrustedExecutable(program, repoContext)) {
     return false;
@@ -959,7 +1221,7 @@ function isLinkedValidationCommand(tokens, repoContext) {
   return false;
 }
 
-function evaluateShell(toolInput, repoContext) {
+function evaluateShell(toolInput, repoContext, options = {}) {
   const command = commandFromToolInput(toolInput);
   if (command === null) {
     return deny("shell payload has no auditable command");
@@ -984,12 +1246,14 @@ function evaluateShell(toolInput, repoContext) {
   if (isReviewedReadCommand(tokens, repoContext)) {
     return DECISION_ALLOW;
   }
-  if (repoContext.kind === "linked" && isLinkedValidationCommand(tokens, repoContext)) {
+  if (isDeliveryBranch(repoContext.branch) && isApprovedValidationCommand(tokens, repoContext)) {
     return DECISION_ALLOW;
   }
-  return deny(repoContext.kind === "primary"
-    ? "primary checkout permits reviewed read-only commands only"
-    : "linked worktree command is not an approved non-interactive validation entrypoint");
+  const deliveryDecision = evaluateDeliveryCommand(tokens, repoContext, options);
+  if (deliveryDecision) return deliveryDecision;
+  return deny(isDeliveryBranch(repoContext.branch)
+    ? "feature-branch command is outside reviewed reads, contained patches, validation, or delivery"
+    : "protected checkout permits reviewed read-only commands and feature-branch creation only");
 }
 
 function isTmbMcpTool(toolName) {
@@ -1078,7 +1342,7 @@ export async function evaluatePreToolUse(input, options = {}) {
     return deny("code-mode wrappers are outside the auditable command surface");
   }
   if (DIRECT_WRITE_TOOLS.has(toolName)) {
-    return deny("direct write tools are not allowed; use contained apply_patch in a linked worktree");
+    return deny("direct write tools are not allowed; use contained apply_patch on a feature branch");
   }
   if (toolName === "agent" || squashedToolName.endsWith("spawnagent")) {
     return deny("subagent Hook inheritance has not been qualified for this host");
@@ -1099,8 +1363,8 @@ export async function evaluatePreToolUse(input, options = {}) {
     return DECISION_ALLOW;
   }
   if (isApplyPatchTool(toolName)) {
-    if (repoContext.kind !== "linked") {
-      return deny("apply_patch is allowed only in a linked worktree");
+    if (!isDeliveryBranch(repoContext.branch)) {
+      return protectedBranchDeny(repoContext.branch);
     }
     const command = commandFromToolInput(input.tool_input);
     if (typeof command !== "string") {
@@ -1119,7 +1383,7 @@ export async function evaluatePreToolUse(input, options = {}) {
     return DECISION_ALLOW;
   }
   if (isShellTool(toolName, input.tool_name)) {
-    return evaluateShell(input.tool_input, repoContext);
+    return evaluateShell(input.tool_input, repoContext, options);
   }
   return deny("tool name or payload shape is not on the reviewed allowlist");
 }
