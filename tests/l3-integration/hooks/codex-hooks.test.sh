@@ -97,10 +97,33 @@ else
 fi
 assert_eq "absent" "$alternate_side_effect" "no alternate write side effect"
 
-test_case "persistent receiver and follow-up stdin surfaces are denied"
+test_case "persistent receivers stay denied while lifecycle control is bounded"
 input="$(make_input "$LINKED" "exec_command" '{"cmd":"bash","tty":true}')"
 assert_deny "$(run_hook "$input")"
+for lifecycle_input in \
+  '{"session_id":42}' \
+  '{"session_id":42,"chars":""}' \
+  '{"session_id":42,"chars":"\u0003"}'; do
+  input="$(make_input "$LINKED" "write_stdin" "$lifecycle_input")"
+  assert_eq "" "$(run_hook "$input")" "bounded lifecycle input is allowed"
+done
 input="$(make_input "$LINKED" "write_stdin" '{"session_id":42,"chars":"git push\n"}')"
+assert_deny "$(run_hook "$input")"
+
+test_case "diagnostic orchestration and exact TMB recovery stay reachable"
+input="$(make_input "$PRIMARY" "functions.exec" '"text(JSON.stringify(await tools.exec_command({\"cmd\":\"pwd\",\"login\":false})));"')"
+assert_eq "" "$(run_hook "$input")" "statically audited read-only orchestration is allowed"
+input="$(make_input "$PRIMARY" "functions.exec" '"text(JSON.stringify(await tools.exec_command({\"cmd\":\"touch blocked\",\"login\":false})));"')"
+assert_deny "$(run_hook "$input")"
+input="$(make_input "$PRIMARY" "functions.exec" '"text(true);"')"
+assert_deny "$(run_hook "$input")"
+input="$(make_input "$PRIMARY" "mcp__codex_app__read_thread_terminal" '{}')"
+assert_eq "" "$(run_hook "$input")" "read-only terminal diagnostic is allowed"
+input="$(make_input "$PRIMARY" "mcp__codex_app__uninstall_plugin" '{"plugin":"tmb@trustmybot-local"}')"
+assert_eq "" "$(run_hook "$input")" "exact TMB uninstall recovery is allowed"
+input="$(make_input "$PRIMARY" "mcp__codex_app__uninstall_plugin" '{"plugin":"another-plugin"}')"
+assert_deny "$(run_hook "$input")"
+input="$(make_input "$PRIMARY" "Bash" '{"command":"git push origin HEAD"}')"
 assert_deny "$(run_hook "$input")"
 
 test_case "linked apply_patch is contained to the canonical worktree"
@@ -141,21 +164,21 @@ nested_shadow_output="$(cd "$PRIMARY/src" && PATH="$STUB_BIN:/usr/bin:/bin" PLUG
 assert_eq "" "$nested_shadow_output" "repository-root Node shim is rejected from a nested cwd"
 assert_eq "false" "$([ -e "$NODE_SHADOW_MARKER" ] && echo true || echo false)" "nested cwd did not execute the repository Node shim"
 
-test_case "manifest falls back when Hook PWD cannot attest the payload cwd"
+test_case "manifest routes once when Hook PWD cannot attest the payload cwd"
 OTHER_REPO="$FIXTURE/other-repo"
 mkdir -p "$OTHER_REPO"
 git -C "$OTHER_REPO" init -q -b main
 other_repo_output="$(cd "$OTHER_REPO" && PLUGIN_ROOT="$PLUGIN_ROOT" /bin/sh -c "$MANIFEST_COMMAND" <<< "$input")"
-assert_eq "" "$other_repo_output" "different checkout PWD falls back to payload cwd resolution"
+assert_eq "" "$other_repo_output" "different checkout PWD routes to payload cwd resolution"
 outside_repo_output="$(cd "$FIXTURE" && PLUGIN_ROOT="$PLUGIN_ROOT" /bin/sh -c "$MANIFEST_COMMAND" <<< "$input")"
-assert_eq "" "$outside_repo_output" "non-repository PWD falls back to payload cwd resolution"
+assert_eq "" "$outside_repo_output" "non-repository PWD routes to payload cwd resolution"
 outside_repo_pwd_input="$(make_input "$PRIMARY" "Bash" '{"command":"pwd"}')"
 outside_repo_pwd_output="$(cd "$FIXTURE" && PLUGIN_ROOT="$PLUGIN_ROOT" /bin/sh -c "$MANIFEST_COMMAND" <<< "$outside_repo_pwd_input")"
-assert_eq "" "$outside_repo_pwd_output" "fallback resolves the branch-backed payload cwd for a safe shell command"
+assert_eq "" "$outside_repo_pwd_output" "worker resolves the branch-backed payload cwd for a safe shell command"
 outside_repo_write_input="$(make_input "$PRIMARY" "Bash" '{"command":"touch src/pwd-bypass"}')"
 outside_repo_write_output="$(cd "$FIXTURE" && PLUGIN_ROOT="$PLUGIN_ROOT" /bin/sh -c "$MANIFEST_COMMAND" <<< "$outside_repo_write_input")"
 assert_deny "$outside_repo_write_output"
-assert_eq "false" "$([ -e "$PRIMARY/src/pwd-bypass" ] && echo true || echo false)" "fallback keeps primary writes denied"
+assert_eq "false" "$([ -e "$PRIMARY/src/pwd-bypass" ] && echo true || echo false)" "worker keeps primary writes denied"
 
 MANAGED_BIN="$FIXTURE/.asdf/shims"
 mkdir -p "$MANAGED_BIN"

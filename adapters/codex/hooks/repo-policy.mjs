@@ -43,6 +43,15 @@ const READ_ONLY_TOOLS = new Set([
   "get_goal",
   "request_user_input",
 ]);
+const CODEX_DIAGNOSTIC_TOOLS = new Set([
+  "mcp__codex_app__get_handoff_status",
+  "mcp__codex_app__list_projects",
+  "mcp__codex_app__list_threads",
+  "mcp__codex_app__load_workspace_dependencies",
+  "mcp__codex_app__read_thread",
+  "mcp__codex_app__read_thread_terminal",
+  "mcp__codex_app__wait_threads",
+]);
 const SHELL_TOOLS = new Set([
   "bash",
 ]);
@@ -62,10 +71,32 @@ const DIRECT_WRITE_TOOLS = new Set([
   "notebook_edit",
 ]);
 const CODE_MODE_TOOLS = new Set([
-  "functions.exec",
   "code_mode",
   "js_repl",
   "javascript_repl",
+]);
+const NESTED_LIFECYCLE_TOOLS = new Set([
+  "exec",
+  "functions_exec",
+  "functions_wait",
+  "wait",
+  "write_stdin",
+]);
+const EXEC_COMMAND_KEYS = new Set([
+  "cmd",
+  "login",
+  "max_output_tokens",
+  "tty",
+  "workdir",
+  "yield_time_ms",
+]);
+const ORCHESTRATION_WRAPPER_PATTERN = /^\s*text\(JSON\.stringify\(await tools\.([A-Za-z][A-Za-z0-9_]*)\(([\s\S]*)\)\)\);\s*$/u;
+const TMB_PLUGIN_SELECTORS = new Set([
+  "tmb",
+  "tmb@trustmybot",
+  "tmb@trustmybot-local",
+  "tmb@trustmybot-rc",
+  "TrustMyBot",
 ]);
 const PERSISTENT_PROGRAMS = new Set([
   "bash",
@@ -197,6 +228,111 @@ function deny(reason) {
 
 function normalizeToolName(toolName) {
   return OBSERVED_TOOL_NAME_ALIASES.get(toolName) ?? toolName;
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasOnlyKeys(value, allowedKeys) {
+  return isPlainObject(value) && Object.keys(value).every((key) => allowedKeys.has(key));
+}
+
+function optionalPositiveInteger(value) {
+  return value === undefined || (Number.isInteger(value) && value > 0);
+}
+
+function validateLifecycleTool(toolName, toolInput) {
+  if (toolName === "functions.wait") {
+    const allowedKeys = new Set(["cell_id", "max_tokens", "terminate", "yield_time_ms"]);
+    if (!hasOnlyKeys(toolInput, allowedKeys)
+      || typeof toolInput.cell_id !== "string"
+      || toolInput.cell_id.length === 0
+      || !optionalPositiveInteger(toolInput.max_tokens)
+      || !optionalPositiveInteger(toolInput.yield_time_ms)
+      || (toolInput.terminate !== undefined && typeof toolInput.terminate !== "boolean")) {
+      return deny("worker wait payload is outside the bounded lifecycle surface");
+    }
+    return DECISION_ALLOW;
+  }
+  if (toolName === "write_stdin") {
+    const allowedKeys = new Set(["chars", "max_output_tokens", "session_id", "yield_time_ms"]);
+    if (!hasOnlyKeys(toolInput, allowedKeys)
+      || !Number.isInteger(toolInput.session_id)
+      || toolInput.session_id < 0
+      || !optionalPositiveInteger(toolInput.max_output_tokens)
+      || !optionalPositiveInteger(toolInput.yield_time_ms)
+      || (toolInput.chars !== undefined && toolInput.chars !== "" && toolInput.chars !== "\u0003")) {
+      return deny("follow-up process control is limited to polling or one interrupt byte");
+    }
+    return DECISION_ALLOW;
+  }
+  return null;
+}
+
+function parseOrchestrationWrapper(source) {
+  if (typeof source !== "string" || Buffer.byteLength(source, "utf8") > MAX_COMMAND_BYTES) {
+    return null;
+  }
+  const match = ORCHESTRATION_WRAPPER_PATTERN.exec(source);
+  if (!match) {
+    return null;
+  }
+  try {
+    return { toolName: match[1], toolInput: JSON.parse(match[2]) };
+  } catch {
+    return null;
+  }
+}
+
+function evaluateNestedExecCommand(toolInput, repoContext) {
+  if (!hasOnlyKeys(toolInput, EXEC_COMMAND_KEYS)
+    || typeof toolInput.cmd !== "string"
+    || toolInput.login !== false
+    || (toolInput.tty !== undefined && toolInput.tty !== false)
+    || !optionalPositiveInteger(toolInput.max_output_tokens)
+    || !optionalPositiveInteger(toolInput.yield_time_ms)) {
+    return deny("nested exec_command payload is outside the reviewed non-login shell surface");
+  }
+  if (toolInput.workdir !== undefined
+    && (typeof toolInput.workdir !== "string"
+      || canonicalExistingPath(toolInput.workdir) !== repoContext.cwd)) {
+    return deny("nested exec_command workdir must match the current canonical checkout directory");
+  }
+  return evaluateShell({ command: toolInput.cmd }, repoContext);
+}
+
+async function evaluateOrchestrationWrapper(input, options, repoContext) {
+  const nestedCall = parseOrchestrationWrapper(input.tool_input);
+  if (!nestedCall) {
+    return deny("orchestration requires one canonical, statically auditable nested tool call");
+  }
+  if (NESTED_LIFECYCLE_TOOLS.has(nestedCall.toolName)) {
+    return deny("nested orchestration and lifecycle calls are not allowed");
+  }
+  if (nestedCall.toolName === "exec_command") {
+    return evaluateNestedExecCommand(nestedCall.toolInput, repoContext);
+  }
+  const nestedToolInput = nestedCall.toolName === "apply_patch"
+    ? { command: nestedCall.toolInput }
+    : nestedCall.toolInput;
+  return evaluatePreToolUse({
+    ...input,
+    tool_name: nestedCall.toolName,
+    tool_input: nestedToolInput,
+  }, options);
+}
+
+function validateRecoveryTool(toolName, toolInput) {
+  if (toolName !== "mcp__codex_app__uninstall_plugin") {
+    return null;
+  }
+  if (!hasOnlyKeys(toolInput, new Set(["plugin"]))
+    || typeof toolInput.plugin !== "string"
+    || !TMB_PLUGIN_SELECTORS.has(toolInput.plugin)) {
+    return deny("plugin recovery is limited to uninstalling TrustMyBot");
+  }
+  return DECISION_ALLOW;
 }
 
 function runGit(cwd, args, timeout = REPO_RESOLUTION_TIMEOUT_MS) {
@@ -920,8 +1056,23 @@ export async function evaluatePreToolUse(input, options = {}) {
   if (READ_ONLY_TOOLS.has(toolName)) {
     return DECISION_ALLOW;
   }
-  if (toolName === "write_stdin") {
-    return deny("follow-up stdin injection is not allowed");
+  if (CODEX_DIAGNOSTIC_TOOLS.has(toolName)) {
+    return DECISION_ALLOW;
+  }
+  if (toolName === "functions.exec") {
+    repoContext ??= resolveRepoContext(input.cwd, options);
+    if (repoContext.kind === "outside" || repoContext.kind === "detached") {
+      return deny("tool call is not attached to a branch-backed Git checkout");
+    }
+    return evaluateOrchestrationWrapper(input, options, repoContext);
+  }
+  const lifecycleDecision = validateLifecycleTool(toolName, input.tool_input);
+  if (lifecycleDecision) {
+    return lifecycleDecision;
+  }
+  const recoveryDecision = validateRecoveryTool(toolName, input.tool_input);
+  if (recoveryDecision) {
+    return recoveryDecision;
   }
   if (CODE_MODE_TOOLS.has(toolName)) {
     return deny("code-mode wrappers are outside the auditable command surface");

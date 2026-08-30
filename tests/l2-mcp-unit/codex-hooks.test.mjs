@@ -658,7 +658,7 @@ test("all checkout types deny Git and forge mutations", async () => {
   }
 });
 
-test("persistent command receivers and later stdin are always denied", async () => {
+test("persistent command receivers are denied and lifecycle stdin is bounded", async () => {
   for (const command of [
     "bash",
     "sh",
@@ -680,7 +680,99 @@ test("persistent command receivers and later stdin are always denied", async () 
     assert.equal(result.decision, "deny", command);
   }
 
-  assert.equal((await decision(linked, "write_stdin", { session_id: 42, chars: "git push\n" })).decision, "deny");
+  for (const toolInput of [
+    { session_id: 42 },
+    { session_id: 42, chars: "" },
+    { session_id: 42, chars: "\u0003" },
+    { session_id: 42, chars: "", yield_time_ms: 5_000, max_output_tokens: 2_000 },
+  ]) {
+    assert.equal((await decision(linked, "write_stdin", toolInput)).decision, "allow", JSON.stringify(toolInput));
+  }
+  for (const toolInput of [
+    { session_id: 42, chars: "git push\n" },
+    { session_id: 42, chars: "\u0003\n" },
+    { session_id: "42", chars: "" },
+    { session_id: 42, chars: "", unexpected: true },
+  ]) {
+    assert.equal((await decision(linked, "write_stdin", toolInput)).decision, "deny", JSON.stringify(toolInput));
+  }
+});
+
+test("audited orchestration, diagnostics, and TMB uninstall recovery remain reachable", async () => {
+  for (const cwd of [primary, linked]) {
+    for (const [toolName, toolInput] of [
+      ["functions.exec", 'text(JSON.stringify(await tools.exec_command({"cmd":"pwd","login":false})));'],
+      ["functions.wait", { cell_id: "cell-1", yield_time_ms: 1_000, max_tokens: 2_000 }],
+      ["mcp__codex_app__read_thread_terminal", {}],
+      ["mcp__codex_app__read_thread", { threadId: "thread-1" }],
+      ["mcp__codex_app__uninstall_plugin", { plugin: "tmb@trustmybot-local" }],
+    ]) {
+      const result = await decision(cwd, toolName, toolInput);
+      assert.equal(result.decision, "allow", `${cwd}: ${toolName}`);
+    }
+  }
+
+  for (const toolInput of [
+    {},
+    { plugin: "another-plugin" },
+    { plugin: "tmb@trustmybot-local", unexpected: true },
+  ]) {
+    assert.equal(
+      (await decision(primary, "mcp__codex_app__uninstall_plugin", toolInput)).decision,
+      "deny",
+      JSON.stringify(toolInput),
+    );
+  }
+
+  for (const [label, source] of [
+    ["nested write", 'text(JSON.stringify(await tools.exec_command({"cmd":"touch blocked","login":false})));'],
+    ["nested Git write", 'text(JSON.stringify(await tools.exec_command({"cmd":"git push origin HEAD","login":false})));'],
+    ["login shell default", 'text(JSON.stringify(await tools.exec_command({"cmd":"pwd"})));'],
+    ["dynamic tool lookup", 'const name = "exec_command"; text(JSON.stringify(await tools[name]({"cmd":"pwd","login":false})));'],
+    ["nested lifecycle", 'text(JSON.stringify(await tools.wait({"cell_id":"cell-1"})));'],
+    ["unwrapped source", "text(true);"],
+  ]) {
+    assert.equal(
+      (await decision(primary, "functions.exec", source)).decision,
+      "deny",
+      `functions.exec: ${label}`,
+    );
+  }
+
+  const nestedPatch = 'text(JSON.stringify(await tools.apply_patch(' + JSON.stringify(`*** Begin Patch
+*** Update File: src/tracked.txt
+@@
+-seed
++changed
+*** End Patch`) + ')));';
+  assert.equal((await decision(primary, "functions.exec", nestedPatch)).decision, "deny");
+  assert.equal((await decision(linked, "functions.exec", nestedPatch)).decision, "allow");
+
+  for (const [label, toolInput] of [
+    ["non-string", {}],
+    ["oversize", "x".repeat(MAX_COMMAND_BYTES + 1)],
+  ]) {
+    assert.equal(
+      (await decision(primary, "functions.exec", toolInput)).decision,
+      "deny",
+      `functions.exec: ${label}`,
+    );
+  }
+
+  for (const toolInput of [
+    {},
+    { cell_id: "" },
+    { cell_id: "cell-1", unexpected: true },
+    { cell_id: "cell-1", yield_time_ms: 0 },
+    { cell_id: "cell-1", max_tokens: -1 },
+    { cell_id: "cell-1", terminate: "true" },
+  ]) {
+    assert.equal(
+      (await decision(primary, "functions.wait", toolInput)).decision,
+      "deny",
+      JSON.stringify(toolInput),
+    );
+  }
 });
 
 test("Bash accepts only the observed exact command payload shape", async () => {
@@ -700,9 +792,9 @@ test("Bash accepts only the observed exact command payload shape", async () => {
   }
 });
 
-test("direct write tools and code-mode wrappers are denied", async () => {
+test("direct write tools and executable code-mode surfaces are denied", async () => {
   for (const cwd of [primary, linked]) {
-    for (const toolName of ["Edit", "Write", "MultiEdit", "NotebookEdit", "functions.exec", "code_mode", "js_repl"]) {
+    for (const toolName of ["Edit", "Write", "MultiEdit", "NotebookEdit", "code_mode", "js_repl", "javascript_repl"]) {
       const result = await decision(cwd, toolName, { file_path: "src/tracked.txt" });
       assert.equal(result.decision, "deny", `${cwd}: ${toolName}`);
     }
@@ -910,6 +1002,43 @@ export async function evaluatePreToolUse() {
   assert.equal(worker.result.status, 0, worker.result.stderr);
   assert.equal(worker.output.hookSpecificOutput.permissionDecision, "deny");
   assert.match(worker.output.hookSpecificOutput.permissionDecisionReason, /worker path selected/u);
+});
+
+test("dispatcher routes a mismatched attestation directly to the supervised worker", () => {
+  const policySource = `
+import { isMainThread } from "node:worker_threads";
+export async function evaluatePreToolUse() {
+  return isMainThread
+    ? { decision: "deny", reason: "TMB-CODEX-HOOK: mismatched attestation reached inline policy" }
+    : { decision: "allow" };
+}
+`;
+  const routed = dispatchWithPolicySource(
+    "mismatched-attestation-worker",
+    policySource,
+    repoAttestationEnv(linked),
+  );
+  assert.equal(routed.result.status, 0, routed.result.stderr);
+  assert.equal(routed.result.stdout, "");
+});
+
+test("dispatcher never retries after an attested policy decision", () => {
+  const policySource = `
+import { isMainThread } from "node:worker_threads";
+export async function evaluatePreToolUse() {
+  return isMainThread
+    ? { decision: "deny", reason: "TMB-CODEX-HOOK: tool call is not attached to a branch-backed Git checkout" }
+    : { decision: "allow" };
+}
+`;
+  const { output, result } = dispatchWithPolicySource(
+    "no-policy-retry",
+    policySource,
+    repoAttestationEnv(primary),
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(output.hookSpecificOutput.permissionDecision, "deny");
+  assert.match(output.hookSpecificOutput.permissionDecisionReason, /branch-backed Git checkout/u);
 });
 
 test("attested inline policy converts process exit into a stable deny", () => {

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 import { createHash, timingSafeEqual } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { readFileSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 
@@ -115,6 +115,19 @@ function policyOptions() {
   };
 }
 
+function attestationCoversInputCwd(input, repoAttestation) {
+  try {
+    const root = realpathSync(repoAttestation.root);
+    const cwd = realpathSync(input.cwd);
+    const pathFromRoot = relative(root, cwd);
+    return pathFromRoot === ""
+      || (pathFromRoot !== ".." && !pathFromRoot.startsWith(`..${sep}`)
+        && !isAbsolute(pathFromRoot));
+  } catch {
+    return false;
+  }
+}
+
 async function runAttestedPolicy(input, policyUrl, options) {
   const originalExit = process.exit;
   process.exit = (code) => {
@@ -123,22 +136,12 @@ async function runAttestedPolicy(input, policyUrl, options) {
   try {
     const policy = await import(policyUrl);
     if (typeof policy.evaluatePreToolUse !== "function") {
-      return {
-        output: denyOutput("policy returned no auditable decision"),
-        retryUnattested: false,
-      };
+      return denyOutput("policy returned no auditable decision");
     }
     const result = await policy.evaluatePreToolUse(input, options);
-    return {
-      output: workerResultOutput(result),
-      retryUnattested: result?.decision === "deny"
-        && result.reason === "TMB-CODEX-HOOK: tool call is not attached to a branch-backed Git checkout",
-    };
+    return workerResultOutput(result);
   } catch {
-    return {
-      output: denyOutput("policy evaluation crashed"),
-      retryUnattested: false,
-    };
+    return denyOutput("policy evaluation crashed");
   } finally {
     process.exit = originalExit;
   }
@@ -198,16 +201,14 @@ async function supervisorMain(expectedDigest) {
 
   const options = policyOptions();
   let output;
-  if (options.repoAttestation === undefined) {
-    output = await runPolicyWorker(prepared.input, prepared.policyUrl, options);
+  if (options.repoAttestation === undefined
+    || !attestationCoversInputCwd(prepared.input, options.repoAttestation)) {
+    output = await runPolicyWorker(prepared.input, prepared.policyUrl, {
+      ...options,
+      repoAttestation: undefined,
+    });
   } else {
-    const attestedResult = await runAttestedPolicy(prepared.input, prepared.policyUrl, options);
-    output = attestedResult.retryUnattested
-      ? await runPolicyWorker(prepared.input, prepared.policyUrl, {
-          ...options,
-          repoAttestation: undefined,
-        })
-      : attestedResult.output;
+    output = await runAttestedPolicy(prepared.input, prepared.policyUrl, options);
   }
   if (output === "") {
     return;

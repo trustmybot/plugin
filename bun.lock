@@ -10,7 +10,7 @@
     },
     "mcp/trajectory-server": {
       "name": "@trustmybot/trajectory-server",
-      "version": "1.0.2",
+      "version": "1.0.4",
       "dependencies": {
         "@huggingface/transformers": "^3.0.0",
         "@modelcontextprotocol/sdk": "^1.0",

@@ -13,7 +13,7 @@ PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ARTIFACT_ROOT="$(cd "${1:-$PLUGIN_ROOT}" && pwd -P)"
 CODEX_BIN="${CODEX_BIN:-codex}"
 
-for tool in "$CODEX_BIN" jq cmp find git node; do
+for tool in "$CODEX_BIN" jq cmp find git grep node; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     printf 'codex-plugin-surface-smoke: missing required tool: %s\n' "$tool" >&2
     exit 1
@@ -51,38 +51,65 @@ trap cleanup EXIT
 MARKETPLACE_JSON="$SMOKE_HOME/marketplace-add.json"
 INSTALL_JSON="$SMOKE_HOME/plugin-add.json"
 
+validate_installed_cache() {
+  case "$INSTALLED_PATH" in
+    "$SMOKE_HOME"/plugins/cache/*) ;;
+    *)
+      printf 'codex-plugin-surface-smoke: installer returned an out-of-home cache path: %s\n' "$INSTALLED_PATH" >&2
+      exit 1
+      ;;
+  esac
+
+  INSTALLED_MANIFEST="$INSTALLED_PATH/.codex-plugin/plugin.json"
+  INSTALLED_HOOKS="$INSTALLED_PATH/hooks/codex/hooks.json"
+  INSTALLED_DISPATCHER="$INSTALLED_PATH/adapters/codex/hooks/dispatcher.mjs"
+  INSTALLED_POLICY="$INSTALLED_PATH/adapters/codex/hooks/repo-policy.mjs"
+  for installed_hook_file in "$INSTALLED_MANIFEST" "$INSTALLED_HOOKS" "$INSTALLED_DISPATCHER" "$INSTALLED_POLICY"; do
+    if [ ! -f "$installed_hook_file" ]; then
+      printf 'codex-plugin-surface-smoke: installed cache is missing %s\n' "$installed_hook_file" >&2
+      exit 1
+    fi
+  done
+
+  jq -e '
+    .commands == [] and
+    .skills == "./adapters/codex/skills/" and
+    .hooks == "./hooks/codex/hooks.json"
+  ' "$INSTALLED_MANIFEST" >/dev/null
+  cmp -s "$ARTIFACT_ROOT/.codex-plugin/plugin.json" "$INSTALLED_MANIFEST"
+  cmp -s "$ARTIFACT_ROOT/hooks/codex/hooks.json" "$INSTALLED_HOOKS"
+  cmp -s "$ARTIFACT_ROOT/adapters/codex/hooks/dispatcher.mjs" "$INSTALLED_DISPATCHER"
+  cmp -s "$ARTIFACT_ROOT/adapters/codex/hooks/repo-policy.mjs" "$INSTALLED_POLICY"
+}
+
 env CODEX_HOME="$SMOKE_HOME" "$CODEX_BIN" plugin marketplace add "$ARTIFACT_ROOT" --json > "$MARKETPLACE_JSON"
 MARKETPLACE_NAME="$(jq -er '.marketplaceName' "$MARKETPLACE_JSON")"
 env CODEX_HOME="$SMOKE_HOME" "$CODEX_BIN" plugin add "tmb@$MARKETPLACE_NAME" --json > "$INSTALL_JSON"
 
 INSTALLED_PATH="$(jq -er '.installedPath' "$INSTALL_JSON")"
-case "$INSTALLED_PATH" in
-  "$SMOKE_HOME"/plugins/cache/*) ;;
-  *)
-    printf 'codex-plugin-surface-smoke: installer returned an out-of-home cache path: %s\n' "$INSTALLED_PATH" >&2
-    exit 1
-    ;;
-esac
+validate_installed_cache
 
-INSTALLED_MANIFEST="$INSTALLED_PATH/.codex-plugin/plugin.json"
-jq -e '
-  .commands == [] and
-  .skills == "./adapters/codex/skills/" and
-  .hooks == "./hooks/codex/hooks.json"
-' "$INSTALLED_MANIFEST" >/dev/null
-
-INSTALLED_HOOKS="$INSTALLED_PATH/hooks/codex/hooks.json"
-INSTALLED_DISPATCHER="$INSTALLED_PATH/adapters/codex/hooks/dispatcher.mjs"
-INSTALLED_POLICY="$INSTALLED_PATH/adapters/codex/hooks/repo-policy.mjs"
-for installed_hook_file in "$INSTALLED_HOOKS" "$INSTALLED_DISPATCHER" "$INSTALLED_POLICY"; do
-  if [ ! -f "$installed_hook_file" ]; then
-    printf 'codex-plugin-surface-smoke: installed cache is missing %s\n' "$installed_hook_file" >&2
-    exit 1
-  fi
-done
-cmp -s "$ARTIFACT_ROOT/hooks/codex/hooks.json" "$INSTALLED_HOOKS"
-cmp -s "$ARTIFACT_ROOT/adapters/codex/hooks/dispatcher.mjs" "$INSTALLED_DISPATCHER"
-cmp -s "$ARTIFACT_ROOT/adapters/codex/hooks/repo-policy.mjs" "$INSTALLED_POLICY"
+# Codex caches by marketplace/plugin/version. A same-version add is not a
+# refresh contract, so exercise the only supported local recovery ceremony:
+# remove, prove the stale cache path disappeared, then install and compare.
+if ! find "$INSTALLED_HOOKS" -type f -links 1 -print -quit | grep -Fxq "$INSTALLED_HOOKS"; then
+  printf 'codex-plugin-surface-smoke: refusing to corrupt an aliased installed Hook: %s\n' "$INSTALLED_HOOKS" >&2
+  exit 1
+fi
+ARTIFACT_HOOK_OID_BEFORE="$(git hash-object "$ARTIFACT_ROOT/hooks/codex/hooks.json")"
+printf '{"hooks":{}}\n' > "$INSTALLED_HOOKS"
+if [ "$(git hash-object "$ARTIFACT_ROOT/hooks/codex/hooks.json")" != "$ARTIFACT_HOOK_OID_BEFORE" ]; then
+  printf 'codex-plugin-surface-smoke: corrupting the cache changed the source artifact\n' >&2
+  exit 1
+fi
+env CODEX_HOME="$SMOKE_HOME" "$CODEX_BIN" plugin remove "tmb@$MARKETPLACE_NAME" --json >/dev/null
+if [ -e "$INSTALLED_PATH" ]; then
+  printf 'codex-plugin-surface-smoke: plugin remove left the stale cache path active: %s\n' "$INSTALLED_PATH" >&2
+  exit 1
+fi
+env CODEX_HOME="$SMOKE_HOME" "$CODEX_BIN" plugin add "tmb@$MARKETPLACE_NAME" --json > "$INSTALL_JSON"
+INSTALLED_PATH="$(jq -er '.installedPath' "$INSTALL_JSON")"
+validate_installed_cache
 
 HOOK_DIGEST="$(jq -er '.hooks.PreToolUse[0].hooks[0].command | capture("--policy-sha256 (?<digest>[a-f0-9]{64})").digest' "$INSTALLED_HOOKS")"
 HOOK_TIMEOUT="$(jq -er '.hooks.PreToolUse[0].hooks[0].timeout' "$INSTALLED_HOOKS")"
