@@ -105,7 +105,8 @@ test("host-pinned plugin data remains protected inside an ordinary checkout dire
   const marker = join(data, "private");
   writeFileSync(marker, "private-before");
   writeFileSync(join(f.root, "probe.test.mjs"), `import fs from 'node:fs';import assert from 'node:assert/strict';
-    for(const operation of [()=>fs.readFileSync(${JSON.stringify(marker)}),()=>fs.writeFileSync(${JSON.stringify(marker)},'changed')]) {
+    const marker = new URL('./custom-plugin-data/private', import.meta.url);
+    for(const operation of [()=>fs.readFileSync(marker),()=>fs.writeFileSync(marker,'changed')]) {
       assert.throws(operation,e=>['EPERM','EACCES'].includes(e.code));
     }`);
   ok(run(f, "node --test probe.test.mjs", { env: { PATH, TMB_CODEX_PLUGIN_DATA: data } }));
