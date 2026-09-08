@@ -1,6 +1,6 @@
 import { accessSync, constants, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
-import { delimiter, dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import { CODEX_SCOPE_4_TOOL_NAMES as TMB_TOOL_NAMES } from "../tool-names.mjs";
@@ -572,6 +572,31 @@ function nearestExistingAncestor(candidate) {
   }
 }
 
+// Codex supplies PLUGIN_DATA before its directory necessarily exists. Resolve
+// its existing directory ancestor without creating state or following a
+// dangling link as though it were a missing directory.
+export function canonicalFutureDirectory(path) {
+  if (typeof path !== "string" || !isAbsolute(path) || /[\x00-\x1f\x7f]/u.test(path)) return null;
+  let cursor = resolve(path);
+  const suffix = [];
+  for (;;) {
+    try {
+      const stats = lstatSync(cursor);
+      const canonical = canonicalExistingPath(cursor);
+      if (!canonical || !stats.isDirectory() && !stats.isSymbolicLink()
+        || !lstatSync(canonical).isDirectory()) return null;
+      const result = resolve(canonical, ...suffix);
+      return result !== "/" && !/[\x00-\x1f\x7f]/u.test(result) ? result : null;
+    } catch (error) {
+      if (error?.code !== "ENOENT") return null;
+    }
+    const parent = dirname(cursor);
+    if (parent === cursor) return null;
+    suffix.unshift(basename(cursor));
+    cursor = parent;
+  }
+}
+
 function normalizedRepoPath(rawPath) {
   return rawPath.split(sep).join("/").replace(/^\.\//u, "");
 }
@@ -585,9 +610,8 @@ function isProtectedPath(root, candidate, options) {
     return true;
   }
 
-  for (const extraRoot of [options?.pluginRoot, options?.pluginData]) {
-    const canonicalExtra = canonicalExistingPath(extraRoot);
-    if (canonicalExtra && isWithin(canonicalExtra, candidate)) {
+  for (const canonicalExtra of [canonicalExistingPath(options?.pluginRoot), canonicalFutureDirectory(options?.pluginData)]) {
+    if (canonicalExtra && mayAliasWithin(canonicalExtra, candidate)) {
       return true;
     }
   }
@@ -1613,7 +1637,7 @@ function runnerArguments(command, repoContext, options) {
   const definition = manifest?.hooks?.PreToolUse?.[0]?.hooks?.[0]?.command;
   const matches = typeof definition === "string" ? [...definition.matchAll(/--policy-sha256 ([a-f0-9]{64})/gu)] : [];
   if (matches.length !== 1) throw new Error("restricted runner has no pinned bundle digest");
-  const pluginData = options.pluginData ? canonicalExistingPath(options.pluginData) : "";
+  const pluginData = options.pluginData ? canonicalFutureDirectory(options.pluginData) : "";
   if (options.pluginData && !pluginData) throw new Error("restricted runner plugin data path is unavailable");
   return ["/usr/bin/env", "-i", `PATH=${restrictedHostPath(repoContext)}`, `TMB_CODEX_PLUGIN_DATA=${pluginData}`, node,
     resolve(pluginRoot, "adapters/codex/hooks/restricted-runner.mjs"),

@@ -4,6 +4,10 @@
 
 当前 `1.0.6-rc.1` 候选已完成 PR #1183 评论所涉及的本地修复，发布验收尚未完成。修复覆盖 shell 显式读取、Git 查询参数、core 分支前缀兼容和 Node launcher 后续候选解析，并接入仓库配置的受保护分支集合。新增的 macOS 受限命令 runner 让验证脚本、Node 子进程、npm 生命周期和 Git filter 继承相应文件与网络限制。发布前还需在同一干净候选 SHA 上完成安装与宿主矩阵。
 
+当前存在已确认的宿主阻塞：CLI `0.151.0` 将 `exec_command` 归一为 `Bash` 和单个 command 字符串，没有保留 shell、login、tty、workdir。即使原样复制 Hook 给出的恢复调用，也无法通过受控执行检查。因此该 CLI 下的 Git、forge 和验证执行仍不可用，不能宣称发布就绪。Desktop 尚需独立验收。
+
+交付验收另修正了两处真实宿主问题：forge/push 进程需要访问精确的系统 trust agent 才能校验 TLS 证书；Codex 提供的插件数据目录尚未创建时，也应能生成受限命令。后者只验证并保护未来路径，不创建目录，不放宽路径绑定。
+
 `1.0.5` 曾完成交付自锁修复的本机重新安装、trust 和少量全新会话探针；下方保留这些历史记录，不将它们当作当前候选的验收。Human 已经发出的交付指令仍由主对话继续执行，Hook 检查分支、命令和路径状态，不生成授权令牌。
 
 当前源码候选绑定到以下环境：
@@ -12,7 +16,7 @@
 - 当前本地检查环境为 Node `25.8.0`、Bun `1.3.11`；可用独立 CLI 为 `0.151.0`，读取版本号本身不算宿主验收；
 - 历史 `1.0.4` 兼容矩阵包含独立 `codex-cli 0.146.0` 和 Codex Desktop 26.820.60940 内置的 `codex-cli 0.150.0-alpha.8`；`1.0.5` 隔离安装烟测使用 `codex-cli 0.150.1`；
 - 本地未发布插件候选版本 `1.0.6-rc.1`；
-- 七个固定 ESM 文件加规范化 Hook definition 的 Hook runtime digest `a00be691c74f0000b28dc5b0cb2c50e05c8f27f1a77210f3b22aec9fd9430461`；
+- 七个固定 ESM 文件加规范化 Hook definition 的 Hook runtime digest `01655879c8e0de6b4ae30d36c713ed8b6f3cb1671250b67226f4b30d2ab07db3`；
 - manifest hard timeout：5 秒。
 
 Hook 审核调用，受限 runner 在 macOS 操作系统层执行进程权限限制。两层职责不同；其他平台目前拒绝 Git、forge 和验证执行。
@@ -33,6 +37,8 @@ Hook 审核调用，受限 runner 在 macOS 操作系统层执行进程权限限
 放行时 dispatcher 不输出内容。拒绝时输出 Codex 接受的 `permissionDecision=deny` JSON，并给出以 `TMB-CODEX-HOOK:` 开头的原因。`permission_mode=bypassPermissions` 不会放宽策略；CLI 的 `--dangerously-bypass-hook-trust` 只跳过信任确认，Hook 仍会运行。
 
 ## 具体策略
+
+以下描述策略和 runner 的接口规则。执行入口需要宿主提供与实际启动一致的可信参数，或不经过外层 shell 的 direct-argv 调用。CLI `0.151.0` 尚未提供这种证明；命令中的 `env -i` 晚于外层 shell 启动，不能替代检查，当前继续拒绝。
 
 | 调用 | primary checkout | linked worktree |
 |---|---|---|
@@ -98,7 +104,11 @@ dispatcher 从 patch header 提取 `Add File`、`Update File`、`Delete File` �
 
 ## 验证状态
 
-2026-09-08 的最终七模块候选完整回归 exit 0：Hook L2 173/173（无跳过）、L3 178/178、两轮 MCP 各 1025/1025、MCP integration 70/70，全部 65 个 Hook 测试文件及六个 L4 flow 通过。真实 CLI 0.151.0 隔离 installer 和缓存冷启动也通过。专项进程边界测试为 profile 13/13、runner 10/10，包含 Git include 不能读 Claude 状态的回归。读取路径 benchmark 的 cold 为 77.246 ms，40 次 warm median 为 75.906 ms，p95 为 77.415 ms，均通过原有门限。
+2026-09-08 交付验收发现并修复了上述 TLS 与未来插件数据目录问题。修正后的 profile 15/15、runner 14/14 通过，均无跳过；真实 `gh` 查询在当前生产 profile 下完成 TLS 校验并成功返回。完整回归与宿主验收需要绑定包含这两处修正的提交，不能沿用前一候选的结论。
+
+前一候选 `849196bb` 的 Docker L0 原有断言全部通过，ShellCheck 0.9.0 检查 253/253 个 shell 文件通过。Docker 的既有语义搜索探针接受缺失 `id:2` 的响应，本次确实没有该响应，因此不算语义搜索结果或完整冷加载超时的验证。CLI 0.151.0 隔离安装字节一致，并已通过真实 `/hooks` 界面信任；这些记录只覆盖修正前的候选。
+
+修正前的七模块候选完整回归 exit 0：Hook L2 173/173（无跳过）、L3 178/178、两轮 MCP 各 1025/1025、MCP integration 70/70，全部 65 个 Hook 测试文件及六个 L4 flow 通过。真实 CLI 0.151.0 隔离 installer 和缓存冷启动也通过。专项进程边界测试为 profile 13/13、runner 10/10，包含 Git include 不能读 Claude 状态的回归。读取路径 benchmark 的 cold 为 77.246 ms，40 次 warm median 为 75.906 ms，p95 为 77.415 ms，均通过原有门限。
 
 前一次完整运行因两处旧缓存测试仍使用 raw Git 正例而 exit 1。这两处已改用实际安装目录生成的 wrapper，并保留 raw Git 拒绝断言。ShellCheck 缺失，在线标签检查受环境限制，日志仍保留此前已有的原生库退出信息。真实 glab、真实远程 push/PR 写入和同一干净 SHA 宿主矩阵尚未验证。
 
@@ -112,7 +122,7 @@ dispatcher 从 patch header 提取 `Add File`、`Update File`、`Delete File` �
 
 Hook benchmark 使用 `Bash` 的 `pwd` payload，经 manifest 调用 41 次，其中一次 cold、40 次 warm。它测量读取路径，不包含分支配置的 SQLite 查询，也不证明写入类调用在同一时间内完成。
 
-本地 `1.0.6-rc.1` 增加了 core 前缀契约、文件与 Git 参数、配置分支及数据库读取的回归测试，并扩展 Node PATH 集成测试。完整本地回归已通过，结果对应测试时的工作树。发布验收还需在同一干净候选提交上完成宿主矩阵。
+本地 `1.0.6-rc.1` 增加了 core 前缀契约、文件与 Git 参数、配置分支及数据库读取的回归测试，并扩展 Node PATH 集成测试。每轮结果只覆盖测试时的实现；发布验收还需在同一干净候选提交上完成宿主矩阵。
 
 以下为 `1.0.5` 历史记录。源码级自动测试覆盖了 feature-branch patch、验证、暂存、commit、push 和 PR 交付，以及受保护分支和危险操作的拒绝。`codex-plugin-surface-smoke.sh` 还在隔离 `CODEX_HOME` 中故意污染缓存，确认卸载会删除旧路径，并验证重装后的 manifest、dispatcher 和 policy 与 `1.0.5` 源码逐字节一致。这些结果证明源码和隔离安装链；本机 trust、缓存状态和全新会话证据单独记录在下方。
 

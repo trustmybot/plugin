@@ -9,9 +9,17 @@ workflow.
 
 **Implemented scope:** Scope 5, bounded repository-write Hook
 
-**Local candidate:** `1.0.6-rc.1`, unpublished; release acceptance remains incomplete
+**Local candidate:** `1.0.6-rc.1`, unpublished; release is blocked by the CLI execution interface
 
 **Reference adapter:** Claude Code
+
+CLI `0.151.0` cannot execute restricted Git, validation, or forge commands, even
+when the model copies the Hook's recovery call unchanged. The host exposes only
+the nested `Bash {command}` projection, without shell, login, TTY, or workdir
+parameters. The Hook cannot prove how the outer shell starts, so it denies the
+call. An `env -i` prefix inside that shell cannot supply the missing proof. A
+host interface preserving trusted execution parameters or providing a direct
+executable entrypoint is required. Desktop remains independently unverified.
 
 ## What ships
 
@@ -45,8 +53,8 @@ data. The manifest wraps the complete launcher in a 4-second deny watchdog and
 leaves Codex's hard process timeout at 5 seconds. It checks absolute host PATH
 candidates in order, rejects checkout- and plugin-local shims, and resolves recognized version
 managers through `process.execPath`. It starts the dispatcher with a minimal
-environment. Protected branches get a reviewed query allowlist; valid branch
-policy also permits controlled feature-branch creation and explicit-path
+environment. At the policy level, protected branches get a reviewed query
+allowlist; valid branch policy also permits controlled feature-branch creation and explicit-path
 unstaging. A recognized feature branch in a primary checkout or linked worktree
 permits canonical `apply_patch`, non-interactive validation entrypoints, and a
 bounded Git/PR delivery sequence. Broad staging, direct protected-branch writes,
@@ -217,8 +225,13 @@ are Hook gates.
 ## Capability declaration
 
 The first table declares all seven fields required by Adapter Contract Rule 5.
-Values describe the adapter's supported use of the host capability; they do not
-extend the host acceptance record.
+Values describe the adapter's declared use of each capability. Host
+qualification is recorded separately.
+
+Restricted-command entries below describe implemented policy and isolated
+runner behavior. They do not make those commands available in CLI `0.151.0`:
+the host limitation above blocks the delivery path and release acceptance.
+The tier names and capability fields retain their contract meanings.
 
 | Capability | Codex value | Current use and limitation |
 |---|---|---|
@@ -319,6 +332,12 @@ confirmation, new-task Agent discovery, SWE and
 reviewer behavior, MCP isolation, removal, and preservation of a third-party
 Agent. Each host record must include the child Agent's observed tool surface.
 IDE, cloud, and other operating-system claims remain unverified.
+
+Current CLI `0.151.0` probes confirmed the execution-interface failure described
+above. They produced only the nested `Bash {command}` Hook event, not a separate
+top-level `functions.exec` event. Policy tests and isolated runner success cannot
+replace a host that preserves the required execution parameters. This is a
+known release blocker, not merely a missing test record.
 
 The full Hook host matrix for `1.0.4` is historical compatibility evidence.
 The `1.0.5` installation and fresh-session checks recorded in `SCOPE_5_PRD.md`

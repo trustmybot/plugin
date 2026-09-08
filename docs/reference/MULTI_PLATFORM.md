@@ -2,15 +2,20 @@
 
 ## Current state
 
-**TMB's complete workflow ships on Claude Code.** Codex Scope 5 supports local planning, explicit setup of two standalone project-level Agents, and a bounded repository-write Hook. The root task can use limited feature-branch Git/PR commands for the Human's requested delivery. TMB task lifecycle, trusted validation, and Agent delivery workflow remain unavailable.
+**TMB's complete workflow ships on Claude Code.** Codex Scope 5 supports local planning, explicit setup of two standalone project-level Agents, and a bounded repository-write Hook. Its policy defines limited feature-branch Git/PR delivery, but CLI `0.151.0` cannot execute that path. TMB task lifecycle, trusted validation, and Agent delivery workflow remain unavailable.
 
 The unpublished `1.0.6-rc.1` candidate uses a macOS restricted runner for Git,
 validation, and forge commands. It reads the protected-branch configuration from
 the acting worktree's Codex state. Raw execution of those commands is denied,
 and the runner fails closed on unsupported hosts. Ordinary reviewed reads and
 recovery tools remain available.
-The candidate still needs a complete CLI/Desktop acceptance record on one clean
-commit. See the [parity declaration](../adapters/codex/PARITY.md) and
+Release is blocked by a known host limitation: CLI `0.151.0` exposes only the
+nested `Bash {command}` projection, losing the shell, login, TTY, and workdir
+parameters required by the Hook. Even copying the recovery call unchanged is
+denied. The check remains in place until the host preserves trusted execution
+parameters or offers a direct executable entrypoint. Desktop remains
+independently unverified, and the candidate still needs a complete acceptance
+record on one clean commit. See the [parity declaration](../adapters/codex/PARITY.md) and
 [restricted execution contract](../adapters/codex/RESTRICTED_EXECUTION.md) for
 the implemented boundary and its limits.
 

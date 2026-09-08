@@ -196,9 +196,12 @@ export async function restrictedMain(argv) {
   if (process.execArgv.length || Object.keys(process.env).some((key) => !["PATH", "TMB_CODEX_PLUGIN_DATA", "__CF_USER_TEXT_ENCODING"].includes(key))) fail("start the runner through the exact env -i wrapper before Node loads");
   if (calculateRuntimeDigest(PLUGIN_ROOT) !== argv[1]) fail("installed runtime or Hook definition digest mismatch");
   const cwd = canonicalDirectory(argv[3]);
-  const pluginData = process.env.TMB_CODEX_PLUGIN_DATA ? canonicalDirectory(process.env.TMB_CODEX_PLUGIN_DATA) : null;
   if (cwd !== argv[3]) fail("cwd must already be canonical");
-  const { resolveRepoContext, classifyRestrictedCommand } = await import("./repo-policy.mjs");
+  const { resolveRepoContext, classifyRestrictedCommand, canonicalFutureDirectory } = await import("./repo-policy.mjs");
+  const pluginData = process.env.TMB_CODEX_PLUGIN_DATA ? canonicalFutureDirectory(process.env.TMB_CODEX_PLUGIN_DATA) : null;
+  if (process.env.TMB_CODEX_PLUGIN_DATA && (!pluginData || pluginData !== process.env.TMB_CODEX_PLUGIN_DATA)) {
+    fail("plugin data path must already identify a canonical existing or future directory");
+  }
   const context = resolveRepoContext(cwd);
   if (!["primary", "linked"].includes(context.kind)) fail("a branch-backed checkout is required");
   const classification = await classifyRestrictedCommand(argv[5], context, { pluginRoot: PLUGIN_ROOT, pluginData });

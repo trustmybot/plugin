@@ -95,6 +95,59 @@ test("profile rejects an unknown execution mode", () => {
   assert.throws(() => profile(fixture, "unknown"));
 });
 
+test("only networked modes request the exact TLS trust-agent Mach service", () => {
+  const fixture = project();
+  for (const mode of ["validation", "git-read", "git-local", "forge", "git-push"]) {
+    const source = profile(fixture, mode);
+    const services = [...source.matchAll(/\(global-name "([^"]+)"\)/gu)].map((match) => match[1]);
+    assert.deepEqual(services, ["forge", "git-push"].includes(mode) ? ["com.apple.trustd.agent"] : [], mode);
+    assert.doesNotMatch(source, /\(allow mach-lookup\s*\)|global-name-prefix/u, mode);
+    if (["validation", "git-read", "git-local"].includes(mode)) assert.match(source, /\(deny network\*\)/u, mode);
+  }
+});
+
+test("Seatbelt grants the trust-agent lookup only to networked modes and denies other security services", (t) => {
+  if (!requireSandbox(t)) return;
+  const fixture = project();
+  const source = join(fixture.scratch, "mach-lookup.c");
+  const executable = join(fixture.scratch, "mach-lookup");
+  writeFileSync(source, `
+    #include <stdio.h>
+    #include <mach/mach.h>
+    #include <servers/bootstrap.h>
+    int main(int argc, char **argv) {
+      if (argc != 2) return 2;
+      mach_port_t port = MACH_PORT_NULL;
+      kern_return_t result = bootstrap_look_up(bootstrap_port, argv[1], &port);
+      printf("%d\\n", result);
+      if (result == KERN_SUCCESS) mach_port_deallocate(mach_task_self(), port);
+      return 0;
+    }
+  `);
+  const compiled = spawnSync("/usr/bin/clang", ["-Wno-deprecated-declarations", source, "-o", executable], {
+    encoding: "utf8", timeout: 20_000,
+  });
+  assert.equal(compiled.status, 0, `Mach lookup fixture compilation failed: ${compiled.stderr}`);
+  const available = spawnSync(executable, ["com.apple.trustd.agent"], { encoding: "utf8", timeout: 5_000 });
+  assert.equal(available.status, 0, available.stderr);
+  assert.equal(available.stdout.trim(), "0", "the host trust-agent service must be available for this regression");
+  for (const mode of ["validation", "git-read", "git-local", "forge", "git-push"]) {
+    for (const service of ["com.apple.trustd.agent", "com.apple.trustd", "com.apple.securityd.xpc"]) {
+      const child = spawnSync("/usr/bin/sandbox-exec", ["-p", profile(fixture, mode, [executable]), executable, service], {
+        cwd: fixture.root, encoding: "utf8", timeout: 5_000,
+        env: { PATH: "/usr/bin:/bin", HOME: fixture.scratch, TMPDIR: fixture.scratch },
+      });
+      assert.equal(child.status, 0, `${mode}: ${service}: ${child.stderr}`);
+      if (["forge", "git-push"].includes(mode) && service === "com.apple.trustd.agent") {
+        assert.equal(child.stdout.trim(), "0", `${mode}: TLS trust evaluation service`);
+      } else {
+        assert.notEqual(child.stdout.trim(), "0", `${mode}: unexpected Mach service access to ${service}`);
+        assert.match(child.stdout.trim(), /^\d+$/u);
+      }
+    }
+  }
+});
+
 test("every execution mode denies reads of other adapter and pinned plugin state", t => {
   if (!requireSandbox(t)) return;
   const fixture = project();

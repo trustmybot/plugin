@@ -1,5 +1,13 @@
 # Restricted Codex command execution
 
+**Known host blocker:** Codex CLI `0.151.0` reports `exec_command` to the Hook as
+`Bash` with only the command string. It omits the shell, login, TTY and workdir
+fields needed to verify the execution mode. The Hook therefore denies the
+restricted command, even when the caller copies its recovery call exactly.
+Git, forge and validation execution through this CLI remains unavailable.
+Desktop requires separate acceptance. The contract below describes the runner
+and the host information it needs; it is not a claim that this CLI can use it.
+
 The unpublished Scope 5 candidate runs Git, forge and validation commands through
 an installed macOS runner. The Hook checks the command, branch and paths. The
 runner applies the process restrictions before starting the executable. Ordinary
@@ -24,11 +32,22 @@ bundle and cwd. Test and integration code can also call
 must match the Hook context. The generated call is specific to that installation. Do not copy its
 digest or paths between versions, machines or checkouts.
 
+Codex may supply the plugin data path before creating its directory. The Hook
+resolves its existing directory ancestor and pins the future path without
+creating it. That path remains protected. The runner rejects a pin that becomes
+invalid or resolves to a different target.
+
 If the outer host sandbox prevents `sandbox-exec` from applying a profile,
 execution fails before the target starts. The exact wrapper may request the
 host's `sandbox_permissions: "require_escalated"` with an explanation. The host
 still decides that request; it does not remove the runner's inner restrictions.
 Raw commands cannot request this exception. There is no unsandboxed fallback.
+
+Host compatibility requires trustworthy execution parameters that match the
+actual launch, or an approved direct-argv entrypoint without an outer shell.
+The command's `env -i` runs after the outer shell has started and cannot prove
+which startup files it loaded. The adapter does not infer those parameters from
+the command string, caller name or a mutable session log.
 
 ## Process permissions
 
@@ -66,6 +85,11 @@ silently bypassing their configured semantics. Read-only Git helpers cannot
 change checkout or Git files, even when Git's display flags do not disable them.
 
 ## Forge and push binding
+
+Forge and push processes can contact `com.apple.trustd.agent` for macOS TLS
+certificate verification. This is an exact service permission; it grants no
+general access to system services or additional file reads. Certificate checks
+remain enabled.
 
 Only one `origin` URL is accepted, on GitHub.com or GitLab.com. An optional push
 URL must identify the same repository. Enterprise hosts, multiple URLs,

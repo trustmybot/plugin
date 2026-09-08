@@ -6,7 +6,13 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## v1.0.6-rc.1 - Unreleased
 
+This candidate is blocked on host compatibility: CLI `0.151.0` omits execution
+parameters from its Hook payload, so restricted Git, forge and validation
+commands remain denied. Desktop acceptance is separate and still incomplete.
+
 ### Fixed
+- **Fresh Codex installs can generate restricted commands before plugin data exists**: the Hook validates the existing directory ancestor and pins the future data path without creating it. The runner protects that path and rejects redirected or invalid pins.
+- **Restricted GitHub/GitLab commands can verify macOS TLS certificates**: forge and push processes may contact the specific system trust agent used for certificate verification. Other execution modes retain their network and service restrictions; certificate checks stay enabled.
 - **Codex shell reads validate file operands and exact Git options**: explicit paths must stay inside the checkout and cannot name symlinks or special files. Directory searches with `rg` require `--no-config --no-ignore` so implicit ignore files cannot block on FIFOs. Explicit regular-file searches retain `--no-config`. Git queries reject unreviewed options, including abbreviated options and outside-checkout no-index comparisons.
 - **Codex checks `jq` filter source before module loading**: inline and file-backed filters reject the words `import` and `include`, including in strings or comments. File filters must be ordinary contained files no larger than 256 KiB. Complex filters without module loading remain usable; the check does not bound expression execution time.
 - **Codex accepts every core task branch prefix**: `build/`, `ci/`, `style/`, and `revert/` now support contained patches alongside the existing prefixes. A contract test checks the core branch declaration.

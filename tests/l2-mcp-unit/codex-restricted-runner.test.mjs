@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test, { after, before } from "node:test";
 import { calculateRuntimeDigest } from "../../adapters/codex/hooks/dispatcher.mjs";
 import { rejectWritableAliases } from "../../adapters/codex/hooks/restricted-runner.mjs";
+import { canonicalFutureDirectory, evaluatePreToolUse, makeRestrictedCommand } from "../../adapters/codex/hooks/repo-policy.mjs";
 
 const ROOT = realpathSync(fileURLToPath(new URL("../../", import.meta.url)));
 const NODE = realpathSync(process.execPath);
@@ -109,6 +110,73 @@ test("host-pinned plugin data remains protected inside an ordinary checkout dire
     }`);
   ok(run(f, "node --test probe.test.mjs", { env: { PATH, TMB_CODEX_PLUGIN_DATA: data } }));
   assert.equal(readFileSync(marker, "utf8"), "private-before");
+});
+
+test("future plugin data resolves directory ancestors without creating state or accepting dangling links", () => {
+  const f = fixture();
+  const data = join(f.base, "not-created", "plugin-data");
+  assert.equal(canonicalFutureDirectory(data), data);
+  assert.equal(existsSync(join(f.base, "not-created")), false);
+  const alias = join(f.base, "checkout-alias");
+  symlinkSync(f.root, alias);
+  assert.equal(canonicalFutureDirectory(join(alias, "future-data")), join(f.root, "future-data"));
+  const dangling = join(f.base, "dangling");
+  symlinkSync(join(f.base, "missing-target"), dangling);
+  for (const path of ["/", "relative/data", `${data}\0`, join(f.root, "source.txt"),
+    join(f.root, "source.txt", "data"), dangling, join(dangling, "data")]) {
+    assert.equal(canonicalFutureDirectory(path), null, path);
+  }
+});
+
+test("the Hook pins missing plugin data and denies patches into its future path", async () => {
+  const f = fixture();
+  const data = join(f.root, "ordinary", "plugin-data");
+  const options = { pluginRoot: ROOT, pluginData: data };
+  const event = { hook_event_name: "PreToolUse", permission_mode: "default", cwd: f.root };
+  const cmd = makeRestrictedCommand(`${GIT_READ} status --short`, f.root, options);
+  assert.ok(cmd.includes(`'TMB_CODEX_PLUGIN_DATA=${data}'`));
+  const source = `text(JSON.stringify(await tools.exec_command(${JSON.stringify({
+    cmd, workdir: f.root, shell: "/bin/sh", login: false, tty: false,
+  })})));`;
+  const wrapped = await evaluatePreToolUse({ ...event, tool_name: "functions.exec", tool_input: source }, options);
+  assert.equal(wrapped.decision, process.platform === "darwin" ? "allow" : "deny", wrapped.reason);
+  if (process.platform !== "darwin") assert.match(wrapped.reason, /qualified macOS/);
+  for (const path of ["ordinary/plugin-data/private", "OrDiNaRy/PlUgIn-DaTa/private"]) {
+    const result = await evaluatePreToolUse({ ...event, tool_name: "apply_patch", tool_input: {
+      command: `*** Begin Patch\n*** Add File: ${path}\n+must not be created\n*** End Patch`,
+    } }, options);
+    assert.equal(result.decision, "deny", path);
+    assert.match(result.reason, /protected/);
+  }
+  assert.equal(existsSync(join(f.root, "ordinary")), false);
+});
+
+test("validation runs with missing pinned plugin data but cannot create that protected directory", t => {
+  if (!ready(t)) return;
+  const f = fixture();
+  const data = join(f.root, "ordinary", "plugin-data");
+  writeFileSync(join(f.root, "probe.test.mjs"), `import fs from 'node:fs';import assert from 'node:assert/strict';
+    assert.throws(()=>fs.mkdirSync(${JSON.stringify(data)},{recursive:true}),e=>['EPERM','EACCES'].includes(e.code));
+    fs.writeFileSync('source.txt','validation-ran');`);
+  ok(run(f, "node --test probe.test.mjs", { env: { PATH, TMB_CODEX_PLUGIN_DATA: data } }));
+  assert.equal(readFileSync(join(f.root, "source.txt"), "utf8"), "validation-ran");
+  assert.equal(existsSync(data), false);
+  unchanged(f);
+});
+
+test("the runner rejects a pinned future directory redirected through a new symlink", t => {
+  if (!ready(t)) return;
+  const f = fixture();
+  const data = join(f.root, "future-plugin-data");
+  assert.equal(canonicalFutureDirectory(data), data);
+  const redirected = join(f.base, "redirected-data");
+  mkdirSync(redirected);
+  symlinkSync(redirected, data);
+  writeFileSync(join(f.root, "probe.test.mjs"), "throw Error('PAYLOAD-MUST-NOT-START');");
+  const result = run(f, "node --test probe.test.mjs", { env: { PATH, TMB_CODEX_PLUGIN_DATA: data } });
+  assert.equal(result.status, 125);
+  assert.match(result.stderr, /plugin data path must already identify a canonical/);
+  assert.doesNotMatch(result.stderr, /PAYLOAD-MUST-NOT-START/);
 });
 
 test("hard-link aliases prevent validation from starting", t => {

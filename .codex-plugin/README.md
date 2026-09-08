@@ -1,8 +1,9 @@
 # TMB Codex adapter
 
 > **Local Scope 5 candidate `1.0.6-rc.1`:** Bro planning, explicit project-Agent setup, and a
-> bounded repository-write Hook. Release support still requires fixed-commit CLI
-> and Desktop acceptance.
+> bounded repository-write Hook. Release is blocked: CLI `0.151.0` cannot execute
+> restricted Git, validation, or forge commands. Desktop remains independently
+> unverified.
 
 The Codex manifest selects three isolated components:
 
@@ -44,20 +45,28 @@ validation records.
 The reviewer is advisory even though its template requests a read-only sandbox.
 The MCP registry and standalone Agents expose no Agent spawn orchestration,
 branch/worktree setup, Git delivery, remote Issue operations, or workflow
-lifecycle gates. The root task has a separate, limited Hook command surface for
-the Human's requested Git/PR delivery. Both primary and linked checkouts permit
+lifecycle gates. The policy defines a separate, limited Hook command surface for
+the root task's requested Git/PR delivery. At that policy level, both primary
+and linked checkouts permit
 contained `apply_patch` and a small validation-entrypoint allowlist on recognized
 feature branches. Protected branches permit reviewed queries; valid branch policy
 also permits controlled feature-branch creation and explicit-path unstaging.
 `write_stdin` permits only empty polling or one Ctrl-C.
 
-Git, validation, and forge commands use an explicit macOS restricted runner.
-Generate its exact `env -i` command with `makeRestrictedCommand` and pass it
+Git, validation, and forge commands require an explicit macOS restricted runner.
+The policy requires its exact `env -i` command from `makeRestrictedCommand`, passed
 through one static `functions.exec` call to `exec_command`, with an explicit
 workdir, `shell: "/bin/sh"`, `login: false`, and `tty: false`. Only that pinned
 wrapper may request outer sandbox escalation. Raw sensitive commands and runner
 execution on unsupported hosts are denied; ordinary reviewed shell reads remain
 available.
+
+CLI `0.151.0` exposes only the nested `Bash {command}` projection to the Hook,
+without the shell, login, TTY, or workdir parameters. It therefore denies even an
+unchanged copy of the recovery call. Clearing the environment inside that
+command cannot prove how the outer shell started. The host must preserve trusted
+execution parameters or provide a direct executable entrypoint before this
+delivery path can be enabled; the policy check remains in place.
 
 Validation can write ordinary source and scratch files, but cannot write Git,
 TMB, host configuration, plugin, or outside paths. It denies reads of checkout

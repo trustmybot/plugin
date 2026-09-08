@@ -286,7 +286,14 @@ The manifest command is covered by both the host's Hook-definition trust and
 the normalized-manifest digest. A digest assertion or copied-cache
 test does not replace a real installation and fresh-session host check.
 
-Protected branches use a reviewed query allowlist. Valid branch policy also
+The following command rules describe implemented policy. CLI `0.151.0` cannot
+execute restricted Git, validation, or forge commands, including an unchanged
+copy of the Hook's recovery call. It exposes only the nested `Bash {command}`
+projection to the Hook and omits shell, login, TTY, and workdir parameters.
+Release is blocked; Desktop remains independently unverified.
+
+At the policy level, protected branches use a reviewed query allowlist. Valid
+branch policy also
 permits creating a recognized feature branch with `git switch -c`, `git switch
 --create`, or `git checkout -b`. Unknown tools, unknown payloads, scripts,
 interpreters, compound shell syntax, redirection, and direct write tools deny.
@@ -387,7 +394,7 @@ Codex Agent Hook inheritance. Unsupported hosts and sandbox setup failures
 fail closed. See [restricted execution](../adapters/codex/RESTRICTED_EXECUTION.md)
 for the exact profiles and command contract.
 
-Recognized feature branches have a bounded delivery lane: explicit-path
+The policy defines a bounded delivery lane for recognized feature branches: explicit-path
 `git add`, explicit-path `git restore --staged`, one-message `git commit`, a
 non-force push of the current branch to `origin`, `gh pr create/edit/ready`, and
 `glab mr create`. Shared branches, broad staging, merge/rebase/reset, force-push,
@@ -412,6 +419,13 @@ bundle. An optional `sandbox_permissions: "require_escalated"` is accepted only
 for that pinned wrapper; raw reads cannot request outer sandbox escalation.
 Do not replace the wrapper with host `updatedInput` behavior or an unrestricted
 fallback after sandbox setup fails.
+
+Do not remove the execution-parameter check to accommodate CLI `0.151.0`, or
+infer shell defaults from its command-only event. The `env -i` prefix runs after
+the outer shell has started. Safe execution requires a host interface that
+preserves trusted parameters or launches the reviewed executable directly.
+The positive host tests below remain acceptance requirements; they are not
+passing evidence for this CLI.
 
 Within the reviewed inner command, path-qualified executables, extra execution
 fields, shell expansion syntax, and unqualified shell aliases deny. File reads

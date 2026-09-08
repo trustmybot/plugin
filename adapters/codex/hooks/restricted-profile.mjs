@@ -106,6 +106,8 @@ export function buildRestrictedProfile({
     `(import ${JSON.stringify(DYLD_PROFILE)})`,
     "(allow syscall*)",
     "(allow mach-bootstrap)",
+    // Go's macOS TLS verification uses SecTrust through this specific agent.
+    ...(networked ? ["(allow mach-lookup (global-name \"com.apple.trustd.agent\"))"] : []),
     "(allow sysctl-read)",
     "(allow file-read-metadata)",
     "(allow file-map-executable)",
