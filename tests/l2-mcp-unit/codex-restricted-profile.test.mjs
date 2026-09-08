@@ -159,6 +159,25 @@ test("every execution mode denies reads of other adapter and pinned plugin state
   unchanged(fixture);
 });
 
+test("only git-push reads the exact system TLS configuration and CA files, not their sibling", (t) => {
+  if (!requireSandbox(t)) return;
+  const fixture = project();
+  const allowed = ["/private/etc/ssl/openssl.cnf", "/private/etc/ssl/cert.pem"];
+  const sibling = "/private/etc/ssl/x509v3.cnf";
+  for (const path of [...allowed, sibling]) assert.ok(lstatSync(path).isFile(), `expected a system SSL file: ${path}`);
+  const aliases = ["/etc/ssl/openssl.cnf", "/etc/ssl/cert.pem"];
+  const paths = [...allowed, ...aliases, sibling];
+  for (const mode of ["validation", "git-read", "git-local", "forge", "git-push"]) {
+    const actual = result(fixture, mode, `const fs=require('node:fs'); ${ATTEMPT}
+      console.log(JSON.stringify(${JSON.stringify(paths)}.map(path=>attempt(()=>fs.readFileSync(path)))));`);
+    for (const [index, value] of actual.entries()) {
+      if (mode === "git-push" && index < paths.length - 1) assert.equal(value, "allowed", paths[index]);
+      else assertDenied(value, `${mode}: ${paths[index]}`);
+    }
+  }
+  unchanged(fixture);
+});
+
 test("validation permits ordinary source and private scratch writes", (t) => {
   if (!requireSandbox(t)) return;
   const fixture = project();

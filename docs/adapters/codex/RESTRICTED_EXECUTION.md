@@ -88,7 +88,10 @@ change checkout or Git files, even when Git's display flags do not disable them.
 
 Forge and push processes can contact `com.apple.trustd.agent` for macOS TLS
 certificate verification. This is an exact service permission; it grants no
-general access to system services or additional file reads. Certificate checks
+general access to system services. HTTPS push can also read the two fixed files
+required by Apple's Git: `/private/etc/ssl/openssl.cnf` and
+`/private/etc/ssl/cert.pem`. This does not permit reading the rest of that
+directory. Other execution modes cannot read these files. Certificate checks
 remain enabled.
 
 Only one `origin` URL is accepted, on GitHub.com or GitLab.com. An optional push

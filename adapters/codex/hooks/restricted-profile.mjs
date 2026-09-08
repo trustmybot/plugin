@@ -117,6 +117,10 @@ export function buildRestrictedProfile({
       : "(allow process-exec)",
     mode === "git-local" ? "(deny process-fork)" : "(allow process-fork)",
     rule("allow", "file-read*", [...reads.map(subpath), ...executables.map(literal)]),
+    // System Git's HTTPS helper needs the stock LibreSSL configuration and CA bundle.
+    ...(mode === "git-push" ? [rule("allow", "file-read-data", [
+      literal("/private/etc/ssl/openssl.cnf"), literal("/private/etc/ssl/cert.pem"),
+    ])] : []),
     rule("allow", "file-read* file-write*", [literal("/dev/null")]),
     rule("allow", "file-read*", [literal("/dev/random"), literal("/dev/urandom")]),
     rule("allow", "file-write*", writes.map(subpath)),
