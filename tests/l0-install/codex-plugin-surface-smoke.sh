@@ -27,7 +27,12 @@ for required in \
   "$ARTIFACT_ROOT/skills" \
   "$ARTIFACT_ROOT/hooks/codex/hooks.json" \
   "$ARTIFACT_ROOT/adapters/codex/hooks/dispatcher.mjs" \
-  "$ARTIFACT_ROOT/adapters/codex/hooks/repo-policy.mjs"; do
+  "$ARTIFACT_ROOT/adapters/codex/hooks/repo-policy.mjs" \
+  "$ARTIFACT_ROOT/adapters/codex/hooks/branch-policy.mjs" \
+  "$ARTIFACT_ROOT/adapters/codex/hooks/forge-binding.mjs" \
+  "$ARTIFACT_ROOT/adapters/codex/hooks/restricted-runner.mjs" \
+  "$ARTIFACT_ROOT/adapters/codex/hooks/restricted-profile.mjs" \
+  "$ARTIFACT_ROOT/adapters/codex/tool-names.mjs"; do
   if [ ! -e "$required" ]; then
     printf 'codex-plugin-surface-smoke: artifact is missing %s\n' "$required" >&2
     exit 1
@@ -64,7 +69,16 @@ validate_installed_cache() {
   INSTALLED_HOOKS="$INSTALLED_PATH/hooks/codex/hooks.json"
   INSTALLED_DISPATCHER="$INSTALLED_PATH/adapters/codex/hooks/dispatcher.mjs"
   INSTALLED_POLICY="$INSTALLED_PATH/adapters/codex/hooks/repo-policy.mjs"
-  for installed_hook_file in "$INSTALLED_MANIFEST" "$INSTALLED_HOOKS" "$INSTALLED_DISPATCHER" "$INSTALLED_POLICY"; do
+  INSTALLED_BRANCH_POLICY="$INSTALLED_PATH/adapters/codex/hooks/branch-policy.mjs"
+  INSTALLED_FORGE_BINDING="$INSTALLED_PATH/adapters/codex/hooks/forge-binding.mjs"
+  INSTALLED_RUNNER="$INSTALLED_PATH/adapters/codex/hooks/restricted-runner.mjs"
+  INSTALLED_PROFILE="$INSTALLED_PATH/adapters/codex/hooks/restricted-profile.mjs"
+  INSTALLED_TOOL_NAMES="$INSTALLED_PATH/adapters/codex/tool-names.mjs"
+  for installed_hook_file in \
+    "$INSTALLED_MANIFEST" "$INSTALLED_HOOKS" "$INSTALLED_DISPATCHER" \
+    "$INSTALLED_POLICY" "$INSTALLED_BRANCH_POLICY" "$INSTALLED_FORGE_BINDING" \
+    "$INSTALLED_RUNNER" \
+    "$INSTALLED_PROFILE" "$INSTALLED_TOOL_NAMES"; do
     if [ ! -f "$installed_hook_file" ]; then
       printf 'codex-plugin-surface-smoke: installed cache is missing %s\n' "$installed_hook_file" >&2
       exit 1
@@ -80,6 +94,11 @@ validate_installed_cache() {
   cmp -s "$ARTIFACT_ROOT/hooks/codex/hooks.json" "$INSTALLED_HOOKS"
   cmp -s "$ARTIFACT_ROOT/adapters/codex/hooks/dispatcher.mjs" "$INSTALLED_DISPATCHER"
   cmp -s "$ARTIFACT_ROOT/adapters/codex/hooks/repo-policy.mjs" "$INSTALLED_POLICY"
+  cmp -s "$ARTIFACT_ROOT/adapters/codex/hooks/branch-policy.mjs" "$INSTALLED_BRANCH_POLICY"
+  cmp -s "$ARTIFACT_ROOT/adapters/codex/hooks/forge-binding.mjs" "$INSTALLED_FORGE_BINDING"
+  cmp -s "$ARTIFACT_ROOT/adapters/codex/hooks/restricted-runner.mjs" "$INSTALLED_RUNNER"
+  cmp -s "$ARTIFACT_ROOT/adapters/codex/hooks/restricted-profile.mjs" "$INSTALLED_PROFILE"
+  cmp -s "$ARTIFACT_ROOT/adapters/codex/tool-names.mjs" "$INSTALLED_TOOL_NAMES"
 }
 
 env CODEX_HOME="$SMOKE_HOME" "$CODEX_BIN" plugin marketplace add "$ARTIFACT_ROOT" --json > "$MARKETPLACE_JSON"
@@ -119,7 +138,8 @@ if [ "$HOOK_TIMEOUT" -ne 5 ]; then
 fi
 
 HOOK_PROJECT="$SMOKE_HOME/hook-project"
-mkdir -p "$HOOK_PROJECT"
+HOOK_PLUGIN_DATA="$SMOKE_HOME/hook-plugin-data"
+mkdir -p "$HOOK_PROJECT" "$HOOK_PLUGIN_DATA"
 git -C "$HOOK_PROJECT" init -q -b main
 HOOK_INPUT_BASE="$(jq -nc --arg cwd "$HOOK_PROJECT" '{
   cwd: $cwd,
@@ -131,14 +151,46 @@ HOOK_INPUT_BASE="$(jq -nc --arg cwd "$HOOK_PROJECT" '{
   transcript_path: null,
   turn_id: "installed-cache-turn"
 }')"
+
+make_installed_branch_source() {
+  env -u NODE_PATH node --input-type=module - \
+    "$INSTALLED_POLICY" "$INSTALLED_PATH" "$HOOK_PLUGIN_DATA" "$HOOK_PROJECT" <<'NODE'
+import assert from "node:assert/strict";
+import { realpathSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+const [policy, root, data, project] = process.argv.slice(2);
+const { makeRestrictedCommand } = await import(pathToFileURL(policy));
+const pluginRoot = realpathSync(root);
+const pluginData = realpathSync(data);
+const workdir = realpathSync(project);
+const cmd = makeRestrictedCommand("git switch -c codex/installed-branch-policy", workdir, { pluginRoot, pluginData });
+assert.ok(cmd.includes(join(pluginRoot, "adapters/codex/hooks/restricted-runner.mjs")), "wrapper must select the installed runner");
+assert.ok(cmd.includes(`TMB_CODEX_PLUGIN_DATA=${pluginData}`), "wrapper must carry the fixture's host plugin data");
+const fields = { cmd, workdir, shell: "/bin/sh", login: false, tty: false };
+process.stdout.write(JSON.stringify(`text(JSON.stringify(await tools.exec_command(${JSON.stringify(fields)})));`));
+NODE
+}
+
 ALLOW_INPUT="$(jq -c '. + {tool_name:"Read",tool_input:{file_path:"README.md"}}' <<< "$HOOK_INPUT_BASE")"
+BRANCH_INPUT="$(jq -c --argjson source "$(make_installed_branch_source)" '. + {tool_name:"functions.exec",tool_input:$source}' <<< "$HOOK_INPUT_BASE")"
+RAW_BRANCH_INPUT="$(jq -c '. + {tool_name:"Bash",tool_input:{command:"git switch -c codex/installed-branch-policy"}}' <<< "$HOOK_INPUT_BASE")"
 DENY_INPUT="$(jq -c '. + {tool_name:"Bash",tool_input:{command:"touch blocked"}}' <<< "$HOOK_INPUT_BASE")"
-ALLOW_OUTPUT="$(env -u NODE_PATH PLUGIN_ROOT="$INSTALLED_PATH" node "$INSTALLED_DISPATCHER" --policy-sha256 "$HOOK_DIGEST" <<< "$ALLOW_INPUT")"
+ALLOW_OUTPUT="$(env -u NODE_PATH PLUGIN_ROOT="$INSTALLED_PATH" PLUGIN_DATA="$HOOK_PLUGIN_DATA" node "$INSTALLED_DISPATCHER" --policy-sha256 "$HOOK_DIGEST" <<< "$ALLOW_INPUT")"
 if [ -n "$ALLOW_OUTPUT" ]; then
   printf 'codex-plugin-surface-smoke: installed Hook emitted output for an allow decision\n' >&2
   exit 1
 fi
-DENY_OUTPUT="$(env -u NODE_PATH PLUGIN_ROOT="$INSTALLED_PATH" node "$INSTALLED_DISPATCHER" --policy-sha256 "$HOOK_DIGEST" <<< "$DENY_INPUT")"
+RAW_BRANCH_OUTPUT="$(env -u NODE_PATH PLUGIN_ROOT="$INSTALLED_PATH" PLUGIN_DATA="$HOOK_PLUGIN_DATA" node "$INSTALLED_DISPATCHER" --policy-sha256 "$HOOK_DIGEST" <<< "$RAW_BRANCH_INPUT")"
+jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains("require the installed restricted runner"))' <<< "$RAW_BRANCH_OUTPUT" >/dev/null
+BRANCH_OUTPUT="$(env -u NODE_PATH PLUGIN_ROOT="$INSTALLED_PATH" PLUGIN_DATA="$HOOK_PLUGIN_DATA" node "$INSTALLED_DISPATCHER" --policy-sha256 "$HOOK_DIGEST" <<< "$BRANCH_INPUT")"
+if [ "$(uname -s)" != Darwin ]; then
+  jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains("requires the qualified macOS sandbox"))' <<< "$BRANCH_OUTPUT" >/dev/null
+elif [ -n "$BRANCH_OUTPUT" ]; then
+  printf 'codex-plugin-surface-smoke: installed branch-policy helper or Codex manifest did not resolve\n' >&2
+  exit 1
+fi
+DENY_OUTPUT="$(env -u NODE_PATH PLUGIN_ROOT="$INSTALLED_PATH" PLUGIN_DATA="$HOOK_PLUGIN_DATA" node "$INSTALLED_DISPATCHER" --policy-sha256 "$HOOK_DIGEST" <<< "$DENY_INPUT")"
 jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | startswith("TMB-CODEX-HOOK:"))' <<< "$DENY_OUTPUT" >/dev/null
 if [ -e "$HOOK_PROJECT/blocked" ]; then
   printf 'codex-plugin-surface-smoke: denied Hook probe produced a side effect\n' >&2

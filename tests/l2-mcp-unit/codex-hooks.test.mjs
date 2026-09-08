@@ -1,17 +1,20 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test, { after, before } from "node:test";
 
+import { RUNTIME_RELATIVE_PATHS, calculateRuntimeDigest } from "../../adapters/codex/hooks/dispatcher.mjs";
+
 import {
   MAX_COMMAND_BYTES,
   REPO_RESOLUTION_TIMEOUT_MS,
   TMB_TOOL_NAMES,
+  classifyRestrictedCommand,
   evaluatePreToolUse,
+  makeRestrictedCommand,
   parsePatchTargets,
   resolveRepoContext,
 } from "../../adapters/codex/hooks/repo-policy.mjs";
@@ -25,7 +28,6 @@ let outside;
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(TEST_DIR, "..", "..");
 const DISPATCHER_PATH = join(REPO_ROOT, "adapters", "codex", "hooks", "dispatcher.mjs");
-const POLICY_PATH = join(REPO_ROOT, "adapters", "codex", "hooks", "repo-policy.mjs");
 const WORKER_POLICY_BRIDGE = `
 import { parentPort, workerData } from "node:worker_threads";
 if (workerData?.mode === "evaluate-pre-tool-use") {
@@ -97,16 +99,56 @@ async function decision(cwd, toolName, toolInput, extra = {}) {
   });
 }
 
+function restrictedSource(command, cwd, fields = {}) {
+  const cmd = makeRestrictedCommand(command, cwd, { pluginRoot: join(fixtureRoot, "plugin-cache"), pluginData: join(fixtureRoot, "plugin-data") });
+  return nestedCommandSource(cmd, cwd, fields);
+}
+
+function nestedCommandSource(cmd, cwd, fields = {}) {
+  return `text(JSON.stringify(await tools.exec_command(${JSON.stringify({
+    cmd, workdir: cwd, shell: "/bin/sh", login: false, tty: false, ...fields,
+  })})));`;
+}
+
+async function restrictedDecision(cwd, command, fields = {}) {
+  return decision(cwd, "functions.exec", restrictedSource(command, cwd, fields));
+}
+
+function classify(command, cwd) {
+  return classifyRestrictedCommand(command, resolveRepoContext(cwd), {
+    pluginRoot: join(fixtureRoot, "plugin-cache"), pluginData: join(fixtureRoot, "plugin-data"),
+  });
+}
+
+async function assertRestrictedAllowed(cwd, command, mode) {
+  const classification = await classify(command, cwd);
+  assert.equal(classification.decision, "allow", `${command}: ${classification.reason ?? ""}`);
+  if (mode) assert.equal(classification.mode, mode, command);
+  const result = await restrictedDecision(cwd, command);
+  assert.equal(result.decision, process.platform === "darwin" ? "allow" : "deny", `${command}: ${result.reason ?? ""}`);
+  if (process.platform !== "darwin") assert.match(result.reason, /qualified macOS sandbox/u);
+}
+
 function patch(...lines) {
   return { command: ["*** Begin Patch", ...lines, "*** End Patch"].join("\n") };
 }
 
 function runtimeDigest() {
-  return createHash("sha256")
-    .update(readFileSync(DISPATCHER_PATH))
-    .update("\0")
-    .update(readFileSync(POLICY_PATH))
-    .digest("hex");
+  return calculateRuntimeDigest(REPO_ROOT);
+}
+
+function copyRuntime(name) {
+  const runtime = join(fixtureRoot, `${name}-runtime`);
+  copyRuntimeInto(runtime);
+  return runtime;
+}
+
+function copyRuntimeInto(runtime) {
+  for (const path of [...RUNTIME_RELATIVE_PATHS, "hooks/codex/hooks.json", ".codex-plugin/plugin.json"]) {
+    const target = join(runtime, path);
+    mkdirSync(dirname(target), { recursive: true });
+    copyFileSync(join(REPO_ROOT, path), target);
+  }
 }
 
 function dispatch(input, digest = runtimeDigest(), extraEnv = {}) {
@@ -121,17 +163,11 @@ function dispatch(input, digest = runtimeDigest(), extraEnv = {}) {
 }
 
 function dispatchWithPolicySource(name, policySource, extraEnv = {}) {
-  const runtime = join(fixtureRoot, `${name}-runtime`);
-  mkdirSync(runtime);
-  const dispatcher = join(runtime, "dispatcher.mjs");
-  const policy = join(runtime, "repo-policy.mjs");
-  copyFileSync(DISPATCHER_PATH, dispatcher);
+  const runtime = copyRuntime(name);
+  const dispatcher = join(runtime, "adapters/codex/hooks/dispatcher.mjs");
+  const policy = join(runtime, "adapters/codex/hooks/repo-policy.mjs");
   writeFileSync(policy, `${policySource}${WORKER_POLICY_BRIDGE}`);
-  const digest = createHash("sha256")
-    .update(readFileSync(dispatcher))
-    .update("\0")
-    .update(readFileSync(policy))
-    .digest("hex");
+  const digest = calculateRuntimeDigest(runtime);
   const started = process.hrtime.bigint();
   const result = spawnSync(process.execPath, [dispatcher, "--policy-sha256", digest], {
     cwd: primary,
@@ -148,7 +184,7 @@ function dispatchWithPolicySource(name, policySource, extraEnv = {}) {
 }
 
 before(() => {
-  fixtureRoot = mkdtempSync(join(tmpdir(), "tmb-codex-hooks-unit-"));
+  fixtureRoot = realpathSync(mkdtempSync(join(tmpdir(), "tmb-codex-hooks-unit-")));
   primary = join(fixtureRoot, "repo");
   primaryFeature = join(fixtureRoot, "feature-repo");
   linked = join(fixtureRoot, "linked");
@@ -157,7 +193,8 @@ before(() => {
 
   mkdirSync(primary);
   mkdirSync(outside);
-  mkdirSync(join(fixtureRoot, "plugin-cache"));
+  copyRuntimeInto(join(fixtureRoot, "plugin-cache"));
+  writeFileSync(join(fixtureRoot, "plugin-cache", ".codex-plugin", "plugin.json"), JSON.stringify({ name: "tmb-test", version: "0.0.0" }));
   mkdirSync(join(fixtureRoot, "plugin-data"));
   git(primary, "init", "-q", "-b", "main");
   mkdirSync(join(primary, "src"));
@@ -179,7 +216,7 @@ before(() => {
 });
 
 after(() => {
-  if (fixtureRoot?.startsWith(join(tmpdir(), "tmb-codex-hooks-unit-"))) {
+  if (fixtureRoot?.startsWith(join(realpathSync(tmpdir()), "tmb-codex-hooks-unit-"))) {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
 });
@@ -338,7 +375,7 @@ test("primary checkout allows reviewed read-only shell commands", async () => {
   for (const command of [
     "pwd",
     "ls -la src",
-    "rg --no-config -n seed src",
+    "rg --no-config --no-ignore -n seed src",
     "cat src/tracked.txt",
     "head -n 1 src/tracked.txt",
     "tail -n 1 src/tracked.txt",
@@ -363,6 +400,10 @@ test("primary checkout allows reviewed read-only shell commands", async () => {
     "git --no-pager --no-optional-locks --no-lazy-fetch -c core.fsmonitor=false -c core.hooksPath=/dev/null ls-tree HEAD",
     "git --no-pager --no-optional-locks --no-lazy-fetch -c core.fsmonitor=false -c core.hooksPath=/dev/null worktree list --porcelain",
   ]) {
+    if (command.startsWith("git ")) {
+      await assertRestrictedAllowed(primary, command, "git-read");
+      continue;
+    }
     const result = await decision(primary, "Bash", { command });
     assert.equal(result.decision, "allow", `${command}: ${result.reason ?? ""}`);
   }
@@ -391,7 +432,7 @@ test("reviewed ripgrep reads disable environment-provided helper configuration",
       "deny",
     );
     assert.equal(
-      (await decision(primary, "Bash", { command: "rg --no-config -n seed src" })).decision,
+      (await decision(primary, "Bash", { command: "rg --no-config --no-ignore -n seed src" })).decision,
       "allow",
     );
   } finally {
@@ -401,6 +442,7 @@ test("reviewed ripgrep reads disable environment-provided helper configuration",
 });
 
 test("reviewed forge queries have positive coverage for every allowed action", async () => {
+  const { FORGE_TARGET_ENV_NAMES } = await import("../../adapters/codex/hooks/repo-policy.mjs");
   const trustedBin = join(fixtureRoot, "trusted-forge-bin");
   mkdirSync(trustedBin);
   for (const program of ["gh", "glab"]) {
@@ -409,26 +451,31 @@ test("reviewed forge queries have positive coverage for every allowed action", a
   }
 
   const originalHostPath = process.env.TMB_CODEX_HOOK_HOST_PATH;
+  const originalTargetEnvironment = new Map([...FORGE_TARGET_ENV_NAMES, "TMB_CODEX_HOOK_FORGE_TARGET_ENV"]
+    .map((name) => [name, process.env[name]]));
   try {
+    for (const name of originalTargetEnvironment.keys()) delete process.env[name];
     process.env.TMB_CODEX_HOOK_HOST_PATH = `${trustedBin}:/usr/bin:/bin`;
-    const commands = ["gh auth status", "glab auth status"];
-    for (const group of ["issue", "pr", "release", "repo", "run", "workflow"]) {
-      for (const action of ["list", "view", "status", "diff", "checks"]) {
-        commands.push(`gh ${group} ${action}`);
-      }
-    }
-    for (const group of ["issue", "mr", "release", "repo", "ci"]) {
-      for (const action of ["list", "view", "status", "diff"]) {
-        commands.push(`glab ${group} ${action}`);
-      }
-    }
+    const commands = [
+      "gh auth status", "glab auth status",
+      "gh pr list", "gh pr view", "gh pr status", "gh pr diff", "gh pr checks",
+      "gh issue list", "gh issue view 1", "gh issue status",
+      "gh release list", "gh release view", "gh repo view",
+      "gh run list", "gh run view 1", "gh workflow list", "gh workflow view ci.yml",
+      "glab issue list", "glab issue view 1", "glab mr list", "glab mr view", "glab mr diff",
+      "glab release list", "glab release view", "glab repo view",
+      "glab ci list", "glab ci status", "glab ci get",
+    ];
     for (const command of commands) {
-      const result = await decision(primary, "Bash", { command });
-      assert.equal(result.decision, "allow", `${command}: ${result.reason ?? ""}`);
+      await assertRestrictedAllowed(primary, command, "forge");
     }
   } finally {
     if (originalHostPath === undefined) delete process.env.TMB_CODEX_HOOK_HOST_PATH;
     else process.env.TMB_CODEX_HOOK_HOST_PATH = originalHostPath;
+    for (const [name, value] of originalTargetEnvironment) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
   }
 });
 
@@ -455,11 +502,36 @@ test("Hook-internal Git and reviewed shell commands cannot resolve to repository
   }
 });
 
+test("raw reads cannot execute a checkout PATH shim through a filesystem case alias", async (t) => {
+  const aliasedRoot = join(fixtureRoot, "REPO");
+  if (!existsSync(aliasedRoot)) return t.skip("fixture filesystem has no case-insensitive path aliases");
+  const marker = join(outside, "raw-read-alias-executed");
+  const shimDirectory = join(primary, "alias-bin");
+  mkdirSync(shimDirectory);
+  writeFileSync(join(shimDirectory, "cat"), `#!/bin/sh\nprintf escaped > '${marker}'\n`, { mode: 0o755 });
+  const aliasedPath = `${join(aliasedRoot, "alias-bin")}:/usr/bin:/bin`;
+  const previousHostPath = process.env.TMB_CODEX_HOOK_HOST_PATH;
+  try {
+    process.env.TMB_CODEX_HOOK_HOST_PATH = aliasedPath;
+    const result = await decision(primary, "Bash", { command: "cat src/tracked.txt" });
+    if (result.decision === "allow") {
+      execFileSync("/bin/sh", ["-c", "cat src/tracked.txt"], { cwd: primary, env: { PATH: aliasedPath }, stdio: "ignore" });
+    }
+    assert.equal(result.decision, "deny", "case-alias checkout executable must not be trusted");
+    assert.equal(existsSync(marker), false);
+  } finally {
+    if (previousHostPath === undefined) delete process.env.TMB_CODEX_HOOK_HOST_PATH;
+    else process.env.TMB_CODEX_HOOK_HOST_PATH = previousHostPath;
+  }
+});
+
 test("feature-branch validation entrypoints use a narrow command and action table", async () => {
   const trustedBin = join(fixtureRoot, "trusted-validation-bin");
   const nested = join(linked, "nested-validation-cwd");
   mkdirSync(trustedBin);
   mkdirSync(nested);
+  mkdirSync(join(linked, "tests"));
+  writeFileSync(join(linked, "tests", "run-all.sh"), "#!/bin/sh\nexit 0\n");
   symlinkSync(outside, join(nested, "nested-escape"));
   for (const program of ["bun", "cargo", "go", "node", "npm", "pnpm", "pytest"]) {
     writeFileSync(join(trustedBin, program), "#!/bin/sh\nexit 0\n");
@@ -485,8 +557,7 @@ test("feature-branch validation entrypoints use a narrow command and action tabl
   try {
     process.env.PATH = `${trustedBin}:${originalPath}`;
     for (const command of allowed) {
-      const result = await decision(linked, "Bash", { command });
-      assert.equal(result.decision, "allow", `${command}: ${result.reason ?? ""}`);
+      await assertRestrictedAllowed(linked, command, "validation");
     }
     for (const command of [
       "bash tests/run-all.sh",
@@ -495,8 +566,9 @@ test("feature-branch validation entrypoints use a narrow command and action tabl
       "pytest nested-escape/test_payload.py",
       "go test ./nested-escape/...",
     ]) {
-      const result = await decision(nested, "Bash", { command });
+      const result = await restrictedDecision(nested, command);
       assert.equal(result.decision, "deny", `nested cwd: ${command}`);
+      assert.equal((await classify(command, nested)).decision, "deny", `classifier: ${command}`);
     }
   } finally {
     process.env.PATH = originalPath;
@@ -536,9 +608,31 @@ test("feature-branch validation entrypoints use a narrow command and action tabl
     "go test /tmp/outside/...",
     "go test escape-link/...",
   ]) {
-    const result = await decision(linked, "Bash", { command });
+    const result = await restrictedDecision(linked, command);
     assert.equal(result.decision, "deny", command);
+    assert.equal((await classify(command, linked)).decision, "deny", `classifier: ${command}`);
   }
+});
+
+test("fixed validation script must be an existing contained regular file", async () => {
+  const script = join(linked, "tests", "run-all.sh");
+  const input = { command: "bash tests/run-all.sh" };
+  rmSync(script);
+  try {
+    assert.equal((await restrictedDecision(linked, input.command)).decision, "deny", "missing script");
+    assert.equal((await classify(input.command, linked)).decision, "deny", "missing script classifier");
+    symlinkSync(join(outside, "runner.sh"), script);
+    assert.equal((await restrictedDecision(linked, input.command)).decision, "deny", "outside script symlink");
+    assert.equal((await classify(input.command, linked)).decision, "deny", "outside script symlink classifier");
+    rmSync(script);
+    execFileSync("mkfifo", [script]);
+    assert.equal((await restrictedDecision(linked, input.command)).decision, "deny", "FIFO script");
+    assert.equal((await classify(input.command, linked)).decision, "deny", "FIFO script classifier");
+  } finally {
+    rmSync(script, { force: true });
+    writeFileSync(script, "#!/bin/sh\nexit 0\n");
+  }
+  await assertRestrictedAllowed(linked, input.command, "validation");
 });
 
 test("primary checkout denies every known source-write alternative", async () => {
@@ -572,6 +666,7 @@ test("primary checkout denies every known source-write alternative", async () =>
   for (const command of commands) {
     const result = await decision(primary, "Bash", { command });
     assert.equal(result.decision, "deny", command);
+    assert.equal((await classify(command, primary)).decision, "deny", `classifier: ${command}`);
   }
 });
 
@@ -613,8 +708,11 @@ test("reviewed read commands reject executable and write-capable flags", async (
     "git --no-pager --no-optional-locks --no-lazy-fetch -c core.fsmonitor=false -c core.hooksPath=/dev/null log --no-ext-diff --no-textconv --show-signature -1",
     "git --no-pager --no-optional-locks --no-lazy-fetch -c core.fsmonitor=false -c core.hooksPath=/dev/null log --no-ext-diff --no-textconv '--format=%G?' -1",
   ]) {
-    const result = await decision(primary, "Bash", { command });
+    const result = /^(?:git|gh|glab) /u.test(command)
+      ? await restrictedDecision(primary, command)
+      : await decision(primary, "Bash", { command });
     assert.equal(result.decision, "deny", command);
+    assert.equal((await classify(command, primary)).decision, "deny", `classifier: ${command}`);
   }
 });
 
@@ -637,6 +735,7 @@ test("shell parsing rejects values that Bash would expand after the Hook decisio
   ]) {
     const result = await decision(primary, "Bash", { command });
     assert.equal(result.decision, "deny", command);
+    assert.equal((await classify(command, primary)).decision, "deny", `classifier: ${command}`);
   }
 });
 
@@ -669,8 +768,7 @@ test("feature branches allow the bounded Claude-style delivery lane", async () =
       [primaryFeature, "gh pr ready 1183"],
       [primaryFeature, "glab mr create --target-branch dev --source-branch codex/phase5-test --draft --title changed --description details"],
     ]) {
-      const result = await decision(cwd, "Bash", { command });
-      assert.equal(result.decision, "allow", `${cwd}: ${command}: ${result.reason ?? ""}`);
+      await assertRestrictedAllowed(cwd, command);
     }
   } finally {
     if (originalHostPath === undefined) delete process.env.TMB_CODEX_HOOK_HOST_PATH;
@@ -682,10 +780,7 @@ test("feature branches allow the bounded Claude-style delivery lane", async () =
     "apply_patch",
     patch("*** Update File: src/tracked.txt", "@@", "-seed", "+changed"),
   )).decision, "allow");
-  assert.equal(
-    (await decision(primaryFeature, "Bash", { command: "node --test tests/candidate.test.mjs" })).decision,
-    "allow",
-  );
+  await assertRestrictedAllowed(primaryFeature, "node --test tests/candidate.test.mjs", "validation");
 });
 
 test("delivery lane remains closed on protected branches and destructive operations", async () => {
@@ -721,8 +816,9 @@ test("delivery lane remains closed on protected branches and destructive operati
     [primaryFeature, "gh pr merge 1183"],
     [primaryFeature, "glab mr merge 1183"],
   ]) {
-    const result = await decision(cwd, "Bash", { command });
+    const result = await restrictedDecision(cwd, command);
     assert.equal(result.decision, "deny", `${cwd}: ${command}`);
+    assert.equal((await classify(command, cwd)).decision, "deny", `classifier: ${command}`);
   }
 
   assert.equal((await decision(
@@ -730,6 +826,80 @@ test("delivery lane remains closed on protected branches and destructive operati
     "apply_patch",
     patch("*** Update File: src/tracked.txt", "@@", "-seed", "+changed"),
   )).decision, "deny");
+});
+
+test("Git, forge, and validation require the pinned wrapper even when their grammar is approved", async () => {
+  const trustedBin = join(fixtureRoot, "raw-sensitive-forge-bin");
+  mkdirSync(trustedBin);
+  writeFileSync(join(trustedBin, "gh"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  const previousHostPath = process.env.TMB_CODEX_HOOK_HOST_PATH;
+  try {
+    process.env.TMB_CODEX_HOOK_HOST_PATH = `${trustedBin}:${process.env.PATH}`;
+    for (const [command, mode] of [
+      ["git --no-pager --no-optional-locks --no-lazy-fetch -c core.fsmonitor=false -c core.hooksPath=/dev/null status --short", "git-read"],
+      ["git commit -m fixture", "git-local"],
+      ["git push origin codex/phase5-test", "git-push"],
+      ["gh pr view 1183 --json number,title", "forge"],
+      ["node --test tests/candidate.test.mjs", "validation"],
+    ]) {
+      const classification = await classify(command, primaryFeature);
+      assert.equal(classification.decision, "allow", `${command}: ${classification.reason ?? ""}`);
+      assert.equal(classification.mode, mode, command);
+      for (const [tool, input] of [
+        ["Bash", { command }],
+        ["functions.exec", nestedCommandSource(command, primaryFeature)],
+      ]) {
+        const result = await decision(primaryFeature, tool, input);
+        assert.equal(result.decision, "deny", `${tool}: ${command}`);
+        assert.match(result.reason, /require the installed restricted runner/u);
+      }
+      const wrapped = await restrictedDecision(primaryFeature, command);
+      assert.equal(wrapped.decision, process.platform === "darwin" ? "allow" : "deny", `${command}: ${wrapped.reason ?? ""}`);
+    }
+  } finally {
+    if (previousHostPath === undefined) delete process.env.TMB_CODEX_HOOK_HOST_PATH;
+    else process.env.TMB_CODEX_HOOK_HOST_PATH = previousHostPath;
+  }
+});
+
+test("restricted wrappers reject missing shell controls, preload arguments, wrong cwd, and wrong digest", async () => {
+  const command = "git commit -m fixture";
+  const wrapper = makeRestrictedCommand(command, primaryFeature, { pluginRoot: join(fixtureRoot, "plugin-cache"), pluginData: join(fixtureRoot, "plugin-data") });
+  assert.equal((await restrictedDecision(primaryFeature, command)).decision, process.platform === "darwin" ? "allow" : "deny");
+  for (const fields of [
+    { shell: undefined }, { shell: "/bin/bash" }, { login: undefined }, { login: true },
+    { tty: undefined }, { tty: true }, { workdir: undefined }, { workdir: linked },
+  ]) {
+    const result = await restrictedDecision(primaryFeature, command, fields);
+    assert.equal(result.decision, "deny", `shell controls: ${JSON.stringify(fields)}`);
+  }
+  const nodeToken = `'${realpathSync(process.execPath)}'`;
+  for (const [label, changed] of [
+    ["Node preload", wrapper.replace(nodeToken, `${nodeToken} '--import' '/tmp/fixture-preload.mjs'`)],
+    ["Node require", wrapper.replace(nodeToken, `${nodeToken} '--require=/tmp/fixture-preload.cjs'`)],
+    ["environment preload", wrapper.replace("'-i'", "'-i' 'NODE_OPTIONS=--import=/tmp/fixture-preload.mjs'")],
+    ["plugin data override", wrapper.replace(`TMB_CODEX_PLUGIN_DATA=${join(fixtureRoot, "plugin-data")}`, "TMB_CODEX_PLUGIN_DATA=")],
+    ["alternate entrypoint", wrapper.replace("/restricted-runner.mjs", "/dispatcher.mjs")],
+    ["wrong digest", wrapper.replace(/'[a-f0-9]{64}'/u, `'${"0".repeat(64)}'`)],
+    ["inner cwd", makeRestrictedCommand(command, linked, { pluginRoot: join(fixtureRoot, "plugin-cache"), pluginData: join(fixtureRoot, "plugin-data") })],
+    ["extra argument", `${wrapper} '--extra'`],
+  ]) {
+    assert.notEqual(changed, wrapper, label);
+    const result = await decision(primaryFeature, "functions.exec", nestedCommandSource(changed, primaryFeature));
+    assert.equal(result.decision, "deny", `${label}: ${result.reason ?? ""}`);
+  }
+  assert.equal((await decision(primaryFeature, "Bash", { command: wrapper })).decision, "deny", "uncontrolled Bash wrapper");
+});
+
+test("raw command denial supplies an executable canonical recovery call", async () => {
+  if (process.platform !== "darwin") return;
+  const result = await decision(primaryFeature, "Bash", { command: "git add -- README.md" });
+  assert.equal(result.decision, "deny");
+  const marker = "Use functions.exec with this single static call: ";
+  assert.ok(result.reason.includes(marker));
+  const source = result.reason.slice(result.reason.indexOf(marker) + marker.length);
+  const recovered = await decision(primaryFeature, "functions.exec", source);
+  assert.equal(recovered.decision, "allow", recovered.reason);
 });
 
 test("persistent command receivers are denied and lifecycle stdin is bounded", async () => {
@@ -1137,7 +1307,7 @@ test("dispatcher fails closed for malformed input and digest mismatch", () => {
   }
 });
 
-test("dispatcher fails closed when the digest argument or policy file is unavailable", () => {
+test("dispatcher fails closed when the digest argument or any pinned artifact is unavailable", () => {
   for (const args of [[], ["--policy-sha256", "bad"]]) {
     const result = spawnSync(process.execPath, [DISPATCHER_PATH, ...args], {
       cwd: REPO_ROOT,
@@ -1149,18 +1319,41 @@ test("dispatcher fails closed when the digest argument or policy file is unavail
     assert.match(JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason, /digest is missing or malformed/u);
   }
 
-  const runtime = join(fixtureRoot, "missing-policy-runtime");
-  mkdirSync(runtime);
-  const dispatcher = join(runtime, "dispatcher.mjs");
-  copyFileSync(DISPATCHER_PATH, dispatcher);
-  const result = spawnSync(process.execPath, [dispatcher, "--policy-sha256", "0".repeat(64)], {
-    cwd: primary,
-    encoding: "utf8",
-    input: JSON.stringify(payload(primary, "Read", {})),
-    timeout: 5_000,
+  for (const [index, missing] of [...RUNTIME_RELATIVE_PATHS.slice(1), "hooks/codex/hooks.json"].entries()) {
+    const runtime = copyRuntime(`missing-policy-${index}`);
+    const dispatcher = join(runtime, "adapters/codex/hooks/dispatcher.mjs");
+    rmSync(join(runtime, missing));
+    const result = spawnSync(process.execPath, [dispatcher, "--policy-sha256", "0".repeat(64)], {
+      cwd: primary, encoding: "utf8", input: JSON.stringify(payload(primary, "Read", {})), timeout: 5_000,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason, /policy files cannot be read/u, missing);
+  }
+});
+
+test("branch policy is digest-pinned but lazily imported only for write gates", () => {
+  const runtime = copyRuntime("lazy-branch-policy");
+  const dispatcher = join(runtime, "adapters/codex/hooks/dispatcher.mjs");
+  const branchPolicy = join(runtime, "adapters/codex/hooks/branch-policy.mjs");
+  writeFileSync(branchPolicy, 'throw new Error("fixture: branch policy imported");\n');
+  const digest = calculateRuntimeDigest(runtime);
+  const run = (input) => spawnSync(process.execPath, [dispatcher, "--policy-sha256", digest], {
+    cwd: primaryFeature, encoding: "utf8", input: JSON.stringify(input), timeout: 5_000,
+    env: { ...process.env, PLUGIN_ROOT: join(fixtureRoot, "plugin-cache") },
   });
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason, /policy files cannot be read/u);
+  for (const [tool, input] of [["Read", {}], ["Bash", { command: "pwd" }], ["mcp__codex_app__list_projects", {}]]) {
+    const result = run(payload(primaryFeature, tool, input));
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, "", tool);
+  }
+  const write = run(payload(primaryFeature, "Bash", { command: "git switch -c codex/new" }));
+  assert.equal(write.status, 0, write.stderr);
+  assert.match(JSON.parse(write.stdout).hookSpecificOutput.permissionDecisionReason, /configured branch policy is unavailable/u);
+
+  writeFileSync(branchPolicy, "// changed helper bytes\n");
+  const tampered = run(payload(primaryFeature, "Read", {}));
+  assert.equal(tampered.status, 0, tampered.stderr);
+  assert.match(JSON.parse(tampered.stdout).hookSpecificOutput.permissionDecisionReason, /digest mismatch/u);
 });
 
 test("dispatcher denies stdin beyond 8 MiB without crashing", () => {

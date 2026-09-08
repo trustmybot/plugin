@@ -115,6 +115,11 @@ if jq -e . "$CODEX_MCP" >/dev/null 2>&1; then
 fi
 
 if jq -e . "$CODEX_HOOKS" >/dev/null 2>&1; then
+  if ! node scripts/maintenance/update-codex-hook-digest.mjs --manifest-check; then
+    fail "$CODEX_HOOKS must have one known command shape, unique keys, and one valid digest field"
+  else
+    pass "$CODEX_HOOKS has an unambiguous shape for artifact integrity hashing"
+  fi
   if ! jq -e '
     (.hooks | keys) == ["PreToolUse"] and
     (.hooks.PreToolUse | length) == 1 and
@@ -124,12 +129,13 @@ if jq -e . "$CODEX_HOOKS" >/dev/null 2>&1; then
     .hooks.PreToolUse[0].hooks[0].timeout == 5 and
     (.hooks.PreToolUse[0].hooks[0].command as $command |
       ($command | startswith("/bin/sh -c '\''set -m; ( REPO_CONTEXT=")) and
-      ($command | contains("command -v node")) and
+      ($command | contains("NODE_SEARCH_PATH=\"${PATH}:/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin\"")) and
+      ($command | contains("for NODE_DIRECTORY do")) and
       ($command | contains("process.execPath")) and
       ($command | contains("/bin/realpath")) and
       ($command | contains("GIT_CONFIG_GLOBAL=\"/dev/null\"")) and
       ($command | contains("/usr/bin/git -C \"$PWD\" --no-optional-locks -c core.fsmonitor=false -c core.hooksPath=/dev/null rev-parse --show-toplevel --absolute-git-dir --path-format=absolute --git-common-dir")) and
-      ($command | contains("/opt/homebrew/bin/node")) and
+      ($command | contains("NODE_CANDIDATE=\"$NODE_DIRECTORY/node\"")) and
       ($command | contains("node_modules/.bin")) and
       ($command | contains("*/mise/shims/*")) and
       ($command | contains("/usr/bin/env -i PATH=\"/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin\"")) and

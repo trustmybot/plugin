@@ -4,6 +4,20 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
+## v1.0.6-rc.1 - Unreleased
+
+### Fixed
+- **Codex shell reads validate file operands and exact Git options**: explicit paths must stay inside the checkout and cannot name symlinks or special files. Directory searches with `rg` require `--no-config --no-ignore` so implicit ignore files cannot block on FIFOs. Explicit regular-file searches retain `--no-config`. Git queries reject unreviewed options, including abbreviated options and outside-checkout no-index comparisons.
+- **Codex checks `jq` filter source before module loading**: inline and file-backed filters reject the words `import` and `include`, including in strings or comments. File filters must be ordinary contained files no larger than 256 KiB. Complex filters without module loading remain usable; the check does not bound expression execution time.
+- **Codex accepts every core task branch prefix**: `build/`, `ci/`, `style/`, and `revert/` now support contained patches alongside the existing prefixes. A contract test checks the core branch declaration.
+- **Codex protects equivalent branch spellings**: configured protected, target, legacy PR-target, and task-parent names are compared after NFC normalization and lowercasing, including branch-creation targets. This prevents spelling changes from bypassing protection on macOS and conservatively rejects these variants even on case-sensitive filesystems.
+- **Codex applies configured branch protection before writes**: the Hook combines fixed rules with the acting worktree's protected, target, legacy PR-target, and task-parent branches from `.tmb/<Codex manifest name>/trajectory.db`. A missing database uses the fixed baseline; malformed, unreadable, changing, or unsupported existing state blocks patch, validation, and delivery calls. macOS system SQLite runs in a sandbox that denies writes and network access, with a 500 ms budget and a 64 MiB combined state-file limit. WAL checks cover committed data, its SHM index, and backfilled pages so a damaged log cannot silently select an older checkpoint. Some valid WAL states are also unsupported; the [PRD](docs/adapters/codex/SCOPE_5_PRD.md) lists these compatibility limits. Retrying alone does not guarantee recovery. Reviewed reads and diagnostics do not require this database check.
+- **Codex finds a trusted Node after a rejected PATH candidate**: the launcher continues through absolute host PATH entries before system fallbacks. Tests cover repository shadows, paths with spaces, and version managers that resolve to unsafe targets.
+
+### Changed
+- **Codex runs validation and delivery through a restricted macOS runner**: validation processes and their children can write ordinary checkout files, but cannot write Git, adapter state or plugin files, read arbitrary files outside the checkout and approved toolchain roots, or use the network. Git queries are read-only; local delivery refuses hooks, filters and signing; forge and HTTPS push bind to the checkout's unique origin with isolated configuration and fixed executables. Raw Git, forge and validation commands are denied; supported calls must use the required wrapper. Other platforms currently deny this execution surface. Detached descendants retain the same sandbox; cleanup does not guarantee terminating every descendant.
+- **Codex shares tool metadata and pins the Hook definition**: both the Hook and MCP import one frozen tool-name module. The digest covers seven fixed runtime modules and the normalized Hook manifest, including launcher bytes. Installer smoke runs in the full gate when Codex CLI is available. All seven capability fields and the remaining host acceptance limits are documented. This unpublished candidate still requires the full host matrix on one clean commit.
+
 ## v1.0.5 - Unreleased
 
 ### Added

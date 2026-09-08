@@ -2,23 +2,26 @@
 
 ## 状态
 
-Scope 5 的 Git/GitHub 交付自锁修复已经完成 `1.0.5` 候选闭环。实现沿用 Claude Code 的基本逻辑：Human 已经发出的交付指令由主对话继续执行，Hook 只检查分支、命令和路径状态，不要求第二次批准，也不生成授权令牌。旧 `1.0.4` 缓存已删除，`1.0.5` 已重新安装、重新 trust 并启用；CLI 与 Desktop 全新会话回归均已通过。
+当前 `1.0.6-rc.1` 候选已完成 PR #1183 评论所涉及的本地修复，发布验收尚未完成。修复覆盖 shell 显式读取、Git 查询参数、core 分支前缀兼容和 Node launcher 后续候选解析，并接入仓库配置的受保护分支集合。新增的 macOS 受限命令 runner 让验证脚本、Node 子进程、npm 生命周期和 Git filter 继承相应文件与网络限制。发布前还需在同一干净候选 SHA 上完成安装与宿主矩阵。
+
+`1.0.5` 曾完成交付自锁修复的本机重新安装、trust 和少量全新会话探针；下方保留这些历史记录，不将它们当作当前候选的验收。Human 已经发出的交付指令仍由主对话继续执行，Hook 检查分支、命令和路径状态，不生成授权令牌。
 
 当前源码候选绑定到以下环境：
 
 - macOS arm64；
-- 历史兼容矩阵包含独立 `codex-cli 0.146.0` 和 Codex Desktop 26.820.60940 内置的 `codex-cli 0.150.0-alpha.8`；本次隔离安装烟测使用 `codex-cli 0.150.1`；
-- 插件候选版本 `1.0.5`；
-- Hook runtime digest `b90959994a6963ee36ce0e246320114429c43179a15eb2c16e1c613a0fb9cfd9`；
+- 当前本地检查环境为 Node `25.8.0`、Bun `1.3.11`；可用独立 CLI 为 `0.151.0`，读取版本号本身不算宿主验收；
+- 历史 `1.0.4` 兼容矩阵包含独立 `codex-cli 0.146.0` 和 Codex Desktop 26.820.60940 内置的 `codex-cli 0.150.0-alpha.8`；`1.0.5` 隔离安装烟测使用 `codex-cli 0.150.1`；
+- 本地未发布插件候选版本 `1.0.6-rc.1`；
+- 七个固定 ESM 文件加规范化 Hook definition 的 Hook runtime digest `a00be691c74f0000b28dc5b0cb2c50e05c8f27f1a77210f3b22aec9fd9430461`；
 - manifest hard timeout：5 秒。
 
-这份文档说的是实际边界，不把 Hook 写成操作系统沙箱。
+Hook 审核调用，受限 runner 在 macOS 操作系统层执行进程权限限制。两层职责不同；其他平台目前拒绝 Git、forge 和验证执行。
 
 ## 用户能得到什么
 
 安装后的插件通过一个同步 `PreToolUse` dispatcher 检查 Codex 工具调用：
 
-- 受保护分支只允许审核过的读取命令和创建受控 feature branch。15 个 TMB MCP 工具还要求 canonical `project_root` 一致，而且当前 cwd 到仓库根之间不能出现项目级 `.codex/config.toml`；
+- 受保护分支允许审核过的读取命令；分支策略有效时，还允许创建受控 feature branch 和显式取消暂存。15 个 TMB MCP 工具还要求 canonical `project_root` 一致，而且当前 cwd 到仓库根之间不能出现项目级 `.codex/config.toml`；
 - branch-backed primary checkout 和 linked worktree 只要位于允许的 feature branch，都可以用 `apply_patch` 修改 canonical root 内的普通路径，并运行有限的非交互验证入口；
 - feature branch 可以执行有限交付链：显式文件暂存、取消暂存、单条 message commit、把当前分支非 force 地 push 到 `origin`，以及创建、更新或 ready pull request；
 - `main`、`master`、`dev` 等共享分支，以及 merge、rebase、reset、force-push、PR merge、GitHub Issue 写入和其他 Git/forge 变更继续拒绝；
@@ -47,13 +50,37 @@ Scope 5 的 Git/GitHub 交付自锁修复已经完成 `1.0.5` 候选闭环。实
 | `write_stdin` | 仅空轮询或单个 Ctrl-C | 规则相同 |
 | 未知工具或 payload | 拒绝 | 拒绝 |
 
-Git 查询只接受固定前缀：`git --no-pager --no-optional-locks --no-lazy-fetch -c core.fsmonitor=false -c core.hooksPath=/dev/null ...`。`--no-lazy-fetch` 防止 partial clone 在查询缺失对象时写入 pack。子命令限于 `status`、`diff`、`log`、`show`、`rev-parse`、`ls-files`、`ls-tree` 和 `worktree list`；其中 `diff`、`log`、`show` 还必须显式带 `--no-ext-diff --no-textconv`。带 `--output`、`--exec`、`--config-env`、`--recurse-submodules`、签名验证等参数的调用不会放行，`git -C` 也不在范围内。
+Git 查询只接受固定前缀：`git --no-pager --no-optional-locks --no-lazy-fetch -c core.fsmonitor=false -c core.hooksPath=/dev/null ...`。`--no-lazy-fetch` 防止 partial clone 在查询缺失对象时写入 pack。子命令限于 `status`、`diff`、`log`、`show`、`rev-parse`、`ls-files`、`ls-tree` 和 `worktree list`；其中 `diff`、`log`、`show` 还必须显式带 `--no-ext-diff --no-textconv`。参数按子命令精确列入白名单，不接受长选项缩写、文件输入选项、签名格式别名或 `--no-index`。路径参数和 revision 中的路径部分必须位于 checkout 内，不能借隐式 no-index 比较读取仓库外文件。`git -C` 不在范围内。这些参数必须放在受限 runner 内执行。Git 查询进程及其 helper 只读 checkout/Git 元数据，不能访问网络或写入仓库。
 
-shell 命令按执行前的字面参数审核；环境变量、glob、brace、tilde、shell comment 和续行等二次展开语法直接拒绝。外部命令必须通过当前 `PATH` 解析到 checkout 和 Git 元数据之外的普通可执行文件，项目内同名程序与常见 toolchain shim 目录不会放行；dispatcher 自己固定调用 `/usr/bin/git`。读取命令也要满足有限参数形状：例如 `cat`、`head`、`wc` 和 `jq` 只能读取 checkout 内的普通文件；`rg` 必须显式使用 `--no-config`，也不能启用外部预处理或解压程序；`tail` 不能 follow；forge 查询不能 watch、显示凭据或打开浏览器。
+shell 命令按执行前的字面参数审核；环境变量、glob、brace、tilde、shell comment 和续行等二次展开语法直接拒绝。外部命令必须通过当前 `PATH` 解析到 checkout 和 Git 元数据之外的普通可执行文件，项目内同名程序与常见 toolchain shim 目录不会放行；dispatcher 自己固定调用 `/usr/bin/git`。文件内容和 metadata 命令的显式路径必须留在 checkout 内，拒绝 symlink、额外 hard link 和特殊文件。`rg` 解析 pattern、路径及 flag 参数：始终需要 `--no-config`；目录搜索和 `--files` 还需 `--no-ignore`，避免隐式 ignore 文件是 FIFO 时等待。需要过滤目录时可使用 `-g` 或显式普通文件 `--ignore-file`。不允许 stdin、跟随链接、外部预处理或解压；`tail` 不能 follow。`jq` 的 inline 或文件 filter 不支持 `import/include` 模块；源码中的字符串、注释也保守拒绝这两个词。文件 filter 限 256 KiB，且不能来自受保护状态路径。此检查不保证任意表达式执行时间有界。`dirname`、`basename` 仅操作字符串。forge 查询不能 watch、显示凭据、打开浏览器或指定其他仓库。受限入口绑定唯一 `origin`，只支持 GitHub.com/GitLab.com；CLI 使用独立配置目录和 cwd，不继承目标覆盖变量。`--jq`、`--template` 等动态 formatter 拒绝，保留 JSON 字段输出。宿主 `Read` 等工具没有同一条路径 gate，因此不能据此宣称全局保密边界。
 
-feature branch 的验证入口包括仓库的 `bash tests/run-all.sh`，以及受限的 `node --test`、Bun、npm、pnpm、pytest、Cargo 和 Go 测试/检查形状。package manager、Cargo 和 `tests/run-all.sh` 这类固定签名只能从 checkout root 启动。Node 和 pytest 的直接测试目标按实际 cwd 解析，必须留在当前 checkout；Go 还要求目标写成 `.` 或 `./...` 这类明确的本地文件系统形式。`all`、`std` 和模块导入路径不会放行。这里只审核入口，不能证明脚本内部的每一次文件访问。运行这些命令时仍要依赖 Codex sandbox。
+feature branch 的验证入口包括仓库的 `bash tests/run-all.sh`，以及受限的 `node --test`、Bun、npm、pnpm、pytest、Cargo 和 Go 测试/检查形状。package manager、Cargo 和 `tests/run-all.sh` 这类固定签名只能从 checkout root 启动。Node 和 pytest 的直接测试目标按实际 cwd 解析，必须留在当前 checkout；Go 还要求目标写成 `.` 或 `./...` 这类明确的本地文件系统形式。`all`、`std` 和模块导入路径不会放行。入口审核后，runner 以清空环境的固定 Node 启动，并通过 macOS Seatbelt 执行目标。验证可以写普通源码和私有 scratch；Git、`.tmb`、`.claude`、`.codex`、插件目录及仓库外路径不能写，治理状态和任意仓库外文件不能读；固定系统目录、已选运行时和工具链安装目录保留读取权限，网络拒绝。普通子进程继承同一限制。执行前拒绝可写树中的硬链接和特殊文件，profile 阻止受保护祖先改名及新硬链接。进程组清理不能保证终止自行脱离的后代；这些后代继续受原权限限制。具体调用格式及兼容范围见 [受限执行说明](RESTRICTED_EXECUTION.md)。
 
-feature branch 必须使用 `codex/`、`feat/`、`feature/`、`fix/`、`bugfix/`、`docs/`、`chore/`、`refactor/`、`test/`、`perf/` 或 `hotfix/` 前缀。`git add` 必须在 `--` 后逐个列出文件，避免把用户未要求的改动一起带入 commit。push 只能指向 `origin` 的当前 feature branch，不能 force，也不能附带第二个 refspec。GitHub 写操作只开放 `gh pr create`、正文/标题 `edit` 和 `ready`；GitLab 只开放 `glab mr create`。这些命令是否符合 Human 的原始要求由主对话负责，Hook 不解析“继续”“可以”等自然语言。
+feature branch 必须使用 `codex/`、`feat/`、`feature/`、`fix/`、`bugfix/`、`docs/`、`chore/`、`refactor/`、`test/`、`perf/`、`hotfix/`、`build/`、`ci/`、`style/` 或 `revert/` 前缀，而且不能属于配置的保护集合。`git add` 必须在 `--` 后逐个列出文件，避免把用户未要求的改动一起带入 commit。push 只能指向 `origin` 的当前 feature branch，不能 force，也不能附带第二个 refspec。GitHub 写操作只开放 `gh pr create`、正文/标题 `edit` 和 `ready`；GitLab 只开放 `glab mr create`。本地 Git 交付禁止派生子进程，并在执行前拒绝已配置的 hooks、filters、signing 和可执行仓库 Hook。push 使用绑定 origin 的 HTTPS、明确 refspec 和固定系统执行器。受限 runner 不会执行任意 credential helper、SSH 命令或仓库 CLI alias。这些命令是否符合 Human 的原始要求由主对话负责，Hook 不解析“继续”“可以”等自然语言。
+
+`apply_patch`、验证和交付 gate 会读取当前 acting worktree 的 `.tmb/<Codex manifest name>/trajectory.db`。插件名取自受信任的 `.codex-plugin/plugin.json`，`repos` 行按 canonical worktree path 匹配；不会转向 primary checkout 的数据库或 Claude 状态。保护集合是匹配 repo 的 `repos.protected_branches`、`target_branch`、可选旧字段 `pr_target` 和相关 `tasks.parent_branch_id` 的并集，再叠加固定规则。当前数据库中 `tasks.repo IS NULL` 的合法 parent 分支也纳入保护，不受 repo 注册行数量限制。空值不会增加保护分支。
+
+配置保护 key 和待检查分支名统一经过 `.normalize("NFC").toLowerCase()` 后比较，新建分支的目标名称也遵守该规则。这避免 macOS 上仅改变 HEAD 拼写就绕过同一 Git ref 的保护；即使文件系统能区分大小写或 canonical Unicode 变体，也按同一保守规则拒绝这些等价拼写。
+
+数据库不存在时使用固定基线。有效数据库尚未登记当前 canonical root 时，仍纳入其中的 NULL-repo task parent；没有这类 parent 才只使用固定基线。已存在的数据库若损坏、路径不安全、schema 不支持、注册重复、配置无效或无法读取，则拒绝 patch、验证和交付调用，包括新建分支及取消暂存；不会退回固定规则。配置有效时，`git restore --staged -- <files>` 可在受保护分支执行，只取消指定文件的暂存。审核过的读取和诊断不会加载分支策略模块，也不会查询数据库。
+
+现有数据库的读取目前只支持 macOS：固定使用 `/usr/bin/sandbox-exec` 包裹 `/usr/bin/sqlite3`，在操作系统层拒绝文件写入和网络访问，并使用 SQLite read-only、query-only、`trusted_schema=OFF`、空启动文件和清理后的环境。读取预算为 500 ms，每次快照读入内存的数据库及 sidecar 文件合计不得超过 64 MiB。只接受所需的普通 `repos`、`tasks` 表，拒绝 rollback journal、孤立 sidecar 和不完整 WAL/SHM 对。
+
+有 WAL 时，先校验文件字节，再让 SQLite 查询：检查 WAL header 和逐 frame 的累计 checksum、salt、最终 commit 边界，以及 SHM 双 header、checksum、`mxFrame`、`nPage`、`aFrameCksum`、page/hash 索引和已 backfill 的数据库页是否一致。SQLite 查询成功本身不能证明状态完整；它可能忽略损坏的 WAL 尾部而读取旧 checkpoint。
+
+当前兼容范围如下，所有可读状态还必须通过 schema、路径、容量和前后完整性检查：
+
+| 数据库状态 | 分支策略读取 |
+|---|---|
+| 完整且已提交的 WAL generation，SHM 一致 | 普通只读查询 |
+| 一致的 PASSIVE/FULL backfill 状态 | 普通只读查询 |
+| 已关闭且没有 sidecar 的数据库 | immutable 查询 |
+| 空 WAL，例如 TRUNCATE 后连接仍打开 | 拒绝 |
+| 只有 header 的 WAL | 拒绝 |
+| 未提交或 rollback 留下的尾部 | 拒绝 |
+| RESTART 后残留的旧 generation 尾部 | 拒绝 |
+
+后四类可以是合法 SQLite 状态，属于当前兼容限制，不能一概称为损坏。拒绝会阻止 patch、验证和交付；仅重试同一状态不能保证恢复。Hook 不会为放行而 checkpoint、修复数据库或删除 sidecar。两次查询前后还比较文件身份、metadata 和内容 hash，状态变化即拒绝。这些检查不提供原子文件系统快照，路径检查与执行之间的 TOCTOU 边界仍在。现有数据库位于不支持的平台时，写入类调用同样拒绝。
 
 ## `apply_patch` containment
 
@@ -71,7 +98,23 @@ dispatcher 从 patch header 提取 `Add File`、`Update File`、`Delete File` �
 
 ## 验证状态
 
-源码级自动测试覆盖了 feature-branch patch、验证、暂存、commit、push 和 PR 交付，以及受保护分支和危险操作的拒绝。`codex-plugin-surface-smoke.sh` 还在隔离 `CODEX_HOME` 中故意污染缓存，确认卸载会删除旧路径，并验证重装后的 manifest、dispatcher 和 policy 与 `1.0.5` 源码逐字节一致。这些结果证明源码和隔离安装链；本机 trust、缓存状态和全新会话证据单独记录在下方。
+2026-09-08 的最终七模块候选完整回归 exit 0：Hook L2 173/173（无跳过）、L3 178/178、两轮 MCP 各 1025/1025、MCP integration 70/70，全部 65 个 Hook 测试文件及六个 L4 flow 通过。真实 CLI 0.151.0 隔离 installer 和缓存冷启动也通过。专项进程边界测试为 profile 13/13、runner 10/10，包含 Git include 不能读 Claude 状态的回归。读取路径 benchmark 的 cold 为 77.246 ms，40 次 warm median 为 75.906 ms，p95 为 77.415 ms，均通过原有门限。
+
+前一次完整运行因两处旧缓存测试仍使用 raw Git 正例而 exit 1。这两处已改用实际安装目录生成的 wrapper，并保留 raw Git 拒绝断言。ShellCheck 缺失，在线标签检查受环境限制，日志仍保留此前已有的原生库退出信息。真实 glab、真实远程 push/PR 写入和同一干净 SHA 宿主矩阵尚未验证。
+
+以下 2026-09-07 完整回归对应旧三模块实现，只作为历史证据。
+
+2026-09-07 的三模块源码曾冻结。配置分支、WAL/SHM 故障、NULL-repo parent，以及四类配置来源和新建分支的大小写/Unicode 双向变体正式回归 26/26，无 skip；基线 Codex L2 82/82，合计 108/108。冻结后的完整本地回归 exit 0：真实 CLI 0.151.0 隔离安装烟测通过，Hook L3 105/105、两轮 MCP 各 1022/1022、MCP integration 70/70，全部 65 个 Hook 测试文件和六个 L4 flow 通过。最终读取路径 benchmark（Bash pwd）为 cold 74.694 ms、40 次 warm median 74.775 ms、p95 76.327 ms，门限通过。ShellCheck 缺失、在线标签鉴权/网络检查 skip；Claude Docker L0/L6、当前用户 trust 和完整同 SHA CLI/Desktop 矩阵未运行。日志仍有此前已有的原生库 mutex lock failed 退出信息，测试断言及分层 exit 均通过。这些本地结果不代表发布验收通过。
+
+同日、分支名比较修正之前的 WAL 版本完整本地回归 exit 0；读取路径 benchmark 为 cold 79.641 ms、median 77.155 ms、p95 79.112 ms，独立 34-case 探针确认所测 WAL 状态的判定及数据库字节不变。这是该阶段的历史证据，不能覆盖之后的分支名比较修正。
+
+历史记录：2026-09-06 的 `1.0.6-rc.1` 工作树检查中，Codex L2 合计 81/81；两轮 MCP 单元测试各 1022/1022；MCP integration 70/70。Hook 读取路径 benchmark 的 cold 为 77.873 ms、40 次 warm median 为 76.572 ms、p95 为 78.28 ms，门限通过。真实 installer 脚本在临时 `CODEX_HOME` 和 CLI `0.151.0` 下通过，覆盖缓存污染、卸载重装、逐字节比较和缓存内 dispatcher。该结果不代表当前用户已重新 trust，也不是干净 SHA 的宿主矩阵。完整本地 L1–L4 随后 exit 0，65 个 Hook 测试文件和六个 L4 flow 全通过；ShellCheck 与在线标签检查 skip，Docker L0/L6 和完整宿主矩阵未运行。补充 jq filter 源码不得来自受保护状态的检查后，81 项 L2、104 项 L3、相关静态检查和真实 installer 再次通过；该阶段读取路径 latency 为 cold 115.339 ms、median 92.896 ms、p95 117.566 ms。完整回归日志保留 jq 补充前的结果，不能覆盖之后的分支配置实现。
+
+Hook benchmark 使用 `Bash` 的 `pwd` payload，经 manifest 调用 41 次，其中一次 cold、40 次 warm。它测量读取路径，不包含分支配置的 SQLite 查询，也不证明写入类调用在同一时间内完成。
+
+本地 `1.0.6-rc.1` 增加了 core 前缀契约、文件与 Git 参数、配置分支及数据库读取的回归测试，并扩展 Node PATH 集成测试。完整本地回归已通过，结果对应测试时的工作树。发布验收还需在同一干净候选提交上完成宿主矩阵。
+
+以下为 `1.0.5` 历史记录。源码级自动测试覆盖了 feature-branch patch、验证、暂存、commit、push 和 PR 交付，以及受保护分支和危险操作的拒绝。`codex-plugin-surface-smoke.sh` 还在隔离 `CODEX_HOME` 中故意污染缓存，确认卸载会删除旧路径，并验证重装后的 manifest、dispatcher 和 policy 与 `1.0.5` 源码逐字节一致。这些结果证明源码和隔离安装链；本机 trust、缓存状态和全新会话证据单独记录在下方。
 
 原 `1.0.4` 宿主基线还确认了以下 payload 事实，它们仍用于兼容回归：
 
@@ -108,7 +151,11 @@ dispatcher 从 patch header 提取 `Add File`、`Update File`、`Delete File` �
 
 ## 故障语义
 
-dispatcher 只依赖 Node 内置模块，不读取 `node_modules`，不访问网络，也不写日志或数据库。manifest 先用固定 `/usr/bin/git` 和清理后的 Git 环境解析 canonical worktree root，再从宿主 `PATH` 找到 Node launcher，并用 `process.execPath` 解析真实可执行文件；checkout、插件缓存、Git 目录和 `node_modules/.bin` 中的 launcher 或真实文件都会被拒绝。这个检查在 cwd 位于仓库子目录时同样成立。nvm、fnm、asdf、mise、Volta 一类仓库外版本管理器可以继续工作；解析失败时才尝试四个固定系统路径。启动 dispatcher 前会清空环境，只传入最小 `PATH`、原始宿主 `PATH` 和插件目录。
+runtime 包含七个固定 ESM 文件：dispatcher、repo policy、branch policy、restricted runner、restricted profile、forge binding 和共享 tool names。它们只导入 Node 内置模块或这组固定文件，不依赖 npm runtime 包。Hook 判定模块不写状态；runner 和 forge binding 只创建私有 scratch 配置。摘要还包含规范化的 `hooks/codex/hooks.json`，仅将唯一摘要值归零，launcher 字节、timeout 和其他字段变化都会改变摘要。
+
+launcher 先用固定 `/usr/bin/git` 和清理后的环境解析 canonical worktree root、Git dir 和 common dir，再检查宿主 PATH 中的 Node。系统 `realpath` 加 builtin `-ef` 祖先身份检查覆盖 checkout、插件、外置 Git 元数据及 linked common dir；这些目录中的伪 Node 不能成为启动器。遇到不可信候选会继续检查后续绝对 PATH 条目和固定系统路径；相对条目跳过。版本管理器 shim 在清空环境、固定 PATH、安全绝对 HOME 和 `/` cwd 下解析宿主默认 Node，避免预加载和项目配置在 Hook 前执行；项目局部版本设置不参与 bootstrap。无效 HOME 会使对应 shim 被跳过。启动 dispatcher 时仅保留固定 PATH、原始宿主 PATH、仓库证明和宿主提供的插件路径。
+
+受限命令通过 `/usr/bin/env -i` 启动固定 Node；宿主插件数据路径随 canonical wrapper 固定传入，模型不能替换。子进程使用私有 HOME、缓存与临时目录。详细 profile、凭据处理及兼容限制见 [受限执行说明](RESTRICTED_EXECUTION.md)。
 
 manifest 用一次固定 Git 查询取得 canonical root、Git dir 和 common dir，并把这三个值传给 dispatcher。dispatcher 先判断该证明能否覆盖 payload `cwd`：能覆盖就走内联 policy，不能覆盖或字段缺失就直接走受监督 worker。两条路径只会选一条。policy 一旦返回 allow 或 deny，dispatcher 不会按拒绝理由重试。worker 继续使用固定 `/usr/bin/git` 和清理后的环境独立解析 payload `cwd`，证明不一致不会变成放行。
 
@@ -119,31 +166,32 @@ manifest 另有固定 4 秒 watchdog，覆盖 Git、`realpath`、Node launcher�
 - runtime 文件缺失或 digest 不匹配；
 - stdin 超限、JSON 无效或 payload 字段不完整；
 - Git checkout 类型、canonical root 或 patch 目标无法确定；
+- 写入类调用无法安全读取已有的分支配置数据库；
 - policy 抛错或没有给出明确判定。
 
 Codex 在 5 秒后终止 Hook 进程。本机 `codex-cli 0.146.0` 的独立探针已经证明：如果整个 Hook 命令直接触发 host timeout，工具仍可能执行。因此 5 秒只能当最后的进程回收上界，不能当 deny 机制。发布验收必须证明 4 秒内部 watchdog 先返回有效 deny，且工具没有执行。
 
 ## 已知边界
 
-Hook 只能判断宿主提交给它的工具调用。它不是通用 shell parser，也不能检查获准测试脚本的所有子进程。feature branch 中，`apply_patch` containment 是强约束；验证脚本仍依赖宿主 sandbox。路径和可执行文件检查与真正执行之间存在同用户 TOCTOU 窗口；checkout 外的用户自管 `PATH` 程序和 Node 版本管理器仍属于宿主信任边界。
+Hook 只能审核宿主提交的工具调用，不解析每个测试脚本或 Git filter 的实现。此前的可变脚本和 clean/process filter 越界已由受限 runner 处理：验证继承文件与网络限制，Git 查询的 helper 继承只读限制。`--no-ext-diff --no-textconv` 本身仍不会关闭 clean/process filter，真实回归验证了这个 helper 在新 profile 下不能写 `.tmb`。路径和可执行文件检查与执行之间仍有同用户 TOCTOU 窗口；仓库外宿主工具链属于信任边界。进程组清理不能保证终止自行脱离的全部后代，但不会解除后代继承的 sandbox。
 
 Hook payload 没有可信的 Human 批准字段或 Agent 角色字段。与 Claude Code 一样，TMB 把主对话里的直接执行要求当作持续指令，Hook 只检查可观察的仓库状态。它无法证明某句自然语言来自 Human，也无法硬区分主任务和 standalone Agent。后者仍靠 Rule 6 persona 指令禁止 Git 和远程交付。这条交付通道是工作流门禁，不是身份认证系统。
 
-`functions.exec` 的放行不依赖宿主再次触发 Hook。policy 只接受一个直接的 `tools.<name>(<JSON>)` 调用，拒绝动态属性、变量别名、额外语句和嵌套生命周期调用；`exec_command` 还必须显式使用 `login=false`、留在当前 canonical cwd，并通过现有 shell allowlist。宿主若改变 source payload 或执行语义，解析失败会保持 deny，直到重新验收。
+`functions.exec` 的放行不依赖宿主再次触发 Hook。policy 只接受一个直接的 `tools.<name>(<JSON>)` 调用，拒绝动态属性、变量别名、额外语句和嵌套生命周期调用；受限 `exec_command` 还必须显式使用 `shell=/bin/sh`、`login=false`、`tty=false` 和当前 canonical `workdir`，并通过完整的固定 runner wrapper 与内部命令审核。宿主若改变 source payload 或执行语义，解析失败会保持 deny，直到重新验收。
 
 TMB MCP 只接受三个精确前缀：当前宿主实测到的 `mcp__trajectory_server__*`，以及安装模式可能生成的 `mcp__plugin_tmb_trajectory-server__*` 和下划线变体。调用中的 canonical `project_root` 必须等于当前 branch-backed checkout。由于 Hook payload 没有 provider 身份字段，未限定的 `trajectory_server` 名称可能被项目 MCP 影射；策略因此在当前 cwd 到仓库根的任一层发现 `.codex/config.toml` 时拒绝全部 TMB MCP 调用。用户级或企业级宿主配置仍属于受信任边界。宿主改变 MCP 合成方式后必须重新验收。
 
 Hook definition 的任何改动都会使原有信任失效。更新带有 load-bearing policy 时，必须使用新的不可变插件版本，并在发布说明中要求用户重新信任。未完成信任前，不能说 TMB enforcement 已启用。
 
-Codex 的缓存路径含 marketplace、插件名和版本。不得把修改后的 Hook 继续标成已经安装或发布过的版本；本次交付通道修复把候选升到 `1.0.5`，旧 `1.0.4` 缓存不能继续作为当前实现。本地刷新必须按下面的顺序进行：
+Codex 的缓存路径含 marketplace、插件名和版本。不得把修改后的 Hook 继续标成已经安装或发布过的版本；本次评论修复把本地未发布候选升到 `1.0.6-rc.1`，已安装的 `1.0.4` 或 `1.0.5` 缓存都不能作为当前实现。候选形成后再执行用户安装验收；当前没有替用户刷新安装或 trust 状态。本地刷新必须按下面的顺序进行：
 
 1. 在 `/hooks` 中禁用当前 TMB Hook，停止自动重试，并记录 Hook definition hash、源文件 hash 和缓存文件 hash。
 2. 卸载精确的 TMB plugin ID，确认旧的 installed path 已不存在。仅再次执行 `plugin add` 不算刷新证据。
-3. 重新安装后，逐字节比较 `.codex-plugin/plugin.json`、`hooks/codex/hooks.json`、`dispatcher.mjs` 和 `repo-policy.mjs`。
+3. 重新安装后，逐字节比较 `.codex-plugin/plugin.json`、`hooks/codex/hooks.json` 和 `RUNTIME_RELATIVE_PATHS` 声明的全部七个 ESM 文件。
 4. 通过 `/hooks` 审阅新 definition；只信任当前显示的 hash，然后启用新 Hook。
 5. 新开会话，先验证诊断入口，再验证一个安全读取和一个无副作用的拒绝样本。旧会话不能作为重新加载证据。
 
-任一步失败都保持 Hook 禁用。恢复入口包括 `/hooks`、精确 TMB 卸载、显式取消暂存，以及从受保护分支创建受控 feature branch；policy 不允许卸载其他插件，也不允许借恢复流程执行危险 Git/forge 写入。
+任一步失败都保持 Hook 禁用。`/hooks`、只读任务诊断和精确 TMB 卸载不依赖分支配置数据库。分支策略有效时，还可显式取消暂存，或从受保护分支创建受控 feature branch；已有数据库无法安全读取时，这两项 Git 恢复操作也会拒绝。policy 不允许卸载其他插件，也不允许借恢复流程执行危险 Git/forge 写入。
 
 当前实现不修改 `~/.codex/hooks.json`。如果插件 Hook 被禁用、未信任或卸载，Scope 5 不生效；Scope 4 的 Skills、MCP 和 Agent materializer 仍按各自边界工作。
 
@@ -151,10 +199,10 @@ Codex 的缓存路径含 marketplace、插件名和版本。不得把修改后�
 
 自动门禁包括：
 
-- L1：manifest shape、runtime 文件边界、零依赖和 digest；
-- L2：policy、dispatcher、oversize、malformed input、单次路由、恢复入口和 feature-branch 交付测试；
-- L3：sentinel、Git tree、bounded lifecycle、静态编排审计、Node launcher、完整进程组回收、patch containment 和交付状态测试；
-- L0：真实 Codex installer、故意污染的旧缓存清除、installed-cache 字节一致性和缓存内 dispatcher；
+- L1：manifest shape、七个 runtime 文件的边界、无 npm 依赖，以及包含规范化 launcher 的 digest；
+- L2：policy、dispatcher、oversize、malformed input、单次路由、恢复入口、feature-branch 交付，以及配置分支、数据库路径、schema、WAL 和文件完整性测试；
+- L3：sentinel、Git tree、bounded lifecycle、静态编排审计、Node launcher、watchdog 进程组清理、patch containment 和交付状态测试；
+- Codex installer 验收：由 `tests/l0-install/codex-plugin-surface-smoke.sh` 检查故意污染的旧缓存清除、installed-cache 字节一致性和缓存内 dispatcher。`tests/run-all.sh` 在找到 Codex CLI 时使用隔离 profile 自动执行；没有 CLI 时明确 SKIP，显式设置的 `CODEX_BIN` 无效时 FAIL。这不替代真实用户的 trust 或全新宿主会话矩阵；
 - MCP installed-cache：无源码 `node_modules` 的冷启动和 Hook 调用；
 - 全量 Claude L1-L4 回归。
 

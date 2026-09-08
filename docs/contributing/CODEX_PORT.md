@@ -249,33 +249,96 @@ PR or its linked compatibility issue.
 
 ### Scope 5: bounded repository-write Hook
 
-Scope 5 adds one broad `PreToolUse` matcher and a zero-dependency dispatcher.
+Scope 5 adds one broad `PreToolUse` matcher and a dispatcher without npm dependencies.
 The runtime is limited to:
 
 - `hooks/codex/hooks.json`;
 - `adapters/codex/hooks/dispatcher.mjs`;
-- `adapters/codex/hooks/repo-policy.mjs`.
+- `adapters/codex/hooks/repo-policy.mjs`;
+- `adapters/codex/hooks/branch-policy.mjs`;
+- `adapters/codex/hooks/restricted-runner.mjs`;
+- `adapters/codex/hooks/restricted-profile.mjs`;
+- `adapters/codex/hooks/forge-binding.mjs`;
+- `adapters/codex/tool-names.mjs`.
 
-The manifest command pins both ESM files by SHA-256. A fixed 4-second launcher
-watchdog returns a deny before the host's `timeout: 5`; the host timeout is only
-a process-reclamation ceiling because current Codex builds may continue a tool
-call after a command Hook times out.
-Runtime code may import Node built-ins only. It must not use `node_modules`,
-network access, a database, or a log file. Installed-cache tests must run the
+The digest covers these seven ESM files and the normalized Hook manifest.
+The Hook and MCP registry import the same tool-name data module. A fixed
+4-second launcher watchdog returns a deny before the host's `timeout: 5`. The
+host timeout limits the Hook process's lifetime; Codex may still continue the
+tool call after it expires.
+
+Runtime modules may import each other and Node built-ins without loading
+`node_modules`. Hook decisions must not use network access or log writes; only
+the runner's forge and push modes permit network access. The branch-policy
+module is loaded only by patch, validation, and delivery gates. It reads existing
+Codex state through macOS system SQLite in a sandbox that denies writes and
+network access. It never initializes or migrates a database. Installed-cache tests must run the
 dispatcher with `NODE_PATH` empty and `PLUGIN_ROOT` set to the cached package.
-The manifest resolves version-managed Node launchers through `process.execPath`,
+The manifest checks absolute host PATH candidates in order and then fixed
+system locations, skipping unsafe candidates. It resolves recognized
+version-managed Node launchers through `process.execPath`,
 rejects launchers or resolved binaries inside the checkout, plugin cache, Git
 metadata, or `node_modules/.bin`, and starts the dispatcher with a minimal
 environment. It resolves the canonical worktree root with fixed `/usr/bin/git`
 and sanitized Git configuration, so a repository shim stays rejected from a
 nested cwd. Failure to resolve a trusted Node executable must deny the call.
+The manifest command is covered by both the host's Hook-definition trust and
+the normalized-manifest digest. A digest assertion or copied-cache
+test does not replace a real installation and fresh-session host check.
 
-Protected branches use a read-only allowlist plus one recovery operation:
-creating a recognized feature branch with `git switch -c`, `git switch
+Protected branches use a reviewed query allowlist. Valid branch policy also
+permits creating a recognized feature branch with `git switch -c`, `git switch
 --create`, or `git checkout -b`. Unknown tools, unknown payloads, scripts,
 interpreters, compound shell syntax, redirection, and direct write tools deny.
-The fixed 15-tool TMB MCP surface
-remains available only under an exact observed host prefix, when its canonical
+Branch classification combines fixed names and prefixes with `protected_branches`,
+`target_branch`, optional legacy `pr_target`, and matching task `parent_branch_id`
+values from `<acting-worktree>/.tmb/<Codex manifest name>/trajectory.db`. Resolve
+the name from the trusted `.codex-plugin/plugin.json`, and match the `repos` row
+by canonical worktree path. Do not borrow a primary checkout's database or read
+Claude state. Task parents include the matching repo's tasks and every valid
+`tasks.repo IS NULL` entry in the acting database, regardless of its registration
+count. Missing databases retain the fixed baseline. A valid database without a
+matching registration still contributes its NULL-repo task parents. Normalize
+configured keys and candidate branch names with `.normalize("NFC").toLowerCase()`
+before comparison, including branch-creation targets. This conservative rule
+also applies on filesystems that distinguish case or canonical Unicode variants;
+do not substitute exact string equality based on the current filesystem.
+Ambiguous registration, malformed policy, unsafe paths, and unreadable existing
+state deny all write-related gates. With valid policy, explicit-path
+`git restore --staged -- <files>` remains available on protected branches;
+unavailable policy blocks that recovery command too.
+
+An existing database currently requires `/usr/bin/sqlite3` and
+`/usr/bin/sandbox-exec` on macOS. Use SQLite read-only/query-only mode with
+`trusted_schema=OFF`, no startup file, a clean environment, and an OS profile
+that denies file writes and network access. Only ordinary `repos` and `tasks`
+tables with the required columns are accepted. The reader has a 500 ms budget
+and a 64 MiB combined database/sidecar limit per snapshot. It rejects rollback
+journals, orphan sidecars, and incomplete WAL/SHM pairs. For WAL state, load the
+bounded database, WAL, and SHM bytes before querying. Validate the WAL header
+and cumulative frame checksums, salts, and final commit boundary. Both SHM
+headers and checksums, `mxFrame`, `nPage`, `aFrameCksum`, page/hash indexes, and
+backfilled database pages must agree with those bytes. SQLite query success
+alone is insufficient because recovery can ignore a damaged suffix and select
+an older checkpoint.
+
+Support is limited to complete committed WAL generations, consistent
+PASSIVE/FULL backfills, and closed sidecar-free databases. The last case uses
+immutable mode; accepted WAL state uses ordinary read-only access. Reject valid
+empty WAL files left by TRUNCATE with an open connection, header-only files,
+uncommitted or rolled-back tails, and old generation tails left by RESTART.
+Treat these as compatibility limits, not necessarily corrupt data. Retrying the
+same state does not guarantee recovery. The Hook must not checkpoint, truncate,
+repair, or remove sidecars to make a call pass.
+
+Compare file identities, metadata, and hashes around both queries and fail
+closed on change. These checks detect changes but do not provide an atomic
+filesystem snapshot. Unsupported platforms with existing databases deny
+write-related calls. Reviewed reads and diagnostics do not load this module or
+query SQLite.
+
+The fixed 15-tool TMB MCP surface remains available only under an exact observed
+host prefix, when its canonical
 `project_root` matches the current branch-backed checkout, and when no
 project-level `.codex/config.toml` exists between the cwd and repository root.
 The Hook event does not carry separate provider identity, so user or enterprise
@@ -287,13 +350,42 @@ branch may use `apply_patch` only after every add, update, delete, and move targ
 passes canonical containment. Reject protected branches, detached worktrees,
 absolute and parent paths, symbolic or hard-link aliases, mixed-case reserved
 paths, parse failures, Git/TMB state, Hook configuration, and the two
-materialized Agent files. A small validation-command allowlist is separate from
-this guarantee. Go test targets
-must use explicit local forms such as `.` or `./...`; package names, `all`, and
+materialized Agent files. Validation uses a separate command allowlist. Go test
+targets must use explicit local forms such as `.` or `./...`; package names, `all`, and
 `std` are outside the allowlist. Fixed command signatures run only from the
 worktree root; direct test paths resolve from the actual Hook cwd and must stay
-inside the worktree. Approved scripts and their children still rely on the host
-sandbox.
+inside the worktree. Command classification checks the entrypoint; the macOS
+runner constrains what the actual process and its descendants can do. Raw Git,
+validation, and forge execution is denied.
+
+Validation permits writes to ordinary checkout files and fresh scratch space,
+but denies Git, TMB, host configuration, plugin, and outside-file writes. It
+also denies reads of checkout `.tmb`, `.claude`, and `.codex` state and network
+access. Approved runtime and toolchain roots remain readable. The runner checks
+writable trees for aliases before execution. Git-read mode denies repository
+writes, including attempts made by configured clean/process filters;
+`--no-ext-diff --no-textconv` alone does not disable those filters. Local Git
+delivery permits Git metadata writes but denies process forks and rejects
+configured hooks, filters, signing, and executable repository hooks. Preserve
+these refusals rather than silently dropping user configuration.
+
+Forge and push use fixed trusted executables, clean configuration, and a token
+bound to the unique `origin` on `github.com` or `gitlab.com`. Authentication reads
+the matching host's default stored credentials through a bounded read-only
+step; it does not log in or change user configuration. Forge commands execute
+from scratch, support JSON output, and reject jq/template output filters. The
+target restriction is enforced by checked arguments, configuration, and
+credential preparation, not an OS network-host filter. The local machine lacks
+`glab`, so GitLab CLI execution still needs real-host verification.
+
+The runner has a ten-minute deadline and an 8 MiB output cap. It attempts to
+terminate the process group on completion, cancellation, timeout, or excess
+output. A descendant that leaves the group retains the same OS restrictions,
+but may continue writing paths its mode permits. Do not claim that every
+descendant is reclaimed, or equate subprocess restriction inheritance with
+Codex Agent Hook inheritance. Unsupported hosts and sandbox setup failures
+fail closed. See [restricted execution](../adapters/codex/RESTRICTED_EXECUTION.md)
+for the exact profiles and command contract.
 
 Recognized feature branches have a bounded delivery lane: explicit-path
 `git add`, explicit-path `git restore --staged`, one-message `git commit`, a
@@ -302,21 +394,46 @@ non-force push of the current branch to `origin`, `gh pr create/edit/ready`, and
 PR/MR merge, remote Issue writes, and every other Git/forge mutation deny. The
 Hook does not parse Human approval text or persist an approval token; the main
 task carries the Human's original directive, as in the Claude Code flow. Bare
-shells, REPLs, TTY shapes, later stdin, code-mode wrappers, and model-driven
-collaboration spawn also deny. Do not allow collaboration spawn until a fixed
-host build proves the child receives the same Hook before its first tool call.
+shells, REPLs, TTY shapes, command-bearing later stdin, unauditable code-mode
+wrappers, and model-driven collaboration spawn also deny. `write_stdin` accepts
+only empty polling or a single Ctrl-C. Do not allow collaboration spawn until a
+fixed host build proves the child receives the same Hook before its first tool call.
+The delivery surface belongs to the root task. Standalone Agent delivery
+remains forbidden by persona instructions, and the TMB MCP registry exposes no
+delivery or trusted validation tools.
 
-Only the observed exact `Bash {command: string}` shell shape is eligible for the
-read and validation allowlists. Path-qualified executables, extra execution
+Ordinary reviewed reads accept the observed exact `Bash {command: string}`
+shape or one audited nested `exec_command`. Sensitive commands require
+`makeRestrictedCommand` to construct the installed runner's exact `env -i`
+command, then one static `functions.exec` call to `exec_command` with an explicit
+matching workdir, `shell: "/bin/sh"`, `login: false`, and `tty: false`. The
+interpreter, runner path, environment, cwd, and digest must match the installed
+bundle. An optional `sandbox_permissions: "require_escalated"` is accepted only
+for that pinned wrapper; raw reads cannot request outer sandbox escalation.
+Do not replace the wrapper with host `updatedInput` behavior or an unrestricted
+fallback after sandbox setup fails.
+
+Within the reviewed inner command, path-qualified executables, extra execution
 fields, shell expansion syntax, and unqualified shell aliases deny. File reads
 must use finite argument shapes; content-reading tools accept only ordinary
 repository files, while external decompression, follow/watch, credential-display,
-and web-launch flags deny. External programs must resolve outside the checkout
-and common shim directories. Git queries must carry the fixed no-pager,
+and web-launch flags deny. `rg` requires `--no-config`; directory searches and
+`--files` also require `--no-ignore`. Both inline and file-backed `jq` filters
+reject the words `import` and `include`, even inside strings and comments.
+File-backed filter source must be at most 256 KiB and pass ordinary-file
+containment. Complex filters without module loading remain allowed; this check
+does not bound expression execution time. External programs must resolve outside
+the checkout and common shim directories. Git queries must carry the fixed no-pager,
 no-optional-locks, no-lazy-fetch, fsmonitor-off, hooks-off prefix; diff-like queries
-also disable external diff and text conversion. Validation commands use exact
-package signatures or repository-relative test targets; cwd/prefix/manifest
+also disable external diff and text conversion. Git arguments must match the
+reviewed grammar exactly; abbreviated options and explicit or implicit
+`--no-index` comparisons outside the repository deny. Validation commands use
+exact package signatures or repository-relative test targets; cwd/prefix/manifest
 redirection and additional runtime loaders deny.
+These checks apply to parsed shell commands. They do not constrain native
+`Read` payloads or establish a general repository confidentiality boundary.
+Forge commands have a separate checked `origin` binding; that does not extend
+the runner's confidentiality boundary to other tools.
 
 The dispatcher writes nothing for an allow decision. A deny returns
 `hookSpecificOutput.hookEventName="PreToolUse"`,
@@ -326,32 +443,49 @@ The dispatcher writes nothing for an allow decision. A deny returns
 
 #### Scope 5 host-version compatibility gate
 
+`tests/run-all.sh` runs the real Codex installer smoke test in an isolated profile
+when a Codex CLI is available. It reports SKIP when no CLI is found, and FAIL
+when an explicitly configured `CODEX_BIN` is invalid. The smoke test checks
+cache removal, reinstallation, runtime bytes, and the cached dispatcher; it does
+not establish the user's trust state or replace fresh-session host acceptance.
+
 Use the same clean candidate commit for CLI and Desktop. Do not install a dirty
 working tree into a profile used for release evidence.
 
 1. Record the candidate SHA, runtime digest, Codex build, operating system,
    architecture, plugin source, Hook definition, trust state, and sandbox.
 2. Install through the normal local Marketplace flow. Resolve the installed
-   cache path and compare the manifest, dispatcher, and policy bytes with the
+   cache path and compare the normalized manifest and all seven runtime modules with the
    candidate.
 3. In a disposable protected checkout, attempt canonical patch, redirected
    shell, interpreter, wrapper, package/build, dangerous Git/forge write, and
-   unknown-tool probes. Hash the target files, index, refs, Git common dir, local
-   bare origin, and fake forge log before and after. Every value must remain
-   unchanged except the separately tested feature-branch creation recovery.
+   unknown-tool probes. Hash the target files, index, refs, Git common dir, and
+   isolated forge fixture log before and after. Every value must remain
+   unchanged except the separately tested feature-branch creation and explicit
+   unstaging recovery with valid branch policy. Repeat the write-denial checks
+   on configured protected, target, legacy PR-target, and task-parent branches,
+   and on invalid database state.
 4. In branch-backed primary and linked feature checkouts, require one valid
-   in-root patch and the bounded delivery sequence to pass. Absolute, parent,
+   in-root patch and the restricted delivery sequence to pass. Pair raw sensitive
+   commands with their canonical wrappers to verify the execution boundary.
+   Test protected-marker writes from validation imports and Git filters,
+   forbidden network access, alias and ancestor-renaming attempts, and profile
+   setup failures. Keep real remote delivery checks scoped to approved test
+   targets on a supported forge. Absolute, parent,
    symlink, rename, protected-path, detached, broad-stage, force-push, and merge
    probes must deny without unintended side effects.
 5. Start bare shell and REPL probes. Require denial before a session ID exists;
-   no later stdin channel may remain available. Exercise code mode and every
-   Bash-like surface exposed by that host.
+   no command-bearing stdin channel may remain available. Separately verify
+   empty `write_stdin` polling and a single Ctrl-C, and reject other input.
+   Exercise the canonical one-call orchestration form, reject unauditable code
+   mode, and check every Bash-like surface exposed by that host.
 6. Test untrusted, modified, disabled, `--dangerously-bypass-hook-trust`, and
    `permission_mode=bypassPermissions` separately. The CLI flag skips trust
    review but still runs the Hook. Permission mode never weakens TMB policy.
-7. Measure one cold invocation and at least 40 warm invocations. Cold must be at
-   most 1 second, warm median at most 100 ms, warm p95 at most 250 ms, and the
-   manifest timeout exactly 5 seconds.
+7. Measure one cold and at least 40 warm manifest invocations with `Bash pwd`.
+   This read-path benchmark excludes the SQLite query used by write gates.
+   Cold must be at most 1 second, warm median at most 100 ms, warm p95 at most
+   250 ms, and the manifest timeout exactly 5 seconds.
 8. Uninstall or roll back to the last trusted empty-Hook build. Start a fresh
    task and verify that Scope 4 Skills, MCP tools, Agent files, unrelated profile
    entries, and project state match their before-state.

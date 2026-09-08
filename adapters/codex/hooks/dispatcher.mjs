@@ -11,6 +11,16 @@ const WORKER_TIMEOUT_MS = 3_500;
 const DISPATCHER_PATH = fileURLToPath(import.meta.url);
 const POLICY_PATH = resolve(dirname(DISPATCHER_PATH), "repo-policy.mjs");
 const FALLBACK_PLUGIN_ROOT = resolve(dirname(DISPATCHER_PATH), "..", "..", "..");
+export const RUNTIME_RELATIVE_PATHS = Object.freeze([
+  "adapters/codex/hooks/dispatcher.mjs",
+  "adapters/codex/hooks/repo-policy.mjs",
+  "adapters/codex/hooks/branch-policy.mjs",
+  "adapters/codex/hooks/restricted-runner.mjs",
+  "adapters/codex/hooks/restricted-profile.mjs",
+  "adapters/codex/hooks/forge-binding.mjs",
+  "adapters/codex/tool-names.mjs",
+]);
+const HOOK_MANIFEST_PATH = "hooks/codex/hooks.json";
 
 function denyOutput(reason) {
   const stableReason = reason.startsWith("TMB-CODEX-HOOK:")
@@ -34,12 +44,70 @@ function expectedDigestFromArgs(argv) {
   return /^[a-f0-9]{64}$/u.test(digest) ? digest : null;
 }
 
-function actualRuntimeDigest() {
-  return createHash("sha256")
-    .update(readFileSync(DISPATCHER_PATH))
-    .update("\0")
-    .update(readFileSync(POLICY_PATH))
-    .digest("hex");
+function rejectDuplicateJsonKeys(source) {
+  const stack = [];
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "{" || char === "[") stack.push(char === "{" ? new Set() : null);
+    else if (char === "}" || char === "]") stack.pop();
+    else if (char === '"') {
+      const start = index++;
+      for (; index < source.length; index += 1) {
+        if (source[index] === "\\") index += 1;
+        else if (source[index] === '"') break;
+      }
+      let next = index + 1;
+      while (/\s/u.test(source[next] ?? "")) next += 1;
+      if (source[next] === ":") {
+        const key = JSON.parse(source.slice(start, index + 1));
+        const keys = stack.at(-1);
+        if (!keys || keys.has(key)) throw new Error("Hook manifest contains duplicate keys");
+        keys.add(key);
+      }
+    }
+  }
+}
+
+function exactKeys(value, keys) {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).length === keys.length
+    && keys.every((key) => Object.hasOwn(value, key));
+}
+
+export function normalizeHookManifest(source) {
+  if (typeof source !== "string" || Buffer.byteLength(source, "utf8") > 256 * 1024) {
+    throw new Error("Hook manifest is missing or oversized");
+  }
+  const manifest = JSON.parse(source);
+  rejectDuplicateJsonKeys(source);
+  if (!exactKeys(manifest, ["hooks"]) || !exactKeys(manifest.hooks, ["PreToolUse"])) {
+    throw new Error("Hook manifest has an unknown shape");
+  }
+  const entries = manifest.hooks.PreToolUse;
+  if (!Array.isArray(entries) || entries.length !== 1 || !exactKeys(entries[0], ["matcher", "hooks"])
+    || entries[0].matcher !== "" || !Array.isArray(entries[0].hooks) || entries[0].hooks.length !== 1) {
+    throw new Error("Hook manifest must contain one unconditional PreToolUse command");
+  }
+  const hook = entries[0].hooks[0];
+  if (!exactKeys(hook, ["type", "command", "timeout"]) || hook.type !== "command"
+    || typeof hook.command !== "string" || !Number.isSafeInteger(hook.timeout) || hook.timeout <= 0) {
+    throw new Error("Hook command has an unknown shape");
+  }
+  const matches = [...hook.command.matchAll(/(^|\s)--policy-sha256 ([a-f0-9]{64})(?=$|[\s;])/gu)];
+  if (matches.length !== 1 || hook.command.split("--policy-sha256").length !== 2) {
+    throw new Error("Hook command must contain exactly one valid policy digest");
+  }
+  hook.command = hook.command.replace(matches[0][0], `${matches[0][1]}--policy-sha256 ${"0".repeat(64)}`);
+  return JSON.stringify(manifest);
+}
+
+export function calculateRuntimeDigest(pluginRoot = FALLBACK_PLUGIN_ROOT) {
+  const hash = createHash("sha256");
+  for (const [index, path] of RUNTIME_RELATIVE_PATHS.entries()) {
+    if (index > 0) hash.update("\0");
+    hash.update(readFileSync(resolve(pluginRoot, path)));
+  }
+  return hash.update("\0").update(normalizeHookManifest(readFileSync(resolve(pluginRoot, HOOK_MANIFEST_PATH), "utf8"))).digest("hex");
 }
 
 function digestMatches(expected, actual) {
@@ -64,7 +132,7 @@ async function readStdin() {
 function preparePolicyInput(raw, expectedDigest) {
   let actualDigest;
   try {
-    actualDigest = actualRuntimeDigest();
+    actualDigest = calculateRuntimeDigest();
   } catch {
     return { output: denyOutput("runtime policy files cannot be read") };
   }
@@ -216,13 +284,22 @@ async function supervisorMain(expectedDigest) {
   process.stdout.write(output.endsWith("\n") ? output : `${output}\n`);
 }
 
-try {
-  const expectedDigest = expectedDigestFromArgs(process.argv.slice(2));
-  if (!expectedDigest) {
-    process.stdout.write(denyOutput("runtime policy digest is missing or malformed"));
-  } else {
-    await supervisorMain(expectedDigest);
+// Importing the fixed layout and pure digest functions in tests must not start
+// the Hook. Resolve existing CLI aliases without interpreting another entry's arguments.
+let isDirectEntry = Boolean(process.argv[1]) && resolve(process.argv[1]) === DISPATCHER_PATH;
+if (!isDirectEntry && process.argv[1]) {
+  try { isDirectEntry = realpathSync(process.argv[1]) === DISPATCHER_PATH; }
+  catch { /* An unrelated or unavailable entry path does not start this module. */ }
+}
+if (isDirectEntry) {
+  try {
+    const expectedDigest = expectedDigestFromArgs(process.argv.slice(2));
+    if (!expectedDigest) {
+      process.stdout.write(denyOutput("runtime policy digest is missing or malformed"));
+    } else {
+      await supervisorMain(expectedDigest);
+    }
+  } catch {
+    process.stdout.write(denyOutput("dispatcher failed closed"));
   }
-} catch {
-  process.stdout.write(denyOutput("dispatcher failed closed"));
 }

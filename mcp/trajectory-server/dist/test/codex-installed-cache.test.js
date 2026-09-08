@@ -3,11 +3,20 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync, } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { it } from 'node:test';
+const CODEX_HOOK_RUNTIME_PATHS = [
+    'adapters/codex/hooks/dispatcher.mjs',
+    'adapters/codex/hooks/repo-policy.mjs',
+    'adapters/codex/hooks/branch-policy.mjs',
+    'adapters/codex/hooks/forge-binding.mjs',
+    'adapters/codex/hooks/restricted-runner.mjs',
+    'adapters/codex/hooks/restricted-profile.mjs',
+    'adapters/codex/tool-names.mjs',
+];
 const EXPECTED_SCOPE_4_TOOL_NAMES = [
     'runtime_initialize',
     'project_inventory',
@@ -73,8 +82,11 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
         cpSync(join(sourceDist, 'schema.sql'), join(cacheDist, 'schema.sql'));
         cpSync(join(sourceRoot, 'adapters', 'codex', '.mcp.json'), join(cacheAdapter, '.mcp.json'));
         cpSync(join(sourceRoot, 'adapters', 'codex', 'skills'), join(cacheAdapter, 'skills'), { recursive: true });
-        cpSync(join(sourceRoot, 'adapters', 'codex', 'hooks'), cacheAdapterHooks, { recursive: true });
+        for (const relativePath of CODEX_HOOK_RUNTIME_PATHS) {
+            cpSync(join(sourceRoot, relativePath), join(cacheRoot, relativePath));
+        }
         cpSync(join(sourceRoot, 'hooks', 'codex', 'hooks.json'), join(cacheHooks, 'hooks.json'));
+        assert.deepEqual(readFileSync(join(cacheHooks, 'hooks.json')), readFileSync(join(sourceRoot, 'hooks', 'codex', 'hooks.json')), 'installed cache preserves the Hook manifest bytes');
         writeFileSync(join(cacheRoot, '.codex-plugin', 'plugin.json'), readFileSync(join(sourceRoot, '.codex-plugin', 'plugin.json')));
         const installedHookManifest = JSON.parse(readFileSync(join(cacheHooks, 'hooks.json'), 'utf8'));
         const installedHook = installedHookManifest.hooks.PreToolUse[0].hooks[0];
@@ -83,9 +95,11 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
         const digest = /--policy-sha256 ([a-f0-9]{64})/.exec(installedHook.command)?.[1];
         assert.ok(digest);
         const installedDispatcher = join(cacheAdapterHooks, 'dispatcher.mjs');
-        const installedPolicy = join(cacheAdapterHooks, 'repo-policy.mjs');
-        assert.ok(!readFileSync(installedDispatcher, 'utf8').includes(sourceRoot));
-        assert.ok(!readFileSync(installedPolicy, 'utf8').includes(sourceRoot));
+        for (const relativePath of CODEX_HOOK_RUNTIME_PATHS) {
+            const installedBytes = readFileSync(join(cacheRoot, relativePath));
+            assert.deepEqual(installedBytes, readFileSync(join(sourceRoot, relativePath)), relativePath);
+            assert.ok(!installedBytes.toString('utf8').includes(sourceRoot), relativePath);
+        }
         const hookInput = (toolName, toolInput) => JSON.stringify({
             cwd: project,
             hook_event_name: 'PreToolUse',
@@ -98,14 +112,47 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
             transcript_path: null,
             turn_id: 'installed-cache-turn',
         });
+        const pluginData = join(fixture, 'plugin-data');
+        mkdirSync(pluginData);
         const hookEnv = {
             ...process.env,
             NODE_PATH: '',
             PLUGIN_ROOT: cacheRoot,
-            PLUGIN_DATA: join(fixture, 'plugin-data'),
+            PLUGIN_DATA: pluginData,
         };
         const allowOutput = execFileSync(process.execPath, [installedDispatcher, '--policy-sha256', digest], { cwd: project, encoding: 'utf8', env: hookEnv, input: hookInput('Read', { file_path: 'README.md' }) });
         assert.equal(allowOutput, '');
+        const branchCreationCommand = 'git switch -c codex/cache-branch-policy';
+        const rawBranchCreationOutput = JSON.parse(execFileSync(process.execPath, [installedDispatcher, '--policy-sha256', digest], { cwd: project, encoding: 'utf8', env: hookEnv, input: hookInput('Bash', { command: branchCreationCommand }) }));
+        assert.equal(rawBranchCreationOutput.hookSpecificOutput.permissionDecision, 'deny');
+        assert.match(rawBranchCreationOutput.hookSpecificOutput.permissionDecisionReason, /require the installed restricted runner/);
+        const { makeRestrictedCommand } = await import(pathToFileURL(join(cacheAdapterHooks, 'repo-policy.mjs')).href);
+        const canonicalHookCwd = realpathSync(project);
+        const restrictedCommand = makeRestrictedCommand(branchCreationCommand, canonicalHookCwd, {
+            pluginRoot: hookEnv.PLUGIN_ROOT,
+            pluginData: hookEnv.PLUGIN_DATA,
+        });
+        assert.ok(restrictedCommand.includes(join(realpathSync(cacheRoot), 'adapters', 'codex', 'hooks', 'restricted-runner.mjs')), 'restricted command selects the installed-cache runner');
+        assert.ok(restrictedCommand.includes(`TMB_CODEX_PLUGIN_DATA=${realpathSync(pluginData)}`), 'restricted command pins the Hook fixture plugin-data directory');
+        const restrictedPayload = {
+            cmd: restrictedCommand,
+            workdir: canonicalHookCwd,
+            shell: '/bin/sh',
+            login: false,
+            tty: false,
+        };
+        const branchCreationOutput = execFileSync(process.execPath, [installedDispatcher, '--policy-sha256', digest], {
+            cwd: project, encoding: 'utf8', env: hookEnv,
+            input: hookInput('functions.exec', `text(JSON.stringify(await tools.exec_command(${JSON.stringify(restrictedPayload)})));`),
+        });
+        if (process.platform === 'darwin') {
+            assert.equal(branchCreationOutput, '', 'installed cache loads its own runner, branch-policy helper, and Codex manifest');
+        }
+        else {
+            const denied = JSON.parse(branchCreationOutput);
+            assert.equal(denied.hookSpecificOutput.permissionDecision, 'deny');
+            assert.match(denied.hookSpecificOutput.permissionDecisionReason, /requires the qualified macOS sandbox/);
+        }
         const denyOutput = JSON.parse(execFileSync(process.execPath, [installedDispatcher, '--policy-sha256', digest], { cwd: project, encoding: 'utf8', env: hookEnv, input: hookInput('Bash', { command: 'touch blocked' }) }));
         assert.equal(denyOutput.hookSpecificOutput.permissionDecision, 'deny');
         assert.match(denyOutput.hookSpecificOutput.permissionDecisionReason, /^TMB-CODEX-HOOK:/);

@@ -2,7 +2,17 @@
 
 ## Current state
 
-**TMB's complete workflow ships on Claude Code.** Codex Scope 5 supports local planning, explicit setup of two standalone project-level Agents, and a bounded repository-write Hook. It still has no TMB task lifecycle, trusted validation, or delivery workflow.
+**TMB's complete workflow ships on Claude Code.** Codex Scope 5 supports local planning, explicit setup of two standalone project-level Agents, and a bounded repository-write Hook. The root task can use limited feature-branch Git/PR commands for the Human's requested delivery. TMB task lifecycle, trusted validation, and Agent delivery workflow remain unavailable.
+
+The unpublished `1.0.6-rc.1` candidate uses a macOS restricted runner for Git,
+validation, and forge commands. It reads the protected-branch configuration from
+the acting worktree's Codex state. Raw execution of those commands is denied,
+and the runner fails closed on unsupported hosts. Ordinary reviewed reads and
+recovery tools remain available.
+The candidate still needs a complete CLI/Desktop acceptance record on one clean
+commit. See the [parity declaration](../adapters/codex/PARITY.md) and
+[restricted execution contract](../adapters/codex/RESTRICTED_EXECUTION.md) for
+the implemented boundary and its limits.
 
 ## Vision
 
@@ -49,7 +59,7 @@ The pattern, copied from [`obra/superpowers`](https://github.com/obra/superpower
 | `agents/*.md` frontmatter | ⚠️ CC-shaped | `tools:`, `model:`, `isolation:`, `skills:` are Claude Code conventions. Other platforms may need adapter-side translation. |
 | `templates/agents/*.md` (consultants) | ✓ Portable bodies, ⚠️ CC-shaped frontmatter (same as above) | Opt-in templates, not auto-installed |
 | `mcp/trajectory-server/` | ⚠️ Shared core with isolated entries | Claude retains `dist/index.js` and its full registry. Codex uses `dist/codex.js` and a fixed 15-tool registry: 13 local planning tools plus two Agent materialization tools. |
-| Hook manifests | ⚠️ Host-specific | Claude keeps `hooks/hooks.json`; Codex uses `hooks/codex/hooks.json` plus a zero-dependency ESM policy. Event and decision protocols are not shared. |
+| Hook manifests | ⚠️ Host-specific | Claude keeps `hooks/hooks.json`; Codex pins seven ESM modules and a normalized `hooks/codex/hooks.json` definition. The restricted command runner uses macOS sandboxing. Event and decision protocols are not shared. |
 | `scripts/hooks/*.sh` | ⚠️ Partly | Shell logic is portable; the JSON-decision contract is CC-specific |
 | `CLAUDE.md` (bro persona) | ⚠️ Partly | Doctrine is portable; trigger-word mechanism is CC-specific |
 
@@ -75,11 +85,18 @@ The remaining placeholders explicitly say "not implemented." Codex documentation
 
 ## Verified Codex surfaces
 
-Scope 5 targets Codex CLI and Desktop on macOS arm64. Clean-commit automated
-acceptance passed on CLI `0.146.0` and Desktop 26.820.60940's bundled
-`codex-cli 0.150.0-alpha.8`. Both loaded the plugin Hook from installed-cache and
-blocked primary `apply_patch`, redirected shell writes, and persistent command
-receivers before execution; a linked-worktree patch succeeded. The Hook payload
+Scope 5 targets Codex CLI and Desktop on macOS arm64. The historical `1.0.4`
+clean-commit acceptance matrix passed on CLI `0.146.0` and Desktop
+26.820.60940's bundled `codex-cli 0.150.0-alpha.8`. Both loaded the plugin Hook
+from installed-cache and blocked primary `apply_patch`, redirected shell
+writes, and persistent command receivers before execution; a linked-worktree
+patch succeeded. These results describe the older primary-read-only policy.
+The `1.0.5` implementation permits contained patches and limited delivery on
+recognized feature branches in either checkout type. Its local installation
+and fresh-session checks are recorded separately in
+[`SCOPE_5_PRD.md`](../adapters/codex/SCOPE_5_PRD.md). They do not replace the full
+CLI/Desktop matrix on the same clean candidate SHA, and neither record
+qualifies subsequent runtime or launcher changes. The Hook payload
 in these runs did not expose MCP provider identity, so TMB MCP calls fail closed
 when project-level `.codex/config.toml` could shadow the bundled server. The
 launcher returns an internal deny after four seconds rather than relying on the
@@ -92,6 +109,12 @@ files follow Codex's shared custom-Agent
 format, but this scope does not claim verified IDE, cloud, non-macOS, or
 stable-channel behavior. A host appearing to read the same configuration is not
 enough evidence for a support claim.
+
+Local candidate checks include real macOS restricted-runner tests (7/7),
+process-profile tests (12/12), forge-binding tests (14/14), and migrated L3 Hook
+probes (178/178). These local implementation checks do not complete the host
+matrix; later runtime changes require fresh verification. The local machine
+has no `glab` CLI, so real GitLab CLI execution remains unverified.
 
 ## When later adapter scopes get built
 

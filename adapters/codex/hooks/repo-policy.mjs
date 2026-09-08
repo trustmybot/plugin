@@ -1,31 +1,19 @@
 import { accessSync, constants, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { delimiter, dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
+import { CODEX_SCOPE_4_TOOL_NAMES as TMB_TOOL_NAMES } from "../tool-names.mjs";
+
+export { TMB_TOOL_NAMES };
 
 const requireBuiltin = createRequire(import.meta.url);
+const DEFAULT_PLUGIN_ROOT = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
 
 export const MAX_COMMAND_BYTES = 256 * 1024;
 export const REPO_RESOLUTION_TIMEOUT_MS = 700;
 
 const DECISION_ALLOW = Object.freeze({ decision: "allow" });
-export const TMB_TOOL_NAMES = Object.freeze([
-  "runtime_initialize",
-  "project_inventory",
-  "project_scan",
-  "world_model_get",
-  "world_model_search",
-  "planning_label_taxonomy_get",
-  "planning_label_taxonomy_set",
-  "planning_issue_create",
-  "planning_issue_get",
-  "planning_issue_list",
-  "planning_issue_resume",
-  "planning_discussion_append",
-  "planning_discussion_list",
-  "agent_materialization_get",
-  "agent_materialization_set",
-]);
 const TMB_TOOL_NAME_SET = new Set(TMB_TOOL_NAMES);
 const TMB_MCP_PREFIXES = [
   "mcp__trajectory_server__",
@@ -84,6 +72,9 @@ const NESTED_LIFECYCLE_TOOLS = new Set([
 ]);
 const EXEC_COMMAND_KEYS = new Set([
   "cmd",
+  "shell",
+  "sandbox_permissions",
+  "justification",
   "login",
   "max_output_tokens",
   "tty",
@@ -152,8 +143,10 @@ const PROTECTED_DELIVERY_BRANCHES = new Set([
   "trunk",
 ]);
 const DELIVERY_BRANCH_PREFIXES = new Set([
+  "build",
   "bugfix",
   "chore",
+  "ci",
   "codex",
   "docs",
   "feat",
@@ -162,6 +155,8 @@ const DELIVERY_BRANCH_PREFIXES = new Set([
   "hotfix",
   "perf",
   "refactor",
+  "revert",
+  "style",
   "test",
 ]);
 const INTERACTIVE_VALIDATION_FLAGS = new Set([
@@ -175,16 +170,6 @@ const INTERACTIVE_VALIDATION_FLAGS = new Set([
   "--watch-all",
   "--watchall",
 ]);
-const GIT_UNSAFE_READ_FLAGS = [
-  "--help",
-  "--output",
-  "--ext-diff",
-  "--textconv",
-  "--exec",
-  "--config-env",
-  "--recurse-submodules",
-  "--show-signature",
-];
 const FORGE_SIDE_EFFECT_LONG_FLAGS = ["--web", "--watch"];
 const ALLOWED_VALIDATION_SIGNATURES = new Set([
   "bash\0tests/run-all.sh",
@@ -310,6 +295,9 @@ function evaluateNestedExecCommand(toolInput, repoContext, options) {
   if (!hasOnlyKeys(toolInput, EXEC_COMMAND_KEYS)
     || typeof toolInput.cmd !== "string"
     || toolInput.login !== false
+    || (toolInput.shell !== undefined && toolInput.shell !== "/bin/sh")
+    || (toolInput.sandbox_permissions !== undefined && !["use_default", "require_escalated"].includes(toolInput.sandbox_permissions))
+    || (toolInput.justification !== undefined && (typeof toolInput.justification !== "string" || toolInput.justification.length > 4096))
     || (toolInput.tty !== undefined && toolInput.tty !== false)
     || !optionalPositiveInteger(toolInput.max_output_tokens)
     || !optionalPositiveInteger(toolInput.yield_time_ms)) {
@@ -320,7 +308,10 @@ function evaluateNestedExecCommand(toolInput, repoContext, options) {
       || canonicalExistingPath(toolInput.workdir) !== repoContext.cwd)) {
     return deny("nested exec_command workdir must match the current canonical checkout directory");
   }
-  return evaluateShell({ command: toolInput.cmd }, repoContext, options);
+  return evaluateShell({ command: toolInput.cmd }, repoContext, {
+    ...options, controlledShell: toolInput.shell === "/bin/sh" && toolInput.tty === false && typeof toolInput.workdir === "string",
+    requestsEscalation: toolInput.sandbox_permissions === "require_escalated",
+  });
 }
 
 async function evaluateOrchestrationWrapper(input, options, repoContext) {
@@ -537,6 +528,12 @@ function isWithin(root, candidate) {
   return rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel));
 }
 
+// Exclusion checks must also reject aliases on case-insensitive and Unicode-
+// normalizing filesystems. Do not use this relaxed comparison to grant reads.
+function mayAliasWithin(root, candidate) {
+  return isWithin(root.normalize("NFC").toLowerCase(), candidate.normalize("NFC").toLowerCase());
+}
+
 function hasUnsafeLinkComponent(root, candidate) {
   const rel = relative(root, candidate);
   if (!isWithin(root, candidate)) {
@@ -660,7 +657,7 @@ export function parsePatchTargets(command) {
   return targets.length > 0 ? targets : null;
 }
 
-function tokenizeSimpleCommand(command) {
+export function tokenizeSimpleCommand(command) {
   if (typeof command !== "string" || command.length === 0 || command.includes("\0")) {
     return null;
   }
@@ -747,7 +744,7 @@ function commandFromToolInput(toolInput) {
   return typeof toolInput.command === "string" ? toolInput.command : null;
 }
 
-function isGitRead(tokens) {
+function isGitRead(tokens, repoContext) {
   let args = tokens.slice(1);
   if (!SAFE_GIT_PREFIX.every((value, index) => args[index] === value)) {
     return false;
@@ -760,44 +757,203 @@ function isGitRead(tokens) {
   const subcommand = args[0];
   const subcommandArgs = args.slice(1);
   if (subcommand === "worktree") {
-    return subcommandArgs[0] === "list";
+    return subcommandArgs[0] === "list"
+      && subcommandArgs.slice(1).every((arg) => ["--porcelain", "-z", "-v", "--verbose"].includes(arg));
   }
   if (!ALLOWED_GIT_SUBCOMMANDS.has(subcommand)) {
     return false;
   }
-  if (subcommandArgs.some((arg) => arg === "-h"
-    || GIT_UNSAFE_READ_FLAGS.some((flag) => arg === flag || arg.startsWith(`${flag}=`)))) {
-    return false;
+  // Exact options avoid Git's long-option abbreviations opening unreviewed
+  // file inputs, helper execution, or no-index filesystem comparisons.
+  const flagsByCommand = {
+    status: ["--short", "-s", "--branch", "-b", "--porcelain", "--long", "--show-stash", "-z", "--no-renames"],
+    "rev-parse": ["--show-toplevel", "--show-prefix", "--absolute-git-dir", "--git-common-dir", "--git-dir",
+      "--is-inside-work-tree", "--is-bare-repository", "--is-inside-git-dir", "--show-object-format",
+      "--abbrev-ref", "--symbolic-full-name", "--verify", "--quiet", "-q", "--short", "--end-of-options"],
+    "ls-files": ["--cached", "-c", "--stage", "-s", "--modified", "-m", "--deleted", "-d", "--others", "-o",
+      "--unmerged", "-u", "--killed", "-k", "--error-unmatch", "--full-name", "--deduplicate", "--debug", "--sparse", "--eol", "-z"],
+    "ls-tree": ["-r", "-t", "-d", "-z", "-l", "--long", "--name-only", "--name-status", "--full-name", "--full-tree"],
+  };
+  const displayFlags = ["--no-ext-diff", "--no-textconv", "--stat", "--shortstat", "--numstat", "--name-only",
+    "--name-status", "--check", "--summary", "--patch", "-p", "--no-patch", "-s", "--raw", "--binary",
+    "--full-index", "--exit-code", "--quiet", "--no-renames", "--no-color", "--color", "--word-diff",
+    "--ignore-space-at-eol", "--ignore-space-change", "-b", "--ignore-all-space", "-w", "--ignore-blank-lines",
+    "--ignore-cr-at-eol", "--minimal", "--patience", "--histogram", "--no-prefix", "--relative", "-z"];
+  const historyFlags = ["--oneline", "--decorate", "--no-decorate", "--graph", "--all", "--branches", "--tags",
+    "--remotes", "--first-parent", "--no-merges", "--merges", "--reverse", "--topo-order", "--date-order",
+    "--author-date-order", "--no-walk", "--walk", "--follow", "--no-notes"];
+  const flags = new Set(flagsByCommand[subcommand] ?? [
+    ...displayFlags,
+    ...(subcommand === "diff" ? ["--cached", "--staged", "--merge-base"] : historyFlags),
+  ]);
+  const values = new Set(["diff", "log", "show"].includes(subcommand)
+    ? ["--unified", "--diff-filter", "--find-renames", "--find-copies", "--abbrev", "--src-prefix", "--dst-prefix",
+      "--line-prefix", "--inter-hunk-context", "--stat-width", "--stat-name-width", "--stat-count",
+      ...(subcommand === "diff" ? [] : ["--max-count", "--skip", "--since", "--until", "--after", "--before",
+        "--author", "--committer", "--grep", "--format", "--pretty", "--date"])] : []);
+  const enumValues = {
+    "--color": ["always", "auto", "never"], "--word-diff": ["color", "plain", "porcelain", "none"],
+    "--decorate": ["short", "full", "auto", "no"], "--porcelain": ["1", "2", "v1", "v2"],
+    "--untracked-files": ["no", "normal", "all"], "--path-format": ["absolute", "relative"],
+  };
+  let pathsOnly = false;
+  let noExternalDiff = false;
+  let noTextConversion = false;
+  for (let index = 0; index < subcommandArgs.length; index += 1) {
+    const arg = subcommandArgs[index];
+    if (!pathsOnly && arg === "--") {
+      pathsOnly = true;
+      continue;
+    }
+    if (!pathsOnly && arg.startsWith("-")) {
+      if (flags.has(arg)) {
+        if (arg === "--no-ext-diff") noExternalDiff = true;
+        if (arg === "--no-textconv") noTextConversion = true;
+        continue;
+      }
+      const equals = arg.indexOf("=");
+      const flag = equals < 0 ? arg : arg.slice(0, equals);
+      if (values.has(flag)) {
+        const value = equals < 0 ? subcommandArgs[++index] : arg.slice(equals + 1);
+        if (!value || value.startsWith("-") || value.includes("%G")) return false;
+        if (["--format", "--pretty"].includes(flag)
+          && !["oneline", "short", "medium", "full", "fuller", "reference", "email", "raw"].includes(value)
+          && !value.startsWith("format:") && !value.startsWith("tformat:") && !value.includes("%")) return false;
+        continue;
+      }
+      if (equals > 0 && enumValues[flag]?.includes(arg.slice(equals + 1))
+        && (flags.has(flag) || subcommand === "status" && flag === "--untracked-files"
+          || subcommand === "rev-parse" && flag === "--path-format")) continue;
+      if (["log", "show"].includes(subcommand) && /^-\d+$/u.test(arg)) continue;
+      if (["diff", "log", "show"].includes(subcommand) && /^-[UMC]\d+$/u.test(arg)) continue;
+      if (["log", "show"].includes(subcommand) && arg === "-n" && /^\d+$/u.test(subcommandArgs[++index] ?? "")) continue;
+      if (subcommand === "rev-parse" && /^--short=\d+$/u.test(arg)) continue;
+      return false;
+    }
+    // Revision ranges and repo-relative paths are accepted, but neither
+    // explicit nor implicit no-index reads may name a path outside this root.
+    const operands = pathsOnly || !arg.includes(":") ? [arg] : [arg, arg.slice(arg.indexOf(":") + 1)];
+    for (const filePart of operands) {
+      if (!filePart || isAbsolute(filePart) || filePart.includes("\\")
+        || filePart.split("/").includes("..")) return false;
+      const candidate = resolve(repoContext.cwd, filePart);
+      if (!isWithin(repoContext.root, candidate) || hasUnsafeLinkComponent(repoContext.root, candidate)) return false;
+      try {
+        const stats = lstatSync(candidate);
+        if (!stats.isFile() && !stats.isDirectory()) return false;
+      } catch (error) {
+        if (!(error && typeof error === "object" && error.code === "ENOENT")) return false;
+      }
+    }
   }
-  if (subcommandArgs.some((arg) => arg.includes("%G"))) {
-    return false;
+  return !["diff", "log", "show"].includes(subcommand) || noExternalDiff && noTextConversion;
+}
+
+const GH_READ_FORMAT = "--json";
+const GLAB_READ_FORMAT = "--output -F";
+const GLAB_READ_PAGE = "--page -p --per-page -P";
+export const FORGE_TARGET_ENV_NAMES = Object.freeze([
+  "GH_REPO", "GH_HOST", "GLAB_REPO", "GITLAB_REPO", "GLAB_HOST", "GITLAB_HOST",
+  "GITLAB_URI", "GL_HOST", "REMOTE_ALIAS", "GIT_REMOTE_URL_VAR", "GIT_REMOTE_ALIAS",
+  "REMOTE_NICKNAME", "GIT_REMOTE_NICKNAME",
+]);
+
+function forgeTargetEnvironmentOverride() {
+  if (process.env.TMB_CODEX_HOOK_FORGE_TARGET_ENV) return "launcher-reported target overrides";
+  return FORGE_TARGET_ENV_NAMES.find((name) => Boolean(process.env[name]));
+}
+
+// Exact command grammars, checked against gh 2.96.0 help and the GitLab CLI
+// reference. Repository/host/group overrides and raw GitHub search are absent.
+// repo list spans repositories; glab ci view is an interactive mutation UI.
+const FORGE_READ_FORMS = new Map(Object.entries({
+  "gh pr list": { flags: "--draft -d", values: `${GH_READ_FORMAT} --app --assignee -a --author -A --base -B --head -H --label -l --limit -L --state -s` },
+  "gh pr view": { flags: "--comments -c", values: GH_READ_FORMAT, target: "id" },
+  "gh pr status": { flags: "--conflict-status -c", values: GH_READ_FORMAT },
+  "gh pr diff": { flags: "--name-only --patch", values: "--color --exclude -e", target: "id" },
+  "gh pr checks": { flags: "--required", values: GH_READ_FORMAT, target: "id" },
+  "gh issue list": { values: `${GH_READ_FORMAT} --app --assignee -a --author -A --label -l --limit -L --mention --milestone -m --state -s --type` },
+  "gh issue view": { flags: "--comments -c", values: GH_READ_FORMAT, target: "id", required: true },
+  "gh issue status": { values: GH_READ_FORMAT },
+  "gh release list": { flags: "--exclude-drafts --exclude-pre-releases", values: `${GH_READ_FORMAT} --limit -L --order -O` },
+  "gh release view": { values: GH_READ_FORMAT, target: "name" },
+  "gh repo view": { values: `${GH_READ_FORMAT} --branch -b` },
+  "gh run list": { flags: "--all -a", values: `${GH_READ_FORMAT} --branch -b --commit -c --created --event -e --limit -L --status -s --user -u --workflow -w` },
+  "gh run view": { flags: "--exit-status --log --log-failed --verbose -v", values: `${GH_READ_FORMAT} --attempt -a --job -j`, target: "id", required: true },
+  "gh workflow list": { flags: "--all -a", values: `${GH_READ_FORMAT} --limit -L` },
+  "gh workflow view": { flags: "--yaml -y", values: "--ref -r", target: "name", required: true },
+  "glab issue list": { flags: "--all -A --closed -c --confidential -C", values: `${GLAB_READ_PAGE} --output -O --output-format -F --assignee -a --author --in --issue-type -t --iteration -i --label -l --milestone -m --not-assignee --not-author --not-label --order --search --sort -s` },
+  "glab issue view": { flags: "--comments -c --system-logs -s", values: `${GLAB_READ_FORMAT} ${GLAB_READ_PAGE}`, target: "id", required: true },
+  "glab mr list": { flags: "--all -A --closed -c --draft -d --merged -M --not-draft", values: `${GLAB_READ_FORMAT} ${GLAB_READ_PAGE} --assignee -a --author --created-after --created-before --deployed-after --deployed-before --environment --label -l --milestone -m --not-label --order -o --reviewer -r --search --sort -S --source-branch -s --target-branch -t` },
+  "glab mr view": { flags: "--comments -c --resolved --system-logs -s --unresolved", values: `${GLAB_READ_FORMAT} ${GLAB_READ_PAGE}`, target: "id" },
+  "glab mr diff": { flags: "--raw", values: "--color", target: "id" },
+  "glab release list": { values: `${GLAB_READ_FORMAT} ${GLAB_READ_PAGE}` },
+  "glab release view": { values: GLAB_READ_FORMAT, target: "name" },
+  "glab repo view": { values: `${GLAB_READ_FORMAT} --branch -b` },
+  "glab ci list": { flags: "--yaml-errors -y", values: `${GLAB_READ_FORMAT} ${GLAB_READ_PAGE} --name -n --order -o --ref -r --scope --sha --sort --source --status -s --updated-after -a --updated-before -b --username -u` },
+  "glab ci status": { flags: "--compact -c", values: `${GLAB_READ_FORMAT} --branch -b` },
+  "glab ci get": { flags: "--with-job-details -d", values: `${GLAB_READ_FORMAT} --branch -b --merge-request --pipeline-id -p --status -s` },
+}));
+
+function parseForgeReadArguments(args, form) {
+  const flags = new Set((form.flags ?? "").split(" "));
+  const values = new Set((form.values ?? "").split(" "));
+  const supplied = new Map();
+  const positionals = [];
+  let endedOptions = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (!endedOptions && argument === "--") {
+      endedOptions = true;
+    } else if (!endedOptions && argument.startsWith("-")) {
+      if (flags.has(argument)) continue;
+      const equals = argument.startsWith("--") ? argument.indexOf("=") : -1;
+      const flag = argument.startsWith("--")
+        ? equals < 0 ? argument : argument.slice(0, equals)
+        : argument.slice(0, 2);
+      if (!values.has(flag)) return null;
+      const attached = argument.startsWith("--")
+        ? equals < 0 ? null : argument.slice(equals + 1)
+        : argument.length === 2 ? null : argument.slice(2).replace(/^=/u, "");
+      const value = attached ?? args[++index];
+      if (!value || value.startsWith("-") || /[\x00-\x1f\x7f]/u.test(value)) return null;
+      if (["--job", "-j"].includes(flag) && !/^[0-9]+$/u.test(value)) return null;
+      supplied.set(flag, value);
+    } else {
+      positionals.push(argument);
+    }
   }
-  if (["diff", "log", "show"].includes(subcommand)) {
-    return subcommandArgs.includes("--no-ext-diff") && subcommandArgs.includes("--no-textconv");
-  }
-  return true;
+  if (positionals.length > (form.target ? 1 : 0)) return null;
+  const target = positionals[0];
+  if (target !== undefined && (form.target === "id"
+    ? !/^[0-9]+$/u.test(target)
+    : !/^[\p{L}\p{N}_][\p{L}\p{N}_. -]*$/u.test(target))) return null;
+  return { supplied, target };
 }
 
 function isForgeRead(tokens) {
+  const [program, group, action, ...args] = tokens;
+  if (!["gh", "glab"].includes(program)) return false;
+  if (forgeTargetEnvironmentOverride()) return false;
+  if (group === "auth" && action === "status") return args.length === 0;
+  const key = `${program} ${group} ${action}`;
+  const form = FORGE_READ_FORMS.get(key);
+  if (!form) return false;
+  const parsed = parseForgeReadArguments(args, form);
+  if (!parsed) return false;
+  const job = parsed.supplied.get("--job") ?? parsed.supplied.get("-j");
+  if (key === "gh run view" && job !== undefined && !/^[0-9]+$/u.test(job)) return false;
+  return !form.required || parsed.target !== undefined || key === "gh run view" && job !== undefined;
+}
+
+export function forgeReadFailureReason(tokens) {
   const [program, group, action] = tokens;
-  if (tokens.slice(1).some((arg) => FORGE_SIDE_EFFECT_LONG_FLAGS.some(
-    (flag) => arg === flag || arg.startsWith(`${flag}=`),
-  ) || /^-[^-]*w/u.test(arg))) {
-    return false;
-  }
-  if (program === "gh") {
-    if (group === "auth" && action === "status") return tokens.length === 3;
-    if (["issue", "pr", "release", "repo", "run", "workflow"].includes(group)) {
-      return ["list", "view", "status", "diff", "checks"].includes(action);
-    }
-  }
-  if (program === "glab") {
-    if (group === "auth" && action === "status") return tokens.length === 3;
-    if (["issue", "mr", "release", "repo", "ci"].includes(group)) {
-      return ["list", "view", "status", "diff"].includes(action);
-    }
-  }
-  return false;
+  if (!["gh", "glab"].includes(program) || isForgeRead(tokens)) return null;
+  if (!["list", "view", "status", "diff", "checks", "get", "ls", "show"].includes(action)
+    && !group?.startsWith("-") && !action?.startsWith("-")) return null;
+  const environment = forgeTargetEnvironmentOverride();
+  if (environment) return `forge reads cannot use ${environment}; unset forge repository, host, and remote-selection environment overrides before querying the current checkout`;
+  return "forge reads require reviewed current-checkout commands without repository, host, group, URL, or raw GitHub search overrides; use numeric PR/MR/issue IDs, repo view without a target, and ci get/status/list instead of interactive ci view";
 }
 
 function isSafeBranchName(branch) {
@@ -815,12 +971,36 @@ function isSafeBranchName(branch) {
     && !/[\s~^:?*[\\\x00-\x1f\x7f]/u.test(branch);
 }
 
-function isDeliveryBranch(branch) {
-  if (!isSafeBranchName(branch) || PROTECTED_DELIVERY_BRANCHES.has(branch.toLowerCase())) {
+function isDeliveryBranch(branch, repoContext) {
+  if (!isSafeBranchName(branch) || PROTECTED_DELIVERY_BRANCHES.has(branch.toLowerCase())
+    || repoContext?.protectedBranches?.has(branch.normalize("NFC").toLowerCase())) {
     return false;
   }
   const separator = branch.indexOf("/");
   return separator > 0 && DELIVERY_BRANCH_PREFIXES.has(branch.slice(0, separator).toLowerCase());
+}
+
+async function withConfiguredBranchPolicy(repoContext, options) {
+  try {
+    const pluginRoot = canonicalExistingPath(options.pluginRoot ?? DEFAULT_PLUGIN_ROOT);
+    if (!pluginRoot) return { denied: deny("Codex plugin identity cannot be resolved for branch policy") };
+    const manifestPath = resolve(pluginRoot, ".codex-plugin", "plugin.json");
+    if (hasUnsafeLinkComponent(pluginRoot, manifestPath)) {
+      return { denied: deny("Codex plugin identity must not contain aliased paths") };
+    }
+    const manifest = JSON.parse(readSmallOrdinaryFile(manifestPath));
+    if (typeof manifest?.name !== "string") {
+      return { denied: deny("Codex plugin manifest has no valid name for branch policy") };
+    }
+    const { readProtectedBranchPolicy } = await import("./branch-policy.mjs");
+    const policy = readProtectedBranchPolicy(repoContext.root, manifest.name);
+    if (!policy.ok) return { denied: deny(policy.reason) };
+    // Ref names can alias by case or Unicode normalization on macOS. Protect
+    // those variants even on filesystems that distinguish their spellings.
+    return { context: { ...repoContext, protectedBranches: new Set(policy.protectedBranches.map((branch) => branch.normalize("NFC").toLowerCase())) } };
+  } catch {
+    return { denied: deny("Codex plugin identity or configured branch policy is unavailable") };
+  }
 }
 
 function validateDeliveryPath(rawPath, repoContext, options) {
@@ -882,7 +1062,7 @@ function evaluateGitDelivery(tokens, repoContext, options) {
     && ((subcommand === "switch" && ["-c", "--create"].includes(args[1]))
       || (subcommand === "checkout" && args[1] === "-b"));
   if (createsDeliveryBranch) {
-    return isDeliveryBranch(args[2])
+    return isDeliveryBranch(args[2], repoContext)
       ? DECISION_ALLOW
       : deny("new delivery branch name is missing, protected, or malformed");
   }
@@ -891,7 +1071,7 @@ function evaluateGitDelivery(tokens, repoContext, options) {
     return validateDeliveryPaths(args.slice(3), repoContext, options);
   }
 
-  if (!isDeliveryBranch(repoContext.branch)) {
+  if (!isDeliveryBranch(repoContext.branch, repoContext)) {
     return protectedBranchDeny(repoContext.branch);
   }
 
@@ -1035,7 +1215,7 @@ function evaluateDeliveryCommand(tokens, repoContext, options) {
   if (!isTrustedExecutable(program, repoContext)) {
     return deny("forge delivery executable is not trusted");
   }
-  if (!isDeliveryBranch(repoContext.branch)) return protectedBranchDeny(repoContext.branch);
+  if (!isDeliveryBranch(repoContext.branch, repoContext)) return protectedBranchDeny(repoContext.branch);
   return program === "gh"
     ? evaluateGhDelivery(tokens, repoContext)
     : evaluateGlabDelivery(tokens, repoContext);
@@ -1057,9 +1237,9 @@ function isTrustedExecutable(program, repoContext) {
       if (!lstatSync(canonical).isFile()) {
         return false;
       }
-      if ([candidate, canonical].some((path) => isWithin(repoContext.root, path)
-        || isWithin(repoContext.gitDir, path)
-        || isWithin(repoContext.commonDir, path)
+      if ([candidate, canonical].some((path) => mayAliasWithin(repoContext.root, path)
+        || mayAliasWithin(repoContext.gitDir, path)
+        || mayAliasWithin(repoContext.commonDir, path)
         || UNTRUSTED_PATH_MARKERS.some((marker) => path.includes(marker)))) {
         return false;
       }
@@ -1077,7 +1257,7 @@ function isTrustedExecutable(program, repoContext) {
   return false;
 }
 
-function isFiniteRegularFile(rawPath, repoContext) {
+function isFiniteRegularFile(rawPath, repoContext, allowDirectory = false) {
   if (typeof rawPath !== "string" || rawPath.length === 0 || rawPath === "-"
     || rawPath.startsWith("-") || isAbsolute(rawPath)) {
     return false;
@@ -1087,43 +1267,113 @@ function isFiniteRegularFile(rawPath, repoContext) {
     return false;
   }
   try {
-    return lstatSync(candidate).isFile();
+    const stats = lstatSync(candidate);
+    return stats.isFile() || allowDirectory && stats.isDirectory();
   } catch {
     return false;
   }
 }
 
 function isFiniteFileRead(program, args, repoContext) {
-  if (["cat", "stat", "file", "realpath", "readlink", "dirname", "basename"].includes(program)) {
-    if (program === "cat") {
-      return args.length > 0 && args.every((arg) => isFiniteRegularFile(arg, repoContext));
-    }
+  if (["dirname", "basename"].includes(program)) {
     return args.length > 0 && args.every((arg) => arg !== "-" && !arg.startsWith("-"));
   }
+  if (["cat", "stat", "file", "realpath", "readlink"].includes(program)) {
+    const operands = args[0] === "--" ? args.slice(1) : args;
+    return operands.length > 0 && operands.every((arg) =>
+      isFiniteRegularFile(arg, repoContext, program !== "cat"));
+  }
   if (program === "head" || program === "tail") {
-    if (args.some((arg) => /^-[^-]*[fF]/u.test(arg) || arg === "--retry"
-      || arg === "--follow" || arg.startsWith("--follow=") || arg === "--pid"
-      || arg.startsWith("--pid="))) {
-      return false;
+    let cursor = 0;
+    while (args[cursor]?.startsWith("-") && args[cursor] !== "--") {
+      const flag = args[cursor++];
+      if (["-n", "-c", "--lines", "--bytes"].includes(flag)) {
+        if (!/^[+-]?\d+$/u.test(args[cursor++] ?? "")) return false;
+      } else if (!/^-(?:n|c)[+-]?\d+$/u.test(flag)
+        && !/^--(?:lines|bytes)=[+-]?\d+$/u.test(flag)
+        && !["-q", "-v", "--quiet", "--verbose"].includes(flag)) {
+        return false;
+      }
     }
-    if (args[0] === "-n" && /^\d+$/u.test(args[1] ?? "")) {
-      return args.length > 2 && args.slice(2).every((arg) => isFiniteRegularFile(arg, repoContext));
-    }
-    return args.length > 0 && args.every((arg) => isFiniteRegularFile(arg, repoContext));
+    if (args[cursor] === "--") cursor += 1;
+    return args.length > cursor && args.slice(cursor).every((arg) => isFiniteRegularFile(arg, repoContext));
   }
   if (program === "wc") {
-    const operands = args.filter((arg) => !arg.startsWith("-"));
+    const operands = [];
+    let endedOptions = false;
+    for (const arg of args) {
+      if (!endedOptions && arg === "--") endedOptions = true;
+      else if (!endedOptions && arg.startsWith("-")) {
+        if (!/^-[clmwL]+$/u.test(arg)
+          && !["--bytes", "--chars", "--lines", "--words", "--max-line-length"].includes(arg)) return false;
+      } else operands.push(arg);
+    }
     return operands.length > 0 && operands.every((arg) => isFiniteRegularFile(arg, repoContext));
   }
   if (program === "jq") {
-    const positionals = args.filter((arg) => !arg.startsWith("-"));
-    return positionals.length >= 2
-      && positionals.slice(1).every((arg) => isFiniteRegularFile(arg, repoContext));
+    const positionals = [];
+    let endedOptions = false;
+    let fileFilter = false;
+    let filterPath;
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (!endedOptions && arg === "--") endedOptions = true;
+      else if (!endedOptions && ["-f", "--from-file"].includes(arg)) {
+        const sourcePath = args[++index];
+        if (fileFilter || typeof sourcePath !== "string") return false;
+        filterPath = resolve(repoContext.cwd, sourcePath);
+        // The Hook must not inspect another adapter's state as filter source.
+        if (isProtectedPath(repoContext.root, filterPath)
+          || !isFiniteRegularFile(sourcePath, repoContext)) return false;
+        fileFilter = true;
+      } else if (!endedOptions && ["--arg", "--argjson"].includes(arg)) {
+        if (args[index + 1] === undefined || args[index + 2] === undefined) return false;
+        index += 2;
+      } else if (!endedOptions && arg.startsWith("-")) {
+        if (!/^-[acCejMnRrsS]+$/u.test(arg)
+          && !["--ascii-output", "--compact-output", "--exit-status", "--join-output",
+            "--monochrome-output", "--null-input", "--raw-input", "--raw-output", "--slurp", "--sort-keys"].includes(arg)) return false;
+      } else positionals.push(arg);
+    }
+    const operands = fileFilter ? positionals : positionals.slice(1);
+    if (operands.length === 0 || !operands.every((arg) => isFiniteRegularFile(arg, repoContext))) return false;
+    let filterSource = positionals[0];
+    if (fileFilter) {
+      try {
+        const stats = lstatSync(filterPath);
+        if (!stats.isFile() || stats.size > MAX_COMMAND_BYTES) return false;
+        filterSource = readFileSync(filterPath, "utf8");
+        if (Buffer.byteLength(filterSource, "utf8") > MAX_COMMAND_BYTES) return false;
+      } catch {
+        return false;
+      }
+    }
+    // Modules can open extra paths or FIFOs. Conservatively reject these words
+    // even inside strings/comments instead of maintaining a partial jq parser.
+    return typeof filterSource === "string" && !/\b(?:import|include)\b/u.test(filterSource);
   }
   if (program === "du") {
-    return args.length === 0 || args.some((arg) => arg !== "-" && !arg.startsWith("-"));
+    const operands = [];
+    let endedOptions = false;
+    for (const arg of args) {
+      if (!endedOptions && arg === "--") endedOptions = true;
+      else if (!endedOptions && arg.startsWith("-")) {
+        if (!/^-[achkmPsx]+$/u.test(arg)
+          && !["--all", "--human-readable", "--summarize", "--total", "--one-file-system", "--no-dereference"].includes(arg)) return false;
+      } else operands.push(arg);
+    }
+    if (args.length === 0) operands.push(".");
+    return operands.length > 0 && operands.every((arg) => isFiniteRegularFile(arg, repoContext, true));
   }
-  return program === "test" || program === "true" || program === "false";
+  if (program === "test") {
+    if (args.length <= 1) return true;
+    if (args.length === 2 && ["-n", "-z"].includes(args[0])) return true;
+    if (args.length === 2 && ["-d", "-e", "-f", "-r", "-s", "-w", "-x"].includes(args[0])) {
+      return isFiniteRegularFile(args[1], repoContext, true);
+    }
+    return args.length === 3 && ["=", "!=", "-eq", "-ne", "-gt", "-ge", "-lt", "-le"].includes(args[1]);
+  }
+  return program === "true" || program === "false";
 }
 
 function isReviewedReadCommand(tokens, repoContext) {
@@ -1136,18 +1386,89 @@ function isReviewedReadCommand(tokens, repoContext) {
     return args.every((arg) => arg === "-L" || arg === "-P");
   }
   if (program === "ls") {
-    return true;
+    const operands = [];
+    let endedOptions = false;
+    for (const arg of args) {
+      if (!endedOptions && arg === "--") endedOptions = true;
+      else if (!endedOptions && arg.startsWith("-")) {
+        // Never follow links, including links encountered by recursive listings.
+        if (!/^-[1AaBCcdfFghiklmnpqRrSstUux]+$/u.test(arg)
+          && !["--all", "--almost-all", "--directory", "--human-readable", "--inode", "--numeric-uid-gid", "--recursive", "--size"].includes(arg)
+          && !/^--color=(?:always|auto|never)$/u.test(arg)) return false;
+      } else operands.push(arg);
+    }
+    if (operands.length === 0) operands.push(".");
+    return operands.every((arg) => isFiniteRegularFile(arg, repoContext, true));
   }
   if (program === "rg") {
-    if (!args.includes("--no-config")
-      || args.some((arg) => arg === "--pre" || arg.startsWith("--pre=")
-      || arg === "--pre-glob" || arg.startsWith("--pre-glob=")
-      || arg === "--hostname-bin" || arg.startsWith("--hostname-bin=")
-      || arg === "--search-zip" || /^-[^-]*z/u.test(arg))) {
-      return false;
+    const booleanFlags = new Set([
+      "--no-config", "--files", "--hidden", "--no-hidden", "--no-ignore", "--no-ignore-vcs",
+      "--no-ignore-dot", "--no-ignore-parent", "--no-ignore-global", "--no-require-git",
+      "--line-number", "--no-line-number", "--with-filename", "--no-filename",
+      "--ignore-case", "--case-sensitive", "--smart-case", "--fixed-strings", "--word-regexp", "--line-regexp",
+      "--invert-match", "--count", "--count-matches", "--files-with-matches", "--files-without-match",
+      "--only-matching", "--quiet", "--text", "--binary", "--multiline", "--multiline-dotall", "--pcre2",
+      "--json", "--heading", "--no-heading", "--column", "--no-column", "--byte-offset", "--null",
+      "--null-data", "--crlf", "--trim", "--stats", "--no-messages", "--no-ignore-messages",
+      "--no-follow", "--no-mmap", "--mmap", "--one-file-system", "--debug", "--trace",
+    ]);
+    const valueFlags = new Set([
+      "--regexp", "--file", "--glob", "--iglob", "--type", "--type-not", "--type-add", "--type-clear",
+      "--max-count", "--max-depth", "--max-filesize", "--max-columns", "--threads", "--context",
+      "--before-context", "--after-context", "--context-separator", "--field-match-separator",
+      "--field-context-separator", "--color", "--colors", "--sort", "--sortr", "--encoding", "--engine",
+      "--replace", "--ignore-file", "--regex-size-limit", "--dfa-size-limit",
+    ]);
+    const shortValues = new Map(Object.entries({
+      e: "--regexp", f: "--file", g: "--glob", t: "--type", T: "--type-not", m: "--max-count",
+      M: "--max-columns", j: "--threads", C: "--context", B: "--before-context", A: "--after-context",
+      E: "--encoding", r: "--replace",
+    }));
+    const positionals = [];
+    let endedOptions = false;
+    let noConfig = false;
+    let noIgnore = false;
+    let files = false;
+    let explicitPattern = false;
+    const acceptValue = (flag, value) => {
+      if (typeof value !== "string" || value.length === 0) return false;
+      if (["--file", "--ignore-file"].includes(flag) && !isFiniteRegularFile(value, repoContext)) return false;
+      if (["--regexp", "--file"].includes(flag)) explicitPattern = true;
+      return true;
+    };
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (!endedOptions && arg === "--") endedOptions = true;
+      else if (!endedOptions && arg.startsWith("--")) {
+        const equals = arg.indexOf("=");
+        const flag = equals < 0 ? arg : arg.slice(0, equals);
+        if (booleanFlags.has(flag) && equals < 0) {
+          if (flag === "--no-config") noConfig = true;
+          if (flag === "--no-ignore") noIgnore = true;
+          if (flag === "--files") files = true;
+        } else if (valueFlags.has(flag)) {
+          if (!acceptValue(flag, equals < 0 ? args[++index] : arg.slice(equals + 1))) return false;
+        } else return false;
+      } else if (!endedOptions && arg.startsWith("-") && arg !== "-") {
+        for (let offset = 1; offset < arg.length; offset += 1) {
+          const flag = shortValues.get(arg[offset]);
+          if (flag) {
+            if (!acceptValue(flag, arg.slice(offset + 1) || args[++index])) return false;
+            break;
+          }
+          if (!"nNHiIsSwxvFlcouUaPbq0".includes(arg[offset])) return false;
+        }
+      } else positionals.push(arg);
     }
-    const positionals = args.filter((arg) => !arg.startsWith("-"));
-    return args.includes("--files") || positionals.length >= 2;
+    if (!noConfig) return false;
+    const paths = files || explicitPattern ? positionals : positionals.slice(1);
+    // Explicit paths prevent rg from auto-detecting a waiting stdin stream.
+    // Directory traversal skips special entries, but ignore files are opened
+    // separately and could be FIFOs. Disable implicit ignore reads for walks.
+    if (files && paths.length === 0) paths.push(".");
+    return paths.length > 0
+      && paths.every((path) => isFiniteRegularFile(path, repoContext, true))
+      && (noIgnore || !files && paths.every((path) => isFiniteRegularFile(path, repoContext)));
   }
   if (FILE_READ_PROGRAMS.has(program)) {
     return isFiniteFileRead(program, args, repoContext);
@@ -1156,7 +1477,7 @@ function isReviewedReadCommand(tokens, repoContext) {
     return args.length === 2 && args[0] === "-v";
   }
   if (program === "git") {
-    return isGitRead(tokens);
+    return isGitRead(tokens, repoContext);
   }
   if (program === "gh" || program === "glab") {
     return isForgeRead(tokens);
@@ -1197,7 +1518,8 @@ function isApprovedValidationCommand(tokens, repoContext) {
     return false;
   }
   if (ALLOWED_VALIDATION_SIGNATURES.has(tokens.join("\0"))) {
-    return repoContext.cwd === repoContext.root;
+    return repoContext.cwd === repoContext.root
+      && (program !== "bash" || isFiniteRegularFile(args[0], repoContext));
   }
   if (program === "node") {
     const testPathArgs = args[0] === "--test"
@@ -1221,8 +1543,7 @@ function isApprovedValidationCommand(tokens, repoContext) {
   return false;
 }
 
-function evaluateShell(toolInput, repoContext, options = {}) {
-  const command = commandFromToolInput(toolInput);
+export async function classifyRestrictedCommand(command, repoContext, options = {}) {
   if (command === null) {
     return deny("shell payload has no auditable command");
   }
@@ -1244,16 +1565,97 @@ function evaluateShell(toolInput, repoContext, options = {}) {
     return deny("interactive interpreters are not allowed");
   }
   if (isReviewedReadCommand(tokens, repoContext)) {
-    return DECISION_ALLOW;
+    return { decision: "allow", mode: program === "git" ? "git-read" : ["gh", "glab"].includes(program) ? "forge" : "read", tokens, repoContext };
   }
-  if (isDeliveryBranch(repoContext.branch) && isApprovedValidationCommand(tokens, repoContext)) {
-    return DECISION_ALLOW;
+  const forgeReadFailure = forgeReadFailureReason(tokens);
+  if (forgeReadFailure) return deny(forgeReadFailure);
+  if (program === "rg") {
+    return deny("rg requires --no-config and explicit checkout paths; directory searches and --files also require --no-ignore. Use rg --no-config --no-ignore <pattern> <path> (or --files <path>), without symlink-following, helper, or implicit-ignore flags");
+  }
+  const validation = isApprovedValidationCommand(tokens, repoContext);
+  if (validation || ["git", "gh", "glab"].includes(program)) {
+    const configured = await withConfiguredBranchPolicy(repoContext, options);
+    if (configured.denied) return configured.denied;
+    repoContext = configured.context;
+  }
+  if (isDeliveryBranch(repoContext.branch, repoContext) && validation) {
+    return { decision: "allow", mode: "validation", tokens, repoContext };
   }
   const deliveryDecision = evaluateDeliveryCommand(tokens, repoContext, options);
-  if (deliveryDecision) return deliveryDecision;
-  return deny(isDeliveryBranch(repoContext.branch)
+  if (deliveryDecision) {
+    if (deliveryDecision.decision !== "allow") return deliveryDecision;
+    return { decision: "allow", tokens, repoContext, mode: program === "git" ? tokens[1] === "push" ? "git-push" : "git-local" : "forge" };
+  }
+  return deny(isDeliveryBranch(repoContext.branch, repoContext)
     ? "feature-branch command is outside reviewed reads, contained patches, validation, or delivery"
     : "protected checkout permits reviewed read-only commands and feature-branch creation only");
+}
+
+
+export function restrictedHostPath(repoContext) {
+  const candidates = (process.env.TMB_CODEX_HOOK_HOST_PATH ?? process.env.PATH ?? "").split(delimiter);
+  candidates.push(dirname(process.execPath), "/usr/bin", "/bin", "/opt/homebrew/bin", "/usr/local/bin");
+  return [...new Set(candidates.filter((candidate) => {
+    if (!isAbsolute(candidate) || /[\x00-\x1f\x7f]/u.test(candidate)) return false;
+    const canonical = canonicalExistingPath(candidate);
+    if (!canonical || !lstatSync(canonical).isDirectory()) return false;
+    return ![repoContext.root, repoContext.gitDir, repoContext.commonDir].some((root) => root && mayAliasWithin(root, canonical))
+      && !UNTRUSTED_PATH_MARKERS.some((marker) => canonical.includes(marker));
+  }))].join(delimiter);
+}
+
+function runnerArguments(command, repoContext, options) {
+  const pluginRoot = canonicalExistingPath(options.pluginRoot ?? DEFAULT_PLUGIN_ROOT);
+  const node = canonicalExistingPath(process.execPath);
+  if (!pluginRoot || !node || [repoContext.root, repoContext.gitDir, repoContext.commonDir, pluginRoot]
+    .some((root) => mayAliasWithin(root, node))) throw new Error("restricted runner has no trusted interpreter");
+  const manifest = JSON.parse(readFileSync(resolve(pluginRoot, "hooks/codex/hooks.json"), "utf8"));
+  const definition = manifest?.hooks?.PreToolUse?.[0]?.hooks?.[0]?.command;
+  const matches = typeof definition === "string" ? [...definition.matchAll(/--policy-sha256 ([a-f0-9]{64})/gu)] : [];
+  if (matches.length !== 1) throw new Error("restricted runner has no pinned bundle digest");
+  const pluginData = options.pluginData ? canonicalExistingPath(options.pluginData) : "";
+  if (options.pluginData && !pluginData) throw new Error("restricted runner plugin data path is unavailable");
+  return ["/usr/bin/env", "-i", `PATH=${restrictedHostPath(repoContext)}`, `TMB_CODEX_PLUGIN_DATA=${pluginData}`, node,
+    resolve(pluginRoot, "adapters/codex/hooks/restricted-runner.mjs"),
+    "--policy-sha256", matches[0][1], "--cwd", repoContext.cwd, "--command", command];
+}
+
+export function makeRestrictedCommand(command, cwd, options = {}) {
+  const context = resolveRepoContext(cwd, options);
+  if (!["primary", "linked"].includes(context.kind)) throw new Error("restricted runner requires a branch-backed checkout");
+  const quote = (value) => `'${value.replaceAll("'", "'\"'\"'")}'`;
+  return runnerArguments(command, context, options).map(quote).join(" ");
+}
+
+async function evaluateShell(toolInput, repoContext, options = {}) {
+  const command = commandFromToolInput(toolInput);
+  const tokens = tokenizeSimpleCommand(command);
+  if (tokens?.[0] === "/usr/bin/env") {
+    if (!options.controlledShell) return deny("restricted execution requires nested exec_command with shell /bin/sh, login false, and tty false");
+    if (tokens.length !== 12) return deny("restricted runner arguments are not canonical");
+    let expected;
+    try { expected = runnerArguments(tokens[11], repoContext, options); }
+    catch { return deny("restricted runner identity or bundle manifest is unavailable"); }
+    if (!tokens.every((token, index) => token === expected[index])) return deny("restricted runner identity, environment, cwd, or digest differs from the installed bundle");
+    if (process.platform !== "darwin") return deny("restricted command execution currently requires the qualified macOS sandbox");
+    const result = await classifyRestrictedCommand(tokens[11], repoContext, options);
+    return result.decision === "allow" ? DECISION_ALLOW : result;
+  }
+  if (options.requestsEscalation) return deny("outer sandbox escalation is accepted only for the exact pinned restricted runner");
+  const result = await classifyRestrictedCommand(command, repoContext, options);
+  if (result.decision === "allow" && result.mode !== "read") {
+    let recovery = "See the installed RESTRICTED_EXECUTION.md for the required exec_command wrapper.";
+    if (process.platform === "darwin" && command.length <= 8_192) {
+      try {
+        recovery = `Use functions.exec with this single static call: text(JSON.stringify(await tools.exec_command(${JSON.stringify({
+          cmd: makeRestrictedCommand(command, repoContext.cwd, options), workdir: repoContext.cwd,
+          shell: "/bin/sh", login: false, tty: false,
+        })})));`;
+      } catch { /* A missing or malformed installed bundle has no executable recovery. */ }
+    }
+    return deny(`Git, forge, and validation commands require the installed restricted runner; raw execution can run helpers outside the protected-path boundary. ${recovery}`);
+  }
+  return result.decision === "allow" ? DECISION_ALLOW : result;
 }
 
 function isTmbMcpTool(toolName) {
@@ -1363,7 +1765,10 @@ export async function evaluatePreToolUse(input, options = {}) {
     return DECISION_ALLOW;
   }
   if (isApplyPatchTool(toolName)) {
-    if (!isDeliveryBranch(repoContext.branch)) {
+    const configured = await withConfiguredBranchPolicy(repoContext, options);
+    if (configured.denied) return configured.denied;
+    repoContext = configured.context;
+    if (!isDeliveryBranch(repoContext.branch, repoContext)) {
       return protectedBranchDeny(repoContext.branch);
     }
     const command = commandFromToolInput(input.tool_input);

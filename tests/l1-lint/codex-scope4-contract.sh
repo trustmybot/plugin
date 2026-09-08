@@ -93,7 +93,7 @@ node --experimental-sqlite --input-type=module -e '
     "agent_materialization_get",
     "agent_materialization_set",
   ]);
-  assert.deepEqual(TMB_TOOL_NAMES, CODEX_SCOPE_4_TOOL_NAMES);
+  assert.strictEqual(TMB_TOOL_NAMES, CODEX_SCOPE_4_TOOL_NAMES, "Hook and MCP must share one frozen metadata object");
 '
 
 require_doc_contract() {

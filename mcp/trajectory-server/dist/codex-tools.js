@@ -1,3 +1,4 @@
+export { CODEX_SCOPE_3_TOOL_NAMES, CODEX_SCOPE_4_TOOL_NAMES } from '../../../adapters/codex/tool-names.mjs';
 import { CodexAgentMaterializationError, CodexAgentMaterializer, } from './codex-agent-materializer.js';
 import { CodexRuntimeError, } from './codex-runtime.js';
 import { discussionTools } from './tools/discussions.js';
@@ -30,26 +31,6 @@ const IDENTITY_KEYS = new Set([
     'verified_human',
 ]);
 const OUT_OF_SCOPE_TOOL = /^(?:agent|branch|cheatcode|config|discussion|issue|milestone|onboard|pr_monitor|report|repos|roundtable|scan|skill|stats|task|validation|worktree)(?:_|$)/;
-export const CODEX_SCOPE_3_TOOL_NAMES = Object.freeze([
-    'runtime_initialize',
-    'project_inventory',
-    'project_scan',
-    'world_model_get',
-    'world_model_search',
-    'planning_label_taxonomy_get',
-    'planning_label_taxonomy_set',
-    'planning_issue_create',
-    'planning_issue_get',
-    'planning_issue_list',
-    'planning_issue_resume',
-    'planning_discussion_append',
-    'planning_discussion_list',
-]);
-export const CODEX_SCOPE_4_TOOL_NAMES = Object.freeze([
-    ...CODEX_SCOPE_3_TOOL_NAMES,
-    'agent_materialization_get',
-    'agent_materialization_set',
-]);
 export function createCodexToolRegistry(manager) {
     const materializer = new CodexAgentMaterializer();
     const definitions = deepFreeze([
