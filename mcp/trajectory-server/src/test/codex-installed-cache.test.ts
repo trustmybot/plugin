@@ -158,7 +158,12 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
       assert.ok(!installedBytes.toString('utf8').includes(sourceRoot), relativePath);
     }
 
-    const hookInput = (toolName: string, toolInput: unknown): string => JSON.stringify({
+    const canonicalHookCwd = realpathSync(project);
+    const hookInput = (
+      toolName: string,
+      toolInput: unknown,
+      executionContext?: Record<string, unknown>,
+    ): string => JSON.stringify({
       cwd: project,
       hook_event_name: 'PreToolUse',
       model: 'gpt-test',
@@ -166,9 +171,22 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
       session_id: 'installed-cache-test',
       tool_input: toolInput,
       tool_name: toolName,
+      execution_context: executionContext,
       tool_use_id: 'installed-cache-tool',
       transcript_path: null,
       turn_id: 'installed-cache-turn',
+    });
+    // Synthetic prepared-host metadata exercises installed policy admission;
+    // it does not demonstrate that a stock CLI supplies these fields.
+    const qualifiedBashInput = (command: string): string => hookInput('Bash', { command }, {
+      kind: 'exec_command',
+      argv: ['/bin/sh', '-c', command],
+      cwd: canonicalHookCwd,
+      tty: false,
+      login: false,
+      environment_id: 'installed-cache-synthetic-local-environment',
+      is_remote: false,
+      shell_mode: 'direct',
     });
     const pluginData = join(fixture, 'plugin-data');
     mkdirSync(pluginData);
@@ -188,15 +206,23 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
     const rawBranchCreationOutput = JSON.parse(execFileSync(
       process.execPath,
       [installedDispatcher, '--policy-sha256', digest],
-      { cwd: project, encoding: 'utf8', env: hookEnv, input: hookInput('Bash', { command: branchCreationCommand }) },
+      { cwd: project, encoding: 'utf8', env: hookEnv, input: qualifiedBashInput(branchCreationCommand) },
     )) as { hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string } };
     assert.equal(rawBranchCreationOutput.hookSpecificOutput.permissionDecision, 'deny');
     assert.match(rawBranchCreationOutput.hookSpecificOutput.permissionDecisionReason, /require the installed restricted runner/);
+    for (const command of [branchCreationCommand, 'pwd']) {
+      const commandOnlyOutput = JSON.parse(execFileSync(
+        process.execPath,
+        [installedDispatcher, '--policy-sha256', digest],
+        { cwd: project, encoding: 'utf8', env: hookEnv, input: hookInput('Bash', { command }) },
+      )) as { hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string } };
+      assert.equal(commandOnlyOutput.hookSpecificOutput.permissionDecision, 'deny');
+      assert.match(commandOnlyOutput.hookSpecificOutput.permissionDecisionReason, /host execution metadata/);
+    }
 
     const { makeRestrictedCommand } = await import(
       pathToFileURL(join(cacheAdapterHooks, 'repo-policy.mjs')).href
     );
-    const canonicalHookCwd = realpathSync(project);
     const restrictedCommand = makeRestrictedCommand(branchCreationCommand, canonicalHookCwd, {
       pluginRoot: hookEnv.PLUGIN_ROOT,
       pluginData: hookEnv.PLUGIN_DATA,
@@ -236,10 +262,10 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
     const denyOutput = JSON.parse(execFileSync(
       process.execPath,
       [installedDispatcher, '--policy-sha256', digest],
-      { cwd: project, encoding: 'utf8', env: hookEnv, input: hookInput('Bash', { command: 'touch blocked' }) },
+      { cwd: project, encoding: 'utf8', env: hookEnv, input: qualifiedBashInput('touch blocked') },
     )) as { hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string } };
     assert.equal(denyOutput.hookSpecificOutput.permissionDecision, 'deny');
-    assert.match(denyOutput.hookSpecificOutput.permissionDecisionReason, /^TMB-CODEX-HOOK:/);
+    assert.match(denyOutput.hookSpecificOutput.permissionDecisionReason, /protected checkout permits reviewed read-only commands/);
     assert.equal(existsSync(join(project, 'blocked')), false);
 
     const mcpConfig = JSON.parse(

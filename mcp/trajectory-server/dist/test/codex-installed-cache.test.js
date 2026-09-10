@@ -100,7 +100,8 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
             assert.deepEqual(installedBytes, readFileSync(join(sourceRoot, relativePath)), relativePath);
             assert.ok(!installedBytes.toString('utf8').includes(sourceRoot), relativePath);
         }
-        const hookInput = (toolName, toolInput) => JSON.stringify({
+        const canonicalHookCwd = realpathSync(project);
+        const hookInput = (toolName, toolInput, executionContext) => JSON.stringify({
             cwd: project,
             hook_event_name: 'PreToolUse',
             model: 'gpt-test',
@@ -108,9 +109,22 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
             session_id: 'installed-cache-test',
             tool_input: toolInput,
             tool_name: toolName,
+            execution_context: executionContext,
             tool_use_id: 'installed-cache-tool',
             transcript_path: null,
             turn_id: 'installed-cache-turn',
+        });
+        // Synthetic prepared-host metadata exercises installed policy admission;
+        // it does not demonstrate that a stock CLI supplies these fields.
+        const qualifiedBashInput = (command) => hookInput('Bash', { command }, {
+            kind: 'exec_command',
+            argv: ['/bin/sh', '-c', command],
+            cwd: canonicalHookCwd,
+            tty: false,
+            login: false,
+            environment_id: 'installed-cache-synthetic-local-environment',
+            is_remote: false,
+            shell_mode: 'direct',
         });
         const pluginData = join(fixture, 'plugin-data');
         mkdirSync(pluginData);
@@ -123,11 +137,15 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
         const allowOutput = execFileSync(process.execPath, [installedDispatcher, '--policy-sha256', digest], { cwd: project, encoding: 'utf8', env: hookEnv, input: hookInput('Read', { file_path: 'README.md' }) });
         assert.equal(allowOutput, '');
         const branchCreationCommand = 'git switch -c codex/cache-branch-policy';
-        const rawBranchCreationOutput = JSON.parse(execFileSync(process.execPath, [installedDispatcher, '--policy-sha256', digest], { cwd: project, encoding: 'utf8', env: hookEnv, input: hookInput('Bash', { command: branchCreationCommand }) }));
+        const rawBranchCreationOutput = JSON.parse(execFileSync(process.execPath, [installedDispatcher, '--policy-sha256', digest], { cwd: project, encoding: 'utf8', env: hookEnv, input: qualifiedBashInput(branchCreationCommand) }));
         assert.equal(rawBranchCreationOutput.hookSpecificOutput.permissionDecision, 'deny');
         assert.match(rawBranchCreationOutput.hookSpecificOutput.permissionDecisionReason, /require the installed restricted runner/);
+        for (const command of [branchCreationCommand, 'pwd']) {
+            const commandOnlyOutput = JSON.parse(execFileSync(process.execPath, [installedDispatcher, '--policy-sha256', digest], { cwd: project, encoding: 'utf8', env: hookEnv, input: hookInput('Bash', { command }) }));
+            assert.equal(commandOnlyOutput.hookSpecificOutput.permissionDecision, 'deny');
+            assert.match(commandOnlyOutput.hookSpecificOutput.permissionDecisionReason, /host execution metadata/);
+        }
         const { makeRestrictedCommand } = await import(pathToFileURL(join(cacheAdapterHooks, 'repo-policy.mjs')).href);
-        const canonicalHookCwd = realpathSync(project);
         const restrictedCommand = makeRestrictedCommand(branchCreationCommand, canonicalHookCwd, {
             pluginRoot: hookEnv.PLUGIN_ROOT,
             pluginData: hookEnv.PLUGIN_DATA,
@@ -153,9 +171,9 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
             assert.equal(denied.hookSpecificOutput.permissionDecision, 'deny');
             assert.match(denied.hookSpecificOutput.permissionDecisionReason, /requires the qualified macOS sandbox/);
         }
-        const denyOutput = JSON.parse(execFileSync(process.execPath, [installedDispatcher, '--policy-sha256', digest], { cwd: project, encoding: 'utf8', env: hookEnv, input: hookInput('Bash', { command: 'touch blocked' }) }));
+        const denyOutput = JSON.parse(execFileSync(process.execPath, [installedDispatcher, '--policy-sha256', digest], { cwd: project, encoding: 'utf8', env: hookEnv, input: qualifiedBashInput('touch blocked') }));
         assert.equal(denyOutput.hookSpecificOutput.permissionDecision, 'deny');
-        assert.match(denyOutput.hookSpecificOutput.permissionDecisionReason, /^TMB-CODEX-HOOK:/);
+        assert.match(denyOutput.hookSpecificOutput.permissionDecisionReason, /protected checkout permits reviewed read-only commands/);
         assert.equal(existsSync(join(project, 'blocked')), false);
         const mcpConfig = JSON.parse(readFileSync(join(cacheAdapter, '.mcp.json'), 'utf8'));
         const configured = mcpConfig['trajectory-server'];

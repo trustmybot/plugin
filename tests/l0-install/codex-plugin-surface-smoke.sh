@@ -152,7 +152,7 @@ HOOK_INPUT_BASE="$(jq -nc --arg cwd "$HOOK_PROJECT" '{
   turn_id: "installed-cache-turn"
 }')"
 
-make_installed_branch_source() {
+make_installed_branch_payloads() {
   env -u NODE_PATH node --input-type=module - \
     "$INSTALLED_POLICY" "$INSTALLED_PATH" "$HOOK_PLUGIN_DATA" "$HOOK_PROJECT" <<'NODE'
 import assert from "node:assert/strict";
@@ -168,30 +168,53 @@ const cmd = makeRestrictedCommand("git switch -c codex/installed-branch-policy",
 assert.ok(cmd.includes(join(pluginRoot, "adapters/codex/hooks/restricted-runner.mjs")), "wrapper must select the installed runner");
 assert.ok(cmd.includes(`TMB_CODEX_PLUGIN_DATA=${pluginData}`), "wrapper must carry the fixture's host plugin data");
 const fields = { cmd, workdir, shell: "/bin/sh", login: false, tty: false };
-process.stdout.write(JSON.stringify(`text(JSON.stringify(await tools.exec_command(${JSON.stringify(fields)})));`));
+process.stdout.write(JSON.stringify({ command: cmd, source: `text(JSON.stringify(await tools.exec_command(${JSON.stringify(fields)})));` }));
 NODE
 }
 
+# Installation above uses the real CLI. Admission below calls the installed
+# dispatcher with synthetic payloads and does not establish CLI Hook delivery.
+BRANCH_PAYLOADS="$(make_installed_branch_payloads)"
 ALLOW_INPUT="$(jq -c '. + {tool_name:"Read",tool_input:{file_path:"README.md"}}' <<< "$HOOK_INPUT_BASE")"
-BRANCH_INPUT="$(jq -c --argjson source "$(make_installed_branch_source)" '. + {tool_name:"functions.exec",tool_input:$source}' <<< "$HOOK_INPUT_BASE")"
+BRANCH_INPUT="$(jq -c --arg source "$(jq -r '.source' <<< "$BRANCH_PAYLOADS")" '. + {tool_name:"functions.exec",tool_input:$source}' <<< "$HOOK_INPUT_BASE")"
+QUALIFIED_BRANCH_INPUT="$(jq -c --arg command "$(jq -r '.command' <<< "$BRANCH_PAYLOADS")" '. + {
+  tool_name:"Bash",tool_input:{command:$command},execution_context:{
+    kind:"exec_command",argv:["/bin/sh","-c",$command],cwd:.cwd,
+    tty:false,login:false,environment_id:"installed-cache-synthetic-local-environment",
+    is_remote:false,shell_mode:"direct"
+  }
+}' <<< "$HOOK_INPUT_BASE")"
 RAW_BRANCH_INPUT="$(jq -c '. + {tool_name:"Bash",tool_input:{command:"git switch -c codex/installed-branch-policy"}}' <<< "$HOOK_INPUT_BASE")"
-DENY_INPUT="$(jq -c '. + {tool_name:"Bash",tool_input:{command:"touch blocked"}}' <<< "$HOOK_INPUT_BASE")"
+DENY_INPUT="$(jq -c --arg command "touch blocked" '. + {
+  tool_name:"Bash",tool_input:{command:$command},execution_context:{
+    kind:"exec_command",argv:["/bin/sh","-c",$command],cwd:.cwd,
+    tty:false,login:false,environment_id:"installed-cache-synthetic-local-environment",
+    is_remote:false,shell_mode:"direct"
+  }
+}' <<< "$HOOK_INPUT_BASE")"
 ALLOW_OUTPUT="$(env -u NODE_PATH PLUGIN_ROOT="$INSTALLED_PATH" PLUGIN_DATA="$HOOK_PLUGIN_DATA" node "$INSTALLED_DISPATCHER" --policy-sha256 "$HOOK_DIGEST" <<< "$ALLOW_INPUT")"
 if [ -n "$ALLOW_OUTPUT" ]; then
   printf 'codex-plugin-surface-smoke: installed Hook emitted output for an allow decision\n' >&2
   exit 1
 fi
 RAW_BRANCH_OUTPUT="$(env -u NODE_PATH PLUGIN_ROOT="$INSTALLED_PATH" PLUGIN_DATA="$HOOK_PLUGIN_DATA" node "$INSTALLED_DISPATCHER" --policy-sha256 "$HOOK_DIGEST" <<< "$RAW_BRANCH_INPUT")"
-jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains("require the installed restricted runner"))' <<< "$RAW_BRANCH_OUTPUT" >/dev/null
+jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains("host execution metadata"))' <<< "$RAW_BRANCH_OUTPUT" >/dev/null
+for command in pwd true; do
+  LEGACY_READ_INPUT="$(jq -c --arg command "$command" '. + {tool_name:"Bash",tool_input:{command:$command}}' <<< "$HOOK_INPUT_BASE")"
+  LEGACY_READ_OUTPUT="$(env -u NODE_PATH PLUGIN_ROOT="$INSTALLED_PATH" PLUGIN_DATA="$HOOK_PLUGIN_DATA" node "$INSTALLED_DISPATCHER" --policy-sha256 "$HOOK_DIGEST" <<< "$LEGACY_READ_INPUT")"
+  jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains("host execution metadata"))' <<< "$LEGACY_READ_OUTPUT" >/dev/null
+done
 BRANCH_OUTPUT="$(env -u NODE_PATH PLUGIN_ROOT="$INSTALLED_PATH" PLUGIN_DATA="$HOOK_PLUGIN_DATA" node "$INSTALLED_DISPATCHER" --policy-sha256 "$HOOK_DIGEST" <<< "$BRANCH_INPUT")"
+QUALIFIED_BRANCH_OUTPUT="$(env -u NODE_PATH PLUGIN_ROOT="$INSTALLED_PATH" PLUGIN_DATA="$HOOK_PLUGIN_DATA" node "$INSTALLED_DISPATCHER" --policy-sha256 "$HOOK_DIGEST" <<< "$QUALIFIED_BRANCH_INPUT")"
 if [ "$(uname -s)" != Darwin ]; then
   jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains("requires the qualified macOS sandbox"))' <<< "$BRANCH_OUTPUT" >/dev/null
-elif [ -n "$BRANCH_OUTPUT" ]; then
+  jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains("requires the qualified macOS sandbox"))' <<< "$QUALIFIED_BRANCH_OUTPUT" >/dev/null
+elif [ -n "$BRANCH_OUTPUT" ] || [ -n "$QUALIFIED_BRANCH_OUTPUT" ]; then
   printf 'codex-plugin-surface-smoke: installed branch-policy helper or Codex manifest did not resolve\n' >&2
   exit 1
 fi
 DENY_OUTPUT="$(env -u NODE_PATH PLUGIN_ROOT="$INSTALLED_PATH" PLUGIN_DATA="$HOOK_PLUGIN_DATA" node "$INSTALLED_DISPATCHER" --policy-sha256 "$HOOK_DIGEST" <<< "$DENY_INPUT")"
-jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | startswith("TMB-CODEX-HOOK:"))' <<< "$DENY_OUTPUT" >/dev/null
+jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains("protected checkout permits reviewed read-only commands"))' <<< "$DENY_OUTPUT" >/dev/null
 if [ -e "$HOOK_PROJECT/blocked" ]; then
   printf 'codex-plugin-surface-smoke: denied Hook probe produced a side effect\n' >&2
   exit 1
@@ -248,5 +271,7 @@ printf 'codex-plugin-surface-smoke: PASS\n'
 printf '  Codex: %s\n' "$(env CODEX_HOME="$SMOKE_HOME" "$CODEX_BIN" --version)"
 printf '  Codex Skills: %s\n' "$(printf '%s' "$ACTUAL_SKILLS" | tr '\n' ' ')"
 printf '  Codex Hook: installed-cache dispatcher digest %s, timeout 5s\n' "$HOOK_DIGEST"
+printf '  Hook payloads: synthetic qualified-host admission; command-only Bash denied\n'
+printf '  Real CLI execution through Hooks: not exercised by this installer smoke\n'
 printf '  Claude commands/ and skills/: regular files and Skill directories preserved\n'
 printf '  source-command-* migrations: absent\n'

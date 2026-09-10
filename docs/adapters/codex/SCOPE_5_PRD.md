@@ -2,9 +2,17 @@
 
 ## 状态
 
-当前 `1.0.6-rc.1` 候选已完成 PR #1183 评论所涉及的本地修复，发布验收尚未完成。修复覆盖 shell 显式读取、Git 查询参数、core 分支前缀兼容和 Node launcher 后续候选解析，并接入仓库配置的受保护分支集合。新增的 macOS 受限命令 runner 让验证脚本、Node 子进程、npm 生命周期和 Git filter 继承相应文件与网络限制。发布前还需在同一干净候选 SHA 上完成安装与宿主矩阵。
+当前 `1.0.6-rc.1` 候选包含针对 PR #1183 评论的本地修复，已完成一轮配套 CLI 联调，发布验收尚未完成。修复覆盖 shell 显式读取、Git 查询参数、core 分支前缀兼容和 Node launcher 后续候选解析，并接入仓库配置的受保护分支集合。新增的 macOS 受限命令 runner 让验证脚本、Node 子进程、npm 生命周期和 Git filter 继承相应文件与网络限制。发布前还需在同一干净候选 SHA 上完成安装与宿主矩阵。
 
-当前存在已确认的宿主阻塞：CLI `0.151.0` 将 `exec_command` 归一为 `Bash` 和单个 command 字符串，没有保留 shell、login、tty、workdir。即使原样复制 Hook 给出的恢复调用，也无法通过受控执行检查。因此该 CLI 下的 Git、forge 和验证执行仍不可用，不能宣称发布就绪。Desktop 尚需独立验收。
+官方 CLI `0.151.0` 和 `0.153.4` 仍存在宿主阻塞：`exec_command` 到达 Hook 时只有 `Bash` 和 command 字符串，没有实际启动所需的 shell、login、tty、workdir 信息。当前候选会拒绝这类只有 command 的 Bash 调用，包括文件读取和 `pwd`。这两个未经修改的 CLI 版本仍不能使用受限 Git、forge 和验证执行。
+
+当前插件候选增加了对配套宿主补丁的支持，由宿主在顶层 `execution_context` 中提供已经解析的启动参数。真实 CLI 与已安装插件的八个局部验收场景已通过，接口尚未合入或发布；官方 CLI 的上述限制仍在。完整 Desktop 矩阵和 L6 验收尚未完成，下方历史测试记录不作为这次宿主修复的验证结果。
+
+本轮联调使用隔离 profile，确认九个安装文件与候选逐字节一致，再通过正常 `/hooks` 界面审阅并信任 Hook。测试由本地服务提供确定的 Responses 事件，调用经过真实 CLI、Hook 和执行管理器；没有向 dispatcher 直接提交人工构造的 Hook payload。
+
+允许的读取返回了预期 checkout 的 marker。raw Node 测试先被拒绝，随后 fixture 从拒绝消息中取出恢复参数，以 `/bin/sh`、`login=false`、`tty=false` 和匹配的 workdir 发起直接 `exec_command`。受限测试实际运行，成功写入普通文件，并确认内层 sandbox 拒绝写入 `.git/forbidden-marker`。
+
+错误 cwd、`login=true`、`tty=true` 和默认 shell 四个场景均在命令启动前被 Hook 拒绝。同一安装与 trust 状态下，未经修改的 CLI `0.153.4` 也拒绝了读取。配套 CLI 使用外层 read-only sandbox 时，runner 创建私有 scratch 遇到 `EPERM`，退出码为 125，测试写入目标没有创建。这些结果覆盖八个局部场景，不能代替完整发布验收。
 
 交付验收另修正了两处真实宿主问题：forge/push 进程需要访问精确的系统 trust agent 才能校验 TLS 证书；Codex 提供的插件数据目录尚未创建时，也应能生成受限命令。后者只验证并保护未来路径，不创建目录，不放宽路径绑定。
 
@@ -13,10 +21,10 @@
 当前源码候选绑定到以下环境：
 
 - macOS arm64；
-- 当前本地检查环境为 Node `25.8.0`、Bun `1.3.11`；可用独立 CLI 为 `0.151.0`，读取版本号本身不算宿主验收；
+- 下方本地验证记录使用 Node `25.8.0`、Bun `1.3.11` 和独立 CLI `0.151.0`；本次另检查了官方 CLI `0.153.4` 的调用合同，读取版本号或源码本身不算执行验收；
 - 历史 `1.0.4` 兼容矩阵包含独立 `codex-cli 0.146.0` 和 Codex Desktop 26.820.60940 内置的 `codex-cli 0.150.0-alpha.8`；`1.0.5` 隔离安装烟测使用 `codex-cli 0.150.1`；
 - 本地未发布插件候选版本 `1.0.6-rc.1`；
-- 七个固定 ESM 文件加规范化 Hook definition 的 Hook runtime digest `e5177f1ebffeca16ee5e7e5b7181984d0f864f2cb0e26f822a4f3b971ce6cada`；
+- 七个固定 ESM 文件加规范化 Hook definition 的 Hook runtime digest `e7f0e387afa2a9a533f549ce84ec02575e152618fed5c057d771067f0e2dd9f0`；
 - manifest hard timeout：5 秒。
 
 Hook 审核调用，受限 runner 在 macOS 操作系统层执行进程权限限制。两层职责不同；其他平台目前拒绝 Git、forge 和验证执行。
@@ -38,7 +46,15 @@ Hook 审核调用，受限 runner 在 macOS 操作系统层执行进程权限限
 
 ## 具体策略
 
-以下描述策略和 runner 的接口规则。执行入口需要宿主提供与实际启动一致的可信参数，或不经过外层 shell 的 direct-argv 调用。CLI `0.151.0` 尚未提供这种证明；命令中的 `env -i` 晚于外层 shell 启动，不能替代检查，当前继续拒绝。
+以下描述策略和 runner 的接口规则，本次宿主验收目标为 macOS arm64。配套宿主补丁保留 `Bash` 和精确的 `tool_input: {command: string}`，另在顶层提供 `execution_context`。启动检查只接受本地执行，要求 `kind=exec_command`、`shell_mode=direct`、`is_remote=false`、`login=false`、`tty=false`，且实际 shell 参数必须精确为 `["/bin/sh", "-c", command]`。其中 canonical `cwd` 必须等于 Hook 的 canonical cwd；`environment_id` 不能全为空白、超过 256 个 UTF-8 字节或包含 ASCII 控制字符。
+
+Codex 的 `shell` 参数只用于选择 shell 类型，最终可能选中另一条同类型程序路径。因此即使请求填写 `/bin/sh`，实际 argv 选中其他 `sh` 程序时仍会拒绝。模型塞进 `tool_input` 的执行字段或 `execution_context` 不可信，不能代替宿主顶层信息。顶层 argv 描述执行管理器添加 sandbox 或平台 shell wrapper 之前的命令，本策略只接受上述本地 direct 子集。
+
+所有 Bash 调用都先检查启动信息，再判断命令是否允许。即使是 `cat marker.txt`，也不能在 A checkout 检查路径后去 B checkout 读取；启动字段缺失、无效或带有额外字段时，`pwd`、`true` 同样拒绝。原生文件读取、Codex 诊断和精确插件卸载仍可使用。
+
+既有静态 `functions.exec` 嵌套调用路径仍保留，供单独完成验收的宿主使用。每个嵌套 `exec_command`，包括 `cat`、`pwd` 和 `true`，都必须显式提供 `shell=/bin/sh`、`login=false`、`tty=false`，以及与 Hook canonical cwd 完全相同的 canonical `workdir`。任一字段缺失或无效都拒绝。
+
+官方 CLI `0.151.0` 和 `0.153.4` 缺少所需证明，继续拒绝受限执行。两条路径中的 Git、forge 和验证命令都必须使用完整固定 runner wrapper，raw 调用仍拒绝；命令中的 `env -i` 晚于外层 shell 启动，不能替代启动参数检查。
 
 | 调用 | primary checkout | linked worktree |
 |---|---|---|
@@ -103,6 +119,10 @@ dispatcher 从 patch header 提取 `Add File`、`Update File`、`Delete File` �
 两个 Agent 文件仍只能通过 Scope 4 materializer 修改。Hook 允许对应的 TMB MCP 调用，由 materializer 继续执行确认、exact-byte ownership 和冲突检查。
 
 ## 验证状态
+
+本次宿主参数修复的完整本地回归 exit 0：Codex L2 194/194、L3 191/191，两轮 MCP 单元测试各 1025/1025、MCP integration 70/70，均无跳过；全部 65 个 Hook 测试文件及六个 L4 flow 通过。真实 CLI `0.153.4` 隔离安装和缓存冷启动检查通过。读取路径 benchmark 的 cold 为 76.580 ms，40 次 warm median 为 77.451 ms，p95 为 79.204 ms，门限未改。ShellCheck `0.11.0` 随后独立检查 253/253 个脚本通过。
+
+上述结果来自提交前的工作树。配套宿主补丁另通过 176 项 Hook 测试、4 项准备调用测试、16 项 Hook 集成、32 项 registry/unified-exec 单元测试和 18 项执行与权限集成测试；`just fmt` 与 Clippy 通过。八场景真实 CLI 联调的范围见上方状态。完整发布矩阵、当前候选的 Claude Docker L0 和 maintainer L6 仍未完成。
 
 2026-09-08 交付验收发现并修复了上述 TLS 与未来插件数据目录问题。修正后的 profile 15/15、runner 14/14 通过，均无跳过；真实 `gh` 查询在当前生产 profile 下完成 TLS 校验并成功返回。完整回归与宿主验收需要绑定包含这两处修正的提交，不能沿用前一候选的结论。
 
@@ -187,7 +207,9 @@ Hook 只能审核宿主提交的工具调用，不解析每个测试脚本或 Gi
 
 Hook payload 没有可信的 Human 批准字段或 Agent 角色字段。与 Claude Code 一样，TMB 把主对话里的直接执行要求当作持续指令，Hook 只检查可观察的仓库状态。它无法证明某句自然语言来自 Human，也无法硬区分主任务和 standalone Agent。后者仍靠 Rule 6 persona 指令禁止 Git 和远程交付。这条交付通道是工作流门禁，不是身份认证系统。
 
-`functions.exec` 的放行不依赖宿主再次触发 Hook。policy 只接受一个直接的 `tools.<name>(<JSON>)` 调用，拒绝动态属性、变量别名、额外语句和嵌套生命周期调用；受限 `exec_command` 还必须显式使用 `shell=/bin/sh`、`login=false`、`tty=false` 和当前 canonical `workdir`，并通过完整的固定 runner wrapper 与内部命令审核。宿主若改变 source payload 或执行语义，解析失败会保持 deny，直到重新验收。
+既有 `functions.exec` 路径的放行不依赖宿主再次触发 Hook。policy 只接受一个直接的 `tools.<name>(<JSON>)` 调用，拒绝动态属性、变量别名、额外语句和嵌套生命周期调用。所有嵌套 `exec_command` 都必须通过完整启动参数检查，Git、forge 和验证命令还要通过固定 runner wrapper 与内部命令审核。这条路径的宿主执行语义需要单独验收。
+
+配套 CLI 补丁通过另一条合同提供顶层 `execution_context`，插件据此核对实际 shell argv 和 cwd，不把静态请求参数当成启动结果。缺失、伪造或不符合上述精确条件的 context 不能放行任何 Bash 命令。宿主补丁仍使用原执行管理器、sandbox 和审批流程；它尚未发布，当前不能把候选实现写成官方 CLI 的既有能力。宿主改变 payload 或执行语义后，必须重新验收。
 
 TMB MCP 只接受三个精确前缀：当前宿主实测到的 `mcp__trajectory_server__*`，以及安装模式可能生成的 `mcp__plugin_tmb_trajectory-server__*` 和下划线变体。调用中的 canonical `project_root` 必须等于当前 branch-backed checkout。由于 Hook payload 没有 provider 身份字段，未限定的 `trajectory_server` 名称可能被项目 MCP 影射；策略因此在当前 cwd 到仓库根的任一层发现 `.codex/config.toml` 时拒绝全部 TMB MCP 调用。用户级或企业级宿主配置仍属于受信任边界。宿主改变 MCP 合成方式后必须重新验收。
 

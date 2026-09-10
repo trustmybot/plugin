@@ -36,6 +36,7 @@ after(() => {
   if (fixtureRoot) rmSync(fixtureRoot, { recursive: true, force: true });
 });
 
+// These cases exercise read parsing and path checks after host qualification.
 async function decision(command, cwd = checkout) {
   return evaluatePreToolUse({
     cwd,
@@ -44,6 +45,10 @@ async function decision(command, cwd = checkout) {
     session_id: "read-boundary-test",
     tool_name: "Bash",
     tool_input: { command },
+    execution_context: {
+      kind: "exec_command", argv: ["/bin/sh", "-c", command], cwd,
+      tty: false, login: false, environment_id: "local-read-test", is_remote: false, shell_mode: "direct",
+    },
   }, { pluginRoot: join(fixtureRoot, "plugin-cache"), pluginData: join(fixtureRoot, "plugin-data") });
 }
 

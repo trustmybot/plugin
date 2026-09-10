@@ -248,6 +248,36 @@ function optionalPositiveInteger(value) {
   return value === undefined || (Number.isInteger(value) && value > 0);
 }
 
+function hasExactDataKeys(value, keys) {
+  if (!isPlainObject(value) || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
+  const actualKeys = Reflect.ownKeys(value);
+  return actualKeys.length === keys.length && keys.every((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor && Object.hasOwn(descriptor, "value");
+  });
+}
+
+function hasControlledHostExecution(input, repoContext) {
+  const context = input.execution_context;
+  // This is top-level metadata from the host's prepared invocation. Requested
+  // tool arguments, including nested JSON, cannot attest how a shell will start.
+  if (!hasExactDataKeys(input.tool_input, ["command"])
+    || !hasExactDataKeys(context, ["kind", "argv", "cwd", "tty", "login", "environment_id", "is_remote", "shell_mode"])) {
+    return false;
+  }
+  return context.kind === "exec_command"
+    && Array.isArray(context.argv) && context.argv.length === 3
+    && context.argv[0] === "/bin/sh" && context.argv[1] === "-c"
+    && typeof input.tool_input.command === "string" && context.argv[2] === input.tool_input.command
+    && context.login === false && context.tty === false && context.is_remote === false
+    && context.shell_mode === "direct"
+    && typeof context.cwd === "string" && isAbsolute(context.cwd)
+    && context.cwd === repoContext.cwd && canonicalExistingPath(context.cwd) === context.cwd
+    && typeof context.environment_id === "string" && context.environment_id.trim().length > 0
+    && Buffer.byteLength(context.environment_id, "utf8") <= 256
+    && !/[\x00-\x1f\x7f]/u.test(context.environment_id);
+}
+
 function validateLifecycleTool(toolName, toolInput) {
   if (toolName === "functions.wait") {
     const allowedKeys = new Set(["cell_id", "max_tokens", "terminate", "yield_time_ms"]);
@@ -295,21 +325,21 @@ function evaluateNestedExecCommand(toolInput, repoContext, options) {
   if (!hasOnlyKeys(toolInput, EXEC_COMMAND_KEYS)
     || typeof toolInput.cmd !== "string"
     || toolInput.login !== false
-    || (toolInput.shell !== undefined && toolInput.shell !== "/bin/sh")
+    || toolInput.shell !== "/bin/sh"
     || (toolInput.sandbox_permissions !== undefined && !["use_default", "require_escalated"].includes(toolInput.sandbox_permissions))
     || (toolInput.justification !== undefined && (typeof toolInput.justification !== "string" || toolInput.justification.length > 4096))
-    || (toolInput.tty !== undefined && toolInput.tty !== false)
+    || toolInput.tty !== false
     || !optionalPositiveInteger(toolInput.max_output_tokens)
     || !optionalPositiveInteger(toolInput.yield_time_ms)) {
     return deny("nested exec_command payload is outside the reviewed non-login shell surface");
   }
-  if (toolInput.workdir !== undefined
-    && (typeof toolInput.workdir !== "string"
-      || canonicalExistingPath(toolInput.workdir) !== repoContext.cwd)) {
+  if (typeof toolInput.workdir !== "string"
+    || toolInput.workdir !== repoContext.cwd
+    || canonicalExistingPath(toolInput.workdir) !== toolInput.workdir) {
     return deny("nested exec_command workdir must match the current canonical checkout directory");
   }
   return evaluateShell({ command: toolInput.cmd }, repoContext, {
-    ...options, controlledShell: toolInput.shell === "/bin/sh" && toolInput.tty === false && typeof toolInput.workdir === "string",
+    ...options, controlledShell: true,
     requestsEscalation: toolInput.sandbox_permissions === "require_escalated",
   });
 }
@@ -330,6 +360,7 @@ async function evaluateOrchestrationWrapper(input, options, repoContext) {
     : nestedCall.toolInput;
   return evaluatePreToolUse({
     ...input,
+    execution_context: undefined,
     tool_name: nestedCall.toolName,
     tool_input: nestedToolInput,
   }, options);
@@ -1655,7 +1686,7 @@ async function evaluateShell(toolInput, repoContext, options = {}) {
   const command = commandFromToolInput(toolInput);
   const tokens = tokenizeSimpleCommand(command);
   if (tokens?.[0] === "/usr/bin/env") {
-    if (!options.controlledShell) return deny("restricted execution requires nested exec_command with shell /bin/sh, login false, and tty false");
+    if (!options.controlledShell) return deny("restricted execution requires an attested local /bin/sh invocation or nested exec_command with shell /bin/sh, login false, and tty false");
     if (tokens.length !== 12) return deny("restricted runner arguments are not canonical");
     let expected;
     try { expected = runnerArguments(tokens[11], repoContext, options); }
@@ -1812,7 +1843,13 @@ export async function evaluatePreToolUse(input, options = {}) {
     return DECISION_ALLOW;
   }
   if (isShellTool(toolName, input.tool_name)) {
-    return evaluateShell(input.tool_input, repoContext, options);
+    if (!hasControlledHostExecution(input, repoContext)) {
+      return deny("Bash requires qualified host execution metadata matching the actual local /bin/sh command and cwd, with login false and tty false. Command-only CLI payloads are not supported; the existing static functions.exec path remains available only on hosts that expose it.");
+    }
+    return evaluateShell(input.tool_input, repoContext, {
+      ...options,
+      controlledShell: true,
+    });
   }
   return deny("tool name or payload shape is not on the reviewed allowlist");
 }

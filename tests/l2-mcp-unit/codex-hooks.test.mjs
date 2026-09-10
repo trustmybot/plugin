@@ -76,7 +76,8 @@ function repoAttestationEnv(cwd) {
   };
 }
 
-function payload(cwd, toolName, toolInput, extra = {}) {
+// Opt in only when the test needs to reach shell policy on a qualified host.
+function payload(cwd, toolName, toolInput, { qualifiedHost = false, ...extra } = {}) {
   return {
     cwd,
     hook_event_name: "PreToolUse",
@@ -88,6 +89,10 @@ function payload(cwd, toolName, toolInput, extra = {}) {
     tool_use_id: "tool-test",
     transcript_path: null,
     turn_id: "turn-test",
+    ...(qualifiedHost ? { execution_context: {
+      kind: "exec_command", argv: ["/bin/sh", "-c", toolInput?.command], cwd,
+      tty: false, login: false, environment_id: "local-test", is_remote: false, shell_mode: "direct",
+    } } : {}),
     ...extra,
   };
 }
@@ -404,7 +409,7 @@ test("primary checkout allows reviewed read-only shell commands", async () => {
       await assertRestrictedAllowed(primary, command, "git-read");
       continue;
     }
-    const result = await decision(primary, "Bash", { command });
+    const result = await decision(primary, "Bash", { command }, { qualifiedHost: true });
     assert.equal(result.decision, "allow", `${command}: ${result.reason ?? ""}`);
   }
 
@@ -417,7 +422,7 @@ test("primary checkout allows reviewed read-only shell commands", async () => {
     "du -a",
     "rg -n seed src",
   ]) {
-    assert.equal((await decision(primary, "Bash", { command })).decision, "deny", command);
+    assert.equal((await decision(primary, "Bash", { command }, { qualifiedHost: true })).decision, "deny", command);
   }
 });
 
@@ -428,11 +433,11 @@ test("reviewed ripgrep reads disable environment-provided helper configuration",
   try {
     process.env.RIPGREP_CONFIG_PATH = configPath;
     assert.equal(
-      (await decision(primary, "Bash", { command: "rg -n seed src" })).decision,
+      (await decision(primary, "Bash", { command: "rg -n seed src" }, { qualifiedHost: true })).decision,
       "deny",
     );
     assert.equal(
-      (await decision(primary, "Bash", { command: "rg --no-config --no-ignore -n seed src" })).decision,
+      (await decision(primary, "Bash", { command: "rg --no-config --no-ignore -n seed src" }, { qualifiedHost: true })).decision,
       "allow",
     );
   } finally {
@@ -494,7 +499,7 @@ test("Hook-internal Git and reviewed shell commands cannot resolve to repository
   const originalPath = process.env.PATH;
   try {
     process.env.PATH = `${shadowBin}:${originalPath}`;
-    const result = await decision(primary, "Bash", { command: "cat src/tracked.txt" });
+    const result = await decision(primary, "Bash", { command: "cat src/tracked.txt" }, { qualifiedHost: true });
     assert.equal(result.decision, "deny");
     assert.equal(existsSync(internalGitMarker), false);
   } finally {
@@ -513,7 +518,7 @@ test("raw reads cannot execute a checkout PATH shim through a filesystem case al
   const previousHostPath = process.env.TMB_CODEX_HOOK_HOST_PATH;
   try {
     process.env.TMB_CODEX_HOOK_HOST_PATH = aliasedPath;
-    const result = await decision(primary, "Bash", { command: "cat src/tracked.txt" });
+    const result = await decision(primary, "Bash", { command: "cat src/tracked.txt" }, { qualifiedHost: true });
     if (result.decision === "allow") {
       execFileSync("/bin/sh", ["-c", "cat src/tracked.txt"], { cwd: primary, env: { PATH: aliasedPath }, stdio: "ignore" });
     }
@@ -664,7 +669,7 @@ test("primary checkout denies every known source-write alternative", async () =>
   ];
 
   for (const command of commands) {
-    const result = await decision(primary, "Bash", { command });
+    const result = await decision(primary, "Bash", { command }, { qualifiedHost: true });
     assert.equal(result.decision, "deny", command);
     assert.equal((await classify(command, primary)).decision, "deny", `classifier: ${command}`);
   }
@@ -710,7 +715,7 @@ test("reviewed read commands reject executable and write-capable flags", async (
   ]) {
     const result = /^(?:git|gh|glab) /u.test(command)
       ? await restrictedDecision(primary, command)
-      : await decision(primary, "Bash", { command });
+      : await decision(primary, "Bash", { command }, { qualifiedHost: true });
     assert.equal(result.decision, "deny", command);
     assert.equal((await classify(command, primary)).decision, "deny", `classifier: ${command}`);
   }
@@ -733,7 +738,7 @@ test("shell parsing rejects values that Bash would expand after the Hook decisio
     "git --no-pager --no-optional-locks -c core.fsmonitor=false -c core.hooksPath=/dev/null status $TMB_GIT_ARGS",
     "git --no-pager --no-optional-locks -c core.fsmonitor=false -c core.hooksPath=/dev/null show --no-ext-diff --no-textconv --out\\" + "\n" + "put=/tmp/changed.patch HEAD:README.md",
   ]) {
-    const result = await decision(primary, "Bash", { command });
+    const result = await decision(primary, "Bash", { command }, { qualifiedHost: true });
     assert.equal(result.decision, "deny", command);
     assert.equal((await classify(command, primary)).decision, "deny", `classifier: ${command}`);
   }
@@ -849,7 +854,7 @@ test("Git, forge, and validation require the pinned wrapper even when their gram
         ["Bash", { command }],
         ["functions.exec", nestedCommandSource(command, primaryFeature)],
       ]) {
-        const result = await decision(primaryFeature, tool, input);
+        const result = await decision(primaryFeature, tool, input, { qualifiedHost: tool === "Bash" });
         assert.equal(result.decision, "deny", `${tool}: ${command}`);
         assert.match(result.reason, /require the installed restricted runner/u);
       }
@@ -888,12 +893,14 @@ test("restricted wrappers reject missing shell controls, preload arguments, wron
     const result = await decision(primaryFeature, "functions.exec", nestedCommandSource(changed, primaryFeature));
     assert.equal(result.decision, "deny", `${label}: ${result.reason ?? ""}`);
   }
-  assert.equal((await decision(primaryFeature, "Bash", { command: wrapper })).decision, "deny", "uncontrolled Bash wrapper");
+  const uncontrolled = await decision(primaryFeature, "Bash", { command: wrapper });
+  assert.equal(uncontrolled.decision, "deny", "uncontrolled Bash wrapper");
+  assert.match(uncontrolled.reason, /requires qualified host execution metadata/u);
 });
 
 test("raw command denial supplies an executable canonical recovery call", async () => {
   if (process.platform !== "darwin") return;
-  const result = await decision(primaryFeature, "Bash", { command: "git add -- README.md" });
+  const result = await decision(primaryFeature, "Bash", { command: "git add -- README.md" }, { qualifiedHost: true });
   assert.equal(result.decision, "deny");
   const marker = "Use functions.exec with this single static call: ";
   assert.ok(result.reason.includes(marker));
@@ -920,7 +927,7 @@ test("persistent command receivers are denied and lifecycle stdin is bounded", a
     "psql",
     "mysql",
   ]) {
-    const result = await decision(linked, "Bash", { command });
+    const result = await decision(linked, "Bash", { command }, { qualifiedHost: true });
     assert.equal(result.decision, "deny", command);
   }
 
@@ -945,7 +952,7 @@ test("persistent command receivers are denied and lifecycle stdin is bounded", a
 test("audited orchestration, diagnostics, and TMB uninstall recovery remain reachable", async () => {
   for (const cwd of [primary, linked]) {
     for (const [toolName, toolInput] of [
-      ["functions.exec", 'text(JSON.stringify(await tools.exec_command({"cmd":"pwd","login":false})));'],
+      ["functions.exec", nestedCommandSource("pwd", cwd)],
       ["functions.wait", { cell_id: "cell-1", yield_time_ms: 1_000, max_tokens: 2_000 }],
       ["mcp__codex_app__read_thread_terminal", {}],
       ["mcp__codex_app__read_thread", { threadId: "thread-1" }],
@@ -969,9 +976,9 @@ test("audited orchestration, diagnostics, and TMB uninstall recovery remain reac
   }
 
   for (const [label, source] of [
-    ["nested write", 'text(JSON.stringify(await tools.exec_command({"cmd":"touch blocked","login":false})));'],
-    ["nested Git write", 'text(JSON.stringify(await tools.exec_command({"cmd":"git push origin HEAD","login":false})));'],
-    ["login shell default", 'text(JSON.stringify(await tools.exec_command({"cmd":"pwd"})));'],
+    ["nested write", nestedCommandSource("touch blocked", primary)],
+    ["nested Git write", nestedCommandSource("git push origin HEAD", primary)],
+    ["login shell default", nestedCommandSource("pwd", primary, { login: undefined })],
     ["dynamic tool lookup", 'const name = "exec_command"; text(JSON.stringify(await tools[name]({"cmd":"pwd","login":false})));'],
     ["nested lifecycle", 'text(JSON.stringify(await tools.wait({"cell_id":"cell-1"})));'],
     ["unwrapped source", "text(true);"],
@@ -1020,6 +1027,7 @@ test("audited orchestration, diagnostics, and TMB uninstall recovery remain reac
 });
 
 test("Bash accepts only the observed exact command payload shape", async () => {
+  const execution_context = payload(primary, "Bash", { command: "pwd" }, { qualifiedHost: true }).execution_context;
   for (const toolInput of [
     "pwd",
     ["pwd"],
@@ -1029,10 +1037,10 @@ test("Bash accepts only the observed exact command payload shape", async () => {
     { command: "pwd", env: { TMB: "1" } },
     { command: "pwd", tty: false },
   ]) {
-    assert.equal((await decision(primary, "Bash", toolInput)).decision, "deny", JSON.stringify(toolInput));
+    assert.equal((await decision(primary, "Bash", toolInput, { execution_context })).decision, "deny", JSON.stringify(toolInput));
   }
   for (const alias of ["exec_command", "local_shell", "container.exec", "functions.exec_command", "  Bash  ", "bash"]) {
-    assert.equal((await decision(primary, alias, { command: "pwd" })).decision, "deny", alias);
+    assert.equal((await decision(primary, alias, { command: "pwd" }, { qualifiedHost: true })).decision, "deny", alias);
   }
 });
 
@@ -1183,13 +1191,13 @@ test("unknown payloads, oversized commands, and bypassPermissions fail closed", 
     assert.match(result.reason, reason);
   }
   assert.equal((await decision(primary, "unknown_tool", {})).decision, "deny");
-  assert.equal((await decision(primary, "Bash", {})).decision, "deny");
+  assert.equal((await decision(primary, "Bash", {}, { qualifiedHost: true })).decision, "deny");
   assert.equal(
-    (await decision(primary, "Bash", { command: "x".repeat(MAX_COMMAND_BYTES + 1) })).decision,
+    (await decision(primary, "Bash", { command: "x".repeat(MAX_COMMAND_BYTES + 1) }, { qualifiedHost: true })).decision,
     "deny",
   );
   assert.equal(
-    (await decision(primary, "Bash", { command: "touch src/bypass" }, { permission_mode: "bypassPermissions" })).decision,
+    (await decision(primary, "Bash", { command: "touch src/bypass" }, { permission_mode: "bypassPermissions", qualifiedHost: true })).decision,
     "deny",
   );
 });
@@ -1199,7 +1207,7 @@ test("dispatcher is silent on allow and emits stable deny JSON", () => {
   assert.equal(allowed.status, 0, allowed.stderr);
   assert.equal(allowed.stdout, "");
 
-  const blocked = dispatch(payload(primary, "Bash", { command: "touch src/blocked" }));
+  const blocked = dispatch(payload(primary, "Bash", { command: "touch src/blocked" }, { qualifiedHost: true }));
   assert.equal(blocked.status, 0, blocked.stderr);
   const output = JSON.parse(blocked.stdout);
   assert.equal(output.hookSpecificOutput.hookEventName, "PreToolUse");
@@ -1342,11 +1350,11 @@ test("branch policy is digest-pinned but lazily imported only for write gates", 
     env: { ...process.env, PLUGIN_ROOT: join(fixtureRoot, "plugin-cache") },
   });
   for (const [tool, input] of [["Read", {}], ["Bash", { command: "pwd" }], ["mcp__codex_app__list_projects", {}]]) {
-    const result = run(payload(primaryFeature, tool, input));
+    const result = run(payload(primaryFeature, tool, input, { qualifiedHost: tool === "Bash" }));
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout, "", tool);
   }
-  const write = run(payload(primaryFeature, "Bash", { command: "git switch -c codex/new" }));
+  const write = run(payload(primaryFeature, "Bash", { command: "git switch -c codex/new" }, { qualifiedHost: true }));
   assert.equal(write.status, 0, write.stderr);
   assert.match(JSON.parse(write.stdout).hookSpecificOutput.permissionDecisionReason, /configured branch policy is unavailable/u);
 

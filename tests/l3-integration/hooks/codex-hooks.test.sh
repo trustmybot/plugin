@@ -60,8 +60,23 @@ make_input() {
     }'
 }
 
+# Synthetic metadata from a qualified host's prepared invocation. The tests
+# call the dispatcher directly; this helper does not prove stock CLI support.
+make_qualified_bash_input() {
+  local cwd command
+  cwd="$(cd "$1" && pwd -P)"
+  command="$2"
+  make_input "$cwd" "Bash" "$(jq -nc --arg command "$command" '{command:$command}')" |
+    jq -c --arg cwd "$cwd" --arg command "$command" '. + {execution_context:{
+      kind:"exec_command",argv:["/bin/sh","-c",$command],cwd:$cwd,
+      tty:false,login:false,environment_id:"l3-synthetic-local-environment",
+      is_remote:false,shell_mode:"direct"
+    }}'
+}
+
 make_exec_input() {
-  local cwd="$1"
+  local cwd
+  cwd="$(cd "$1" && pwd -P)"
   local command="$2"
   local overrides="${3-}"
   local fields source
@@ -140,6 +155,18 @@ test_case "primary read-only tool is silent"
 input="$(make_input "$PRIMARY" "Read" '{"file_path":"src/tracked.txt"}')"
 assert_eq "" "$(run_hook "$input")" "Read is allowed with empty stdout"
 
+test_case "command-only Bash payloads fail closed, including reads and diagnostic builtins"
+for command in "cat src/tracked.txt" "pwd" "true"; do
+  input="$(make_input "$PRIMARY" "Bash" "$(jq -nc --arg command "$command" '{command:$command}')")"
+  output="$(run_hook "$input")"
+  assert_deny "$output"
+  assert_contains "$output" "host execution metadata" "command-only payload has no qualified execution context"
+done
+input="$(make_qualified_bash_input "$PRIMARY" "cat src/tracked.txt")"
+assert_eq "" "$(run_hook "$input")" "synthetic qualified-host read is allowed"
+input="$(jq -c '.execution_context.login = true' <<< "$input")"
+assert_deny "$(run_hook "$input")"
+
 test_case "primary write alternatives fail closed under bypassPermissions"
 sentinel_before="$(shasum -a 256 "$PRIMARY/src/tracked.txt" | awk '{print $1}')"
 tree_before="$(git -C "$PRIMARY" write-tree)"
@@ -151,7 +178,7 @@ for command in \
   "bash -c 'touch src/new.txt'" \
   "git add src/tracked.txt" \
   "gh issue create --title changed"; do
-  input="$(make_input "$PRIMARY" "Bash" "$(jq -nc --arg command "$command" '{command:$command}')")"
+  input="$(make_qualified_bash_input "$PRIMARY" "$command")"
   assert_deny "$(run_hook "$input")"
 done
 assert_eq "$sentinel_before" "$(shasum -a 256 "$PRIMARY/src/tracked.txt" | awk '{print $1}')" "primary sentinel hash unchanged"
@@ -177,9 +204,9 @@ input="$(make_input "$LINKED" "write_stdin" '{"session_id":42,"chars":"git push\
 assert_deny "$(run_hook "$input")"
 
 test_case "diagnostic orchestration and exact TMB recovery stay reachable"
-input="$(make_input "$PRIMARY" "functions.exec" '"text(JSON.stringify(await tools.exec_command({\"cmd\":\"pwd\",\"login\":false})));"')"
+input="$(make_exec_input "$PRIMARY" "pwd")"
 assert_eq "" "$(run_hook "$input")" "statically audited read-only orchestration is allowed"
-input="$(make_input "$PRIMARY" "functions.exec" '"text(JSON.stringify(await tools.exec_command({\"cmd\":\"touch blocked\",\"login\":false})));"')"
+input="$(make_exec_input "$PRIMARY" "touch blocked")"
 assert_deny "$(run_hook "$input")"
 input="$(make_input "$PRIMARY" "functions.exec" '"text(true);"')"
 assert_deny "$(run_hook "$input")"
@@ -189,7 +216,7 @@ input="$(make_input "$PRIMARY" "mcp__codex_app__uninstall_plugin" '{"plugin":"tm
 assert_eq "" "$(run_hook "$input")" "exact TMB uninstall recovery is allowed"
 input="$(make_input "$PRIMARY" "mcp__codex_app__uninstall_plugin" '{"plugin":"another-plugin"}')"
 assert_deny "$(run_hook "$input")"
-input="$(make_input "$PRIMARY" "Bash" '{"command":"git push origin HEAD"}')"
+input="$(make_qualified_bash_input "$PRIMARY" "git push origin HEAD")"
 assert_deny "$(run_hook "$input")"
 
 test_case "restricted feature-branch delivery is state-gated"
@@ -234,7 +261,7 @@ for command in \
   "git add -- src/tracked.txt" \
   "node --test src/tracked.txt" \
   "gh pr view 1183 --json number,title"; do
-  input="$(make_input "$LINKED" "Bash" "$(jq -nc --arg command "$command" '{command:$command}')")"
+  input="$(make_qualified_bash_input "$LINKED" "$command")"
   output="$(run_hook "$input")"
   assert_deny "$output"
   assert_contains "$output" "require the installed restricted runner" "$command raw denial reaches the execution boundary"
@@ -339,7 +366,7 @@ nested_shadow_output="$(cd "$PRIMARY/src" && PATH="$STUB_BIN:$TRUSTED_NODE_BIN:/
 assert_eq "" "$nested_shadow_output" "repository-root Node shim is rejected from a nested cwd"
 assert_eq "false" "$([ -e "$NODE_SHADOW_MARKER" ] && echo true || echo false)" "nested cwd did not execute the repository Node shim"
 assert_eq "true" "$([ -e "$TRUSTED_NODE_MARKER" ] && echo true || echo false)" "nested cwd selected the later external Node"
-blocked_input="$(make_input "$PRIMARY" "Bash" '{"command":"touch src/node-shadow-bypass"}')"
+blocked_input="$(make_qualified_bash_input "$PRIMARY" "touch src/node-shadow-bypass")"
 blocked_shadow_output="$(cd "$PRIMARY" && PATH="$STUB_BIN:$TRUSTED_NODE_BIN:/usr/bin:/bin" PLUGIN_ROOT="$PLUGIN_ROOT" /bin/sh -c "$MANIFEST_COMMAND" <<< "$blocked_input")"
 assert_deny "$blocked_shadow_output"
 rm "$TRUSTED_NODE_MARKER"
@@ -356,12 +383,13 @@ other_repo_output="$(cd "$OTHER_REPO" && PLUGIN_ROOT="$PLUGIN_ROOT" /bin/sh -c "
 assert_eq "" "$other_repo_output" "different checkout PWD routes to payload cwd resolution"
 outside_repo_output="$(cd "$FIXTURE" && PLUGIN_ROOT="$PLUGIN_ROOT" /bin/sh -c "$MANIFEST_COMMAND" <<< "$input")"
 assert_eq "" "$outside_repo_output" "non-repository PWD routes to payload cwd resolution"
-outside_repo_pwd_input="$(make_input "$PRIMARY" "Bash" '{"command":"pwd"}')"
+outside_repo_pwd_input="$(make_qualified_bash_input "$PRIMARY" "pwd")"
 outside_repo_pwd_output="$(cd "$FIXTURE" && PLUGIN_ROOT="$PLUGIN_ROOT" /bin/sh -c "$MANIFEST_COMMAND" <<< "$outside_repo_pwd_input")"
-assert_eq "" "$outside_repo_pwd_output" "worker resolves the branch-backed payload cwd for a safe shell command"
-outside_repo_write_input="$(make_input "$PRIMARY" "Bash" '{"command":"touch src/pwd-bypass"}')"
+assert_eq "" "$outside_repo_pwd_output" "worker resolves the branch-backed payload cwd for a synthetic qualified-host read"
+outside_repo_write_input="$(make_qualified_bash_input "$PRIMARY" "touch src/pwd-bypass")"
 outside_repo_write_output="$(cd "$FIXTURE" && PLUGIN_ROOT="$PLUGIN_ROOT" /bin/sh -c "$MANIFEST_COMMAND" <<< "$outside_repo_write_input")"
 assert_deny "$outside_repo_write_output"
+assert_contains "$outside_repo_write_output" "protected checkout permits reviewed read-only commands" "worker fallback reaches the protected-checkout write policy"
 assert_eq "false" "$([ -e "$PRIMARY/src/pwd-bypass" ] && echo true || echo false)" "worker keeps primary writes denied"
 
 MANAGED_BIN="$FIXTURE/.asdf/shims"

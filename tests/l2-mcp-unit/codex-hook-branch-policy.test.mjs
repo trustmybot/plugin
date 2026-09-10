@@ -125,6 +125,10 @@ function gate(fixture, tool_name, tool_input) {
   }
   return evaluatePreToolUse({
     cwd: fixture.root, hook_event_name: "PreToolUse", permission_mode: "default", tool_name, tool_input,
+    ...(tool_name === "Bash" ? { execution_context: {
+      kind: "exec_command", argv: ["/bin/sh", "-c", tool_input.command], cwd: fixture.root,
+      tty: false, login: false, environment_id: "local-branch-policy-test", is_remote: false, shell_mode: "direct",
+    } } : {}),
   }, { pluginRoot: fixture.pluginRoot });
 }
 

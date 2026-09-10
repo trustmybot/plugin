@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,7 @@ const root = join(here, "..", "..");
 const manifest = JSON.parse(readFileSync(join(root, "hooks", "codex", "hooks.json"), "utf8"));
 const manifestCommand = manifest.hooks.PreToolUse[0].hooks[0].command;
 const manifestTimeoutMs = manifest.hooks.PreToolUse[0].hooks[0].timeout * 1_000;
-const fixture = mkdtempSync(join(tmpdir(), "tmb-codex-hook-bench-"));
+const fixture = realpathSync(mkdtempSync(join(tmpdir(), "tmb-codex-hook-bench-")));
 const fixtureRepo = join(fixture, "repo");
 mkdirSync(fixtureRepo);
 execFileSync("git", ["init", "-q", "-b", "main"], { cwd: fixtureRepo });
@@ -22,6 +22,12 @@ const input = JSON.stringify({
   session_id: "benchmark-session",
   tool_input: { command: "pwd" },
   tool_name: "Bash",
+  // This measures a synthetic qualified-host Hook payload, not stock CLI support.
+  execution_context: {
+    kind: "exec_command", argv: ["/bin/sh", "-c", "pwd"], cwd: fixtureRepo,
+    tty: false, login: false, environment_id: "benchmark-local-environment",
+    is_remote: false, shell_mode: "direct",
+  },
   tool_use_id: "benchmark-tool",
   transcript_path: null,
   turn_id: "benchmark-turn",

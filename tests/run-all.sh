@@ -102,6 +102,7 @@ run_step "L1 bench: Codex Hook latency budgets"        node "$HERE/benchmarks/co
 # ----- L2 — Unit + L3 — Integration -------------------------------------
 
 run_step "L2 unit: Codex Scope-5 Hook policy"        node --test "$HERE/l2-mcp-unit/codex-hooks.test.mjs"
+run_step "L2 unit: Codex prepared host execution"   node --test "$HERE/l2-mcp-unit/codex-host-execution-context.test.mjs"
 run_step "L2 unit: Codex Hook artifact integrity"    node --test "$HERE/l2-mcp-unit/codex-hook-integrity.test.mjs"
 run_step "L2 unit: Codex Hook launcher identity"      node --test "$HERE/l2-mcp-unit/codex-hook-launcher-alias.test.mjs"
 run_step "L2 unit: Codex Hook forge reads and binding" node --test "$HERE/l2-mcp-unit/codex-hook-forge-reads.test.mjs" "$HERE/l2-mcp-unit/codex-hook-forge-binding.test.mjs"

@@ -63,6 +63,10 @@ async function decision(command) {
     tool_input: rawRead ? { command } : `text(JSON.stringify(await tools.exec_command(${JSON.stringify({
       cmd, workdir: checkout, shell: "/bin/sh", login: false, tty: false,
     })})));`,
+    ...(rawRead ? { execution_context: {
+      kind: "exec_command", argv: ["/bin/sh", "-c", command], cwd: checkout,
+      tty: false, login: false, environment_id: "local-forge-read-test", is_remote: false, shell_mode: "direct",
+    } } : {}),
   }, { pluginRoot });
 }
 
