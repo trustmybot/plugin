@@ -2,14 +2,14 @@
 
 ## Current state
 
-**TMB's complete workflow ships on Claude Code.** Codex Scope 5 supports local planning, explicit setup of two standalone project-level Agents, and a bounded repository-write Hook. Its policy defines limited feature-branch Git/PR delivery, but CLI `0.151.0` cannot execute that path. TMB task lifecycle, trusted validation, and Agent delivery workflow remain unavailable.
+**TMB's complete workflow ships on Claude Code.** Codex Scope 5 supports local planning, explicit setup of two standalone project-level Agents, and a bounded repository-write Hook. Its policy defines limited feature-branch Git/PR delivery, but unmodified CLI versions `0.151.0` and `0.153.4` cannot execute that path. TMB task lifecycle, trusted validation, and Agent delivery workflow remain unavailable.
 
-The unpublished `1.0.6-rc.1` candidate uses a macOS restricted runner for Git,
+The unpublished `1.0.6` candidate uses a macOS restricted runner for Git,
 validation, and forge commands. It reads the protected-branch configuration from
 the acting worktree's Codex state. Raw execution of those commands is denied,
-and the runner fails closed on unsupported hosts. Ordinary reviewed reads and
-recovery tools remain available.
-Release is blocked by a known host limitation: CLI `0.151.0` exposes only the
+and the runner fails closed on unsupported hosts. Reviewed shell reads require verified host launch settings.
+Native reads, contained patches, and recovery tools retain their separate policies.
+Release is blocked by a known host limitation: unmodified CLI versions `0.151.0` and `0.153.4` expose only the
 nested `Bash {command}` projection, losing the shell, login, TTY, and workdir
 parameters required by the Hook. Even copying the recovery call unchanged is
 denied. The check remains in place until the host preserves trusted execution

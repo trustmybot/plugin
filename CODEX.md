@@ -1,6 +1,6 @@
 # TMB on OpenAI Codex
 
-> **Local candidate `1.0.6-rc.1`:** Bro planning, explicit installation of two project-level Agents, and a bounded repository-write Hook. Release is blocked: CLI `0.151.0` cannot execute the restricted Git, validation, or forge commands. Desktop remains independently unverified.
+> **Local candidate `1.0.6`:** Bro planning, explicit installation of two project-level Agents, and a bounded repository-write Hook. Release is blocked: CLI `0.151.0` cannot execute the restricted Git, validation, or forge commands. Desktop remains independently unverified.
 
 TMB exposes exactly two Codex Skills, and both require an explicit invocation:
 

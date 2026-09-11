@@ -1,6 +1,6 @@
 # TMB Codex adapter
 
-> **Local Scope 5 candidate `1.0.6-rc.1`:** Bro planning, explicit project-Agent setup, and a
+> **Local Scope 5 candidate `1.0.6`:** Bro planning, explicit project-Agent setup, and a
 > bounded repository-write Hook. Release is blocked: CLI `0.151.0` cannot execute
 > restricted Git, validation, or forge commands. Desktop remains independently
 > unverified.

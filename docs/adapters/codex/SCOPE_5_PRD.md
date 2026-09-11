@@ -2,17 +2,21 @@
 
 ## 状态
 
-当前 `1.0.6-rc.1` 候选包含针对 PR #1183 评论的本地修复，已完成一轮配套 CLI 联调，发布验收尚未完成。修复覆盖 shell 显式读取、Git 查询参数、core 分支前缀兼容和 Node launcher 后续候选解析，并接入仓库配置的受保护分支集合。新增的 macOS 受限命令 runner 让验证脚本、Node 子进程、npm 生命周期和 Git filter 继承相应文件与网络限制。发布前还需在同一干净候选 SHA 上完成安装与宿主矩阵。
+当前未发布的 `1.0.6` 开发版本包含针对 PR #1183 评论的修复。较早的 `8986be38` 已完成一轮配套 CLI 联调，发布验收尚未完成。修复覆盖 shell 显式读取、Git 查询参数、core 分支前缀兼容和 Node launcher 后续候选解析，并接入仓库配置的受保护分支集合。新增的 macOS 受限命令 runner 让验证脚本、Node 子进程、npm 生命周期和 Git filter 继承相应文件与网络限制。发布前还需在同一干净候选 SHA 上完成安装与宿主矩阵。
 
 官方 CLI `0.151.0` 和 `0.153.4` 仍存在宿主阻塞：`exec_command` 到达 Hook 时只有 `Bash` 和 command 字符串，没有实际启动所需的 shell、login、tty、workdir 信息。当前候选会拒绝这类只有 command 的 Bash 调用，包括文件读取和 `pwd`。这两个未经修改的 CLI 版本仍不能使用受限 Git、forge 和验证执行。
 
-当前插件候选增加了对配套宿主补丁的支持，由宿主在顶层 `execution_context` 中提供已经解析的启动参数。真实 CLI 与已安装插件的八个局部验收场景已通过，接口尚未合入或发布；官方 CLI 的上述限制仍在。完整 Desktop 矩阵和 L6 验收尚未完成，下方历史测试记录不作为这次宿主修复的验证结果。
+插件通过配套宿主补丁支持顶层 `execution_context`，由宿主提供已经解析的启动参数。下方八个真实 CLI 与已安装插件场景验证的是 `8986be38` 的运行文件，不覆盖后续 `/bin/bash` 路径修复。当前接口尚未合入或发布；官方 CLI 的上述限制仍在，完整 Desktop 矩阵和 L6 验收尚未完成。
 
-本轮联调使用隔离 profile，确认九个安装文件与候选逐字节一致，再通过正常 `/hooks` 界面审阅并信任 Hook。测试由本地服务提供确定的 Responses 事件，调用经过真实 CLI、Hook 和执行管理器；没有向 dispatcher 直接提交人工构造的 Hook payload。
+`8986be38` 的联调使用隔离 profile，确认九个安装文件与候选逐字节一致，再通过正常 `/hooks` 界面审阅并信任 Hook。测试由本地服务提供确定的 Responses 事件，调用经过真实 CLI、Hook 和执行管理器；没有向 dispatcher 直接提交人工构造的 Hook payload。
 
 允许的读取返回了预期 checkout 的 marker。raw Node 测试先被拒绝，随后 fixture 从拒绝消息中取出恢复参数，以 `/bin/sh`、`login=false`、`tty=false` 和匹配的 workdir 发起直接 `exec_command`。受限测试实际运行，成功写入普通文件，并确认内层 sandbox 拒绝写入 `.git/forbidden-marker`。
 
 错误 cwd、`login=true`、`tty=true` 和默认 shell 四个场景均在命令启动前被 Hook 拒绝。同一安装与 trust 状态下，未经修改的 CLI `0.153.4` 也拒绝了读取。配套 CLI 使用外层 read-only sandbox 时，runner 创建私有 scratch 遇到 `EPERM`，退出码为 125，测试写入目标没有创建。这些结果覆盖八个局部场景，不能代替完整发布验收。
+
+2026-09-11 复核 Zax 评论时，发现 `/bin/bash` 被推导出 `/` 读取根，导致 profile 在启动脚本前拒绝执行。当前版本保留 `/bin` 读取根，不放宽对 `/` 的拒绝。新增回归允许普通源码写入，并确认改写后的验证脚本无法获取测试 payload 或写入受保护文件。系统 curl 在读取 TLS 配置时已被拒绝；另一个 Node TCP 子进程连接测试服务返回 `EPERM`，单独验证了网络限制。版本改为未发布的 `1.0.6`，rc 命名与发布仍由维护者安排。宿主根因、复现与修复建议已补充到 [OpenAI Issue #32360](https://github.com/openai/codex/issues/32360#issuecomment-5635038336)。
+
+本次 Bash 修复的完整 `bash tests/run-all.sh` 回归 exit 0（330.09 秒）：Codex L2 196/196、Hook L3 191/191、两轮 MCP 各 1025/1025、MCP integration 70/70，65 个 Hook 文件和六个 L4 flow 全通过。完整测试使用隔离 HOME；ShellCheck 253/253 和标签检查 27/27 另行通过。最后调整 runner 注释并同步 digest 后，另补跑了运行文件检查和真实 CLI 安装烟测。Docker L0、维护者 L6 和完整宿主矩阵仍未完成。
 
 交付验收另修正了两处真实宿主问题：forge/push 进程需要访问精确的系统 trust agent 才能校验 TLS 证书；Codex 提供的插件数据目录尚未创建时，也应能生成受限命令。后者只验证并保护未来路径，不创建目录，不放宽路径绑定。
 
@@ -23,8 +27,8 @@
 - macOS arm64；
 - 下方本地验证记录使用 Node `25.8.0`、Bun `1.3.11` 和独立 CLI `0.151.0`；本次另检查了官方 CLI `0.153.4` 的调用合同，读取版本号或源码本身不算执行验收；
 - 历史 `1.0.4` 兼容矩阵包含独立 `codex-cli 0.146.0` 和 Codex Desktop 26.820.60940 内置的 `codex-cli 0.150.0-alpha.8`；`1.0.5` 隔离安装烟测使用 `codex-cli 0.150.1`；
-- 本地未发布插件候选版本 `1.0.6-rc.1`；
-- 七个固定 ESM 文件加规范化 Hook definition 的 Hook runtime digest `e7f0e387afa2a9a533f549ce84ec02575e152618fed5c057d771067f0e2dd9f0`；
+- 本地未发布插件开发版本 `1.0.6`；
+- 七个固定 ESM 文件加规范化 Hook definition 的 Hook runtime digest `a09206f61f56cb1c55f0d397afcd48d20bf1603da3759d06d780710fce44907d`；
 - manifest hard timeout：5 秒。
 
 Hook 审核调用，受限 runner 在 macOS 操作系统层执行进程权限限制。两层职责不同；其他平台目前拒绝 Git、forge 和验证执行。
@@ -215,7 +219,7 @@ TMB MCP 只接受三个精确前缀：当前宿主实测到的 `mcp__trajectory_
 
 Hook definition 的任何改动都会使原有信任失效。更新带有 load-bearing policy 时，必须使用新的不可变插件版本，并在发布说明中要求用户重新信任。未完成信任前，不能说 TMB enforcement 已启用。
 
-Codex 的缓存路径含 marketplace、插件名和版本。不得把修改后的 Hook 继续标成已经安装或发布过的版本；本次评论修复把本地未发布候选升到 `1.0.6-rc.1`，已安装的 `1.0.4` 或 `1.0.5` 缓存都不能作为当前实现。候选形成后再执行用户安装验收；当前没有替用户刷新安装或 trust 状态。本地刷新必须按下面的顺序进行：
+Codex 的缓存路径含 marketplace、插件名和版本。不得把修改后的 Hook 继续标成已经安装或发布过的版本；本次评论修复使用未发布的 `1.0.6` 开发版本，rc 命名和发布流程由维护者安排。已安装的 `1.0.4` 或 `1.0.5` 缓存都不能作为当前实现。候选形成后再执行用户安装验收；当前没有替用户刷新安装或 trust 状态。本地刷新必须按下面的顺序进行：
 
 1. 在 `/hooks` 中禁用当前 TMB Hook，停止自动重试，并记录 Hook definition hash、源文件 hash 和缓存文件 hash。
 2. 卸载精确的 TMB plugin ID，确认旧的 installed path 已不存在。仅再次执行 `plugin add` 不算刷新证据。

@@ -5,6 +5,8 @@
 provide the resolved launch settings needed to verify restricted execution, so
 the Hook rejects their command-only Bash calls, including file reads and `pwd`.
 Git, forge and validation execution through these releases remains unavailable.
+The upstream report now includes our runtime evidence and proposed launch-context
+contract: [openai/codex#32360](https://github.com/openai/codex/issues/32360#issuecomment-5635038336).
 
 The candidate policy supports a companion host patch that supplies top-level
 `execution_context`. Eight local integration scenarios passed with the installed
@@ -94,6 +96,12 @@ caller name or a mutable session log.
 | Local Git delivery | Git metadata and private scratch | Denied | Process forks denied; configured hooks, filters, signing and executable repository hooks refused before mutation |
 | Forge | Private scratch | Allowed for the trusted CLI | Only fixed trusted executables; target and configuration bound before execution |
 | HTTPS push | Git metadata and private scratch | Allowed for fixed Git transport executables | Explicit current-branch refspec; arbitrary helpers, SSH and executable repository hooks refused |
+
+Validation scripts and package lifecycle definitions can change during development.
+Their command signatures select this restricted mode; they do not establish that
+the script contents are trusted. Raw validation calls are denied. The runner
+applies the OS sandbox before loading the script, so edited scripts and their
+children inherit the same file and network restrictions.
 
 Validation cannot write the root's Git metadata, `.tmb`, `.claude`, `.codex`,
 installed plugin, or host-pinned plugin data. It cannot read the root

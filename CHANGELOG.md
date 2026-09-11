@@ -4,13 +4,17 @@ All notable user-visible changes to the TMB plugin. Versions follow [SemVer](htt
 
 ## Unreleased
 
-## v1.0.6-rc.1 - Unreleased
+## v1.0.6 - Unreleased
 
-This candidate is blocked on host compatibility: CLI `0.151.0` omits execution
-parameters from its Hook payload, so restricted Git, forge and validation
+This is an unpublished development version. Maintainers choose release-candidate
+versions through the release process.
+
+Host compatibility remains blocked: unmodified CLI versions `0.151.0` and `0.153.4`
+omit execution parameters from their Hook payloads, so restricted Git, forge and validation
 commands remain denied. Desktop acceptance is separate and still incomplete.
 
 ### Fixed
+- **System Bash validation commands start in the restricted runner**: `/bin/bash` keeps `/bin` as its toolchain read root. The runner no longer derives `/`, which the profile correctly rejects. Tests cover script execution, protected writes, and denied network access.
 - **Fresh Codex installs can generate restricted commands before plugin data exists**: the Hook validates the existing directory ancestor and pins the future data path without creating it. The runner protects that path and rejects redirected or invalid pins.
 - **Restricted GitHub/GitLab commands can verify macOS TLS certificates**: forge and push processes may contact the specific system trust agent used for certificate verification. HTTPS push can also read the two fixed system TLS files required by Apple's Git. Other execution modes retain their network, service and file restrictions; certificate checks stay enabled.
 - **Codex shell reads validate file operands and exact Git options**: explicit paths must stay inside the checkout and cannot name symlinks or special files. Directory searches with `rg` require `--no-config --no-ignore` so implicit ignore files cannot block on FIFOs. Explicit regular-file searches retain `--no-config`. Git queries reject unreviewed options, including abbreviated options and outside-checkout no-index comparisons.

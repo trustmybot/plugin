@@ -68,7 +68,8 @@ function readRoots(binary) {
   }
   for (const path of [binary, process.execPath]) {
     const bin = dirname(realpathSync(path));
-    roots.push(bin.endsWith("/bin") ? dirname(bin) : bin);
+    // Keep /bin itself: its parent is the filesystem root, which the profile rejects.
+    roots.push(bin !== "/bin" && bin.endsWith("/bin") ? dirname(bin) : bin);
   }
   return [...new Set(roots)];
 }

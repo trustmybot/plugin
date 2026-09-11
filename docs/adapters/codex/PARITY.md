@@ -9,7 +9,7 @@ workflow.
 
 **Implemented scope:** Scope 5, bounded repository-write Hook
 
-**Local candidate:** `1.0.6-rc.1`, unpublished; release is blocked by the CLI execution interface
+**Local candidate:** `1.0.6`, unpublished; release is blocked by the CLI execution interface
 
 **Reference adapter:** Claude Code
 
