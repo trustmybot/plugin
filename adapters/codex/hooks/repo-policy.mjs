@@ -170,7 +170,6 @@ const INTERACTIVE_VALIDATION_FLAGS = new Set([
   "--watch-all",
   "--watchall",
 ]);
-const FORGE_SIDE_EFFECT_LONG_FLAGS = ["--web", "--watch"];
 const ALLOWED_VALIDATION_SIGNATURES = new Set([
   "bash\0tests/run-all.sh",
   "bun\0test",

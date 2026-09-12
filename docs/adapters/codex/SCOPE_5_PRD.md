@@ -28,7 +28,7 @@
 - 下方本地验证记录使用 Node `25.8.0`、Bun `1.3.11` 和独立 CLI `0.151.0`；本次另检查了官方 CLI `0.153.4` 的调用合同，读取版本号或源码本身不算执行验收；
 - 历史 `1.0.4` 兼容矩阵包含独立 `codex-cli 0.146.0` 和 Codex Desktop 26.820.60940 内置的 `codex-cli 0.150.0-alpha.8`；`1.0.5` 隔离安装烟测使用 `codex-cli 0.150.1`；
 - 本地未发布插件开发版本 `1.0.6`；
-- 七个固定 ESM 文件加规范化 Hook definition 的 Hook runtime digest `a09206f61f56cb1c55f0d397afcd48d20bf1603da3759d06d780710fce44907d`；
+- 七个固定 ESM 文件加规范化 Hook definition 的 Hook runtime digest `584d61f9099ad2a9185a9e721d6a92adb8152e5318da822fbc77184029bfac9e`；
 - manifest hard timeout：5 秒。
 
 Hook 审核调用，受限 runner 在 macOS 操作系统层执行进程权限限制。两层职责不同；其他平台目前拒绝 Git、forge 和验证执行。
