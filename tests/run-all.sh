@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Full TMB plugin test suite. Exit 0 only if every layer passes.
-# This script runs L1–L4 only. See tests/README.md for the full pyramid.
+# This script runs L1–L4 and the Codex L0 smoke when its CLI is available.
+# See tests/README.md for the full pyramid.
 #
 # Layered model (authoritative reference: tests/README.md):
 #   L0 — Install-smoke (Docker)          → tests/l0-install/install-smoke.Dockerfile (CI-only)
@@ -32,6 +33,20 @@ run_step() {
   fi
 }
 
+# ----- L0 — Real Codex installer in an isolated CODEX_HOME ---------------
+
+codex_smoke_binary="${CODEX_BIN-codex}"
+if command -v "$codex_smoke_binary" >/dev/null 2>&1; then
+  run_step "L0 install: Codex plugin cache and recovery" bash "$HERE/l0-install/codex-plugin-surface-smoke.sh"
+elif [ "${CODEX_BIN+x}" = x ]; then
+  printf '\n=== L0 install: Codex plugin cache and recovery ===\n'
+  printf '→ FAIL: explicitly configured CODEX_BIN is not executable: %s\n' "$CODEX_BIN"
+  FAIL=1
+else
+  printf '\n=== L0 install: Codex plugin cache and recovery ===\n'
+  printf '→ SKIP: Codex CLI is unavailable; installed-cache acceptance has not run\n'
+fi
+
 # ----- L1 — Static / lint -----------------------------------------------
 
 run_step "L1 lint: agent template line budget"        bash "$HERE/l1-lint/agent-line-budget.sh"
@@ -41,6 +56,7 @@ run_step "L1 lint: shipped swe/pr-reviewer task_brief contract (#300)"  bash "$H
 run_step "L1 lint: skill frontmatter + name=dirname"  bash "$HERE/l1-lint/skill-frontmatter.sh"
 run_step "L1 lint: command frontmatter (description + argument-hint)"  bash "$HERE/l1-lint/command-frontmatter.sh"
 run_step "L1 lint: manifest shape (plugin/.mcp/hooks)" bash "$HERE/l1-lint/manifest-shape.sh"
+run_step "L1 lint: Codex Scope-5 Hook runtime"       bash "$HERE/l1-lint/codex-hook-runtime.sh"
 run_step "L1 lint: Codex Scope-4 Agent contract"      bash "$HERE/l1-lint/codex-scope4-contract.sh"
 run_step "L1 lint: version sync (4 manifests agree)"  bash "$HERE/l1-lint/version-sync.sh"
 run_step "L1 lint: changelog top section current"     bash "$HERE/l1-lint/changelog-current.sh"
@@ -81,8 +97,19 @@ run_step "L1 lint: main-source-guard + CODEOWNERS present" bash "$HERE/l1-lint/m
 # ----- L1-adjacent: benchmark selftest (fast, deterministic) ------------
 
 run_step "L1 bench: measurement harness selftest"     bash "$HERE/benchmarks/selftest.sh"
+run_step "L1 bench: Codex Hook latency budgets"        node "$HERE/benchmarks/codex-hooks.mjs"
 
 # ----- L2 — Unit + L3 — Integration -------------------------------------
+
+run_step "L2 unit: Codex Scope-5 Hook policy"        node --test "$HERE/l2-mcp-unit/codex-hooks.test.mjs"
+run_step "L2 unit: Codex prepared host execution"   node --test "$HERE/l2-mcp-unit/codex-host-execution-context.test.mjs"
+run_step "L2 unit: Codex Hook artifact integrity"    node --test "$HERE/l2-mcp-unit/codex-hook-integrity.test.mjs"
+run_step "L2 unit: Codex Hook launcher identity"      node --test "$HERE/l2-mcp-unit/codex-hook-launcher-alias.test.mjs"
+run_step "L2 unit: Codex Hook forge reads and binding" node --test "$HERE/l2-mcp-unit/codex-hook-forge-reads.test.mjs" "$HERE/l2-mcp-unit/codex-hook-forge-binding.test.mjs"
+run_step "L2 unit: Codex restricted process boundaries" node --test "$HERE/l2-mcp-unit/codex-restricted-profile.test.mjs" "$HERE/l2-mcp-unit/codex-restricted-runner.test.mjs"
+run_step "L2 unit: Codex Hook file and Git reads"    node --test "$HERE/l2-mcp-unit/codex-hook-reads.test.mjs" "$HERE/l2-mcp-unit/codex-hook-git-reads.test.mjs"
+run_step "L2 unit: Codex Hook core branch prefixes"  node --test "$HERE/l2-mcp-unit/codex-hook-branches.test.mjs"
+run_step "L2 unit: Codex Hook configured branch policy" node --experimental-sqlite --test "$HERE/l2-mcp-unit/codex-hook-branch-policy.test.mjs"
 
 printf "\n=== L2 unit: MCP handlers (node --test on built dist/) ===\n"
 if (cd "$PLUGIN_ROOT/mcp/trajectory-server" && bun run build && node --experimental-sqlite --test dist/test/*.test.js); then

@@ -82,9 +82,11 @@ bash tests/run-all.sh
 
 Runs L1 lint → L2 unit → L3 integration → L3 hooks → L4 workflow-sim. Exit non-zero if any suite fails. Run before every push to `dev`.
 
-Scope 4 also has a host-dependent L0 smoke that invokes the installed Codex CLI
-inside a fresh temporary `CODEX_HOME`. Run it separately against the checkout or
-a fixed-SHA artifact:
+When the Codex CLI is available, `run-all.sh` also runs the host-dependent Codex
+installer smoke inside a fresh temporary `CODEX_HOME`. Without the CLI it reports
+a skip; an explicitly set but unavailable `CODEX_BIN` fails the run. This local
+check does not replace fixed-SHA installation and host acceptance. To run it
+separately against the checkout or a fixed-SHA artifact:
 
 ```bash
 bash tests/l0-install/codex-plugin-surface-smoke.sh [artifact-root]
@@ -93,10 +95,10 @@ CODEX_BIN=/path/to/codex bash tests/l0-install/codex-plugin-surface-smoke.sh [ar
 
 It verifies that the manifest-selected Codex Skill directory contains exactly
 `tmb-bro` and `tmb-agent-setup`, that no `source-command-*` migration appears,
-and that the root Claude `commands/` regular files plus `skills/` directories
-and regular files survive installation unchanged. Symlink packaging remains the
-installer's responsibility. The smoke never reads or writes the user's normal
-Codex home.
+that the installed-cache Hook bytes and digest are intact, and that the root
+Claude `commands/` regular files plus `skills/` directories and regular files
+survive installation unchanged. Symlink packaging remains the installer's
+responsibility. The smoke never reads or writes the user's normal Codex home.
 
 ## Run an individual suite
 

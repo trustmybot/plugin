@@ -13,11 +13,21 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { it } from 'node:test';
+
+const CODEX_HOOK_RUNTIME_PATHS = [
+  'adapters/codex/hooks/dispatcher.mjs',
+  'adapters/codex/hooks/repo-policy.mjs',
+  'adapters/codex/hooks/branch-policy.mjs',
+  'adapters/codex/hooks/forge-binding.mjs',
+  'adapters/codex/hooks/restricted-runner.mjs',
+  'adapters/codex/hooks/restricted-profile.mjs',
+  'adapters/codex/tool-names.mjs',
+] as const;
 
 const EXPECTED_SCOPE_4_TOOL_NAMES = [
   'runtime_initialize',
@@ -78,9 +88,13 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
     );
     const cacheDist = join(cacheRoot, 'mcp', 'trajectory-server', 'dist');
     const cacheAdapter = join(cacheRoot, 'adapters', 'codex');
+    const cacheAdapterHooks = join(cacheAdapter, 'hooks');
+    const cacheHooks = join(cacheRoot, 'hooks', 'codex');
     mkdirSync(project, { recursive: true });
     mkdirSync(join(cacheRoot, '.codex-plugin'), { recursive: true });
     mkdirSync(cacheAdapter, { recursive: true });
+    mkdirSync(cacheAdapterHooks, { recursive: true });
+    mkdirSync(cacheHooks, { recursive: true });
     mkdirSync(cacheDist, { recursive: true });
     execFileSync('git', ['init', '--quiet', project]);
     writeFileSync(join(project, '.gitignore'), '.tmb/\n');
@@ -105,10 +119,154 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
       join(cacheAdapter, 'skills'),
       { recursive: true },
     );
+    for (const relativePath of CODEX_HOOK_RUNTIME_PATHS) {
+      cpSync(join(sourceRoot, relativePath), join(cacheRoot, relativePath));
+    }
+    cpSync(
+      join(sourceRoot, 'hooks', 'codex', 'hooks.json'),
+      join(cacheHooks, 'hooks.json'),
+    );
+    assert.deepEqual(
+      readFileSync(join(cacheHooks, 'hooks.json')),
+      readFileSync(join(sourceRoot, 'hooks', 'codex', 'hooks.json')),
+      'installed cache preserves the Hook manifest bytes',
+    );
     writeFileSync(
       join(cacheRoot, '.codex-plugin', 'plugin.json'),
       readFileSync(join(sourceRoot, '.codex-plugin', 'plugin.json')),
     );
+
+    const installedHookManifest = JSON.parse(
+      readFileSync(join(cacheHooks, 'hooks.json'), 'utf8'),
+    ) as {
+      hooks: {
+        PreToolUse: Array<{
+          matcher: string;
+          hooks: Array<{ command: string; timeout: number }>;
+        }>;
+      };
+    };
+    const installedHook = installedHookManifest.hooks.PreToolUse[0]!.hooks[0]!;
+    assert.equal(installedHookManifest.hooks.PreToolUse[0]!.matcher, '');
+    assert.equal(installedHook.timeout, 5);
+    const digest = /--policy-sha256 ([a-f0-9]{64})/.exec(installedHook.command)?.[1];
+    assert.ok(digest);
+    const installedDispatcher = join(cacheAdapterHooks, 'dispatcher.mjs');
+    for (const relativePath of CODEX_HOOK_RUNTIME_PATHS) {
+      const installedBytes = readFileSync(join(cacheRoot, relativePath));
+      assert.deepEqual(installedBytes, readFileSync(join(sourceRoot, relativePath)), relativePath);
+      assert.ok(!installedBytes.toString('utf8').includes(sourceRoot), relativePath);
+    }
+
+    const canonicalHookCwd = realpathSync(project);
+    const hookInput = (
+      toolName: string,
+      toolInput: unknown,
+      executionContext?: Record<string, unknown>,
+    ): string => JSON.stringify({
+      cwd: project,
+      hook_event_name: 'PreToolUse',
+      model: 'gpt-test',
+      permission_mode: 'bypassPermissions',
+      session_id: 'installed-cache-test',
+      tool_input: toolInput,
+      tool_name: toolName,
+      execution_context: executionContext,
+      tool_use_id: 'installed-cache-tool',
+      transcript_path: null,
+      turn_id: 'installed-cache-turn',
+    });
+    // Synthetic prepared-host metadata exercises installed policy admission;
+    // it does not demonstrate that a stock CLI supplies these fields.
+    const qualifiedBashInput = (command: string): string => hookInput('Bash', { command }, {
+      kind: 'exec_command',
+      argv: ['/bin/sh', '-c', command],
+      cwd: canonicalHookCwd,
+      tty: false,
+      login: false,
+      environment_id: 'installed-cache-synthetic-local-environment',
+      is_remote: false,
+      shell_mode: 'direct',
+    });
+    const pluginData = join(fixture, 'plugin-data');
+    mkdirSync(pluginData);
+    const hookEnv = {
+      ...process.env,
+      NODE_PATH: '',
+      PLUGIN_ROOT: cacheRoot,
+      PLUGIN_DATA: pluginData,
+    };
+    const allowOutput = execFileSync(
+      process.execPath,
+      [installedDispatcher, '--policy-sha256', digest],
+      { cwd: project, encoding: 'utf8', env: hookEnv, input: hookInput('Read', { file_path: 'README.md' }) },
+    );
+    assert.equal(allowOutput, '');
+    const branchCreationCommand = 'git switch -c codex/cache-branch-policy';
+    const rawBranchCreationOutput = JSON.parse(execFileSync(
+      process.execPath,
+      [installedDispatcher, '--policy-sha256', digest],
+      { cwd: project, encoding: 'utf8', env: hookEnv, input: qualifiedBashInput(branchCreationCommand) },
+    )) as { hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string } };
+    assert.equal(rawBranchCreationOutput.hookSpecificOutput.permissionDecision, 'deny');
+    assert.match(rawBranchCreationOutput.hookSpecificOutput.permissionDecisionReason, /require the installed restricted runner/);
+    for (const command of [branchCreationCommand, 'pwd']) {
+      const commandOnlyOutput = JSON.parse(execFileSync(
+        process.execPath,
+        [installedDispatcher, '--policy-sha256', digest],
+        { cwd: project, encoding: 'utf8', env: hookEnv, input: hookInput('Bash', { command }) },
+      )) as { hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string } };
+      assert.equal(commandOnlyOutput.hookSpecificOutput.permissionDecision, 'deny');
+      assert.match(commandOnlyOutput.hookSpecificOutput.permissionDecisionReason, /host execution metadata/);
+    }
+
+    const { makeRestrictedCommand } = await import(
+      pathToFileURL(join(cacheAdapterHooks, 'repo-policy.mjs')).href
+    );
+    const restrictedCommand = makeRestrictedCommand(branchCreationCommand, canonicalHookCwd, {
+      pluginRoot: hookEnv.PLUGIN_ROOT,
+      pluginData: hookEnv.PLUGIN_DATA,
+    }) as string;
+    assert.ok(
+      restrictedCommand.includes(join(realpathSync(cacheRoot), 'adapters', 'codex', 'hooks', 'restricted-runner.mjs')),
+      'restricted command selects the installed-cache runner',
+    );
+    assert.ok(
+      restrictedCommand.includes(`TMB_CODEX_PLUGIN_DATA=${realpathSync(pluginData)}`),
+      'restricted command pins the Hook fixture plugin-data directory',
+    );
+    const restrictedPayload = {
+      cmd: restrictedCommand,
+      workdir: canonicalHookCwd,
+      shell: '/bin/sh',
+      login: false,
+      tty: false,
+    };
+    const branchCreationOutput = execFileSync(
+      process.execPath,
+      [installedDispatcher, '--policy-sha256', digest],
+      {
+        cwd: project, encoding: 'utf8', env: hookEnv,
+        input: hookInput('functions.exec', `text(JSON.stringify(await tools.exec_command(${JSON.stringify(restrictedPayload)})));`),
+      },
+    );
+    if (process.platform === 'darwin') {
+      assert.equal(branchCreationOutput, '', 'installed cache loads its own runner, branch-policy helper, and Codex manifest');
+    } else {
+      const denied = JSON.parse(branchCreationOutput) as {
+        hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string };
+      };
+      assert.equal(denied.hookSpecificOutput.permissionDecision, 'deny');
+      assert.match(denied.hookSpecificOutput.permissionDecisionReason, /requires the qualified macOS sandbox/);
+    }
+    const denyOutput = JSON.parse(execFileSync(
+      process.execPath,
+      [installedDispatcher, '--policy-sha256', digest],
+      { cwd: project, encoding: 'utf8', env: hookEnv, input: qualifiedBashInput('touch blocked') },
+    )) as { hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string } };
+    assert.equal(denyOutput.hookSpecificOutput.permissionDecision, 'deny');
+    assert.match(denyOutput.hookSpecificOutput.permissionDecisionReason, /protected checkout permits reviewed read-only commands/);
+    assert.equal(existsSync(join(project, 'blocked')), false);
 
     const mcpConfig = JSON.parse(
       readFileSync(join(cacheAdapter, '.mcp.json'), 'utf8'),

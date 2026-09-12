@@ -23619,6 +23619,28 @@ function graphDependencyAvailable() {
   }
 }
 
+// ../../adapters/codex/tool-names.mjs
+var CODEX_SCOPE_3_TOOL_NAMES = Object.freeze([
+  "runtime_initialize",
+  "project_inventory",
+  "project_scan",
+  "world_model_get",
+  "world_model_search",
+  "planning_label_taxonomy_get",
+  "planning_label_taxonomy_set",
+  "planning_issue_create",
+  "planning_issue_get",
+  "planning_issue_list",
+  "planning_issue_resume",
+  "planning_discussion_append",
+  "planning_discussion_list"
+]);
+var CODEX_SCOPE_4_TOOL_NAMES = Object.freeze([
+  ...CODEX_SCOPE_3_TOOL_NAMES,
+  "agent_materialization_get",
+  "agent_materialization_set"
+]);
+
 // src/codex-agent-materializer.ts
 import {
   closeSync as closeSync2,
@@ -27184,26 +27206,6 @@ var IDENTITY_KEYS = /* @__PURE__ */ new Set([
   "verified_human"
 ]);
 var OUT_OF_SCOPE_TOOL = /^(?:agent|branch|cheatcode|config|discussion|issue|milestone|onboard|pr_monitor|report|repos|roundtable|scan|skill|stats|task|validation|worktree)(?:_|$)/;
-var CODEX_SCOPE_3_TOOL_NAMES = Object.freeze([
-  "runtime_initialize",
-  "project_inventory",
-  "project_scan",
-  "world_model_get",
-  "world_model_search",
-  "planning_label_taxonomy_get",
-  "planning_label_taxonomy_set",
-  "planning_issue_create",
-  "planning_issue_get",
-  "planning_issue_list",
-  "planning_issue_resume",
-  "planning_discussion_append",
-  "planning_discussion_list"
-]);
-var CODEX_SCOPE_4_TOOL_NAMES = Object.freeze([
-  ...CODEX_SCOPE_3_TOOL_NAMES,
-  "agent_materialization_get",
-  "agent_materialization_set"
-]);
 function createCodexToolRegistry(manager2) {
   const materializer = new CodexAgentMaterializer();
   const definitions = deepFreeze([

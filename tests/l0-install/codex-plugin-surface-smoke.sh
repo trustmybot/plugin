@@ -13,7 +13,7 @@ PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ARTIFACT_ROOT="$(cd "${1:-$PLUGIN_ROOT}" && pwd -P)"
 CODEX_BIN="${CODEX_BIN:-codex}"
 
-for tool in "$CODEX_BIN" jq cmp find; do
+for tool in "$CODEX_BIN" jq cmp find git grep node; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     printf 'codex-plugin-surface-smoke: missing required tool: %s\n' "$tool" >&2
     exit 1
@@ -24,7 +24,15 @@ for required in \
   "$ARTIFACT_ROOT/.agents/plugins/marketplace.json" \
   "$ARTIFACT_ROOT/.codex-plugin/plugin.json" \
   "$ARTIFACT_ROOT/commands" \
-  "$ARTIFACT_ROOT/skills"; do
+  "$ARTIFACT_ROOT/skills" \
+  "$ARTIFACT_ROOT/hooks/codex/hooks.json" \
+  "$ARTIFACT_ROOT/adapters/codex/hooks/dispatcher.mjs" \
+  "$ARTIFACT_ROOT/adapters/codex/hooks/repo-policy.mjs" \
+  "$ARTIFACT_ROOT/adapters/codex/hooks/branch-policy.mjs" \
+  "$ARTIFACT_ROOT/adapters/codex/hooks/forge-binding.mjs" \
+  "$ARTIFACT_ROOT/adapters/codex/hooks/restricted-runner.mjs" \
+  "$ARTIFACT_ROOT/adapters/codex/hooks/restricted-profile.mjs" \
+  "$ARTIFACT_ROOT/adapters/codex/tool-names.mjs"; do
   if [ ! -e "$required" ]; then
     printf 'codex-plugin-surface-smoke: artifact is missing %s\n' "$required" >&2
     exit 1
@@ -48,24 +56,169 @@ trap cleanup EXIT
 MARKETPLACE_JSON="$SMOKE_HOME/marketplace-add.json"
 INSTALL_JSON="$SMOKE_HOME/plugin-add.json"
 
+validate_installed_cache() {
+  case "$INSTALLED_PATH" in
+    "$SMOKE_HOME"/plugins/cache/*) ;;
+    *)
+      printf 'codex-plugin-surface-smoke: installer returned an out-of-home cache path: %s\n' "$INSTALLED_PATH" >&2
+      exit 1
+      ;;
+  esac
+
+  INSTALLED_MANIFEST="$INSTALLED_PATH/.codex-plugin/plugin.json"
+  INSTALLED_HOOKS="$INSTALLED_PATH/hooks/codex/hooks.json"
+  INSTALLED_DISPATCHER="$INSTALLED_PATH/adapters/codex/hooks/dispatcher.mjs"
+  INSTALLED_POLICY="$INSTALLED_PATH/adapters/codex/hooks/repo-policy.mjs"
+  INSTALLED_BRANCH_POLICY="$INSTALLED_PATH/adapters/codex/hooks/branch-policy.mjs"
+  INSTALLED_FORGE_BINDING="$INSTALLED_PATH/adapters/codex/hooks/forge-binding.mjs"
+  INSTALLED_RUNNER="$INSTALLED_PATH/adapters/codex/hooks/restricted-runner.mjs"
+  INSTALLED_PROFILE="$INSTALLED_PATH/adapters/codex/hooks/restricted-profile.mjs"
+  INSTALLED_TOOL_NAMES="$INSTALLED_PATH/adapters/codex/tool-names.mjs"
+  for installed_hook_file in \
+    "$INSTALLED_MANIFEST" "$INSTALLED_HOOKS" "$INSTALLED_DISPATCHER" \
+    "$INSTALLED_POLICY" "$INSTALLED_BRANCH_POLICY" "$INSTALLED_FORGE_BINDING" \
+    "$INSTALLED_RUNNER" \
+    "$INSTALLED_PROFILE" "$INSTALLED_TOOL_NAMES"; do
+    if [ ! -f "$installed_hook_file" ]; then
+      printf 'codex-plugin-surface-smoke: installed cache is missing %s\n' "$installed_hook_file" >&2
+      exit 1
+    fi
+  done
+
+  jq -e '
+    .commands == [] and
+    .skills == "./adapters/codex/skills/" and
+    .hooks == "./hooks/codex/hooks.json"
+  ' "$INSTALLED_MANIFEST" >/dev/null
+  cmp -s "$ARTIFACT_ROOT/.codex-plugin/plugin.json" "$INSTALLED_MANIFEST"
+  cmp -s "$ARTIFACT_ROOT/hooks/codex/hooks.json" "$INSTALLED_HOOKS"
+  cmp -s "$ARTIFACT_ROOT/adapters/codex/hooks/dispatcher.mjs" "$INSTALLED_DISPATCHER"
+  cmp -s "$ARTIFACT_ROOT/adapters/codex/hooks/repo-policy.mjs" "$INSTALLED_POLICY"
+  cmp -s "$ARTIFACT_ROOT/adapters/codex/hooks/branch-policy.mjs" "$INSTALLED_BRANCH_POLICY"
+  cmp -s "$ARTIFACT_ROOT/adapters/codex/hooks/forge-binding.mjs" "$INSTALLED_FORGE_BINDING"
+  cmp -s "$ARTIFACT_ROOT/adapters/codex/hooks/restricted-runner.mjs" "$INSTALLED_RUNNER"
+  cmp -s "$ARTIFACT_ROOT/adapters/codex/hooks/restricted-profile.mjs" "$INSTALLED_PROFILE"
+  cmp -s "$ARTIFACT_ROOT/adapters/codex/tool-names.mjs" "$INSTALLED_TOOL_NAMES"
+}
+
 env CODEX_HOME="$SMOKE_HOME" "$CODEX_BIN" plugin marketplace add "$ARTIFACT_ROOT" --json > "$MARKETPLACE_JSON"
 MARKETPLACE_NAME="$(jq -er '.marketplaceName' "$MARKETPLACE_JSON")"
 env CODEX_HOME="$SMOKE_HOME" "$CODEX_BIN" plugin add "tmb@$MARKETPLACE_NAME" --json > "$INSTALL_JSON"
 
 INSTALLED_PATH="$(jq -er '.installedPath' "$INSTALL_JSON")"
-case "$INSTALLED_PATH" in
-  "$SMOKE_HOME"/plugins/cache/*) ;;
-  *)
-    printf 'codex-plugin-surface-smoke: installer returned an out-of-home cache path: %s\n' "$INSTALLED_PATH" >&2
-    exit 1
-    ;;
-esac
+validate_installed_cache
 
-INSTALLED_MANIFEST="$INSTALLED_PATH/.codex-plugin/plugin.json"
-jq -e '
-  .commands == [] and
-  .skills == "./adapters/codex/skills/"
-' "$INSTALLED_MANIFEST" >/dev/null
+# Codex caches by marketplace/plugin/version. A same-version add is not a
+# refresh contract, so exercise the only supported local recovery ceremony:
+# remove, prove the stale cache path disappeared, then install and compare.
+if ! find "$INSTALLED_HOOKS" -type f -links 1 -print -quit | grep -Fxq "$INSTALLED_HOOKS"; then
+  printf 'codex-plugin-surface-smoke: refusing to corrupt an aliased installed Hook: %s\n' "$INSTALLED_HOOKS" >&2
+  exit 1
+fi
+ARTIFACT_HOOK_OID_BEFORE="$(git hash-object "$ARTIFACT_ROOT/hooks/codex/hooks.json")"
+printf '{"hooks":{}}\n' > "$INSTALLED_HOOKS"
+if [ "$(git hash-object "$ARTIFACT_ROOT/hooks/codex/hooks.json")" != "$ARTIFACT_HOOK_OID_BEFORE" ]; then
+  printf 'codex-plugin-surface-smoke: corrupting the cache changed the source artifact\n' >&2
+  exit 1
+fi
+env CODEX_HOME="$SMOKE_HOME" "$CODEX_BIN" plugin remove "tmb@$MARKETPLACE_NAME" --json >/dev/null
+if [ -e "$INSTALLED_PATH" ]; then
+  printf 'codex-plugin-surface-smoke: plugin remove left the stale cache path active: %s\n' "$INSTALLED_PATH" >&2
+  exit 1
+fi
+env CODEX_HOME="$SMOKE_HOME" "$CODEX_BIN" plugin add "tmb@$MARKETPLACE_NAME" --json > "$INSTALL_JSON"
+INSTALLED_PATH="$(jq -er '.installedPath' "$INSTALL_JSON")"
+validate_installed_cache
+
+HOOK_DIGEST="$(jq -er '.hooks.PreToolUse[0].hooks[0].command | capture("--policy-sha256 (?<digest>[a-f0-9]{64})").digest' "$INSTALLED_HOOKS")"
+HOOK_TIMEOUT="$(jq -er '.hooks.PreToolUse[0].hooks[0].timeout' "$INSTALLED_HOOKS")"
+if [ "$HOOK_TIMEOUT" -ne 5 ]; then
+  printf 'codex-plugin-surface-smoke: installed Hook timeout is %s, expected 5\n' "$HOOK_TIMEOUT" >&2
+  exit 1
+fi
+
+HOOK_PROJECT="$SMOKE_HOME/hook-project"
+HOOK_PLUGIN_DATA="$SMOKE_HOME/hook-plugin-data"
+mkdir -p "$HOOK_PROJECT" "$HOOK_PLUGIN_DATA"
+git -C "$HOOK_PROJECT" init -q -b main
+HOOK_INPUT_BASE="$(jq -nc --arg cwd "$HOOK_PROJECT" '{
+  cwd: $cwd,
+  hook_event_name: "PreToolUse",
+  model: "gpt-test",
+  permission_mode: "bypassPermissions",
+  session_id: "installed-cache-smoke",
+  tool_use_id: "installed-cache-tool",
+  transcript_path: null,
+  turn_id: "installed-cache-turn"
+}')"
+
+make_installed_branch_payloads() {
+  env -u NODE_PATH node --input-type=module - \
+    "$INSTALLED_POLICY" "$INSTALLED_PATH" "$HOOK_PLUGIN_DATA" "$HOOK_PROJECT" <<'NODE'
+import assert from "node:assert/strict";
+import { realpathSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+const [policy, root, data, project] = process.argv.slice(2);
+const { makeRestrictedCommand } = await import(pathToFileURL(policy));
+const pluginRoot = realpathSync(root);
+const pluginData = realpathSync(data);
+const workdir = realpathSync(project);
+const cmd = makeRestrictedCommand("git switch -c codex/installed-branch-policy", workdir, { pluginRoot, pluginData });
+assert.ok(cmd.includes(join(pluginRoot, "adapters/codex/hooks/restricted-runner.mjs")), "wrapper must select the installed runner");
+assert.ok(cmd.includes(`TMB_CODEX_PLUGIN_DATA=${pluginData}`), "wrapper must carry the fixture's host plugin data");
+const fields = { cmd, workdir, shell: "/bin/sh", login: false, tty: false };
+process.stdout.write(JSON.stringify({ command: cmd, source: `text(JSON.stringify(await tools.exec_command(${JSON.stringify(fields)})));` }));
+NODE
+}
+
+# Installation above uses the real CLI. Admission below calls the installed
+# dispatcher with synthetic payloads and does not establish CLI Hook delivery.
+BRANCH_PAYLOADS="$(make_installed_branch_payloads)"
+ALLOW_INPUT="$(jq -c '. + {tool_name:"Read",tool_input:{file_path:"README.md"}}' <<< "$HOOK_INPUT_BASE")"
+BRANCH_INPUT="$(jq -c --arg source "$(jq -r '.source' <<< "$BRANCH_PAYLOADS")" '. + {tool_name:"functions.exec",tool_input:$source}' <<< "$HOOK_INPUT_BASE")"
+QUALIFIED_BRANCH_INPUT="$(jq -c --arg command "$(jq -r '.command' <<< "$BRANCH_PAYLOADS")" '. + {
+  tool_name:"Bash",tool_input:{command:$command},execution_context:{
+    kind:"exec_command",argv:["/bin/sh","-c",$command],cwd:.cwd,
+    tty:false,login:false,environment_id:"installed-cache-synthetic-local-environment",
+    is_remote:false,shell_mode:"direct"
+  }
+}' <<< "$HOOK_INPUT_BASE")"
+RAW_BRANCH_INPUT="$(jq -c '. + {tool_name:"Bash",tool_input:{command:"git switch -c codex/installed-branch-policy"}}' <<< "$HOOK_INPUT_BASE")"
+DENY_INPUT="$(jq -c --arg command "touch blocked" '. + {
+  tool_name:"Bash",tool_input:{command:$command},execution_context:{
+    kind:"exec_command",argv:["/bin/sh","-c",$command],cwd:.cwd,
+    tty:false,login:false,environment_id:"installed-cache-synthetic-local-environment",
+    is_remote:false,shell_mode:"direct"
+  }
+}' <<< "$HOOK_INPUT_BASE")"
+ALLOW_OUTPUT="$(env -u NODE_PATH PLUGIN_ROOT="$INSTALLED_PATH" PLUGIN_DATA="$HOOK_PLUGIN_DATA" node "$INSTALLED_DISPATCHER" --policy-sha256 "$HOOK_DIGEST" <<< "$ALLOW_INPUT")"
+if [ -n "$ALLOW_OUTPUT" ]; then
+  printf 'codex-plugin-surface-smoke: installed Hook emitted output for an allow decision\n' >&2
+  exit 1
+fi
+RAW_BRANCH_OUTPUT="$(env -u NODE_PATH PLUGIN_ROOT="$INSTALLED_PATH" PLUGIN_DATA="$HOOK_PLUGIN_DATA" node "$INSTALLED_DISPATCHER" --policy-sha256 "$HOOK_DIGEST" <<< "$RAW_BRANCH_INPUT")"
+jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains("host execution metadata"))' <<< "$RAW_BRANCH_OUTPUT" >/dev/null
+for command in pwd true; do
+  LEGACY_READ_INPUT="$(jq -c --arg command "$command" '. + {tool_name:"Bash",tool_input:{command:$command}}' <<< "$HOOK_INPUT_BASE")"
+  LEGACY_READ_OUTPUT="$(env -u NODE_PATH PLUGIN_ROOT="$INSTALLED_PATH" PLUGIN_DATA="$HOOK_PLUGIN_DATA" node "$INSTALLED_DISPATCHER" --policy-sha256 "$HOOK_DIGEST" <<< "$LEGACY_READ_INPUT")"
+  jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains("host execution metadata"))' <<< "$LEGACY_READ_OUTPUT" >/dev/null
+done
+BRANCH_OUTPUT="$(env -u NODE_PATH PLUGIN_ROOT="$INSTALLED_PATH" PLUGIN_DATA="$HOOK_PLUGIN_DATA" node "$INSTALLED_DISPATCHER" --policy-sha256 "$HOOK_DIGEST" <<< "$BRANCH_INPUT")"
+QUALIFIED_BRANCH_OUTPUT="$(env -u NODE_PATH PLUGIN_ROOT="$INSTALLED_PATH" PLUGIN_DATA="$HOOK_PLUGIN_DATA" node "$INSTALLED_DISPATCHER" --policy-sha256 "$HOOK_DIGEST" <<< "$QUALIFIED_BRANCH_INPUT")"
+if [ "$(uname -s)" != Darwin ]; then
+  jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains("requires the qualified macOS sandbox"))' <<< "$BRANCH_OUTPUT" >/dev/null
+  jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains("requires the qualified macOS sandbox"))' <<< "$QUALIFIED_BRANCH_OUTPUT" >/dev/null
+elif [ -n "$BRANCH_OUTPUT" ] || [ -n "$QUALIFIED_BRANCH_OUTPUT" ]; then
+  printf 'codex-plugin-surface-smoke: installed branch-policy helper or Codex manifest did not resolve\n' >&2
+  exit 1
+fi
+DENY_OUTPUT="$(env -u NODE_PATH PLUGIN_ROOT="$INSTALLED_PATH" PLUGIN_DATA="$HOOK_PLUGIN_DATA" node "$INSTALLED_DISPATCHER" --policy-sha256 "$HOOK_DIGEST" <<< "$DENY_INPUT")"
+jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains("protected checkout permits reviewed read-only commands"))' <<< "$DENY_OUTPUT" >/dev/null
+if [ -e "$HOOK_PROJECT/blocked" ]; then
+  printf 'codex-plugin-surface-smoke: denied Hook probe produced a side effect\n' >&2
+  exit 1
+fi
 
 SKILLS_REL="$(jq -er '.skills' "$INSTALLED_MANIFEST")"
 SKILLS_DIR="$(cd "$INSTALLED_PATH/$SKILLS_REL" && pwd -P)"
@@ -117,5 +270,8 @@ compare_regular_tree "$ARTIFACT_ROOT/skills" "$INSTALLED_PATH/skills"
 printf 'codex-plugin-surface-smoke: PASS\n'
 printf '  Codex: %s\n' "$(env CODEX_HOME="$SMOKE_HOME" "$CODEX_BIN" --version)"
 printf '  Codex Skills: %s\n' "$(printf '%s' "$ACTUAL_SKILLS" | tr '\n' ' ')"
+printf '  Codex Hook: installed-cache dispatcher digest %s, timeout 5s\n' "$HOOK_DIGEST"
+printf '  Hook payloads: synthetic qualified-host admission; command-only Bash denied\n'
+printf '  Real CLI execution through Hooks: not exercised by this installer smoke\n'
 printf '  Claude commands/ and skills/: regular files and Skill directories preserved\n'
 printf '  source-command-* migrations: absent\n'
