@@ -6,7 +6,12 @@ import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
 import { insertDiscussion } from './discussions.js';
-import { syncIssueCloseRemotes, resolveDefaultMilestone } from './issues.js';
+import {
+  syncIssueCloseRemotes,
+  resolveDefaultMilestone,
+  validateIssueLabels,
+  defaultSyncLabels,
+} from './issues.js';
 import type { SpawnFn } from '../sync/issue_sync.js';
 import type { GraphHolder } from '../graph-db.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
@@ -389,6 +394,7 @@ export function compositeTools(
           intent_verbatim: { type: 'string', description: 'Human intent verbatim — stored as kind=intent discussion.' },
           branch_id: { type: 'string', description: 'Confirmed branch_id (from branch_id_propose + Human confirm).' },
           repo: { type: 'string', description: 'Optional repo name (matches a repos row) this issue belongs to. Defaults to the sole/managed repo when exactly one repos row exists. Mirrors issue_create.' },
+          labels: { type: 'array', items: { type: 'string' }, description: 'Optional. When supplied, must include at least one priority label AND at least one classification label, drawn from the project\'s configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore). Extra labels are allowed. When omitted, defaults to the first classification + first priority label of the taxonomy. Persisted on the issue row.' },
         },
         required: ['agent', 'objective', 'intent_verbatim', 'branch_id'],
       },
@@ -1097,8 +1103,12 @@ export function compositeTools(
           parent_branch_id: string | null;
           repo: string | null;
           status: string;
+          files: string;
+          verification: string;
+          prompt_bearing: number;
         }>(
-          `SELECT id, issue_id, branch_id, parent_branch_id, repo, status
+          `SELECT id, issue_id, branch_id, parent_branch_id, repo, status,
+                  files, verification, prompt_bearing
              FROM tasks WHERE id = ? LIMIT 1`,
           [failedTaskId],
         );
@@ -1163,8 +1173,8 @@ export function compositeTools(
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, attempts, spec_body, repo, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`,
+                status, attempts, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)`,
             [
               failed.issue_id,
               newBranchId,
@@ -1173,6 +1183,9 @@ export function compositeTools(
               description,
               spec,
               repoOverride ?? failed.repo,
+              failed.prompt_bearing,
+              failed.files,
+              failed.verification,
               now,
               now,
             ],
@@ -1248,6 +1261,13 @@ export function compositeTools(
           }
         }
 
+        const suppliedLabels = args['labels'] as string[] | undefined;
+        if (suppliedLabels !== undefined) {
+          const labelError = validateIssueLabels(db, suppliedLabels);
+          if (labelError !== null) return err(labelError);
+        }
+        const labels = suppliedLabels ?? defaultSyncLabels(db);
+
         const now = nowISO();
         // Resolve the issue's repo (explicit arg, else the sole registered repo)
         // so the milestone default + FK insert bind to the right repo (#15).
@@ -1255,9 +1275,9 @@ export function compositeTools(
         const milestone = resolveDefaultMilestone(db, null, issueRepo);
         const result = db.transaction(() => {
           db.run(
-            `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo)
-             VALUES (?, '', 'open', ?, ?, ?, ?)`,
-            [objective, now, now, milestone, issueRepo],
+            `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
+             VALUES (?, '', 'open', ?, ?, ?, ?, ?)`,
+            [objective, now, now, milestone, issueRepo, JSON.stringify(labels)],
           );
           const row = db.get<{ id: number }>(
             `SELECT id FROM issues WHERE rowid = last_insert_rowid()`,

@@ -102,7 +102,7 @@ function resolveLabelTaxonomy(db: TrajectoryDB): {
 // retried remote issue satisfies the same mandatory-tagging invariant
 // issue_create enforces, rather than sending labels:[] (which a
 // tagging-enforced remote would reject).
-function defaultSyncLabels(db: TrajectoryDB): string[] {
+export function defaultSyncLabels(db: TrajectoryDB): string[] {
   const { classification, priorityLabels } = resolveLabelTaxonomy(db);
   const labels: string[] = [];
   if (classification.length > 0) labels.push(classification[0]!);
@@ -114,7 +114,7 @@ function defaultSyncLabels(db: TrajectoryDB): string[] {
 // checked against the project's configured (or generic-default) taxonomy.
 // Returns a named error string listing what is missing and the valid options,
 // or null when the labels are valid. Extra labels (in neither set) are allowed.
-function validateIssueLabels(
+export function validateIssueLabels(
   db: TrajectoryDB,
   labels: string[],
   taxonomy?: IssueLabelTaxonomy,
