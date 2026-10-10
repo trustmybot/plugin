@@ -28068,7 +28068,7 @@ function roundtableTools(db2) {
           const slashRow = db2.get(
             `SELECT id FROM audit
              WHERE event_type = 'roundtable_slash_invoked'
-               AND created_at >= datetime('now', '-10 minutes')
+               AND strftime('%Y-%m-%dT%H:%M:%fZ', created_at) >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes')
                AND (content_json IS NULL OR json_extract(content_json, '$.consumed_by_roundtable_id') IS NULL)
              ORDER BY created_at DESC
              LIMIT 1`
@@ -28092,7 +28092,7 @@ function roundtableTools(db2) {
         const slashAuditId = slashGateWaived ? null : db2.get(
           `SELECT id FROM audit
                WHERE event_type = 'roundtable_slash_invoked'
-                 AND created_at >= datetime('now', '-10 minutes')
+                 AND strftime('%Y-%m-%dT%H:%M:%fZ', created_at) >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes')
                  AND (content_json IS NULL OR json_extract(content_json, '$.consumed_by_roundtable_id') IS NULL)
                ORDER BY created_at DESC
                LIMIT 1`

@@ -219,7 +219,7 @@ export function roundtableTools(db) {
             else {
                 const slashRow = db.get(`SELECT id FROM audit
              WHERE event_type = 'roundtable_slash_invoked'
-               AND created_at >= datetime('now', '-10 minutes')
+               AND strftime('%Y-%m-%dT%H:%M:%fZ', created_at) >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes')
                AND (content_json IS NULL OR json_extract(content_json, '$.consumed_by_roundtable_id') IS NULL)
              ORDER BY created_at DESC
              LIMIT 1`);
@@ -249,7 +249,7 @@ export function roundtableTools(db) {
                 ? null
                 : db.get(`SELECT id FROM audit
                WHERE event_type = 'roundtable_slash_invoked'
-                 AND created_at >= datetime('now', '-10 minutes')
+                 AND strftime('%Y-%m-%dT%H:%M:%fZ', created_at) >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes')
                  AND (content_json IS NULL OR json_extract(content_json, '$.consumed_by_roundtable_id') IS NULL)
                ORDER BY created_at DESC
                LIMIT 1`)?.id ?? null;
@@ -408,11 +408,10 @@ export function roundtableTools(db) {
             if (!roundtable) {
                 throw new Error(`Not found: roundtable ${roundtableId}`);
             }
-            // The window upper bound must be compared in the SAME format as
-            // discussions.created_at, which is ISO (nowISO). An OPEN roundtable has
-            // closed_at NULL, so we fall back to an ISO `now` — not SQLite's
-            // `datetime('now')` (space-separated), which sorts BELOW an ISO 'T'
-            // string and silently drops same-day rows (#1030).
+            // The window upper bound must be compared in the SAME ms-ISO format as
+            // discussions.created_at. An OPEN roundtable has closed_at NULL, so we
+            // fall back to an ms-ISO `now`; a space-separated SQLite stamp would
+            // sort below every same-day ISO row and silently drop them (#1030).
             const windowEnd = nowISO();
             const participants = db.all(`SELECT DISTINCT participant FROM roundtable_votes
            WHERE roundtable_id = ? AND participant != 'human' AND participant IS NOT NULL`, [roundtableId]).map((r) => r.participant);
