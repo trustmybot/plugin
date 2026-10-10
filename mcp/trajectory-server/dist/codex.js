@@ -21499,6 +21499,9 @@ var TrajectoryDB = class {
       throw err5;
     }
   }
+  get isOpen() {
+    return this.db.isOpen;
+  }
   close() {
     this.db.close();
   }
@@ -24808,7 +24811,7 @@ function auditEmbedText(summary, contentJson) {
 }
 async function embedAndStore(db, table, rowid, text) {
   const v = await embed(text);
-  if (v === null) return;
+  if (v === null || !db.isOpen) return;
   const sql = INSERT_SQL[table];
   db.run(sql, [rowid, packEmbedding(v), MODEL_ID, (/* @__PURE__ */ new Date()).toISOString()]);
 }

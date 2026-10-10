@@ -45,7 +45,7 @@ export async function embedAndStore(
   text: string,
 ): Promise<void> {
   const v = await embed(text);
-  if (v === null) return;
+  if (v === null || !db.isOpen) return;
   const sql = INSERT_SQL[table]!;
   db.run(sql, [rowid, packEmbedding(v), MODEL_ID, new Date().toISOString()]);
 }

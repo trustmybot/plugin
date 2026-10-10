@@ -32,7 +32,7 @@ export function auditEmbedText(summary, contentJson) {
 }
 export async function embedAndStore(db, table, rowid, text) {
     const v = await embed(text);
-    if (v === null)
+    if (v === null || !db.isOpen)
         return;
     const sql = INSERT_SQL[table];
     db.run(sql, [rowid, packEmbedding(v), MODEL_ID, new Date().toISOString()]);
