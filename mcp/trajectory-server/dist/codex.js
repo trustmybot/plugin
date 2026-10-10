@@ -24517,7 +24517,7 @@ function createTarget(projectRoot, template, fs, changed) {
     throw ioError(`Could not create ${template.targetPath}.`, error2);
   }
   changed.push(template.targetPath);
-  let failure;
+  let failure2;
   try {
     const written = fs.write(fd, template.expectedBytes);
     if (written !== template.expectedBytes.length) {
@@ -24526,15 +24526,15 @@ function createTarget(projectRoot, template, fs, changed) {
       );
     }
   } catch (error2) {
-    failure = error2;
+    failure2 = error2;
   }
   try {
     fs.close(fd);
   } catch (error2) {
-    failure ??= error2;
+    failure2 ??= error2;
   }
-  if (failure !== void 0) {
-    throw ioError(`Could not finish writing ${template.targetPath}.`, failure);
+  if (failure2 !== void 0) {
+    throw ioError(`Could not finish writing ${template.targetPath}.`, failure2);
   }
   const final = inspectOne(projectRoot, template, absolutePath, fs);
   if (final.status !== "current") {
@@ -26026,14 +26026,25 @@ function ensureMilestoneRow(db, milestone, repo) {
 function resolveDefaultMilestone(db, explicitMilestone, repo) {
   if (explicitMilestone !== null && explicitMilestone !== "") {
     ensureMilestoneRow(db, explicitMilestone, repo);
-    return explicitMilestone;
+    return { milestone: explicitMilestone, milestone_default: "explicit" };
   }
-  if (repo === null) return null;
+  if (repo === null) return { milestone: null, milestone_default: "none_open" };
   const open = db.all(
-    `SELECT name FROM milestones WHERE repo = ? AND state = 'open'`,
+    `SELECT name FROM milestones WHERE repo = ? AND state = 'open' ORDER BY name`,
     [repo]
   );
-  return open.length === 1 ? open[0].name : null;
+  if (open.length === 1) return { milestone: open[0].name, milestone_default: "applied" };
+  if (open.length === 0) return { milestone: null, milestone_default: "none_open" };
+  return {
+    milestone: null,
+    milestone_default: "multiple_open",
+    open_milestones: open.map((m) => m.name)
+  };
+}
+function milestoneDefaultFields(resolution) {
+  const fields = { milestone_default: resolution.milestone_default };
+  if (resolution.open_milestones) fields["open_milestones"] = resolution.open_milestones;
+  return fields;
 }
 var DEDUP_THRESHOLD = 0.6;
 function normalizeObjective(text) {
@@ -26243,6 +26254,7 @@ function issueTools(db, dbPath = "", options = {}) {
             enum: ["open", "closed"],
             description: "Optional status filter. Omit to return all issues."
           },
+          milestone: { type: "string", description: "Optional milestone filter: a milestone name, or 'none' for issues with no milestone." },
           limit: { type: "number", description: "Max rows. Default 50, max 200." },
           offset: { type: "number", description: "Row offset. Default 0." },
           fields: {
@@ -26345,7 +26357,8 @@ function issueTools(db, dbPath = "", options = {}) {
         }
       }
       const explicitMilestone = args["milestone"] ?? null;
-      const milestone = resolveDefaultMilestone(db, explicitMilestone, issueRepo);
+      const milestoneResolution = resolveDefaultMilestone(db, explicitMilestone, issueRepo);
+      const milestone = milestoneResolution.milestone;
       const spawnFn = args["_spawnFn"] ?? void 0;
       const now = nowISO();
       const remoteIidRaw = args["remote_iid"];
@@ -26385,7 +26398,10 @@ function issueTools(db, dbPath = "", options = {}) {
         const adoptedRow = db.get("SELECT * FROM issues WHERE id = ?", [adoptId]);
         const adoptedIssue = decodeIssue(adoptedRow);
         const adoptedRedacted = redactIssue(adoptedIssue, agent, { include_description: true });
-        const adoptedPayload = { ...adoptedRedacted };
+        const adoptedPayload = {
+          ...adoptedRedacted,
+          ...milestoneDefaultFields(milestoneResolution)
+        };
         adoptedPayload._adopted = { backend: adoption.backend, remote_iid: remoteIid };
         return ok2(adoptedPayload);
       }
@@ -26425,7 +26441,10 @@ function issueTools(db, dbPath = "", options = {}) {
             const row2 = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
             const issue3 = decodeIssue(row2);
             const redacted2 = redactIssue(issue3, agent, { include_description: true });
-            const payload2 = { ...redacted2 };
+            const payload2 = {
+              ...redacted2,
+              ...milestoneDefaultFields(milestoneResolution)
+            };
             payload2._sync = syncDiagnostic;
             return ok2(payload2);
           }
@@ -26609,7 +26628,10 @@ function issueTools(db, dbPath = "", options = {}) {
       const row = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       const issue2 = decodeIssue(row);
       const redacted = redactIssue(issue2, agent, { include_description: true });
-      const payload = { ...redacted };
+      const payload = {
+        ...redacted,
+        ...milestoneDefaultFields(milestoneResolution)
+      };
       if (syncDiagnostic) payload._sync = syncDiagnostic;
       return ok2(payload);
     })),
@@ -26719,18 +26741,26 @@ function issueTools(db, dbPath = "", options = {}) {
         for (const f of fieldsArg) out[f] = row[f];
         return out;
       }
-      let rows;
+      const rawMilestone = args["milestone"];
+      const conditions = [];
+      const params = [];
       if (rawStatus !== void 0) {
-        rows = db.all(
-          "SELECT id, objective, status, created_at, updated_at FROM issues WHERE status = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-          [rawStatus, limit, offset]
-        );
-      } else {
-        rows = db.all(
-          "SELECT id, objective, status, created_at, updated_at FROM issues ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-          [limit, offset]
-        );
+        conditions.push("status = ?");
+        params.push(rawStatus);
       }
+      if (rawMilestone !== void 0 && rawMilestone !== "") {
+        if (rawMilestone === "none") {
+          conditions.push("milestone IS NULL");
+        } else {
+          conditions.push("milestone = ?");
+          params.push(rawMilestone);
+        }
+      }
+      const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+      const rows = db.all(
+        `SELECT id, objective, status, created_at, updated_at FROM issues ${where} ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+        [...params, limit, offset]
+      );
       return ok2(rows.map(projectRow));
     }),
     issue_update_description: requireRoles("issue_update_description", ["bro"], wrapHandler2(async (args) => {
@@ -26975,9 +27005,9 @@ function issueTools(db, dbPath = "", options = {}) {
 }
 
 // src/tools/scan.ts
-import { spawn, spawnSync as spawnSync3 } from "node:child_process";
-import { existsSync as existsSync3, readFileSync as readFileSync5, writeFileSync, unlinkSync as unlinkSync2 } from "node:fs";
-import { dirname as dirname6, join as join8 } from "node:path";
+import { spawn, spawnSync as spawnSync4 } from "node:child_process";
+import { existsSync as existsSync4, readFileSync as readFileSync6, writeFileSync, unlinkSync as unlinkSync2 } from "node:fs";
+import { dirname as dirname6, join as join9 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/utils/untrusted.ts
@@ -26987,6 +27017,284 @@ function frameUntrusted(source, content) {
   return `<untrusted-content source="${source}">
 ${neutralized}
 ${UNTRUSTED_CLOSE}`;
+}
+
+// src/tools/milestones.ts
+import { spawnSync as spawnSync3 } from "node:child_process";
+import { existsSync as existsSync3, readFileSync as readFileSync5 } from "node:fs";
+import { join as join8 } from "node:path";
+
+// src/sync/milestone_sync.ts
+function splitSlug(slug) {
+  const i = slug.indexOf("/");
+  if (i <= 0 || i === slug.length - 1) return null;
+  return { host: slug.slice(0, i), path: slug.slice(i + 1) };
+}
+function collectionPath(target) {
+  const parts = splitSlug(target.slug);
+  if (!parts) return null;
+  const path = target.backend === "gh" ? `repos/${parts.path}/milestones` : `projects/${encodeURIComponent(parts.path)}/milestones`;
+  return { host: parts.host, path };
+}
+function runApi(target, apiArgs, spawnFn) {
+  const opts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
+  if (target.cwd) opts.cwd = target.cwd;
+  try {
+    return spawnFn(target.backend, ["api", ...apiArgs], opts);
+  } catch (e) {
+    return { thrown: e instanceof Error ? e.message : String(e) };
+  }
+}
+function failure(target, result) {
+  if ("thrown" in result) {
+    return { ok: false, backend: target.backend, reason: "spawn_error", message: result.thrown };
+  }
+  return {
+    ok: false,
+    backend: target.backend,
+    reason: "non_zero_exit",
+    exit_code: result.status ?? void 0,
+    stderr: result.stderr.slice(0, 1024)
+  };
+}
+function badSlug(target) {
+  return { ok: false, backend: target.backend, reason: "bad_slug", message: `cannot derive an API path from "${target.slug}"` };
+}
+function fetchRemoteMilestones(target, spawnFn = defaultSpawnFn) {
+  const coll = collectionPath(target);
+  if (!coll) return badSlug(target);
+  const query = target.backend === "gh" ? "?state=all&per_page=100" : "?per_page=100";
+  const result = runApi(target, ["--hostname", coll.host, `${coll.path}${query}`], spawnFn);
+  if ("thrown" in result || result.status !== 0) return failure(target, result);
+  let parsed;
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    return { ok: false, backend: target.backend, reason: "parse_failed", message: "milestone list is not JSON" };
+  }
+  if (!Array.isArray(parsed)) {
+    return { ok: false, backend: target.backend, reason: "parse_failed", message: "milestone list is not an array" };
+  }
+  const milestones = [];
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry;
+    const title = e["title"];
+    const rawState = e["state"];
+    const id = target.backend === "gh" ? e["number"] : e["id"];
+    if (typeof title !== "string" || title === "" || typeof id !== "number") continue;
+    const state = rawState === "closed" ? "closed" : rawState === "open" || rawState === "active" ? "open" : null;
+    if (state === null) continue;
+    milestones.push({ id, title, state });
+  }
+  return { ok: true, milestones };
+}
+function createRemoteMilestone(target, title, spawnFn = defaultSpawnFn) {
+  const coll = collectionPath(target);
+  if (!coll) return badSlug(target);
+  const result = runApi(target, ["--hostname", coll.host, "-X", "POST", coll.path, "-f", `title=${title}`], spawnFn);
+  if ("thrown" in result || result.status !== 0) return failure(target, result);
+  return { ok: true };
+}
+
+// src/tools/milestones.ts
+function auditMilestone(db, eventType, summary, content) {
+  insertAudit(db, {
+    issue_id: -1,
+    from_node: "bro",
+    event_type: eventType,
+    summary,
+    content_json: JSON.stringify(content),
+    repo: null
+  });
+}
+function resolveMilestoneTargets(db, repoName, spawnFn) {
+  const resolved = resolveRepoForSync(db, repoName);
+  if (!resolved) return { gated: false, targets: [] };
+  const row = db.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
+  let syncConfig = "off";
+  if (row) {
+    try {
+      syncConfig = String(JSON.parse(row.value_json));
+    } catch {
+      syncConfig = "off";
+    }
+  }
+  const slugFor = (provider) => {
+    const entry = resolved.remotes.find((r) => r.provider === provider);
+    return entry ? repoSlugFromRemoteUrl(entry.url) : null;
+  };
+  const ghSlug = slugFor("github");
+  const glSlug = slugFor("gitlab");
+  const backend = resolveBackend(syncConfig, { github: ghSlug !== null, gitlab: glSlug !== null }, !!spawnFn);
+  if (backend === null || backend === "off") return { gated: false, targets: [] };
+  const targets = [];
+  if ((backend === "gh" || backend === "both") && ghSlug) {
+    targets.push({ backend: "gh", slug: ghSlug, cwd: resolved.path });
+  }
+  if ((backend === "glab" || backend === "both") && glSlug) {
+    targets.push({ backend: "glab", slug: glSlug, cwd: resolved.path });
+  }
+  return { gated: true, targets };
+}
+function failureContent(f) {
+  return { backend: f.backend, reason: f.reason, exit_code: f.exit_code, stderr: f.stderr, message: f.message };
+}
+function reconcileRepoMilestones(db, repo, targets, spawnFn) {
+  const merged = /* @__PURE__ */ new Map();
+  let anyFetched = false;
+  let allFetched = true;
+  for (const target of targets) {
+    const listed = fetchRemoteMilestones(target, spawnFn);
+    if (!listed.ok) {
+      allFetched = false;
+      auditMilestone(db, "milestone_reconcile_failed", `milestone reconcile failed for ${repo} via ${target.backend}: ${listed.reason}`, {
+        repo,
+        ...failureContent(listed)
+      });
+      continue;
+    }
+    anyFetched = true;
+    for (const m of listed.milestones) {
+      if (merged.get(m.title) !== "open") merged.set(m.title, m.state);
+    }
+  }
+  if (!anyFetched) return { ok: false };
+  let imported = 0;
+  let closed = 0;
+  db.transaction(() => {
+    for (const [name, state] of merged) {
+      const existing = db.get(`SELECT state FROM milestones WHERE name = ? AND repo = ?`, [name, repo]);
+      if (!existing) {
+        db.run(`INSERT INTO milestones (name, repo, state) VALUES (?, ?, ?)`, [name, repo, state]);
+        imported++;
+        if (state === "closed") closed++;
+      } else if (existing.state !== state) {
+        db.run(`UPDATE milestones SET state = ? WHERE name = ? AND repo = ?`, [state, name, repo]);
+        if (state === "closed") closed++;
+      }
+    }
+  });
+  auditMilestone(db, "milestones_reconciled", `milestones reconciled for ${repo}: ${imported} imported, ${closed} closed`, {
+    imported,
+    closed,
+    repo
+  });
+  return { ok: allFetched };
+}
+var SEMVER_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/;
+function parseSemver(raw) {
+  const m = SEMVER_RE.exec(raw.trim());
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+function nextPatchMilestone(version2) {
+  const parts = parseSemver(version2);
+  if (!parts) return null;
+  return `v${parts[0]}.${parts[1]}.${parts[2] + 1}`;
+}
+function readJsonVersion(path) {
+  if (!existsSync3(path)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync5(path, "utf8"));
+    return typeof parsed.version === "string" && parseSemver(parsed.version) ? parsed.version : null;
+  } catch {
+    return null;
+  }
+}
+function readTomlVersion(path, table) {
+  if (!existsSync3(path)) return null;
+  let text;
+  try {
+    text = readFileSync5(path, "utf8");
+  } catch {
+    return null;
+  }
+  let inTable = false;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("[")) {
+      inTable = trimmed === `[${table}]`;
+      continue;
+    }
+    if (!inTable) continue;
+    const m = /^version\s*=\s*["']([^"']+)["']/.exec(trimmed);
+    if (m) return parseSemver(m[1]) ? m[1] : null;
+  }
+  return null;
+}
+function highestVersionTag(repoPath) {
+  try {
+    const r = spawnSync3("git", ["-C", repoPath, "tag", "--list", "v*"], { encoding: "utf8", timeout: 3e3 });
+    if (r.status !== 0) return null;
+    let best = null;
+    for (const tag of (r.stdout ?? "").split("\n").map((t) => t.trim())) {
+      const parts = parseSemver(tag);
+      if (!parts) continue;
+      if (best === null || parts[0] > best.parts[0] || parts[0] === best.parts[0] && parts[1] > best.parts[1] || parts[0] === best.parts[0] && parts[1] === best.parts[1] && parts[2] > best.parts[2]) {
+        best = { tag, parts };
+      }
+    }
+    return best?.tag ?? null;
+  } catch {
+    return null;
+  }
+}
+function readRepoVersion(repoPath) {
+  const candidates = [
+    ["package.json", () => readJsonVersion(join8(repoPath, "package.json"))],
+    [".claude-plugin/plugin.json", () => readJsonVersion(join8(repoPath, ".claude-plugin", "plugin.json"))],
+    ["pyproject.toml", () => readTomlVersion(join8(repoPath, "pyproject.toml"), "project")],
+    ["Cargo.toml", () => readTomlVersion(join8(repoPath, "Cargo.toml"), "package")],
+    ["git_tag", () => highestVersionTag(repoPath)]
+  ];
+  for (const [source, read] of candidates) {
+    const version2 = read();
+    if (version2) return { version: version2, source };
+  }
+  return null;
+}
+function seedRepoMilestone(db, repo, repoPath, gate, spawnFn) {
+  const count = db.get(`SELECT COUNT(*) AS n FROM milestones WHERE repo = ?`, [repo]);
+  if ((count?.n ?? 0) > 0) return;
+  const found = readRepoVersion(repoPath);
+  const name = found ? nextPatchMilestone(found.version) : null;
+  if (!found || !name) {
+    auditMilestone(db, "milestone_seed_skipped", `milestone seed skipped for ${repo}: no version source`, {
+      repo,
+      reason: "no_version_source"
+    });
+    return;
+  }
+  db.run(`INSERT INTO milestones (name, repo, state) VALUES (?, ?, 'open')`, [name, repo]);
+  const failures = [];
+  if (gate.gated) {
+    for (const target of gate.targets) {
+      const created = createRemoteMilestone(target, name, spawnFn);
+      if (!created.ok) failures.push(failureContent(created));
+    }
+  }
+  const remoteCreated = gate.gated && gate.targets.length > 0 && failures.length === 0;
+  const content = { name, repo, source: found.source, remote_created: remoteCreated };
+  if (failures.length > 0) content["remote_failures"] = failures;
+  auditMilestone(db, "milestone_seeded", `milestone ${name} seeded for ${repo} from ${found.source}`, content);
+}
+function syncRepoMilestones(db, repo, repoPath, spawnFn) {
+  const gate = resolveMilestoneTargets(db, repo, spawnFn);
+  if (gate.gated && gate.targets.length > 0) {
+    const reconciled = reconcileRepoMilestones(db, repo, gate.targets, spawnFn);
+    if (!reconciled.ok) {
+      const count = db.get(`SELECT COUNT(*) AS n FROM milestones WHERE repo = ?`, [repo]);
+      if ((count?.n ?? 0) === 0) {
+        auditMilestone(db, "milestone_seed_skipped", `milestone seed skipped for ${repo}: remote reconcile failed`, {
+          repo,
+          reason: "reconcile_failed"
+        });
+      }
+      return;
+    }
+  }
+  seedRepoMilestone(db, repo, repoPath, gate, spawnFn);
 }
 
 // src/tools/scan.ts
@@ -27011,14 +27319,14 @@ function wrap(fn) {
 function resolveScanScript() {
   const here = dirname6(fileURLToPath3(import.meta.url));
   const candidates = [
-    join8(here, "..", "..", "..", "..", "scripts", "scan.sh"),
-    join8(here, "..", "..", "..", "scripts", "scan.sh")
+    join9(here, "..", "..", "..", "..", "scripts", "scan.sh"),
+    join9(here, "..", "..", "..", "scripts", "scan.sh")
   ];
-  for (const c of candidates) if (existsSync3(c)) return c;
+  for (const c of candidates) if (existsSync4(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join8(pluginRoot, "scripts", "scan.sh");
-    if (existsSync3(c)) return c;
+    const c = join9(pluginRoot, "scripts", "scan.sh");
+    if (existsSync4(c)) return c;
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
 }
@@ -27144,26 +27452,26 @@ function deriveDirectoryEntries(out) {
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames) {
   const leaf = dirPath === "" ? "(repo root)" : basename3(dirPath);
-  const join9 = (names) => {
+  const join10 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
   };
   const parts = [];
   if (fileNames.length > 0) {
-    parts.push(`${fileNames.length} file${fileNames.length === 1 ? "" : "s"} (${join9(fileNames.slice().sort())})`);
+    parts.push(`${fileNames.length} file${fileNames.length === 1 ? "" : "s"} (${join10(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts.push(`subdirs: ${join9(subdirNames.slice().sort())}`);
+    parts.push(`subdirs: ${join10(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts.length > 0 ? parts.join("; ") : "empty directory"}`;
 }
 function readReadmeSummary(absDirPath) {
   for (const candidate of README_CANDIDATES) {
-    const readmePath = join8(absDirPath, candidate);
-    if (!existsSync3(readmePath)) continue;
+    const readmePath = join9(absDirPath, candidate);
+    if (!existsSync4(readmePath)) continue;
     try {
-      const raw = readFileSync5(readmePath, "utf8");
+      const raw = readFileSync6(readmePath, "utf8");
       const clipped = raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
       return frameUntrusted("readme", clipped);
     } catch {
@@ -27189,7 +27497,7 @@ function persistDirectoriesGraph(graph, out, now) {
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join8(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join9(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(entry.path, entry.file_names, subdirNames);
@@ -27218,12 +27526,12 @@ function persistDirectoriesGraph(graph, out, now) {
 function readRepoRemotes(path) {
   try {
     const opts = { encoding: "utf8", timeout: 3e3 };
-    const listR = spawnSync3("git", ["-C", path, "remote"], opts);
+    const listR = spawnSync4("git", ["-C", path, "remote"], opts);
     if (listR.status !== 0) return [];
     const names = (listR.stdout ?? "").split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
     const remotes = [];
     for (const name of names) {
-      const urlR = spawnSync3("git", ["-C", path, "remote", "get-url", name], opts);
+      const urlR = spawnSync4("git", ["-C", path, "remote", "get-url", name], opts);
       if (urlR.status !== 0) continue;
       const url2 = (urlR.stdout ?? "").trim();
       if (!url2) continue;
@@ -27266,11 +27574,20 @@ function persistScan(db, graph, out, sessionDir) {
       repos_upserted++;
     }
     for (const r of toRetire) {
+      db.run(`SAVEPOINT retire_repo`);
       try {
+        db.run(
+          `DELETE FROM milestones WHERE repo = ? AND NOT EXISTS
+             (SELECT 1 FROM issues WHERE issues.repo = milestones.repo AND issues.milestone = milestones.name)`,
+          [r.name]
+        );
         db.run(`DELETE FROM repos WHERE name = ?`, [r.name]);
+        db.run(`RELEASE retire_repo`);
         repos_retired++;
         retired.push(r);
       } catch {
+        db.run(`ROLLBACK TO retire_repo`);
+        db.run(`RELEASE retire_repo`);
       }
     }
   });
@@ -27312,7 +27629,7 @@ function persistScan(db, graph, out, sessionDir) {
 var SCAN_TIMEOUT_MS = 10 * 60 * 1e3;
 function readLock(lockPath) {
   try {
-    return JSON.parse(readFileSync5(lockPath, "utf8"));
+    return JSON.parse(readFileSync6(lockPath, "utf8"));
   } catch {
     return null;
   }
@@ -27389,7 +27706,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
             `graph_db_open_failed: ${graphOpenError} \u2014 another process holds the world-model lock (identify the holder by running lsof on the world-model graph file); the server retries automatically on the next call once the holder exits`
           );
         }
-        const lockPath = dbPath && dbPath !== ":memory:" ? join8(dirname6(dbPath), "scan.lock") : "";
+        const lockPath = dbPath && dbPath !== ":memory:" ? join9(dirname6(dbPath), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -27415,6 +27732,14 @@ function scanTools(db, graphHolder = null, dbPath = "") {
         try {
           const out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
           const stats = persistScan(db, graph, out, sessionDir);
+          const spawnFn = args["_spawnFn"];
+          for (const r of out.repos) {
+            try {
+              syncRepoMilestones(db, r.name, r.path, spawnFn);
+            } catch (e) {
+              serverLog({ event: "milestone_sync_error", repo: r.name, error: e.message });
+            }
+          }
           const topDirs = new Set(out.files.map((f) => f.path.split("/")[0]).filter(Boolean));
           const structuralChange = detectStructuralChange(db, out.repos, topDirs);
           insertAudit(db, {
@@ -27458,7 +27783,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
 }
 
 // src/tools/world_model.ts
-import { spawnSync as spawnSync4 } from "node:child_process";
+import { spawnSync as spawnSync5 } from "node:child_process";
 import { resolve, dirname as dirname7 } from "node:path";
 var WORLD_MODEL_GET_MAX_NODES = 500;
 var UNMERGED_WORK_MAX_BRANCHES = 10;
@@ -27472,7 +27797,7 @@ function computeUnmergedWork(db, repo) {
   const dbDir = db.dbPath === ":memory:" ? process.cwd() : dirname7(db.dbPath);
   const repoPath = repoRow.path.startsWith("/") ? repoRow.path : resolve(dbDir, repoRow.path);
   const target = repoRow.target_branch || "dev";
-  const gitCheck = spawnSync4("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
+  const gitCheck = spawnSync5("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
     encoding: "utf8",
     timeout: SUBPROCESS_TIMEOUT_MS
   });
@@ -27497,13 +27822,13 @@ function computeUnmergedWork(db, repo) {
   }
   const unmerged_work = [];
   for (const [branch_id, entry] of [...byBranch.entries()].slice(0, UNMERGED_WORK_MAX_BRANCHES)) {
-    const refCheck = spawnSync4(
+    const refCheck = spawnSync5(
       "git",
       ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branch_id}`],
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
     );
     if (refCheck.status !== 0) continue;
-    const mergeBase = spawnSync4(
+    const mergeBase = spawnSync5(
       "git",
       ["-C", repoPath, "merge-base", "--is-ancestor", entry.tip, target],
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }

@@ -1,5 +1,6 @@
 import { discussionTools } from './discussions.js';
 import { issueTools } from './issues.js';
+import { milestoneTools } from './milestones.js';
 import { taskTools } from './tasks.js';
 import { auditTools } from './audit.js';
 import { validationTools } from './validation.js';
@@ -43,6 +44,7 @@ function decorateWithAgent(tools) {
 export function registerTools(server, db, dbPath = '', graphHolder = null) {
     const discussions = discussionTools(db);
     const issues = issueTools(db, dbPath);
+    const milestones = milestoneTools(db);
     const tasks = taskTools(db);
     const audit = auditTools(db);
     const validation = validationTools(db);
@@ -62,6 +64,7 @@ export function registerTools(server, db, dbPath = '', graphHolder = null) {
     toolDefinitions = decorateWithAgent([
         ...discussions.definitions,
         ...issues.definitions,
+        ...milestones.definitions,
         ...tasks.definitions,
         ...audit.definitions,
         ...validation.definitions,
@@ -82,6 +85,7 @@ export function registerTools(server, db, dbPath = '', graphHolder = null) {
     toolHandlers = {
         ...discussions.handlers,
         ...issues.handlers,
+        ...milestones.handlers,
         ...tasks.handlers,
         ...audit.handlers,
         ...validation.handlers,

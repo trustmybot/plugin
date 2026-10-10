@@ -4,6 +4,7 @@ import type { TrajectoryDB } from '../db.js';
 import type { GraphHolder } from '../graph-db.js';
 import { discussionTools } from './discussions.js';
 import { issueTools } from './issues.js';
+import { milestoneTools } from './milestones.js';
 import { taskTools } from './tasks.js';
 import { auditTools } from './audit.js';
 import { validationTools } from './validation.js';
@@ -54,6 +55,7 @@ export function registerTools(
 ): void {
   const discussions = discussionTools(db);
   const issues = issueTools(db, dbPath);
+  const milestones = milestoneTools(db);
   const tasks = taskTools(db);
   const audit = auditTools(db);
   const validation = validationTools(db);
@@ -74,6 +76,7 @@ export function registerTools(
   toolDefinitions = decorateWithAgent([
     ...discussions.definitions,
     ...issues.definitions,
+    ...milestones.definitions,
     ...tasks.definitions,
     ...audit.definitions,
     ...validation.definitions,
@@ -95,6 +98,7 @@ export function registerTools(
   toolHandlers = {
     ...discussions.handlers,
     ...issues.handlers,
+    ...milestones.handlers,
     ...tasks.handlers,
     ...audit.handlers,
     ...validation.handlers,

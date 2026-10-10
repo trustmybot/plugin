@@ -4,7 +4,7 @@ import type { TrajectoryDB } from '../db.js';
 import { resolveRepoForSync } from '../utils/repo-paths.js';
 import type { ResolvedRepoSync } from '../utils/repo-paths.js';
 import { nowISO } from '../db.js';
-import type { Issue, IssueRow, Task } from '../types.js';
+import type { Issue, IssueRow, MilestoneResolution, Task } from '../types.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
 import { resolveBackend, detectPreferred } from '../sync/backend.js';
 import { syncIssueCreate, syncIssueClose, isSyncFailure, repoSlugFromRemoteUrl, verifyRemoteIssue } from '../sync/issue_sync.js';
@@ -158,21 +158,36 @@ function ensureMilestoneRow(db: TrajectoryDB, milestone: string, repo: string | 
 // default; zero or more than one open milestones leave it null (honors #763's
 // no-forced-binding). The default path NEVER auto-creates a milestone row — it
 // only binds to one that already exists for the repo. A null repo yields null.
+// The returned `milestone_default` names which of those branches fired so the
+// caller can tell an untriaged issue from an ambiguous default.
 export function resolveDefaultMilestone(
   db: TrajectoryDB,
   explicitMilestone: string | null,
   repo: string | null,
-): string | null {
+): MilestoneResolution {
   if (explicitMilestone !== null && explicitMilestone !== '') {
     ensureMilestoneRow(db, explicitMilestone, repo);
-    return explicitMilestone;
+    return { milestone: explicitMilestone, milestone_default: 'explicit' };
   }
-  if (repo === null) return null;
+  if (repo === null) return { milestone: null, milestone_default: 'none_open' };
   const open = db.all<{ name: string }>(
-    `SELECT name FROM milestones WHERE repo = ? AND state = 'open'`,
+    `SELECT name FROM milestones WHERE repo = ? AND state = 'open' ORDER BY name`,
     [repo],
   );
-  return open.length === 1 ? open[0]!.name : null;
+  if (open.length === 1) return { milestone: open[0]!.name, milestone_default: 'applied' };
+  if (open.length === 0) return { milestone: null, milestone_default: 'none_open' };
+  return {
+    milestone: null,
+    milestone_default: 'multiple_open',
+    open_milestones: open.map((m) => m.name),
+  };
+}
+
+// The milestone_default fields every created-issue payload carries.
+export function milestoneDefaultFields(resolution: MilestoneResolution): Record<string, unknown> {
+  const fields: Record<string, unknown> = { milestone_default: resolution.milestone_default };
+  if (resolution.open_milestones) fields['open_milestones'] = resolution.open_milestones;
+  return fields;
 }
 
 // Dedup pre-check (#91/#775): before inserting, compare the new objective
@@ -455,6 +470,7 @@ export function issueTools(
             enum: ['open', 'closed'],
             description: 'Optional status filter. Omit to return all issues.',
           },
+          milestone: { type: 'string', description: "Optional milestone filter: a milestone name, or 'none' for issues with no milestone." },
           limit: { type: 'number', description: 'Max rows. Default 50, max 200.' },
           offset: { type: 'number', description: 'Row offset. Default 0.' },
           fields: {
@@ -575,7 +591,8 @@ export function issueTools(
       // (#83/#763). When omitted, defaults to the issue repo's sole OPEN
       // milestone (#15); an explicit milestone upserts its FK row (#985/#154).
       const explicitMilestone = (args['milestone'] as string | undefined) ?? null;
-      const milestone = resolveDefaultMilestone(db, explicitMilestone, issueRepo);
+      const milestoneResolution = resolveDefaultMilestone(db, explicitMilestone, issueRepo);
+      const milestone = milestoneResolution.milestone;
       // _spawnFn: test-only injection point; not in inputSchema
       const spawnFn = (args['_spawnFn'] as SpawnFn | undefined) ?? undefined;
       const now = nowISO();
@@ -620,7 +637,10 @@ export function issueTools(
         const adoptedRow = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [adoptId]);
         const adoptedIssue = decodeIssue(adoptedRow!);
         const adoptedRedacted = redactIssue(adoptedIssue, agent, { include_description: true });
-        const adoptedPayload: Record<string, unknown> = { ...(adoptedRedacted as Record<string, unknown>) };
+        const adoptedPayload: Record<string, unknown> = {
+          ...(adoptedRedacted as Record<string, unknown>),
+          ...milestoneDefaultFields(milestoneResolution),
+        };
         adoptedPayload._adopted = { backend: adoption.backend, remote_iid: remoteIid };
         return ok(adoptedPayload);
       }
@@ -680,7 +700,10 @@ export function issueTools(
             const row = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
             const issue = decodeIssue(row!);
             const redacted = redactIssue(issue, agent, { include_description: true });
-            const payload: Record<string, unknown> = { ...(redacted as Record<string, unknown>) };
+            const payload: Record<string, unknown> = {
+              ...(redacted as Record<string, unknown>),
+              ...milestoneDefaultFields(milestoneResolution),
+            };
             payload._sync = syncDiagnostic;
             return ok(payload);
           }
@@ -882,7 +905,10 @@ export function issueTools(
       const row = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
       const issue = decodeIssue(row!);
       const redacted = redactIssue(issue, agent, { include_description: true });
-      const payload: Record<string, unknown> = { ...(redacted as Record<string, unknown>) };
+      const payload: Record<string, unknown> = {
+        ...(redacted as Record<string, unknown>),
+        ...milestoneDefaultFields(milestoneResolution),
+      };
       if (syncDiagnostic) payload._sync = syncDiagnostic;
       return ok(payload);
     })),
@@ -1021,18 +1047,26 @@ export function issueTools(
         return out;
       }
 
-      let rows: IssueListRow[];
+      const rawMilestone = args['milestone'] as string | undefined;
+      const conditions: string[] = [];
+      const params: Array<string | number> = [];
       if (rawStatus !== undefined) {
-        rows = db.all(
-          'SELECT id, objective, status, created_at, updated_at FROM issues WHERE status = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?',
-          [rawStatus, limit, offset],
-        );
-      } else {
-        rows = db.all(
-          'SELECT id, objective, status, created_at, updated_at FROM issues ORDER BY updated_at DESC LIMIT ? OFFSET ?',
-          [limit, offset],
-        );
+        conditions.push('status = ?');
+        params.push(rawStatus);
       }
+      if (rawMilestone !== undefined && rawMilestone !== '') {
+        if (rawMilestone === 'none') {
+          conditions.push('milestone IS NULL');
+        } else {
+          conditions.push('milestone = ?');
+          params.push(rawMilestone);
+        }
+      }
+      const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      const rows = db.all<IssueListRow>(
+        `SELECT id, objective, status, created_at, updated_at FROM issues ${where} ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+        [...params, limit, offset],
+      );
       return ok(rows.map(projectRow));
     }),
 

@@ -30,7 +30,7 @@ function syncLog(entry) {
         // Swallow all errors — logging must never break the caller.
     }
 }
-function defaultSpawnFn(cmd, args, opts) {
+export function defaultSpawnFn(cmd, args, opts) {
     const blockReason = liveCliBlockReason();
     if (blockReason) {
         const message = liveCliBlockedMessage(blockReason, cmd, args);

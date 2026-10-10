@@ -83,7 +83,18 @@ K8s Events have a `reason` field with a similar shape but different semantics. *
 | `open` | GitHub | Milestone accepting issues |
 | `closed` | GitHub | Milestone shipped or wound down |
 
-Schema enforces via `CHECK (state IN ('open','closed'))` (v29).
+Schema enforces via `CHECK (state IN ('open','closed'))` (v29). `scan_run` imports the remote's state (GitLab `active` → `open`); `milestone_close` sets `closed`.
+
+### `milestone_default` — why `issue_create` / `intent_start` bound a milestone
+
+Returned in the created-issue payload, not stored.
+
+| Value | Meaning |
+|---|---|
+| `applied` | No milestone passed; the repo's sole open milestone was applied |
+| `explicit` | The caller passed a milestone |
+| `none_open` | No milestone passed and the repo has no open milestone (or no repo resolved); the issue stays untriaged |
+| `multiple_open` | No milestone passed and the repo has several open milestones; the issue stays untriaged and the payload lists them in `open_milestones` |
 
 ### `audit.from_node` — which agent or persona logged the event
 
@@ -111,6 +122,11 @@ Schema enforces via `CHECK (state IN ('open','closed'))` (v29).
 | `deep_scan_completed` | `scan_run` finished; `content_json` carries `source`, `structural_change`, `repos_seen`, `top_dirs` |
 | `swe_retry_spawned` | Bro spawned a SWE retry after failure; captures retry rationale in `content_json` |
 | `cheatcode_search` | `cheatcode_search` finished; `content_json` carries `query`, `kind`, `candidate_count`, and `top` ranked candidates |
+| `milestones_reconciled` | `scan_run` imported a repo's remote milestones; `content_json` carries `imported`, `closed`, `repo` |
+| `milestone_reconcile_failed` | `scan_run` could not read a repo's remote milestones; `content_json` carries `repo`, `backend`, `reason` (the scan still succeeds) |
+| `milestone_seeded` | `scan_run` seeded `v<next-patch>` for a repo with no milestones; `content_json` carries `name`, `repo`, `source`, `remote_created` |
+| `milestone_seed_skipped` | `scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`) |
+| `milestone_closed` | `milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed` |
 
 **TMB-specific** — these are TMB workflow events. New event types require a row here. Bro should not invent ad-hoc event types.
 
