@@ -10,6 +10,7 @@ import { insertAudit } from './audit.js';
 import {
   syncIssueCloseRemotes,
   resolveDefaultMilestone,
+  milestoneDefaultFields,
   validateIssueLabels,
   defaultSyncLabels,
 } from './issues.js';
@@ -1259,7 +1260,8 @@ export function compositeTools(
         // Resolve the issue's repo (explicit arg, else the sole registered repo)
         // so the milestone default + FK insert bind to the right repo (#15).
         const issueRepo = explicitRepo ?? resolveSoleRepo(db)?.name ?? null;
-        const milestone = resolveDefaultMilestone(db, null, issueRepo);
+        const milestoneResolution = resolveDefaultMilestone(db, null, issueRepo);
+        const milestone = milestoneResolution.milestone;
         const result = db.transaction(() => {
           db.run(
             `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
@@ -1290,7 +1292,11 @@ export function compositeTools(
             created_at: now,
           });
 
-          return { issue_id: issueId, branch_id: branchId };
+          return {
+            issue_id: issueId,
+            branch_id: branchId,
+            ...milestoneDefaultFields(milestoneResolution),
+          };
         });
 
         return ok(result);

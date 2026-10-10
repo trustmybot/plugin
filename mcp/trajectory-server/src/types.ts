@@ -31,6 +31,16 @@ export interface IssueRow {
   labels: string | null;
 }
 
+/** Why issue_create / intent_start bound (or did not bind) a milestone. */
+export type MilestoneDefault = 'applied' | 'explicit' | 'none_open' | 'multiple_open';
+
+export interface MilestoneResolution {
+  milestone: string | null;
+  milestone_default: MilestoneDefault;
+  /** Set only for `multiple_open`: the repo's open milestone names. */
+  open_milestones?: string[];
+}
+
 export interface Task {
   id: number;
   issue_id: number;

@@ -38,7 +38,7 @@ export type SpawnFn = (
   opts: SpawnSyncOptions,
 ) => { status: number | null; stdout: string; stderr: string };
 
-function defaultSpawnFn(
+export function defaultSpawnFn(
   cmd: string,
   args: string[],
   opts: SpawnSyncOptions,

@@ -1297,21 +1297,21 @@ var require_errors = __commonJS({
     function extendErrors({ gen, keyword, schemaValue, data, errsCount, it }) {
       if (errsCount === void 0)
         throw new Error("ajv implementation error");
-      const err18 = gen.name("err");
+      const err19 = gen.name("err");
       gen.forRange("i", errsCount, names_1.default.errors, (i) => {
-        gen.const(err18, (0, codegen_1._)`${names_1.default.vErrors}[${i}]`);
-        gen.if((0, codegen_1._)`${err18}.instancePath === undefined`, () => gen.assign((0, codegen_1._)`${err18}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it.errorPath)));
-        gen.assign((0, codegen_1._)`${err18}.schemaPath`, (0, codegen_1.str)`${it.errSchemaPath}/${keyword}`);
+        gen.const(err19, (0, codegen_1._)`${names_1.default.vErrors}[${i}]`);
+        gen.if((0, codegen_1._)`${err19}.instancePath === undefined`, () => gen.assign((0, codegen_1._)`${err19}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it.errorPath)));
+        gen.assign((0, codegen_1._)`${err19}.schemaPath`, (0, codegen_1.str)`${it.errSchemaPath}/${keyword}`);
         if (it.opts.verbose) {
-          gen.assign((0, codegen_1._)`${err18}.schema`, schemaValue);
-          gen.assign((0, codegen_1._)`${err18}.data`, data);
+          gen.assign((0, codegen_1._)`${err19}.schema`, schemaValue);
+          gen.assign((0, codegen_1._)`${err19}.data`, data);
         }
       });
     }
     exports.extendErrors = extendErrors;
     function addError(gen, errObj) {
-      const err18 = gen.const("err", errObj);
-      gen.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen.assign(names_1.default.vErrors, (0, codegen_1._)`[${err18}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err18})`);
+      const err19 = gen.const("err", errObj);
+      gen.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen.assign(names_1.default.vErrors, (0, codegen_1._)`[${err19}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err19})`);
       gen.code((0, codegen_1._)`${names_1.default.errors}++`);
     }
     function returnErrors(it, errs) {
@@ -6799,7 +6799,7 @@ var require_dist = __commonJS({
 
 // src/index.ts
 import path from "node:path";
-import { mkdirSync as mkdirSync7, readFileSync as readFileSync6 } from "node:fs";
+import { mkdirSync as mkdirSync7, readFileSync as readFileSync7 } from "node:fs";
 import { performance as performance2 } from "node:perf_hooks";
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
@@ -7420,8 +7420,8 @@ var ZodType = class {
         } : {
           issues: ctx.common.issues
         };
-      } catch (err18) {
-        if (err18?.message?.toLowerCase()?.includes("encountered")) {
+      } catch (err19) {
+        if (err19?.message?.toLowerCase()?.includes("encountered")) {
           this["~standard"].async = true;
         }
         ctx.common = {
@@ -21253,16 +21253,16 @@ var TrajectoryDB = class {
         ok: true
       });
       return out;
-    } catch (err18) {
+    } catch (err19) {
       this.sqlLog({
         kind: "run",
         sql,
         params: params ?? [],
         duration_ms: Math.round(performance.now() - start),
         ok: false,
-        error_message: err18 instanceof Error ? err18.message : String(err18)
+        error_message: err19 instanceof Error ? err19.message : String(err19)
       });
-      throw err18;
+      throw err19;
     }
   }
   get(sql, params) {
@@ -21279,16 +21279,16 @@ var TrajectoryDB = class {
         ok: true
       });
       return row;
-    } catch (err18) {
+    } catch (err19) {
       this.sqlLog({
         kind: "get",
         sql,
         params: params ?? [],
         duration_ms: Math.round(performance.now() - start),
         ok: false,
-        error_message: err18 instanceof Error ? err18.message : String(err18)
+        error_message: err19 instanceof Error ? err19.message : String(err19)
       });
-      throw err18;
+      throw err19;
     }
   }
   all(sql, params) {
@@ -21305,16 +21305,16 @@ var TrajectoryDB = class {
         ok: true
       });
       return rows;
-    } catch (err18) {
+    } catch (err19) {
       this.sqlLog({
         kind: "all",
         sql,
         params: params ?? [],
         duration_ms: Math.round(performance.now() - start),
         ok: false,
-        error_message: err18 instanceof Error ? err18.message : String(err18)
+        error_message: err19 instanceof Error ? err19.message : String(err19)
       });
-      throw err18;
+      throw err19;
     }
   }
   /**
@@ -21328,12 +21328,12 @@ var TrajectoryDB = class {
       const result = fn();
       this.db.exec("COMMIT");
       return result;
-    } catch (err18) {
+    } catch (err19) {
       try {
         this.db.exec("ROLLBACK");
       } catch {
       }
-      throw err18;
+      throw err19;
     }
   }
   get isOpen() {
@@ -21549,12 +21549,12 @@ function migrateV8toV9(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   }
 }
 function migrateV9toV10(db2) {
@@ -21566,12 +21566,12 @@ function migrateV9toV10(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   }
 }
 function migrateV10toV11(db2) {
@@ -21589,12 +21589,12 @@ function migrateV10toV11(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   }
 }
 function migrateV11toV12(db2) {
@@ -21606,12 +21606,12 @@ function migrateV11toV12(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   }
 }
 function migrateV12toV13(db2) {
@@ -21626,12 +21626,12 @@ function migrateV12toV13(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   }
 }
 function migrateV13toV14(db2) {
@@ -21663,12 +21663,12 @@ function migrateV13toV14(db2) {
       "CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode ON cheatcode_attachments(cheatcode_id)"
     );
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   }
 }
 function migrateV14toV15(db2) {
@@ -21678,12 +21678,12 @@ function migrateV14toV15(db2) {
       db2.exec("ALTER TABLE cheatcodes ADD COLUMN scope TEXT NOT NULL DEFAULT 'local'");
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   }
 }
 function migrateV15toV16(db2) {
@@ -21692,12 +21692,12 @@ function migrateV15toV16(db2) {
     db2.exec("DROP TABLE IF EXISTS rule_invocations");
     db2.exec("DROP TABLE IF EXISTS rules");
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   }
 }
 function migrateV16toV17(db2) {
@@ -21705,12 +21705,12 @@ function migrateV16toV17(db2) {
   try {
     db2.exec("DROP TABLE IF EXISTS commands");
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   }
 }
 function migrateV17toV18(db2) {
@@ -21748,12 +21748,12 @@ function migrateV17toV18(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -21848,12 +21848,12 @@ function migrateV18toV19(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -21881,12 +21881,12 @@ function migrateV19toV20(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   }
 }
 function migrateV20toV21(db2) {
@@ -22156,12 +22156,12 @@ function migrateV28toV29(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -22416,12 +22416,12 @@ function migrateV29toV30(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -22602,12 +22602,12 @@ function migrateV22toV23(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -22674,12 +22674,12 @@ function migrateV23toV24(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -22711,12 +22711,12 @@ function migrateV24toV25(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   }
 }
 function migrateV25toV26(db2) {
@@ -22759,12 +22759,12 @@ function migrateV25toV26(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -22814,12 +22814,12 @@ function migrateV26toV27(db2) {
       "DELETE FROM plugin_config WHERE key IN ('pr_target', 'branching_model', 'protected_branches', 'remotes')"
     ).run();
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   }
 }
 function migrateV7toV8(db2) {
@@ -22835,12 +22835,12 @@ function migrateV7toV8(db2) {
     db2.exec("DROP TABLE IF EXISTS directories_fts");
     db2.exec("DROP TABLE IF EXISTS directories");
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   }
 }
 function migrateV6toV7(db2) {
@@ -22855,12 +22855,12 @@ function migrateV6toV7(db2) {
     db2.exec("DROP TABLE IF EXISTS file_registry_fts");
     db2.exec("DROP TABLE IF EXISTS file_registry");
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   }
 }
 function migrateV5toV6(db2) {
@@ -22894,12 +22894,12 @@ function migrateV5toV6(db2) {
       "CREATE INDEX IF NOT EXISTS idx_directories_embeddings_model ON directories_embeddings(model_id)"
     );
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   }
 }
 function migrateV4toV5(db2) {
@@ -22920,12 +22920,12 @@ function migrateV4toV5(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   }
 }
 function migrateV3toV4(db2) {
@@ -22974,12 +22974,12 @@ function migrateV3toV4(db2) {
       `);
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   }
 }
 function migrateV2toV3(db2) {
@@ -23076,12 +23076,12 @@ function migrateV2toV3(db2) {
       db2.exec(`INSERT INTO file_registry_fts(rowid, summary, path) SELECT rowid, summary, path FROM file_registry WHERE summary IS NOT NULL`);
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   }
 }
 function migrateV1toV2(db2) {
@@ -23261,12 +23261,12 @@ function migrateV1toV2(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err18) {
+  } catch (err19) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err18;
+    throw err19;
   }
 }
 
@@ -24859,14 +24859,25 @@ function ensureMilestoneRow(db2, milestone, repo) {
 function resolveDefaultMilestone(db2, explicitMilestone, repo) {
   if (explicitMilestone !== null && explicitMilestone !== "") {
     ensureMilestoneRow(db2, explicitMilestone, repo);
-    return explicitMilestone;
+    return { milestone: explicitMilestone, milestone_default: "explicit" };
   }
-  if (repo === null) return null;
+  if (repo === null) return { milestone: null, milestone_default: "none_open" };
   const open = db2.all(
-    `SELECT name FROM milestones WHERE repo = ? AND state = 'open'`,
+    `SELECT name FROM milestones WHERE repo = ? AND state = 'open' ORDER BY name`,
     [repo]
   );
-  return open.length === 1 ? open[0].name : null;
+  if (open.length === 1) return { milestone: open[0].name, milestone_default: "applied" };
+  if (open.length === 0) return { milestone: null, milestone_default: "none_open" };
+  return {
+    milestone: null,
+    milestone_default: "multiple_open",
+    open_milestones: open.map((m) => m.name)
+  };
+}
+function milestoneDefaultFields(resolution) {
+  const fields = { milestone_default: resolution.milestone_default };
+  if (resolution.open_milestones) fields["open_milestones"] = resolution.open_milestones;
+  return fields;
 }
 var DEDUP_THRESHOLD = 0.6;
 function normalizeObjective(text) {
@@ -25076,6 +25087,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
             enum: ["open", "closed"],
             description: "Optional status filter. Omit to return all issues."
           },
+          milestone: { type: "string", description: "Optional milestone filter: a milestone name, or 'none' for issues with no milestone." },
           limit: { type: "number", description: "Max rows. Default 50, max 200." },
           offset: { type: "number", description: "Row offset. Default 0." },
           fields: {
@@ -25178,7 +25190,8 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         }
       }
       const explicitMilestone = args["milestone"] ?? null;
-      const milestone = resolveDefaultMilestone(db2, explicitMilestone, issueRepo);
+      const milestoneResolution = resolveDefaultMilestone(db2, explicitMilestone, issueRepo);
+      const milestone = milestoneResolution.milestone;
       const spawnFn = args["_spawnFn"] ?? void 0;
       const now = nowISO();
       const remoteIidRaw = args["remote_iid"];
@@ -25218,7 +25231,10 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         const adoptedRow = db2.get("SELECT * FROM issues WHERE id = ?", [adoptId]);
         const adoptedIssue = decodeIssue(adoptedRow);
         const adoptedRedacted = redactIssue(adoptedIssue, agent, { include_description: true });
-        const adoptedPayload = { ...adoptedRedacted };
+        const adoptedPayload = {
+          ...adoptedRedacted,
+          ...milestoneDefaultFields(milestoneResolution)
+        };
         adoptedPayload._adopted = { backend: adoption.backend, remote_iid: remoteIid };
         return ok3(adoptedPayload);
       }
@@ -25258,7 +25274,10 @@ function issueTools(db2, dbPath2 = "", options = {}) {
             const row2 = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
             const issue3 = decodeIssue(row2);
             const redacted2 = redactIssue(issue3, agent, { include_description: true });
-            const payload2 = { ...redacted2 };
+            const payload2 = {
+              ...redacted2,
+              ...milestoneDefaultFields(milestoneResolution)
+            };
             payload2._sync = syncDiagnostic;
             return ok3(payload2);
           }
@@ -25442,7 +25461,10 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       const issue2 = decodeIssue(row);
       const redacted = redactIssue(issue2, agent, { include_description: true });
-      const payload = { ...redacted };
+      const payload = {
+        ...redacted,
+        ...milestoneDefaultFields(milestoneResolution)
+      };
       if (syncDiagnostic) payload._sync = syncDiagnostic;
       return ok3(payload);
     })),
@@ -25552,18 +25574,26 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         for (const f of fieldsArg) out[f] = row[f];
         return out;
       }
-      let rows;
+      const rawMilestone = args["milestone"];
+      const conditions = [];
+      const params = [];
       if (rawStatus !== void 0) {
-        rows = db2.all(
-          "SELECT id, objective, status, created_at, updated_at FROM issues WHERE status = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-          [rawStatus, limit, offset]
-        );
-      } else {
-        rows = db2.all(
-          "SELECT id, objective, status, created_at, updated_at FROM issues ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-          [limit, offset]
-        );
+        conditions.push("status = ?");
+        params.push(rawStatus);
       }
+      if (rawMilestone !== void 0 && rawMilestone !== "") {
+        if (rawMilestone === "none") {
+          conditions.push("milestone IS NULL");
+        } else {
+          conditions.push("milestone = ?");
+          params.push(rawMilestone);
+        }
+      }
+      const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+      const rows = db2.all(
+        `SELECT id, objective, status, created_at, updated_at FROM issues ${where} ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+        [...params, limit, offset]
+      );
       return ok3(rows.map(projectRow));
     }),
     issue_update_description: requireRoles("issue_update_description", ["bro"], wrapHandler3(async (args) => {
@@ -25807,8 +25837,395 @@ function issueTools(db2, dbPath2 = "", options = {}) {
   return { definitions, handlers };
 }
 
-// src/tools/tasks.ts
+// src/tools/milestones.ts
 import { spawnSync as spawnSync3 } from "node:child_process";
+import { existsSync as existsSync2, readFileSync as readFileSync3 } from "node:fs";
+import { join as join6 } from "node:path";
+
+// src/sync/milestone_sync.ts
+function splitSlug(slug) {
+  const i = slug.indexOf("/");
+  if (i <= 0 || i === slug.length - 1) return null;
+  return { host: slug.slice(0, i), path: slug.slice(i + 1) };
+}
+function collectionPath(target) {
+  const parts = splitSlug(target.slug);
+  if (!parts) return null;
+  const path2 = target.backend === "gh" ? `repos/${parts.path}/milestones` : `projects/${encodeURIComponent(parts.path)}/milestones`;
+  return { host: parts.host, path: path2 };
+}
+function runApi(target, apiArgs, spawnFn) {
+  const opts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
+  if (target.cwd) opts.cwd = target.cwd;
+  try {
+    return spawnFn(target.backend, ["api", ...apiArgs], opts);
+  } catch (e) {
+    return { thrown: e instanceof Error ? e.message : String(e) };
+  }
+}
+function failure(target, result) {
+  if ("thrown" in result) {
+    return { ok: false, backend: target.backend, reason: "spawn_error", message: result.thrown };
+  }
+  return {
+    ok: false,
+    backend: target.backend,
+    reason: "non_zero_exit",
+    exit_code: result.status ?? void 0,
+    stderr: result.stderr.slice(0, 1024)
+  };
+}
+function badSlug(target) {
+  return { ok: false, backend: target.backend, reason: "bad_slug", message: `cannot derive an API path from "${target.slug}"` };
+}
+function fetchRemoteMilestones(target, spawnFn = defaultSpawnFn) {
+  const coll = collectionPath(target);
+  if (!coll) return badSlug(target);
+  const query = target.backend === "gh" ? "?state=all&per_page=100" : "?per_page=100";
+  const result = runApi(target, ["--hostname", coll.host, `${coll.path}${query}`], spawnFn);
+  if ("thrown" in result || result.status !== 0) return failure(target, result);
+  let parsed;
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    return { ok: false, backend: target.backend, reason: "parse_failed", message: "milestone list is not JSON" };
+  }
+  if (!Array.isArray(parsed)) {
+    return { ok: false, backend: target.backend, reason: "parse_failed", message: "milestone list is not an array" };
+  }
+  const milestones = [];
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry;
+    const title = e["title"];
+    const rawState = e["state"];
+    const id = target.backend === "gh" ? e["number"] : e["id"];
+    if (typeof title !== "string" || title === "" || typeof id !== "number") continue;
+    const state = rawState === "closed" ? "closed" : rawState === "open" || rawState === "active" ? "open" : null;
+    if (state === null) continue;
+    milestones.push({ id, title, state });
+  }
+  return { ok: true, milestones };
+}
+function createRemoteMilestone(target, title, spawnFn = defaultSpawnFn) {
+  const coll = collectionPath(target);
+  if (!coll) return badSlug(target);
+  const result = runApi(target, ["--hostname", coll.host, "-X", "POST", coll.path, "-f", `title=${title}`], spawnFn);
+  if ("thrown" in result || result.status !== 0) return failure(target, result);
+  return { ok: true };
+}
+function closeRemoteMilestone(target, title, spawnFn = defaultSpawnFn) {
+  const coll = collectionPath(target);
+  if (!coll) return badSlug(target);
+  const listed = fetchRemoteMilestones(target, spawnFn);
+  if (!listed.ok) return listed;
+  const match = listed.milestones.find((m) => m.title === title);
+  if (!match) {
+    return { ok: false, backend: target.backend, reason: "not_found", message: `no remote milestone titled "${title}"` };
+  }
+  if (match.state === "closed") return { ok: true };
+  const apiArgs = target.backend === "gh" ? ["--hostname", coll.host, "-X", "PATCH", `${coll.path}/${match.id}`, "-f", "state=closed"] : ["--hostname", coll.host, "-X", "PUT", `${coll.path}/${match.id}`, "-f", "state_event=close"];
+  const result = runApi(target, apiArgs, spawnFn);
+  if ("thrown" in result || result.status !== 0) return failure(target, result);
+  return { ok: true };
+}
+
+// src/tools/milestones.ts
+function ok4(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function err4(message) {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    isError: true
+  };
+}
+function wrap(fn) {
+  return async (args) => {
+    try {
+      return await fn(args);
+    } catch (e) {
+      return err4(e.message);
+    }
+  };
+}
+function auditMilestone(db2, eventType, summary, content) {
+  insertAudit(db2, {
+    issue_id: -1,
+    from_node: "bro",
+    event_type: eventType,
+    summary,
+    content_json: JSON.stringify(content),
+    repo: null
+  });
+}
+function resolveMilestoneTargets(db2, repoName, spawnFn) {
+  const resolved = resolveRepoForSync(db2, repoName);
+  if (!resolved) return { gated: false, targets: [] };
+  const row = db2.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
+  let syncConfig = "off";
+  if (row) {
+    try {
+      syncConfig = String(JSON.parse(row.value_json));
+    } catch {
+      syncConfig = "off";
+    }
+  }
+  const slugFor = (provider) => {
+    const entry = resolved.remotes.find((r) => r.provider === provider);
+    return entry ? repoSlugFromRemoteUrl(entry.url) : null;
+  };
+  const ghSlug = slugFor("github");
+  const glSlug = slugFor("gitlab");
+  const backend = resolveBackend(syncConfig, { github: ghSlug !== null, gitlab: glSlug !== null }, !!spawnFn);
+  if (backend === null || backend === "off") return { gated: false, targets: [] };
+  const targets = [];
+  if ((backend === "gh" || backend === "both") && ghSlug) {
+    targets.push({ backend: "gh", slug: ghSlug, cwd: resolved.path });
+  }
+  if ((backend === "glab" || backend === "both") && glSlug) {
+    targets.push({ backend: "glab", slug: glSlug, cwd: resolved.path });
+  }
+  return { gated: true, targets };
+}
+function failureContent(f) {
+  return { backend: f.backend, reason: f.reason, exit_code: f.exit_code, stderr: f.stderr, message: f.message };
+}
+function reconcileRepoMilestones(db2, repo, targets, spawnFn) {
+  const merged = /* @__PURE__ */ new Map();
+  let anyFetched = false;
+  let allFetched = true;
+  for (const target of targets) {
+    const listed = fetchRemoteMilestones(target, spawnFn);
+    if (!listed.ok) {
+      allFetched = false;
+      auditMilestone(db2, "milestone_reconcile_failed", `milestone reconcile failed for ${repo} via ${target.backend}: ${listed.reason}`, {
+        repo,
+        ...failureContent(listed)
+      });
+      continue;
+    }
+    anyFetched = true;
+    for (const m of listed.milestones) {
+      if (merged.get(m.title) !== "open") merged.set(m.title, m.state);
+    }
+  }
+  if (!anyFetched) return { ok: false };
+  let imported = 0;
+  let closed = 0;
+  db2.transaction(() => {
+    for (const [name, state] of merged) {
+      const existing = db2.get(`SELECT state FROM milestones WHERE name = ? AND repo = ?`, [name, repo]);
+      if (!existing) {
+        db2.run(`INSERT INTO milestones (name, repo, state) VALUES (?, ?, ?)`, [name, repo, state]);
+        imported++;
+        if (state === "closed") closed++;
+      } else if (existing.state !== state) {
+        db2.run(`UPDATE milestones SET state = ? WHERE name = ? AND repo = ?`, [state, name, repo]);
+        if (state === "closed") closed++;
+      }
+    }
+  });
+  auditMilestone(db2, "milestones_reconciled", `milestones reconciled for ${repo}: ${imported} imported, ${closed} closed`, {
+    imported,
+    closed,
+    repo
+  });
+  return { ok: allFetched };
+}
+var SEMVER_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/;
+function parseSemver(raw) {
+  const m = SEMVER_RE.exec(raw.trim());
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+function nextPatchMilestone(version2) {
+  const parts = parseSemver(version2);
+  if (!parts) return null;
+  return `v${parts[0]}.${parts[1]}.${parts[2] + 1}`;
+}
+function readJsonVersion(path2) {
+  if (!existsSync2(path2)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync3(path2, "utf8"));
+    return typeof parsed.version === "string" && parseSemver(parsed.version) ? parsed.version : null;
+  } catch {
+    return null;
+  }
+}
+function readTomlVersion(path2, table) {
+  if (!existsSync2(path2)) return null;
+  let text;
+  try {
+    text = readFileSync3(path2, "utf8");
+  } catch {
+    return null;
+  }
+  let inTable = false;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("[")) {
+      inTable = trimmed === `[${table}]`;
+      continue;
+    }
+    if (!inTable) continue;
+    const m = /^version\s*=\s*["']([^"']+)["']/.exec(trimmed);
+    if (m) return parseSemver(m[1]) ? m[1] : null;
+  }
+  return null;
+}
+function highestVersionTag(repoPath) {
+  try {
+    const r = spawnSync3("git", ["-C", repoPath, "tag", "--list", "v*"], { encoding: "utf8", timeout: 3e3 });
+    if (r.status !== 0) return null;
+    let best = null;
+    for (const tag of (r.stdout ?? "").split("\n").map((t) => t.trim())) {
+      const parts = parseSemver(tag);
+      if (!parts) continue;
+      if (best === null || parts[0] > best.parts[0] || parts[0] === best.parts[0] && parts[1] > best.parts[1] || parts[0] === best.parts[0] && parts[1] === best.parts[1] && parts[2] > best.parts[2]) {
+        best = { tag, parts };
+      }
+    }
+    return best?.tag ?? null;
+  } catch {
+    return null;
+  }
+}
+function readRepoVersion(repoPath) {
+  const candidates = [
+    ["package.json", () => readJsonVersion(join6(repoPath, "package.json"))],
+    [".claude-plugin/plugin.json", () => readJsonVersion(join6(repoPath, ".claude-plugin", "plugin.json"))],
+    ["pyproject.toml", () => readTomlVersion(join6(repoPath, "pyproject.toml"), "project")],
+    ["Cargo.toml", () => readTomlVersion(join6(repoPath, "Cargo.toml"), "package")],
+    ["git_tag", () => highestVersionTag(repoPath)]
+  ];
+  for (const [source, read] of candidates) {
+    const version2 = read();
+    if (version2) return { version: version2, source };
+  }
+  return null;
+}
+function seedRepoMilestone(db2, repo, repoPath, gate, spawnFn) {
+  const count = db2.get(`SELECT COUNT(*) AS n FROM milestones WHERE repo = ?`, [repo]);
+  if ((count?.n ?? 0) > 0) return;
+  const found = readRepoVersion(repoPath);
+  const name = found ? nextPatchMilestone(found.version) : null;
+  if (!found || !name) {
+    auditMilestone(db2, "milestone_seed_skipped", `milestone seed skipped for ${repo}: no version source`, {
+      repo,
+      reason: "no_version_source"
+    });
+    return;
+  }
+  db2.run(`INSERT INTO milestones (name, repo, state) VALUES (?, ?, 'open')`, [name, repo]);
+  const failures = [];
+  if (gate.gated) {
+    for (const target of gate.targets) {
+      const created = createRemoteMilestone(target, name, spawnFn);
+      if (!created.ok) failures.push(failureContent(created));
+    }
+  }
+  const remoteCreated = gate.gated && gate.targets.length > 0 && failures.length === 0;
+  const content = { name, repo, source: found.source, remote_created: remoteCreated };
+  if (failures.length > 0) content["remote_failures"] = failures;
+  auditMilestone(db2, "milestone_seeded", `milestone ${name} seeded for ${repo} from ${found.source}`, content);
+}
+function syncRepoMilestones(db2, repo, repoPath, spawnFn) {
+  const gate = resolveMilestoneTargets(db2, repo, spawnFn);
+  if (gate.gated && gate.targets.length > 0) {
+    const reconciled = reconcileRepoMilestones(db2, repo, gate.targets, spawnFn);
+    if (!reconciled.ok) {
+      const count = db2.get(`SELECT COUNT(*) AS n FROM milestones WHERE repo = ?`, [repo]);
+      if ((count?.n ?? 0) === 0) {
+        auditMilestone(db2, "milestone_seed_skipped", `milestone seed skipped for ${repo}: remote reconcile failed`, {
+          repo,
+          reason: "reconcile_failed"
+        });
+      }
+      return;
+    }
+  }
+  seedRepoMilestone(db2, repo, repoPath, gate, spawnFn);
+}
+function milestoneTools(db2) {
+  const definitions = [
+    {
+      name: "milestone_close",
+      description: "Close a milestone locally and on the synced remote. Bro only. Refuses while the milestone has open issues unless force=true.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
+          name: { type: "string", description: 'Milestone name, e.g. "v1.4.3"' },
+          repo: { type: "string", description: "Repo the milestone belongs to. Defaults to the sole registered repo." },
+          force: { type: "boolean", description: "Close even when open issues still reference the milestone (default false)." }
+        },
+        required: ["agent", "name"]
+      }
+    }
+  ];
+  const handlers = {
+    milestone_close: requireRoles("milestone_close", ["bro"], wrap(async (args) => {
+      const name = args["name"];
+      if (typeof name !== "string" || name.trim() === "") {
+        return err4("name must be a non-empty string");
+      }
+      const explicitRepo = typeof args["repo"] === "string" && args["repo"] !== "" ? args["repo"] : null;
+      const repo = explicitRepo ?? resolveRepoForSync(db2, null)?.name ?? null;
+      if (repo === null) {
+        return err4("repo_unresolved: multiple or no repos registered \u2014 pass repo");
+      }
+      const existing = db2.get(`SELECT state FROM milestones WHERE name = ? AND repo = ?`, [name, repo]);
+      if (!existing) {
+        return err4(`milestone_not_found: no milestone "${name}" for repo "${repo}"`);
+      }
+      if (existing.state === "closed") {
+        return ok4({ name, repo, state: "closed", already_closed: true });
+      }
+      const force = args["force"] === true;
+      const openIssues = db2.get(
+        `SELECT COUNT(*) AS n FROM issues WHERE milestone = ? AND repo = ? AND status = 'open'`,
+        [name, repo]
+      )?.n ?? 0;
+      if (openIssues > 0 && !force) {
+        return err4(`milestone_has_open_issues: "${name}" still has ${openIssues} open issue(s) \u2014 move or close them, or pass force: true`);
+      }
+      db2.run(`UPDATE milestones SET state = 'closed' WHERE name = ? AND repo = ?`, [name, repo]);
+      const spawnFn = args["_spawnFn"];
+      const gate = resolveMilestoneTargets(db2, repo, spawnFn);
+      const failures = [];
+      if (gate.gated) {
+        for (const target of gate.targets) {
+          const closed = closeRemoteMilestone(target, name, spawnFn);
+          if (!closed.ok) failures.push(failureContent(closed));
+        }
+      }
+      const remoteClosed = gate.gated && gate.targets.length > 0 && failures.length === 0;
+      const content = {
+        name,
+        repo,
+        forced: force && openIssues > 0,
+        open_issues: openIssues,
+        remote_closed: remoteClosed
+      };
+      if (failures.length > 0) content["remote_failures"] = failures;
+      auditMilestone(db2, "milestone_closed", `milestone ${name} closed for ${repo}`, content);
+      const payload = { name, repo, state: "closed", open_issues: openIssues, remote_closed: remoteClosed };
+      if (failures.length > 0) {
+        payload["_sync"] = {
+          sync_failed: true,
+          failures,
+          hint: "The local milestone is closed; close it on the remote manually."
+        };
+      }
+      return ok4(payload);
+    }))
+  };
+  return { definitions, handlers };
+}
+
+// src/tools/tasks.ts
+import { spawnSync as spawnSync4 } from "node:child_process";
 import { resolve, dirname as dirname3 } from "node:path";
 function taskFileDirs(filesJson) {
   const dirs = /* @__PURE__ */ new Set();
@@ -25878,7 +26295,7 @@ function validateTypedRailsFields(t) {
 var SWE_ALLOWED_TARGET_STATUSES = /* @__PURE__ */ new Set(["running", "completed", "failed"]);
 var SWE_LOCKED_SOURCE_STATES = /* @__PURE__ */ new Set(["closed", "escalated"]);
 function ensureBranchInRepo(branchId, repoPath, parentBranchId) {
-  const existsResult = spawnSync3("git", ["-C", repoPath, "rev-parse", "--verify", branchId], {
+  const existsResult = spawnSync4("git", ["-C", repoPath, "rev-parse", "--verify", branchId], {
     encoding: "utf8",
     timeout: SUBPROCESS_TIMEOUT_MS
   });
@@ -25893,14 +26310,14 @@ function ensureBranchInRepo(branchId, repoPath, parentBranchId) {
   }
   let startPoint = "HEAD";
   if (parentBranchId) {
-    const parentResult = spawnSync3(
+    const parentResult = spawnSync4(
       "git",
       ["-C", repoPath, "rev-parse", "--verify", parentBranchId],
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
     );
     if (parentResult.status === 0) startPoint = parentBranchId;
   }
-  const createResult = spawnSync3("git", ["-C", repoPath, "branch", branchId, startPoint], {
+  const createResult = spawnSync4("git", ["-C", repoPath, "branch", branchId, startPoint], {
     encoding: "utf8",
     timeout: SUBPROCESS_TIMEOUT_MS
   });
@@ -25929,10 +26346,10 @@ var BRO_TRANSITIONS = {
   escalated: /* @__PURE__ */ new Set(["pending", "running", "failed", "closed"]),
   closed: /* @__PURE__ */ new Set(["escalated"])
 };
-function ok4(data) {
+function ok5(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err4(message) {
+function err5(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
@@ -25949,7 +26366,7 @@ function wrapHandler4(fn) {
     try {
       return await fn(args);
     } catch (e) {
-      return err4(e.message);
+      return err5(e.message);
     }
   };
 }
@@ -26114,7 +26531,7 @@ function taskTools(db2) {
       requireArg4(args, "tasks");
       const taskInputs = args["tasks"];
       if (!Array.isArray(taskInputs) || taskInputs.length === 0) {
-        return ok4([]);
+        return ok5([]);
       }
       const waived = args["waive_scope_gate"] === true;
       const waiverReason = args["waive_scope_gate_reason"] ?? "";
@@ -26122,7 +26539,7 @@ function taskTools(db2) {
       const specShapeWaiverReason = args["waive_spec_shape_reason"] ?? "";
       if (specShapeWaived) {
         if (typeof specShapeWaiverReason !== "string" || specShapeWaiverReason.trim().length < 10) {
-          return err4("waive_spec_shape_reason must be a string \u226510 chars.");
+          return err5("waive_spec_shape_reason must be a string \u226510 chars.");
         }
       } else {
         const REQUIRED_H2 = ["## Success Criteria"];
@@ -26193,7 +26610,7 @@ function taskTools(db2) {
       const branchGateWaiverReason = args["waive_branch_gate_reason"] ?? "";
       if (branchGateWaived) {
         if (typeof branchGateWaiverReason !== "string" || branchGateWaiverReason.trim().length < 10) {
-          return err4("waive_branch_gate_reason must be a string \u226510 chars.");
+          return err5("waive_branch_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const proposed = db2.get(
@@ -26220,7 +26637,7 @@ function taskTools(db2) {
       const registryGateWaiverReason = args["waive_registry_gate_reason"] ?? "";
       if (registryGateWaived) {
         if (typeof registryGateWaiverReason !== "string" || registryGateWaiverReason.trim().length < 10) {
-          return err4("waive_registry_gate_reason must be a string \u226510 chars.");
+          return err5("waive_registry_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const scanRow = db2.get(
@@ -26245,7 +26662,7 @@ function taskTools(db2) {
       const intentGateWaiverReason = args["waive_intent_gate_reason"] ?? "";
       if (intentGateWaived) {
         if (typeof intentGateWaiverReason !== "string" || intentGateWaiverReason.trim().length < 10) {
-          return err4("waive_intent_gate_reason must be a string \u226510 chars.");
+          return err5("waive_intent_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const intentRow = db2.get(
@@ -26272,7 +26689,7 @@ function taskTools(db2) {
       const decisionGateWaiverReason = args["waive_decision_gate_reason"] ?? "";
       if (decisionGateWaived) {
         if (typeof decisionGateWaiverReason !== "string" || decisionGateWaiverReason.trim().length < 10) {
-          return err4("waive_decision_gate_reason must be a string \u226510 chars.");
+          return err5("waive_decision_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const decisionRow = db2.get(
@@ -26571,7 +26988,7 @@ function taskTools(db2) {
           }
         }
       }
-      return ok4({
+      return ok5({
         tasks: inserted.map((t) => ({
           id: t.id,
           issue_id: t.issue_id,
@@ -26595,10 +27012,10 @@ function taskTools(db2) {
       }
       const includeSpec = args["include_spec_body"] === true;
       if (includeSpec) {
-        return ok4(task);
+        return ok5(task);
       }
       const { spec_body: _spec, description: _desc, ...thin } = task;
-      return ok4(thin);
+      return ok5(thin);
     }),
     task_update_status: requireRoles("task_update_status", ["bro", "swe"], wrapHandler4(async (args) => {
       requireArg4(args, "agent");
@@ -26657,7 +27074,7 @@ function taskTools(db2) {
         );
       }
       const updated = db2.get("SELECT * FROM tasks WHERE id = ?", [taskId]);
-      return ok4(updated);
+      return ok5(updated);
     })),
     task_first_actionable: wrapHandler4(async (args) => {
       requireArg4(args, "agent");
@@ -26669,7 +27086,7 @@ function taskTools(db2) {
          LIMIT 1`,
         [issueId]
       );
-      return ok4(task ?? null);
+      return ok5(task ?? null);
     })
   };
   return { definitions, handlers };
@@ -26677,10 +27094,10 @@ function taskTools(db2) {
 
 // src/tools/validation.ts
 var VALID_VERDICTS = /* @__PURE__ */ new Set(["pass", "fail", "escalate"]);
-function ok5(data) {
+function ok6(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err5(message) {
+function err6(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
@@ -26697,7 +27114,7 @@ function wrapHandler5(fn) {
     try {
       return await fn(args);
     } catch (e) {
-      return err5(e.message);
+      return err6(e.message);
     }
   };
 }
@@ -26806,7 +27223,7 @@ function validationTools(db2) {
         `SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = ?`,
         [taskId, attemptN]
       );
-      return ok5(row);
+      return ok6(row);
     })),
     validation_history: wrapHandler5(async (args) => {
       const agent = normalizeAgent(args["agent"]);
@@ -26820,7 +27237,7 @@ function validationTools(db2) {
       if (fieldsArg !== void 0) {
         const unknown2 = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));
         if (unknown2.length > 0) {
-          return err5(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_VALIDATION_FIELDS].join(", ")}`);
+          return err6(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_VALIDATION_FIELDS].join(", ")}`);
         }
       }
       function projectRow(row) {
@@ -26834,7 +27251,7 @@ function validationTools(db2) {
           `SELECT * FROM validation_attempts WHERE task_id = ? ORDER BY attempt_n ASC`,
           [taskId]
         );
-        return ok5(rows2.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))));
+        return ok6(rows2.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))));
       }
       const limit = Math.min(Math.max(1, limitArg), 500);
       let cursorFilter = "";
@@ -26855,7 +27272,7 @@ function validationTools(db2) {
       const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
       const last = rows[rows.length - 1];
       const next_cursor = hasMore && last ? Buffer.from(JSON.stringify({ attempt_n: last.attempt_n })).toString("base64") : void 0;
-      return ok5({
+      return ok6({
         rows: rows.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))),
         next_cursor
       });
@@ -26875,10 +27292,10 @@ var VALID_STATUS_TRANSITIONS = /* @__PURE__ */ new Map([
 var VALID_TIER_TRANSITIONS = /* @__PURE__ */ new Map([
   ["agent", /* @__PURE__ */ new Set(["curated"])]
 ]);
-function ok6(data) {
+function ok7(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err6(message) {
+function err7(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
@@ -26895,7 +27312,7 @@ function wrapHandler6(fn) {
     try {
       return await fn(args);
     } catch (e) {
-      return err6(e.message);
+      return err7(e.message);
     }
   };
 }
@@ -26968,7 +27385,7 @@ function skillTools(db2) {
         [name, description, filePath, scope, trustTier, now, now, now]
       );
       const row = db2.get("SELECT * FROM cheatcodes WHERE rowid = last_insert_rowid()");
-      return ok6(row);
+      return ok7(row);
     }),
     skill_promote: wrapHandler6(async (args) => {
       requireArg6(args, "agent");
@@ -27013,20 +27430,20 @@ function skillTools(db2) {
         `SELECT * FROM cheatcodes WHERE name = ? AND origin = 'builtin'`,
         [name]
       );
-      return ok6(updated);
+      return ok7(updated);
     })
   };
   return { definitions, handlers };
 }
 
 // src/tools/agents.ts
-import { existsSync as existsSync2 } from "node:fs";
-import { dirname as dirname4, join as join6 } from "node:path";
+import { existsSync as existsSync3 } from "node:fs";
+import { dirname as dirname4, join as join7 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
-function ok7(data) {
+function ok8(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err7(message) {
+function err8(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
@@ -27043,7 +27460,7 @@ function wrapHandler7(fn) {
     try {
       return await fn(args);
     } catch (e) {
-      return err7(e.message);
+      return err8(e.message);
     }
   };
 }
@@ -27053,10 +27470,10 @@ var RESERVED_NAME = "bro";
 var BACKBONE_GLOBAL_ONLY = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
 function resolvePluginRoot() {
   const env = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (env && existsSync2(join6(env, ".claude-plugin", "plugin.json"))) return env;
+  if (env && existsSync3(join7(env, ".claude-plugin", "plugin.json"))) return env;
   let dir = dirname4(fileURLToPath2(import.meta.url));
   for (; ; ) {
-    if (existsSync2(join6(dir, ".claude-plugin", "plugin.json"))) return dir;
+    if (existsSync3(join7(dir, ".claude-plugin", "plugin.json"))) return dir;
     const parent = dirname4(dir);
     if (parent === dir) break;
     dir = parent;
@@ -27137,7 +27554,7 @@ function agentTools(db2, dbPath2 = "") {
         );
       }
       const rows = scope ? db2.all("SELECT * FROM agents WHERE scope = ? ORDER BY name", [scope]) : db2.all("SELECT * FROM agents ORDER BY name");
-      return ok7({ agents: rows });
+      return ok8({ agents: rows });
     }),
     agent_register: wrapHandler7(async (args) => {
       requireArg7(args, "agent");
@@ -27195,7 +27612,7 @@ function agentTools(db2, dbPath2 = "") {
           content_json: contentJson
         });
       }
-      return ok7(row);
+      return ok8(row);
     }),
     agent_resolve: requireRoles(
       "agent_resolve",
@@ -27205,20 +27622,20 @@ function agentTools(db2, dbPath2 = "") {
         const name = requireArg7(args, "name");
         validateAgentName(name);
         const workspaceRoot = resolveWorkspaceRoot(dbPath2);
-        const targetPath = workspaceRoot ? join6(workspaceRoot, ".claude", "agents", `${name}.md`) : join6(".claude", "agents", `${name}.md`);
-        if (workspaceRoot && existsSync2(targetPath)) {
-          return ok7({ mode: "collision", existing_path: targetPath });
+        const targetPath = workspaceRoot ? join7(workspaceRoot, ".claude", "agents", `${name}.md`) : join7(".claude", "agents", `${name}.md`);
+        if (workspaceRoot && existsSync3(targetPath)) {
+          return ok8({ mode: "collision", existing_path: targetPath });
         }
-        const templatePath = join6(PLUGIN_ROOT, "templates", "agents", `${name}.md`);
-        if (existsSync2(templatePath)) {
-          return ok7({
+        const templatePath = join7(PLUGIN_ROOT, "templates", "agents", `${name}.md`);
+        if (existsSync3(templatePath)) {
+          return ok8({
             mode: "template-copy",
             source_path: templatePath,
             target_path: targetPath
           });
         }
-        const scaffoldPath = join6(PLUGIN_ROOT, "templates", "agents", "template.md");
-        return ok7({
+        const scaffoldPath = join7(PLUGIN_ROOT, "templates", "agents", "template.md");
+        return ok8({
           mode: "from-scratch",
           scaffold_path: scaffoldPath,
           target_path: targetPath
@@ -27232,10 +27649,10 @@ function agentTools(db2, dbPath2 = "") {
 // src/tools/reports.ts
 import { mkdirSync as mkdirSync3, writeFileSync } from "node:fs";
 import { dirname as dirname5, resolve as resolve2, sep as sep2 } from "node:path";
-function ok8(data) {
+function ok9(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err8(message) {
+function err9(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
@@ -27252,7 +27669,7 @@ function wrapHandler8(fn) {
     try {
       return await fn(args);
     } catch (e) {
-      return err8(e.message);
+      return err9(e.message);
     }
   };
 }
@@ -27342,7 +27759,7 @@ function reportTools(db2) {
             lines.push(`- **${e.created_at}** [${e.event_type}] \`${e.from_node}\`: ${e.summary}`);
           }
         }
-        return ok8({ markdown: lines.join("\n"), mode: "summary" });
+        return ok9({ markdown: lines.join("\n"), mode: "summary" });
       }
       const tasks = db2.all(
         `SELECT * FROM tasks WHERE issue_id = ? ORDER BY branch_id ASC`,
@@ -27400,7 +27817,7 @@ function reportTools(db2) {
         }
       }
       lines.push("");
-      return ok8({ markdown: lines.join("\n"), mode: "detail" });
+      return ok9({ markdown: lines.join("\n"), mode: "detail" });
     }),
     issue_snapshot_md: requireRoles("issue_snapshot_md", ["bro", "pr-reviewer"], wrapHandler8(async (args) => {
       requireArg8(args, "agent");
@@ -27491,17 +27908,17 @@ function reportTools(db2) {
       const markdown = lines.join("\n");
       mkdirSync3(dirname5(absPath), { recursive: true });
       writeFileSync(absPath, markdown, "utf8");
-      return ok8({ path: relOutputPath, bytes_written: Buffer.byteLength(markdown, "utf8") });
+      return ok9({ path: relOutputPath, bytes_written: Buffer.byteLength(markdown, "utf8") });
     }))
   };
   return { definitions, handlers };
 }
 
 // src/tools/config.ts
-function ok9(data) {
+function ok10(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err9(message) {
+function err10(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
@@ -27512,7 +27929,7 @@ function wrapHandler9(fn) {
     try {
       return await fn(args);
     } catch (e) {
-      return err9(e.message);
+      return err10(e.message);
     }
   };
 }
@@ -27630,11 +28047,11 @@ function configTools(db2) {
     config_set: requireRoles("config_set", ["bro"], wrapHandler9(async (args) => {
       const key = args["key"];
       setConfigValues(db2, [{ key, value: args["value"] }]);
-      return ok9({ key });
+      return ok10({ key });
     })),
     config_get: wrapHandler9(async (args) => {
       const key = args["key"];
-      return ok9(getConfigValues(db2, [key])[key] ?? null);
+      return ok10(getConfigValues(db2, [key])[key] ?? null);
     }),
     config_list: wrapHandler9(async () => {
       const rows = db2.all(
@@ -27645,22 +28062,22 @@ function configTools(db2) {
         try {
           result[row.key] = JSON.parse(row.value_json);
         } catch {
-          return err9(
+          return err10(
             `${storedConfigParseErrorPrefix(row.key)} \u2014 raw: ${row.value_json.slice(0, 200)}`
           );
         }
       }
-      return ok9(result);
+      return ok10(result);
     })
   };
   return { definitions, handlers };
 }
 
 // src/tools/branch_report_md.ts
-function ok10(data) {
+function ok11(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err10(message) {
+function err11(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
@@ -27677,7 +28094,7 @@ function wrapHandler10(fn) {
     try {
       return await fn(args);
     } catch (e) {
-      return err10(e.message);
+      return err11(e.message);
     }
   };
 }
@@ -27767,7 +28184,7 @@ function branchReportMdTools(db2) {
               lines.push(`| ${e.created_at} | ${e.event_type} | ${e.from_node} | ${e.summary} |`);
             }
           }
-          return ok10({ markdown: lines.join("\n"), mode: "summary" });
+          return ok11({ markdown: lines.join("\n"), mode: "summary" });
         }
         const taskIds = tasks.map((t) => String(t.id));
         const placeholders = taskIds.map(() => "?").join(", ");
@@ -27813,7 +28230,7 @@ function branchReportMdTools(db2) {
             lines.push(`| ${v.task_id} | ${v.attempt_n} | ${v.agent} | ${v.verdict} | ${v.created_at} |`);
           }
         }
-        return ok10({ markdown: lines.join("\n"), mode: "detail" });
+        return ok11({ markdown: lines.join("\n"), mode: "detail" });
       })
     )
   };
@@ -27822,10 +28239,10 @@ function branchReportMdTools(db2) {
 
 // src/tools/stats.ts
 var ALLOWED_ROLES = ["bro", "swe", "pr-reviewer", "consultant"];
-function ok11(data) {
+function ok12(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err11(message) {
+function err12(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
@@ -27836,7 +28253,7 @@ function wrapHandler11(fn) {
     try {
       return await fn(args);
     } catch (e) {
-      return err11(e.message);
+      return err12(e.message);
     }
   };
 }
@@ -27896,7 +28313,7 @@ function statsTools(db2) {
           "SELECT id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at FROM agent_runs WHERE task_id = ? ORDER BY id",
           [taskId]
         );
-        return ok11({ task_id: taskId, aggregate, spawns });
+        return ok12({ task_id: taskId, aggregate, spawns });
       })
     )
   };
@@ -27904,10 +28321,10 @@ function statsTools(db2) {
 }
 
 // src/tools/roundtable.ts
-function ok12(data) {
+function ok13(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err12(message) {
+function err13(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
@@ -27924,7 +28341,7 @@ function wrapHandler12(fn) {
     try {
       return await fn(args);
     } catch (e) {
-      return err12(e.message);
+      return err13(e.message);
     }
   };
 }
@@ -28160,7 +28577,7 @@ function roundtableTools(db2) {
             [row.id, slashAuditId]
           );
         }
-        return ok12({ roundtable_id: row.id, state: row.state });
+        return ok13({ roundtable_id: row.id, state: row.state });
       })
     ),
     roundtable_vote: requireRoles(
@@ -28179,10 +28596,10 @@ function roundtableTools(db2) {
           throw new Error("vote must be a non-empty string");
         }
         if (vote.length > 60) {
-          return err12(`invalid_argument: vote exceeds 60-char cap (got ${vote.length} chars)`);
+          return err13(`invalid_argument: vote exceeds 60-char cap (got ${vote.length} chars)`);
         }
         if (rationale.length > 120) {
-          return err12(`invalid_argument: rationale exceeds 120-char cap (got ${rationale.length} chars)`);
+          return err13(`invalid_argument: rationale exceeds 120-char cap (got ${rationale.length} chars)`);
         }
         const roundtable = db2.get(
           "SELECT * FROM roundtables WHERE id = ?",
@@ -28225,7 +28642,7 @@ function roundtableTools(db2) {
             }
           }
         }
-        return ok12({ vote_id: row.id, state: newState });
+        return ok13({ vote_id: row.id, state: newState });
       })
     ),
     roundtable_close: requireRoles(
@@ -28250,7 +28667,7 @@ function roundtableTools(db2) {
             [outcome, now2, roundtableId]
           );
           const updated2 = db2.get("SELECT * FROM roundtables WHERE id = ?", [roundtableId]);
-          return ok12({
+          return ok13({
             roundtable_id: updated2.id,
             state: updated2.state,
             closed_at: updated2.closed_at
@@ -28279,7 +28696,7 @@ function roundtableTools(db2) {
           [outcome, now, roundtableId]
         );
         const updated = db2.get("SELECT * FROM roundtables WHERE id = ?", [roundtableId]);
-        return ok12({
+        return ok13({
           roundtable_id: updated.id,
           state: updated.state,
           closed_at: updated.closed_at
@@ -28348,7 +28765,7 @@ function roundtableTools(db2) {
             voteRowsWritten++;
           }
         });
-        return ok12({
+        return ok13({
           discussion_rows_written: discussionRowsWritten,
           vote_rows_written: voteRowsWritten,
           state: "awaiting_human"
@@ -28392,7 +28809,7 @@ function roundtableTools(db2) {
         const disagreementsResolved = decisionRows.map((r) => ({
           decision_body: r.body
         }));
-        return ok12({
+        return ok13({
           topic: roundtable.topic,
           participants,
           agreements_ratified: answerRows,
@@ -28492,7 +28909,7 @@ function roundtableTools(db2) {
         const disagreementsResolved = decisionRows.map((r) => ({
           decision_body: r.body
         }));
-        return ok12({
+        return ok13({
           roundtable_id: updated.id,
           state: updated.state,
           closed_at: updated.closed_at,
@@ -28540,7 +28957,7 @@ function buildBotPatterns(configOverride) {
 }
 
 // src/tools/pr_monitor.ts
-import { spawnSync as spawnSync4 } from "node:child_process";
+import { spawnSync as spawnSync5 } from "node:child_process";
 
 // src/utils/untrusted.ts
 var UNTRUSTED_CLOSE = "</untrusted-content>";
@@ -28552,21 +28969,21 @@ ${UNTRUSTED_CLOSE}`;
 }
 
 // src/tools/pr_monitor.ts
-function ok13(data) {
+function ok14(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err13(message) {
+function err14(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
   };
 }
-function wrap(fn) {
+function wrap2(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err13(e.message);
+      return err14(e.message);
     }
   };
 }
@@ -28575,7 +28992,7 @@ function defaultSpawnFn2(cmd, args, opts) {
   if (blockReason) {
     return { status: null, stdout: "", stderr: liveCliBlockedMessage(blockReason, cmd, args) };
   }
-  const result = spawnSync4(cmd, args, opts);
+  const result = spawnSync5(cmd, args, opts);
   return {
     status: result.status,
     stdout: result.stdout ? String(result.stdout) : "",
@@ -28764,10 +29181,10 @@ function prMonitorTools(db2, _spawnFn) {
     }
   ];
   const handlers = {
-    pr_monitor_comments_get: requireRoles("pr_monitor_comments_get", ["bro"], wrap(async (args) => {
+    pr_monitor_comments_get: requireRoles("pr_monitor_comments_get", ["bro"], wrap2(async (args) => {
       const prNumber = Number(args["pr_number"]);
       if (!Number.isInteger(prNumber) || prNumber <= 0) {
-        return err13("pr_number must be a positive integer");
+        return err14("pr_number must be a positive integer");
       }
       const explicitRepo = typeof args["repo"] === "string" && args["repo"].length > 0 ? args["repo"] : null;
       let repo;
@@ -28776,7 +29193,7 @@ function prMonitorTools(db2, _spawnFn) {
       } else {
         const repoCount = db2.get("SELECT COUNT(*) AS c FROM repos")?.c ?? 0;
         if (repoCount > 1) {
-          return err13(
+          return err14(
             'pr_monitor_comments_get: multiple repos registered and no repo slug given \u2014 pass repo="owner/repo". The cwd git remote is never used in a multi-repo workspace.'
           );
         }
@@ -28804,7 +29221,7 @@ function prMonitorTools(db2, _spawnFn) {
         } else {
           const glabAvail = spawn3("glab", ["auth", "status"], { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" }).status === 0;
           if (!glabAvail) {
-            return err13("Neither gh nor glab is installed/available; cannot fetch PR comments");
+            return err14("Neither gh nor glab is installed/available; cannot fetch PR comments");
           }
           backend = "glab";
         }
@@ -28825,7 +29242,7 @@ function prMonitorTools(db2, _spawnFn) {
       const botPatterns = buildBotPatterns(botsOverride);
       const fetchResult = resolveComments(backend, prNumber, repo, since, botPatterns, spawn3);
       if (!fetchResult) {
-        return err13("Failed to fetch PR comments \u2014 check gh/glab auth and PR number");
+        return err14("Failed to fetch PR comments \u2014 check gh/glab auth and PR number");
       }
       const now = nowISO();
       const lastCommentId = fetchResult.comments.length > 0 ? fetchResult.comments[fetchResult.comments.length - 1]?.id ?? null : null;
@@ -28848,13 +29265,13 @@ function prMonitorTools(db2, _spawnFn) {
           );
         }
       }
-      return ok13(fetchResult);
+      return ok14(fetchResult);
     })),
     pr_monitor_runs_list: requireRoles("pr_monitor_runs_list", ["bro"], async (args) => {
       const prFilter = args["pr_number"];
       const filterPrNumber = prFilter === void 0 || prFilter === null ? null : Number(prFilter);
       if (filterPrNumber !== null && (!Number.isInteger(filterPrNumber) || filterPrNumber <= 0)) {
-        return err13("pr_number must be a positive integer when provided");
+        return err14("pr_number must be a positive integer when provided");
       }
       const limitArg = args["limit"];
       const cursorArg = args["cursor"];
@@ -28865,7 +29282,7 @@ function prMonitorTools(db2, _spawnFn) {
           "SELECT id, pr_number, repo, last_fetched_at, last_comment_id FROM pr_review_runs WHERE pr_number = ? ORDER BY repo",
           [filterPrNumber]
         );
-        return ok13({ rows: rows2, count: rows2.length });
+        return ok14({ rows: rows2, count: rows2.length });
       }
       const limit = Math.min(Math.max(1, limitArg), 500);
       let cursorFilter = "";
@@ -28890,7 +29307,7 @@ function prMonitorTools(db2, _spawnFn) {
       const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
       const last = rows[rows.length - 1];
       const next_cursor = hasMore && last ? Buffer.from(JSON.stringify({ id: last.id })).toString("base64") : void 0;
-      return ok13({ rows, count: rows.length, next_cursor });
+      return ok14({ rows, count: rows.length, next_cursor });
     })
   };
   return { definitions, handlers };
@@ -28898,7 +29315,7 @@ function prMonitorTools(db2, _spawnFn) {
 
 // src/tools/composites.ts
 import { execFileSync } from "node:child_process";
-import { existsSync as existsSync3, realpathSync as realpathSync2 } from "node:fs";
+import { existsSync as existsSync4, realpathSync as realpathSync2 } from "node:fs";
 import { resolve as resolve3, dirname as dirname6 } from "node:path";
 var WORKTREE_TIMEOUT_MS = 6e4;
 function filesToDirs(files) {
@@ -28987,21 +29404,21 @@ function readRepoTargetBranch(db2, repoValue) {
   const v = row?.target_branch;
   return typeof v === "string" && v.length > 0 ? v : null;
 }
-function ok14(data) {
+function ok15(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err14(message) {
+function err15(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
   };
 }
-function wrap2(fn) {
+function wrap3(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err14(e.message);
+      return err15(e.message);
     }
   };
 }
@@ -29354,35 +29771,35 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
     task_provision: requireRoles(
       "task_provision",
       ["bro"],
-      wrap2(async (args) => {
+      wrap3(async (args) => {
         const agent = args["agent"] ?? "bro";
         const issueId = args["issue_id"];
         const branchId = args["branch_id"];
         const decisionBody = args["decision_body"];
         const task = args["task"];
         if (typeof issueId !== "number" || !Number.isFinite(issueId)) {
-          return err14("issue_id must be a number");
+          return err15("issue_id must be a number");
         }
         if (!branchId || typeof branchId !== "string") {
-          return err14("branch_id must be a non-empty string");
+          return err15("branch_id must be a non-empty string");
         }
         if (!BRANCH_ID_RE.test(branchId)) {
-          return err14(`branch_id "${branchId}" does not match the conventional format <type>/<slug>.`);
+          return err15(`branch_id "${branchId}" does not match the conventional format <type>/<slug>.`);
         }
         if (!decisionBody || decisionBody.trim().length === 0) {
-          return err14("decision_body must be a non-empty string");
+          return err15("decision_body must be a non-empty string");
         }
         if (!task || typeof task !== "object") {
-          return err14("task must be an object");
+          return err15("task must be an object");
         }
         if (!task.description || task.description.trim().length === 0) {
-          return err14("task.description must be a non-empty string");
+          return err15("task.description must be a non-empty string");
         }
         if (!task.spec_body || typeof task.spec_body !== "string") {
-          return err14("task.spec_body must be a non-empty string");
+          return err15("task.spec_body must be a non-empty string");
         }
         if (task.spec_body.length > SPEC_BODY_MAX_BYTES) {
-          return err14(
+          return err15(
             `task.spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${task.spec_body.length}). Cite existing code/conventions rather than restating them. Override via TMB_SPEC_BODY_MAX_BYTES.`
           );
         }
@@ -29401,9 +29818,9 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
         const verification = validateStrArray(task.verification, "verification");
         let repoValue = null;
         if (task.repo !== void 0 && task.repo !== null && task.repo !== "") {
-          if (typeof task.repo !== "string") return err14("task.repo must be a string");
-          if (task.repo.includes("..")) return err14(`Invalid repo "${task.repo}": must not contain "..".`);
-          if (task.repo.startsWith("/")) return err14(`Invalid repo "${task.repo}": must not start with "/".`);
+          if (typeof task.repo !== "string") return err15("task.repo must be a string");
+          if (task.repo.includes("..")) return err15(`Invalid repo "${task.repo}": must not contain "..".`);
+          if (task.repo.startsWith("/")) return err15(`Invalid repo "${task.repo}": must not start with "/".`);
           repoValue = task.repo;
         } else {
           repoValue = resolveSoleRepo(db2)?.name ?? null;
@@ -29414,7 +29831,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
         const registryGateWaiverReason = args["waive_registry_gate_reason"] ?? "";
         if (registryGateWaived) {
           if (typeof registryGateWaiverReason !== "string" || registryGateWaiverReason.trim().length < 10) {
-            return err14("waive_registry_gate_reason must be a string \u226510 chars.");
+            return err15("waive_registry_gate_reason must be a string \u226510 chars.");
           }
         } else {
           const scanRow = db2.get(
@@ -29445,13 +29862,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
             const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname6(db2.dbPath);
             repoPath = reposRow.path.startsWith("/") ? reposRow.path : resolve3(dbDir, reposRow.path);
           } else {
-            return err14(
+            return err15(
               `task_provision: repo '${repoValue}' is not registered (no repos row). Run /scan or pass a registered task.repo \u2014 tasks.repo is a foreign key to repos(name). No task row or branch was created.`
             );
           }
         }
         if (!repoPath) {
-          return err14(
+          return err15(
             `task_provision: cannot resolve a repo path for git setup (task.repo='${repoValue ?? ""}'); pass task.repo or register a single repo. No task row was created \u2014 retry once the repo resolves.`
           );
         }
@@ -29468,7 +29885,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
         if (!branchReused) {
           const resolvedBaseRef = resolveBaseRef(repoPath, base);
           if (!resolvedBaseRef) {
-            return err14(
+            return err15(
               `task_provision: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue}'. No task row was created \u2014 retry with a valid base and the same branch_id.`
             );
           }
@@ -29478,7 +29895,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
               timeout: SUBPROCESS_TIMEOUT_MS
             });
           } catch (e) {
-            return err14(
+            return err15(
               `task_provision: failed to create branch '${branchId}' from '${resolvedBaseRef}' in repo '${repoValue}' (${e.message.split("\n")[0] || "git branch failed"}). No task row was created \u2014 retry with the same branch_id.`
             );
           }
@@ -29542,7 +29959,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
         const worktreePath = `${repoPath}/.claude/worktrees/${slug}`;
         try {
           let worktreeReused = false;
-          if (existsSync3(worktreePath)) {
+          if (existsSync4(worktreePath)) {
             const canonicalWt = realpathSync2(worktreePath);
             try {
               const list = execFileSync("git", ["-C", repoPath, "worktree", "list", "--porcelain"], {
@@ -29565,7 +29982,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           gitSetup = "error";
           diagnostic = e.message;
         }
-        return ok14({
+        return ok15({
           task_id: result.task_id,
           branch_id: branchId,
           repo: repoValue,
@@ -29579,9 +29996,9 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
     task_brief: requireRoles(
       "task_brief",
       ["bro", "swe", "pr-reviewer"],
-      wrap2(async (args) => {
+      wrap3(async (args) => {
         const taskId = args["task_id"];
-        if (taskId === void 0 || taskId === null) return err14("task_id is required");
+        if (taskId === void 0 || taskId === null) return err15("task_id is required");
         const task = db2.get(
           `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.verification, t.commit_sha, t.repo,
                   i.objective
@@ -29589,7 +30006,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
             WHERE t.id = ? LIMIT 1`,
           [taskId]
         );
-        if (!task) return err14(`No task with id=${taskId}`);
+        if (!task) return err15(`No task with id=${taskId}`);
         let repo = task.repo ?? "";
         if (!repo) {
           repo = resolveSoleRepo(db2)?.name ?? "";
@@ -29641,7 +30058,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
             truncated: true
           };
         });
-        return ok14({
+        return ok15({
           task_id: task.id,
           issue_id: task.issue_id,
           branch_id: task.branch_id,
@@ -29662,27 +30079,27 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
     branch_id_propose: requireRoles(
       "branch_id_propose",
       ["bro"],
-      wrap2(async (args) => {
+      wrap3(async (args) => {
         const intent = args["intent"];
         if (typeof intent !== "string" || intent.trim().length === 0) {
-          return err14("intent must be a non-empty string");
+          return err15("intent must be a non-empty string");
         }
         const objective = args["objective"] ?? intent;
         const { prefix, confidence } = intentToType(intent);
         const slug = slugify2(objective) || slugify2(intent) || "task";
         const branchId = `${prefix}/${slug}`;
         if (!BRANCH_ID_RE.test(branchId)) {
-          return err14(
+          return err15(
             `Derived branch_id "${branchId}" does not match the conventional regex. Pick a clearer objective and re-call.`
           );
         }
-        return ok14({ branch_id: branchId, confidence });
+        return ok15({ branch_id: branchId, confidence });
       })
     ),
     task_retry: requireRoles(
       "task_retry",
       ["bro"],
-      wrap2(async (args) => {
+      wrap3(async (args) => {
         const failedTaskId = args["failed_task_id"];
         const newBranchId = args["new_branch_id"];
         const spec = args["corrected_spec_body"];
@@ -29691,20 +30108,20 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
         const title = args["title"] ?? "";
         const repoOverride = args["repo"] ?? null;
         if (!BRANCH_ID_RE.test(newBranchId)) {
-          return err14(`Invalid new_branch_id "${newBranchId}" \u2014 does not match conventional format.`);
+          return err15(`Invalid new_branch_id "${newBranchId}" \u2014 does not match conventional format.`);
         }
         if (!spec || spec.length > SPEC_BODY_MAX_BYTES) {
-          return err14(`corrected_spec_body must be 1..${SPEC_BODY_MAX_BYTES} chars (override via TMB_SPEC_BODY_MAX_BYTES).`);
+          return err15(`corrected_spec_body must be 1..${SPEC_BODY_MAX_BYTES} chars (override via TMB_SPEC_BODY_MAX_BYTES).`);
         }
         if (!rationale || rationale.length > 200) {
-          return err14("retry_rationale must be 1..200 chars.");
+          return err15("retry_rationale must be 1..200 chars.");
         }
         if (repoOverride !== null) {
           if (repoOverride.includes("..")) {
-            return err14(`Invalid repo "${repoOverride}": must not contain "..".`);
+            return err15(`Invalid repo "${repoOverride}": must not contain "..".`);
           }
           if (repoOverride.startsWith("/")) {
-            return err14(`Invalid repo "${repoOverride}": must not start with "/".`);
+            return err15(`Invalid repo "${repoOverride}": must not start with "/".`);
           }
         }
         const failed = db2.get(
@@ -29713,14 +30130,14 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
              FROM tasks WHERE id = ? LIMIT 1`,
           [failedTaskId]
         );
-        if (!failed) return err14(`No task with id=${failedTaskId}`);
+        if (!failed) return err15(`No task with id=${failedTaskId}`);
         if (failed.status !== "failed" && failed.status !== "escalated") {
-          return err14(
+          return err15(
             `Task ${failedTaskId} status is "${failed.status}", expected "failed" or "escalated". task_retry only operates on terminally-failed tasks.`
           );
         }
         if (failed.branch_id === newBranchId) {
-          return err14("new_branch_id must differ from the failed task's branch_id.");
+          return err15("new_branch_id must differ from the failed task's branch_id.");
         }
         {
           const RETRY_CAP = 3;
@@ -29740,7 +30157,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
             depth++;
           }
           if (depth >= RETRY_CAP) {
-            return err14(
+            return err15(
               `retry limit reached (3) \u2014 escalate to Human. Task ${failedTaskId} already has ${depth} prior attempt(s) in its retry lineage. Use discussion_append(kind='question') to involve the Human before retrying further.`
             );
           }
@@ -29798,45 +30215,46 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           });
           return newTask;
         });
-        return ok14({ task_id: result.id, branch_id: result.branch_id });
+        return ok15({ task_id: result.id, branch_id: result.branch_id });
       })
     ),
     intent_start: requireRoles(
       "intent_start",
       ["bro"],
-      wrap2(async (args) => {
+      wrap3(async (args) => {
         const objective = args["objective"];
         const intentVerbatim = args["intent_verbatim"];
         const branchId = args["branch_id"];
         if (!objective || objective.trim().length === 0) {
-          return err14("objective must be a non-empty string");
+          return err15("objective must be a non-empty string");
         }
         if (!intentVerbatim || intentVerbatim.trim().length === 0) {
-          return err14("intent_verbatim must be a non-empty string");
+          return err15("intent_verbatim must be a non-empty string");
         }
         if (!branchId || branchId.trim().length === 0) {
-          return err14("branch_id must be a non-empty string");
+          return err15("branch_id must be a non-empty string");
         }
         if (!BRANCH_ID_RE.test(branchId)) {
-          return err14(`branch_id "${branchId}" does not match the conventional format.`);
+          return err15(`branch_id "${branchId}" does not match the conventional format.`);
         }
         const explicitRepoRaw = args["repo"];
         const explicitRepo = typeof explicitRepoRaw === "string" && explicitRepoRaw.length > 0 ? explicitRepoRaw : null;
         if (explicitRepo !== null) {
           const repoRow = db2.get(`SELECT name FROM repos WHERE name = ?`, [explicitRepo]);
           if (!repoRow) {
-            return err14(`intent_start: repo "${explicitRepo}" has no matching repos row \u2014 run /scan or pass a valid repo.`);
+            return err15(`intent_start: repo "${explicitRepo}" has no matching repos row \u2014 run /scan or pass a valid repo.`);
           }
         }
         const suppliedLabels = args["labels"];
         if (suppliedLabels !== void 0) {
           const labelError = validateIssueLabels(db2, suppliedLabels);
-          if (labelError !== null) return err14(labelError);
+          if (labelError !== null) return err15(labelError);
         }
         const labels = suppliedLabels ?? defaultSyncLabels(db2);
         const now = nowISO();
         const issueRepo = explicitRepo ?? resolveSoleRepo(db2)?.name ?? null;
-        const milestone = resolveDefaultMilestone(db2, null, issueRepo);
+        const milestoneResolution = resolveDefaultMilestone(db2, null, issueRepo);
+        const milestone = milestoneResolution.milestone;
         const result = db2.transaction(() => {
           db2.run(
             `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
@@ -29864,33 +30282,37 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
             content_json: JSON.stringify({ branch_id: branchId, objective }),
             created_at: now
           });
-          return { issue_id: issueId, branch_id: branchId };
+          return {
+            issue_id: issueId,
+            branch_id: branchId,
+            ...milestoneDefaultFields(milestoneResolution)
+          };
         });
-        return ok14(result);
+        return ok15(result);
       })
     ),
     bro_verification_fail_record: requireRoles(
       "bro_verification_fail_record",
       ["bro"],
-      wrap2(async (args) => {
+      wrap3(async (args) => {
         const taskId = args["task_id"];
         const whichCheck = args["which_check"];
         const details = args["details"];
-        if (!taskId) return err14("task_id is required");
+        if (!taskId) return err15("task_id is required");
         if (!whichCheck || whichCheck.trim().length === 0) {
-          return err14("which_check must be a non-empty string");
+          return err15("which_check must be a non-empty string");
         }
         if (!details || details.trim().length === 0) {
-          return err14("details must be a non-empty string");
+          return err15("details must be a non-empty string");
         }
         if (details.length > 500) {
-          return err14("details must be \u2264500 chars");
+          return err15("details must be \u2264500 chars");
         }
         const task = db2.get(
           "SELECT id, issue_id, branch_id FROM tasks WHERE id = ? LIMIT 1",
           [taskId]
         );
-        if (!task) return err14(`No task with id=${taskId}`);
+        if (!task) return err15(`No task with id=${taskId}`);
         const summary = `${whichCheck} \u2014 ${details.slice(0, 160)}`;
         const now = nowISO();
         db2.transaction(() => {
@@ -29911,24 +30333,24 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
             created_at: now
           });
         });
-        return ok14({ task_id: task.id, which_check: whichCheck, written: ["audit", "note"] });
+        return ok15({ task_id: task.id, which_check: whichCheck, written: ["audit", "note"] });
       })
     ),
     pr_monitor_worktree: requireRoles(
       "pr_monitor_worktree",
       ["pr-reviewer"],
-      wrap2(async (args) => {
+      wrap3(async (args) => {
         const commitSha = (args["commit_sha"] ?? "").toLowerCase();
         const repoPath = args["repo_path"];
         const command = args["command"];
         if (!commitSha || !/^[0-9a-f]{7,40}$/.test(commitSha)) {
-          return err14("commit_sha must be a 7..40-char hex SHA");
+          return err15("commit_sha must be a 7..40-char hex SHA");
         }
         if (!repoPath || !repoPath.startsWith("/")) {
-          return err14("repo_path must be an absolute path");
+          return err15("repo_path must be an absolute path");
         }
         if (!command || command.trim().length === 0) {
-          return err14("command must be a non-empty string");
+          return err15("command must be a non-empty string");
         }
         const wtPath = `/tmp/pr-review-${commitSha}`;
         let stdout = "";
@@ -29940,7 +30362,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
             timeout: WORKTREE_TIMEOUT_MS
           });
         } catch (e) {
-          return err14(`worktree add failed: ${e.message}`);
+          return err15(`worktree add failed: ${e.message}`);
         }
         try {
           const result = execFileSync("bash", ["-c", command], {
@@ -29984,14 +30406,14 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
     worktree_commits_fetch: requireRoles(
       "worktree_commits_fetch",
       ["bro"],
-      wrap2(async (args) => {
+      wrap3(async (args) => {
         const taskIds = args["task_ids"];
         const repoPath = args["repo_path"];
         if (!Array.isArray(taskIds) || taskIds.length === 0) {
-          return err14("task_ids must be a non-empty array");
+          return err15("task_ids must be a non-empty array");
         }
         if (!repoPath || !repoPath.startsWith("/")) {
-          return err14("repo_path must be an absolute path");
+          return err15("repo_path must be an absolute path");
         }
         const results = [];
         for (const tid of taskIds) {
@@ -30049,19 +30471,19 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
     bro_atomic_close: requireRoles(
       "bro_atomic_close",
       ["bro"],
-      wrap2(async (args) => {
+      wrap3(async (args) => {
         const taskId = args["task_id"];
-        if (!taskId) return err14("Missing required arg: task_id");
+        if (!taskId) return err15("Missing required arg: task_id");
         const commitSha = (args["commit_sha"] ?? "").toLowerCase();
         if (!commitSha || !/^[0-9a-f]{7,40}$/.test(commitSha)) {
-          return err14("commit_sha must be a 7..40-char hex SHA.");
+          return err15("commit_sha must be a 7..40-char hex SHA.");
         }
         const verificationSummary = args["verification_summary"];
         if (verificationSummary === void 0 || verificationSummary === null) {
-          return err14("Missing required arg: verification_summary");
+          return err15("Missing required arg: verification_summary");
         }
         if (typeof verificationSummary !== "string") {
-          return err14("verification_summary must be a string");
+          return err15("verification_summary must be a string");
         }
         const closeIssueIfLast = args["close_issue_if_last_task"] === true;
         const waiveScopeGate = args["waive_scope_gate"] === true;
@@ -30069,9 +30491,9 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           "SELECT id, issue_id, branch_id, parent_branch_id, status, repo, files FROM tasks WHERE id = ? LIMIT 1",
           [taskId]
         );
-        if (!task) return err14(`No task with id=${taskId}`);
+        if (!task) return err15(`No task with id=${taskId}`);
         if (task.status !== "completed" && task.status !== "needs_validation") {
-          return err14(
+          return err15(
             `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". bro_atomic_close runs after SWE flips status to completed.`
           );
         }
@@ -30086,12 +30508,12 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
             reason: repoPath ? `base does not resolve as 'origin/${base}' or local '${base}'` : `cannot resolve a path for repo '${task.repo ?? ""}'`
           };
           if (!scope.checked) {
-            return err14(
+            return err15(
               `bro_atomic_close scope gate: cannot resolve ${task.repo ?? "<repo>"}@${commitSha} to verify files[] scope (${scope.reason ?? "unknown"}). Pass waive_scope_gate=true if this close is intentional outside a git checkout.`
             );
           }
           if (scope.outOfScope.length > 0) {
-            return err14(
+            return err15(
               `bro_atomic_close scope gate: these committed files are outside the task's files[] fence: ${scope.outOfScope.join(", ")}. Add them to files[] (re-plan) or revert them, then retry. Pass waive_scope_gate=true to override.`
             );
           }
@@ -30121,22 +30543,22 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
         if (result.issue_closed) {
           await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args["_spawnFn"]);
         }
-        return ok14(result);
+        return ok15(result);
       })
     ),
     task_recover: requireRoles(
       "task_recover",
       ["bro"],
-      wrap2(async (args) => {
+      wrap3(async (args) => {
         const taskId = args["task_id"];
-        if (!taskId) return err14("Missing required arg: task_id");
+        if (!taskId) return err15("Missing required arg: task_id");
         const commitArg = args["commit_sha"];
         let commitSha = null;
         if (commitArg !== void 0 && commitArg !== null && commitArg !== "") {
-          if (typeof commitArg !== "string") return err14("commit_sha must be a string");
+          if (typeof commitArg !== "string") return err15("commit_sha must be a string");
           const lowered = commitArg.toLowerCase();
           if (!/^[0-9a-f]{7,40}$/.test(lowered)) {
-            return err14("commit_sha must be a 7..40-char hex SHA.");
+            return err15("commit_sha must be a 7..40-char hex SHA.");
           }
           commitSha = lowered;
         }
@@ -30146,9 +30568,9 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           "SELECT id, issue_id, branch_id, status FROM tasks WHERE id = ? LIMIT 1",
           [taskId]
         );
-        if (!task) return err14(`No task with id=${taskId}`);
+        if (!task) return err15(`No task with id=${taskId}`);
         if (task.status !== "pending" && task.status !== "completed") {
-          return ok14({
+          return ok15({
             recovered: false,
             action: "noop",
             task_id: task.id,
@@ -30157,7 +30579,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           });
         }
         if (!commitSha) {
-          return ok14({
+          return ok15({
             recovered: false,
             action: "re-dispatch",
             task_id: task.id,
@@ -30188,7 +30610,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
         if (result.issue_closed) {
           await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args["_spawnFn"]);
         }
-        return ok14({
+        return ok15({
           recovered: true,
           action: "closed",
           task_id: task.id,
@@ -30202,15 +30624,15 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
 }
 
 // src/tools/onboard.ts
-import { spawnSync as spawnSync5 } from "node:child_process";
-import { existsSync as existsSync5 } from "node:fs";
+import { spawnSync as spawnSync6 } from "node:child_process";
+import { existsSync as existsSync6 } from "node:fs";
 import os from "node:os";
-import { dirname as dirname7, join as join8 } from "node:path";
+import { dirname as dirname7, join as join9 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/tools/onboard-hooks-shim.ts
-import { readFileSync as readFileSync3, writeFileSync as writeFileSync2, mkdirSync as mkdirSync4, existsSync as existsSync4, chmodSync } from "node:fs";
-import { join as join7 } from "node:path";
+import { readFileSync as readFileSync4, writeFileSync as writeFileSync2, mkdirSync as mkdirSync4, existsSync as existsSync5, chmodSync } from "node:fs";
+import { join as join8 } from "node:path";
 var STABLE_RESOLVER_DIR = [".claude", "tmb-hooks"];
 var STABLE_RESOLVER_NAME = "resolve-hook.sh";
 var CANONICAL_RESOLVER_REL = ["scripts", "lib", "resolve-hook.sh"];
@@ -30238,11 +30660,11 @@ function deriveMarketplace(pluginRoot) {
   return mp && mp.length > 0 ? mp : null;
 }
 function readPreToolUseFromHooksJson(pluginRoot) {
-  const hooksJsonPath = join7(pluginRoot, "hooks", "hooks.json");
-  if (!existsSync4(hooksJsonPath)) return null;
+  const hooksJsonPath = join8(pluginRoot, "hooks", "hooks.json");
+  if (!existsSync5(hooksJsonPath)) return null;
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync3(hooksJsonPath, "utf8"));
+    parsed = JSON.parse(readFileSync4(hooksJsonPath, "utf8"));
   } catch {
     return null;
   }
@@ -30268,12 +30690,12 @@ function buildTmbGroups(pre, resolverPath, marketplace) {
   return groups;
 }
 function materializeResolver(pluginRoot, homeDir) {
-  const canonical = join7(pluginRoot, ...CANONICAL_RESOLVER_REL);
-  if (!existsSync4(canonical)) return null;
-  const resolverDir = join7(homeDir, ...STABLE_RESOLVER_DIR);
-  const resolverPath = join7(resolverDir, STABLE_RESOLVER_NAME);
+  const canonical = join8(pluginRoot, ...CANONICAL_RESOLVER_REL);
+  if (!existsSync5(canonical)) return null;
+  const resolverDir = join8(homeDir, ...STABLE_RESOLVER_DIR);
+  const resolverPath = join8(resolverDir, STABLE_RESOLVER_NAME);
   mkdirSync4(resolverDir, { recursive: true });
-  writeFileSync2(resolverPath, readFileSync3(canonical, "utf8"));
+  writeFileSync2(resolverPath, readFileSync4(canonical, "utf8"));
   chmodSync(resolverPath, 493);
   return resolverPath;
 }
@@ -30331,12 +30753,12 @@ function writeUserSettingsEnforcementShim(opts) {
     return { written: false, reason };
   }
   const tmbGroups = buildTmbGroups(pre, resolverPath, marketplace);
-  const settingsDir = join7(homeDir, ".claude");
-  const settingsPath = join7(settingsDir, "settings.json");
+  const settingsDir = join8(homeDir, ".claude");
+  const settingsPath = join8(settingsDir, "settings.json");
   let settings = {};
-  if (existsSync4(settingsPath)) {
+  if (existsSync5(settingsPath)) {
     try {
-      const raw = readFileSync3(settingsPath, "utf8").trim();
+      const raw = readFileSync4(settingsPath, "utf8").trim();
       if (raw.length > 0) settings = JSON.parse(raw);
     } catch {
       const reason = "existing settings.json is not valid JSON";
@@ -30367,17 +30789,17 @@ function writeUserSettingsEnforcementShim(opts) {
 // src/tools/onboard.ts
 function resolvePluginRoot2() {
   const env = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (env && existsSync5(join8(env, ".claude-plugin", "plugin.json"))) return env;
+  if (env && existsSync6(join9(env, ".claude-plugin", "plugin.json"))) return env;
   let dir = dirname7(fileURLToPath3(import.meta.url));
   for (; ; ) {
-    if (existsSync5(join8(dir, ".claude-plugin", "plugin.json"))) return dir;
+    if (existsSync6(join9(dir, ".claude-plugin", "plugin.json"))) return dir;
     const parent = dirname7(dir);
     if (parent === dir) break;
     dir = parent;
   }
   return null;
 }
-function ok15(data) {
+function ok16(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
 function wrapHandler13(fn) {
@@ -30394,10 +30816,10 @@ function wrapHandler13(fn) {
 }
 function probeGit(cwd) {
   const opts = { encoding: "utf8", timeout: 3e3, cwd };
-  const inGitR = spawnSync5("git", ["rev-parse", "--show-toplevel"], opts);
+  const inGitR = spawnSync6("git", ["rev-parse", "--show-toplevel"], opts);
   const in_git = inGitR.status === 0;
   if (!in_git) return { in_git: false, detected_remotes: [], origin_kind: null };
-  const remotesR = spawnSync5("git", ["remote", "-v"], opts);
+  const remotesR = spawnSync6("git", ["remote", "-v"], opts);
   const detected_remotes = [];
   if (remotesR.status === 0) {
     const seen = /* @__PURE__ */ new Set();
@@ -30419,7 +30841,7 @@ function probeGit(cwd) {
   };
 }
 function branchExists(cwd, branch) {
-  const r = spawnSync5("git", ["-C", cwd, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], {
+  const r = spawnSync6("git", ["-C", cwd, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], {
     encoding: "utf8",
     timeout: 3e3
   });
@@ -30427,16 +30849,16 @@ function branchExists(cwd, branch) {
 }
 function repoDefaultBranch(cwd) {
   const opts = { encoding: "utf8", timeout: 3e3 };
-  const head = spawnSync5("git", ["-C", cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], opts);
+  const head = spawnSync6("git", ["-C", cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], opts);
   if (head.status === 0) {
     const b = (head.stdout ?? "").trim().replace(/^origin\//, "");
     if (b) return b;
   }
   for (const cand of ["main", "master", "dev"]) {
-    const r = spawnSync5("git", ["-C", cwd, "show-ref", "--verify", "--quiet", `refs/heads/${cand}`], opts);
+    const r = spawnSync6("git", ["-C", cwd, "show-ref", "--verify", "--quiet", `refs/heads/${cand}`], opts);
     if (r.status === 0) return cand;
   }
-  const cur = spawnSync5("git", ["-C", cwd, "symbolic-ref", "--short", "HEAD"], opts);
+  const cur = spawnSync6("git", ["-C", cwd, "symbolic-ref", "--short", "HEAD"], opts);
   if (cur.status === 0) {
     const b = (cur.stdout ?? "").trim();
     if (b) return b;
@@ -30444,11 +30866,11 @@ function repoDefaultBranch(cwd) {
   return "main";
 }
 function probeCli(cmd) {
-  const which = spawnSync5("command", ["-v", cmd], { encoding: "utf8", timeout: AUTH_PROBE_TIMEOUT_MS, shell: true });
+  const which = spawnSync6("command", ["-v", cmd], { encoding: "utf8", timeout: AUTH_PROBE_TIMEOUT_MS, shell: true });
   const installed = which.status === 0 && (which.stdout ?? "").trim().length > 0;
   if (!installed) return { installed: false, authed: false };
   if (liveCliBlockReason()) return { installed: true, authed: false };
-  const authR = spawnSync5(cmd, ["auth", "status"], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
+  const authR = spawnSync6(cmd, ["auth", "status"], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
   return { installed: true, authed: authR.status === 0 };
 }
 function readConfig(db2, key) {
@@ -30752,7 +31174,7 @@ function onboardTools(db2, dbPath2 = "") {
         const onboarded = readOnboardedFlag(db2);
         const first_run = !onboarded;
         const policy = readRepoPolicy(db2);
-        return ok15({
+        return ok16({
           first_run,
           current: {
             branching_model: policy.branching_model,
@@ -30782,7 +31204,7 @@ function onboardTools(db2, dbPath2 = "") {
         const repo = args["repo"];
         const git = probeGit(probeDir());
         if (round === "shape") {
-          return ok15({ questions: [shapeQuestion(git.origin_kind)] });
+          return ok16({ questions: [shapeQuestion(git.origin_kind)] });
         }
         if (repo !== void 0) {
           if (round !== "main") {
@@ -30800,7 +31222,7 @@ function onboardTools(db2, dbPath2 = "") {
             branchingQuestion(repoRow.branching_model, isReonboardRepo),
             prTargetQuestion(repoRow.target_branch, repoRow.branching_model, isReonboardRepo)
           ];
-          return ok15({ questions: repoQuestions });
+          return ok16({ questions: repoQuestions });
         }
         const isReonboard = readOnboardedFlag(db2);
         const policy = readRepoPolicy(db2);
@@ -30829,7 +31251,7 @@ function onboardTools(db2, dbPath2 = "") {
         } else {
           throw new Error(`unknown round '${String(round)}'`);
         }
-        return ok15({ questions });
+        return ok16({ questions });
       })
     ),
     onboard_apply: requireRoles(
@@ -30881,7 +31303,7 @@ function onboardTools(db2, dbPath2 = "") {
             `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`,
             [prTargetRepo, branchingRepo, JSON.stringify(protectedRepo), repo]
           );
-          return ok15({
+          return ok16({
             ok: true,
             applied: {
               repo,
@@ -31019,7 +31441,7 @@ function onboardTools(db2, dbPath2 = "") {
           writeUserSettingsEnforcementShim({ pluginRoot: resolvePluginRoot2(), homeDir: os.homedir() });
         } catch {
         }
-        return ok15({
+        return ok16({
           ok: true,
           ...warning ? { warning } : {},
           applied: {
@@ -31039,14 +31461,14 @@ function onboardTools(db2, dbPath2 = "") {
 }
 
 // src/tools/scan.ts
-import { spawn, spawnSync as spawnSync6 } from "node:child_process";
-import { existsSync as existsSync7, readFileSync as readFileSync4, writeFileSync as writeFileSync3, unlinkSync } from "node:fs";
-import { dirname as dirname9, join as join9 } from "node:path";
+import { spawn, spawnSync as spawnSync7 } from "node:child_process";
+import { existsSync as existsSync8, readFileSync as readFileSync5, writeFileSync as writeFileSync3, unlinkSync } from "node:fs";
+import { dirname as dirname9, join as join10 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
 // src/graph-db.ts
 import { createRequire } from "node:module";
-import { mkdirSync as mkdirSync5, existsSync as existsSync6 } from "node:fs";
+import { mkdirSync as mkdirSync5, existsSync as existsSync7 } from "node:fs";
 import { dirname as dirname8 } from "node:path";
 function single(result) {
   return Array.isArray(result) ? result[0] : result;
@@ -31076,7 +31498,7 @@ var WorldModelGraph = class _WorldModelGraph {
       }
     };
     validateWritePath();
-    if (dbPath2 !== ":memory:" && !existsSync6(dirname8(dbPath2))) {
+    if (dbPath2 !== ":memory:" && !existsSync7(dirname8(dbPath2))) {
       mkdirSync5(dirname8(dbPath2), { recursive: true });
     }
     validateWritePath();
@@ -31332,35 +31754,35 @@ var GraphHolder = class _GraphHolder {
 };
 
 // src/tools/scan.ts
-function ok16(data) {
+function ok17(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err15(message) {
+function err16(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
   };
 }
-function wrap3(fn) {
+function wrap4(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err15(e.message);
+      return err16(e.message);
     }
   };
 }
 function resolveScanScript() {
   const here = dirname9(fileURLToPath4(import.meta.url));
   const candidates = [
-    join9(here, "..", "..", "..", "..", "scripts", "scan.sh"),
-    join9(here, "..", "..", "..", "scripts", "scan.sh")
+    join10(here, "..", "..", "..", "..", "scripts", "scan.sh"),
+    join10(here, "..", "..", "..", "scripts", "scan.sh")
   ];
-  for (const c of candidates) if (existsSync7(c)) return c;
+  for (const c of candidates) if (existsSync8(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join9(pluginRoot, "scripts", "scan.sh");
-    if (existsSync7(c)) return c;
+    const c = join10(pluginRoot, "scripts", "scan.sh");
+    if (existsSync8(c)) return c;
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
 }
@@ -31486,26 +31908,26 @@ function deriveDirectoryEntries(out) {
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames) {
   const leaf = dirPath === "" ? "(repo root)" : basename4(dirPath);
-  const join11 = (names) => {
+  const join12 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
   };
   const parts = [];
   if (fileNames.length > 0) {
-    parts.push(`${fileNames.length} file${fileNames.length === 1 ? "" : "s"} (${join11(fileNames.slice().sort())})`);
+    parts.push(`${fileNames.length} file${fileNames.length === 1 ? "" : "s"} (${join12(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts.push(`subdirs: ${join11(subdirNames.slice().sort())}`);
+    parts.push(`subdirs: ${join12(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts.length > 0 ? parts.join("; ") : "empty directory"}`;
 }
 function readReadmeSummary(absDirPath) {
   for (const candidate of README_CANDIDATES) {
-    const readmePath = join9(absDirPath, candidate);
-    if (!existsSync7(readmePath)) continue;
+    const readmePath = join10(absDirPath, candidate);
+    if (!existsSync8(readmePath)) continue;
     try {
-      const raw = readFileSync4(readmePath, "utf8");
+      const raw = readFileSync5(readmePath, "utf8");
       const clipped = raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
       return frameUntrusted("readme", clipped);
     } catch {
@@ -31531,7 +31953,7 @@ function persistDirectoriesGraph(graph, out, now) {
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join9(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join10(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(entry.path, entry.file_names, subdirNames);
@@ -31560,12 +31982,12 @@ function persistDirectoriesGraph(graph, out, now) {
 function readRepoRemotes(path2) {
   try {
     const opts = { encoding: "utf8", timeout: 3e3 };
-    const listR = spawnSync6("git", ["-C", path2, "remote"], opts);
+    const listR = spawnSync7("git", ["-C", path2, "remote"], opts);
     if (listR.status !== 0) return [];
     const names = (listR.stdout ?? "").split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
     const remotes = [];
     for (const name of names) {
-      const urlR = spawnSync6("git", ["-C", path2, "remote", "get-url", name], opts);
+      const urlR = spawnSync7("git", ["-C", path2, "remote", "get-url", name], opts);
       if (urlR.status !== 0) continue;
       const url2 = (urlR.stdout ?? "").trim();
       if (!url2) continue;
@@ -31608,11 +32030,20 @@ function persistScan(db2, graph, out, sessionDir) {
       repos_upserted++;
     }
     for (const r of toRetire) {
+      db2.run(`SAVEPOINT retire_repo`);
       try {
+        db2.run(
+          `DELETE FROM milestones WHERE repo = ? AND NOT EXISTS
+             (SELECT 1 FROM issues WHERE issues.repo = milestones.repo AND issues.milestone = milestones.name)`,
+          [r.name]
+        );
         db2.run(`DELETE FROM repos WHERE name = ?`, [r.name]);
+        db2.run(`RELEASE retire_repo`);
         repos_retired++;
         retired.push(r);
       } catch {
+        db2.run(`ROLLBACK TO retire_repo`);
+        db2.run(`RELEASE retire_repo`);
       }
     }
   });
@@ -31654,7 +32085,7 @@ function persistScan(db2, graph, out, sessionDir) {
 var SCAN_TIMEOUT_MS = 10 * 60 * 1e3;
 function readLock(lockPath) {
   try {
-    return JSON.parse(readFileSync4(lockPath, "utf8"));
+    return JSON.parse(readFileSync5(lockPath, "utf8"));
   } catch {
     return null;
   }
@@ -31720,22 +32151,22 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
     scan_run: requireRoles(
       "scan_run",
       ["bro"],
-      wrap3(async (args) => {
+      wrap4(async (args) => {
         const sessionDir = args["session_dir"] ?? process.cwd();
         const rawSource = args["source"] ?? "bro_auto_initial";
         const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : "bro_auto_initial";
         const graph = graphHolder2?.ensureGraph() ?? null;
         const graphOpenError = graphHolder2?.openError ?? null;
         if (!graph && graphOpenError) {
-          return err15(
+          return err16(
             `graph_db_open_failed: ${graphOpenError} \u2014 another process holds the world-model lock (identify the holder by running lsof on the world-model graph file); the server retries automatically on the next call once the holder exits`
           );
         }
-        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join9(dirname9(dbPath2), "scan.lock") : "";
+        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join10(dirname9(dbPath2), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
-            return err15(`scan already running (pid ${existing.pid}, started ${existing.started_at})`);
+            return err16(`scan already running (pid ${existing.pid}, started ${existing.started_at})`);
           }
           let acquired = false;
           let acquireThrew = false;
@@ -31747,16 +32178,24 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
           if (!acquired) {
             const recheck = readLock(lockPath);
             if (recheck && pidAlive(recheck.pid)) {
-              return err15(`scan already running (pid ${recheck.pid}, started ${recheck.started_at})`);
+              return err16(`scan already running (pid ${recheck.pid}, started ${recheck.started_at})`);
             }
             if (!acquireThrew) {
-              return err15("scan lock could not be acquired");
+              return err16("scan lock could not be acquired");
             }
           }
         }
         try {
           const out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
           const stats = persistScan(db2, graph, out, sessionDir);
+          const spawnFn = args["_spawnFn"];
+          for (const r of out.repos) {
+            try {
+              syncRepoMilestones(db2, r.name, r.path, spawnFn);
+            } catch (e) {
+              serverLog({ event: "milestone_sync_error", repo: r.name, error: e.message });
+            }
+          }
           const topDirs = new Set(out.files.map((f) => f.path.split("/")[0]).filter(Boolean));
           const structuralChange = detectStructuralChange(db2, out.repos, topDirs);
           insertAudit(db2, {
@@ -31774,7 +32213,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
               top_dirs: Array.from(topDirs).sort()
             })
           });
-          return ok16({
+          return ok17({
             session_dir: out.session_dir,
             scanned_at: out.scanned_at,
             repos: out.repos.map((r) => ({ name: r.name, file_count: r.file_count })),
@@ -31790,9 +32229,9 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
     repos_list: requireRoles(
       "repos_list",
       ["bro", "swe", "pr-reviewer"],
-      wrap3(async () => {
+      wrap4(async () => {
         const rows = db2.all(`SELECT name, path, file_count, last_scanned_at FROM repos ORDER BY name`);
-        return ok16({ repos: rows });
+        return ok17({ repos: rows });
       })
     )
   };
@@ -31801,38 +32240,38 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
 
 // src/tools/cheatcode.ts
 import { spawn as spawn2 } from "node:child_process";
-import { existsSync as existsSync8, mkdirSync as mkdirSync6, readFileSync as readFileSync5, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname10, join as join10, sep as sep3 } from "node:path";
+import { existsSync as existsSync9, mkdirSync as mkdirSync6, readFileSync as readFileSync6, writeFileSync as writeFileSync4 } from "node:fs";
+import { dirname as dirname10, join as join11, sep as sep3 } from "node:path";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
-function ok17(data) {
+function ok18(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err16(message) {
+function err17(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
   };
 }
-function wrap4(fn) {
+function wrap5(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err16(e.message);
+      return err17(e.message);
     }
   };
 }
 function resolveScriptsFile(name) {
   const here = dirname10(fileURLToPath5(import.meta.url));
   const candidates = [
-    join10(here, "..", "..", "..", "..", "scripts", name),
-    join10(here, "..", "..", "..", "scripts", name)
+    join11(here, "..", "..", "..", "..", "scripts", name),
+    join11(here, "..", "..", "..", "scripts", name)
   ];
-  for (const c of candidates) if (existsSync8(c)) return c;
+  for (const c of candidates) if (existsSync9(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join10(pluginRoot, "scripts", name);
-    if (existsSync8(c)) return c;
+    const c = join11(pluginRoot, "scripts", name);
+    if (existsSync9(c)) return c;
   }
   throw new Error(`${name} not found \u2014 expected at <plugin>/scripts/${name}`);
 }
@@ -32094,18 +32533,18 @@ function projectRootFromDbPath(dbPath2) {
 function resolveGlobalAgentMd(target) {
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c2 = join10(pluginRoot, "agents", `${target}.md`);
-    if (existsSync8(c2)) return c2;
+    const c2 = join11(pluginRoot, "agents", `${target}.md`);
+    if (existsSync9(c2)) return c2;
   }
   const here = dirname10(fileURLToPath5(import.meta.url));
-  const c = join10(here, "..", "..", "..", "..", "agents", `${target}.md`);
-  if (existsSync8(c)) return c;
+  const c = join11(here, "..", "..", "..", "..", "agents", `${target}.md`);
+  if (existsSync9(c)) return c;
   return null;
 }
 function readManifestProvidedTools(manifestPath) {
   let manifest;
   try {
-    manifest = JSON.parse(readFileSync5(manifestPath, "utf8"));
+    manifest = JSON.parse(readFileSync6(manifestPath, "utf8"));
   } catch {
     return [];
   }
@@ -32120,13 +32559,13 @@ function readManifestProvidedTools(manifestPath) {
 }
 function resolveInstalledPluginManifest(name) {
   const override = process.env["TMB_CHEATCODE_PLUGIN_MANIFEST"];
-  if (override) return existsSync8(override) ? override : null;
-  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join10(process.env["HOME"] || "", ".claude");
-  const registry2 = join10(claudeHome, "plugins", "installed_plugins.json");
-  if (!existsSync8(registry2)) return null;
+  if (override) return existsSync9(override) ? override : null;
+  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join11(process.env["HOME"] || "", ".claude");
+  const registry2 = join11(claudeHome, "plugins", "installed_plugins.json");
+  if (!existsSync9(registry2)) return null;
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync5(registry2, "utf8"));
+    parsed = JSON.parse(readFileSync6(registry2, "utf8"));
   } catch {
     return null;
   }
@@ -32138,8 +32577,8 @@ function resolveInstalledPluginManifest(name) {
     for (const e of list) {
       const installPath = e?.installPath;
       if (typeof installPath !== "string" || installPath.length === 0) continue;
-      const manifest = join10(installPath, ".claude-plugin", "plugin.json");
-      if (existsSync8(manifest)) return manifest;
+      const manifest = join11(installPath, ".claude-plugin", "plugin.json");
+      if (existsSync9(manifest)) return manifest;
     }
   }
   return null;
@@ -32224,11 +32663,11 @@ function removeSkillFromAgentFrontmatter(content, skillName) {
 function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools = []) {
   const projectRoot = projectRootFromDbPath(dbPath2);
   if (!projectRoot) return null;
-  const claudeDir = join10(projectRoot, ".claude");
+  const claudeDir = join11(projectRoot, ".claude");
   if (target === "bro") {
-    const claudeMd = join10(claudeDir, "CLAUDE.md");
+    const claudeMd = join11(claudeDir, "CLAUDE.md");
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    let body = existsSync8(claudeMd) ? readFileSync5(claudeMd, "utf8") : "";
+    let body = existsSync9(claudeMd) ? readFileSync6(claudeMd, "utf8") : "";
     if (!body.includes(reference)) {
       const prefix = body.length === 0 || body.endsWith("\n") ? "" : "\n";
       body = body.length === 0 ? `${reference}
@@ -32239,14 +32678,14 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
     }
     return { target: "bro", artifact: "claude-md:.claude/CLAUDE.md", path: claudeMd };
   }
-  const localAgentMd = join10(claudeDir, "agents", `${target}.md`);
+  const localAgentMd = join11(claudeDir, "agents", `${target}.md`);
   let content;
-  if (existsSync8(localAgentMd)) {
-    content = readFileSync5(localAgentMd, "utf8");
+  if (existsSync9(localAgentMd)) {
+    content = readFileSync6(localAgentMd, "utf8");
   } else {
     const globalAgentMd = resolveGlobalAgentMd(target);
     if (!globalAgentMd) return null;
-    content = readFileSync5(globalAgentMd, "utf8");
+    content = readFileSync6(globalAgentMd, "utf8");
   }
   let updated = content;
   if (providedTools.length > 0) {
@@ -32267,9 +32706,9 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   if (!projectRoot) return;
   if (artifact.startsWith("agent-md:")) {
     const rel = artifact.slice("agent-md:".length);
-    const filePath = join10(projectRoot, rel);
-    if (!existsSync8(filePath)) return;
-    const content = readFileSync5(filePath, "utf8");
+    const filePath = join11(projectRoot, rel);
+    if (!existsSync9(filePath)) return;
+    const content = readFileSync6(filePath, "utf8");
     let updated = removeSkillFromAgentFrontmatter(content, cheatcodeName);
     for (const tool of providedTools) updated = removeToolFromAgentFrontmatter(updated, tool);
     if (updated !== content) writeFileSync4(filePath, updated);
@@ -32277,10 +32716,10 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   }
   if (artifact.startsWith("claude-md:")) {
     const rel = artifact.slice("claude-md:".length);
-    const filePath = join10(projectRoot, rel);
-    if (!existsSync8(filePath)) return;
+    const filePath = join11(projectRoot, rel);
+    if (!existsSync9(filePath)) return;
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    const body = readFileSync5(filePath, "utf8");
+    const body = readFileSync6(filePath, "utf8");
     if (!body.includes(reference)) return;
     const updated = body.split("\n").filter((line) => line !== reference).join("\n");
     writeFileSync4(filePath, updated);
@@ -32450,9 +32889,9 @@ function cheatcodeTools(db2) {
     cheatcode_search: requireRoles(
       "cheatcode_search",
       ["bro"],
-      wrap4(async (args) => {
+      wrap5(async (args) => {
         const query = args["capability_query"]?.trim();
-        if (!query) return err16("capability_query is required");
+        if (!query) return err17("capability_query is required");
         const rawKind = args["kind"] ?? "any";
         const kind = VALID_KINDS2.has(rawKind) ? rawKind : "any";
         const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS);
@@ -32467,19 +32906,19 @@ function cheatcodeTools(db2) {
           }),
           nowISO()
         );
-        return ok17({ query, kind, candidates: out.candidates });
+        return ok18({ query, kind, candidates: out.candidates });
       })
     ),
     cheatcode_vet: requireRoles(
       "cheatcode_vet",
       ["bro"],
-      wrap4(async (args) => {
+      wrap5(async (args) => {
         const raw = args["candidate"];
-        if (!raw || typeof raw !== "object") return err16("candidate is required");
+        if (!raw || typeof raw !== "object") return err17("candidate is required");
         const name = raw["name"]?.trim();
         const sourceUrl = raw["source_url"]?.trim();
-        if (!name) return err16("candidate.name is required");
-        if (!sourceUrl) return err16("candidate.source_url is required");
+        if (!name) return err17("candidate.name is required");
+        if (!sourceUrl) return err17("candidate.source_url is required");
         const rawKind = raw["kind"] ?? "any";
         const kind = VALID_KINDS2.has(rawKind) ? rawKind : "any";
         const tierVal = raw["tier"];
@@ -32501,15 +32940,15 @@ function cheatcodeTools(db2) {
           }),
           nowISO()
         );
-        return ok17(out);
+        return ok18(out);
       })
     ),
     cheatcode_approve: requireRoles(
       "cheatcode_approve",
       ["bro"],
-      wrap4(async (args) => {
+      wrap5(async (args) => {
         const parsed = parseInstallCandidate(args["candidate"]);
-        if ("error" in parsed) return err16(parsed.error);
+        if ("error" in parsed) return err17(parsed.error);
         const { name, kind, sourceUrl } = parsed;
         auditCheatcode(
           "cheatcode_approved",
@@ -32517,22 +32956,22 @@ function cheatcodeTools(db2) {
           JSON.stringify({ name, kind, source_url: sourceUrl }),
           nowISO()
         );
-        return ok17({ approved: true, candidate: { name, kind, source_url: sourceUrl } });
+        return ok18({ approved: true, candidate: { name, kind, source_url: sourceUrl } });
       })
     ),
     cheatcode_install: requireRoles(
       "cheatcode_install",
       ["bro"],
-      wrap4(async (args) => {
+      wrap5(async (args) => {
         const parsed = parseInstallCandidate(args["candidate"]);
-        if ("error" in parsed) return err16(parsed.error);
+        if ("error" in parsed) return err17(parsed.error);
         const { name, kind, sourceUrl, tier } = parsed;
         const trustTier = args["trust_tier"]?.trim() ?? null;
         const rawScope = args["scope"]?.trim();
         const scope = rawScope === "global" ? "global" : "local";
         const target = args["target"]?.trim() || null;
         if (kind === "skill" && !target) {
-          return err16(
+          return err17(
             "a skill install requires a target agent (bro|swe|pr-reviewer|consultant) so it attaches to \u22651 agent; an unattached skill is an orphan no agent loads. Resolve a target (infer by domain or AskUserQuestion) and re-call cheatcode_install with target=<agent>."
           );
         }
@@ -32545,7 +32984,7 @@ function cheatcodeTools(db2) {
             `SELECT target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
             [existing.id]
           );
-          return ok17({
+          return ok18({
             installed: false,
             idempotent: true,
             cheatcode: existing,
@@ -32560,7 +32999,7 @@ function cheatcodeTools(db2) {
           [sourceUrl]
         );
         if (!approval) {
-          return err16(
+          return err17(
             `cheatcode install blocked: no approval on record for '${name}' (${sourceUrl}). Run cheatcode_approve on this candidate first, then re-call cheatcode_install.`
           );
         }
@@ -32577,7 +33016,7 @@ function cheatcodeTools(db2) {
           INSTALL_TIMEOUT_MS
         );
         if (kind !== "skill" && out.installed === false && out.error) {
-          return err16(
+          return err17(
             `cheatcode install failed for '${name}' (${kind}): ${out.error}. No row recorded.`
           );
         }
@@ -32641,7 +33080,7 @@ function cheatcodeTools(db2) {
           );
           return id;
         });
-        return ok17({
+        return ok18({
           installed: out.installed,
           cheatcode_id: cheatcodeId,
           candidate: out.candidate,
@@ -32669,17 +33108,17 @@ function cheatcodeTools(db2) {
     cheatcode_uninstall: requireRoles(
       "cheatcode_uninstall",
       ["bro"],
-      wrap4(async (args) => {
+      wrap5(async (args) => {
         const idVal = args["cheatcode_id"];
         if (typeof idVal !== "number" || !Number.isInteger(idVal)) {
-          return err16("cheatcode_id is required (integer)");
+          return err17("cheatcode_id is required (integer)");
         }
         const existing = db2.get(
           `SELECT * FROM cheatcodes WHERE id = ? LIMIT 1`,
           [idVal]
         );
         if (!existing) {
-          return ok17({ uninstalled: false, idempotent: true, cheatcode_id: idVal });
+          return ok18({ uninstalled: false, idempotent: true, cheatcode_id: idVal });
         }
         const attachments = db2.all(
           `SELECT id, target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
@@ -32725,7 +33164,7 @@ function cheatcodeTools(db2) {
           }
           auditCheatcode("cheatcode_uninstalled", auditSummary, auditContent, uninstalledAt);
         });
-        return ok17({
+        return ok18({
           uninstalled: reversal.removed,
           cheatcode_id: existing.id,
           name: existing.name,
@@ -32740,16 +33179,16 @@ function cheatcodeTools(db2) {
     cheatcode_activate: requireRoles(
       "cheatcode_activate",
       ["bro"],
-      wrap4(async (args) => {
+      wrap5(async (args) => {
         const idVal = args["cheatcode_id"];
         if (typeof idVal !== "number" || !Number.isInteger(idVal)) {
-          return err16("cheatcode_id is required (integer)");
+          return err17("cheatcode_id is required (integer)");
         }
         const existing = db2.get(
           `SELECT * FROM cheatcodes WHERE id = ? LIMIT 1`,
           [idVal]
         );
-        if (!existing) return err16(`no cheatcode with id ${idVal}`);
+        if (!existing) return err17(`no cheatcode with id ${idVal}`);
         const restartReason = {
           plugin: "plugin manifest (skills/hooks/commands) loads on the next claude -p cold start",
           mcp: "MCP server registers on the next claude -p cold start"
@@ -32779,7 +33218,7 @@ function cheatcodeTools(db2) {
             activatedAt
           );
         });
-        return ok17({
+        return ok18({
           cheatcode_id: existing.id,
           name: existing.name,
           kind: existing.kind,
@@ -32792,7 +33231,7 @@ function cheatcodeTools(db2) {
     cheatcode_list: requireRoles(
       "cheatcode_list",
       ["bro"],
-      wrap4(async (args) => {
+      wrap5(async (args) => {
         const rawKind = args["kind"]?.trim();
         const rawStatus = args["status"]?.trim();
         const where = [];
@@ -32811,7 +33250,7 @@ function cheatcodeTools(db2) {
              FROM cheatcodes ${clause} ORDER BY id`,
           params
         );
-        return ok17({ cheatcodes: rows });
+        return ok18({ cheatcodes: rows });
       })
     )
   };
@@ -32819,7 +33258,7 @@ function cheatcodeTools(db2) {
 }
 
 // src/tools/world_model.ts
-import { spawnSync as spawnSync7 } from "node:child_process";
+import { spawnSync as spawnSync8 } from "node:child_process";
 import { resolve as resolve4, dirname as dirname11 } from "node:path";
 var WORLD_MODEL_GET_MAX_NODES = 500;
 var UNMERGED_WORK_MAX_BRANCHES = 10;
@@ -32833,7 +33272,7 @@ function computeUnmergedWork(db2, repo) {
   const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname11(db2.dbPath);
   const repoPath = repoRow.path.startsWith("/") ? repoRow.path : resolve4(dbDir, repoRow.path);
   const target = repoRow.target_branch || "dev";
-  const gitCheck = spawnSync7("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
+  const gitCheck = spawnSync8("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
     encoding: "utf8",
     timeout: SUBPROCESS_TIMEOUT_MS
   });
@@ -32858,13 +33297,13 @@ function computeUnmergedWork(db2, repo) {
   }
   const unmerged_work = [];
   for (const [branch_id, entry] of [...byBranch.entries()].slice(0, UNMERGED_WORK_MAX_BRANCHES)) {
-    const refCheck = spawnSync7(
+    const refCheck = spawnSync8(
       "git",
       ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branch_id}`],
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
     );
     if (refCheck.status !== 0) continue;
-    const mergeBase = spawnSync7(
+    const mergeBase = spawnSync8(
       "git",
       ["-C", repoPath, "merge-base", "--is-ancestor", entry.tip, target],
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
@@ -32884,21 +33323,21 @@ function computeUnmergedWork(db2, repo) {
   }
   return { unmerged_work };
 }
-function ok18(data) {
+function ok19(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err17(message) {
+function err18(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
   };
 }
-function wrap5(fn) {
+function wrap6(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err17(e.message);
+      return err18(e.message);
     }
   };
 }
@@ -32999,12 +33438,12 @@ function worldModelTools(db2, graphHolder2) {
     world_model_get: requireRoles(
       "world_model_get",
       ["bro", "swe", "pr-reviewer"],
-      wrap5(async (args) => {
+      wrap6(async (args) => {
         let repo = args["repo"] ?? "";
         if (!repo) {
           const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
           if (available.length >= 2) {
-            return ok18({ repo: "", root: null, warning: "repo-unspecified", available_repos: available });
+            return ok19({ repo: "", root: null, warning: "repo-unspecified", available_repos: available });
           }
           repo = resolveSoleRepo(db2)?.name ?? "";
         }
@@ -33014,20 +33453,20 @@ function worldModelTools(db2, graphHolder2) {
         const unmerged = computeUnmergedWork(db2, repo);
         const graph = graphHolder2?.ensureGraph() ?? null;
         if (!graph) {
-          return ok18({ repo, root: null, warning: "world-model-unavailable", unmerged_work: unmerged.unmerged_work });
+          return ok19({ repo, root: null, warning: "world-model-unavailable", unmerged_work: unmerged.unmerged_work });
         }
         const nodes = graph.allDirectoriesForRepo(repo);
         if (nodes.length === 0) {
-          return ok18({ repo, root: null, warning: "world-model-empty", unmerged_work: unmerged.unmerged_work });
+          return ok19({ repo, root: null, warning: "world-model-empty", unmerged_work: unmerged.unmerged_work });
         }
         const rows = nodes;
         const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
         const tree = buildTree(rows, path2, depth, { nodeCounter });
         if (!tree) {
-          return ok18({ repo, root: null, warning: "path-not-found", path: path2, unmerged_work: unmerged.unmerged_work });
+          return ok19({ repo, root: null, warning: "path-not-found", path: path2, unmerged_work: unmerged.unmerged_work });
         }
         const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
-        return ok18({
+        return ok19({
           repo,
           root: tree,
           ...truncated ? { truncated: true } : {},
@@ -33039,26 +33478,26 @@ function worldModelTools(db2, graphHolder2) {
     world_model_search: requireRoles(
       "world_model_search",
       ["bro", "swe", "pr-reviewer"],
-      wrap5(async (args) => {
+      wrap6(async (args) => {
         const query = args["query"];
-        if (!query || typeof query !== "string") return err17("query is required");
+        if (!query || typeof query !== "string") return err18("query is required");
         const mode = args["mode"] ?? "hybrid";
         const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
         let repo = args["repo"] ?? "";
         if (!repo) {
           const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
           if (available.length >= 2) {
-            return ok18({ repo: "", results: [], total_matched: 0, warning: "repo-unspecified", available_repos: available, mode });
+            return ok19({ repo: "", results: [], total_matched: 0, warning: "repo-unspecified", available_repos: available, mode });
           }
           repo = resolveSoleRepo(db2)?.name ?? "";
         }
         const graph = graphHolder2?.ensureGraph() ?? null;
         if (!graph) {
-          return ok18({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });
+          return ok19({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });
         }
         const hits = graph.keywordSearchDirectories(repo, query, k);
         if (mode === "keyword") {
-          return ok18({
+          return ok19({
             results: hits.map((h) => ({
               repo: h.repo,
               path: h.path,
@@ -33072,14 +33511,14 @@ function worldModelTools(db2, graphHolder2) {
           });
         }
         if (mode === "semantic") {
-          return ok18({
+          return ok19({
             results: [],
             total_matched: 0,
             warning: "semantic_unavailable",
             mode: "semantic"
           });
         }
-        return ok18({
+        return ok19({
           results: hits.map((h) => ({
             repo: h.repo,
             path: h.path,
@@ -33126,6 +33565,7 @@ function decorateWithAgent(tools) {
 function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
   const discussions = discussionTools(db2);
   const issues = issueTools(db2, dbPath2);
+  const milestones = milestoneTools(db2);
   const tasks = taskTools(db2);
   const audit = auditTools(db2);
   const validation = validationTools(db2);
@@ -33145,6 +33585,7 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
   toolDefinitions = decorateWithAgent([
     ...discussions.definitions,
     ...issues.definitions,
+    ...milestones.definitions,
     ...tasks.definitions,
     ...audit.definitions,
     ...validation.definitions,
@@ -33165,6 +33606,7 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
   toolHandlers = {
     ...discussions.handlers,
     ...issues.handlers,
+    ...milestones.handlers,
     ...tasks.handlers,
     ...audit.handlers,
     ...validation.handlers,
@@ -33213,7 +33655,7 @@ function readPackageVersion() {
   try {
     const here = path.dirname(new URL(import.meta.url).pathname);
     const pkgPath = path.join(here, "..", "package.json");
-    const pkg = JSON.parse(readFileSync6(pkgPath, "utf8"));
+    const pkg = JSON.parse(readFileSync7(pkgPath, "utf8"));
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch {
     return "0.0.0";
@@ -33269,10 +33711,10 @@ var shutdown = createShutdown({
   exit: (code) => process.exit(code),
   pid: process.pid
 });
-process.on("uncaughtException", (err18) => {
-  serverLogSync({ kind: "uncaughtException", error_message: err18.message, stack: err18.stack, pid: process.pid });
-  process.stderr.write(`uncaughtException: ${err18.message}
-${err18.stack ?? ""}
+process.on("uncaughtException", (err19) => {
+  serverLogSync({ kind: "uncaughtException", error_message: err19.message, stack: err19.stack, pid: process.pid });
+  process.stderr.write(`uncaughtException: ${err19.message}
+${err19.stack ?? ""}
 `);
   process.exit(1);
 });
@@ -33316,17 +33758,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   let result;
   try {
     result = await handler(args ?? {});
-  } catch (err18) {
+  } catch (err19) {
     const duration_ms2 = Math.round(performance2.now() - start);
     serverLog({
       kind: "tool_exit",
       tool: name,
       agent,
       is_error: true,
-      error_message: err18 instanceof Error ? err18.message : String(err18),
+      error_message: err19 instanceof Error ? err19.message : String(err19),
       duration_ms: duration_ms2
     });
-    throw err18;
+    throw err19;
   }
   const duration_ms = Math.round(performance2.now() - start);
   serverLog({

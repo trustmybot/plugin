@@ -8,6 +8,8 @@ import { insertAudit } from './audit.js';
 import { WorldModelGraph } from '../graph-db.js';
 import { classifyUrl } from '../utils/classify-url.js';
 import { frameUntrusted } from '../utils/untrusted.js';
+import { serverLog } from '../logger.js';
+import { syncRepoMilestones } from './milestones.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -356,16 +358,24 @@ function persistScan(db, graph, out, sessionDir) {
             repos_upserted++;
         }
         for (const r of toRetire) {
+            // Milestones no issue references (e.g. a scan-seeded one) go with the
+            // repo; the savepoint restores them when the repo itself can't retire.
+            db.run(`SAVEPOINT retire_repo`);
             try {
+                db.run(`DELETE FROM milestones WHERE repo = ? AND NOT EXISTS
+             (SELECT 1 FROM issues WHERE issues.repo = milestones.repo AND issues.milestone = milestones.name)`, [r.name]);
                 db.run(`DELETE FROM repos WHERE name = ?`, [r.name]);
+                db.run(`RELEASE retire_repo`);
                 repos_retired++;
                 retired.push(r);
             }
             catch {
                 // ON DELETE RESTRICT FK: the repo is still referenced (tasks/issues
                 // point at it). Keep its row and skip retiring it rather than failing
-                // the whole scan. SQLite rolls back only this statement, so the
-                // surrounding transaction stays open for the remaining repos.
+                // the whole scan; the surrounding transaction stays open for the
+                // remaining repos.
+                db.run(`ROLLBACK TO retire_repo`);
+                db.run(`RELEASE retire_repo`);
             }
         }
     });
@@ -531,6 +541,17 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
             try {
                 const out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
                 const stats = persistScan(db, graph, out, sessionDir);
+                // Milestones: reconcile from each repo's remote, then seed one
+                // v<next-patch> where none exist. Never fails the scan.
+                const spawnFn = args['_spawnFn'];
+                for (const r of out.repos) {
+                    try {
+                        syncRepoMilestones(db, r.name, r.path, spawnFn);
+                    }
+                    catch (e) {
+                        serverLog({ event: 'milestone_sync_error', repo: r.name, error: e.message });
+                    }
+                }
                 // #2881: structural-change detection vs previous deep_scan_completed
                 // audit. The flag rides in the audit content_json so downstream
                 // tooling (the scan-side renderer pass, manual diagnostic queries)

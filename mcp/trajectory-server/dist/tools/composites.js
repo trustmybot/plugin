@@ -5,7 +5,7 @@ import { requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
 import { insertDiscussion } from './discussions.js';
 import { insertAudit } from './audit.js';
-import { syncIssueCloseRemotes, resolveDefaultMilestone, validateIssueLabels, defaultSyncLabels, } from './issues.js';
+import { syncIssueCloseRemotes, resolveDefaultMilestone, milestoneDefaultFields, validateIssueLabels, defaultSyncLabels, } from './issues.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolveSoleRepo } from '../utils/repo-paths.js';
 import { resolve, dirname } from 'node:path';
@@ -1040,7 +1040,8 @@ export function compositeTools(db, dbPath, graphHolder = null) {
             // Resolve the issue's repo (explicit arg, else the sole registered repo)
             // so the milestone default + FK insert bind to the right repo (#15).
             const issueRepo = explicitRepo ?? resolveSoleRepo(db)?.name ?? null;
-            const milestone = resolveDefaultMilestone(db, null, issueRepo);
+            const milestoneResolution = resolveDefaultMilestone(db, null, issueRepo);
+            const milestone = milestoneResolution.milestone;
             const result = db.transaction(() => {
                 db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
              VALUES (?, '', 'open', ?, ?, ?, ?, ?)`, [objective, now, now, milestone, issueRepo, JSON.stringify(labels)]);
@@ -1058,7 +1059,11 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     content_json: JSON.stringify({ branch_id: branchId, objective }),
                     created_at: now,
                 });
-                return { issue_id: issueId, branch_id: branchId };
+                return {
+                    issue_id: issueId,
+                    branch_id: branchId,
+                    ...milestoneDefaultFields(milestoneResolution),
+                };
             });
             return ok(result);
         })),
