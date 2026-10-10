@@ -28602,7 +28602,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           objective: { type: "string", description: "Short one-liner issue objective." },
           intent_verbatim: { type: "string", description: "Human intent verbatim \u2014 stored as kind=intent discussion." },
           branch_id: { type: "string", description: "Confirmed branch_id (from branch_id_propose + Human confirm)." },
-          repo: { type: "string", description: "Optional repo name (matches a repos row) this issue belongs to. Defaults to the sole/managed repo when exactly one repos row exists. Mirrors issue_create." }
+          repo: { type: "string", description: "Optional repo name (matches a repos row) this issue belongs to. Defaults to the sole/managed repo when exactly one repos row exists. Mirrors issue_create." },
+          labels: { type: "array", items: { type: "string" }, description: "Optional. When supplied, must include at least one priority label AND at least one classification label, drawn from the project's configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore). Extra labels are allowed. When omitted, defaults to the first classification + first priority label of the taxonomy. Persisted on the issue row." }
         },
         required: ["agent", "objective", "intent_verbatim", "branch_id"]
       }
@@ -29155,7 +29156,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           }
         }
         const failed = db2.get(
-          `SELECT id, issue_id, branch_id, parent_branch_id, repo, status
+          `SELECT id, issue_id, branch_id, parent_branch_id, repo, status,
+                  files, verification, prompt_bearing
              FROM tasks WHERE id = ? LIMIT 1`,
           [failedTaskId]
         );
@@ -29203,8 +29205,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           db2.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, attempts, spec_body, repo, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`,
+                status, attempts, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)`,
             [
               failed.issue_id,
               newBranchId,
@@ -29213,6 +29215,9 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
               description,
               spec,
               repoOverride ?? failed.repo,
+              failed.prompt_bearing,
+              failed.files,
+              failed.verification,
               now,
               now
             ]
@@ -29274,14 +29279,20 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
             return err14(`intent_start: repo "${explicitRepo}" has no matching repos row \u2014 run /scan or pass a valid repo.`);
           }
         }
+        const suppliedLabels = args["labels"];
+        if (suppliedLabels !== void 0) {
+          const labelError = validateIssueLabels(db2, suppliedLabels);
+          if (labelError !== null) return err14(labelError);
+        }
+        const labels = suppliedLabels ?? defaultSyncLabels(db2);
         const now = nowISO();
         const issueRepo = explicitRepo ?? resolveSoleRepo(db2)?.name ?? null;
         const milestone = resolveDefaultMilestone(db2, null, issueRepo);
         const result = db2.transaction(() => {
           db2.run(
-            `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo)
-             VALUES (?, '', 'open', ?, ?, ?, ?)`,
-            [objective, now, now, milestone, issueRepo]
+            `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
+             VALUES (?, '', 'open', ?, ?, ?, ?, ?)`,
+            [objective, now, now, milestone, issueRepo, JSON.stringify(labels)]
           );
           const row = db2.get(
             `SELECT id FROM issues WHERE rowid = last_insert_rowid()`

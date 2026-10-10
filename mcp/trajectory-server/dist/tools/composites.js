@@ -4,7 +4,7 @@ import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
 import { insertDiscussion } from './discussions.js';
-import { syncIssueCloseRemotes, resolveDefaultMilestone } from './issues.js';
+import { syncIssueCloseRemotes, resolveDefaultMilestone, validateIssueLabels, defaultSyncLabels, } from './issues.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolveSoleRepo } from '../utils/repo-paths.js';
 import { resolve, dirname } from 'node:path';
@@ -320,6 +320,7 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     intent_verbatim: { type: 'string', description: 'Human intent verbatim — stored as kind=intent discussion.' },
                     branch_id: { type: 'string', description: 'Confirmed branch_id (from branch_id_propose + Human confirm).' },
                     repo: { type: 'string', description: 'Optional repo name (matches a repos row) this issue belongs to. Defaults to the sole/managed repo when exactly one repos row exists. Mirrors issue_create.' },
+                    labels: { type: 'array', items: { type: 'string' }, description: 'Optional. When supplied, must include at least one priority label AND at least one classification label, drawn from the project\'s configured taxonomy (plugin_config issue_priority_labels / issue_classification_labels) or the generic default (priority: Priority: Urgent|High|Medium|Low; classification: Bug, Feature, Improvement, Docs, Test, Chore). Extra labels are allowed. When omitted, defaults to the first classification + first priority label of the taxonomy. Persisted on the issue row.' },
                 },
                 required: ['agent', 'objective', 'intent_verbatim', 'branch_id'],
             },
@@ -911,7 +912,8 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     return err(`Invalid repo "${repoOverride}": must not start with "/".`);
                 }
             }
-            const failed = db.get(`SELECT id, issue_id, branch_id, parent_branch_id, repo, status
+            const failed = db.get(`SELECT id, issue_id, branch_id, parent_branch_id, repo, status,
+                  files, verification, prompt_bearing
              FROM tasks WHERE id = ? LIMIT 1`, [failedTaskId]);
             if (!failed)
                 return err(`No task with id=${failedTaskId}`);
@@ -963,8 +965,8 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                 });
                 db.run(`INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, attempts, spec_body, repo, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`, [
+                status, attempts, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)`, [
                     failed.issue_id,
                     newBranchId,
                     failed.parent_branch_id ?? failed.branch_id,
@@ -972,6 +974,9 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     description,
                     spec,
                     repoOverride ?? failed.repo,
+                    failed.prompt_bearing,
+                    failed.files,
+                    failed.verification,
                     now,
                     now,
                 ]);
@@ -1025,14 +1030,21 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     return err(`intent_start: repo "${explicitRepo}" has no matching repos row — run /scan or pass a valid repo.`);
                 }
             }
+            const suppliedLabels = args['labels'];
+            if (suppliedLabels !== undefined) {
+                const labelError = validateIssueLabels(db, suppliedLabels);
+                if (labelError !== null)
+                    return err(labelError);
+            }
+            const labels = suppliedLabels ?? defaultSyncLabels(db);
             const now = nowISO();
             // Resolve the issue's repo (explicit arg, else the sole registered repo)
             // so the milestone default + FK insert bind to the right repo (#15).
             const issueRepo = explicitRepo ?? resolveSoleRepo(db)?.name ?? null;
             const milestone = resolveDefaultMilestone(db, null, issueRepo);
             const result = db.transaction(() => {
-                db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo)
-             VALUES (?, '', 'open', ?, ?, ?, ?)`, [objective, now, now, milestone, issueRepo]);
+                db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
+             VALUES (?, '', 'open', ?, ?, ?, ?, ?)`, [objective, now, now, milestone, issueRepo, JSON.stringify(labels)]);
                 const row = db.get(`SELECT id FROM issues WHERE rowid = last_insert_rowid()`);
                 if (!row)
                     throw new Error('intent_start: failed to retrieve inserted issue');

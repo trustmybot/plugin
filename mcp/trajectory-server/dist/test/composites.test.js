@@ -138,6 +138,39 @@ describe('task_retry', () => {
         const auditRows = db.all(`SELECT event_type FROM audit WHERE issue_id = ?`, [issueId]);
         assert.ok(auditRows.some((r) => r.event_type === 'task_retry_attempted'));
     });
+    it('copies files, verification and prompt_bearing from the failed task', async () => {
+        const db = tempDB();
+        const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const issueId = Number(parse(await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
+            agent: 'bro', objective: 'retry fences', description: 'x',
+        }))['id']);
+        const filesJson = JSON.stringify(['src/a.ts', 'agents/swe.md']);
+        const verificationJson = JSON.stringify(['npm test', 'bash tests/l1-lint/dist-fresh.sh']);
+        db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, attempts, spec_body,
+                          prompt_bearing, files, verification, created_at, updated_at)
+       VALUES (?, 'fix/fenced', '', 'd', 'failed', 1, 's', 1, ?, ?, datetime('now'), datetime('now'))`, [issueId, filesJson, verificationJson]);
+        const failed = db.get(`SELECT id, files, verification, prompt_bearing FROM tasks WHERE branch_id = 'fix/fenced'`);
+        const retry = await call(composites.handlers, 'task_retry', {
+            agent: 'bro',
+            failed_task_id: String(failed.id),
+            new_branch_id: 'fix/fenced-v2',
+            corrected_spec_body: 'fixed approach',
+            retry_rationale: 'retry keeps fences',
+            description: 'retry desc',
+        });
+        assert.equal(retry.isError, undefined, JSON.stringify(parse(retry)));
+        const newId = parse(retry).task_id;
+        const row = db.get(`SELECT files, verification, prompt_bearing FROM tasks WHERE id = ?`, [newId]);
+        assert.equal(row.files, failed.files);
+        assert.equal(row.verification, failed.verification);
+        assert.equal(row.prompt_bearing, failed.prompt_bearing);
+        assert.equal(row.files, filesJson);
+        assert.equal(row.verification, verificationJson);
+        assert.equal(row.prompt_bearing, 1);
+        db.close();
+    });
     it('rejects retry on a task whose status is not failed', async () => {
         const db = tempDB();
         const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
@@ -1191,6 +1224,58 @@ describe('intent_start (#426)', () => {
         // If the transaction rolled back, no issue was created.
         const issues = db.all(`SELECT id FROM issues WHERE id != -1`);
         assert.equal(issues.length, 0, 'transaction must roll back: no issue row must survive');
+        db.close();
+    });
+    it('persists supplied labels on the issue row', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'intent_start', {
+            agent: 'bro',
+            objective: 'labelled intent',
+            intent_verbatim: 'x',
+            branch_id: 'fix/labelled-intent',
+            labels: ['Bug', 'Priority: High'],
+        });
+        assert.ok(!r.isError, JSON.stringify(parse(r)));
+        const issueId = parse(r).issue_id;
+        const row = db.get(`SELECT labels FROM issues WHERE id = ?`, [issueId]);
+        assert.equal(row.labels, '["Bug","Priority: High"]');
+        db.close();
+    });
+    it('derives the taxonomy default labels when omitted', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'intent_start', {
+            agent: 'bro',
+            objective: 'unlabelled intent',
+            intent_verbatim: 'x',
+            branch_id: 'fix/unlabelled-intent',
+        });
+        assert.ok(!r.isError, JSON.stringify(parse(r)));
+        const issueId = parse(r).issue_id;
+        const row = db.get(`SELECT labels FROM issues WHERE id = ?`, [issueId]);
+        assert.notEqual(row.labels, null);
+        const labels = JSON.parse(row.labels);
+        const classification = ['Bug', 'Feature', 'Improvement', 'Docs', 'Test', 'Chore'];
+        const priority = ['Priority: Urgent', 'Priority: High', 'Priority: Medium', 'Priority: Low'];
+        assert.equal(labels.filter((l) => classification.includes(l)).length, 1);
+        assert.equal(labels.filter((l) => priority.includes(l)).length, 1);
+        db.close();
+    });
+    it('rejects invalid labels with missing_required_labels', async () => {
+        const db = tempDB();
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const r = await call(composites.handlers, 'intent_start', {
+            agent: 'bro',
+            objective: 'bad labels',
+            intent_verbatim: 'x',
+            branch_id: 'fix/bad-labels',
+            labels: ['nonsense'],
+        });
+        assert.equal(r.isError, true);
+        assert.match(parse(r)['error'], /missing_required_labels/);
+        const count = db.get(`SELECT COUNT(*) AS n FROM issues WHERE id != -1`);
+        assert.equal(count.n, 0);
         db.close();
     });
 });
