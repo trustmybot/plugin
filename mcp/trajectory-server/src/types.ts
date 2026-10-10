@@ -6,7 +6,6 @@ export interface Issue {
   created_at: string;
   updated_at: string;
   closed_at: string | null;
-  remote_iid?: number | null;
   remote_kind?: 'github' | 'gitlab' | null;
   gh_iid?: number | null;
   gl_iid?: number | null;
@@ -23,7 +22,6 @@ export interface IssueRow {
   created_at: string;
   updated_at: string;
   closed_at: string | null;
-  remote_iid: number | null;
   remote_kind: 'github' | 'gitlab' | null;
   gh_iid: number | null;
   gl_iid: number | null;
@@ -43,7 +41,6 @@ export interface Task {
   title: string;
   description: string;
   status: string;
-  attempts: number;
   spec_body: string;
   commit_sha: string | null;
   /** Relative path to the git repo for this task (e.g. "inner" or "repos/backend"). Null for single-repo CC. */

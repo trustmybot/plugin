@@ -380,7 +380,8 @@ export function prMonitorTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
           );
         }
         // 0 or 1 repos: derive the sole repo's slug from its remotes; fall back
-        // to '' (cwd remote) only when no repo/remote slug resolves (uninitialized).
+        // to '' (cwd remote, no cursor) only when no repo/remote slug resolves
+        // (uninitialized).
         const resolved = resolveRepoForSync(db, null);
         const slug = resolved
           ? resolved.remotes
@@ -453,32 +454,32 @@ export function prMonitorTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
           ? (fetchResult.comments[fetchResult.comments.length - 1]?.id ?? null)
           : null;
 
-      // Upsert the cursor: a re-fetch of the same (pr_number, repo) should
-      // overwrite last_fetched_at + last_comment_id rather than insert a
-      // duplicate row. Monitoring rows always have pr_number > 0 so they
-      // are covered by idx_pr_review_runs_pr (partial unique WHERE pr_number > 0).
-      // Use SELECT + INSERT/UPDATE to avoid relying on partial-index ON CONFLICT.
+      // Upsert the cursor: a re-fetch of the same (pr_number, repo) overwrites
+      // last_fetched_at + last_comment_id rather than inserting a duplicate row
+      // (UNIQUE (pr_number, repo)). The cursor is keyed by repo, so a fetch with
+      // no resolved repo slug (cwd remote) persists no cursor.
       // Resolve the owning task from the PR head branch so the carrier
       // resolution (pr_number → pr_review_runs → tasks → issue) works in
       // production (#1024). Null when unresolvable — COALESCE keeps a
       // previously-resolved task_id rather than nulling it on a later fetch.
-      const taskId = resolveMonitorTaskId(db, fetchResult.head_branch, repo);
-
-      const existingCursor = db.get<{ id: number }>(
-        'SELECT id FROM pr_review_runs WHERE pr_number = ? AND repo = ?',
-        [prNumber, repo],
-      );
-      if (existingCursor) {
-        db.run(
-          'UPDATE pr_review_runs SET last_fetched_at = ?, last_comment_id = ?, task_id = COALESCE(?, task_id) WHERE id = ?',
-          [now, lastCommentId, taskId, existingCursor.id],
+      if (repo !== '') {
+        const taskId = resolveMonitorTaskId(db, fetchResult.head_branch, repo);
+        const existingCursor = db.get<{ id: number }>(
+          'SELECT id FROM pr_review_runs WHERE pr_number = ? AND repo = ?',
+          [prNumber, repo],
         );
-      } else {
-        db.run(
-          `INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id, task_id)
-           VALUES (?, ?, ?, ?, ?)`,
-          [prNumber, repo, now, lastCommentId, taskId],
-        );
+        if (existingCursor) {
+          db.run(
+            'UPDATE pr_review_runs SET last_fetched_at = ?, last_comment_id = ?, task_id = COALESCE(?, task_id) WHERE id = ?',
+            [now, lastCommentId, taskId, existingCursor.id],
+          );
+        } else {
+          db.run(
+            `INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id, task_id)
+             VALUES (?, ?, ?, ?, ?)`,
+            [prNumber, repo, now, lastCommentId, taskId],
+          );
+        }
       }
 
       return ok(fetchResult);

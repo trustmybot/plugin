@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
+import { assertV29Shape } from './fixtures/v29-shape.js';
 describe('schema — current table set, default values, constraints', () => {
     it('fresh prod-mode DB contains the current table set (skills folded into cheatcodes, #101; world model in kuzu)', () => {
         const db = tempDB();
@@ -97,11 +98,16 @@ describe('schema — current table set, default values, constraints', () => {
         }, /CHECK/i);
         db.close();
     });
-    it('fresh DB has schema_version = 28 in plugin_meta', () => {
+    it('fresh DB carries every v29 constraint, drop and index', () => {
+        const db = tempDB();
+        assertV29Shape(db);
+        db.close();
+    });
+    it('fresh DB has schema_version = 29 in plugin_meta', () => {
         const db = tempDB();
         const meta = db.get('SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-        assert.equal(meta.schema_version, 28);
+        assert.equal(meta.schema_version, 29);
         assert.ok(typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0, 'plugin_version must be a non-empty string');
         db.close();
     });
@@ -169,14 +175,14 @@ describe('schema — current table set, default values, constraints', () => {
         assert.equal(fk.to, 'id');
         db.close();
     });
-    it('validation_attempts has mcp_available INTEGER NOT NULL DEFAULT 1 (#157)', () => {
+    it('validation_attempts has mcp_available INTEGER NOT NULL with no DEFAULT (#157, v29)', () => {
         const db = tempDB();
         const cols = db.all('PRAGMA table_info(validation_attempts)');
         const col = cols.find((c) => c.name === 'mcp_available');
         assert.ok(col !== undefined, 'mcp_available column must exist');
         assert.equal(col.type.toUpperCase(), 'INTEGER', 'mcp_available must be INTEGER');
         assert.equal(col.notnull, 1, 'mcp_available must be NOT NULL');
-        assert.equal(col.dflt_value, '1', 'mcp_available default must be 1');
+        assert.equal(col.dflt_value, null, 'mcp_available must carry no DEFAULT — every writer states it');
         db.close();
     });
     it('validation_attempts.feedback CHECK is gone — free prose is accepted (#157)', () => {

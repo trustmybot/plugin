@@ -121,7 +121,7 @@ if [ "${TMB_DISABLE_CHEATCODE_INSTALL_HINT:-0}" != "1" ]; then
       DB=$(tmb_db_path 2>/dev/null || true)
       if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
         CONSULTANT_ROLES=$(sqlite3 "$DB" \
-          "SELECT name FROM agents WHERE kind='consultant' AND status='active';" \
+          "SELECT name FROM agents WHERE kind='consultant';" \
           2>/dev/null || true)
         while IFS= read -r role; do
           [ -n "$role" ] || continue
@@ -182,7 +182,7 @@ if [ "${TMB_DISABLE_CONSULTANT_HINT:-0}" != "1" ]; then
   DB=$(tmb_db_path 2>/dev/null || true)
   if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
     CONSULTANT_NAMES=$(sqlite3 "$DB" \
-      "SELECT name FROM agents WHERE kind='consultant' AND status='active';" \
+      "SELECT name FROM agents WHERE kind='consultant';" \
       2>/dev/null || true)
     while IFS= read -r role; do
       [ -n "$role" ] || continue

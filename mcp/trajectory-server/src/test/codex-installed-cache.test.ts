@@ -318,7 +318,7 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
     assert.equal(createdRuntime.project_root, canonicalProject);
     assert.equal(createdRuntime.plugin_name, manifest.name);
     assert.equal(createdRuntime.plugin_version, manifest.version);
-    assert.equal(createdRuntime.schema_version, 28);
+    assert.equal(createdRuntime.schema_version, 29);
     assert.equal(createdRuntime.graph_available, false);
     assert.equal(createdRuntime.graph_status, 'unavailable');
     assert.ok(
@@ -338,7 +338,7 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
       const row = db
         .prepare('SELECT schema_version, plugin_version FROM plugin_meta WHERE id = 1')
         .get() as { schema_version: number; plugin_version: string };
-      assert.equal(row.schema_version, 28);
+      assert.equal(row.schema_version, 29);
       assert.equal(row.plugin_version, manifest.version);
     } finally {
       db.close();
@@ -431,10 +431,10 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
     assert.notEqual(planningCall.isError, true);
     const planningIssue = payloadOf(planningCall)['data'] as {
       id: number;
-      remote_iid: number | null;
+      gh_iid: number | null;
     };
     assert.ok(planningIssue.id > 0);
-    assert.equal(planningIssue.remote_iid, null);
+    assert.equal(planningIssue.gh_iid, null);
 
     const discussionCall = await client.callTool({
       name: 'planning_discussion_append',

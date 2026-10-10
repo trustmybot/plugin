@@ -235,7 +235,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
     });
     const issue = parseResult(result);
     assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
-    assert.equal(issue.remote_iid, 77);
+    assert.equal(issue.gh_iid, 77);
     assert.equal(issue.remote_kind, 'github');
 
     const row = db.get<{ gh_iid: number | null; gl_iid: number | null }>(
@@ -275,7 +275,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
     });
     const issue = parseResult(result);
     assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
-    assert.equal(issue.remote_iid, 55);
+    assert.equal(issue.gl_iid, 55);
     assert.equal(issue.remote_kind, 'gitlab');
 
     const row = db.get<{ gh_iid: number | null; gl_iid: number | null }>(
@@ -300,7 +300,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
     const issue = parseResult(createResult);
 
     db.run(
-      `UPDATE issues SET gh_iid = 101, remote_iid = 101, remote_kind = 'github' WHERE id = ?`,
+      `UPDATE issues SET gh_iid = 101, remote_kind = 'github' WHERE id = ?`,
       [issue.id],
     );
 
@@ -328,7 +328,7 @@ describe('issueTools — gh_iid + gl_iid tri-source', () => {
     const issue = parseResult(createResult);
 
     db.run(
-      `UPDATE issues SET gl_iid = 202, remote_iid = 202, remote_kind = 'gitlab' WHERE id = ?`,
+      `UPDATE issues SET gl_iid = 202, remote_kind = 'gitlab' WHERE id = ?`,
       [issue.id],
     );
 
@@ -363,7 +363,7 @@ describe('issueTools — remote sync', () => {
     });
     const created = parseResult(result);
     assert.ok(!result.isError, `Expected no error, got: ${created.error}`);
-    assert.equal(created.remote_iid ?? null, null, 'remote_iid should be null when sync is off');
+    assert.equal(created.gh_iid ?? null, null, 'gh_iid should be null when sync is off');
     assert.equal(created.remote_kind ?? null, null, 'remote_kind should be null when sync is off');
 
     db.close();
@@ -389,7 +389,7 @@ describe('issueTools — remote sync', () => {
     assert.ok(!result.isError, 'Local insert must succeed even when remote fails');
     assert.equal(created.objective, 'Test gh sync failure fallback');
     assert.equal(created.status, 'open');
-    assert.equal(created.remote_iid ?? null, null, 'remote_iid should be null when sync fails');
+    assert.equal(created.gh_iid ?? null, null, 'gh_iid should be null when sync fails');
 
     db.close();
   });
@@ -413,7 +413,7 @@ describe('issueTools — remote sync', () => {
     const created = parseResult(result);
     assert.ok(!result.isError, 'Local insert must succeed even when remote fails');
     assert.equal(created.objective, 'Test glab sync failure fallback');
-    assert.equal(created.remote_iid ?? null, null, 'remote_iid should be null when sync fails');
+    assert.equal(created.gh_iid ?? null, null, 'gh_iid should be null when sync fails');
 
     db.close();
   });
@@ -438,12 +438,12 @@ describe('issueTools — remote sync', () => {
     const created = parseResult(result);
     assert.ok(!result.isError, 'Local insert must succeed even when no backend available');
     assert.equal(created.objective, 'Test auto with no remote');
-    assert.equal(created.remote_iid ?? null, null, 'remote_iid should be null when no backend resolves');
+    assert.equal(created.gh_iid ?? null, null, 'gh_iid should be null when no backend resolves');
 
     db.close();
   });
 
-  it('issue_close with no remote_iid skips remote close', async () => {
+  it('issue_close with no remote link skips remote close', async () => {
     const db = tempDB();
     const tools = issueTools(db);
 
@@ -459,13 +459,13 @@ describe('issueTools — remote sync', () => {
       issue_id: String(issue.id),
     });
     const closed = parseResult(closeResult);
-    assert.ok(!closeResult.isError, 'issue_close should succeed when no remote_iid');
+    assert.ok(!closeResult.isError, 'issue_close should succeed when no remote link');
     assert.equal(closed.status, 'closed');
 
     db.close();
   });
 
-  it('issue_close mirrors to remote when remote_iid is set', async () => {
+  it('issue_close mirrors to remote when gh_iid is set', async () => {
     const db = tempDB();
     const tools = issueTools(db);
 
@@ -477,7 +477,7 @@ describe('issueTools — remote sync', () => {
     const issue = parseResult(createResult);
 
     db.run(
-      `UPDATE issues SET remote_iid = 99, remote_kind = 'github' WHERE id = ?`,
+      `UPDATE issues SET gh_iid = 99, remote_kind = 'github' WHERE id = ?`,
       [issue.id],
     );
 
@@ -537,17 +537,17 @@ describe('issueTools — remote sync', () => {
     });
     const issue = parseResult(result);
     assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
-    assert.equal(issue.remote_iid, 42, 'remote_iid should be set after successful sync');
+    assert.equal(issue.gh_iid, 42, 'gh_iid should be set after successful sync');
 
-    const row = db.get<{ updated_at: string; remote_iid: number }>(
-      `SELECT updated_at, remote_iid FROM issues WHERE id = ?`,
+    const row = db.get<{ updated_at: string; gh_iid: number }>(
+      `SELECT updated_at, gh_iid FROM issues WHERE id = ?`,
       [issue.id],
     );
     assert.ok(row, 'issue row must exist');
-    assert.equal(row!.remote_iid, 42, 'remote_iid must be persisted');
+    assert.equal(row!.gh_iid, 42, 'gh_iid must be persisted');
     assert.ok(
       row!.updated_at >= before,
-      `updated_at must be set on successful remote_iid UPDATE, got: ${row!.updated_at}`,
+      `updated_at must be set on successful remote-link UPDATE, got: ${row!.updated_at}`,
     );
 
     db.close();
@@ -594,8 +594,8 @@ describe('issueTools — remote sync', () => {
     assert.ok(!createResult.isError);
 
     db.run(
-      `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
-       VALUES (?, 'feat/task-a', 'main', '', 'task a', 'completed', 0, '', NULL, datetime('now'), datetime('now'))`,
+      `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, spec_body, repo, created_at, updated_at)
+       VALUES (?, 'feat/task-a', 'main', '', 'task a', 'completed', '', NULL, datetime('now'), datetime('now'))`,
       [issue.id],
     );
 
@@ -625,13 +625,13 @@ describe('issueTools — remote sync', () => {
     assert.ok(!createResult.isError);
 
     db.run(
-      `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
-       VALUES (?, 'feat/task-b', 'main', '', 'task b', 'completed', 0, '', NULL, datetime('now'), datetime('now'))`,
+      `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, spec_body, repo, created_at, updated_at)
+       VALUES (?, 'feat/task-b', 'main', '', 'task b', 'completed', '', NULL, datetime('now'), datetime('now'))`,
       [issue.id],
     );
     db.run(
-      `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
-       VALUES (?, 'feat/task-c', 'main', '', 'task c', 'pending', 0, '', NULL, datetime('now'), datetime('now'))`,
+      `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, spec_body, repo, created_at, updated_at)
+       VALUES (?, 'feat/task-c', 'main', '', 'task c', 'pending', '', NULL, datetime('now'), datetime('now'))`,
       [issue.id],
     );
 
@@ -659,8 +659,8 @@ describe('issueTools — remote sync', () => {
     assert.ok(!createResult.isError);
 
     db.run(
-      `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, attempts, spec_body, repo, created_at, updated_at)
-       VALUES (?, 'feat/task-closed', 'main', '', 'closed task', 'closed', 0, '', NULL, datetime('now'), datetime('now'))`,
+      `INSERT INTO tasks (issue_id, branch_id, parent_branch_id, title, description, status, spec_body, repo, created_at, updated_at)
+       VALUES (?, 'feat/task-closed', 'main', '', 'closed task', 'closed', '', NULL, datetime('now'), datetime('now'))`,
       [issue.id],
     );
 
@@ -724,7 +724,7 @@ describe('issueTools — issue-sync hardening (#314)', () => {
     });
     const issue = parseResult(result);
     assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
-    assert.equal(issue.remote_iid ?? null, null, 'remote_iid must be null when URL is blank');
+    assert.equal(issue.gh_iid ?? null, null, 'gh_iid must be null when URL is blank');
     assert.ok(issue._sync, 'sync diagnostic must be present');
     assert.equal(issue._sync.sync_skipped, true, 'sync_skipped must be true');
     assert.equal(issue._sync.reason, 'blank_remote_url');
@@ -762,7 +762,7 @@ describe('issueTools — issue-sync hardening (#314)', () => {
     });
     const issue = parseResult(result);
     assert.ok(!result.isError, 'local insert must succeed even when verify fails');
-    assert.equal(issue.remote_iid ?? null, null, 'remote_iid must NOT be persisted when verify_failed');
+    assert.equal(issue.gh_iid ?? null, null, 'gh_iid must NOT be persisted when verify_failed');
 
     const row = db.get<{ gh_iid: number | null }>(
       'SELECT gh_iid FROM issues WHERE id = ?',
@@ -797,11 +797,10 @@ describe('issue_link (#336)', () => {
     assert.equal(linked.backend, 'github');
     assert.equal(linked.iid, 99);
 
-    const row = db.get<{ gh_iid: number | null; remote_iid: number | null; remote_kind: string | null }>(
-      'SELECT gh_iid, remote_iid, remote_kind FROM issues WHERE id = ?', [issue.id],
+    const row = db.get<{ gh_iid: number | null; remote_kind: string | null }>(
+      'SELECT gh_iid, remote_kind FROM issues WHERE id = ?', [issue.id],
     );
     assert.equal(row?.gh_iid, 99);
-    assert.equal(row?.remote_iid, 99);
     assert.equal(row?.remote_kind, 'github');
 
     db.close();
@@ -900,7 +899,7 @@ describe('issue_sync_retry — partial create only missing backend (#345)', () =
     });
     const issue = parseResult(createResult);
 
-    db.run('UPDATE issues SET gh_iid = 10, gl_iid = 20, remote_iid = 10, remote_kind = ? WHERE id = ?', ['github', issue.id]);
+    db.run('UPDATE issues SET gh_iid = 10, gl_iid = 20, remote_kind = ? WHERE id = ?', ['github', issue.id]);
 
     const retryResult = await call(tools.handlers, 'issue_sync_retry', {
       agent: 'bro',
@@ -933,7 +932,7 @@ describe('issue_sync_retry — partial create only missing backend (#345)', () =
     });
     const issue = parseResult(createResult);
 
-    db.run('UPDATE issues SET gh_iid = 55, remote_iid = 55, remote_kind = ? WHERE id = ?', ['github', issue.id]);
+    db.run('UPDATE issues SET gh_iid = 55, remote_kind = ? WHERE id = ?', ['github', issue.id]);
 
     const retryResult = await call(tools.handlers, 'issue_sync_retry', {
       agent: 'bro',
@@ -1854,7 +1853,6 @@ describe('issue_create remote adoption (#36)', () => {
     assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
     assert.equal(issue.gh_iid, 42, 'gh_iid linked from adopted remote');
     assert.equal(issue.remote_kind, 'github');
-    assert.equal(issue.remote_iid, 42);
     assert.deepEqual(issue._adopted, { backend: 'github', remote_iid: 42 });
     assert.ok(
       !calls.some((c) => c.args[0] === 'issue' && c.args[1] === 'create'),
@@ -1985,12 +1983,11 @@ describe('issue_adopt_remote (#36)', () => {
     assert.equal(data.backend, 'github');
     assert.equal(data.idempotent, false);
 
-    const row = db.get<{ gh_iid: number | null; remote_iid: number | null; remote_kind: string | null }>(
-      'SELECT gh_iid, remote_iid, remote_kind FROM issues WHERE id = ?',
+    const row = db.get<{ gh_iid: number | null; remote_kind: string | null }>(
+      'SELECT gh_iid, remote_kind FROM issues WHERE id = ?',
       [issueId],
     );
     assert.equal(row?.gh_iid, 42);
-    assert.equal(row?.remote_iid, 42);
     assert.equal(row?.remote_kind, 'github');
 
     const audit = db.get<{ event_type: string }>(
@@ -2106,7 +2103,7 @@ describe('issue_create label pre-validation (#36)', () => {
     });
     const issue = parseResult(result);
     assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
-    assert.equal(issue.remote_iid, 7, 'remote issue still created');
+    assert.equal(issue.gh_iid, 7, 'remote issue still created');
     assert.ok(issue._sync, 'label warning must surface');
     assert.deepEqual(issue._sync.labels_dropped, ['nonexistent-label']);
     assert.equal(issue._sync.reason, 'labels_not_in_remote_taxonomy');
@@ -2151,7 +2148,7 @@ describe('issue_create label pre-validation (#36)', () => {
     });
     const issue = parseResult(result);
     assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
-    assert.equal(issue.remote_iid, 9, 'remote issue created even with an empty valid subset');
+    assert.equal(issue.gh_iid, 9, 'remote issue created even with an empty valid subset');
     assert.ok(issue._sync, 'warning surfaced');
     assert.deepEqual((issue._sync.labels_dropped as string[]).sort(), ['Bug', 'Priority: High']);
 
@@ -2189,7 +2186,7 @@ describe('issue_create label pre-validation (#36)', () => {
     });
     const issue = parseResult(result);
     assert.ok(!result.isError, `Expected no error, got: ${issue.error}`);
-    assert.equal(issue.remote_iid, 11);
+    assert.equal(issue.gh_iid, 11);
     assert.ok(!issue._sync || issue._sync.reason !== 'labels_not_in_remote_taxonomy', 'no label warning when taxonomy is unavailable');
 
     const createCall = calls.find((c) => c.args[0] === 'issue' && c.args[1] === 'create');

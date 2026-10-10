@@ -796,8 +796,8 @@ export function compositeTools(
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, attempts, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)`,
+                status, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`,
             [
               issueId,
               branchId,
@@ -1173,8 +1173,8 @@ export function compositeTools(
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, attempts, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)`,
+                status, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`,
             [
               failed.issue_id,
               newBranchId,

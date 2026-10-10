@@ -48,7 +48,6 @@ sqlite3 "$DB" "
     title TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'pending',
-    attempts INTEGER NOT NULL DEFAULT 0,
     spec_body TEXT NOT NULL DEFAULT '',
     commit_sha TEXT,
     repo TEXT,

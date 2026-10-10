@@ -244,7 +244,7 @@ async function verifyAdoptionRemote(db, issueRepo, remoteBackendArg, remoteIid, 
 // `issue_close` and `bro_atomic_close` so the composite can't drift the remote
 // open while closing locally (#277).
 export async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
-    const remoteRow = db.get(`SELECT remote_iid, remote_kind, gh_iid, gl_iid, repo FROM issues WHERE id = ?`, [issueId]);
+    const remoteRow = db.get(`SELECT gh_iid, gl_iid, repo FROM issues WHERE id = ?`, [issueId]);
     // Issue-scoped sync (#155/#146): resolve cwd + per-backend repo slug from the
     // issue's repo. When unresolvable, fall back to no explicit cwd/slug — a
     // best-effort close must not throw (the local close already happened).
@@ -254,14 +254,8 @@ export async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
     if (remoteRow?.gh_iid != null) {
         closeTargets.push({ remote_iid: remoteRow.gh_iid, remote_kind: 'github' });
     }
-    else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === 'github') {
-        closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: 'github' });
-    }
     if (remoteRow?.gl_iid != null) {
         closeTargets.push({ remote_iid: remoteRow.gl_iid, remote_kind: 'gitlab' });
-    }
-    else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === 'gitlab') {
-        closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: 'gitlab' });
     }
     for (const target of closeTargets) {
         const closeSlug = closeCtx?.remoteFor(target.remote_kind === 'github' ? 'gh' : 'glab')?.slug ?? undefined;
@@ -507,7 +501,7 @@ export function issueTools(db, dbPath = '', options = {}) {
                 const adoptId = adoptRowId.id;
                 const ghIid = adoption.backend === 'github' ? remoteIid : null;
                 const glIid = adoption.backend === 'gitlab' ? remoteIid : null;
-                db.run(`UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`, [remoteIid, adoption.backend, ghIid, glIid, now, adoptId]);
+                db.run(`UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`, [adoption.backend, ghIid, glIid, now, adoptId]);
                 db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
            VALUES (?, 'executor', 'issue_adopted', ?, ?, ?)`, [
                     adoptId,
@@ -624,7 +618,7 @@ export function issueTools(db, dbPath = '', options = {}) {
                             const firstSuccess = !isSyncFailure(ghResult) ? ghResult
                                 : !isSyncFailure(glResult) ? glResult : null;
                             if (firstSuccess !== null) {
-                                db.run(`UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`, [firstSuccess.remote_iid, firstSuccess.remote_kind, ghIid, glIid, now, issueId]);
+                                db.run(`UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`, [firstSuccess.remote_kind, ghIid, glIid, now, issueId]);
                             }
                             else {
                                 const failures = [];
@@ -708,7 +702,7 @@ export function issueTools(db, dbPath = '', options = {}) {
                             if (!isSyncFailure(syncResult)) {
                                 const ghIid = syncResult.remote_kind === 'github' ? syncResult.remote_iid : null;
                                 const glIid = syncResult.remote_kind === 'gitlab' ? syncResult.remote_iid : null;
-                                db.run(`UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`, [syncResult.remote_iid, syncResult.remote_kind, ghIid, glIid, now, issueId]);
+                                db.run(`UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`, [syncResult.remote_kind, ghIid, glIid, now, issueId]);
                                 // Label pre-validation warning (#36): the remote issue was created
                                 // with the valid subset; surface the dropped labels. The local row
                                 // still carries the full requested set.
@@ -942,14 +936,8 @@ export function issueTools(db, dbPath = '', options = {}) {
                 if (row.gh_iid != null) {
                     retryTargets.push({ remote_iid: row.gh_iid, remote_kind: 'github' });
                 }
-                else if (row.remote_iid != null && row.remote_kind === 'github') {
-                    retryTargets.push({ remote_iid: row.remote_iid, remote_kind: 'github' });
-                }
                 if (row.gl_iid != null) {
                     retryTargets.push({ remote_iid: row.gl_iid, remote_kind: 'gitlab' });
-                }
-                else if (row.remote_iid != null && row.remote_kind === 'gitlab') {
-                    retryTargets.push({ remote_iid: row.remote_iid, remote_kind: 'gitlab' });
                 }
                 if (retryTargets.length === 0) {
                     return ok({ action: 'close', success: false, error: { reason: 'no_remote_iid' } });
@@ -985,12 +973,12 @@ export function issueTools(db, dbPath = '', options = {}) {
             const retryCwd = retryCtx.cwd;
             const createTargets = [];
             if (backend === 'gh' || backend === 'both') {
-                if (row.gh_iid == null && !(row.remote_kind === 'github' && row.remote_iid != null)) {
+                if (row.gh_iid == null) {
                     createTargets.push('gh');
                 }
             }
             if (backend === 'glab' || backend === 'both') {
-                if (row.gl_iid == null && !(row.remote_kind === 'gitlab' && row.remote_iid != null)) {
+                if (row.gl_iid == null) {
                     createTargets.push('glab');
                 }
             }
@@ -1036,7 +1024,7 @@ export function issueTools(db, dbPath = '', options = {}) {
                     lastSuccess = { remote_iid: syncResult.remote_iid, remote_kind: syncResult.remote_kind };
                     const retryGhIid = syncResult.remote_kind === 'github' ? syncResult.remote_iid : null;
                     const retryGlIid = syncResult.remote_kind === 'gitlab' ? syncResult.remote_iid : null;
-                    db.run(`UPDATE issues SET remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, ?), gh_iid = COALESCE(gh_iid, ?), gl_iid = COALESCE(gl_iid, ?), updated_at = ? WHERE id = ?`, [syncResult.remote_iid, syncResult.remote_kind, retryGhIid, retryGlIid, nowISO(), issueId]);
+                    db.run(`UPDATE issues SET remote_kind = COALESCE(remote_kind, ?), gh_iid = COALESCE(gh_iid, ?), gl_iid = COALESCE(gl_iid, ?), updated_at = ? WHERE id = ?`, [syncResult.remote_kind, retryGhIid, retryGlIid, nowISO(), issueId]);
                 }
                 else {
                     createErrors.push({
@@ -1080,10 +1068,10 @@ export function issueTools(db, dbPath = '', options = {}) {
             }
             const now = nowISO();
             if (backend === 'github') {
-                db.run(`UPDATE issues SET gh_iid = ?, remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, 'github'), updated_at = ? WHERE id = ?`, [iid, iid, now, issueId]);
+                db.run(`UPDATE issues SET gh_iid = ?, remote_kind = COALESCE(remote_kind, 'github'), updated_at = ? WHERE id = ?`, [iid, now, issueId]);
             }
             else {
-                db.run(`UPDATE issues SET gl_iid = ?, remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, 'gitlab'), updated_at = ? WHERE id = ?`, [iid, iid, now, issueId]);
+                db.run(`UPDATE issues SET gl_iid = ?, remote_kind = COALESCE(remote_kind, 'gitlab'), updated_at = ? WHERE id = ?`, [iid, now, issueId]);
             }
             db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
          VALUES (?, 'executor', 'issue_linked', ?, ?, ?)`, [
@@ -1120,7 +1108,7 @@ export function issueTools(db, dbPath = '', options = {}) {
             const now = nowISO();
             const ghIid = adoption.backend === 'github' ? remoteIid : null;
             const glIid = adoption.backend === 'gitlab' ? remoteIid : null;
-            db.run(`UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, ?), updated_at = ? WHERE id = ?`, [ghIid, glIid, remoteIid, adoption.backend, now, issueId]);
+            db.run(`UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_kind = COALESCE(remote_kind, ?), updated_at = ? WHERE id = ?`, [ghIid, glIid, adoption.backend, now, issueId]);
             if (!idempotent) {
                 db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
            VALUES (?, 'executor', 'issue_adopted', ?, ?, ?)`, [

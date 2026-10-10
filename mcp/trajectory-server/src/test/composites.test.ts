@@ -181,9 +181,9 @@ describe('task_retry', () => {
     const filesJson = JSON.stringify(['src/a.ts', 'agents/swe.md']);
     const verificationJson = JSON.stringify(['npm test', 'bash tests/l1-lint/dist-fresh.sh']);
     db.run(
-      `INSERT INTO tasks (issue_id, branch_id, title, description, status, attempts, spec_body,
+      `INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body,
                           prompt_bearing, files, verification, created_at, updated_at)
-       VALUES (?, 'fix/fenced', '', 'd', 'failed', 1, 's', 1, ?, ?, datetime('now'), datetime('now'))`,
+       VALUES (?, 'fix/fenced', '', 'd', 'failed', 's', 1, ?, ?, datetime('now'), datetime('now'))`,
       [issueId, filesJson, verificationJson],
     );
     const failed = db.get<{ id: number; files: string; verification: string; prompt_bearing: number }>(
@@ -1527,7 +1527,7 @@ function seedTask(
   );
   db.run(
     `INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, files, verification, commit_sha, repo, created_at, updated_at)
-     VALUES (1, 'fix/1-brief', 'brief task', 'd', 'open', ?, ?, ?, 'abc123def', ?, datetime('now'), datetime('now'))`,
+     VALUES (1, 'fix/1-brief', 'brief task', 'd', 'pending', ?, ?, ?, 'abc123def', ?, datetime('now'), datetime('now'))`,
     [opts.spec, JSON.stringify(opts.files ?? []), JSON.stringify(opts.verification ?? []), opts.repo ?? null],
   );
   const row = db.get<{ id: number }>('SELECT last_insert_rowid() AS id');

@@ -174,9 +174,13 @@ export function reportTools(db: TrajectoryDB): {
       } else {
         lines.push('| Branch | Title | Status | Attempts |');
         lines.push('|--------|-------|--------|----------|');
+        const attemptCounts = new Map<number, number>();
+        for (const v of validationAttempts) {
+          attemptCounts.set(v.task_id, (attemptCounts.get(v.task_id) ?? 0) + 1);
+        }
         for (const t of tasks) {
           const title = t.title || t.description.slice(0, 60);
-          lines.push(`| ${t.branch_id} | ${title} | ${t.status} | ${t.attempts} |`);
+          lines.push(`| ${t.branch_id} | ${title} | ${t.status} | ${attemptCounts.get(t.id) ?? 0} |`);
         }
       }
       lines.push('');

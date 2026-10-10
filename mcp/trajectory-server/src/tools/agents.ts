@@ -41,7 +41,6 @@ interface Agent {
   kind: string;
   scope: string;
   file_path: string;
-  status: string;
   created_at: string;
   updated_at: string;
 }

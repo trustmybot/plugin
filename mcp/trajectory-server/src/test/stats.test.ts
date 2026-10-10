@@ -109,7 +109,7 @@ describe('statsTools — task_stats', () => {
     db.close();
   });
 
-  it('pending/attempts=0 task with no genuine spawn returns spawn_count=0 (#685)', async () => {
+  it('pending task with no genuine spawn returns spawn_count=0 (#685)', async () => {
     const db = tempDB();
     const tools = statsTools(db);
 
@@ -120,7 +120,7 @@ describe('statsTools — task_stats', () => {
     );
     const issueId = (db.get<{ id: number }>('SELECT last_insert_rowid() AS id') as { id: number }).id;
     db.run(
-      "INSERT INTO tasks (issue_id, branch_id, title, description, status, attempts, created_at, updated_at) VALUES (?, 'feat/pending', 'title', 'desc', 'pending', 0, ?, ?)",
+      "INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'feat/pending', 'title', 'desc', 'pending', ?, ?)",
       [issueId, now, now],
     );
     const taskId = (db.get<{ id: number }>('SELECT last_insert_rowid() AS id') as { id: number }).id;
@@ -146,7 +146,7 @@ describe('statsTools — task_stats', () => {
     );
     const issueId = (db.get<{ id: number }>('SELECT last_insert_rowid() AS id') as { id: number }).id;
     db.run(
-      "INSERT INTO tasks (issue_id, branch_id, title, description, status, attempts, created_at, updated_at) VALUES (?, 'feat/one-spawn', 'title', 'desc', 'completed', 1, ?, ?)",
+      "INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'feat/one-spawn', 'title', 'desc', 'completed', ?, ?)",
       [issueId, now, now],
     );
     const taskId = (db.get<{ id: number }>('SELECT last_insert_rowid() AS id') as { id: number }).id;
