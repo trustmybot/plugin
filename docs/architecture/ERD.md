@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 28`). Persistent at `<cwd>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored. The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 29`). Persistent at `<cwd>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored. The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -53,7 +53,7 @@ erDiagram
     milestones {
         TEXT name PK "GitHub-style milestone label"
         TEXT repo PK "FK → repos.name; PK is composite (name, repo)"
-        TEXT state "open|closed; default open"
+        TEXT state "CHECK open|closed; default open"
     }
 
     %% World model — see WORLD_MODEL.md — lives in sibling kuzu graph DB, not here
@@ -94,9 +94,10 @@ erDiagram
         INT  id PK
         TEXT objective
         TEXT description
-        TEXT status
-        INT  remote_iid
+        TEXT status "CHECK open|closed"
         TEXT remote_kind
+        INT  gh_iid
+        INT  gl_iid
         TEXT milestone "nullable FK → milestones.name (composite with repo); #83/#155"
         TEXT labels "nullable JSON array of the validated create labels; replayed by issue_sync_retry; #53"
     }
@@ -108,8 +109,7 @@ erDiagram
         TEXT parent_branch_id "branch this one was cut from"
         TEXT title
         TEXT description
-        TEXT status
-        INT  attempts
+        TEXT status "CHECK pending|running|needs_validation|completed|closed|failed|escalated"
         TEXT spec_body
         TEXT commit_sha
         TEXT repo "multi-repo workspace inner-repo path"
@@ -121,8 +121,9 @@ erDiagram
         INT  task_id FK
         INT  attempt_n
         TEXT agent
-        TEXT verdict
+        TEXT verdict "CHECK pass|fail|escalate"
         TEXT feedback
+        INT  mcp_available "NOT NULL, no default; 0 = MCP-down fallback"
         TEXT subagent_session_id
     }
 
@@ -140,7 +141,7 @@ erDiagram
         INT  id PK
         INT  issue_id FK
         TEXT author
-        TEXT kind
+        TEXT kind "CHECK intent|question|answer|decision|note|analysis"
         TEXT body
     }
 
@@ -173,10 +174,11 @@ erDiagram
 
     pr_review_runs {
         INT      id PK
-        INT      pr_number
-        TEXT     repo
+        INT      pr_number "CHECK > 0; UNIQUE (pr_number, repo)"
+        TEXT     repo "CHECK non-empty"
         DATETIME last_fetched_at
         TEXT     last_comment_id
+        INT      task_id FK
     }
 
     debug_trajectory {
@@ -252,9 +254,9 @@ erDiagram
 | `milestones` | One row per GitHub-style milestone, scoped per repo (schema v23, #155). Primary key is the composite `(name, repo)` and `repo` FKs `repos.name` (ON DELETE RESTRICT), so the same milestone name lives independently under each repo. `state` is `open`/`closed`. `issues.milestone` is a nullable composite FK `(milestone, repo) → (name, repo)`; rows are seeded on demand by `issue_create`. |
 | _(world model)_ | Lives in the sibling kuzu graph DB at `<project>/.claude/tmb/world-model.kuzu/`, not in this SQLite file. Directory nodes + CONTAINS edges, populated by `scan_run` via `src/graph-db.ts`. See `docs/architecture/WORLD_MODEL.md`. |
 | `plugin_config` | KV for workspace-global plugin settings only: `issue_sync`, the issue label taxonomies, the `onboarded` marker, and `pr_review_bots`. The repo-scoped policy fields (`target_branch`, `branching_model`, `protected_branches`, `remotes`) are NOT here — they live on the `repos` row (#980, see `repos` above / [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md)). See `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the canonical key list. |
-| `plugin_meta` | Schema + plugin version. Current `schema_version=28`. `plugin_version` is seeded as `'0.0.0'` and synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — so the row always reflects the running plugin version without a migration. |
+| `plugin_meta` | Schema + plugin version. Current `schema_version=29`. `plugin_version` is seeded as `'0.0.0'` and synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — so the row always reflects the running plugin version without a migration. |
 | `agent_runs` | Per-spawn resource tracking (tokens, tool_uses, duration). Written by `swe-atomic-close.sh` SubagentStop hook. |
-| `pr_review_runs` | Per-PR monitor incremental-polling cursor (`last_fetched_at`, `last_comment_id`). Used by `/monitor` flow — `pr_monitor_comments_get` reads the cursor on entry and upserts it on exit so the next call only fetches new comments. UNIQUE index on `(pr_number, repo)`. |
+| `pr_review_runs` | Per-PR monitor incremental-polling cursor (`last_fetched_at`, `last_comment_id`) — cursor-only since v29. Used by `/monitor` flow — `pr_monitor_comments_get` reads the cursor on entry and upserts it on exit so the next call only fetches new comments; no cursor is kept when no repo slug resolves. Table-level `UNIQUE (pr_number, repo)` with `CHECK (pr_number > 0)` and `CHECK (repo <> '')`. `task_id` links the PR to its task for `post-pr-comments-persist`. |
 | `debug_trajectory` | Deterministic-trajectory capture (only when `TMB_DEBUG_TRAJECTORY=1`). Used by L5 scoring. |
 | `eval_results` | Per-scorer results for L5/A-B prompt-eval runs. One row per (run_id, flow_name, scorer_name). |
 | `discussions_embeddings` | Embedding cache for `discussions` rows — one BLOB per discussion, keyed by `discussion_id` + `model_id`. Populated on write + background backfill; used by `discussion_search` semantic path. |
@@ -263,11 +265,17 @@ erDiagram
 ## Indexes
 
 - `idx_tasks_issue_branch` — `UNIQUE(issue_id, branch_id)`. Each issue has one task per git branch name; this is also the lookup index for "does this task exist?" checks. Two issues may legitimately have the same `branch_id` (e.g. both have a `feat/user-login` task).
+- `idx_tasks_status` — `(status)`. Status-filtered task scans (hooks, first-actionable).
+- `idx_tasks_commit_sha` — `(commit_sha)`. Commit → task lookups.
+- `idx_issues_status` — `(status)`. Open-issue scans.
+- `idx_issues_gh_iid` — `(gh_iid)`. GitHub issue number → local issue lookups.
 - `idx_discussions_issue_created` — `(issue_id, created_at)`. Feeds the chronological discussion view.
 - `validation_attempts` — `UNIQUE(task_id, attempt_n)`. One row per (task, attempt).
 - `idx_agent_runs_task` — `(task_id)`. Fast per-task resource lookup.
 - `idx_agent_runs_issue` — `(issue_id)`. Fast per-issue resource rollup.
-- `idx_pr_review_runs_pr` — `(pr_number, repo)`. Lookup for existing monitor runs.
+- `idx_agent_runs_open` — `(agent_type) WHERE completed_at IS NULL`. Partial index over open runs.
+- `pr_review_runs` — `UNIQUE(pr_number, repo)`. One cursor per monitored PR.
+- `idx_pr_review_runs_task` — `(task_id)`. PR cursor → task lookups.
 - `idx_debug_trajectory_session` — `(session_id, step_n)`. Ordered trajectory replay.
 - `idx_eval_results_run` — `(run_id, scorer_name)`. Per-run scorer aggregation.
 - `idx_eval_results_flow` — `(flow_name, created_at)`. Historical pass-rate trend queries.

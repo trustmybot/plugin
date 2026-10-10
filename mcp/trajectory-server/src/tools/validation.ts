@@ -133,47 +133,19 @@ export function validationTools(db: TrajectoryDB): {
       const feedback = args['feedback'] as string;
       const now = nowISO();
 
-      const taskRepo = db.get<{ repo: string | null }>(
-        'SELECT repo FROM tasks WHERE id = ?',
-        [taskId],
+      db.run(
+        `INSERT INTO validation_attempts
+           (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(task_id, attempt_n) DO UPDATE SET
+           agent = excluded.agent,
+           verdict = excluded.verdict,
+           feedback = excluded.feedback,
+           mcp_available = excluded.mcp_available,
+           subagent_session_id = excluded.subagent_session_id,
+           created_at = excluded.created_at`,
+        [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, now],
       );
-      const repo = taskRepo?.repo ?? '';
-
-      db.transaction(() => {
-        db.run(
-          `INSERT INTO validation_attempts
-             (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(task_id, attempt_n) DO UPDATE SET
-             agent = excluded.agent,
-             verdict = excluded.verdict,
-             feedback = excluded.feedback,
-             mcp_available = excluded.mcp_available,
-             subagent_session_id = excluded.subagent_session_id,
-             created_at = excluded.created_at`,
-          [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, now],
-        );
-
-        const existingPrRow = db.get<{ id: number }>(
-          'SELECT id FROM pr_review_runs WHERE task_id = ? AND attempt_n = ?',
-          [taskId, attemptN],
-        );
-        if (existingPrRow) {
-          db.run(
-            'UPDATE pr_review_runs SET verdict = ?, last_fetched_at = ? WHERE id = ?',
-            [verdict, now, existingPrRow.id],
-          );
-        } else {
-          // Audit rows use pr_number=0 (sentinel). The (pr_number, repo)
-          // unique index is partial (WHERE pr_number > 0) so multiple audit
-          // rows for different attempts of the same task do not conflict.
-          db.run(
-            `INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, task_id, verdict, attempt_n)
-             VALUES (0, ?, ?, ?, ?, ?)`,
-            [repo, now, taskId, verdict, attemptN],
-          );
-        }
-      });
 
       const row = db.get<ValidationAttempt>(
         `SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = ?`,

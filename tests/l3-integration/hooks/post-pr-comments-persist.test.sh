@@ -33,10 +33,10 @@ sqlite3 "$DB" "
   INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
     VALUES (1,'t','t','open',datetime('now'),datetime('now'));
   INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
-    VALUES (1,1,'fix/1-pr','t','d','open','s',datetime('now'),datetime('now'));
+    VALUES (1,1,'fix/1-pr','t','d','pending','s',datetime('now'),datetime('now'));
   -- Carrier resolution is via pr_number → pr_review_runs → task → issue (#1024).
   INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, task_id)
-    VALUES (42,'',datetime('now'),1),(99,'',datetime('now'),1),(77,'',datetime('now'),1);
+    VALUES (42,'owner/repo',datetime('now'),1),(99,'owner/repo',datetime('now'),1),(77,'owner/repo',datetime('now'),1);
 " >/dev/null
 
 # pr_monitor_comments_get-shaped tool result with an apostrophe in the body + author.
@@ -94,9 +94,9 @@ sqlite3 "$WALK_DB" "
   INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
     VALUES (2,'t','t','open',datetime('now'),datetime('now'));
   INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
-    VALUES (2,2,'fix/walk-pr','t','d','open','s',datetime('now'),datetime('now'));
+    VALUES (2,2,'fix/walk-pr','t','d','pending','s',datetime('now'),datetime('now'));
   INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, task_id)
-    VALUES (55,'',datetime('now'),2);
+    VALUES (55,'owner/repo',datetime('now'),2);
 " >/dev/null
 WALK_PAYLOAD=$(jq -cn '{
   tool_name: "pr_monitor_comments_get",

@@ -312,7 +312,6 @@ export function taskTools(db) {
                         type: 'string',
                         enum: ['pending', 'running', 'needs_validation', 'completed', 'closed', 'failed', 'escalated'],
                     },
-                    attempts: { type: 'number' },
                     commit_sha: {
                         type: 'string',
                         description: 'Optional git commit SHA (full 40-char or short 7+ char hex). Persisted atomically with the status update.',
@@ -696,8 +695,8 @@ export function taskTools(db) {
                     const { files: typedFiles, verification: typedVerification } = validateTypedRailsFields(t);
                     db.run(`INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, attempts, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)`, [
+                status, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`, [
                         issueId,
                         t.branch_id,
                         parentBranchId,
@@ -950,17 +949,16 @@ export function taskTools(db) {
                 }
             }
             const now = nowISO();
-            const attempts = args['attempts'] !== undefined ? args['attempts'] : task.attempts;
             // completed_at is carried only by post-completion states. Stamp it on
             // 'completed', preserve it through 'closed', and clear it on any move to
             // an active/failed/escalated state — a reopened task must not keep a
             // stale completion stamp that downstream gates would trust (#278).
             const completedAt = status === 'completed' ? now : status === 'closed' ? task.completed_at : null;
             if (rawCommitSha !== undefined) {
-                db.run(`UPDATE tasks SET status = ?, attempts = ?, updated_at = ?, completed_at = ?, commit_sha = ? WHERE id = ?`, [status, attempts, now, completedAt, rawCommitSha, taskId]);
+                db.run(`UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, commit_sha = ? WHERE id = ?`, [status, now, completedAt, rawCommitSha, taskId]);
             }
             else {
-                db.run(`UPDATE tasks SET status = ?, attempts = ?, updated_at = ?, completed_at = ? WHERE id = ?`, [status, attempts, now, completedAt, taskId]);
+                db.run(`UPDATE tasks SET status = ?, updated_at = ?, completed_at = ? WHERE id = ?`, [status, now, completedAt, taskId]);
             }
             const updated = db.get('SELECT * FROM tasks WHERE id = ?', [taskId]);
             return ok(updated);

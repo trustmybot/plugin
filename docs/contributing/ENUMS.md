@@ -17,7 +17,7 @@ Hooks branch on these values. Skills assert on them. Bro chooses paths based on 
 | `open` | GitHub | Newly created, not yet closed |
 | `closed` | GitHub | Resolved (fixed, wontfix, duplicate, etc.) |
 
-We deliberately match GH's two-state model. K8s pod phases (`Pending/Running/Succeeded/Failed/Unknown`) don't fit issues — issues are tasks, not processes.
+We deliberately match GH's two-state model. K8s pod phases (`Pending/Running/Succeeded/Failed/Unknown`) don't fit issues — issues are tasks, not processes. Schema enforces via `CHECK (status IN ('open','closed'))` (v29).
 
 ### `tasks.status` — task lifecycle
 
@@ -25,12 +25,13 @@ We deliberately match GH's two-state model. K8s pod phases (`Pending/Running/Suc
 |---|---|---|
 | `pending` | TMB | Task spec exists; SWE has not started |
 | `running` | K8s pod phase | SWE is actively executing |
+| `needs_validation` | TMB | Work state awaiting verification before close |
 | `completed` | K8s pod phase | SWE returned with commit_sha; awaiting bro task-gate |
 | `closed` | TMB | Bro task-gate verified, task is done |
 | `failed` | K8s pod phase | SWE returned with error; awaiting bro decision |
 | `escalated` | TMB | Bro escalated to Human after max retries |
 
-Hybrid: K8s pod phases for the SWE-execution states (`running`/`completed`/`failed`), TMB-specific for the workflow gates (`pending`/`closed`/`escalated`).
+Hybrid: K8s pod phases for the SWE-execution states (`running`/`completed`/`failed`), TMB-specific for the workflow gates (`pending`/`needs_validation`/`closed`/`escalated`). Schema enforces via `CHECK (status IN (...))` over exactly these seven values (v29).
 
 ### `validation_attempts.verdict` — pr-reviewer verdict at push gate
 
@@ -40,7 +41,7 @@ Hybrid: K8s pod phases for the SWE-execution states (`running`/`completed`/`fail
 | `fail` | TMB | Issues found; SWE re-spawn or Human override needed |
 | `escalate` | TMB | Outside pr-reviewer's authority; Human decides |
 
-We considered aligning to GH PR review states (`approved`/`changes_requested`/`commented`/`dismissed`), but `pass`/`fail`/`escalate` reads cleaner for our 2-gate model. **TMB-specific by deliberate choice** — documented here, lint-guarded.
+We considered aligning to GH PR review states (`approved`/`changes_requested`/`commented`/`dismissed`), but `pass`/`fail`/`escalate` reads cleaner for our 2-gate model. **TMB-specific by deliberate choice** — documented here, lint-guarded. Schema enforces via `CHECK (verdict IN ('pass','fail','escalate'))` (v29).
 
 ### `roundtables.state` — roundtable state machine
 
@@ -73,7 +74,16 @@ Mirrors `repos.remotes[].provider` (see [`repos.remotes[].provider`](#reposremot
 | `analysis` | TMB | Consultant's structured analysis on a topic |
 | `decision` | TMB | Bro's architectural decision record (narrative form) |
 
-K8s Events have a `reason` field with a similar shape but different semantics. **TMB-specific** — these mirror our agent communication patterns.
+K8s Events have a `reason` field with a similar shape but different semantics. **TMB-specific** — these mirror our agent communication patterns. Schema enforces via `CHECK (kind IN ('intent','question','answer','decision','note','analysis'))` (v29).
+
+### `milestones.state` — milestone lifecycle
+
+| Value | Source | Meaning |
+|---|---|---|
+| `open` | GitHub | Milestone accepting issues |
+| `closed` | GitHub | Milestone shipped or retired |
+
+Schema enforces via `CHECK (state IN ('open','closed'))` (v29).
 
 ### `audit.from_node` — which agent or persona logged the event
 
@@ -145,7 +155,7 @@ No `CHECK` constraint — runtime reconciliation to `active`/`broken` is the hea
 
 ### `plugin_meta.schema_version` — DB schema version (integer)
 
-Currently `28`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration step in `db.ts:runMigrations`.
+Currently `29`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration step in `db.ts:runMigrations`.
 
 ### `agent_runs.agent_type` (open enum)
 

@@ -103,7 +103,7 @@ PATH="$MOCK_BIN:$PATH" TRAJECTORY_DB_PATH="$DB1" \
     const { prMonitorTools } = await import('$PLUGIN_ROOT/mcp/trajectory-server/dist/tools/pr_monitor.js');
     const db = new TrajectoryDB('$DB1');
     const tools = prMonitorTools(db);
-    await tools.handlers['pr_monitor_comments_get']({ agent: 'bro', pr_number: 42 });
+    await tools.handlers['pr_monitor_comments_get']({ agent: 'bro', pr_number: 42, repo: 'owner/repo' });
     db.close();
   " 2>&1 || true
 

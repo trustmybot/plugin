@@ -430,6 +430,7 @@ describe('pr_monitor_comments_get — issue_sync=off', () => {
     const result = (await tools.handlers['pr_monitor_comments_get']!({
       agent: 'bro',
       pr_number: 20,
+      repo: 'owner/repo',
     })) as RawResult;
 
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
@@ -454,13 +455,28 @@ describe('pr_review_runs table state capture', () => {
       `INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`,
     );
     const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]));
-    await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 10 });
+    await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 10, repo: 'owner/repo' });
 
     const row = db.get<{ last_comment_id: string }>(
       `SELECT last_comment_id FROM pr_review_runs WHERE pr_number = 10`,
     );
     assert.ok(row, 'Row should exist');
     assert.equal(row.last_comment_id, 'rc1', 'last_comment_id should be the last comment id');
+
+    db.close();
+  });
+
+  it('persists no cursor when no repo slug resolves (the cursor is keyed by repo)', async () => {
+    const db = tempDB();
+    db.run(
+      `INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`,
+    );
+    const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]));
+    const result = (await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 12 })) as RawResult;
+
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+    const count = db.get<{ n: number }>('SELECT COUNT(*) AS n FROM pr_review_runs')!.n;
+    assert.equal(count, 0, 'no repo slug → no cursor row');
 
     db.close();
   });

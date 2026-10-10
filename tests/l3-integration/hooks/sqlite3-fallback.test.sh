@@ -33,7 +33,6 @@ CREATE TABLE tasks (
   title TEXT NOT NULL DEFAULT '',
   description TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'pending',
-  attempts INTEGER NOT NULL DEFAULT 0,
   spec_body TEXT NOT NULL DEFAULT '',
   commit_sha TEXT,
   created_at TEXT NOT NULL DEFAULT '',
@@ -57,6 +56,7 @@ CREATE TABLE validation_attempts (
   agent TEXT NOT NULL DEFAULT '',
   verdict TEXT NOT NULL,
   feedback TEXT NOT NULL DEFAULT '',
+  mcp_available INTEGER NOT NULL,
   created_at TEXT NOT NULL,
   UNIQUE(task_id, attempt_n)
 );
@@ -93,6 +93,10 @@ test_case "validation_record happy path: row inserted"
 call_lib "tmb_fallback_validation_record 42 1 pr-reviewer pass 'looks good'" >/dev/null
 row=$(sqlite3 "$DB" "SELECT verdict, feedback FROM validation_attempts WHERE task_id=42 AND attempt_n=1;")
 assert_eq "pass|looks good" "$row" "validation_attempts row"
+
+test_case "validation_record fallback records mcp_available=0"
+mcp=$(sqlite3 "$DB" "SELECT mcp_available FROM validation_attempts WHERE task_id=42 AND attempt_n=1;")
+assert_eq "0" "$mcp" "fallback path is the MCP-down signal"
 
 test_case "validation_record happy path: audit row written"
 count=$(audit_count_for "validation_record")

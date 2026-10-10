@@ -77,7 +77,7 @@ seed_db() {
       created_at TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z',
       updated_at TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z',
       closed_at TEXT,
-      remote_iid INTEGER, remote_kind TEXT,
+      remote_kind TEXT,
       gh_iid INTEGER, gl_iid INTEGER, milestone TEXT
     );
     CREATE TABLE tasks (id INTEGER PRIMARY KEY, prompt_bearing INTEGER NOT NULL DEFAULT 0);

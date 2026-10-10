@@ -38,7 +38,6 @@ sqlite3 "$DB" "
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     closed_at TEXT,
-    remote_iid INTEGER,
     remote_kind TEXT,
     gh_iid INTEGER,
     gl_iid INTEGER

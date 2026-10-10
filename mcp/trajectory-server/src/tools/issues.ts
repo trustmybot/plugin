@@ -325,8 +325,8 @@ export async function syncIssueCloseRemotes(
   issueId: string | number,
   spawnFn?: SpawnFn,
 ): Promise<void> {
-  const remoteRow = db.get<{ remote_iid: number | null; remote_kind: string | null; gh_iid: number | null; gl_iid: number | null; repo: string | null }>(
-    `SELECT remote_iid, remote_kind, gh_iid, gl_iid, repo FROM issues WHERE id = ?`,
+  const remoteRow = db.get<{ gh_iid: number | null; gl_iid: number | null; repo: string | null }>(
+    `SELECT gh_iid, gl_iid, repo FROM issues WHERE id = ?`,
     [issueId],
   );
   // Issue-scoped sync (#155/#146): resolve cwd + per-backend repo slug from the
@@ -337,13 +337,9 @@ export async function syncIssueCloseRemotes(
   const closeTargets: Array<{ remote_iid: number; remote_kind: 'github' | 'gitlab' }> = [];
   if (remoteRow?.gh_iid != null) {
     closeTargets.push({ remote_iid: remoteRow.gh_iid, remote_kind: 'github' });
-  } else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === 'github') {
-    closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: 'github' });
   }
   if (remoteRow?.gl_iid != null) {
     closeTargets.push({ remote_iid: remoteRow.gl_iid, remote_kind: 'gitlab' });
-  } else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === 'gitlab') {
-    closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: 'gitlab' });
   }
   for (const target of closeTargets) {
     const closeSlug = closeCtx?.remoteFor(target.remote_kind === 'github' ? 'gh' : 'glab')?.slug ?? undefined;
@@ -609,8 +605,8 @@ export function issueTools(
         const ghIid = adoption.backend === 'github' ? remoteIid : null;
         const glIid = adoption.backend === 'gitlab' ? remoteIid : null;
         db.run(
-          `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-          [remoteIid, adoption.backend, ghIid, glIid, now, adoptId],
+          `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
+          [adoption.backend, ghIid, glIid, now, adoptId],
         );
         db.run(
           `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
@@ -744,8 +740,8 @@ export function issueTools(
                 : !isSyncFailure(glResult) ? glResult : null;
               if (firstSuccess !== null) {
                 db.run(
-                  `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-                  [firstSuccess.remote_iid, firstSuccess.remote_kind, ghIid, glIid, now, issueId],
+                  `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
+                  [firstSuccess.remote_kind, ghIid, glIid, now, issueId],
                 );
               } else {
                 const failures: string[] = [];
@@ -824,8 +820,8 @@ export function issueTools(
                 const ghIid = syncResult.remote_kind === 'github' ? syncResult.remote_iid : null;
                 const glIid = syncResult.remote_kind === 'gitlab' ? syncResult.remote_iid : null;
                 db.run(
-                  `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-                  [syncResult.remote_iid, syncResult.remote_kind, ghIid, glIid, now, issueId],
+                  `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
+                  [syncResult.remote_kind, ghIid, glIid, now, issueId],
                 );
                 // Label pre-validation warning (#36): the remote issue was created
                 // with the valid subset; surface the dropped labels. The local row
@@ -1117,13 +1113,9 @@ export function issueTools(
         const retryTargets: Array<{ remote_iid: number; remote_kind: 'github' | 'gitlab' }> = [];
         if (row.gh_iid != null) {
           retryTargets.push({ remote_iid: row.gh_iid, remote_kind: 'github' });
-        } else if (row.remote_iid != null && row.remote_kind === 'github') {
-          retryTargets.push({ remote_iid: row.remote_iid, remote_kind: 'github' });
         }
         if (row.gl_iid != null) {
           retryTargets.push({ remote_iid: row.gl_iid, remote_kind: 'gitlab' });
-        } else if (row.remote_iid != null && row.remote_kind === 'gitlab') {
-          retryTargets.push({ remote_iid: row.remote_iid, remote_kind: 'gitlab' });
         }
         if (retryTargets.length === 0) {
           return ok({ action: 'close', success: false, error: { reason: 'no_remote_iid' } });
@@ -1160,12 +1152,12 @@ export function issueTools(
       const retryCwd = retryCtx.cwd;
       const createTargets: Array<'gh' | 'glab'> = [];
       if (backend === 'gh' || backend === 'both') {
-        if (row.gh_iid == null && !(row.remote_kind === 'github' && row.remote_iid != null)) {
+        if (row.gh_iid == null) {
           createTargets.push('gh');
         }
       }
       if (backend === 'glab' || backend === 'both') {
-        if (row.gl_iid == null && !(row.remote_kind === 'gitlab' && row.remote_iid != null)) {
+        if (row.gl_iid == null) {
           createTargets.push('glab');
         }
       }
@@ -1213,8 +1205,8 @@ export function issueTools(
           const retryGhIid = syncResult.remote_kind === 'github' ? syncResult.remote_iid : null;
           const retryGlIid = syncResult.remote_kind === 'gitlab' ? syncResult.remote_iid : null;
           db.run(
-            `UPDATE issues SET remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, ?), gh_iid = COALESCE(gh_iid, ?), gl_iid = COALESCE(gl_iid, ?), updated_at = ? WHERE id = ?`,
-            [syncResult.remote_iid, syncResult.remote_kind, retryGhIid, retryGlIid, nowISO(), issueId],
+            `UPDATE issues SET remote_kind = COALESCE(remote_kind, ?), gh_iid = COALESCE(gh_iid, ?), gl_iid = COALESCE(gl_iid, ?), updated_at = ? WHERE id = ?`,
+            [syncResult.remote_kind, retryGhIid, retryGlIid, nowISO(), issueId],
           );
         } else {
           createErrors.push({
@@ -1265,13 +1257,13 @@ export function issueTools(
       const now = nowISO();
       if (backend === 'github') {
         db.run(
-          `UPDATE issues SET gh_iid = ?, remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, 'github'), updated_at = ? WHERE id = ?`,
-          [iid, iid, now, issueId],
+          `UPDATE issues SET gh_iid = ?, remote_kind = COALESCE(remote_kind, 'github'), updated_at = ? WHERE id = ?`,
+          [iid, now, issueId],
         );
       } else {
         db.run(
-          `UPDATE issues SET gl_iid = ?, remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, 'gitlab'), updated_at = ? WHERE id = ?`,
-          [iid, iid, now, issueId],
+          `UPDATE issues SET gl_iid = ?, remote_kind = COALESCE(remote_kind, 'gitlab'), updated_at = ? WHERE id = ?`,
+          [iid, now, issueId],
         );
       }
 
@@ -1320,8 +1312,8 @@ export function issueTools(
       const ghIid = adoption.backend === 'github' ? remoteIid : null;
       const glIid = adoption.backend === 'gitlab' ? remoteIid : null;
       db.run(
-        `UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, ?), updated_at = ? WHERE id = ?`,
-        [ghIid, glIid, remoteIid, adoption.backend, now, issueId],
+        `UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_kind = COALESCE(remote_kind, ?), updated_at = ? WHERE id = ?`,
+        [ghIid, glIid, adoption.backend, now, issueId],
       );
 
       if (!idempotent) {

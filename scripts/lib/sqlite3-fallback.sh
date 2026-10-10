@@ -64,8 +64,8 @@ tmb_fallback_validation_record() {
   local ts; ts=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
   local feedback_esc; feedback_esc=$(printf '%s' "$feedback" | sed "s/'/''/g")
   sqlite3 "$db" <<SQL
-INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, created_at)
-VALUES ($task_id, $attempt_n, '$agent', '$verdict', '$feedback_esc', '$ts');
+INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at)
+VALUES ($task_id, $attempt_n, '$agent', '$verdict', '$feedback_esc', 0, '$ts');
 SQL
   _tmb_fallback_audit_append "$db" validation_record "$agent" "{\"task_id\":$task_id,\"attempt_n\":$attempt_n,\"verdict\":\"$verdict\"}"
 }

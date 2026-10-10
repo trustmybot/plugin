@@ -210,8 +210,9 @@ describe('validation_record subagent_session_id gate', () => {
     );
   });
 
-  it('validation_record writes a pr_review_runs row transactionally with the verdict', async () => {
+  it('validation_record leaves pr_review_runs alone — it is the /monitor cursor table only', async () => {
     const tools = validationTools(db);
+    const before = db.get<{ n: number }>('SELECT COUNT(*) AS n FROM pr_review_runs')!.n;
     const result = await call(tools.handlers, 'validation_record', {
       agent: 'pr-reviewer',
       task_id: taskId,
@@ -222,44 +223,8 @@ describe('validation_record subagent_session_id gate', () => {
       subagent_session_id: 'sess-pr-runs-test',
     });
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
-
-    const prRow = db.get<{ task_id: number; verdict: string; attempt_n: number }>(
-      `SELECT task_id, verdict, attempt_n FROM pr_review_runs WHERE task_id = ? AND attempt_n = 2`,
-      [taskId],
-    );
-    assert.ok(prRow, 'pr_review_runs row must exist after validation_record');
-    assert.equal(prRow.task_id, taskId, 'pr_review_runs.task_id must match');
-    assert.equal(prRow.verdict, 'pass', 'pr_review_runs.verdict must match');
-    assert.equal(prRow.attempt_n, 2, 'pr_review_runs.attempt_n must match');
-  });
-
-  it('validation_record pr_review_runs row is idempotent on (task_id, attempt_n)', async () => {
-    const tools = validationTools(db);
-    await call(tools.handlers, 'validation_record', {
-      agent: 'pr-reviewer',
-      task_id: taskId,
-      attempt_n: 3,
-      verdict: 'fail',
-      feedback: '# Needs work',
-      mcp_available: true,
-      subagent_session_id: 'sess-idem-1',
-    });
-    await call(tools.handlers, 'validation_record', {
-      agent: 'pr-reviewer',
-      task_id: taskId,
-      attempt_n: 3,
-      verdict: 'pass',
-      feedback: '# Now LGTM',
-      mcp_available: true,
-      subagent_session_id: 'sess-idem-2',
-    });
-
-    const rows = db.all<{ verdict: string }>(
-      `SELECT verdict FROM pr_review_runs WHERE task_id = ? AND attempt_n = 3`,
-      [taskId],
-    );
-    assert.equal(rows.length, 1, 'idempotent: only one pr_review_runs row per (task_id, attempt_n)');
-    assert.equal(rows[0].verdict, 'pass', 'second upsert must update verdict to pass');
+    const after = db.get<{ n: number }>('SELECT COUNT(*) AS n FROM pr_review_runs')!.n;
+    assert.equal(after, before, 'validation_record must not write pr_review_runs rows');
   });
 
   it('backward compat: pre-migration rows with NULL subagent_session_id are readable via validation_history', async () => {
@@ -268,8 +233,8 @@ describe('validation_record subagent_session_id gate', () => {
     const altTaskId = await createTask(altDb, issueId);
 
     altDb.run(
-      `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, subagent_session_id, created_at)
-       VALUES (?, ?, ?, ?, ?, NULL, datetime('now'))`,
+      `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at)
+       VALUES (?, ?, ?, ?, ?, 1, NULL, datetime('now'))`,
       [altTaskId, 1, 'pr-reviewer', 'pass', '# Legacy row'],
     );
 

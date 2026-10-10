@@ -109,7 +109,7 @@ describe('Codex runtime manager', () => {
             assert.equal(created.project_root, realpathSync(project));
             assert.equal(created.plugin_name, plugin.name);
             assert.equal(created.plugin_version, plugin.version);
-            assert.equal(created.schema_version, 28);
+            assert.equal(created.schema_version, 29);
             assert.equal(created.graph_available, true);
             assert.equal(created.graph_status, 'deferred');
             assert.ok(existsSync(created.trajectory_db));
@@ -827,7 +827,7 @@ describe('Codex tool surface', () => {
             assert.notEqual(created.isError, true);
             const issue = toolPayload(created)['data'];
             assert.ok(issue.id > 0);
-            assert.equal(issue.remote_iid, null);
+            assert.equal(issue.gh_iid, null);
             assert.deepEqual(JSON.parse(issue.labels), [
                 'Capability',
                 'P1',
@@ -1075,7 +1075,7 @@ describe('Codex tool surface', () => {
             });
             assert.notEqual(created.isError, true);
             const issue = toolPayload(created)['data'];
-            assert.equal(issue.remote_iid, null);
+            assert.equal(issue.gh_iid, null);
             assert.deepEqual(JSON.parse(issue.labels), [
                 'Feature',
                 'Priority: Medium',
@@ -1158,7 +1158,7 @@ describe('Codex tool surface', () => {
             assert.notEqual(created.isError, true);
             const issue = toolPayload(created)['data'];
             assert.ok(issue.id > 0);
-            assert.equal(issue.remote_iid, null);
+            assert.equal(issue.gh_iid, null);
             assert.deepEqual(JSON.parse(issue.labels), ['Docs', 'Priority: Low']);
             const appended = await registry.call('planning_discussion_append', {
                 project_root: project,

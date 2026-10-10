@@ -21264,7 +21264,7 @@ function sqlLog(entry) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 28;
+var TARGET_SCHEMA_VERSION = 29;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
 }
@@ -21642,6 +21642,9 @@ function runMigrations(db, fromVersion, toVersion) {
   if (fromVersion < 28 && toVersion >= 28) {
     migrateV27toV28(db);
   }
+  if (fromVersion < 29 && toVersion >= 29) {
+    migrateV28toV29(db);
+  }
 }
 function hasColumn(db, table, column) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -21676,12 +21679,6 @@ function migrateV8toV9(db) {
       db.exec(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_pr ON pr_review_runs(pr_number, repo) WHERE pr_number > 0"
       );
-      const auditIdxExists = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_pr_review_runs_audit'").get();
-      if (!auditIdxExists) {
-        db.exec(
-          "CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_audit ON pr_review_runs(task_id, attempt_n) WHERE task_id IS NOT NULL"
-        );
-      }
       const taskIdxExists = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_pr_review_runs_task'").get();
       if (!taskIdxExists) {
         db.exec(
@@ -22041,6 +22038,287 @@ function migrateV21toV22(db) {
 function migrateV27toV28(db) {
   if (tableExists(db, "issues") && !hasColumn(db, "issues", "labels")) {
     db.exec("ALTER TABLE issues ADD COLUMN labels TEXT");
+  }
+}
+function migrateV28toV29(db) {
+  const tableSql = (table) => {
+    const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?").get(table);
+    return row?.sql ?? "";
+  };
+  const needsRebuild = (table, checkMarker, droppedColumn) => tableExists(db, table) && (droppedColumn !== void 0 && hasColumn(db, table, droppedColumn) || !tableSql(table).includes(checkMarker));
+  const rebuild = (table, createBody, columns) => {
+    const scratch = `${table}_new`;
+    const select = columns.map(([name, fallback]) => hasColumn(db, table, name) ? name : `${fallback} AS ${name}`).join(", ");
+    const seqRow = tableExists(db, "sqlite_sequence") ? db.prepare("SELECT seq FROM sqlite_sequence WHERE name = ?").get(table) : void 0;
+    db.exec(`DROP TABLE IF EXISTS ${scratch}`);
+    db.exec(`CREATE TABLE ${scratch} (${createBody})`);
+    db.exec(
+      `INSERT INTO ${scratch} (${columns.map(([name]) => name).join(", ")}) SELECT ${select} FROM ${table}`
+    );
+    db.exec(`DROP TABLE ${table}`);
+    db.exec(`ALTER TABLE ${scratch} RENAME TO ${table}`);
+    if (seqRow !== void 0) {
+      db.prepare("UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = ?").run(seqRow.seq, table);
+    }
+  };
+  const TASK_STATUSES = "'pending','running','needs_validation','completed','closed','failed','escalated'";
+  const OPEN_CLOSED = "'open','closed'";
+  const VERDICTS = "'pass','fail','escalate'";
+  const DISCUSSION_KINDS = "'intent','question','answer','decision','note','analysis'";
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.exec("BEGIN");
+  try {
+    if (tableExists(db, "pr_review_runs")) {
+      db.exec("DELETE FROM pr_review_runs WHERE pr_number = 0");
+    }
+    const probes = [
+      ["tasks", "status", `status NOT IN (${TASK_STATUSES})`],
+      ["issues", "status", `status NOT IN (${OPEN_CLOSED})`],
+      ["validation_attempts", "verdict", `verdict NOT IN (${VERDICTS})`],
+      ["validation_attempts", "mcp_available", "mcp_available IS NULL"],
+      ["discussions", "kind", `kind NOT IN (${DISCUSSION_KINDS})`],
+      ["milestones", "state", `state NOT IN (${OPEN_CLOSED})`],
+      ["pr_review_runs", "pr_number", "pr_number IS NULL OR pr_number <= 0"],
+      ["pr_review_runs", "repo", "repo IS NULL OR repo = ''"]
+    ];
+    const violations = [];
+    for (const [table, column, predicate] of probes) {
+      if (!tableExists(db, table) || !hasColumn(db, table, column)) continue;
+      const bad = db.prepare(`SELECT DISTINCT ${column} AS v FROM ${table} WHERE ${predicate} LIMIT 20`).all();
+      if (bad.length > 0) {
+        violations.push(`${table}.${column} = ${bad.map((r) => JSON.stringify(r.v)).join(", ")}`);
+      }
+    }
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV28toV29: rows violate the new v29 constraints \u2014 fix or delete them, then reopen: ${violations.join("; ")}`
+      );
+    }
+    if (needsRebuild("tasks", "CHECK (status IN", "attempts")) {
+      rebuild(
+        "tasks",
+        `
+          id                INTEGER PRIMARY KEY AUTOINCREMENT,
+          issue_id          INTEGER NOT NULL REFERENCES issues(id),
+          branch_id         TEXT    NOT NULL,
+          parent_branch_id  TEXT,
+          title             TEXT    NOT NULL DEFAULT '',
+          description       TEXT    NOT NULL,
+          status            TEXT    NOT NULL DEFAULT 'pending'
+                              CHECK (status IN (${TASK_STATUSES})),
+          spec_body         TEXT    NOT NULL DEFAULT '',
+          commit_sha        TEXT,
+          repo              TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          prompt_bearing    INTEGER NOT NULL DEFAULT 0,
+          files             TEXT    NOT NULL DEFAULT '[]',
+          verification      TEXT    NOT NULL DEFAULT '[]',
+          created_at        TEXT    NOT NULL,
+          updated_at        TEXT    NOT NULL,
+          completed_at      TEXT
+        `,
+        [
+          ["id", "NULL"],
+          ["issue_id", "NULL"],
+          ["branch_id", "NULL"],
+          ["parent_branch_id", "NULL"],
+          ["title", "''"],
+          ["description", "''"],
+          ["status", "'pending'"],
+          ["spec_body", "''"],
+          ["commit_sha", "NULL"],
+          ["repo", "NULL"],
+          ["prompt_bearing", "0"],
+          ["files", "'[]'"],
+          ["verification", "'[]'"],
+          ["created_at", "NULL"],
+          ["updated_at", "NULL"],
+          ["completed_at", "NULL"]
+        ]
+      );
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id)");
+    }
+    if (needsRebuild("issues", "CHECK (status IN", "remote_iid")) {
+      if (hasColumn(db, "issues", "remote_iid")) {
+        db.exec(
+          "UPDATE issues SET gh_iid = remote_iid WHERE remote_kind = 'github' AND remote_iid IS NOT NULL AND gh_iid IS NULL"
+        );
+        db.exec(
+          "UPDATE issues SET gl_iid = remote_iid WHERE remote_kind = 'gitlab' AND remote_iid IS NOT NULL AND gl_iid IS NULL"
+        );
+      }
+      rebuild(
+        "issues",
+        `
+          id                INTEGER PRIMARY KEY AUTOINCREMENT,
+          objective         TEXT    NOT NULL,
+          description       TEXT    NOT NULL DEFAULT '',
+          status            TEXT    NOT NULL DEFAULT 'open' CHECK (status IN (${OPEN_CLOSED})),
+          created_at        TEXT    NOT NULL,
+          updated_at        TEXT    NOT NULL,
+          closed_at         TEXT,
+          remote_kind       TEXT CHECK(remote_kind IN ('github','gitlab')),
+          gh_iid            INTEGER,
+          gl_iid            INTEGER,
+          repo              TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          milestone         TEXT,
+          labels            TEXT,
+          FOREIGN KEY (milestone, repo) REFERENCES milestones(name, repo) ON DELETE RESTRICT
+        `,
+        [
+          ["id", "NULL"],
+          ["objective", "''"],
+          ["description", "''"],
+          ["status", "'open'"],
+          ["created_at", "NULL"],
+          ["updated_at", "NULL"],
+          ["closed_at", "NULL"],
+          ["remote_kind", "NULL"],
+          ["gh_iid", "NULL"],
+          ["gl_iid", "NULL"],
+          ["repo", "NULL"],
+          ["milestone", "NULL"],
+          ["labels", "NULL"]
+        ]
+      );
+    }
+    if (needsRebuild("validation_attempts", "CHECK (verdict IN")) {
+      rebuild(
+        "validation_attempts",
+        `
+          id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id             INTEGER NOT NULL REFERENCES tasks(id),
+          attempt_n           INTEGER NOT NULL,
+          agent               TEXT    NOT NULL DEFAULT '',
+          verdict             TEXT    NOT NULL CHECK (verdict IN (${VERDICTS})),
+          feedback            TEXT    NOT NULL DEFAULT '',
+          mcp_available       INTEGER NOT NULL,
+          subagent_session_id TEXT,
+          repo                TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          created_at          TEXT    NOT NULL,
+          UNIQUE(task_id, attempt_n)
+        `,
+        [
+          ["id", "NULL"],
+          ["task_id", "NULL"],
+          ["attempt_n", "NULL"],
+          ["agent", "''"],
+          ["verdict", "NULL"],
+          ["feedback", "''"],
+          ["mcp_available", "1"],
+          ["subagent_session_id", "NULL"],
+          ["repo", "NULL"],
+          ["created_at", "NULL"]
+        ]
+      );
+    }
+    if (needsRebuild("discussions", "CHECK (kind IN")) {
+      const embeddingsCount = () => tableExists(db, "discussions_embeddings") ? db.prepare("SELECT COUNT(*) AS n FROM discussions_embeddings").get().n : 0;
+      const embeddingsBefore = embeddingsCount();
+      rebuild(
+        "discussions",
+        `
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          issue_id       INTEGER NOT NULL REFERENCES issues(id),
+          author         TEXT    NOT NULL,
+          kind           TEXT    NOT NULL DEFAULT 'note'
+                           CHECK (kind IN (${DISCUSSION_KINDS})),
+          body           TEXT    NOT NULL,
+          repo           TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          created_at     TEXT    NOT NULL
+        `,
+        [
+          ["id", "NULL"],
+          ["issue_id", "NULL"],
+          ["author", "''"],
+          ["kind", "'note'"],
+          ["body", "''"],
+          ["repo", "NULL"],
+          ["created_at", "NULL"]
+        ]
+      );
+      db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_discussions_issue_created ON discussions(issue_id, created_at)"
+      );
+      if (tableExists(db, "discussions_fts")) {
+        db.exec(`
+          CREATE TRIGGER IF NOT EXISTS discussions_ai AFTER INSERT ON discussions BEGIN
+            INSERT INTO discussions_fts(rowid, body) VALUES (new.id, new.body);
+          END;
+          CREATE TRIGGER IF NOT EXISTS discussions_ad AFTER DELETE ON discussions BEGIN
+            INSERT INTO discussions_fts(discussions_fts, rowid, body) VALUES ('delete', old.id, old.body);
+          END;
+          CREATE TRIGGER IF NOT EXISTS discussions_au AFTER UPDATE ON discussions BEGIN
+            INSERT INTO discussions_fts(discussions_fts, rowid, body) VALUES ('delete', old.id, old.body);
+            INSERT INTO discussions_fts(rowid, body) VALUES (new.id, new.body);
+          END;
+        `);
+        db.exec("INSERT INTO discussions_fts(discussions_fts) VALUES('rebuild')");
+      }
+      const embeddingsAfter = embeddingsCount();
+      if (embeddingsAfter !== embeddingsBefore) {
+        throw new Error(
+          `migrateV28toV29: discussions_embeddings changed from ${embeddingsBefore} to ${embeddingsAfter} rows across the discussions rebuild`
+        );
+      }
+    }
+    if (needsRebuild("milestones", "CHECK (state IN")) {
+      rebuild(
+        "milestones",
+        `
+          name   TEXT NOT NULL,
+          repo   TEXT NOT NULL REFERENCES repos(name) ON DELETE RESTRICT,
+          state  TEXT NOT NULL DEFAULT 'open' CHECK (state IN (${OPEN_CLOSED})),
+          PRIMARY KEY (name, repo)
+        `,
+        [["name", "NULL"], ["repo", "NULL"], ["state", "'open'"]]
+      );
+    }
+    if (tableExists(db, "agents") && hasColumn(db, "agents", "status")) {
+      db.exec("ALTER TABLE agents DROP COLUMN status");
+    }
+    if (needsRebuild("pr_review_runs", "CHECK (pr_number > 0)", "verdict")) {
+      rebuild(
+        "pr_review_runs",
+        `
+          id              INTEGER PRIMARY KEY AUTOINCREMENT,
+          pr_number       INTEGER NOT NULL CHECK (pr_number > 0),
+          repo            TEXT    NOT NULL CHECK (repo <> ''),
+          last_fetched_at DATETIME NOT NULL,
+          last_comment_id TEXT,
+          task_id         INTEGER REFERENCES tasks(id),
+          UNIQUE (pr_number, repo)
+        `,
+        [
+          ["id", "NULL"],
+          ["pr_number", "NULL"],
+          ["repo", "NULL"],
+          ["last_fetched_at", "NULL"],
+          ["last_comment_id", "NULL"],
+          ["task_id", "NULL"]
+        ]
+      );
+      db.exec("CREATE INDEX IF NOT EXISTS idx_pr_review_runs_task ON pr_review_runs(task_id)");
+    }
+    db.exec("DROP INDEX IF EXISTS idx_pr_review_runs_pr");
+    db.exec("DROP INDEX IF EXISTS idx_pr_review_runs_audit");
+    if (tableExists(db, "plugin_config")) {
+      db.exec("DELETE FROM plugin_config WHERE key = 'tmb_default_repo'");
+    }
+    const fkViolations = db.prepare("PRAGMA foreign_key_check").all();
+    if (fkViolations.length > 0) {
+      throw new Error(
+        `migrateV28toV29: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v29 rebuilds`
+      );
+    }
+    db.exec("COMMIT");
+  } catch (err5) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+    }
+    throw err5;
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
   }
 }
 function migrateV22toV23(db) {
@@ -25529,7 +25807,7 @@ async function verifyAdoptionRemote(db, issueRepo, remoteBackendArg, remoteIid, 
 }
 async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
   const remoteRow = db.get(
-    `SELECT remote_iid, remote_kind, gh_iid, gl_iid, repo FROM issues WHERE id = ?`,
+    `SELECT gh_iid, gl_iid, repo FROM issues WHERE id = ?`,
     [issueId]
   );
   const closeCtx = resolveIssueSyncContext(db, remoteRow?.repo ?? null);
@@ -25537,13 +25815,9 @@ async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
   const closeTargets = [];
   if (remoteRow?.gh_iid != null) {
     closeTargets.push({ remote_iid: remoteRow.gh_iid, remote_kind: "github" });
-  } else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === "github") {
-    closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: "github" });
   }
   if (remoteRow?.gl_iid != null) {
     closeTargets.push({ remote_iid: remoteRow.gl_iid, remote_kind: "gitlab" });
-  } else if (remoteRow?.remote_iid != null && remoteRow.remote_kind === "gitlab") {
-    closeTargets.push({ remote_iid: remoteRow.remote_iid, remote_kind: "gitlab" });
   }
   for (const target of closeTargets) {
     const closeSlug = closeCtx?.remoteFor(target.remote_kind === "github" ? "gh" : "glab")?.slug ?? void 0;
@@ -25778,8 +26052,8 @@ function issueTools(db, dbPath = "", options = {}) {
         const ghIid = adoption.backend === "github" ? remoteIid : null;
         const glIid = adoption.backend === "gitlab" ? remoteIid : null;
         db.run(
-          `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-          [remoteIid, adoption.backend, ghIid, glIid, now, adoptId]
+          `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
+          [adoption.backend, ghIid, glIid, now, adoptId]
         );
         db.run(
           `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
@@ -25886,8 +26160,8 @@ function issueTools(db, dbPath = "", options = {}) {
               const firstSuccess = !isFailure(ghResult) ? ghResult : !isFailure(glResult) ? glResult : null;
               if (firstSuccess !== null) {
                 db.run(
-                  `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-                  [firstSuccess.remote_iid, firstSuccess.remote_kind, ghIid, glIid, now, issueId]
+                  `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
+                  [firstSuccess.remote_kind, ghIid, glIid, now, issueId]
                 );
               } else {
                 const failures = [];
@@ -25963,8 +26237,8 @@ function issueTools(db, dbPath = "", options = {}) {
                 const ghIid = syncResult.remote_kind === "github" ? syncResult.remote_iid : null;
                 const glIid = syncResult.remote_kind === "gitlab" ? syncResult.remote_iid : null;
                 db.run(
-                  `UPDATE issues SET remote_iid = ?, remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-                  [syncResult.remote_iid, syncResult.remote_kind, ghIid, glIid, now, issueId]
+                  `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
+                  [syncResult.remote_kind, ghIid, glIid, now, issueId]
                 );
                 if (syncResult.unknown_labels && syncResult.unknown_labels.length > 0) {
                   syncDiagnostic = {
@@ -26197,13 +26471,9 @@ function issueTools(db, dbPath = "", options = {}) {
         const retryTargets = [];
         if (row.gh_iid != null) {
           retryTargets.push({ remote_iid: row.gh_iid, remote_kind: "github" });
-        } else if (row.remote_iid != null && row.remote_kind === "github") {
-          retryTargets.push({ remote_iid: row.remote_iid, remote_kind: "github" });
         }
         if (row.gl_iid != null) {
           retryTargets.push({ remote_iid: row.gl_iid, remote_kind: "gitlab" });
-        } else if (row.remote_iid != null && row.remote_kind === "gitlab") {
-          retryTargets.push({ remote_iid: row.remote_iid, remote_kind: "gitlab" });
         }
         if (retryTargets.length === 0) {
           return ok2({ action: "close", success: false, error: { reason: "no_remote_iid" } });
@@ -26236,12 +26506,12 @@ function issueTools(db, dbPath = "", options = {}) {
       const retryCwd = retryCtx.cwd;
       const createTargets = [];
       if (backend === "gh" || backend === "both") {
-        if (row.gh_iid == null && !(row.remote_kind === "github" && row.remote_iid != null)) {
+        if (row.gh_iid == null) {
           createTargets.push("gh");
         }
       }
       if (backend === "glab" || backend === "both") {
-        if (row.gl_iid == null && !(row.remote_kind === "gitlab" && row.remote_iid != null)) {
+        if (row.gl_iid == null) {
           createTargets.push("glab");
         }
       }
@@ -26280,8 +26550,8 @@ function issueTools(db, dbPath = "", options = {}) {
           const retryGhIid = syncResult.remote_kind === "github" ? syncResult.remote_iid : null;
           const retryGlIid = syncResult.remote_kind === "gitlab" ? syncResult.remote_iid : null;
           db.run(
-            `UPDATE issues SET remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, ?), gh_iid = COALESCE(gh_iid, ?), gl_iid = COALESCE(gl_iid, ?), updated_at = ? WHERE id = ?`,
-            [syncResult.remote_iid, syncResult.remote_kind, retryGhIid, retryGlIid, nowISO(), issueId]
+            `UPDATE issues SET remote_kind = COALESCE(remote_kind, ?), gh_iid = COALESCE(gh_iid, ?), gl_iid = COALESCE(gl_iid, ?), updated_at = ? WHERE id = ?`,
+            [syncResult.remote_kind, retryGhIid, retryGlIid, nowISO(), issueId]
           );
         } else {
           createErrors.push({
@@ -26326,13 +26596,13 @@ function issueTools(db, dbPath = "", options = {}) {
       const now = nowISO();
       if (backend === "github") {
         db.run(
-          `UPDATE issues SET gh_iid = ?, remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, 'github'), updated_at = ? WHERE id = ?`,
-          [iid, iid, now, issueId]
+          `UPDATE issues SET gh_iid = ?, remote_kind = COALESCE(remote_kind, 'github'), updated_at = ? WHERE id = ?`,
+          [iid, now, issueId]
         );
       } else {
         db.run(
-          `UPDATE issues SET gl_iid = ?, remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, 'gitlab'), updated_at = ? WHERE id = ?`,
-          [iid, iid, now, issueId]
+          `UPDATE issues SET gl_iid = ?, remote_kind = COALESCE(remote_kind, 'gitlab'), updated_at = ? WHERE id = ?`,
+          [iid, now, issueId]
         );
       }
       db.run(
@@ -26371,8 +26641,8 @@ function issueTools(db, dbPath = "", options = {}) {
       const ghIid = adoption.backend === "github" ? remoteIid : null;
       const glIid = adoption.backend === "gitlab" ? remoteIid : null;
       db.run(
-        `UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_iid = COALESCE(remote_iid, ?), remote_kind = COALESCE(remote_kind, ?), updated_at = ? WHERE id = ?`,
-        [ghIid, glIid, remoteIid, adoption.backend, now, issueId]
+        `UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_kind = COALESCE(remote_kind, ?), updated_at = ? WHERE id = ?`,
+        [ghIid, glIid, adoption.backend, now, issueId]
       );
       if (!idempotent) {
         db.run(

@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS repos (
 CREATE TABLE IF NOT EXISTS milestones (
     name   TEXT NOT NULL,
     repo   TEXT NOT NULL REFERENCES repos(name) ON DELETE RESTRICT,
-    state  TEXT NOT NULL DEFAULT 'open',
+    state  TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open','closed')),
     PRIMARY KEY (name, repo)
 );
 
@@ -36,11 +36,10 @@ CREATE TABLE IF NOT EXISTS issues (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     objective         TEXT    NOT NULL,
     description       TEXT    NOT NULL DEFAULT '',
-    status            TEXT    NOT NULL DEFAULT 'open',
+    status            TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL,
     closed_at         TEXT,
-    remote_iid        INTEGER,
     remote_kind       TEXT CHECK(remote_kind IN ('github','gitlab')),
     gh_iid            INTEGER,
     gl_iid            INTEGER,
@@ -56,6 +55,9 @@ CREATE TABLE IF NOT EXISTS issues (
     FOREIGN KEY (milestone, repo) REFERENCES milestones(name, repo) ON DELETE RESTRICT
 );
 
+CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status);
+CREATE INDEX IF NOT EXISTS idx_issues_gh_iid ON issues(gh_iid);
+
 CREATE TABLE IF NOT EXISTS tasks (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     issue_id          INTEGER NOT NULL REFERENCES issues(id),
@@ -63,8 +65,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     parent_branch_id  TEXT,
     title             TEXT    NOT NULL DEFAULT '',
     description       TEXT    NOT NULL,
-    status            TEXT    NOT NULL DEFAULT 'pending',
-    attempts          INTEGER NOT NULL DEFAULT 0,
+    status            TEXT    NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending','running','needs_validation','completed','closed','failed','escalated')),
     spec_body         TEXT    NOT NULL DEFAULT '',
     commit_sha        TEXT,
     -- repo (#155): formalized as an FK to repos(name). Nullable for single-repo
@@ -88,6 +90,8 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_tasks_commit_sha ON tasks(commit_sha);
 
 CREATE TABLE IF NOT EXISTS audit (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -108,13 +112,13 @@ CREATE TABLE IF NOT EXISTS validation_attempts (
     task_id             INTEGER NOT NULL REFERENCES tasks(id),
     attempt_n           INTEGER NOT NULL,
     agent               TEXT    NOT NULL DEFAULT '',
-    verdict             TEXT    NOT NULL,
+    verdict             TEXT    NOT NULL CHECK (verdict IN ('pass','fail','escalate')),
     feedback            TEXT    NOT NULL DEFAULT '',
     -- LOAD-BEARING-SAFETY: mcp_available is the typed push-gate signal (1=MCP up,
     -- 0=honor-system fallback). Bro reads it off this column via validation_history,
     -- so the pr-reviewer verdict + availability travel as typed fields, never scraped
-    -- from a free-text feedback prefix.
-    mcp_available       INTEGER NOT NULL DEFAULT 1,
+    -- from a free-text feedback prefix. No DEFAULT: every writer states it.
+    mcp_available       INTEGER NOT NULL,
     subagent_session_id TEXT,
     -- repo (#155): FK to repos(name); backfilled from the parent task's repo.
     repo                TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
@@ -128,7 +132,6 @@ CREATE TABLE IF NOT EXISTS agents (
     kind        TEXT    NOT NULL CHECK (kind IN ('backbone','consultant')),
     scope       TEXT    NOT NULL CHECK (scope IN ('global','template','project-local')),
     file_path   TEXT    NOT NULL,
-    status      TEXT    NOT NULL DEFAULT 'active',
     created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -178,7 +181,8 @@ CREATE TABLE IF NOT EXISTS discussions (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     issue_id       INTEGER NOT NULL REFERENCES issues(id),
     author         TEXT    NOT NULL,
-    kind           TEXT    NOT NULL DEFAULT 'note',
+    kind           TEXT    NOT NULL DEFAULT 'note'
+                     CHECK (kind IN ('intent','question','answer','decision','note','analysis')),
     body           TEXT    NOT NULL,
     -- repo (#155): FK to repos(name); backfilled from the parent issue's repo.
     repo           TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
@@ -194,7 +198,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 28, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 29, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -248,33 +252,27 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_open ON agent_runs(agent_type) WHERE completed_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit(event_type);
 CREATE INDEX IF NOT EXISTS idx_audit_issue_branch ON audit(issue_id, branch_id);
 
--- Incremental polling state for the /monitor flow (#2886 follow-up). One row
--- per (pr_number, repo). `last_fetched_at` is the wall-clock cursor for the
--- next `since` query; `last_comment_id` is the comment-id cursor when the
--- backend supports id-based deltas (gh REST does; glab uses created_at).
--- task_id + verdict + attempt_n are populated server-side by validation_record
--- to record pr-reviewer invocations (#334) — rows written for the reviewer
--- audit path have pr_number=0 and repo='' (sentinel) while task_id is non-null.
+-- /monitor incremental-polling cursor: exactly one row per real PR, keyed by
+-- (pr_number, repo). `last_fetched_at` is the wall-clock cursor for the next
+-- `since` query; `last_comment_id` is the comment-id cursor when the backend
+-- supports id-based deltas (gh REST does; glab uses created_at). task_id links
+-- the PR to the task it ships, so post-pr-comments-persist resolves
+-- pr_number → task → issue. Pr-reviewer verdicts live in validation_attempts.
 CREATE TABLE IF NOT EXISTS pr_review_runs (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  pr_number       INTEGER NOT NULL DEFAULT 0,
-  repo            TEXT    NOT NULL DEFAULT '',
+  pr_number       INTEGER NOT NULL CHECK (pr_number > 0),
+  repo            TEXT    NOT NULL CHECK (repo <> ''),
   last_fetched_at DATETIME NOT NULL,
   last_comment_id TEXT,
   task_id         INTEGER REFERENCES tasks(id),
-  verdict         TEXT,
-  attempt_n       INTEGER
+  UNIQUE (pr_number, repo)
 );
 
--- Monitoring rows (pr_number > 0) remain one per (pr_number, repo); audit rows
--- (pr_number = 0) are exempt from this constraint via the WHERE clause so that
--- multiple validation attempts for the same task each get their own row.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_pr ON pr_review_runs(pr_number, repo) WHERE pr_number > 0;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_review_runs_audit ON pr_review_runs(task_id, attempt_n) WHERE task_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_pr_review_runs_task ON pr_review_runs(task_id);
 
 -- FTS5 virtual tables for keyword search (Phase 1 of #2905).
