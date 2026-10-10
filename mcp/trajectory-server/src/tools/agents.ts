@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
+import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -212,9 +213,9 @@ export function agentTools(db: TrajectoryDB, dbPath = ''): {
       if (existing) {
         if (scope === 'project-local' && (existing.scope === 'template')) {
           db.run(
-            `UPDATE agents SET scope = ?, kind = ?, file_path = ?, updated_at = datetime('now')
+            `UPDATE agents SET scope = ?, kind = ?, file_path = ?, updated_at = ?
              WHERE name = ?`,
-            [scope, kind, filePath, name],
+            [scope, kind, filePath, nowISO(), name],
           );
           promoted = true;
         }
@@ -234,8 +235,8 @@ export function agentTools(db: TrajectoryDB, dbPath = ''): {
         const contentJson = JSON.stringify({ name, mode: 'agent_register', agent_id: row.id });
         db.run(
           `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, ?, 'tmb_agent_created', ?, ?, datetime('now'))`,
-          [String(args['agent']), `Agent registered: ${name}`, contentJson],
+           VALUES (-1, NULL, ?, 'tmb_agent_created', ?, ?, ?)`,
+          [String(args['agent']), `Agent registered: ${name}`, contentJson, nowISO()],
         );
       }
 

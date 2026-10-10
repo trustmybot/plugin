@@ -46,11 +46,12 @@ export function indexNames(db: TrajectoryDB): string[] {
     .map((r) => r.name);
 }
 
-/** Every v29 DDL item, asserted identically on fresh and migrated DBs. */
+/**
+ * Every v29 DDL item, asserted identically on fresh and migrated DBs. Later
+ * versions keep all of them; the schema_version stamp is asserted by the
+ * current version's shape (v30-shape.ts).
+ */
 export function assertV29Shape(db: TrajectoryDB): void {
-  const meta = db.get<{ schema_version: number }>('SELECT schema_version FROM plugin_meta LIMIT 1');
-  assert.equal(meta!.schema_version, 29, 'schema_version must be 29');
-
   for (const [table, check] of V29_CHECKS) {
     assert.ok(tableDdl(db, table).includes(check), `${table} DDL must carry ${check}`);
   }

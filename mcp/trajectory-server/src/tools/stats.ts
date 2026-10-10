@@ -67,11 +67,11 @@ interface AgentRunsAggregate {
 interface AgentRunRow {
   id: number;
   agent_type: string;
-  tokens_in: number;
-  tokens_out: number;
+  tokens_in: number | null;
+  tokens_out: number | null;
   tokens_total: number;
-  cache_read_tokens: number;
-  cache_creation_tokens: number;
+  cache_read_tokens: number | null;
+  cache_creation_tokens: number | null;
   tool_uses: number;
   duration_ms: number;
   completed_at: string;

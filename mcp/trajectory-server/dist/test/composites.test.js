@@ -1470,6 +1470,8 @@ describe('task_provision (#157)', () => {
             assert.equal(audit.c, 1);
             const run = db.get(`SELECT COUNT(*) AS c FROM agent_runs WHERE task_id = ? AND agent_type = 'bro'`, [out['task_id']]);
             assert.equal(run.c, 1);
+            const broTokens = db.get(`SELECT tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, usage_source FROM agent_runs WHERE task_id = ? AND agent_type = 'bro'`, [out['task_id']]);
+            assert.deepEqual({ ...broTokens }, { tokens_in: null, tokens_out: null, cache_read_tokens: null, cache_creation_tokens: null, usage_source: null }, 'the open bro row starts unmeasured (NULL tokens)');
             // Branch ref + worktree created on disk.
             assert.equal(git(repoRoot, 'rev-parse', '--verify', 'refs/heads/feat/the-thing').length, 40);
             const wtList = git(repoRoot, 'worktree', 'list', '--porcelain');

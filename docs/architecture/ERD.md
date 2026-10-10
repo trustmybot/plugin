@@ -1,8 +1,10 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 29`). Persistent at `<cwd>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored. The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 30`). Persistent at `<cwd>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored. The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
+
+Every timestamp column holds one format: `YYYY-MM-DDTHH:MM:SS.sssZ` (24-char UTC ms-ISO), so `ORDER BY` and keyset cursors compare them as plain strings.
 
 Tables fall in three groups (capability catalog unified into `cheatcodes` in #101; embedding cache from schema v8):
 
@@ -143,6 +145,7 @@ erDiagram
         TEXT author
         TEXT kind "CHECK intent|question|answer|decision|note|analysis"
         TEXT body
+        TEXT remote_comment_id "UNIQUE when non-NULL; PR/MR comment dedupe key"
     }
 
     roundtables {
@@ -166,10 +169,15 @@ erDiagram
         INT  task_id FK
         INT  issue_id FK
         TEXT agent_type
-        INT  tokens_in
-        INT  tokens_out
+        INT  tokens_in "NULL = unmeasured"
+        INT  tokens_out "NULL = unmeasured"
+        INT  cache_read_tokens "NULL = unmeasured"
+        INT  cache_creation_tokens "NULL = unmeasured"
         INT  tool_uses
         INT  duration_ms
+        TEXT spawn_id "UNIQUE (task_id, spawn_id) when non-NULL"
+        TEXT session_id
+        TEXT usage_source "CHECK transcript|subagent_stop|unmeasured"
     }
 
     pr_review_runs {
@@ -254,8 +262,8 @@ erDiagram
 | `milestones` | One row per GitHub-style milestone, scoped per repo (schema v23, #155). Primary key is the composite `(name, repo)` and `repo` FKs `repos.name` (ON DELETE RESTRICT), so the same milestone name lives independently under each repo. `state` is `open`/`closed`. `issues.milestone` is a nullable composite FK `(milestone, repo) → (name, repo)`; rows are seeded on demand by `issue_create`. |
 | _(world model)_ | Lives in the sibling kuzu graph DB at `<project>/.claude/tmb/world-model.kuzu/`, not in this SQLite file. Directory nodes + CONTAINS edges, populated by `scan_run` via `src/graph-db.ts`. See `docs/architecture/WORLD_MODEL.md`. |
 | `plugin_config` | KV for workspace-global plugin settings only: `issue_sync`, the issue label taxonomies, the `onboarded` marker, and `pr_review_bots`. The repo-scoped policy fields (`target_branch`, `branching_model`, `protected_branches`, `remotes`) are NOT here — they live on the `repos` row (#980, see `repos` above / [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md)). See `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the canonical key list. |
-| `plugin_meta` | Schema + plugin version. Current `schema_version=29`. `plugin_version` is seeded as `'0.0.0'` and synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — so the row always reflects the running plugin version without a migration. |
-| `agent_runs` | Per-spawn resource tracking (tokens, tool_uses, duration). Written by `swe-atomic-close.sh` SubagentStop hook. |
+| `plugin_meta` | Schema + plugin version. Current `schema_version=30`. `plugin_version` is seeded as `'0.0.0'` and synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — so the row always reflects the running plugin version without a migration. |
+| `agent_runs` | Per-spawn resource tracking (tokens, tool_uses, duration). Written by `swe-atomic-close.sh` SubagentStop hook. The four token columns are NULL until measured; `usage_source` records where measured values came from (`transcript`, `subagent_stop`) or `unmeasured`, and stays NULL while the run is open. `spawn_id` identifies the measured spawn (one row per task + spawn); `session_id` ties the run to the CC session that owns it. |
 | `pr_review_runs` | Per-PR monitor incremental-polling cursor (`last_fetched_at`, `last_comment_id`) — cursor-only since v29. Used by `/monitor` flow — `pr_monitor_comments_get` reads the cursor on entry and upserts it on exit so the next call only fetches new comments; no cursor is kept when no repo slug resolves. Table-level `UNIQUE (pr_number, repo)` with `CHECK (pr_number > 0)` and `CHECK (repo <> '')`. `task_id` links the PR to its task for `post-pr-comments-persist`. |
 | `debug_trajectory` | Deterministic-trajectory capture (only when `TMB_DEBUG_TRAJECTORY=1`). Used by L5 scoring. |
 | `eval_results` | Per-scorer results for L5/A-B prompt-eval runs. One row per (run_id, flow_name, scorer_name). |
@@ -270,10 +278,13 @@ erDiagram
 - `idx_issues_status` — `(status)`. Open-issue scans.
 - `idx_issues_gh_iid` — `(gh_iid)`. GitHub issue number → local issue lookups.
 - `idx_discussions_issue_created` — `(issue_id, created_at)`. Feeds the chronological discussion view.
+- `idx_discussions_remote_comment` — `UNIQUE(remote_comment_id) WHERE remote_comment_id IS NOT NULL`. One discussion per persisted PR/MR comment.
 - `validation_attempts` — `UNIQUE(task_id, attempt_n)`. One row per (task, attempt).
 - `idx_agent_runs_task` — `(task_id)`. Fast per-task resource lookup.
 - `idx_agent_runs_issue` — `(issue_id)`. Fast per-issue resource rollup.
 - `idx_agent_runs_open` — `(agent_type) WHERE completed_at IS NULL`. Partial index over open runs.
+- `idx_agent_runs_spawn` — `UNIQUE(task_id, spawn_id) WHERE spawn_id IS NOT NULL`. One row per measured spawn.
+- `idx_agent_runs_session` — `(session_id) WHERE session_id IS NOT NULL`. Resolve a session's own run.
 - `pr_review_runs` — `UNIQUE(pr_number, repo)`. One cursor per monitored PR.
 - `idx_pr_review_runs_task` — `(task_id)`. PR cursor → task lookups.
 - `idx_debug_trajectory_session` — `(session_id, step_n)`. Ordered trajectory replay.

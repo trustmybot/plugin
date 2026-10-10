@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS repos (
     name              TEXT PRIMARY KEY,
     path              TEXT    NOT NULL,
     file_count        INTEGER NOT NULL DEFAULT 0,
-    last_scanned_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    last_scanned_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     target_branch     TEXT,
     branching_model   TEXT,
     protected_branches TEXT,
@@ -132,8 +132,8 @@ CREATE TABLE IF NOT EXISTS agents (
     kind        TEXT    NOT NULL CHECK (kind IN ('backbone','consultant')),
     scope       TEXT    NOT NULL CHECK (scope IN ('global','template','project-local')),
     file_path   TEXT    NOT NULL,
-    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
-    updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
 INSERT OR IGNORE INTO agents (name, kind, scope, file_path) VALUES
@@ -154,7 +154,7 @@ INSERT OR IGNORE INTO agents (name, kind, scope, file_path) VALUES
 -- id=1 — production installs see clean 1, 2, 3... numbering without a
 -- million-id gap polluting the issue space.
 INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
-VALUES (-1, 'system', 'parent issue for recovery / system-level audit and discussion events', 'open', datetime('now'), datetime('now'));
+VALUES (-1, 'system', 'parent issue for recovery / system-level audit and discussion events', 'open', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
 
 CREATE TABLE IF NOT EXISTS roundtables (
     id                      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -186,11 +186,16 @@ CREATE TABLE IF NOT EXISTS discussions (
     body           TEXT    NOT NULL,
     -- repo (#155): FK to repos(name); backfilled from the parent issue's repo.
     repo           TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
-    created_at     TEXT    NOT NULL
+    created_at     TEXT    NOT NULL,
+    -- remote_comment_id: the PR/MR comment id a persisted remote comment came
+    -- from — the dedupe key for comment ingestion. NULL for local discussions.
+    remote_comment_id TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_discussions_issue_created
     ON discussions(issue_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_discussions_remote_comment
+    ON discussions(remote_comment_id) WHERE remote_comment_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS plugin_meta (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -198,7 +203,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 29, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 30, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -231,28 +236,38 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     task_id              INTEGER REFERENCES tasks(id),
     issue_id             INTEGER REFERENCES issues(id),
     agent_type           TEXT    NOT NULL,
-    tokens_in            INTEGER NOT NULL DEFAULT 0,
-    tokens_out           INTEGER NOT NULL DEFAULT 0,
+    -- Token columns are NULL when the run was never measured; a measured
+    -- run writes absolute values (usage_source says where they came from).
+    tokens_in            INTEGER,
+    tokens_out           INTEGER,
     tokens_total         INTEGER NOT NULL DEFAULT 0,
     -- cache_read_tokens: tokens served from Anthropic's prompt cache (billed at ~0.1x input rate).
     -- cache_creation_tokens: tokens written into the prompt cache (billed at ~1.25x input rate).
     -- Both classes are excluded from tokens_in in CC's modelUsage; we track them separately
     -- because the cost difference is ~100x (cache_read is cheapest, cache_creation is most expensive
     -- per-token relative to plain input).
-    cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
-    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens     INTEGER,
+    cache_creation_tokens INTEGER,
     tool_uses            INTEGER NOT NULL DEFAULT 0,
     duration_ms          INTEGER NOT NULL DEFAULT 0,
     started_at           TEXT,
     completed_at         TEXT,
     usage_baseline_json  TEXT,
     -- repo (#155): FK to repos(name); backfilled from the parent task/issue repo.
-    repo                 TEXT    REFERENCES repos(name) ON DELETE RESTRICT
+    repo                 TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+    -- spawn_id: the Agent-tool spawn this run measures (one row per spawn per task).
+    -- session_id: the CC session that owns the run, so a hook resolves its own row.
+    -- usage_source: where the token values came from; NULL while the run is open.
+    spawn_id             TEXT,
+    session_id           TEXT,
+    usage_source         TEXT CHECK (usage_source IN ('transcript','subagent_stop','unmeasured'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_open ON agent_runs(agent_type) WHERE completed_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id) WHERE session_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit(event_type);
 CREATE INDEX IF NOT EXISTS idx_audit_issue_branch ON audit(issue_id, branch_id);
@@ -383,8 +398,8 @@ CREATE TABLE IF NOT EXISTS cheatcodes (
     -- reconciliation to active/broken is the health-check (#113).
     status       TEXT    NOT NULL DEFAULT 'installed',
     installed_at TEXT    NOT NULL,
-    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
-    updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    created_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     -- A skill must record its file_path; an acquired capability (marketplace or
     -- external) must carry its source identity; a builtin must not (#101, #152).
     CHECK (kind != 'skill' OR file_path IS NOT NULL),
@@ -399,16 +414,16 @@ CREATE TABLE IF NOT EXISTS cheatcodes (
 -- logic lives in the SKILL.md body, this row is just the index). origin='builtin'
 -- and source_url omitted (NULL) per the builtin CHECK.
 INSERT OR IGNORE INTO cheatcodes (name, kind, origin, description, file_path, scope, trust_tier, status, installed_at, created_at, updated_at) VALUES
-    ('tmb_planning',           'skill', 'builtin', 'Bro''s full code-touching flow — cold-start judgment, branch_id confirm, spec authoring (defaults table + ADR when architectural), decision audit, SWE spawn, V1/V2/V3 verification, atomic close, retry-on-fail.', 'skills/tmb_planning/SKILL.md',           'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
-    ('tmb_concerns-protocol',  'skill', 'builtin', 'How bro raises a concern when doubting the Human''s plan — surface inline via discussion_append + ask, or spawn a consultant in analysis-only mode for technical disagreement.',                              'skills/tmb_concerns-protocol/SKILL.md',  'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
-    ('tmb_recovery',           'skill', 'builtin', 'Bro''s response when something fails — AskUserQuestion errors, MCP tool returns is_error=true, or the trajectory-server is unreachable.',                                                                 'skills/tmb_recovery/SKILL.md',           'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
-    ('tmb_review',             'skill', 'builtin', 'PR-reviewer''s diff-level push-gate protocol — check this task''s diff against its spec, then write the validation_record verdict that gates the push.',                                                       'skills/tmb_review/SKILL.md',             'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
-    ('tmb_push-gate',          'skill', 'builtin', 'Bro''s push-gate orchestration — reaping unsigned commits, spawning pr-reviewer per task, and the all-pass push + PR-create + post-merge cleanup path. Loaded by bro when the push hook blocks or the Human asks for review-before-push.', 'skills/tmb_push-gate/SKILL.md',          'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
-    ('tmb_comment-triage',     'skill', 'builtin', 'Bro''s PR/MR comment triage — resolve the PR, fetch the comment threads, judge which are task-worthy, and dispatch SWE per ratified group. Loaded by bro when /monitor surfaces PR/MR comments.', 'skills/tmb_comment-triage/SKILL.md',     'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
-    ('tmb_swe-checklist',      'skill', 'builtin', 'SWE''s self-review heuristics — spec-fidelity + scope discipline judgment loaded only when about to atomic-close.',                                                                                          'skills/tmb_swe-checklist/SKILL.md',      'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
-    ('tmb_docs-conventions',   'skill', 'builtin', 'Discipline rules for editing prompt files (agents, skills, CLAUDE.md, workflow markdown) and the docs-update expectation.',                                                                                  'skills/tmb_docs-conventions/SKILL.md',   'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
-    ('tmb_skill-creator',      'skill', 'builtin', 'Generate a new project-local skill at .claude/skills/<name>/SKILL.md and attach it to existing agents.',                                                                                                     'skills/tmb_skill-creator/SKILL.md',      'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now')),
-    ('tmb_cheatcode',          'skill', 'builtin', 'When bro hits a wall — a task leans on a capability the project lacks and a published skill / MCP toolkit / plugin would close the gap — name the gap, cheatcode_search for ranked candidates, judge the best fit, and recommend it for Human approval.', 'skills/tmb_cheatcode/SKILL.md',          'global', 'curated', 'active', datetime('now'), datetime('now'), datetime('now'));
+    ('tmb_planning',           'skill', 'builtin', 'Bro''s full code-touching flow — cold-start judgment, branch_id confirm, spec authoring (defaults table + ADR when architectural), decision audit, SWE spawn, V1/V2/V3 verification, atomic close, retry-on-fail.', 'skills/tmb_planning/SKILL.md',           'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_concerns-protocol',  'skill', 'builtin', 'How bro raises a concern when doubting the Human''s plan — surface inline via discussion_append + ask, or spawn a consultant in analysis-only mode for technical disagreement.',                              'skills/tmb_concerns-protocol/SKILL.md',  'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_recovery',           'skill', 'builtin', 'Bro''s response when something fails — AskUserQuestion errors, MCP tool returns is_error=true, or the trajectory-server is unreachable.',                                                                 'skills/tmb_recovery/SKILL.md',           'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_review',             'skill', 'builtin', 'PR-reviewer''s diff-level push-gate protocol — check this task''s diff against its spec, then write the validation_record verdict that gates the push.',                                                       'skills/tmb_review/SKILL.md',             'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_push-gate',          'skill', 'builtin', 'Bro''s push-gate orchestration — reaping unsigned commits, spawning pr-reviewer per task, and the all-pass push + PR-create + post-merge cleanup path. Loaded by bro when the push hook blocks or the Human asks for review-before-push.', 'skills/tmb_push-gate/SKILL.md',          'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_comment-triage',     'skill', 'builtin', 'Bro''s PR/MR comment triage — resolve the PR, fetch the comment threads, judge which are task-worthy, and dispatch SWE per ratified group. Loaded by bro when /monitor surfaces PR/MR comments.', 'skills/tmb_comment-triage/SKILL.md',     'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_swe-checklist',      'skill', 'builtin', 'SWE''s self-review heuristics — spec-fidelity + scope discipline judgment loaded only when about to atomic-close.',                                                                                          'skills/tmb_swe-checklist/SKILL.md',      'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_docs-conventions',   'skill', 'builtin', 'Discipline rules for editing prompt files (agents, skills, CLAUDE.md, workflow markdown) and the docs-update expectation.',                                                                                  'skills/tmb_docs-conventions/SKILL.md',   'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_skill-creator',      'skill', 'builtin', 'Generate a new project-local skill at .claude/skills/<name>/SKILL.md and attach it to existing agents.',                                                                                                     'skills/tmb_skill-creator/SKILL.md',      'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ('tmb_cheatcode',          'skill', 'builtin', 'When bro hits a wall — a task leans on a capability the project lacks and a published skill / MCP toolkit / plugin would close the gap — name the gap, cheatcode_search for ranked candidates, judge the best fit, and recommend it for Human approval.', 'skills/tmb_cheatcode/SKILL.md',          'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
 
 -- Attachment records (#677). One row per artifact wired into the project by an
 -- install — the marketplace plugin manifest, an MCP server registration, or a

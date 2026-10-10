@@ -81,7 +81,7 @@ K8s Events have a `reason` field with a similar shape but different semantics. *
 | Value | Source | Meaning |
 |---|---|---|
 | `open` | GitHub | Milestone accepting issues |
-| `closed` | GitHub | Milestone shipped or retired |
+| `closed` | GitHub | Milestone shipped or wound down |
 
 Schema enforces via `CHECK (state IN ('open','closed'))` (v29).
 
@@ -155,7 +155,21 @@ No `CHECK` constraint — runtime reconciliation to `active`/`broken` is the hea
 
 ### `plugin_meta.schema_version` — DB schema version (integer)
 
-Currently `29`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration step in `db.ts:runMigrations`.
+Currently `30`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration step in `db.ts:runMigrations`.
+
+### `agent_runs.usage_source` — where a run's token values came from
+
+| Value | Meaning |
+|---|---|
+| `transcript` | Measured from the session transcript (bro rows) |
+| `subagent_stop` | Measured by the SubagentStop hook at spawn close (swe, pr-reviewer, consultants) |
+| `unmeasured` | The run closed without a measurement; the four token columns are NULL |
+
+`CHECK`-enforced. NULL while the run is still open (`completed_at IS NULL`).
+
+### Timestamp format
+
+Every timestamp column (`*_at`) holds `YYYY-MM-DDTHH:MM:SS.sssZ` — 24-char UTC ms-ISO, the shape of `new Date().toISOString()` and `strftime('%Y-%m-%dT%H:%M:%fZ','now')`.
 
 ### `agent_runs.agent_type` (open enum)
 
