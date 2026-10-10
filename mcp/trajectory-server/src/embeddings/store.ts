@@ -34,6 +34,10 @@ const SELECT_SQL: Record<string, string> = {
 
 export type EmbeddableTable = 'discussions' | 'audit';
 
+export function auditEmbedText(summary: string, contentJson: string | null): string {
+  return contentJson && contentJson !== '{}' ? `${summary} ${contentJson}` : summary;
+}
+
 export async function embedAndStore(
   db: TrajectoryDB,
   table: EmbeddableTable,

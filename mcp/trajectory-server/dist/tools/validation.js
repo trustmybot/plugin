@@ -93,7 +93,9 @@ export function validationTools(db) {
             if (!VALID_VERDICTS.has(verdict)) {
                 throw new Error(`Invalid verdict: "${verdict}". Allowed values: ${[...VALID_VERDICTS].join(', ')}`);
             }
-            const taskExists = db.get(`SELECT id FROM tasks WHERE id = ?`, [taskId]);
+            const taskExists = db.get(`SELECT t.id, COALESCE(t.repo, i.repo) AS repo
+           FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
+          WHERE t.id = ?`, [taskId]);
             if (!taskExists) {
                 throw new Error(`task_id=${taskId} not found in tasks table`);
             }
@@ -101,15 +103,16 @@ export function validationTools(db) {
             const feedback = args['feedback'];
             const now = nowISO();
             db.run(`INSERT INTO validation_attempts
-           (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at, repo)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(task_id, attempt_n) DO UPDATE SET
            agent = excluded.agent,
            verdict = excluded.verdict,
            feedback = excluded.feedback,
            mcp_available = excluded.mcp_available,
            subagent_session_id = excluded.subagent_session_id,
-           created_at = excluded.created_at`, [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, now]);
+           created_at = excluded.created_at,
+           repo = excluded.repo`, [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, now, taskExists.repo]);
             const row = db.get(`SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = ?`, [taskId, attemptN]);
             return ok(row);
         })),

@@ -23380,6 +23380,9 @@ var SELECT_SQL = {
   discussions: "SELECT discussion_id AS rowid, embedding FROM discussions_embeddings WHERE model_id = ?",
   audit: "SELECT audit_id AS rowid, embedding FROM audit_embeddings WHERE model_id = ?"
 };
+function auditEmbedText(summary, contentJson) {
+  return contentJson && contentJson !== "{}" ? `${summary} ${contentJson}` : summary;
+}
 async function embedAndStore(db2, table, rowid, text) {
   const v = await embed(text);
   if (v === null) return;
@@ -23400,9 +23403,46 @@ async function topKByCosine(db2, table, query, k) {
   return scored.slice(0, k);
 }
 
-// src/tools/discussions.ts
-var ALLOWED_KINDS = /* @__PURE__ */ new Set(["intent", "question", "answer", "decision", "note", "analysis"]);
-var MAX_BODY_BYTES = 65536;
+// src/embeddings/backfill.ts
+var MISSING_SQL = {
+  discussions: "SELECT id, body AS text FROM discussions WHERE id NOT IN (SELECT discussion_id FROM discussions_embeddings) ORDER BY id DESC LIMIT ?",
+  audit: "SELECT id, summary AS text, content_json FROM audit WHERE id NOT IN (SELECT audit_id FROM audit_embeddings) ORDER BY id DESC LIMIT ?"
+};
+async function backfillMissing(db2, table, limit = 50, onRow) {
+  const rows = db2.all(MISSING_SQL[table], [limit]);
+  for (const r of rows) {
+    const text = table === "audit" ? auditEmbedText(r.text, r.content_json ?? null) : r.text;
+    await embedAndStore(db2, table, r.id, text).catch(
+      (e) => console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e)
+    );
+    onRow?.();
+  }
+  return rows.length;
+}
+async function startBackfill(db2) {
+  const counts = db2.get(
+    `SELECT
+      (SELECT COUNT(*) FROM discussions WHERE id NOT IN (SELECT discussion_id FROM discussions_embeddings)) AS discussions,
+      (SELECT COUNT(*) FROM audit WHERE id NOT IN (SELECT audit_id FROM audit_embeddings)) AS audit`
+  );
+  if (!counts) return;
+  const total = counts.discussions + counts.audit;
+  serverLog({ event: "embeddings_backfill_start", total });
+  if (total === 0) return;
+  (async () => {
+    let done = 0;
+    const progress = () => {
+      done++;
+      if (done % 50 === 0) serverLog({ event: "embeddings_backfill_progress", done, total });
+    };
+    await backfillMissing(db2, "discussions", -1, progress);
+    await backfillMissing(db2, "audit", -1, progress);
+    serverLog({ event: "embeddings_backfill_complete", done });
+  })().catch((e) => console.error("[embeddings] backfill error:", e));
+}
+
+// src/tools/audit.ts
+var MAX_CONTENT_BYTES = 1e6;
 function ok(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
@@ -23427,6 +23467,345 @@ function wrapHandler(fn) {
     }
   };
 }
+function decodeCursor(cursor) {
+  try {
+    return JSON.parse(Buffer.from(cursor, "base64").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+function encodeCursor(row) {
+  return Buffer.from(JSON.stringify({ created_at: row.created_at, id: row.id })).toString("base64");
+}
+function resolveIssueRepo(db2, issueId) {
+  return db2.get("SELECT repo FROM issues WHERE id = ?", [issueId])?.repo ?? null;
+}
+function insertAudit(db2, entry) {
+  const contentJson = entry.content_json ?? "{}";
+  const repo = entry.repo ?? resolveIssueRepo(db2, entry.issue_id);
+  const res = db2.run(
+    `INSERT INTO audit
+       (issue_id, branch_id, from_node, event_type, summary, content_json, created_at, repo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      entry.issue_id,
+      entry.branch_id ?? null,
+      entry.from_node,
+      entry.event_type,
+      entry.summary,
+      contentJson,
+      entry.created_at ?? nowISO(),
+      repo
+    ]
+  );
+  const id = Number(res.lastInsertRowid);
+  void embedAndStore(db2, "audit", id, auditEmbedText(entry.summary, contentJson)).catch(
+    (e) => console.error("[embeddings] insertAudit embed failed:", e)
+  );
+  return id;
+}
+function auditTools(db2) {
+  const definitions = [
+    {
+      name: "audit_search",
+      description: "Search audit records via keyword (FTS5), semantic (cosine), or hybrid (RRF) ranking. Default mode is hybrid. Returns top-K snippets.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          query: {
+            type: "string",
+            description: "Search query. For keyword/hybrid: FTS5 MATCH syntax. For semantic: natural language."
+          },
+          mode: {
+            type: "string",
+            enum: ["keyword", "semantic", "hybrid"],
+            description: "Search mode. Default: hybrid."
+          },
+          issue_id: { type: "string", description: "Optional \u2014 restrict to one issue." },
+          event_types: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional \u2014 restrict to specific event types."
+          },
+          k: { type: "number", description: "Top-K rows to return. Default 5. Max 20." },
+          recency_alpha: {
+            type: "number",
+            description: "Recency weight 0\u20131 (hybrid/keyword only). Default 0.3."
+          }
+        },
+        required: ["agent", "query"]
+      }
+    },
+    {
+      name: "audit_append",
+      description: "Insert an audit lifecycle event (planning_complete, bro_verification_pass, branch_id_proposed, etc.). Both event_type and summary are required.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          issue_id: { type: "string" },
+          branch_id: { type: "string" },
+          from_node: { type: "string" },
+          event_type: { type: "string", description: "Required. Lifecycle event identifier (e.g. planning_complete)." },
+          summary: { type: "string", description: "Required. One-line human-readable summary." },
+          content_json: { type: "string", description: "Optional. JSON string with structured event payload, max 1 MB." }
+        },
+        required: ["agent", "issue_id", "from_node", "event_type", "summary"]
+      }
+    },
+    {
+      name: "audit_list",
+      description: "Paginated fetch of audit records for an issue. Without limit, returns up to 500 rows as a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=['id','event_type','summary'] to return only requested columns (unknown fields return a named error).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          issue_id: { type: "string" },
+          branch_id: { type: "string" },
+          limit: { type: "number", description: "Max rows to return. Capped at 500. When omitted, returns up to 500 rows (legacy bare-array shape); when provided, response includes next_cursor." },
+          offset: { type: "number", description: "Row offset for pagination (default 0)" },
+          cursor: { type: "string", description: "Opaque cursor from a previous response. When provided, overrides offset." },
+          fields: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional column projection. Allowed: id, issue_id, branch_id, from_node, event_type, summary, content_json, created_at. Unknown fields return an error. Default: all columns."
+          }
+        },
+        required: ["agent", "issue_id"]
+      }
+    }
+  ];
+  const handlers = {
+    audit_search: wrapHandler(async (args) => {
+      requireArg(args, "agent");
+      const query = requireArg(args, "query");
+      const mode = args["mode"] ?? "hybrid";
+      const issueId = args["issue_id"] ?? null;
+      const eventTypes = args["event_types"] ?? null;
+      const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
+      const alpha = Math.min(1, Math.max(0, args["recency_alpha"] ?? 0.3));
+      await backfillMissing(db2, "audit");
+      let eventTypeFilter = "";
+      let eventTypeParams = [];
+      if (eventTypes && eventTypes.length > 0) {
+        const placeholders = eventTypes.map(() => "?").join(", ");
+        eventTypeFilter = " AND a.event_type IN (" + placeholders + ")";
+        eventTypeParams = eventTypes;
+      }
+      const fetchFtsRows = (limitK) => {
+        const sql = "SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, snippet(audit_fts, 0, '[', ']', '...', 16) AS snippet, bm25(audit_fts) AS bm25_score, (julianday('now') - julianday(a.created_at)) AS age_days FROM audit_fts JOIN audit a ON a.id = audit_fts.rowid WHERE audit_fts MATCH ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter + " ORDER BY bm25(audit_fts) ASC LIMIT ?";
+        return db2.all(sql, [query, issueId, issueId, ...eventTypeParams, limitK]);
+      };
+      const fetchRowById = (id) => {
+        const sql = "SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, '' AS snippet, 0.0 AS bm25_score, (julianday('now') - julianday(a.created_at)) AS age_days FROM audit a WHERE a.id = ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter;
+        return db2.get(sql, [id, issueId, issueId, ...eventTypeParams]);
+      };
+      if (mode === "keyword") {
+        const countSql = "SELECT COUNT(*) AS n FROM audit_fts JOIN audit a ON a.id = audit_fts.rowid WHERE audit_fts MATCH ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter;
+        const countRow = db2.get(countSql, [query, issueId, issueId, ...eventTypeParams]);
+        const total_matched = countRow?.n ?? 0;
+        const searchSql = "SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, snippet(audit_fts, 0, '[', ']', '...', 16) AS snippet, bm25(audit_fts) AS bm25_score, (julianday('now') - julianday(a.created_at)) AS age_days FROM audit_fts JOIN audit a ON a.id = audit_fts.rowid WHERE audit_fts MATCH ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter + " ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC LIMIT ?";
+        const rows = db2.all(searchSql, [query, issueId, issueId, ...eventTypeParams, alpha, alpha, k]);
+        return ok({
+          results: rows.map((r) => ({
+            id: r.id,
+            issue_id: r.issue_id,
+            branch_id: r.branch_id,
+            from_node: r.from_node,
+            event_type: r.event_type,
+            summary: r.summary,
+            created_at: r.created_at,
+            snippet: r.snippet,
+            score: -r.bm25_score * (1 - alpha) + Math.exp(-r.age_days / 30) * alpha
+          })),
+          total_matched
+        });
+      }
+      if (mode === "semantic") {
+        const cosineResults2 = await topKByCosine(db2, "audit", query, k);
+        if (cosineResults2.length === 0) {
+          return ok({ results: [], total_matched: 0, warning: "semantic_unavailable" });
+        }
+        const results2 = [];
+        for (const cr of cosineResults2) {
+          const row = fetchRowById(cr.rowid);
+          if (row) {
+            results2.push({
+              id: row.id,
+              issue_id: row.issue_id,
+              branch_id: row.branch_id,
+              from_node: row.from_node,
+              event_type: row.event_type,
+              summary: row.summary,
+              created_at: row.created_at,
+              snippet: row.snippet,
+              score: cr.score
+            });
+          }
+        }
+        return ok({ results: results2, total_matched: results2.length });
+      }
+      const RRF_K = 60;
+      const ftsRows = fetchFtsRows(k * 4);
+      const cosineResults = await topKByCosine(db2, "audit", query, k * 4);
+      const semanticAvailable = cosineResults.length > 0;
+      const scoreMap = /* @__PURE__ */ new Map();
+      ftsRows.forEach((r, rank) => {
+        const rrf = 1 / (RRF_K + rank + 1);
+        const existing = scoreMap.get(r.id);
+        if (existing) {
+          existing.rrf += rrf;
+        } else {
+          scoreMap.set(r.id, { rrf, row: r });
+        }
+      });
+      cosineResults.forEach((cr, rank) => {
+        const rrf = 1 / (RRF_K + rank + 1);
+        const existing = scoreMap.get(cr.rowid);
+        if (existing) {
+          existing.rrf += rrf;
+        } else {
+          const row = fetchRowById(cr.rowid);
+          if (row) scoreMap.set(cr.rowid, { rrf, row });
+        }
+      });
+      const combined = Array.from(scoreMap.values()).map(({ rrf, row }) => ({
+        row,
+        score: rrf * (Math.exp(-row.age_days / 30) * alpha + (1 - alpha))
+      }));
+      combined.sort((a, b) => b.score - a.score);
+      const topRows = combined.slice(0, k);
+      const results = topRows.map(({ row, score }) => ({
+        id: row.id,
+        issue_id: row.issue_id,
+        branch_id: row.branch_id,
+        from_node: row.from_node,
+        event_type: row.event_type,
+        summary: row.summary,
+        created_at: row.created_at,
+        snippet: row.snippet,
+        score
+      }));
+      const response = { results, total_matched: results.length };
+      if (!semanticAvailable) response["warning"] = "semantic_unavailable";
+      return ok(response);
+    }),
+    audit_append: requireRoles("audit_append", ["bro", "swe", "pr-reviewer", "consultant"], wrapHandler(async (args) => {
+      requireArg(args, "agent");
+      const issueId = requireArg(args, "issue_id");
+      requireArg(args, "from_node");
+      const fromNode = args["from_node"];
+      const branchId = args["branch_id"] ?? null;
+      const now = nowISO();
+      requireArg(args, "event_type");
+      requireArg(args, "summary");
+      const eventType = args["event_type"];
+      const summary = args["summary"];
+      const contentJson = args["content_json"] ?? "{}";
+      const byteLength = Buffer.byteLength(contentJson, "utf8");
+      if (byteLength > MAX_CONTENT_BYTES) {
+        return err(`content_json exceeds 1MB limit (${byteLength} bytes); truncate before calling audit_append`);
+      }
+      const id = insertAudit(db2, {
+        issue_id: issueId,
+        branch_id: branchId,
+        from_node: fromNode,
+        event_type: eventType,
+        summary,
+        content_json: contentJson,
+        created_at: now
+      });
+      return ok(db2.get("SELECT * FROM audit WHERE id = ?", [id]));
+    })),
+    audit_list: wrapHandler(async (args) => {
+      requireArg(args, "agent");
+      const issueId = requireArg(args, "issue_id");
+      const branchId = args["branch_id"] ?? null;
+      const limitArg = args["limit"];
+      const cursorArg = args["cursor"];
+      const offset = Math.max(0, args["offset"] ?? 0);
+      const fieldsArg = args["fields"];
+      const ALLOWED_AUDIT_FIELDS = /* @__PURE__ */ new Set(["id", "issue_id", "branch_id", "from_node", "event_type", "summary", "content_json", "created_at"]);
+      if (fieldsArg !== void 0) {
+        const unknown2 = fieldsArg.filter((f) => !ALLOWED_AUDIT_FIELDS.has(f));
+        if (unknown2.length > 0) {
+          return err(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_AUDIT_FIELDS].join(", ")}`);
+        }
+      }
+      function projectRow(row) {
+        if (!fieldsArg) return row;
+        const out = {};
+        for (const f of fieldsArg) out[f] = row[f];
+        return out;
+      }
+      const conditions = ["issue_id = ?"];
+      const baseParams = [issueId];
+      if (branchId !== null) {
+        conditions.push("branch_id = ?");
+        baseParams.push(branchId);
+      }
+      const whereClause = "WHERE " + conditions.join(" AND ");
+      if (limitArg === void 0 || limitArg === null) {
+        const rows2 = db2.all(
+          "SELECT * FROM audit " + whereClause + " ORDER BY id ASC LIMIT 500 OFFSET ?",
+          [...baseParams, offset]
+        );
+        return ok(rows2.map(projectRow));
+      }
+      const limit = Math.min(Math.max(1, limitArg), 500);
+      let cursorFilter = "";
+      let cursorParams = [];
+      if (cursorArg) {
+        const decoded = decodeCursor(cursorArg);
+        if (decoded) {
+          cursorFilter = "AND (created_at > ? OR (created_at = ? AND id > ?))";
+          cursorParams = [decoded.created_at, decoded.created_at, decoded.id];
+        }
+      }
+      const sql = "SELECT * FROM audit " + whereClause + " " + cursorFilter + " ORDER BY created_at ASC, id ASC LIMIT ?";
+      const fetchedRows = db2.all(sql, [
+        ...baseParams,
+        ...cursorParams,
+        limit + 1
+      ]);
+      const hasMore = fetchedRows.length > limit;
+      const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
+      const last = rows[rows.length - 1];
+      const next_cursor = hasMore && last ? encodeCursor(last) : void 0;
+      return ok({ rows: rows.map(projectRow), next_cursor });
+    })
+  };
+  return { definitions, handlers };
+}
+
+// src/tools/discussions.ts
+var ALLOWED_KINDS = /* @__PURE__ */ new Set(["intent", "question", "answer", "decision", "note", "analysis"]);
+var MAX_BODY_BYTES = 65536;
+function ok2(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function err2(message) {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    isError: true
+  };
+}
+function requireArg2(args, name) {
+  if (args[name] === void 0 || args[name] === null) {
+    throw new Error(`Missing required arg: ${name}`);
+  }
+  return args[name];
+}
+function wrapHandler2(fn) {
+  return async (args) => {
+    try {
+      return await fn(args);
+    } catch (e) {
+      return err2(e.message);
+    }
+  };
+}
 function resolveDefaultIssueId(db2) {
   const latest = db2.get(
     `SELECT id FROM issues WHERE status = 'open' AND id != -1 ORDER BY created_at DESC LIMIT 1`
@@ -23435,10 +23814,11 @@ function resolveDefaultIssueId(db2) {
 }
 function insertDiscussion(db2, entry) {
   const createdAt = entry.created_at ?? nowISO();
+  const repo = entry.repo ?? resolveIssueRepo(db2, entry.issue_id);
   const res = db2.run(
-    `INSERT INTO discussions (issue_id, author, kind, body, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
-    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt]
+    `INSERT INTO discussions (issue_id, author, kind, body, created_at, repo)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt, repo]
   );
   const id = Number(res.lastInsertRowid);
   void embedAndStore(db2, "discussions", id, entry.body).catch(
@@ -23558,14 +23938,15 @@ function discussionTools(db2) {
     );
   }
   const handlers = {
-    discussion_search: wrapHandler(async (args) => {
+    discussion_search: wrapHandler2(async (args) => {
       normalizeAgent(args["agent"]);
-      const query = requireArg(args, "query");
+      const query = requireArg2(args, "query");
       const mode = args["mode"] ?? "hybrid";
       const issueId = args["issue_id"] ?? null;
       const kind = args["kind"] ?? null;
       const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
       const alpha = Math.min(1, Math.max(0, args["recency_alpha"] ?? 0.3));
+      await backfillMissing(db2, "discussions");
       const fetchFtsRows = (limitK) => db2.all(
         `SELECT
              d.id, d.issue_id, d.kind, d.author, d.created_at,
@@ -23618,7 +23999,7 @@ function discussionTools(db2) {
            LIMIT ?`,
           [query, issueId, issueId, kind, kind, alpha, alpha, k]
         );
-        return ok({
+        return ok2({
           results: rows.map((r) => ({
             id: r.id,
             issue_id: r.issue_id,
@@ -23634,7 +24015,7 @@ function discussionTools(db2) {
       if (mode === "semantic") {
         const cosineResults2 = await topKByCosine(db2, "discussions", query, k);
         if (cosineResults2.length === 0) {
-          return ok({ results: [], total_matched: 0, warning: "semantic_unavailable" });
+          return ok2({ results: [], total_matched: 0, warning: "semantic_unavailable" });
         }
         const results2 = [];
         for (const cr of cosineResults2) {
@@ -23651,7 +24032,7 @@ function discussionTools(db2) {
             });
           }
         }
-        return ok({ results: results2, total_matched: results2.length });
+        return ok2({ results: results2, total_matched: results2.length });
       }
       const RRF_K = 60;
       const ftsRows = fetchFtsRows(k * 4);
@@ -23695,24 +24076,24 @@ function discussionTools(db2) {
       }));
       const response = { results, total_matched: results.length };
       if (!semanticAvailable) response["warning"] = "semantic_unavailable";
-      return ok(response);
+      return ok2(response);
     }),
     discussion_append: requireRoles(
       "discussion_append",
       ["bro", "swe", "pr-reviewer", "consultant"],
-      wrapHandler(async (args) => {
+      wrapHandler2(async (args) => {
         normalizeAgent(args["agent"]);
         const rawIssueId = args["issue_id"];
         const issueId = rawIssueId != null ? rawIssueId : String(resolveDefaultIssueId(db2));
-        const author = requireArg(args, "author");
-        const body = requireArg(args, "body");
+        const author = requireArg2(args, "author");
+        const body = requireArg2(args, "body");
         const kind = args["kind"] ?? "note";
         const bodyBytes = Buffer.byteLength(body, "utf8");
         if (bodyBytes > MAX_BODY_BYTES) {
-          return err(`body exceeds 64KB limit (${bodyBytes} bytes); truncate before calling discussion_append`);
+          return err2(`body exceeds 64KB limit (${bodyBytes} bytes); truncate before calling discussion_append`);
         }
         if (!ALLOWED_KINDS.has(kind)) {
-          return err(
+          return err2(
             `Invalid kind: "${kind}". Allowed values: ${[...ALLOWED_KINDS].join(", ")}`
           );
         }
@@ -23732,12 +24113,12 @@ function discussionTools(db2) {
         const now = nowISO();
         const id = insertDiscussion(db2, { issue_id: issueId, author, kind, body, created_at: now });
         const row = db2.get("SELECT * FROM discussions WHERE id = ?", [id]);
-        return ok(row);
+        return ok2(row);
       })
     ),
-    discussion_list: wrapHandler(async (args) => {
+    discussion_list: wrapHandler2(async (args) => {
       normalizeAgent(args["agent"]);
-      const issueId = requireArg(args, "issue_id");
+      const issueId = requireArg2(args, "issue_id");
       const limitArg = args["limit"];
       const cursorArg = args["cursor"];
       const rawOffset = args["offset"] ?? 0;
@@ -23746,7 +24127,7 @@ function discussionTools(db2) {
       if (fieldsArg !== void 0) {
         const unknown2 = fieldsArg.filter((f) => !ALLOWED_DISCUSSION_FIELDS.has(f));
         if (unknown2.length > 0) {
-          return err(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_DISCUSSION_FIELDS].join(", ")}`);
+          return err2(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_DISCUSSION_FIELDS].join(", ")}`);
         }
       }
       function projectRow(row) {
@@ -23757,7 +24138,7 @@ function discussionTools(db2) {
       }
       const issue2 = db2.get("SELECT id FROM issues WHERE id = ?", [issueId]);
       if (!issue2) {
-        return ok({ discussions: [], warning: "issue not found" });
+        return ok2({ discussions: [], warning: "issue not found" });
       }
       if (limitArg === void 0 || limitArg === null) {
         const offset = Math.max(0, rawOffset);
@@ -23765,7 +24146,7 @@ function discussionTools(db2) {
           `SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC LIMIT 200 OFFSET ?`,
           [issueId, offset]
         );
-        return ok(rows2.map(projectRow));
+        return ok2(rows2.map(projectRow));
       }
       const limit = Math.min(Math.max(1, limitArg), 200);
       let cursorFilter = "";
@@ -23783,11 +24164,11 @@ function discussionTools(db2) {
       const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
       const last = rows[rows.length - 1];
       const next_cursor = hasMore && last ? encodeCursor2(last) : void 0;
-      return ok({ rows: rows.map(projectRow), next_cursor });
+      return ok2({ rows: rows.map(projectRow), next_cursor });
     }),
-    issue_get_with_discussions: wrapHandler(async (args) => {
+    issue_get_with_discussions: wrapHandler2(async (args) => {
       const agent = normalizeAgent(args["agent"]);
-      const issueId = requireArg(args, "issue_id");
+      const issueId = requireArg2(args, "issue_id");
       const includeFull = args["include_full"] ?? false;
       const lastNArg = args["last_n"];
       const limitArg = args["limit"];
@@ -23806,7 +24187,7 @@ function discussionTools(db2) {
           `SELECT * FROM discussions WHERE issue_id = ? ORDER BY created_at ASC`,
           [issueId]
         );
-        return ok({ issue: redactedIssue, discussions: discussions2, tasks });
+        return ok2({ issue: redactedIssue, discussions: discussions2, tasks });
       }
       const totalCount = db2.get(
         `SELECT COUNT(*) AS n FROM discussions WHERE issue_id = ?`,
@@ -23832,7 +24213,7 @@ function discussionTools(db2) {
       const oldest = sliced[sliced.length - 1];
       const next_cursor = hasMore && oldest ? encodeCursor2(oldest) : void 0;
       const discussions = sliced.slice().reverse();
-      return ok({
+      return ok2({
         issue: redactedIssue,
         discussions,
         tasks,
@@ -24503,27 +24884,27 @@ function objectiveSimilarity(a, b) {
 function decodeIssue(row) {
   return { ...row };
 }
-function ok2(data) {
+function ok3(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err2(message) {
+function err3(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
   };
 }
-function requireArg2(args, name) {
+function requireArg3(args, name) {
   if (args[name] === void 0 || args[name] === null) {
     throw new Error(`Missing required arg: ${name}`);
   }
   return args[name];
 }
-function wrapHandler2(fn) {
+function wrapHandler3(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err2(e.message);
+      return err3(e.message);
     }
   };
 }
@@ -24759,15 +25140,15 @@ function issueTools(db2, dbPath2 = "", options = {}) {
     }
   ];
   const handlers = {
-    issue_create: requireRoles("issue_create", ["bro"], wrapHandler2(async (args) => {
+    issue_create: requireRoles("issue_create", ["bro"], wrapHandler3(async (args) => {
       const agent = normalizeAgent(args["agent"]);
-      requireArg2(args, "objective");
+      requireArg3(args, "objective");
       const objective = args["objective"];
       const description = args["description"] ?? "";
       const labels = args["labels"] ?? [];
       const labelError = validateIssueLabels(db2, labels, options.labelTaxonomy);
       if (labelError !== null) {
-        return err2(labelError);
+        return err3(labelError);
       }
       const explicitRepo = args["repo"] ?? null;
       const issueRepo = explicitRepo ?? resolveRepoForSync(db2, null)?.name ?? null;
@@ -24785,7 +25166,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
           }
         }
         if (best !== null && best.similarity >= DEDUP_THRESHOLD) {
-          return ok2({
+          return ok3({
             duplicate: true,
             duplicate_of: best.id,
             matched_objective: best.objective,
@@ -24803,7 +25184,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         const remoteBackendArg = args["remote_backend"];
         const adoption = await verifyAdoptionRemote(db2, issueRepo, remoteBackendArg, remoteIid, spawnFn);
         if (!adoption.ok) {
-          return err2(adoption.error);
+          return err3(adoption.error);
         }
         db2.run(
           `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
@@ -24823,22 +25204,20 @@ function issueTools(db2, dbPath2 = "", options = {}) {
           `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
           [adoption.backend, ghIid, glIid, now, adoptId]
         );
-        db2.run(
-          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (?, 'executor', 'issue_adopted', ?, ?, ?)`,
-          [
-            adoptId,
-            `issue ${adoptId} adopted ${adoption.backend} #${remoteIid} at create`,
-            JSON.stringify({ issue_id: adoptId, backend: adoption.backend, remote_iid: remoteIid, at_create: true }),
-            now
-          ]
-        );
+        insertAudit(db2, {
+          issue_id: adoptId,
+          from_node: "executor",
+          event_type: "issue_adopted",
+          summary: `issue ${adoptId} adopted ${adoption.backend} #${remoteIid} at create`,
+          content_json: JSON.stringify({ issue_id: adoptId, backend: adoption.backend, remote_iid: remoteIid, at_create: true }),
+          created_at: now
+        });
         const adoptedRow = db2.get("SELECT * FROM issues WHERE id = ?", [adoptId]);
         const adoptedIssue = decodeIssue(adoptedRow);
         const adoptedRedacted = redactIssue(adoptedIssue, agent, { include_description: true });
         const adoptedPayload = { ...adoptedRedacted };
         adoptedPayload._adopted = { backend: adoption.backend, remote_iid: remoteIid };
-        return ok2(adoptedPayload);
+        return ok3(adoptedPayload);
       }
       db2.run(
         `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
@@ -24878,7 +25257,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
             const redacted2 = redactIssue(issue3, agent, { include_description: true });
             const payload2 = { ...redacted2 };
             payload2._sync = syncDiagnostic;
-            return ok2(payload2);
+            return ok3(payload2);
           }
           const syncCwd = syncCtx.cwd;
           if (backend === "both") {
@@ -25040,16 +25419,14 @@ function issueTools(db2, dbPath2 = "", options = {}) {
           }
         }
       } else {
-        db2.run(
-          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (?, 'executor', 'sync_skipped', ?, ?, ?)`,
-          [
-            issueId,
-            `issue ${issueId} sync skipped: issue_sync is off`,
-            JSON.stringify({ issue_id: issueId, reason: "issue_sync_off" }),
-            nowISO()
-          ]
-        );
+        insertAudit(db2, {
+          issue_id: issueId,
+          from_node: "executor",
+          event_type: "sync_skipped",
+          summary: `issue ${issueId} sync skipped: issue_sync is off`,
+          content_json: JSON.stringify({ issue_id: issueId, reason: "issue_sync_off" }),
+          created_at: nowISO()
+        });
         const preferred = detectPreferred();
         if (preferred !== null) {
           syncDiagnostic = {
@@ -25064,22 +25441,22 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       const redacted = redactIssue(issue2, agent, { include_description: true });
       const payload = { ...redacted };
       if (syncDiagnostic) payload._sync = syncDiagnostic;
-      return ok2(payload);
+      return ok3(payload);
     })),
-    issue_get: wrapHandler2(async (args) => {
+    issue_get: wrapHandler3(async (args) => {
       const agent = normalizeAgent(args["agent"]);
-      const issueId = requireArg2(args, "issue_id");
+      const issueId = requireArg3(args, "issue_id");
       const includeDescription = args["include_description"] ?? false;
       const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!row) {
         throw new Error(`Not found: ${issueId}`);
       }
       const issue2 = decodeIssue(row);
-      return ok2(redactIssue(issue2, agent, { include_description: includeDescription }));
+      return ok3(redactIssue(issue2, agent, { include_description: includeDescription }));
     }),
-    issue_resume: wrapHandler2(async (args) => {
+    issue_resume: wrapHandler3(async (args) => {
       const agent = normalizeAgent(args["agent"]);
-      const issueId = requireArg2(args, "issue_id");
+      const issueId = requireArg3(args, "issue_id");
       const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!row) {
         throw new Error(`Not found: ${issueId}`);
@@ -25092,11 +25469,11 @@ function issueTools(db2, dbPath2 = "", options = {}) {
          LIMIT 1`,
         [issueId]
       );
-      return ok2({ issue: redactIssue(issue2, agent), next_task: task ?? null });
+      return ok3({ issue: redactIssue(issue2, agent), next_task: task ?? null });
     }),
-    issue_close: requireRoles("issue_close", ["bro"], wrapHandler2(async (args) => {
-      requireArg2(args, "agent");
-      const issueId = requireArg2(args, "issue_id");
+    issue_close: requireRoles("issue_close", ["bro"], wrapHandler3(async (args) => {
+      requireArg3(args, "agent");
+      const issueId = requireArg3(args, "issue_id");
       const now = nowISO();
       const existing = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!existing) {
@@ -25110,11 +25487,11 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       );
       await syncIssueCloseRemotes(db2, dbPath2, issueId, args["_spawnFn"]);
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      return ok2(decodeIssue(updated));
+      return ok3(decodeIssue(updated));
     })),
-    issue_get_phase: wrapHandler2(async (args) => {
-      requireArg2(args, "agent");
-      const issueId = requireArg2(args, "issue_id");
+    issue_get_phase: wrapHandler3(async (args) => {
+      requireArg3(args, "agent");
+      const issueId = requireArg3(args, "issue_id");
       const issueRow = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!issueRow) {
         throw new Error(`Not found: ${issueId}`);
@@ -25143,9 +25520,9 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       } else {
         phase = "tasks";
       }
-      return ok2({ phase, counts });
+      return ok3({ phase, counts });
     }),
-    issue_list: wrapHandler2(async (args) => {
+    issue_list: wrapHandler3(async (args) => {
       normalizeAgent(args["agent"]);
       const rawStatus = args["status"];
       const rawLimit = args["limit"] ?? 50;
@@ -25155,7 +25532,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       const offset = Math.max(0, rawOffset);
       const VALID_ISSUE_STATUSES = /* @__PURE__ */ new Set(["open", "closed"]);
       if (rawStatus !== void 0 && !VALID_ISSUE_STATUSES.has(rawStatus)) {
-        return err2(
+        return err3(
           `Invalid status: "${rawStatus}". Allowed values: ${[...VALID_ISSUE_STATUSES].join(", ")}`
         );
       }
@@ -25163,7 +25540,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       if (fieldsArg !== void 0) {
         const unknown2 = fieldsArg.filter((f) => !ALLOWED_ISSUE_LIST_FIELDS.has(f));
         if (unknown2.length > 0) {
-          return err2(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_ISSUE_LIST_FIELDS].join(", ")}`);
+          return err3(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_ISSUE_LIST_FIELDS].join(", ")}`);
         }
       }
       function projectRow(row) {
@@ -25184,18 +25561,18 @@ function issueTools(db2, dbPath2 = "", options = {}) {
           [limit, offset]
         );
       }
-      return ok2(rows.map(projectRow));
+      return ok3(rows.map(projectRow));
     }),
-    issue_update_description: requireRoles("issue_update_description", ["bro"], wrapHandler2(async (args) => {
-      const issueId = requireArg2(args, "issue_id");
-      const description = requireArg2(args, "description");
+    issue_update_description: requireRoles("issue_update_description", ["bro"], wrapHandler3(async (args) => {
+      const issueId = requireArg3(args, "issue_id");
+      const description = requireArg3(args, "description");
       const MAX_DESCRIPTION_BYTES = 1024 * 1024;
       if (Buffer.byteLength(description, "utf8") > MAX_DESCRIPTION_BYTES) {
-        return err2("description exceeds 1MB limit");
+        return err3("description exceeds 1MB limit");
       }
       const existing = db2.get("SELECT id FROM issues WHERE id = ?", [issueId]);
       if (!existing) {
-        return err2(`not_found: issue ${issueId}`);
+        return err3(`not_found: issue ${issueId}`);
       }
       const now = nowISO();
       db2.run(
@@ -25203,30 +25580,30 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         [description, now, issueId]
       );
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      return ok2(decodeIssue(updated));
+      return ok3(decodeIssue(updated));
     })),
-    issue_sync_retry: requireRoles("issue_sync_retry", ["bro"], wrapHandler2(async (args) => {
-      const issueId = requireArg2(args, "issue_id");
+    issue_sync_retry: requireRoles("issue_sync_retry", ["bro"], wrapHandler3(async (args) => {
+      const issueId = requireArg3(args, "issue_id");
       const spawnFn = args["_spawnFn"] ?? void 0;
       const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!row) {
-        return err2(`not_found: issue ${issueId}`);
+        return err3(`not_found: issue ${issueId}`);
       }
       const syncConfigRow = db2.get(
         `SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`
       );
       const syncConfig = syncConfigRow ? JSON.parse(syncConfigRow.value_json) : "off";
       if (syncConfig === "off") {
-        return ok2({ skipped: true, reason: "issue_sync is off" });
+        return ok3({ skipped: true, reason: "issue_sync is off" });
       }
       const retryCtx = resolveIssueSyncContext(db2, row.repo ?? null);
       const retryRemotes = retryCtx ? { github: retryCtx.remoteFor("gh") !== null, gitlab: retryCtx.remoteFor("glab") !== null } : null;
       const backend = resolveBackend(syncConfig, retryRemotes, !!spawnFn);
       if (backend === null || backend === "off") {
-        return ok2({ skipped: true, reason: "no remote backend configured" });
+        return ok3({ skipped: true, reason: "no remote backend configured" });
       }
       if (retryCtx === null) {
-        return ok2({
+        return ok3({
           skipped: true,
           reason: "unresolvable_repo",
           repo: row.repo ?? null,
@@ -25244,7 +25621,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
           retryTargets.push({ remote_iid: row.gl_iid, remote_kind: "gitlab" });
         }
         if (retryTargets.length === 0) {
-          return ok2({ action: "close", success: false, error: { reason: "no_remote_iid" } });
+          return ok3({ action: "close", success: false, error: { reason: "no_remote_iid" } });
         }
         const closeErrors = [];
         for (const target of retryTargets) {
@@ -25267,9 +25644,9 @@ function issueTools(db2, dbPath2 = "", options = {}) {
           }
         }
         if (closeErrors.length === 0) {
-          return ok2({ action: "close", success: true });
+          return ok3({ action: "close", success: true });
         }
-        return ok2({ action: "close", success: false, errors: closeErrors });
+        return ok3({ action: "close", success: false, errors: closeErrors });
       }
       const retryCwd = retryCtx.cwd;
       const createTargets = [];
@@ -25284,7 +25661,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         }
       }
       if (createTargets.length === 0) {
-        return ok2({ action: "create", success: true, skipped: true, reason: "already_synced" });
+        return ok3({ action: "create", success: true, skipped: true, reason: "already_synced" });
       }
       let retryLabels;
       if (row.labels == null) {
@@ -25333,33 +25710,33 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         }
       }
       if (createErrors.length === 0 && lastSuccess !== null) {
-        return ok2({ action: "create", success: true, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind });
+        return ok3({ action: "create", success: true, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind });
       }
       if (lastSuccess !== null) {
-        return ok2({ action: "create", success: true, partial: true, errors: createErrors, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind });
+        return ok3({ action: "create", success: true, partial: true, errors: createErrors, remote_iid: lastSuccess.remote_iid, remote_kind: lastSuccess.remote_kind });
       }
-      return ok2({
+      return ok3({
         action: "create",
         success: false,
         errors: createErrors
       });
     })),
-    issue_link: requireRoles("issue_link", ["bro"], wrapHandler2(async (args) => {
-      const issueId = requireArg2(args, "issue_id");
-      const backend = requireArg2(args, "backend");
-      const iid = requireArg2(args, "iid");
+    issue_link: requireRoles("issue_link", ["bro"], wrapHandler3(async (args) => {
+      const issueId = requireArg3(args, "issue_id");
+      const backend = requireArg3(args, "backend");
+      const iid = requireArg3(args, "iid");
       const force = args["force"] ?? false;
       if (!Number.isInteger(iid) || iid <= 0) {
-        return err2(`invalid iid: must be a positive integer`);
+        return err3(`invalid iid: must be a positive integer`);
       }
       const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!row) {
-        return err2(`not_found: issue ${issueId}`);
+        return err3(`not_found: issue ${issueId}`);
       }
       const iidColumn = backend === "github" ? "gh_iid" : "gl_iid";
       const existingIid = backend === "github" ? row.gh_iid : row.gl_iid;
       if (existingIid != null && !force) {
-        return err2(`already_linked: issue ${issueId} already has ${backend} iid ${existingIid} \u2014 pass force=true to overwrite`);
+        return err3(`already_linked: issue ${issueId} already has ${backend} iid ${existingIid} \u2014 pass force=true to overwrite`);
       }
       const now = nowISO();
       if (backend === "github") {
@@ -25373,36 +25750,34 @@ function issueTools(db2, dbPath2 = "", options = {}) {
           [iid, now, issueId]
         );
       }
-      db2.run(
-        `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-         VALUES (?, 'executor', 'issue_linked', ?, ?, ?)`,
-        [
-          parseInt(issueId, 10),
-          `issue ${issueId} linked to ${backend} #${iid}${force && existingIid != null ? ` (forced, was ${existingIid})` : ""}`,
-          JSON.stringify({ issue_id: issueId, backend, iid, forced: force && existingIid != null }),
-          now
-        ]
-      );
+      insertAudit(db2, {
+        issue_id: parseInt(issueId, 10),
+        from_node: "executor",
+        event_type: "issue_linked",
+        summary: `issue ${issueId} linked to ${backend} #${iid}${force && existingIid != null ? ` (forced, was ${existingIid})` : ""}`,
+        content_json: JSON.stringify({ issue_id: issueId, backend, iid, forced: force && existingIid != null }),
+        created_at: now
+      });
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      return ok2({ linked: true, backend, iid, issue: decodeIssue(updated) });
+      return ok3({ linked: true, backend, iid, issue: decodeIssue(updated) });
     })),
-    issue_adopt_remote: requireRoles("issue_adopt_remote", ["bro"], wrapHandler2(async (args) => {
-      const issueId = requireArg2(args, "issue_id");
-      const remoteIidRaw = requireArg2(args, "remote_iid");
+    issue_adopt_remote: requireRoles("issue_adopt_remote", ["bro"], wrapHandler3(async (args) => {
+      const issueId = requireArg3(args, "issue_id");
+      const remoteIidRaw = requireArg3(args, "remote_iid");
       const remoteIid = typeof remoteIidRaw === "number" ? remoteIidRaw : Number(remoteIidRaw);
       const remoteBackendArg = args["remote_backend"];
       const spawnFn = args["_spawnFn"] ?? void 0;
       const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!row) {
-        return err2(`not_found: issue ${issueId}`);
+        return err3(`not_found: issue ${issueId}`);
       }
       const adoption = await verifyAdoptionRemote(db2, row.repo ?? null, remoteBackendArg, remoteIid, spawnFn);
       if (!adoption.ok) {
-        return err2(adoption.error);
+        return err3(adoption.error);
       }
       const existingIid = adoption.backend === "github" ? row.gh_iid : row.gl_iid;
       if (existingIid != null && existingIid !== remoteIid) {
-        return err2(`already_linked: issue ${issueId} already has a ${adoption.backend} link (#${existingIid}); re-adopt is only idempotent for the same iid`);
+        return err3(`already_linked: issue ${issueId} already has a ${adoption.backend} link (#${existingIid}); re-adopt is only idempotent for the same iid`);
       }
       const idempotent = existingIid === remoteIid;
       const now = nowISO();
@@ -25413,19 +25788,17 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         [ghIid, glIid, adoption.backend, now, issueId]
       );
       if (!idempotent) {
-        db2.run(
-          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (?, 'executor', 'issue_adopted', ?, ?, ?)`,
-          [
-            parseInt(issueId, 10),
-            `issue ${issueId} adopted ${adoption.backend} #${remoteIid}`,
-            JSON.stringify({ issue_id: issueId, backend: adoption.backend, remote_iid: remoteIid, at_create: false }),
-            now
-          ]
-        );
+        insertAudit(db2, {
+          issue_id: parseInt(issueId, 10),
+          from_node: "executor",
+          event_type: "issue_adopted",
+          summary: `issue ${issueId} adopted ${adoption.backend} #${remoteIid}`,
+          content_json: JSON.stringify({ issue_id: issueId, backend: adoption.backend, remote_iid: remoteIid, at_create: false }),
+          created_at: now
+        });
       }
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      return ok2({ adopted: true, backend: adoption.backend, remote_iid: remoteIid, idempotent, issue: decodeIssue(updated) });
+      return ok3({ adopted: true, backend: adoption.backend, remote_iid: remoteIid, idempotent, issue: decodeIssue(updated) });
     }))
   };
   return { definitions, handlers };
@@ -25553,27 +25926,27 @@ var BRO_TRANSITIONS = {
   escalated: /* @__PURE__ */ new Set(["pending", "running", "failed", "closed"]),
   closed: /* @__PURE__ */ new Set(["escalated"])
 };
-function ok3(data) {
+function ok4(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err3(message) {
+function err4(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
     isError: true
   };
 }
-function requireArg3(args, name) {
+function requireArg4(args, name) {
   if (args[name] === void 0 || args[name] === null) {
     throw new Error(`Missing required arg: ${name}`);
   }
   return args[name];
 }
-function wrapHandler3(fn) {
+function wrapHandler4(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err3(e.message);
+      return err4(e.message);
     }
   };
 }
@@ -25732,13 +26105,13 @@ function taskTools(db2) {
     }
   ];
   const handlers = {
-    task_create_batch: requireRoles("task_create_batch", ["bro"], wrapHandler3(async (args) => {
-      requireArg3(args, "agent");
-      const issueId = requireArg3(args, "issue_id");
-      requireArg3(args, "tasks");
+    task_create_batch: requireRoles("task_create_batch", ["bro"], wrapHandler4(async (args) => {
+      requireArg4(args, "agent");
+      const issueId = requireArg4(args, "issue_id");
+      requireArg4(args, "tasks");
       const taskInputs = args["tasks"];
       if (!Array.isArray(taskInputs) || taskInputs.length === 0) {
-        return ok3([]);
+        return ok4([]);
       }
       const waived = args["waive_scope_gate"] === true;
       const waiverReason = args["waive_scope_gate_reason"] ?? "";
@@ -25746,7 +26119,7 @@ function taskTools(db2) {
       const specShapeWaiverReason = args["waive_spec_shape_reason"] ?? "";
       if (specShapeWaived) {
         if (typeof specShapeWaiverReason !== "string" || specShapeWaiverReason.trim().length < 10) {
-          return err3("waive_spec_shape_reason must be a string \u226510 chars.");
+          return err4("waive_spec_shape_reason must be a string \u226510 chars.");
         }
       } else {
         const REQUIRED_H2 = ["## Success Criteria"];
@@ -25817,7 +26190,7 @@ function taskTools(db2) {
       const branchGateWaiverReason = args["waive_branch_gate_reason"] ?? "";
       if (branchGateWaived) {
         if (typeof branchGateWaiverReason !== "string" || branchGateWaiverReason.trim().length < 10) {
-          return err3("waive_branch_gate_reason must be a string \u226510 chars.");
+          return err4("waive_branch_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const proposed = db2.get(
@@ -25844,7 +26217,7 @@ function taskTools(db2) {
       const registryGateWaiverReason = args["waive_registry_gate_reason"] ?? "";
       if (registryGateWaived) {
         if (typeof registryGateWaiverReason !== "string" || registryGateWaiverReason.trim().length < 10) {
-          return err3("waive_registry_gate_reason must be a string \u226510 chars.");
+          return err4("waive_registry_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const scanRow = db2.get(
@@ -25869,7 +26242,7 @@ function taskTools(db2) {
       const intentGateWaiverReason = args["waive_intent_gate_reason"] ?? "";
       if (intentGateWaived) {
         if (typeof intentGateWaiverReason !== "string" || intentGateWaiverReason.trim().length < 10) {
-          return err3("waive_intent_gate_reason must be a string \u226510 chars.");
+          return err4("waive_intent_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const intentRow = db2.get(
@@ -25896,7 +26269,7 @@ function taskTools(db2) {
       const decisionGateWaiverReason = args["waive_decision_gate_reason"] ?? "";
       if (decisionGateWaived) {
         if (typeof decisionGateWaiverReason !== "string" || decisionGateWaiverReason.trim().length < 10) {
-          return err3("waive_decision_gate_reason must be a string \u226510 chars.");
+          return err4("waive_decision_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const decisionRow = db2.get(
@@ -26043,25 +26416,22 @@ function taskTools(db2) {
           if (row) {
             results.push(row);
             db2.run(
-              `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
-               VALUES (?, ?, 'bro', ?)`,
-              [row.id, issueId, now]
+              `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo)
+               VALUES (?, ?, 'bro', ?, ?)`,
+              [row.id, issueId, now, row.repo ?? null]
             );
           }
         }
         for (const ac of autocreatedAudits) {
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'trajectory-server', 'tmb_branch_autocreated', ?, ?, ?)`,
-            [
-              issueId,
-              ac.branchId,
-              `Auto-created branch '${ac.branchId}' from '${ac.startPoint}' in repo '${ac.repoPath}'.`,
-              JSON.stringify({ branch: ac.branchId, start_point: ac.startPoint, repo_path: ac.repoPath }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: issueId,
+            branch_id: ac.branchId,
+            from_node: "trajectory-server",
+            event_type: "tmb_branch_autocreated",
+            summary: `Auto-created branch '${ac.branchId}' from '${ac.startPoint}' in repo '${ac.repoPath}'.`,
+            content_json: JSON.stringify({ branch: ac.branchId, start_point: ac.startPoint, repo_path: ac.repoPath }),
+            created_at: now
+          });
         }
         const emitPlanningComplete = args["emit_planning_complete"] === true;
         if (emitPlanningComplete && results.length > 0) {
@@ -26075,101 +26445,86 @@ function taskTools(db2) {
             parent_branch_ids: results.map((r) => r.parent_branch_id)
           });
           const fromNode = args["agent"] ?? "bro";
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'planning_complete', ?, ?, ?)`,
-            [issueId, branchForAudit, fromNode, summary, contentJson, now]
-          );
+          insertAudit(db2, {
+            issue_id: issueId,
+            branch_id: branchForAudit,
+            from_node: fromNode,
+            event_type: "planning_complete",
+            summary,
+            content_json: contentJson,
+            created_at: now
+          });
         }
         const firstBranch = results[0]?.branch_id ?? "";
         const agentFromNode = args["agent"];
         if (waived) {
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'scope_gate_waived', ?, ?, ?)`,
-            [
-              issueId,
-              firstBranch,
-              agentFromNode,
-              waiverReason.slice(0, 200),
-              JSON.stringify({
-                waive_scope_gate_reason: waiverReason,
-                tasks_created: results.length
-              }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: issueId,
+            branch_id: firstBranch,
+            from_node: agentFromNode,
+            event_type: "scope_gate_waived",
+            summary: waiverReason.slice(0, 200),
+            content_json: JSON.stringify({
+              waive_scope_gate_reason: waiverReason,
+              tasks_created: results.length
+            }),
+            created_at: now
+          });
         }
         if (branchGateWaived) {
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'branch_gate_waived', ?, ?, ?)`,
-            [
-              issueId,
-              firstBranch,
-              agentFromNode,
-              branchGateWaiverReason.slice(0, 200),
-              JSON.stringify({ waive_branch_gate_reason: branchGateWaiverReason, tasks_created: results.length }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: issueId,
+            branch_id: firstBranch,
+            from_node: agentFromNode,
+            event_type: "branch_gate_waived",
+            summary: branchGateWaiverReason.slice(0, 200),
+            content_json: JSON.stringify({ waive_branch_gate_reason: branchGateWaiverReason, tasks_created: results.length }),
+            created_at: now
+          });
         }
         if (registryGateWaived) {
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'registry_gate_waived', ?, ?, ?)`,
-            [
-              issueId,
-              firstBranch,
-              agentFromNode,
-              registryGateWaiverReason.slice(0, 200),
-              JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: results.length }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: issueId,
+            branch_id: firstBranch,
+            from_node: agentFromNode,
+            event_type: "registry_gate_waived",
+            summary: registryGateWaiverReason.slice(0, 200),
+            content_json: JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: results.length }),
+            created_at: now
+          });
         }
         if (intentGateWaived) {
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'intent_gate_waived', ?, ?, ?)`,
-            [
-              issueId,
-              firstBranch,
-              agentFromNode,
-              intentGateWaiverReason.slice(0, 200),
-              JSON.stringify({ waive_intent_gate_reason: intentGateWaiverReason, tasks_created: results.length }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: issueId,
+            branch_id: firstBranch,
+            from_node: agentFromNode,
+            event_type: "intent_gate_waived",
+            summary: intentGateWaiverReason.slice(0, 200),
+            content_json: JSON.stringify({ waive_intent_gate_reason: intentGateWaiverReason, tasks_created: results.length }),
+            created_at: now
+          });
         }
         if (decisionGateWaived) {
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'decision_gate_waived', ?, ?, ?)`,
-            [
-              issueId,
-              firstBranch,
-              agentFromNode,
-              decisionGateWaiverReason.slice(0, 200),
-              JSON.stringify({ waive_decision_gate_reason: decisionGateWaiverReason, tasks_created: results.length }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: issueId,
+            branch_id: firstBranch,
+            from_node: agentFromNode,
+            event_type: "decision_gate_waived",
+            summary: decisionGateWaiverReason.slice(0, 200),
+            content_json: JSON.stringify({ waive_decision_gate_reason: decisionGateWaiverReason, tasks_created: results.length }),
+            created_at: now
+          });
         }
         if (specShapeWaived) {
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'spec_shape_gate_waived', ?, ?, ?)`,
-            [
-              issueId,
-              firstBranch,
-              agentFromNode,
-              specShapeWaiverReason.slice(0, 200),
-              JSON.stringify({ waive_spec_shape_reason: specShapeWaiverReason, tasks_created: results.length }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: issueId,
+            branch_id: firstBranch,
+            from_node: agentFromNode,
+            event_type: "spec_shape_gate_waived",
+            summary: specShapeWaiverReason.slice(0, 200),
+            content_json: JSON.stringify({ waive_spec_shape_reason: specShapeWaiverReason, tasks_created: results.length }),
+            created_at: now
+          });
         }
         return results;
       });
@@ -26213,7 +26568,7 @@ function taskTools(db2) {
           }
         }
       }
-      return ok3({
+      return ok4({
         tasks: inserted.map((t) => ({
           id: t.id,
           issue_id: t.issue_id,
@@ -26228,25 +26583,25 @@ function taskTools(db2) {
         overlapping_pairs: overlappingPairs
       });
     })),
-    task_get: wrapHandler3(async (args) => {
-      requireArg3(args, "agent");
-      const taskId = requireArg3(args, "task_id");
+    task_get: wrapHandler4(async (args) => {
+      requireArg4(args, "agent");
+      const taskId = requireArg4(args, "task_id");
       const task = db2.get("SELECT * FROM tasks WHERE id = ?", [taskId]);
       if (!task) {
         throw new Error(`Not found: ${taskId}`);
       }
       const includeSpec = args["include_spec_body"] === true;
       if (includeSpec) {
-        return ok3(task);
+        return ok4(task);
       }
       const { spec_body: _spec, description: _desc, ...thin } = task;
-      return ok3(thin);
+      return ok4(thin);
     }),
-    task_update_status: requireRoles("task_update_status", ["bro", "swe"], wrapHandler3(async (args) => {
-      requireArg3(args, "agent");
+    task_update_status: requireRoles("task_update_status", ["bro", "swe"], wrapHandler4(async (args) => {
+      requireArg4(args, "agent");
       const agent = normalizeAgent(args["agent"]);
-      const taskId = requireArg3(args, "task_id");
-      const status = requireArg3(args, "status");
+      const taskId = requireArg4(args, "task_id");
+      const status = requireArg4(args, "status");
       const rawCommitSha = args["commit_sha"] !== void 0 ? args["commit_sha"].toLowerCase() : void 0;
       if (!VALID_STATUSES.has(status)) {
         throw new Error(
@@ -26299,11 +26654,11 @@ function taskTools(db2) {
         );
       }
       const updated = db2.get("SELECT * FROM tasks WHERE id = ?", [taskId]);
-      return ok3(updated);
+      return ok4(updated);
     })),
-    task_first_actionable: wrapHandler3(async (args) => {
-      requireArg3(args, "agent");
-      const issueId = requireArg3(args, "issue_id");
+    task_first_actionable: wrapHandler4(async (args) => {
+      requireArg4(args, "agent");
+      const issueId = requireArg4(args, "issue_id");
       const task = db2.get(
         `SELECT * FROM tasks
          WHERE issue_id = ? AND status IN ('pending', 'failed')
@@ -26311,323 +26666,7 @@ function taskTools(db2) {
          LIMIT 1`,
         [issueId]
       );
-      return ok3(task ?? null);
-    })
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/audit.ts
-var MAX_CONTENT_BYTES = 1e6;
-function ok4(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err4(message) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
-    isError: true
-  };
-}
-function requireArg4(args, name) {
-  if (args[name] === void 0 || args[name] === null) {
-    throw new Error(`Missing required arg: ${name}`);
-  }
-  return args[name];
-}
-function wrapHandler4(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err4(e.message);
-    }
-  };
-}
-function decodeCursor(cursor) {
-  try {
-    return JSON.parse(Buffer.from(cursor, "base64").toString("utf8"));
-  } catch {
-    return null;
-  }
-}
-function encodeCursor(row) {
-  return Buffer.from(JSON.stringify({ created_at: row.created_at, id: row.id })).toString("base64");
-}
-function auditTools(db2) {
-  const definitions = [
-    {
-      name: "audit_search",
-      description: "Search audit records via keyword (FTS5), semantic (cosine), or hybrid (RRF) ranking. Default mode is hybrid. Returns top-K snippets.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          query: {
-            type: "string",
-            description: "Search query. For keyword/hybrid: FTS5 MATCH syntax. For semantic: natural language."
-          },
-          mode: {
-            type: "string",
-            enum: ["keyword", "semantic", "hybrid"],
-            description: "Search mode. Default: hybrid."
-          },
-          issue_id: { type: "string", description: "Optional \u2014 restrict to one issue." },
-          event_types: {
-            type: "array",
-            items: { type: "string" },
-            description: "Optional \u2014 restrict to specific event types."
-          },
-          k: { type: "number", description: "Top-K rows to return. Default 5. Max 20." },
-          recency_alpha: {
-            type: "number",
-            description: "Recency weight 0\u20131 (hybrid/keyword only). Default 0.3."
-          }
-        },
-        required: ["agent", "query"]
-      }
-    },
-    {
-      name: "audit_append",
-      description: "Insert an audit lifecycle event (planning_complete, bro_verification_pass, branch_id_proposed, etc.). Both event_type and summary are required.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          issue_id: { type: "string" },
-          branch_id: { type: "string" },
-          from_node: { type: "string" },
-          event_type: { type: "string", description: "Required. Lifecycle event identifier (e.g. planning_complete)." },
-          summary: { type: "string", description: "Required. One-line human-readable summary." },
-          content_json: { type: "string", description: "Optional. JSON string with structured event payload, max 1 MB." }
-        },
-        required: ["agent", "issue_id", "from_node", "event_type", "summary"]
-      }
-    },
-    {
-      name: "audit_list",
-      description: "Paginated fetch of audit records for an issue. Without limit, returns up to 500 rows as a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=['id','event_type','summary'] to return only requested columns (unknown fields return a named error).",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent: { type: "string" },
-          issue_id: { type: "string" },
-          branch_id: { type: "string" },
-          limit: { type: "number", description: "Max rows to return. Capped at 500. When omitted, returns up to 500 rows (legacy bare-array shape); when provided, response includes next_cursor." },
-          offset: { type: "number", description: "Row offset for pagination (default 0)" },
-          cursor: { type: "string", description: "Opaque cursor from a previous response. When provided, overrides offset." },
-          fields: {
-            type: "array",
-            items: { type: "string" },
-            description: "Optional column projection. Allowed: id, issue_id, branch_id, from_node, event_type, summary, content_json, created_at. Unknown fields return an error. Default: all columns."
-          }
-        },
-        required: ["agent", "issue_id"]
-      }
-    }
-  ];
-  const handlers = {
-    audit_search: wrapHandler4(async (args) => {
-      requireArg4(args, "agent");
-      const query = requireArg4(args, "query");
-      const mode = args["mode"] ?? "hybrid";
-      const issueId = args["issue_id"] ?? null;
-      const eventTypes = args["event_types"] ?? null;
-      const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
-      const alpha = Math.min(1, Math.max(0, args["recency_alpha"] ?? 0.3));
-      let eventTypeFilter = "";
-      let eventTypeParams = [];
-      if (eventTypes && eventTypes.length > 0) {
-        const placeholders = eventTypes.map(() => "?").join(", ");
-        eventTypeFilter = " AND a.event_type IN (" + placeholders + ")";
-        eventTypeParams = eventTypes;
-      }
-      const fetchFtsRows = (limitK) => {
-        const sql = "SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, snippet(audit_fts, 0, '[', ']', '...', 16) AS snippet, bm25(audit_fts) AS bm25_score, (julianday('now') - julianday(a.created_at)) AS age_days FROM audit_fts JOIN audit a ON a.id = audit_fts.rowid WHERE audit_fts MATCH ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter + " ORDER BY bm25(audit_fts) ASC LIMIT ?";
-        return db2.all(sql, [query, issueId, issueId, ...eventTypeParams, limitK]);
-      };
-      const fetchRowById = (id) => {
-        const sql = "SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, '' AS snippet, 0.0 AS bm25_score, (julianday('now') - julianday(a.created_at)) AS age_days FROM audit a WHERE a.id = ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter;
-        return db2.get(sql, [id, issueId, issueId, ...eventTypeParams]);
-      };
-      if (mode === "keyword") {
-        const countSql = "SELECT COUNT(*) AS n FROM audit_fts JOIN audit a ON a.id = audit_fts.rowid WHERE audit_fts MATCH ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter;
-        const countRow = db2.get(countSql, [query, issueId, issueId, ...eventTypeParams]);
-        const total_matched = countRow?.n ?? 0;
-        const searchSql = "SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, snippet(audit_fts, 0, '[', ']', '...', 16) AS snippet, bm25(audit_fts) AS bm25_score, (julianday('now') - julianday(a.created_at)) AS age_days FROM audit_fts JOIN audit a ON a.id = audit_fts.rowid WHERE audit_fts MATCH ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter + " ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC LIMIT ?";
-        const rows = db2.all(searchSql, [query, issueId, issueId, ...eventTypeParams, alpha, alpha, k]);
-        return ok4({
-          results: rows.map((r) => ({
-            id: r.id,
-            issue_id: r.issue_id,
-            branch_id: r.branch_id,
-            from_node: r.from_node,
-            event_type: r.event_type,
-            summary: r.summary,
-            created_at: r.created_at,
-            snippet: r.snippet,
-            score: -r.bm25_score * (1 - alpha) + Math.exp(-r.age_days / 30) * alpha
-          })),
-          total_matched
-        });
-      }
-      if (mode === "semantic") {
-        const cosineResults2 = await topKByCosine(db2, "audit", query, k);
-        if (cosineResults2.length === 0) {
-          return ok4({ results: [], total_matched: 0, warning: "semantic_unavailable" });
-        }
-        const results2 = [];
-        for (const cr of cosineResults2) {
-          const row = fetchRowById(cr.rowid);
-          if (row) {
-            results2.push({
-              id: row.id,
-              issue_id: row.issue_id,
-              branch_id: row.branch_id,
-              from_node: row.from_node,
-              event_type: row.event_type,
-              summary: row.summary,
-              created_at: row.created_at,
-              snippet: row.snippet,
-              score: cr.score
-            });
-          }
-        }
-        return ok4({ results: results2, total_matched: results2.length });
-      }
-      const RRF_K = 60;
-      const ftsRows = fetchFtsRows(k * 4);
-      const cosineResults = await topKByCosine(db2, "audit", query, k * 4);
-      const semanticAvailable = cosineResults.length > 0;
-      const scoreMap = /* @__PURE__ */ new Map();
-      ftsRows.forEach((r, rank) => {
-        const rrf = 1 / (RRF_K + rank + 1);
-        const existing = scoreMap.get(r.id);
-        if (existing) {
-          existing.rrf += rrf;
-        } else {
-          scoreMap.set(r.id, { rrf, row: r });
-        }
-      });
-      cosineResults.forEach((cr, rank) => {
-        const rrf = 1 / (RRF_K + rank + 1);
-        const existing = scoreMap.get(cr.rowid);
-        if (existing) {
-          existing.rrf += rrf;
-        } else {
-          const row = fetchRowById(cr.rowid);
-          if (row) scoreMap.set(cr.rowid, { rrf, row });
-        }
-      });
-      const combined = Array.from(scoreMap.values()).map(({ rrf, row }) => ({
-        row,
-        score: rrf * (Math.exp(-row.age_days / 30) * alpha + (1 - alpha))
-      }));
-      combined.sort((a, b) => b.score - a.score);
-      const topRows = combined.slice(0, k);
-      const results = topRows.map(({ row, score }) => ({
-        id: row.id,
-        issue_id: row.issue_id,
-        branch_id: row.branch_id,
-        from_node: row.from_node,
-        event_type: row.event_type,
-        summary: row.summary,
-        created_at: row.created_at,
-        snippet: row.snippet,
-        score
-      }));
-      const response = { results, total_matched: results.length };
-      if (!semanticAvailable) response["warning"] = "semantic_unavailable";
-      return ok4(response);
-    }),
-    audit_append: requireRoles("audit_append", ["bro", "swe", "pr-reviewer", "consultant"], wrapHandler4(async (args) => {
-      requireArg4(args, "agent");
-      const issueId = requireArg4(args, "issue_id");
-      requireArg4(args, "from_node");
-      const fromNode = args["from_node"];
-      const branchId = args["branch_id"] ?? null;
-      const now = nowISO();
-      requireArg4(args, "event_type");
-      requireArg4(args, "summary");
-      const eventType = args["event_type"];
-      const summary = args["summary"];
-      const contentJson = args["content_json"] ?? "{}";
-      const byteLength = Buffer.byteLength(contentJson, "utf8");
-      if (byteLength > MAX_CONTENT_BYTES) {
-        return err4(`content_json exceeds 1MB limit (${byteLength} bytes); truncate before calling audit_append`);
-      }
-      db2.run(
-        `INSERT INTO audit
-           (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [issueId, branchId, fromNode, eventType, summary, contentJson, now]
-      );
-      const row = db2.get(
-        "SELECT * FROM audit WHERE rowid = last_insert_rowid()"
-      );
-      if (row) {
-        const embedText = contentJson !== "{}" ? `${summary} ${contentJson}` : summary;
-        await embedAndStore(db2, "audit", row.id, embedText).catch(
-          (e) => console.error("[embeddings] audit_append embed failed:", e)
-        );
-      }
-      return ok4(row);
-    })),
-    audit_list: wrapHandler4(async (args) => {
-      requireArg4(args, "agent");
-      const issueId = requireArg4(args, "issue_id");
-      const branchId = args["branch_id"] ?? null;
-      const limitArg = args["limit"];
-      const cursorArg = args["cursor"];
-      const offset = Math.max(0, args["offset"] ?? 0);
-      const fieldsArg = args["fields"];
-      const ALLOWED_AUDIT_FIELDS = /* @__PURE__ */ new Set(["id", "issue_id", "branch_id", "from_node", "event_type", "summary", "content_json", "created_at"]);
-      if (fieldsArg !== void 0) {
-        const unknown2 = fieldsArg.filter((f) => !ALLOWED_AUDIT_FIELDS.has(f));
-        if (unknown2.length > 0) {
-          return err4(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_AUDIT_FIELDS].join(", ")}`);
-        }
-      }
-      function projectRow(row) {
-        if (!fieldsArg) return row;
-        const out = {};
-        for (const f of fieldsArg) out[f] = row[f];
-        return out;
-      }
-      const conditions = ["issue_id = ?"];
-      const baseParams = [issueId];
-      if (branchId !== null) {
-        conditions.push("branch_id = ?");
-        baseParams.push(branchId);
-      }
-      const whereClause = "WHERE " + conditions.join(" AND ");
-      if (limitArg === void 0 || limitArg === null) {
-        const rows2 = db2.all(
-          "SELECT * FROM audit " + whereClause + " ORDER BY id ASC LIMIT 500 OFFSET ?",
-          [...baseParams, offset]
-        );
-        return ok4(rows2.map(projectRow));
-      }
-      const limit = Math.min(Math.max(1, limitArg), 500);
-      let cursorFilter = "";
-      let cursorParams = [];
-      if (cursorArg) {
-        const decoded = decodeCursor(cursorArg);
-        if (decoded) {
-          cursorFilter = "AND (created_at > ? OR (created_at = ? AND id > ?))";
-          cursorParams = [decoded.created_at, decoded.created_at, decoded.id];
-        }
-      }
-      const sql = "SELECT * FROM audit " + whereClause + " " + cursorFilter + " ORDER BY created_at ASC, id ASC LIMIT ?";
-      const fetchedRows = db2.all(sql, [
-        ...baseParams,
-        ...cursorParams,
-        limit + 1
-      ]);
-      const hasMore = fetchedRows.length > limit;
-      const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
-      const last = rows[rows.length - 1];
-      const next_cursor = hasMore && last ? encodeCursor(last) : void 0;
-      return ok4({ rows: rows.map(projectRow), next_cursor });
+      return ok4(task ?? null);
     })
   };
   return { definitions, handlers };
@@ -26735,7 +26774,9 @@ function validationTools(db2) {
         );
       }
       const taskExists = db2.get(
-        `SELECT id FROM tasks WHERE id = ?`,
+        `SELECT t.id, COALESCE(t.repo, i.repo) AS repo
+           FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
+          WHERE t.id = ?`,
         [taskId]
       );
       if (!taskExists) {
@@ -26746,16 +26787,17 @@ function validationTools(db2) {
       const now = nowISO();
       db2.run(
         `INSERT INTO validation_attempts
-           (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at, repo)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(task_id, attempt_n) DO UPDATE SET
            agent = excluded.agent,
            verdict = excluded.verdict,
            feedback = excluded.feedback,
            mcp_available = excluded.mcp_available,
            subagent_session_id = excluded.subagent_session_id,
-           created_at = excluded.created_at`,
-        [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, now]
+           created_at = excluded.created_at,
+           repo = excluded.repo`,
+        [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, now, taskExists.repo]
       );
       const row = db2.get(
         `SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = ?`,
@@ -27142,11 +27184,13 @@ function agentTools(db2, dbPath2 = "") {
       const inserted = !existing && (db2.get("SELECT changes() AS n", [])?.n ?? 0) > 0;
       if (scope === "project-local" && kind === "consultant" && (inserted || promoted) && row) {
         const contentJson = JSON.stringify({ name, mode: "agent_register", agent_id: row.id });
-        db2.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, ?, 'tmb_agent_created', ?, ?, ?)`,
-          [String(args["agent"]), `Agent registered: ${name}`, contentJson, nowISO()]
-        );
+        insertAudit(db2, {
+          issue_id: -1,
+          from_node: String(args["agent"]),
+          event_type: "tmb_agent_created",
+          summary: `Agent registered: ${name}`,
+          content_json: contentJson
+        });
       }
       return ok7(row);
     }),
@@ -29005,18 +29049,15 @@ function insertIntentAndNote(db2, issueId, intentVerbatim, noteLine, now) {
   return written;
 }
 function closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssueIfLast) {
-  db2.run(
-    `INSERT INTO audit
-       (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-     VALUES (?, ?, 'bro', 'bro_verification_pass', ?, ?, ?)`,
-    [
-      task.issue_id,
-      task.branch_id,
-      verificationSummary.slice(0, 200),
-      JSON.stringify({ task_id: task.id, commit_sha: commitSha }),
-      now
-    ]
-  );
+  insertAudit(db2, {
+    issue_id: task.issue_id,
+    branch_id: task.branch_id,
+    from_node: "bro",
+    event_type: "bro_verification_pass",
+    summary: verificationSummary.slice(0, 200),
+    content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha }),
+    created_at: now
+  });
   db2.run(
     `UPDATE tasks
         SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?
@@ -29463,41 +29504,33 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
             ]
           );
           const row = db2.get(
-            "SELECT id, branch_id FROM tasks WHERE rowid = last_insert_rowid()"
+            "SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()"
           );
           if (!row) throw new Error("task_provision: task insert succeeded but row lookup failed");
           db2.run(
-            `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
-             VALUES (?, ?, 'bro', ?)`,
-            [row.id, issueId, now]
+            `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo)
+             VALUES (?, ?, 'bro', ?, ?)`,
+            [row.id, issueId, now, row.repo]
           );
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'planning_complete', ?, ?, ?)`,
-            [
-              issueId,
-              branchId,
-              agent,
-              `Planning complete for issue ${issueId}: 1 task created on ${branchId}.`,
-              JSON.stringify({ issue_id: issueId, task_count: 1, task_branch_ids: [branchId] }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: issueId,
+            branch_id: branchId,
+            from_node: agent,
+            event_type: "planning_complete",
+            summary: `Planning complete for issue ${issueId}: 1 task created on ${branchId}.`,
+            content_json: JSON.stringify({ issue_id: issueId, task_count: 1, task_branch_ids: [branchId] }),
+            created_at: now
+          });
           if (registryGateWaived) {
-            db2.run(
-              `INSERT INTO audit
-                 (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-               VALUES (?, ?, ?, 'registry_gate_waived', ?, ?, ?)`,
-              [
-                issueId,
-                branchId,
-                agent,
-                registryGateWaiverReason.slice(0, 200),
-                JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: 1 }),
-                now
-              ]
-            );
+            insertAudit(db2, {
+              issue_id: issueId,
+              branch_id: branchId,
+              from_node: agent,
+              event_type: "registry_gate_waived",
+              summary: registryGateWaiverReason.slice(0, 200),
+              content_json: JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: 1 }),
+              created_at: now
+            });
           }
           return { task_id: row.id };
         });
@@ -29739,30 +29772,27 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
             ]
           );
           const newTask = db2.get(
-            "SELECT id, branch_id FROM tasks WHERE rowid = last_insert_rowid()"
+            "SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()"
           );
           if (!newTask) throw new Error("insert succeeded but row lookup failed");
           db2.run(
-            `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
-             VALUES (?, ?, 'bro', ?)`,
-            [newTask.id, failed.issue_id, now]
+            `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo)
+             VALUES (?, ?, 'bro', ?, ?)`,
+            [newTask.id, failed.issue_id, now, newTask.repo]
           );
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'task_retry_attempted', ?, ?, ?)`,
-            [
-              failed.issue_id,
-              newBranchId,
-              `Retry of failed task ${failedTaskId}: ${rationale.slice(0, 120)}`,
-              JSON.stringify({
-                failed_task_id: failed.id,
-                new_task_id: newTask.id,
-                new_branch_id: newBranchId
-              }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: failed.issue_id,
+            branch_id: newBranchId,
+            from_node: "bro",
+            event_type: "task_retry_attempted",
+            summary: `Retry of failed task ${failedTaskId}: ${rationale.slice(0, 120)}`,
+            content_json: JSON.stringify({
+              failed_task_id: failed.id,
+              new_task_id: newTask.id,
+              new_branch_id: newBranchId
+            }),
+            created_at: now
+          });
           return newTask;
         });
         return ok14({ task_id: result.id, branch_id: result.branch_id });
@@ -29822,18 +29852,15 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
             `Beginning planning on ${branchId}.`,
             now
           );
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'branch_id_proposed', ?, ?, ?)`,
-            [
-              issueId,
-              branchId,
-              `branch_id proposed: ${branchId} for "${objective.slice(0, 80)}"`,
-              JSON.stringify({ branch_id: branchId, objective }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: issueId,
+            branch_id: branchId,
+            from_node: "bro",
+            event_type: "branch_id_proposed",
+            summary: `branch_id proposed: ${branchId} for "${objective.slice(0, 80)}"`,
+            content_json: JSON.stringify({ branch_id: branchId, objective }),
+            created_at: now
+          });
           return { issue_id: issueId, branch_id: branchId };
         });
         return ok14(result);
@@ -29864,18 +29891,15 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
         const summary = `${whichCheck} \u2014 ${details.slice(0, 160)}`;
         const now = nowISO();
         db2.transaction(() => {
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'bro_verification_fail', ?, ?, ?)`,
-            [
-              task.issue_id,
-              task.branch_id,
-              summary,
-              JSON.stringify({ task_id: task.id, which_check: whichCheck, details }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: task.issue_id,
+            branch_id: task.branch_id,
+            from_node: "bro",
+            event_type: "bro_verification_fail",
+            summary,
+            content_json: JSON.stringify({ task_id: task.id, which_check: whichCheck, details }),
+            created_at: now
+          });
           insertDiscussion(db2, {
             issue_id: task.issue_id,
             author: "bro",
@@ -30071,18 +30095,15 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
         }
         const result = db2.transaction(() => {
           if (waiveScopeGate) {
-            db2.run(
-              `INSERT INTO audit
-                 (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-               VALUES (?, ?, 'bro', 'scope_gate_waived', ?, ?, ?)`,
-              [
-                task.issue_id,
-                task.branch_id,
-                `bro_atomic_close scope gate waived for task ${task.id}`,
-                JSON.stringify({ skill: "bro_atomic_close", task_id: task.id, commit_sha: commitSha }),
-                now
-              ]
-            );
+            insertAudit(db2, {
+              issue_id: task.issue_id,
+              branch_id: task.branch_id,
+              from_node: "bro",
+              event_type: "scope_gate_waived",
+              summary: `bro_atomic_close scope gate waived for task ${task.id}`,
+              content_json: JSON.stringify({ skill: "bro_atomic_close", task_id: task.id, commit_sha: commitSha }),
+              created_at: now
+            });
           }
           const { issue_closed } = closeTaskInTx(
             db2,
@@ -30142,18 +30163,15 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
         }
         const now = nowISO();
         const result = db2.transaction(() => {
-          db2.run(
-            `INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'task_recovered', ?, ?, ?)`,
-            [
-              task.issue_id,
-              task.branch_id,
-              `Recovered stuck-${task.status} task ${task.id} at ${commitSha}`,
-              JSON.stringify({ task_id: task.id, commit_sha: commitSha, prior_status: task.status }),
-              now
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: task.issue_id,
+            branch_id: task.branch_id,
+            from_node: "bro",
+            event_type: "task_recovered",
+            summary: `Recovered stuck-${task.status} task ${task.id} at ${commitSha}`,
+            content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, prior_status: task.status }),
+            created_at: now
+          });
           const { issue_closed } = closeTaskInTx(
             db2,
             task,
@@ -31738,23 +31756,21 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
           const stats = persistScan(db2, graph, out, sessionDir);
           const topDirs = new Set(out.files.map((f) => f.path.split("/")[0]).filter(Boolean));
           const structuralChange = detectStructuralChange(db2, out.repos, topDirs);
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'deep_scan_completed', ?, ?, ?)`,
-            [
-              `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} \u2014 source=${source}${structuralChange ? ", structural-change" : ""}`,
-              JSON.stringify({
-                ...stats,
-                session_dir: out.session_dir,
-                scanned_at: out.scanned_at,
-                source,
-                structural_change: structuralChange,
-                repos_seen: out.repos.map((r) => r.name),
-                top_dirs: Array.from(topDirs).sort()
-              }),
-              nowISO()
-            ]
-          );
+          insertAudit(db2, {
+            issue_id: -1,
+            from_node: "bro",
+            event_type: "deep_scan_completed",
+            summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} \u2014 source=${source}${structuralChange ? ", structural-change" : ""}`,
+            content_json: JSON.stringify({
+              ...stats,
+              session_dir: out.session_dir,
+              scanned_at: out.scanned_at,
+              source,
+              structural_change: structuralChange,
+              repos_seen: out.repos.map((r) => r.name),
+              top_dirs: Array.from(topDirs).sort()
+            })
+          });
           return ok16({
             session_dir: out.session_dir,
             scanned_at: out.scanned_at,
@@ -32268,6 +32284,14 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   }
 }
 function cheatcodeTools(db2) {
+  const auditCheatcode = (eventType, summary, contentJson, createdAt) => insertAudit(db2, {
+    issue_id: -1,
+    from_node: "bro",
+    event_type: eventType,
+    summary,
+    content_json: contentJson,
+    created_at: createdAt
+  });
   const definitions = [
     {
       name: "cheatcode_search",
@@ -32429,19 +32453,16 @@ function cheatcodeTools(db2) {
         const rawKind = args["kind"] ?? "any";
         const kind = VALID_KINDS2.has(rawKind) ? rawKind : "any";
         const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS);
-        db2.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'cheatcode_search', ?, ?, ?)`,
-          [
-            `Cheatcode search: '${query}' (kind=${kind}) \u2192 ${out.candidates.length} ranked candidate(s)`,
-            JSON.stringify({
-              query,
-              kind,
-              candidate_count: out.candidates.length,
-              top: out.candidates.slice(0, 5).map((c) => ({ name: c.name, kind: c.kind, score: c.score }))
-            }),
-            nowISO()
-          ]
+        auditCheatcode(
+          "cheatcode_search",
+          `Cheatcode search: '${query}' (kind=${kind}) \u2192 ${out.candidates.length} ranked candidate(s)`,
+          JSON.stringify({
+            query,
+            kind,
+            candidate_count: out.candidates.length,
+            top: out.candidates.slice(0, 5).map((c) => ({ name: c.name, kind: c.kind, score: c.score }))
+          }),
+          nowISO()
         );
         return ok17({ query, kind, candidates: out.candidates });
       })
@@ -32466,19 +32487,16 @@ function cheatcodeTools(db2) {
         };
         if (typeof tierVal === "number") candidate.tier = tierVal;
         const out = await runVetWithScript(resolveVetScript(), candidate, VET_TIMEOUT_MS);
-        db2.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'cheatcode_vet', ?, ?, ?)`,
-          [
-            `Cheatcode vet: '${name}' (kind=${kind}) \u2192 trust_tier=${out.trust_tier}`,
-            JSON.stringify({
-              candidate: out.candidate,
-              trust_tier: out.trust_tier,
-              capabilities: out.capabilities,
-              rationale: out.rationale
-            }),
-            nowISO()
-          ]
+        auditCheatcode(
+          "cheatcode_vet",
+          `Cheatcode vet: '${name}' (kind=${kind}) \u2192 trust_tier=${out.trust_tier}`,
+          JSON.stringify({
+            candidate: out.candidate,
+            trust_tier: out.trust_tier,
+            capabilities: out.capabilities,
+            rationale: out.rationale
+          }),
+          nowISO()
         );
         return ok17(out);
       })
@@ -32490,14 +32508,11 @@ function cheatcodeTools(db2) {
         const parsed = parseInstallCandidate(args["candidate"]);
         if ("error" in parsed) return err16(parsed.error);
         const { name, kind, sourceUrl } = parsed;
-        db2.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'cheatcode_approved', ?, ?, ?)`,
-          [
-            `Cheatcode approved for install: '${name}' (kind=${kind})`,
-            JSON.stringify({ name, kind, source_url: sourceUrl }),
-            nowISO()
-          ]
+        auditCheatcode(
+          "cheatcode_approved",
+          `Cheatcode approved for install: '${name}' (kind=${kind})`,
+          JSON.stringify({ name, kind, source_url: sourceUrl }),
+          nowISO()
         );
         return ok17({ approved: true, candidate: { name, kind, source_url: sourceUrl } });
       })
@@ -32602,30 +32617,24 @@ function cheatcodeTools(db2) {
               [id, m.target, m.artifact, installedAt]
             );
           }
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_install', ?, ?, ?)`,
-            [
-              `Cheatcode install: '${name}' (kind=${kind}, method=${out.method})`,
-              JSON.stringify({ name, kind, source_url: sourceUrl, method: out.method }),
-              installedAt
-            ]
+          auditCheatcode(
+            "cheatcode_install",
+            `Cheatcode install: '${name}' (kind=${kind}, method=${out.method})`,
+            JSON.stringify({ name, kind, source_url: sourceUrl, method: out.method }),
+            installedAt
           );
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_installed', ?, ?, ?)`,
-            [
-              `Cheatcode installed: '${name}' \u2192 cheatcode_id=${id}`,
-              JSON.stringify({
-                cheatcode_id: id,
-                name,
-                kind,
-                source_url: sourceUrl,
-                installed: out.installed,
-                attachments: out.attachments
-              }),
-              installedAt
-            ]
+          auditCheatcode(
+            "cheatcode_installed",
+            `Cheatcode installed: '${name}' \u2192 cheatcode_id=${id}`,
+            JSON.stringify({
+              cheatcode_id: id,
+              name,
+              kind,
+              source_url: sourceUrl,
+              installed: out.installed,
+              attachments: out.attachments
+            }),
+            installedAt
           );
           return id;
         });
@@ -32711,11 +32720,7 @@ function cheatcodeTools(db2) {
               existing.id
             ]);
           }
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_uninstalled', ?, ?, ?)`,
-            [auditSummary, auditContent, uninstalledAt]
-          );
+          auditCheatcode("cheatcode_uninstalled", auditSummary, auditContent, uninstalledAt);
         });
         return ok17({
           uninstalled: reversal.removed,
@@ -32757,21 +32762,18 @@ function cheatcodeTools(db2) {
               existing.id
             ]);
           }
-          db2.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_activate', ?, ?, ?)`,
-            [
-              `Cheatcode activate: '${existing.name}' (kind=${existing.kind}) \u2192 ${verdict.status}`,
-              JSON.stringify({
-                cheatcode_id: existing.id,
-                name: existing.name,
-                kind: existing.kind,
-                status: verdict.status,
-                row_status: rowStatus ?? existing.status,
-                reason: verdict.reason
-              }),
-              activatedAt
-            ]
+          auditCheatcode(
+            "cheatcode_activate",
+            `Cheatcode activate: '${existing.name}' (kind=${existing.kind}) \u2192 ${verdict.status}`,
+            JSON.stringify({
+              cheatcode_id: existing.id,
+              name: existing.name,
+              kind: existing.kind,
+              status: verdict.status,
+              row_status: rowStatus ?? existing.status,
+              reason: verdict.reason
+            }),
+            activatedAt
           );
         });
         return ok17({
@@ -33177,40 +33179,6 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
     ...cheatcode.handlers,
     ...worldModel.handlers
   };
-}
-
-// src/embeddings/backfill.ts
-async function startBackfill(db2) {
-  const counts = db2.get(
-    `SELECT
-      (SELECT COUNT(*) FROM discussions WHERE id NOT IN (SELECT discussion_id FROM discussions_embeddings)) AS discussions,
-      (SELECT COUNT(*) FROM audit WHERE id NOT IN (SELECT audit_id FROM audit_embeddings)) AS audit`
-  );
-  if (!counts) return;
-  const total = counts.discussions + counts.audit;
-  serverLog({ event: "embeddings_backfill_start", total });
-  if (total === 0) return;
-  (async () => {
-    let done = 0;
-    const dRows = db2.all(
-      "SELECT id, body FROM discussions WHERE id NOT IN (SELECT discussion_id FROM discussions_embeddings)"
-    );
-    for (const r of dRows) {
-      await embedAndStore(db2, "discussions", r.id, r.body);
-      done++;
-      if (done % 50 === 0) serverLog({ event: "embeddings_backfill_progress", done, total });
-    }
-    const aRows = db2.all(
-      "SELECT id, summary, content_json FROM audit WHERE id NOT IN (SELECT audit_id FROM audit_embeddings)"
-    );
-    for (const r of aRows) {
-      const text = r.content_json ? `${r.summary} ${r.content_json}` : r.summary;
-      await embedAndStore(db2, "audit", r.id, text);
-      done++;
-      if (done % 50 === 0) serverLog({ event: "embeddings_backfill_progress", done, total });
-    }
-    serverLog({ event: "embeddings_backfill_complete", done });
-  })().catch((e) => console.error("[embeddings] backfill error:", e));
 }
 
 // src/shutdown.ts

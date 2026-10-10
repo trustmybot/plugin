@@ -76,6 +76,7 @@ export interface Discussion {
   kind: string;
   body: string;
   created_at: string;
+  repo?: string | null;
 }
 
 export interface AuditEventEntry {
@@ -87,6 +88,7 @@ export interface AuditEventEntry {
   summary: string;
   content_json: string;
   created_at: string;
+  repo?: string | null;
 }
 
 export type ToolHandler = (args: Record<string, unknown>) => Promise<ToolResult>;
@@ -169,6 +171,7 @@ export interface ValidationAttempt {
   mcp_available: number;
   subagent_session_id?: string | null;
   created_at: string;
+  repo?: string | null;
 }
 
 /** Capability scope — mirrors the agents.scope CHECK. */

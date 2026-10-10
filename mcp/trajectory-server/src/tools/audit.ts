@@ -2,7 +2,8 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
-import { embedAndStore, topKByCosine } from '../embeddings/store.js';
+import { auditEmbedText, embedAndStore, topKByCosine } from '../embeddings/store.js';
+import { backfillMissing } from '../embeddings/backfill.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -49,6 +50,52 @@ function decodeCursor(cursor: string): { created_at: string; id: number } | null
 
 function encodeCursor(row: { created_at: string; id: number }): string {
   return Buffer.from(JSON.stringify({ created_at: row.created_at, id: row.id })).toString('base64');
+}
+
+export function resolveIssueRepo(db: TrajectoryDB, issueId: number | string): string | null {
+  return db.get<{ repo: string | null }>('SELECT repo FROM issues WHERE id = ?', [issueId])?.repo ?? null;
+}
+
+export interface AuditEntry {
+  issue_id: number | string;
+  branch_id?: string | null;
+  from_node: string;
+  event_type: string;
+  summary: string;
+  content_json?: string;
+  created_at?: string;
+  repo?: string | null;
+}
+
+/**
+ * The single insert+embed path for audit rows. `repo` defaults to the parent
+ * issue's repo. The embed is fire-and-forget so the helper is safe inside
+ * `db.transaction()` callbacks — see `insertDiscussion` in discussions.ts for
+ * the full reasoning.
+ */
+export function insertAudit(db: TrajectoryDB, entry: AuditEntry): number {
+  const contentJson = entry.content_json ?? '{}';
+  const repo = entry.repo ?? resolveIssueRepo(db, entry.issue_id);
+  const res = db.run(
+    `INSERT INTO audit
+       (issue_id, branch_id, from_node, event_type, summary, content_json, created_at, repo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      entry.issue_id,
+      entry.branch_id ?? null,
+      entry.from_node,
+      entry.event_type,
+      entry.summary,
+      contentJson,
+      entry.created_at ?? nowISO(),
+      repo,
+    ],
+  );
+  const id = Number(res.lastInsertRowid);
+  void embedAndStore(db, 'audit', id, auditEmbedText(entry.summary, contentJson)).catch((e) =>
+    console.error('[embeddings] insertAudit embed failed:', e),
+  );
+  return id;
 }
 
 // Audit table is event-only — every row is a lifecycle event with
@@ -141,6 +188,8 @@ export function auditTools(db: TrajectoryDB): {
       const eventTypes = (args['event_types'] as string[] | undefined) ?? null;
       const k = Math.min(Math.max(1, (args['k'] as number | undefined) ?? 5), 20);
       const alpha = Math.min(1, Math.max(0, (args['recency_alpha'] as number | undefined) ?? 0.3));
+
+      await backfillMissing(db, 'audit');
 
       let eventTypeFilter = '';
       let eventTypeParams: unknown[] = [];
@@ -316,25 +365,17 @@ export function auditTools(db: TrajectoryDB): {
         return err(`content_json exceeds 1MB limit (${byteLength} bytes); truncate before calling audit_append`);
       }
 
-      db.run(
-        `INSERT INTO audit
-           (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [issueId, branchId, fromNode, eventType, summary, contentJson, now],
-      );
+      const id = insertAudit(db, {
+        issue_id: issueId,
+        branch_id: branchId,
+        from_node: fromNode,
+        event_type: eventType,
+        summary,
+        content_json: contentJson,
+        created_at: now,
+      });
 
-      const row = db.get<Record<string, unknown> & { id: number }>(
-        'SELECT * FROM audit WHERE rowid = last_insert_rowid()',
-      );
-
-      if (row) {
-        const embedText = contentJson !== '{}' ? `${summary} ${contentJson}` : summary;
-        await embedAndStore(db, 'audit', row.id, embedText).catch((e) =>
-          console.error('[embeddings] audit_append embed failed:', e),
-        );
-      }
-
-      return ok(row);
+      return ok(db.get<Record<string, unknown>>('SELECT * FROM audit WHERE id = ?', [id]));
     })),
 
     audit_list: wrapHandler(async (args) => {

@@ -4,6 +4,7 @@ import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
 import { insertDiscussion } from './discussions.js';
+import { insertAudit } from './audit.js';
 import { syncIssueCloseRemotes, resolveDefaultMilestone, validateIssueLabels, defaultSyncLabels, } from './issues.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolveSoleRepo } from '../utils/repo-paths.js';
@@ -212,15 +213,15 @@ function insertIntentAndNote(db, issueId, intentVerbatim, noteLine, now) {
 // caller can mirror the close to the remote after the transaction commits.
 function closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast) {
     // 1. bro_verification_pass audit row.
-    db.run(`INSERT INTO audit
-       (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-     VALUES (?, ?, 'bro', 'bro_verification_pass', ?, ?, ?)`, [
-        task.issue_id,
-        task.branch_id,
-        verificationSummary.slice(0, 200),
-        JSON.stringify({ task_id: task.id, commit_sha: commitSha }),
-        now,
-    ]);
+    insertAudit(db, {
+        issue_id: task.issue_id,
+        branch_id: task.branch_id,
+        from_node: 'bro',
+        event_type: 'bro_verification_pass',
+        summary: verificationSummary.slice(0, 200),
+        content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha }),
+        created_at: now,
+    });
     // 2. flip task to closed.
     db.run(`UPDATE tasks
         SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?
@@ -696,32 +697,30 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     now,
                     now,
                 ]);
-                const row = db.get('SELECT id, branch_id FROM tasks WHERE rowid = last_insert_rowid()');
+                const row = db.get('SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()');
                 if (!row)
                     throw new Error('task_provision: task insert succeeded but row lookup failed');
-                db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
-             VALUES (?, ?, 'bro', ?)`, [row.id, issueId, now]);
-                db.run(`INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'planning_complete', ?, ?, ?)`, [
-                    issueId,
-                    branchId,
-                    agent,
-                    `Planning complete for issue ${issueId}: 1 task created on ${branchId}.`,
-                    JSON.stringify({ issue_id: issueId, task_count: 1, task_branch_ids: [branchId] }),
-                    now,
-                ]);
+                db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo)
+             VALUES (?, ?, 'bro', ?, ?)`, [row.id, issueId, now, row.repo]);
+                insertAudit(db, {
+                    issue_id: issueId,
+                    branch_id: branchId,
+                    from_node: agent,
+                    event_type: 'planning_complete',
+                    summary: `Planning complete for issue ${issueId}: 1 task created on ${branchId}.`,
+                    content_json: JSON.stringify({ issue_id: issueId, task_count: 1, task_branch_ids: [branchId] }),
+                    created_at: now,
+                });
                 if (registryGateWaived) {
-                    db.run(`INSERT INTO audit
-                 (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-               VALUES (?, ?, ?, 'registry_gate_waived', ?, ?, ?)`, [
-                        issueId,
-                        branchId,
-                        agent,
-                        registryGateWaiverReason.slice(0, 200),
-                        JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: 1 }),
-                        now,
-                    ]);
+                    insertAudit(db, {
+                        issue_id: issueId,
+                        branch_id: branchId,
+                        from_node: agent,
+                        event_type: 'registry_gate_waived',
+                        summary: registryGateWaiverReason.slice(0, 200),
+                        content_json: JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: 1 }),
+                        created_at: now,
+                    });
                 }
                 return { task_id: row.id };
             });
@@ -980,26 +979,26 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     now,
                     now,
                 ]);
-                const newTask = db.get('SELECT id, branch_id FROM tasks WHERE rowid = last_insert_rowid()');
+                const newTask = db.get('SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()');
                 if (!newTask)
                     throw new Error('insert succeeded but row lookup failed');
                 // Bro-as-agent_run (#2886): open a bro row for the retry task,
                 // mirror of the task_create_batch case.
-                db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
-             VALUES (?, ?, 'bro', ?)`, [newTask.id, failed.issue_id, now]);
-                db.run(`INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'task_retry_attempted', ?, ?, ?)`, [
-                    failed.issue_id,
-                    newBranchId,
-                    `Retry of failed task ${failedTaskId}: ${rationale.slice(0, 120)}`,
-                    JSON.stringify({
+                db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo)
+             VALUES (?, ?, 'bro', ?, ?)`, [newTask.id, failed.issue_id, now, newTask.repo]);
+                insertAudit(db, {
+                    issue_id: failed.issue_id,
+                    branch_id: newBranchId,
+                    from_node: 'bro',
+                    event_type: 'task_retry_attempted',
+                    summary: `Retry of failed task ${failedTaskId}: ${rationale.slice(0, 120)}`,
+                    content_json: JSON.stringify({
                         failed_task_id: failed.id,
                         new_task_id: newTask.id,
                         new_branch_id: newBranchId,
                     }),
-                    now,
-                ]);
+                    created_at: now,
+                });
                 return newTask;
             });
             return ok({ task_id: result.id, branch_id: result.branch_id });
@@ -1050,15 +1049,15 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     throw new Error('intent_start: failed to retrieve inserted issue');
                 const issueId = row.id;
                 insertIntentAndNote(db, issueId, intentVerbatim, `Beginning planning on ${branchId}.`, now);
-                db.run(`INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'branch_id_proposed', ?, ?, ?)`, [
-                    issueId,
-                    branchId,
-                    `branch_id proposed: ${branchId} for "${objective.slice(0, 80)}"`,
-                    JSON.stringify({ branch_id: branchId, objective }),
-                    now,
-                ]);
+                insertAudit(db, {
+                    issue_id: issueId,
+                    branch_id: branchId,
+                    from_node: 'bro',
+                    event_type: 'branch_id_proposed',
+                    summary: `branch_id proposed: ${branchId} for "${objective.slice(0, 80)}"`,
+                    content_json: JSON.stringify({ branch_id: branchId, objective }),
+                    created_at: now,
+                });
                 return { issue_id: issueId, branch_id: branchId };
             });
             return ok(result);
@@ -1084,15 +1083,15 @@ export function compositeTools(db, dbPath, graphHolder = null) {
             const summary = `${whichCheck} — ${details.slice(0, 160)}`;
             const now = nowISO();
             db.transaction(() => {
-                db.run(`INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'bro_verification_fail', ?, ?, ?)`, [
-                    task.issue_id,
-                    task.branch_id,
+                insertAudit(db, {
+                    issue_id: task.issue_id,
+                    branch_id: task.branch_id,
+                    from_node: 'bro',
+                    event_type: 'bro_verification_fail',
                     summary,
-                    JSON.stringify({ task_id: task.id, which_check: whichCheck, details }),
-                    now,
-                ]);
+                    content_json: JSON.stringify({ task_id: task.id, which_check: whichCheck, details }),
+                    created_at: now,
+                });
                 insertDiscussion(db, {
                     issue_id: task.issue_id,
                     author: 'bro',
@@ -1296,15 +1295,15 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                 // task_create_batch) so a failed close can't leave a phantom waiver
                 // audit with no corresponding close.
                 if (waiveScopeGate) {
-                    db.run(`INSERT INTO audit
-                 (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-               VALUES (?, ?, 'bro', 'scope_gate_waived', ?, ?, ?)`, [
-                        task.issue_id,
-                        task.branch_id,
-                        `bro_atomic_close scope gate waived for task ${task.id}`,
-                        JSON.stringify({ skill: 'bro_atomic_close', task_id: task.id, commit_sha: commitSha }),
-                        now,
-                    ]);
+                    insertAudit(db, {
+                        issue_id: task.issue_id,
+                        branch_id: task.branch_id,
+                        from_node: 'bro',
+                        event_type: 'scope_gate_waived',
+                        summary: `bro_atomic_close scope gate waived for task ${task.id}`,
+                        content_json: JSON.stringify({ skill: 'bro_atomic_close', task_id: task.id, commit_sha: commitSha }),
+                        created_at: now,
+                    });
                 }
                 const { issue_closed } = closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast);
                 return { task_id: task.id, issue_closed };
@@ -1364,15 +1363,15 @@ export function compositeTools(db, dbPath, graphHolder = null) {
             const now = nowISO();
             const result = db.transaction(() => {
                 // task_recovered audit row — records the deterministic recovery.
-                db.run(`INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'bro', 'task_recovered', ?, ?, ?)`, [
-                    task.issue_id,
-                    task.branch_id,
-                    `Recovered stuck-${task.status} task ${task.id} at ${commitSha}`,
-                    JSON.stringify({ task_id: task.id, commit_sha: commitSha, prior_status: task.status }),
-                    now,
-                ]);
+                insertAudit(db, {
+                    issue_id: task.issue_id,
+                    branch_id: task.branch_id,
+                    from_node: 'bro',
+                    event_type: 'task_recovered',
+                    summary: `Recovered stuck-${task.status} task ${task.id} at ${commitSha}`,
+                    content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, prior_status: task.status }),
+                    created_at: now,
+                });
                 const { issue_closed } = closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast);
                 return { task_id: task.id, issue_closed };
             });

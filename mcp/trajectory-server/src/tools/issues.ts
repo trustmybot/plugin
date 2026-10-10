@@ -10,6 +10,7 @@ import { resolveBackend, detectPreferred } from '../sync/backend.js';
 import { syncIssueCreate, syncIssueClose, isSyncFailure, repoSlugFromRemoteUrl, verifyRemoteIssue } from '../sync/issue_sync.js';
 import type { SyncFailure } from '../sync/issue_sync.js';
 import { serverLog } from '../logger.js';
+import { insertAudit } from './audit.js';
 
 type SpawnFn = (
   cmd: string,
@@ -608,16 +609,14 @@ export function issueTools(
           `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
           [adoption.backend, ghIid, glIid, now, adoptId],
         );
-        db.run(
-          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (?, 'executor', 'issue_adopted', ?, ?, ?)`,
-          [
-            adoptId,
-            `issue ${adoptId} adopted ${adoption.backend} #${remoteIid} at create`,
-            JSON.stringify({ issue_id: adoptId, backend: adoption.backend, remote_iid: remoteIid, at_create: true }),
-            now,
-          ],
-        );
+        insertAudit(db, {
+          issue_id: adoptId,
+          from_node: 'executor',
+          event_type: 'issue_adopted',
+          summary: `issue ${adoptId} adopted ${adoption.backend} #${remoteIid} at create`,
+          content_json: JSON.stringify({ issue_id: adoptId, backend: adoption.backend, remote_iid: remoteIid, at_create: true }),
+          created_at: now,
+        });
         const adoptedRow = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [adoptId]);
         const adoptedIssue = decodeIssue(adoptedRow!);
         const adoptedRedacted = redactIssue(adoptedIssue, agent, { include_description: true });
@@ -860,16 +859,14 @@ export function issueTools(
       } else {
         // issue_sync='off' — leave a retryable audit marker so issue_sync_retry
         // can later create remotes once sync is re-enabled (#336).
-        db.run(
-          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (?, 'executor', 'sync_skipped', ?, ?, ?)`,
-          [
-            issueId,
-            `issue ${issueId} sync skipped: issue_sync is off`,
-            JSON.stringify({ issue_id: issueId, reason: 'issue_sync_off' }),
-            nowISO(),
-          ],
-        );
+        insertAudit(db, {
+          issue_id: issueId,
+          from_node: 'executor',
+          event_type: 'sync_skipped',
+          summary: `issue ${issueId} sync skipped: issue_sync is off`,
+          content_json: JSON.stringify({ issue_id: issueId, reason: 'issue_sync_off' }),
+          created_at: nowISO(),
+        });
         // Surface a warning when the project clearly looks remote-tracked (git
         // origin is gh/glab) but sync is disabled, so bro can mention the drift.
         const preferred = detectPreferred();
@@ -1267,16 +1264,14 @@ export function issueTools(
         );
       }
 
-      db.run(
-        `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-         VALUES (?, 'executor', 'issue_linked', ?, ?, ?)`,
-        [
-          parseInt(issueId, 10),
-          `issue ${issueId} linked to ${backend} #${iid}${force && existingIid != null ? ` (forced, was ${existingIid})` : ''}`,
-          JSON.stringify({ issue_id: issueId, backend, iid, forced: force && existingIid != null }),
-          now,
-        ],
-      );
+      insertAudit(db, {
+        issue_id: parseInt(issueId, 10),
+        from_node: 'executor',
+        event_type: 'issue_linked',
+        summary: `issue ${issueId} linked to ${backend} #${iid}${force && existingIid != null ? ` (forced, was ${existingIid})` : ''}`,
+        content_json: JSON.stringify({ issue_id: issueId, backend, iid, forced: force && existingIid != null }),
+        created_at: now,
+      });
 
       const updated = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
       return ok({ linked: true, backend, iid, issue: decodeIssue(updated!) });
@@ -1317,16 +1312,14 @@ export function issueTools(
       );
 
       if (!idempotent) {
-        db.run(
-          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (?, 'executor', 'issue_adopted', ?, ?, ?)`,
-          [
-            parseInt(issueId, 10),
-            `issue ${issueId} adopted ${adoption.backend} #${remoteIid}`,
-            JSON.stringify({ issue_id: issueId, backend: adoption.backend, remote_iid: remoteIid, at_create: false }),
-            now,
-          ],
-        );
+        insertAudit(db, {
+          issue_id: parseInt(issueId, 10),
+          from_node: 'executor',
+          event_type: 'issue_adopted',
+          summary: `issue ${issueId} adopted ${adoption.backend} #${remoteIid}`,
+          content_json: JSON.stringify({ issue_id: issueId, backend: adoption.backend, remote_iid: remoteIid, at_create: false }),
+          created_at: now,
+        });
       }
 
       const updated = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);

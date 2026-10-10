@@ -5,6 +5,7 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { insertAudit } from './audit.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -233,11 +234,13 @@ export function agentTools(db: TrajectoryDB, dbPath = ''): {
       const inserted = !existing && (db.get<{ n: number }>('SELECT changes() AS n', [])?.n ?? 0) > 0;
       if (scope === 'project-local' && kind === 'consultant' && (inserted || promoted) && row) {
         const contentJson = JSON.stringify({ name, mode: 'agent_register', agent_id: row.id });
-        db.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, ?, 'tmb_agent_created', ?, ?, ?)`,
-          [String(args['agent']), `Agent registered: ${name}`, contentJson, nowISO()],
-        );
+        insertAudit(db, {
+          issue_id: -1,
+          from_node: String(args['agent']),
+          event_type: 'tmb_agent_created',
+          summary: `Agent registered: ${name}`,
+          content_json: contentJson,
+        });
       }
 
       return ok(row);
