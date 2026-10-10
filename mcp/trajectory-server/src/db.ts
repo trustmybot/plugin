@@ -14,7 +14,7 @@ import {
   resolveClaudePluginVersion,
 } from './platform.js';
 
-const TARGET_SCHEMA_VERSION = 29;
+const TARGET_SCHEMA_VERSION = 30;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -593,6 +593,9 @@ function runMigrations(
   if (fromVersion < 29 && toVersion >= 29) {
     migrateV28toV29(db);
   }
+  if (fromVersion < 30 && toVersion >= 30) {
+    migrateV29toV30(db);
+  }
 }
 
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
@@ -607,6 +610,47 @@ function tableExists(db: DatabaseSync, table: string): boolean {
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
     .get(table) as { name: string } | undefined;
   return row !== undefined;
+}
+
+function readTableSql(db: DatabaseSync, table: string): string {
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?")
+    .get(table) as { sql: string } | undefined;
+  return row?.sql ?? '';
+}
+
+// SQLite cannot ALTER a CHECK, a DEFAULT or a column's nullability in place, so
+// a table is rebuilt: create `<table>_new`, copy every row keeping ids (columns
+// missing from the old shape take their fallback expression), swap, and carry
+// the AUTOINCREMENT high-water mark over. Callers run it inside their own
+// transaction with foreign_keys OFF and re-create the table's indexes.
+function rebuildTable(
+  db: DatabaseSync,
+  table: string,
+  createBody: string,
+  columns: Array<[string, string]>,
+): void {
+  const scratch = `${table}_new`;
+  const select = columns
+    .map(([name, fallback]) => (hasColumn(db, table, name) ? name : `${fallback} AS ${name}`))
+    .join(', ');
+  const seqRow = tableExists(db, 'sqlite_sequence')
+    ? (db.prepare('SELECT seq FROM sqlite_sequence WHERE name = ?').get(table) as
+        | { seq: number }
+        | undefined)
+    : undefined;
+  // LINT-ALLOW: scratch table for the SQLite table-rebuild swap.
+  db.exec(`DROP TABLE IF EXISTS ${scratch}`);
+  db.exec(`CREATE TABLE ${scratch} (${createBody})`);
+  db.exec(
+    `INSERT INTO ${scratch} (${columns.map(([name]) => name).join(', ')}) SELECT ${select} FROM ${table}`,
+  );
+  // LINT-ALLOW: table-rebuild swap — rows already copied into the scratch table.
+  db.exec(`DROP TABLE ${table}`);
+  db.exec(`ALTER TABLE ${scratch} RENAME TO ${table}`);
+  if (seqRow !== undefined) {
+    db.prepare('UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = ?').run(seqRow.seq, table);
+  }
 }
 
 function migrateV8toV9(db: DatabaseSync): void {
@@ -1157,40 +1201,13 @@ function migrateV27toV28(db: DatabaseSync): void {
 // guarded on the old shape, so a re-run against a v29 shape is a no-op. The new
 // hot-path indexes live in schema.sql, which is re-applied after migration.
 function migrateV28toV29(db: DatabaseSync): void {
-  const tableSql = (table: string): string => {
-    const row = db
-      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?")
-      .get(table) as { sql: string } | undefined;
-    return row?.sql ?? '';
-  };
+  const tableSql = (table: string): string => readTableSql(db, table);
   const needsRebuild = (table: string, checkMarker: string, droppedColumn?: string): boolean =>
     tableExists(db, table) &&
     ((droppedColumn !== undefined && hasColumn(db, table, droppedColumn)) ||
       !tableSql(table).includes(checkMarker));
-
-  const rebuild = (table: string, createBody: string, columns: Array<[string, string]>): void => {
-    const scratch = `${table}_new`;
-    const select = columns
-      .map(([name, fallback]) => (hasColumn(db, table, name) ? name : `${fallback} AS ${name}`))
-      .join(', ');
-    const seqRow = tableExists(db, 'sqlite_sequence')
-      ? (db.prepare('SELECT seq FROM sqlite_sequence WHERE name = ?').get(table) as
-          | { seq: number }
-          | undefined)
-      : undefined;
-    // LINT-ALLOW: scratch table for the SQLite CHECK-rebuild swap (v29).
-    db.exec(`DROP TABLE IF EXISTS ${scratch}`);
-    db.exec(`CREATE TABLE ${scratch} (${createBody})`);
-    db.exec(
-      `INSERT INTO ${scratch} (${columns.map(([name]) => name).join(', ')}) SELECT ${select} FROM ${table}`,
-    );
-    // LINT-ALLOW: CHECK-rebuild swap — rows already copied into the scratch table (v29).
-    db.exec(`DROP TABLE ${table}`);
-    db.exec(`ALTER TABLE ${scratch} RENAME TO ${table}`);
-    if (seqRow !== undefined) {
-      db.prepare('UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = ?').run(seqRow.seq, table);
-    }
-  };
+  const rebuild = (table: string, createBody: string, columns: Array<[string, string]>): void =>
+    rebuildTable(db, table, createBody, columns);
 
   const TASK_STATUSES = "'pending','running','needs_validation','completed','closed','failed','escalated'";
   const OPEN_CLOSED = "'open','closed'";
@@ -1422,6 +1439,270 @@ function migrateV28toV29(db: DatabaseSync): void {
     if (fkViolations.length > 0) {
       throw new Error(
         `migrateV28toV29: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v29 rebuilds`,
+      );
+    }
+
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // original error wins
+    }
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+const ISO_NOW_DEFAULT = "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))";
+
+// Every timestamp column the trajectory schema owns. v30 normalizes them all to
+// the one ms-ISO format `YYYY-MM-DDTHH:MM:SS.sssZ` (24 chars).
+const TIMESTAMP_COLUMNS: Array<[string, string]> = [
+  ['audit', 'created_at'],
+  ['tasks', 'created_at'],
+  ['tasks', 'updated_at'],
+  ['tasks', 'completed_at'],
+  ['issues', 'created_at'],
+  ['issues', 'updated_at'],
+  ['issues', 'closed_at'],
+  ['discussions', 'created_at'],
+  ['validation_attempts', 'created_at'],
+  ['agent_runs', 'started_at'],
+  ['agent_runs', 'completed_at'],
+  ['roundtables', 'created_at'],
+  ['roundtables', 'closed_at'],
+  ['roundtable_votes', 'created_at'],
+  ['agents', 'created_at'],
+  ['agents', 'updated_at'],
+  ['cheatcodes', 'installed_at'],
+  ['cheatcodes', 'created_at'],
+  ['cheatcodes', 'updated_at'],
+  ['cheatcode_attachments', 'created_at'],
+  ['repos', 'last_scanned_at'],
+  ['pr_review_runs', 'last_fetched_at'],
+  ['discussions_embeddings', 'embedded_at'],
+  ['audit_embeddings', 'embedded_at'],
+];
+
+// v29→v30: agent_runs metering columns, discussions.remote_comment_id, one
+// timestamp format.
+//
+//   agent_runs  — rebuilt: the four token columns become nullable with no
+//                 DEFAULT (NULL = unmeasured); spawn_id / session_id /
+//                 usage_source (CHECKed) are added. Closed rows whose four token
+//                 columns are all 0 become NULL + 'unmeasured'; other closed rows
+//                 take 'transcript' (bro) or 'subagent_stop' (everything else);
+//                 open rows copy unchanged with usage_source NULL.
+//   discussions — remote_comment_id via ADD COLUMN (FTS + triggers untouched)
+//                 with a partial UNIQUE index on the non-NULL values.
+//   agents, cheatcodes, repos — rebuilt so their DEFAULTs write ms-ISO.
+//   every timestamp column — 19-char `YYYY-MM-DD HH:MM:SS` and 20-char
+//                 `…SSZ` values are rewritten to `…SS.000Z`; afterwards every
+//                 non-NULL timestamp must be 24 chars or the migration aborts.
+//
+// Same rebuild discipline as v29: foreign_keys OFF, one transaction, rows that
+// would violate a rebuilt table's CHECKs abort up front with one error naming
+// them, and foreign_key_check re-validates before COMMIT. Each step is guarded
+// on the old shape, so a re-run against a v30 shape is a no-op.
+function migrateV29toV30(db: DatabaseSync): void {
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    const probes: Array<[string, string, string]> = [
+      ['agents', 'kind', "kind NOT IN ('backbone','consultant')"],
+      ['agents', 'scope', "scope NOT IN ('global','template','project-local')"],
+      ['cheatcodes', 'kind', "kind NOT IN ('skill','mcp','plugin')"],
+      ['cheatcodes', 'origin', "origin NOT IN ('builtin','marketplace','external')"],
+      ['cheatcodes', 'scope', "scope NOT IN ('global','template','project-local')"],
+      ['cheatcodes', 'name', "kind = 'skill' AND file_path IS NULL"],
+      ['cheatcodes', 'name', "origin <> 'builtin' AND source_url IS NULL"],
+      ['cheatcodes', 'name', "origin = 'builtin' AND source_url IS NOT NULL"],
+    ];
+    const violations: string[] = [];
+    for (const [table, column, predicate] of probes) {
+      if (!tableExists(db, table) || !hasColumn(db, table, column)) continue;
+      const bad = db
+        .prepare(`SELECT DISTINCT ${column} AS v FROM ${table} WHERE ${predicate} LIMIT 20`)
+        .all() as Array<{ v: unknown }>;
+      if (bad.length > 0) {
+        violations.push(`${table}.${column} = ${bad.map((r) => JSON.stringify(r.v)).join(', ')} (${predicate})`);
+      }
+    }
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV29toV30: rows violate the rebuilt v30 constraints — fix or delete them, then reopen: ${violations.join('; ')}`,
+      );
+    }
+
+    if (tableExists(db, 'agent_runs') && !hasColumn(db, 'agent_runs', 'usage_source')) {
+      rebuildTable(
+        db,
+        'agent_runs',
+        `
+          id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id               INTEGER REFERENCES tasks(id),
+          issue_id              INTEGER REFERENCES issues(id),
+          agent_type            TEXT    NOT NULL,
+          tokens_in             INTEGER,
+          tokens_out            INTEGER,
+          tokens_total          INTEGER NOT NULL DEFAULT 0,
+          cache_read_tokens     INTEGER,
+          cache_creation_tokens INTEGER,
+          tool_uses             INTEGER NOT NULL DEFAULT 0,
+          duration_ms           INTEGER NOT NULL DEFAULT 0,
+          started_at            TEXT,
+          completed_at          TEXT,
+          usage_baseline_json   TEXT,
+          repo                  TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          spawn_id              TEXT,
+          session_id            TEXT,
+          usage_source          TEXT CHECK (usage_source IN ('transcript','subagent_stop','unmeasured'))
+        `,
+        [
+          ['id', 'NULL'], ['task_id', 'NULL'], ['issue_id', 'NULL'], ['agent_type', "''"],
+          ['tokens_in', 'NULL'], ['tokens_out', 'NULL'], ['tokens_total', '0'], ['cache_read_tokens', 'NULL'],
+          ['cache_creation_tokens', 'NULL'], ['tool_uses', '0'], ['duration_ms', '0'], ['started_at', 'NULL'],
+          ['completed_at', 'NULL'], ['usage_baseline_json', 'NULL'], ['repo', 'NULL'], ['spawn_id', 'NULL'],
+          ['session_id', 'NULL'], ['usage_source', 'NULL'],
+        ],
+      );
+      db.exec(`
+        UPDATE agent_runs
+           SET tokens_in = NULL, tokens_out = NULL, cache_read_tokens = NULL, cache_creation_tokens = NULL,
+               usage_source = 'unmeasured'
+         WHERE completed_at IS NOT NULL
+           AND tokens_in = 0 AND tokens_out = 0 AND cache_read_tokens = 0 AND cache_creation_tokens = 0
+      `);
+      db.exec(`
+        UPDATE agent_runs
+           SET usage_source = CASE agent_type WHEN 'bro' THEN 'transcript' ELSE 'subagent_stop' END
+         WHERE completed_at IS NOT NULL AND usage_source IS NULL
+      `);
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_open ON agent_runs(agent_type) WHERE completed_at IS NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id) WHERE session_id IS NOT NULL;
+      `);
+    }
+
+    if (tableExists(db, 'discussions') && !hasColumn(db, 'discussions', 'remote_comment_id')) {
+      db.exec('ALTER TABLE discussions ADD COLUMN remote_comment_id TEXT');
+      db.exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_discussions_remote_comment ON discussions(remote_comment_id) WHERE remote_comment_id IS NOT NULL',
+      );
+    }
+
+    const needsIsoDefault = (table: string): boolean =>
+      tableExists(db, table) && !readTableSql(db, table).includes('strftime(');
+
+    if (needsIsoDefault('agents')) {
+      rebuildTable(
+        db,
+        'agents',
+        `
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          name        TEXT    NOT NULL UNIQUE,
+          kind        TEXT    NOT NULL CHECK (kind IN ('backbone','consultant')),
+          scope       TEXT    NOT NULL CHECK (scope IN ('global','template','project-local')),
+          file_path   TEXT    NOT NULL,
+          created_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          updated_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT}
+        `,
+        [
+          ['id', 'NULL'], ['name', 'NULL'], ['kind', 'NULL'], ['scope', 'NULL'], ['file_path', "''"],
+          ['created_at', ISO_NOW_DEFAULT], ['updated_at', ISO_NOW_DEFAULT],
+        ],
+      );
+    }
+
+    if (needsIsoDefault('cheatcodes')) {
+      rebuildTable(
+        db,
+        'cheatcodes',
+        `
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          name         TEXT    NOT NULL UNIQUE,
+          kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
+          origin       TEXT    NOT NULL DEFAULT 'external' CHECK (origin IN ('builtin','marketplace','external')),
+          description  TEXT    NOT NULL DEFAULT '',
+          source_url   TEXT,
+          file_path    TEXT,
+          version      TEXT,
+          trust_tier   TEXT,
+          scope        TEXT    NOT NULL DEFAULT 'project-local'
+                         CHECK (scope IN ('global','template','project-local')),
+          status       TEXT    NOT NULL DEFAULT 'installed',
+          installed_at TEXT    NOT NULL,
+          created_at   TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          updated_at   TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          CHECK (kind != 'skill' OR file_path IS NOT NULL),
+          CHECK (origin = 'builtin' OR source_url IS NOT NULL),
+          CHECK (origin != 'builtin' OR source_url IS NULL)
+        `,
+        [
+          ['id', 'NULL'], ['name', 'NULL'], ['kind', 'NULL'], ['origin', "'external'"], ['description', "''"],
+          ['source_url', 'NULL'], ['file_path', 'NULL'], ['version', 'NULL'], ['trust_tier', 'NULL'],
+          ['scope', "'project-local'"], ['status', "'installed'"], ['installed_at', ISO_NOW_DEFAULT],
+          ['created_at', ISO_NOW_DEFAULT], ['updated_at', ISO_NOW_DEFAULT],
+        ],
+      );
+    }
+
+    if (needsIsoDefault('repos')) {
+      rebuildTable(
+        db,
+        'repos',
+        `
+          name               TEXT PRIMARY KEY,
+          path               TEXT    NOT NULL,
+          file_count         INTEGER NOT NULL DEFAULT 0,
+          last_scanned_at    TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          target_branch      TEXT,
+          branching_model    TEXT,
+          protected_branches TEXT,
+          remotes            TEXT
+        `,
+        [
+          ['name', 'NULL'], ['path', "''"], ['file_count', '0'], ['last_scanned_at', ISO_NOW_DEFAULT],
+          ['target_branch', 'NULL'], ['branching_model', 'NULL'], ['protected_branches', 'NULL'],
+          ['remotes', 'NULL'],
+        ],
+      );
+    }
+
+    const presentTimestampColumns = TIMESTAMP_COLUMNS.filter(
+      ([table, column]) => tableExists(db, table) && hasColumn(db, table, column),
+    );
+    for (const [table, column] of presentTimestampColumns) {
+      db.exec(
+        `UPDATE ${table} SET ${column} = strftime('%Y-%m-%dT%H:%M:%fZ', ${column})
+          WHERE ${column} IS NOT NULL AND length(${column}) IN (19, 20)
+            AND strftime('%Y-%m-%dT%H:%M:%fZ', ${column}) IS NOT NULL`,
+      );
+    }
+    const malformed: string[] = [];
+    for (const [table, column] of presentTimestampColumns) {
+      const bad = db
+        .prepare(`SELECT DISTINCT ${column} AS v FROM ${table} WHERE ${column} IS NOT NULL AND length(${column}) <> 24 LIMIT 5`)
+        .all() as Array<{ v: unknown }>;
+      if (bad.length > 0) {
+        malformed.push(`${table}.${column} = ${bad.map((r) => JSON.stringify(r.v)).join(', ')}`);
+      }
+    }
+    if (malformed.length > 0) {
+      throw new Error(
+        `migrateV29toV30: timestamps not in YYYY-MM-DDTHH:MM:SS.sssZ form — fix them, then reopen: ${malformed.join('; ')}`,
+      );
+    }
+
+    const fkViolations = db.prepare('PRAGMA foreign_key_check').all() as unknown[];
+    if (fkViolations.length > 0) {
+      throw new Error(
+        `migrateV29toV30: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v30 rebuilds`,
       );
     }
 

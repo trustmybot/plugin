@@ -66,6 +66,13 @@ describe('taskTools', () => {
         assert.equal(inserted[1].branch_id, 'feat/task-two');
         assert.equal(inserted[2].branch_id, 'feat/task-three');
         assert.ok(inserted.every((t) => t.status === 'pending'));
+        const broRuns = db
+            .all("SELECT tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, usage_source FROM agent_runs WHERE agent_type = 'bro'")
+            .map((r) => ({ ...r }));
+        assert.equal(broRuns.length, 3, 'one open bro agent_runs row per task');
+        for (const run of broRuns) {
+            assert.deepEqual(run, { tokens_in: null, tokens_out: null, cache_read_tokens: null, cache_creation_tokens: null, usage_source: null }, 'an open bro row starts unmeasured (NULL tokens)');
+        }
         db.close();
     });
     it('task_update_status rejects unknown status', async () => {

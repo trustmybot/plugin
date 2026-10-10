@@ -77,11 +77,11 @@ describe('statsTools — task_stats', () => {
     const taskId = (db.get<{ id: number }>('SELECT last_insert_rowid() AS id') as { id: number }).id;
 
     db.run(
-      "INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 100, 200, 300, 1000, 50, 5, 1000, datetime('now'))",
+      "INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 100, 200, 300, 1000, 50, 5, 1000, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
       [taskId, issueId],
     );
     db.run(
-      "INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 150, 250, 400, 2000, 75, 8, 2000, datetime('now'))",
+      "INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 150, 250, 400, 2000, 75, 8, 2000, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
       [taskId, issueId],
     );
 
@@ -105,6 +105,54 @@ describe('statsTools — task_stats', () => {
     assert.equal(payload.spawns[0].tokens_in, 100);
     assert.equal(payload.spawns[0].cache_read_tokens, 1000);
     assert.equal(payload.spawns[1].tokens_in, 150);
+
+    db.close();
+  });
+
+  it('sums ignore unmeasured (NULL-token) runs and the aggregate stays numeric (v30)', async () => {
+    const db = tempDB();
+    const tools = statsTools(db);
+
+    const now = nowISO();
+    db.run(
+      "INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES (?, '', 'open', ?, ?)",
+      ['test issue', now, now],
+    );
+    const issueId = (db.get<{ id: number }>('SELECT last_insert_rowid() AS id') as { id: number }).id;
+    db.run(
+      "INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'feat/nulls', 'title', 'desc', 'pending', ?, ?)",
+      [issueId, now, now],
+    );
+    const taskId = (db.get<{ id: number }>('SELECT last_insert_rowid() AS id') as { id: number }).id;
+    db.run(
+      "INSERT INTO agent_runs (task_id, issue_id, agent_type, usage_source, completed_at) VALUES (?, ?, 'swe', 'unmeasured', ?)",
+      [taskId, issueId, now],
+    );
+    db.run(
+      "INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, usage_source, completed_at) VALUES (?, ?, 'swe', 10, 20, 30, 40, 50, 'subagent_stop', ?)",
+      [taskId, issueId, now],
+    );
+
+    const payload = parseResult(await call(tools.handlers, 'task_stats', { agent: 'bro', task_id: taskId }));
+    assert.equal(payload.aggregate.spawn_count, 2);
+    assert.equal(payload.aggregate.tokens_in, 10);
+    assert.equal(payload.aggregate.tokens_out, 20);
+    assert.equal(payload.aggregate.cache_read_tokens, 40);
+    assert.equal(payload.aggregate.cache_creation_tokens, 50);
+    assert.equal(payload.spawns[0].tokens_in, null, 'an unmeasured spawn reports NULL, not 0');
+
+    const unmeasuredOnly = db.run(
+      "INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'feat/only-nulls', 'title', 'desc', 'pending', ?, ?)",
+      [issueId, now, now],
+    );
+    const onlyTaskId = Number(unmeasuredOnly.lastInsertRowid);
+    db.run(
+      "INSERT INTO agent_runs (task_id, issue_id, agent_type, usage_source, completed_at) VALUES (?, ?, 'swe', 'unmeasured', ?)",
+      [onlyTaskId, issueId, now],
+    );
+    const onlyNulls = parseResult(await call(tools.handlers, 'task_stats', { agent: 'bro', task_id: onlyTaskId }));
+    assert.equal(onlyNulls.aggregate.tokens_in, 0, 'an all-NULL SUM surfaces as 0 at the API edge');
+    assert.equal(onlyNulls.aggregate.estimated_cost_usd, 0);
 
     db.close();
   });
@@ -156,7 +204,7 @@ describe('statsTools — task_stats', () => {
     // (tens of millions). With idempotency upstream there is exactly one row.
     const ownCacheRead = 200_000;
     db.run(
-      "INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 5000, 3000, 8000, ?, 12000, 106, 90000, datetime('now'))",
+      "INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 5000, 3000, 8000, ?, 12000, 106, 90000, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
       [taskId, issueId, ownCacheRead],
     );
 

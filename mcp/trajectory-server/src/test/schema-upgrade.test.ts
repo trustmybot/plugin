@@ -7,7 +7,9 @@ import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { TrajectoryDB } from '../db.js';
 import { SCHEMA_V28_SQL } from './fixtures/schema-v28.js';
+import { SCHEMA_V29_SQL } from './fixtures/schema-v29.js';
 import { assertV29Shape, indexNames } from './fixtures/v29-shape.js';
+import { assertTimestampsIso, assertV30Shape } from './fixtures/v30-shape.js';
 
 const tmpDirs: string[] = [];
 
@@ -540,10 +542,10 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
 
     const seed = new DatabaseSync(dbPath);
     seed.exec(
-      `INSERT INTO issues (id, objective, description, status, created_at, updated_at) VALUES (1, 'legacy issue', '', 'open', '2026-01-01', '2026-01-01')`,
+      `INSERT INTO issues (id, objective, description, status, created_at, updated_at) VALUES (1, 'legacy issue', '', 'open', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
     );
     seed.exec(
-      `INSERT INTO tasks (id, issue_id, branch_id, title, description, status, attempts, spec_body, success_criteria, created_at, updated_at) VALUES (1, 1, 'feat/legacy', '', 'legacy desc', 'pending', 0, '', 'done', '2026-01-01', '2026-01-01')`,
+      `INSERT INTO tasks (id, issue_id, branch_id, title, description, status, attempts, spec_body, success_criteria, created_at, updated_at) VALUES (1, 1, 'feat/legacy', '', 'legacy desc', 'pending', 0, '', 'done', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
     );
     // Pre-#2876 onboarded marker — must be translated to plugin_config('onboarded': true)
     // by the migration. Without translation, post-upgrade first_run=true re-fires
@@ -557,7 +559,7 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 29);
+    assert.equal(meta.schema_version, 30);
 
     const identity = db.get<{ name: string }>(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='identity'",
@@ -631,13 +633,13 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
     assert.equal(onboardedRow.value_json, 'true');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     );
     assert.equal(backups.length, 1, 'exactly one backup file must exist');
 
     db.run(
       `INSERT INTO tasks (issue_id, branch_id, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-      [1, 'feat/test-round-trip', 'desc', 'pending', '2026-01-01', '2026-01-01'],
+      [1, 'feat/test-round-trip', 'desc', 'pending', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'],
     );
 
     db.close();
@@ -654,16 +656,16 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta);
-    assert.equal(meta.schema_version, 29);
+    assert.equal(meta.schema_version, 30);
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     );
     assert.equal(backups.length, 1, 'backup must exist for rc-current upgrade');
 
     db.run(
       `INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-      ['post-upgrade', '', 'open', '2026-01-01', '2026-01-01'],
+      ['post-upgrade', '', 'open', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'],
     );
 
     db.close();
@@ -678,7 +680,7 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first upgrade creates exactly one backup');
 
@@ -686,7 +688,7 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v4 must not create another backup');
   });
@@ -704,7 +706,7 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
     const seedDb = new DatabaseSync(dbPath);
     seedDb.exec('PRAGMA journal_mode = WAL');
     seedDb.exec(
-      `INSERT INTO issues (id, objective, description, status, created_at, updated_at) VALUES (42, 'wal-pending', '', 'open', '2026-01-01', '2026-01-01')`,
+      `INSERT INTO issues (id, objective, description, status, created_at, updated_at) VALUES (42, 'wal-pending', '', 'open', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
     );
     // Hold the connection open so the WAL doesn't drain on close.
     // The TrajectoryDB opens a separate connection — SQLite's WAL
@@ -713,7 +715,7 @@ describe('schema upgrade — v1 -> v2 migration framework', () => {
     const db = new TrajectoryDB(dbPath);
 
     const backupFile = readdirSync(dirname(dbPath)).find(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     );
     assert.ok(backupFile, 'backup file must exist');
 
@@ -776,7 +778,7 @@ describe('schema upgrade — v2 -> v3 migration (FTS5 infrastructure)', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 29, 'schema_version must be 29 after migration');
+    assert.equal(meta.schema_version, 30, 'schema_version must be 30 after migration');
 
     // file_registry FTS was retired in v7; discussions_fts and audit_fts remain.
     for (const ftsTable of ['discussions_fts', 'audit_fts']) {
@@ -798,9 +800,9 @@ describe('schema upgrade — v2 -> v3 migration (FTS5 infrastructure)', () => {
     assert.ok((auditFtsCount?.n ?? 0) >= 1, 'audit_fts must be backfilled');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     );
-    assert.equal(backups.length, 1, 'exactly one pre-v29 backup must exist');
+    assert.equal(backups.length, 1, 'exactly one pre-v30 backup must exist');
 
     db.close();
   });
@@ -896,7 +898,7 @@ describe('schema upgrade — v2 -> v3 migration (FTS5 infrastructure)', () => {
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v4 upgrade creates exactly one backup');
 
@@ -904,7 +906,7 @@ describe('schema upgrade — v2 -> v3 migration (FTS5 infrastructure)', () => {
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v4 must not create another backup');
   });
@@ -1164,7 +1166,7 @@ describe('schema upgrade — v4 -> v5 migration (gh_iid + gl_iid columns)', () =
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 29, 'schema_version must be 29 after v4->v5 migration');
+    assert.equal(meta.schema_version, 30, 'schema_version must be 30 after v4->v5 migration');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(issues)').map((c) => c.name);
     assert.ok(cols.includes('gh_iid'), 'gh_iid column must exist after migration');
@@ -1232,7 +1234,7 @@ describe('schema upgrade — v4 -> v5 migration (gh_iid + gl_iid columns)', () =
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v5 upgrade creates exactly one backup');
 
@@ -1240,7 +1242,7 @@ describe('schema upgrade — v4 -> v5 migration (gh_iid + gl_iid columns)', () =
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v5 must not create another backup');
   });
@@ -1254,7 +1256,7 @@ describe('schema upgrade — v4 -> v5 migration (gh_iid + gl_iid columns)', () =
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta?.schema_version, 29, 'fresh DB schema_version must be 29');
+    assert.equal(meta?.schema_version, 30, 'fresh DB schema_version must be 30');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(issues)').map((c) => c.name);
     assert.ok(cols.includes('gh_iid'), 'gh_iid must exist in fresh DB');
@@ -1276,7 +1278,7 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 29, 'schema_version must be 29 after migration');
+    assert.equal(meta.schema_version, 30, 'schema_version must be 30 after migration');
 
     for (const t of ['discussions_embeddings', 'audit_embeddings', 'audit_embeddings']) {
       const row = db.get<{ name: string }>(
@@ -1304,9 +1306,9 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
     assert.equal(embCount?.n, 0, 'embedding tables must be empty after migration (no backfill)');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     );
-    assert.equal(backups.length, 1, 'exactly one pre-v29 backup must exist');
+    assert.equal(backups.length, 1, 'exactly one pre-v30 backup must exist');
 
     db.close();
   });
@@ -1322,7 +1324,7 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta);
-    assert.equal(meta.schema_version, 29, 'v2 DB must reach v29 via chained migrations');
+    assert.equal(meta.schema_version, 30, 'v2 DB must reach v30 via chained migrations');
 
     for (const t of ['discussions_fts', 'audit_fts']) {
       const row = db.get<{ name: string }>(
@@ -1361,7 +1363,7 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v4 upgrade creates exactly one backup');
 
@@ -1369,7 +1371,7 @@ describe('schema upgrade — v3 -> v4 migration (embedding tables)', () => {
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v4 must not create another backup');
   });
@@ -1495,16 +1497,16 @@ describe('schema upgrade — v8 -> v9 migration (cache-class token columns + pr_
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 29, 'schema_version must be 29 after migration');
+    assert.equal(meta.schema_version, 30, 'schema_version must be 30 after migration');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(agent_runs)').map((c) => c.name);
     assert.ok(cols.includes('cache_read_tokens'), 'cache_read_tokens must exist after v9 migration');
     assert.ok(cols.includes('cache_creation_tokens'), 'cache_creation_tokens must exist after v9 migration');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     );
-    assert.equal(backups.length, 1, 'exactly one pre-v29 backup must exist');
+    assert.equal(backups.length, 1, 'exactly one pre-v30 backup must exist');
 
     db.close();
   });
@@ -1543,7 +1545,7 @@ describe('schema upgrade — v8 -> v9 migration (cache-class token columns + pr_
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v9 upgrade creates exactly one backup');
 
@@ -1551,12 +1553,12 @@ describe('schema upgrade — v8 -> v9 migration (cache-class token columns + pr_
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v9 must not create another backup');
   });
 
-  it('fresh v9 DB has cache token columns with default 0', () => {
+  it('fresh DB leaves unwritten cache token columns NULL (unmeasured since v30)', () => {
     const tmpDir = makeTmpDir();
     const dbPath = join(tmpDir, 'trajectory.db');
 
@@ -1571,13 +1573,13 @@ describe('schema upgrade — v8 -> v9 migration (cache-class token columns + pr_
       `INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total) VALUES (NULL, ?, 'swe', 100, 50, 150)`,
       [issueId],
     );
-    const run = db.get<{ cache_read_tokens: number; cache_creation_tokens: number }>(
+    const run = db.get<{ cache_read_tokens: number | null; cache_creation_tokens: number | null }>(
       'SELECT cache_read_tokens, cache_creation_tokens FROM agent_runs WHERE issue_id = ?',
       [issueId],
     );
     assert.ok(run, 'agent_run row must exist');
-    assert.equal(run.cache_read_tokens, 0, 'cache_read_tokens defaults to 0');
-    assert.equal(run.cache_creation_tokens, 0, 'cache_creation_tokens defaults to 0');
+    assert.equal(run.cache_read_tokens, null, 'an unwritten cache_read_tokens is NULL (unmeasured)');
+    assert.equal(run.cache_creation_tokens, null, 'an unwritten cache_creation_tokens is NULL (unmeasured)');
 
     db.close();
   });
@@ -1655,7 +1657,7 @@ describe('schema upgrade — v9 -> v10 migration (prompt_bearing column)', () =>
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 29, 'schema_version must be 29 after v9->v10 migration');
+    assert.equal(meta.schema_version, 30, 'schema_version must be 30 after v9->v10 migration');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(tasks)').map((c) => c.name);
     assert.ok(cols.includes('prompt_bearing'), 'tasks.prompt_bearing must exist after migration');
@@ -1707,7 +1709,7 @@ describe('schema upgrade — v9 -> v10 migration (prompt_bearing column)', () =>
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v10 upgrade creates exactly one backup');
 
@@ -1715,7 +1717,7 @@ describe('schema upgrade — v9 -> v10 migration (prompt_bearing column)', () =>
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v10 must not create another backup');
   });
@@ -1729,7 +1731,7 @@ describe('schema upgrade — v9 -> v10 migration (prompt_bearing column)', () =>
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta?.schema_version, 29, 'fresh DB schema_version must be 29');
+    assert.equal(meta?.schema_version, 30, 'fresh DB schema_version must be 30');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(tasks)').map((c) => c.name);
     assert.ok(cols.includes('prompt_bearing'), 'prompt_bearing must exist in fresh DB');
@@ -1810,7 +1812,7 @@ describe('schema upgrade — v10 -> v11 migration (per-repo target_branch column
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 29, 'schema_version must be 29 after v10->v11 migration');
+    assert.equal(meta.schema_version, 30, 'schema_version must be 30 after v10->v11 migration');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(repos)').map((c) => c.name);
     assert.ok(cols.includes('target_branch'), 'repos.target_branch must exist after migration');
@@ -1889,7 +1891,7 @@ describe('schema upgrade — v10 -> v11 migration (per-repo target_branch column
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v11 upgrade creates exactly one backup');
 
@@ -1897,7 +1899,7 @@ describe('schema upgrade — v10 -> v11 migration (per-repo target_branch column
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v11 must not create another backup');
   });
@@ -1911,7 +1913,7 @@ describe('schema upgrade — v10 -> v11 migration (per-repo target_branch column
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta?.schema_version, 29, 'fresh DB schema_version must be 29');
+    assert.equal(meta?.schema_version, 30, 'fresh DB schema_version must be 30');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(repos)').map((c) => c.name);
     assert.ok(cols.includes('target_branch'), 'target_branch must exist in fresh DB repos table');
@@ -2010,15 +2012,15 @@ describe('schema upgrade — v11 -> v12 migration (usage_baseline_json column)',
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 29, 'schema_version must be 29 after v11->v12 migration');
+    assert.equal(meta.schema_version, 30, 'schema_version must be 30 after v11->v12 migration');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(agent_runs)').map((c) => c.name);
     assert.ok(cols.includes('usage_baseline_json'), 'agent_runs.usage_baseline_json must exist after migration');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     );
-    assert.equal(backups.length, 1, 'exactly one .pre-v29 backup must be written on upgrade');
+    assert.equal(backups.length, 1, 'exactly one .pre-v30 backup must be written on upgrade');
 
     db.close();
   });
@@ -2048,7 +2050,7 @@ describe('schema upgrade — v11 -> v12 migration (usage_baseline_json column)',
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v12 upgrade creates exactly one backup');
 
@@ -2056,7 +2058,7 @@ describe('schema upgrade — v11 -> v12 migration (usage_baseline_json column)',
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v12 must not create another backup');
   });
@@ -2070,7 +2072,7 @@ describe('schema upgrade — v11 -> v12 migration (usage_baseline_json column)',
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta?.schema_version, 29, 'fresh DB schema_version must be 29');
+    assert.equal(meta?.schema_version, 30, 'fresh DB schema_version must be 30');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(agent_runs)').map((c) => c.name);
     assert.ok(cols.includes('usage_baseline_json'), 'usage_baseline_json must exist in fresh DB agent_runs');
@@ -2141,16 +2143,16 @@ describe('schema upgrade — v12 -> v13 migration (typed files/verification colu
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 29, 'schema_version must be 29 after v12->v13 migration');
+    assert.equal(meta.schema_version, 30, 'schema_version must be 30 after v12->v13 migration');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(tasks)').map((c) => c.name);
     assert.ok(cols.includes('files'), 'tasks.files must exist after migration');
     assert.ok(cols.includes('verification'), 'tasks.verification must exist after migration');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     );
-    assert.equal(backups.length, 1, 'exactly one .pre-v29 backup must be written on upgrade');
+    assert.equal(backups.length, 1, 'exactly one .pre-v30 backup must be written on upgrade');
 
     db.close();
   });
@@ -2185,7 +2187,7 @@ describe('schema upgrade — v12 -> v13 migration (typed files/verification colu
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v13 upgrade creates exactly one backup');
 
@@ -2193,7 +2195,7 @@ describe('schema upgrade — v12 -> v13 migration (typed files/verification colu
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v13 must not create another backup');
   });
@@ -2207,7 +2209,7 @@ describe('schema upgrade — v12 -> v13 migration (typed files/verification colu
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta?.schema_version, 29, 'fresh DB schema_version must be 29');
+    assert.equal(meta?.schema_version, 30, 'fresh DB schema_version must be 30');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(tasks)').map((c) => c.name);
     assert.ok(cols.includes('files'), 'files must exist in fresh DB tasks');
@@ -2216,7 +2218,7 @@ describe('schema upgrade — v12 -> v13 migration (typed files/verification colu
     db.run(
       `INSERT INTO tasks (issue_id, branch_id, description, status, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [-1, 'feat/fresh-typed', 'desc', 'pending', '2026-01-01', '2026-01-01'],
+      [-1, 'feat/fresh-typed', 'desc', 'pending', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'],
     );
     const row = db.get<{ files: string; verification: string }>(
       `SELECT files, verification FROM tasks WHERE branch_id = 'feat/fresh-typed'`,
@@ -2269,7 +2271,7 @@ describe('schema upgrade — v13 -> v14 migration (cheatcode install stage, #659
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 29, 'schema_version must be 29 after v13->v14 migration');
+    assert.equal(meta.schema_version, 30, 'schema_version must be 30 after v13->v14 migration');
 
     for (const t of ['cheatcodes', 'cheatcode_attachments']) {
       const row = db.get<{ name: string }>(
@@ -2280,9 +2282,9 @@ describe('schema upgrade — v13 -> v14 migration (cheatcode install stage, #659
     }
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     );
-    assert.equal(backups.length, 1, 'exactly one .pre-v29 backup must be written on upgrade');
+    assert.equal(backups.length, 1, 'exactly one .pre-v30 backup must be written on upgrade');
 
     db.close();
   });
@@ -2296,7 +2298,7 @@ describe('schema upgrade — v13 -> v14 migration (cheatcode install stage, #659
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v18 upgrade creates exactly one backup');
 
@@ -2304,7 +2306,7 @@ describe('schema upgrade — v13 -> v14 migration (cheatcode install stage, #659
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v18 must not create another backup');
   });
@@ -2319,13 +2321,13 @@ describe('schema upgrade — v13 -> v14 migration (cheatcode install stage, #659
     const cc = db.run(
       `INSERT INTO cheatcodes (name, kind, source_url, version, trust_tier, status, installed_at)
        VALUES (?, ?, ?, ?, ?, 'installed', ?)`,
-      ['pdf', 'plugin', 'https://github.com/x/pdf', '1.0.0', 'trusted', '2026-01-01'],
+      ['pdf', 'plugin', 'https://github.com/x/pdf', '1.0.0', 'trusted', '2026-01-01T00:00:00.000Z'],
     );
     const id = Number(cc.lastInsertRowid);
     db.run(
       `INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
        VALUES (?, ?, ?, ?)`,
-      [id, 'plugin', 'marketplace-plugin:https://github.com/x/pdf', '2026-01-01'],
+      [id, 'plugin', 'marketplace-plugin:https://github.com/x/pdf', '2026-01-01T00:00:00.000Z'],
     );
 
     db.run('DELETE FROM cheatcodes WHERE id = ?', [id]);
@@ -2375,7 +2377,7 @@ function seedV14Db(dbPath: string): void {
     INSERT INTO issues (id, objective, description, status, created_at, updated_at)
     VALUES (-1, 'system', '', 'open', datetime('now'), datetime('now'));
     INSERT INTO cheatcodes (name, kind, source_url, version, trust_tier, status, installed_at)
-    VALUES ('pdf', 'plugin', 'https://github.com/x/pdf', '1.0.0', 'trusted', 'installed', '2026-01-01');
+    VALUES ('pdf', 'plugin', 'https://github.com/x/pdf', '1.0.0', 'trusted', 'installed', '2026-01-01T00:00:00.000Z');
     INSERT INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 14, '0.10.0-beta');
   `);
   db.close();
@@ -2393,15 +2395,15 @@ describe('schema upgrade — v14 -> v15 migration (cheatcode install scope, #659
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 29, 'schema_version must be 29 after v14->v15 migration');
+    assert.equal(meta.schema_version, 30, 'schema_version must be 30 after v14->v15 migration');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(cheatcodes)').map((c) => c.name);
     assert.ok(cols.includes('scope'), 'cheatcodes.scope must exist after migration');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     );
-    assert.equal(backups.length, 1, 'exactly one .pre-v29 backup must be written on upgrade');
+    assert.equal(backups.length, 1, 'exactly one .pre-v30 backup must be written on upgrade');
 
     db.close();
   });
@@ -2432,7 +2434,7 @@ describe('schema upgrade — v14 -> v15 migration (cheatcode install scope, #659
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v18 upgrade creates exactly one backup');
 
@@ -2440,7 +2442,7 @@ describe('schema upgrade — v14 -> v15 migration (cheatcode install scope, #659
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v18 must not create another backup');
   });
@@ -2519,7 +2521,7 @@ describe('schema upgrade — v15 -> v16 migration (drop dead rules + rule_invoca
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 29, 'schema_version must be 29 after v15->v16 migration');
+    assert.equal(meta.schema_version, 30, 'schema_version must be 30 after v15->v16 migration');
 
     for (const t of ['rules', 'rule_invocations']) {
       const row = db.get<{ name: string }>(
@@ -2530,9 +2532,9 @@ describe('schema upgrade — v15 -> v16 migration (drop dead rules + rule_invoca
     }
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     );
-    assert.equal(backups.length, 1, 'exactly one .pre-v29 backup must be written on upgrade');
+    assert.equal(backups.length, 1, 'exactly one .pre-v30 backup must be written on upgrade');
 
     db.close();
   });
@@ -2546,7 +2548,7 @@ describe('schema upgrade — v15 -> v16 migration (drop dead rules + rule_invoca
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v18 upgrade creates exactly one backup');
 
@@ -2554,7 +2556,7 @@ describe('schema upgrade — v15 -> v16 migration (drop dead rules + rule_invoca
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v18 must not create another backup');
   });
@@ -2614,7 +2616,7 @@ describe('schema upgrade — v16 -> v17 migration (drop dead commands catalog, #
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 29, 'schema_version must be 29 after chained v16->v18 migration');
+    assert.equal(meta.schema_version, 30, 'schema_version must be 30 after chained v16->v18 migration');
 
     const row = db.get<{ name: string }>(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='commands'",
@@ -2622,9 +2624,9 @@ describe('schema upgrade — v16 -> v17 migration (drop dead commands catalog, #
     assert.equal(row, undefined, 'commands table must be dropped after migration');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     );
-    assert.equal(backups.length, 1, 'exactly one .pre-v29 backup must be written on upgrade');
+    assert.equal(backups.length, 1, 'exactly one .pre-v30 backup must be written on upgrade');
 
     db.close();
   });
@@ -2638,7 +2640,7 @@ describe('schema upgrade — v16 -> v17 migration (drop dead commands catalog, #
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v18 upgrade creates exactly one backup');
 
@@ -2646,7 +2648,7 @@ describe('schema upgrade — v16 -> v17 migration (drop dead commands catalog, #
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v18 must not create another backup');
   });
@@ -2720,7 +2722,7 @@ describe('schema upgrade — v17 -> v19 chain (drop dead skill stats #97, then u
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta, 'plugin_meta row required');
-    assert.equal(meta.schema_version, 29, 'schema_version must be 29 after the v17->v19 chain');
+    assert.equal(meta.schema_version, 30, 'schema_version must be 30 after the v17->v19 chain');
 
     // skills is gone; cheatcodes is the unified registry.
     const skillsTable = db.get<{ name: string }>(
@@ -2755,9 +2757,9 @@ describe('schema upgrade — v17 -> v19 chain (drop dead skill stats #97, then u
     assert.equal(violations.length, 0, 'no dangling FKs after the unification');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     );
-    assert.equal(backups.length, 1, 'exactly one .pre-v29 backup must be written on upgrade');
+    assert.equal(backups.length, 1, 'exactly one .pre-v30 backup must be written on upgrade');
 
     db.close();
   });
@@ -2771,7 +2773,7 @@ describe('schema upgrade — v17 -> v19 chain (drop dead skill stats #97, then u
     db1.close();
 
     const firstCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(firstCount, 1, 'first v18 upgrade creates exactly one backup');
 
@@ -2779,7 +2781,7 @@ describe('schema upgrade — v17 -> v19 chain (drop dead skill stats #97, then u
     db2.close();
 
     const secondCount = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(secondCount, 1, 'reopening at v18 must not create another backup');
   });
@@ -2854,12 +2856,12 @@ function seedV18Db(dbPath: string): void {
     INSERT INTO issues (id, objective, description, status, created_at, updated_at)
     VALUES (-1, 'system', '', 'open', datetime('now'), datetime('now'));
     INSERT INTO skills (name, description, file_path, scope, trust_tier, status, created_at, updated_at)
-    VALUES ('tmb_planning', 'd', 'skills/tmb_planning/SKILL.md', 'global', 'curated', 'active', '2026-01-01', '2026-01-01');
+    VALUES ('tmb_planning', 'd', 'skills/tmb_planning/SKILL.md', 'global', 'curated', 'active', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
     INSERT INTO skill_invocations (skill_name, agent_name, invoked_at, outcome)
     VALUES ('tmb_planning', 'bro', datetime('now'), 'completed');
     INSERT INTO cheatcodes (name, kind, source_url, version, trust_tier, scope, status, installed_at)
-    VALUES ('pdf-plugin', 'plugin', 'https://github.com/x/pdf', '1.0.0', 'trusted', 'local', 'installed', '2026-02-02'),
-           ('global-mcp', 'mcp', 'https://github.com/x/mcp', NULL, 'caution', 'global', 'installed', '2026-02-03');
+    VALUES ('pdf-plugin', 'plugin', 'https://github.com/x/pdf', '1.0.0', 'trusted', 'local', 'installed', '2026-02-02T00:00:00.000Z'),
+           ('global-mcp', 'mcp', 'https://github.com/x/mcp', NULL, 'caution', 'global', 'installed', '2026-02-03T00:00:00.000Z');
     INSERT INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 18, '0.10.0-beta');
   `);
   db.close();
@@ -2876,7 +2878,7 @@ describe('schema upgrade — v18 -> v19 migration (unify skills into cheatcodes,
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta!.schema_version, 29, 'schema_version must be 29 after the v18->v19->v20 chain');
+    assert.equal(meta!.schema_version, 30, 'schema_version must be 30 after the v18->v19->v20 chain');
 
     assert.equal(
       db.get<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table' AND name='skills'"),
@@ -2910,9 +2912,9 @@ describe('schema upgrade — v18 -> v19 migration (unify skills into cheatcodes,
     assert.equal(violations.length, 0, 'no dangling FKs after the unification');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     );
-    assert.equal(backups.length, 1, 'exactly one .pre-v29 backup written');
+    assert.equal(backups.length, 1, 'exactly one .pre-v30 backup written');
 
     db.close();
   });
@@ -2933,7 +2935,7 @@ describe('schema upgrade — v18 -> v19 migration (unify skills into cheatcodes,
     assert.equal(firstCount, secondCount, 'row count is stable across re-opens');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(backups, 1, 'reopening at v19 must not create another backup');
   });
@@ -2999,8 +3001,8 @@ function seedV19Db(dbPath: string): void {
     VALUES (-1, 'system', '', 'open', datetime('now'), datetime('now'));
     INSERT INTO cheatcodes (name, kind, origin, description, source_url, file_path, scope, trust_tier, status, installed_at)
     VALUES
-      ('tmb_planning',      'skill', 'builtin', 'd', NULL, 'skills/tmb_planning/SKILL.md',      'global', 'curated', 'active', '2026-01-01'),
-      ('tmb_agent-creator', 'skill', 'builtin', 'd', NULL, 'skills/tmb_agent-creator/SKILL.md', 'global', 'curated', 'active', '2026-01-01');
+      ('tmb_planning',      'skill', 'builtin', 'd', NULL, 'skills/tmb_planning/SKILL.md',      'global', 'curated', 'active', '2026-01-01T00:00:00.000Z'),
+      ('tmb_agent-creator', 'skill', 'builtin', 'd', NULL, 'skills/tmb_agent-creator/SKILL.md', 'global', 'curated', 'active', '2026-01-01T00:00:00.000Z');
     INSERT INTO skill_invocations (skill_name, agent_name, invoked_at, outcome)
     VALUES ('tmb_planning', 'bro', datetime('now'), 'completed');
     INSERT INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 19, '0.10.0-beta');
@@ -3019,7 +3021,7 @@ describe('schema upgrade — v19 -> v20 migration (correct builtin-skill seed dr
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta!.schema_version, 29, 'schema_version must be 29 after v19->v20');
+    assert.equal(meta!.schema_version, 30, 'schema_version must be 30 after v19->v20');
 
     const dead = db.get<{ name: string }>(
       "SELECT name FROM cheatcodes WHERE name = 'tmb_agent-creator'",
@@ -3044,9 +3046,9 @@ describe('schema upgrade — v19 -> v20 migration (correct builtin-skill seed dr
     assert.equal(violations.length, 0, 'no dangling FKs after the seed correction');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     );
-    assert.equal(backups.length, 1, 'exactly one .pre-v29 backup written');
+    assert.equal(backups.length, 1, 'exactly one .pre-v30 backup written');
 
     db.close();
   });
@@ -3075,7 +3077,7 @@ describe('schema upgrade — v19 -> v20 migration (correct builtin-skill seed dr
     assert.ok(stillPresent, 'tmb_cheatcode stays present on re-open');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(backups, 1, 'reopening at v21 must not create another backup');
   });
@@ -3139,7 +3141,7 @@ function seedV20Db(dbPath: string): void {
     INSERT INTO issues (id, objective, description, status, created_at, updated_at)
     VALUES (-1, 'system', '', 'open', datetime('now'), datetime('now'));
     INSERT INTO cheatcodes (name, kind, origin, description, source_url, file_path, scope, trust_tier, status, installed_at)
-    VALUES ('tmb_planning', 'skill', 'builtin', 'd', NULL, 'skills/tmb_planning/SKILL.md', 'global', 'curated', 'active', '2026-01-01');
+    VALUES ('tmb_planning', 'skill', 'builtin', 'd', NULL, 'skills/tmb_planning/SKILL.md', 'global', 'curated', 'active', '2026-01-01T00:00:00.000Z');
     INSERT INTO skill_invocations (skill_name, agent_name, invoked_at, outcome)
     VALUES ('tmb_planning', 'bro', datetime('now'), 'completed');
     INSERT INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 20, '0.10.0-gamma');
@@ -3158,7 +3160,7 @@ describe('schema upgrade — v20 -> v21 migration (retire skill_invocations, #11
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta!.schema_version, 29, 'schema_version must be 29 after the v20->v21->v22 chain');
+    assert.equal(meta!.schema_version, 30, 'schema_version must be 30 after the v20->v21->v22 chain');
 
     const invocationsTable = db.get<{ name: string }>(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='skill_invocations'",
@@ -3174,9 +3176,9 @@ describe('schema upgrade — v20 -> v21 migration (retire skill_invocations, #11
     assert.equal(violations.length, 0, 'no dangling FKs after dropping skill_invocations');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     );
-    assert.equal(backups.length, 1, 'exactly one .pre-v29 backup written');
+    assert.equal(backups.length, 1, 'exactly one .pre-v30 backup written');
 
     db.close();
   });
@@ -3198,7 +3200,7 @@ describe('schema upgrade — v20 -> v21 migration (retire skill_invocations, #11
     assert.equal(stillGone, undefined, 'skill_invocations stays gone on re-open');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(backups, 1, 'reopening at v21 must not create another backup');
   });
@@ -3234,7 +3236,7 @@ function seedV21Db(dbPath: string): void {
     INSERT INTO issues (id, objective, description, status, created_at, updated_at)
     VALUES (-1, 'system', '', 'open', datetime('now'), datetime('now'));
     INSERT INTO issues (objective, description, status, created_at, updated_at)
-    VALUES ('pre-v22 issue', 'body', 'open', '2026-01-01', '2026-01-01');
+    VALUES ('pre-v22 issue', 'body', 'open', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
     INSERT INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 21, '0.10.0-gamma');
   `);
   db.close();
@@ -3251,7 +3253,7 @@ describe('schema upgrade — v21 -> v22 migration (issues.milestone, #83/#763)',
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta!.schema_version, 29, 'schema_version must be 29 after v21->v22');
+    assert.equal(meta!.schema_version, 30, 'schema_version must be 30 after v21->v22');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(issues)').map((c) => c.name);
     assert.ok(cols.includes('milestone'), 'issues.milestone column must exist after v21->v22');
@@ -3264,9 +3266,9 @@ describe('schema upgrade — v21 -> v22 migration (issues.milestone, #83/#763)',
     assert.equal(row!.milestone, null, 'existing rows backfill milestone to NULL');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     );
-    assert.equal(backups.length, 1, 'exactly one .pre-v29 backup written');
+    assert.equal(backups.length, 1, 'exactly one .pre-v30 backup written');
 
     db.close();
   });
@@ -3285,7 +3287,7 @@ describe('schema upgrade — v21 -> v22 migration (issues.milestone, #83/#763)',
     assert.ok(cols.includes('milestone'), 'milestone column stays on re-open');
 
     const backups = readdirSync(dirname(dbPath)).filter(
-      (f) => f.startsWith(basename(dbPath) + '.pre-v29.') && f.endsWith('.bak'),
+      (f) => f.startsWith(basename(dbPath) + '.pre-v30.') && f.endsWith('.bak'),
     ).length;
     assert.equal(backups, 1, 'reopening at v25 must not create another backup');
   });
@@ -3306,7 +3308,7 @@ describe('schema upgrade — v22 -> v23 repos-centric migration (#155)', () => {
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta!.schema_version, 29, 'schema_version must be 29 after v22->v23');
+    assert.equal(meta!.schema_version, 30, 'schema_version must be 30 after v22->v23');
 
     const milestonesExists = db.get<{ name: string }>(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='milestones'",
@@ -3418,7 +3420,7 @@ describe('schema upgrade — v23 -> v24 cheatcode registry integrity (#150/#152)
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta!.schema_version, 29, 'schema_version must be 29 after the v23->v24->v25 chain');
+    assert.equal(meta!.schema_version, 30, 'schema_version must be 30 after the v23->v24->v25 chain');
 
     // (#150) Every scan_discovered garbage row is gone.
     const garbage = db.all<{ name: string }>(
@@ -3514,7 +3516,7 @@ describe('schema upgrade — v24 -> v25 split tmb_push-triage (#161)', () => {
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta!.schema_version, 29, 'schema_version must be 29 after v24->v25');
+    assert.equal(meta!.schema_version, 30, 'schema_version must be 30 after v24->v25');
 
     const dead = db.get<{ name: string }>(
       "SELECT name FROM cheatcodes WHERE name = 'tmb_push-triage' AND origin = 'builtin'",
@@ -3632,7 +3634,7 @@ describe('schema upgrade — v25 -> v26 typed mcp_available (#157)', () => {
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta!.schema_version, 29, 'schema_version must be 29 after v25->v26');
+    assert.equal(meta!.schema_version, 30, 'schema_version must be 30 after v25->v26');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(validation_attempts)');
     assert.ok(cols.some((c) => c.name === 'mcp_available'), 'mcp_available column must exist post-migration');
@@ -3729,7 +3731,7 @@ describe('schema upgrade — v26 -> v27 repos is sole source of truth (#980)', (
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta!.schema_version, 29, 'schema_version must be 29 after v26->v27');
+    assert.equal(meta!.schema_version, 30, 'schema_version must be 30 after v26->v27');
 
     // The four keys are gone from plugin_config.
     for (const key of ['pr_target', 'branching_model', 'protected_branches', 'remotes']) {
@@ -3828,7 +3830,7 @@ function seedV27NoLabels(dbPath: string): void {
 }
 
 describe('schema upgrade — v27 -> v28 issues.labels column (#53)', () => {
-  it('adds the nullable labels column and lands schema_version at 29', () => {
+  it('adds the nullable labels column and lands schema_version at 30', () => {
     const tmpDir = makeTmpDir();
     const dbPath = join(tmpDir, 'trajectory.db');
     seedV27NoLabels(dbPath);
@@ -3846,7 +3848,7 @@ describe('schema upgrade — v27 -> v28 issues.labels column (#53)', () => {
     const meta = db.get<{ schema_version: number }>(
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
-    assert.equal(meta!.schema_version, 29, 'schema_version must be 29 after v27->v28');
+    assert.equal(meta!.schema_version, 30, 'schema_version must be 30 after v27->v28');
 
     const cols = db.all<{ name: string }>('PRAGMA table_info(issues)').map((c) => c.name);
     assert.ok(cols.includes('labels'), 'v27->v28 must add issues.labels');
@@ -3854,7 +3856,7 @@ describe('schema upgrade — v27 -> v28 issues.labels column (#53)', () => {
     // Nullable, no default: a fresh row reads NULL (the pre-v29 legacy marker).
     db.run(
       `INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-      ['post-upgrade', '', 'open', '2026-01-01', '2026-01-01'],
+      ['post-upgrade', '', 'open', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'],
     );
     const row = db.get<{ labels: string | null }>(
       "SELECT labels FROM issues WHERE objective = 'post-upgrade'",
@@ -3876,30 +3878,30 @@ function seedV28(dbPath: string): void {
     INSERT INTO repos (name, path) VALUES ('plugin', '/tmp/plugin');
     INSERT INTO milestones (name, repo, state) VALUES ('v1.0.3', 'plugin', 'open');
     INSERT INTO issues (id, objective, status, created_at, updated_at, remote_iid, remote_kind, gh_iid, repo, milestone)
-      VALUES (5, 'legacy link', 'open', '2026-01-01', '2026-01-01', 12, 'github', NULL, 'plugin', 'v1.0.3');
+      VALUES (5, 'legacy link', 'open', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 12, 'github', NULL, 'plugin', 'v1.0.3');
     INSERT INTO issues (id, objective, status, created_at, updated_at, remote_iid, remote_kind, gh_iid, repo)
-      VALUES (6, 'dual link', 'closed', '2026-01-01', '2026-01-01', 7, 'github', 7, 'plugin');
-    INSERT INTO issues (id, objective, created_at, updated_at) VALUES (9, 'deleted later', '2026-01-01', '2026-01-01');
+      VALUES (6, 'dual link', 'closed', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 7, 'github', 7, 'plugin');
+    INSERT INTO issues (id, objective, created_at, updated_at) VALUES (9, 'deleted later', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
     DELETE FROM issues WHERE id = 9;
     INSERT INTO tasks (id, issue_id, branch_id, description, status, attempts, repo, created_at, updated_at)
-      VALUES (10, 5, 'fix/a', 'a', 'closed', 3, 'plugin', '2026-01-01', '2026-01-01');
+      VALUES (10, 5, 'fix/a', 'a', 'closed', 3, 'plugin', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
     INSERT INTO tasks (id, issue_id, branch_id, description, status, attempts, repo, created_at, updated_at)
-      VALUES (11, 6, 'fix/b', 'b', 'running', 0, 'plugin', '2026-01-01', '2026-01-01');
+      VALUES (11, 6, 'fix/b', 'b', 'running', 0, 'plugin', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
     INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, repo, created_at)
-      VALUES (10, 1, 'pr-reviewer', 'fail', 'nope', 1, 'plugin', '2026-01-01');
+      VALUES (10, 1, 'pr-reviewer', 'fail', 'nope', 1, 'plugin', '2026-01-01T00:00:00.000Z');
     INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, repo, created_at)
-      VALUES (10, 2, 'pr-reviewer', 'pass', 'ok', 0, 'plugin', '2026-01-02');
+      VALUES (10, 2, 'pr-reviewer', 'pass', 'ok', 0, 'plugin', '2026-01-02T00:00:00.000Z');
     INSERT INTO discussions (id, issue_id, author, kind, body, repo, created_at)
-      VALUES (20, 5, 'bro', 'decision', 'pick the flamingo approach', 'plugin', '2026-01-01');
+      VALUES (20, 5, 'bro', 'decision', 'pick the flamingo approach', 'plugin', '2026-01-01T00:00:00.000Z');
     INSERT INTO discussions (id, issue_id, author, kind, body, repo, created_at)
-      VALUES (21, 5, 'bro', 'note', 'flamingo follow-up note', 'plugin', '2026-01-02');
+      VALUES (21, 5, 'bro', 'note', 'flamingo follow-up note', 'plugin', '2026-01-02T00:00:00.000Z');
     INSERT INTO discussions_embeddings (discussion_id, embedding, model_id, embedded_at)
-      VALUES (20, x'00', 'm', '2026-01-01'), (21, x'01', 'm', '2026-01-01');
+      VALUES (20, x'00', 'm', '2026-01-01T00:00:00.000Z'), (21, x'01', 'm', '2026-01-01T00:00:00.000Z');
     INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, task_id, verdict, attempt_n)
-      VALUES (0, 'plugin', '2026-01-01', 10, 'fail', 1), (0, 'plugin', '2026-01-02', 10, 'pass', 2);
+      VALUES (0, 'plugin', '2026-01-01T00:00:00.000Z', 10, 'fail', 1), (0, 'plugin', '2026-01-02T00:00:00.000Z', 10, 'pass', 2);
     INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id, task_id)
-      VALUES (42, 'owner/repo', '2026-01-03', 'c-9', 11);
-    INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at) VALUES (11, 6, 'swe', '2026-01-03');
+      VALUES (42, 'owner/repo', '2026-01-03T00:00:00.000Z', 'c-9', 11);
+    INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at) VALUES (11, 6, 'swe', '2026-01-03T00:00:00.000Z');
     INSERT INTO plugin_config (key, value_json) VALUES ('tmb_default_repo', '"plugin"');
   `);
   db.close();
@@ -3915,9 +3917,9 @@ describe('schema upgrade — v28 -> v29 constraints, drops, cursor-only pr_revie
     assertV29Shape(db);
 
     assert.equal(
-      readdirSync(tmpDir).filter((f) => f.includes('.pre-v29.') && f.endsWith('.bak')).length,
+      readdirSync(tmpDir).filter((f) => f.includes('.pre-v30.') && f.endsWith('.bak')).length,
       1,
-      'exactly one pre-v29 backup must exist',
+      'exactly one pre-v30 backup must exist',
     );
 
     const legacy = db.get<{ gh_iid: number | null; remote_kind: string; milestone: string }>(
@@ -3928,7 +3930,7 @@ describe('schema upgrade — v28 -> v29 constraints, drops, cursor-only pr_revie
     assert.equal(db.get<{ gh_iid: number }>('SELECT gh_iid FROM issues WHERE id = 6')!.gh_iid, 7);
 
     db.run(
-      `INSERT INTO issues (objective, created_at, updated_at) VALUES ('after upgrade', '2026-02-01', '2026-02-01')`,
+      `INSERT INTO issues (objective, created_at, updated_at) VALUES ('after upgrade', '2026-02-01T00:00:00.000Z', '2026-02-01T00:00:00.000Z')`,
     );
     const next = db.get<{ id: number }>("SELECT id FROM issues WHERE objective = 'after upgrade'");
     assert.equal(next!.id, 10, 'the AUTOINCREMENT high-water mark survives — deleted ids are not reused');
@@ -3957,7 +3959,7 @@ describe('schema upgrade — v28 -> v29 constraints, drops, cursor-only pr_revie
     assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM discussions_embeddings')!.n, 2, 'embeddings unchanged');
 
     db.run(
-      `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (5, 'bro', 'note', 'pelican', '2026-02-01')`,
+      `INSERT INTO discussions (issue_id, author, kind, body, created_at) VALUES (5, 'bro', 'note', 'pelican', '2026-02-01T00:00:00.000Z')`,
     );
     assert.equal(
       db.all("SELECT rowid FROM discussions_fts WHERE discussions_fts MATCH 'pelican'").length,
@@ -3981,7 +3983,7 @@ describe('schema upgrade — v28 -> v29 constraints, drops, cursor-only pr_revie
     const db = new TrajectoryDB(dbPath);
     assertV29Shape(db);
     assert.equal(
-      readdirSync(tmpDir).filter((f) => f.includes('.pre-v29.') && f.endsWith('.bak')).length,
+      readdirSync(tmpDir).filter((f) => f.includes('.pre-v30.') && f.endsWith('.bak')).length,
       1,
       'reopening at v29 must not create another backup',
     );
@@ -4019,42 +4021,255 @@ describe('schema upgrade — v28 -> v29 constraints, drops, cursor-only pr_revie
   });
 });
 
-describe('schema parity — a migrated v28 DB matches a fresh v29 DB', () => {
-  it('has identical table columns, index names and triggers', () => {
+// v29 -> v30: agent_runs metering columns, discussions.remote_comment_id, one
+// timestamp format. Seeded from the frozen v29 schema.sql so the migration runs
+// against the genuine v29 shape (NOT NULL DEFAULT 0 token columns, the
+// datetime('now') DEFAULTs, hook-written 19/20-char stamps).
+function seedV29(dbPath: string): void {
+  const db = new DatabaseSync(dbPath);
+  db.exec(SCHEMA_V29_SQL);
+  db.exec(`
+    INSERT INTO repos (name, path, last_scanned_at) VALUES ('plugin', '/tmp/plugin', '2026-01-01 09:00:00');
+    INSERT INTO issues (id, objective, status, created_at, updated_at, closed_at, repo)
+      VALUES (5, 'metering', 'open', '2026-01-01 10:00:00', '2026-01-01T10:00:00Z', NULL, 'plugin');
+    INSERT INTO tasks (id, issue_id, branch_id, description, status, repo, created_at, updated_at, completed_at)
+      VALUES (10, 5, 'fix/a', 'a', 'closed', 'plugin', '2026-01-01T10:00:00.123Z', '2026-01-01T10:00:00.123Z', '2026-01-02 08:00:00');
+    INSERT INTO tasks (id, issue_id, branch_id, description, status, repo, created_at, updated_at)
+      VALUES (11, 5, 'fix/b', 'b', 'running', 'plugin', '2026-01-01T10:00:00.123Z', '2026-01-01T10:00:00.123Z');
+    INSERT INTO agent_runs (id, task_id, issue_id, agent_type, started_at, completed_at, usage_baseline_json)
+      VALUES (1, 10, 5, 'bro', '2026-01-01T10:00:00.000Z', '2026-01-02 08:00:00', '{"spawn_id":"s-zero"}');
+    INSERT INTO agent_runs (id, task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, started_at, completed_at)
+      VALUES (2, 10, 5, 'bro', 100, 50, 150, 1000, 20, '2026-01-01T10:00:00.000Z', '2026-01-02T08:00:00.000Z');
+    INSERT INTO agent_runs (id, task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_baseline_json)
+      VALUES (3, 10, 5, 'swe', 7, 9, 16, 0, 0, 4, 900, '2026-01-02 07:00:00', '{"spawn_id":"s-3"}');
+    INSERT INTO agent_runs (id, task_id, issue_id, agent_type, started_at, usage_baseline_json)
+      VALUES (4, 11, 5, 'bro', '2026-01-03T00:00:00.000Z', '{"baseline":1}');
+    INSERT INTO discussions (id, issue_id, author, kind, body, created_at)
+      VALUES (20, 5, 'bro', 'decision', 'pick the heron approach', '2026-01-01 10:00:00');
+    INSERT INTO discussions_embeddings (discussion_id, embedding, model_id, embedded_at)
+      VALUES (20, x'00', 'm', '2026-01-01 10:00:00');
+    INSERT INTO audit (id, issue_id, event_type, summary, created_at)
+      VALUES (31, 5, 'e', 'nineteen-char stamp', '2026-01-01 10:00:00'),
+             (32, 5, 'e', 'twenty-char stamp', '2026-01-01T10:00:01Z'),
+             (33, 5, 'e', 'ms stamp late in the second', '2026-01-01T10:00:01.500Z'),
+             (34, 5, 'e', 'ms stamp early in the second', '2026-01-01T10:00:00.250Z');
+    INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, task_id) VALUES (42, 'owner/repo', '2026-01-03T00:00:00Z', 11);
+    INSERT INTO cheatcodes (id, name, kind, origin, source_url, scope, status, installed_at)
+      VALUES (100, 'pdf', 'plugin', 'marketplace', 'pdf@x', 'project-local', 'installed', '2026-01-04 00:00:00');
+    INSERT INTO cheatcode_attachments (cheatcode_id, target, artifact, created_at)
+      VALUES (100, 'plugin', 'pdf@x', '2026-01-04 00:00:00');
+  `);
+  db.close();
+}
+
+describe('schema upgrade — v29 -> v30 metering columns, remote_comment_id, one timestamp format', () => {
+  it('applies every v30 DDL item, backfills usage_source and normalizes timestamps', () => {
     const tmpDir = makeTmpDir();
-    const migratedPath = join(tmpDir, 'migrated.db');
-    seedV28(migratedPath);
-    const migrated = new TrajectoryDB(migratedPath);
-    const fresh = new TrajectoryDB(join(tmpDir, 'fresh.db'));
+    const dbPath = join(tmpDir, 'trajectory.db');
+    seedV29(dbPath);
 
-    const tables = (db: TrajectoryDB): string[] =>
-      db
-        .all<{ name: string }>(
-          "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%_fts%' ORDER BY name",
-        )
-        .map((r) => r.name);
-    assert.deepEqual(tables(migrated), tables(fresh), 'table sets must match');
+    const db = new TrajectoryDB(dbPath);
+    assertV30Shape(db);
+    assertTimestampsIso(db);
+    assert.equal(
+      readdirSync(tmpDir).filter((f) => f.includes('.pre-v30.') && f.endsWith('.bak')).length,
+      1,
+      'exactly one pre-v30 backup must exist',
+    );
 
-    for (const table of tables(fresh)) {
-      assert.deepEqual(
-        migrated.all(`PRAGMA table_info(${table})`),
-        fresh.all(`PRAGMA table_info(${table})`),
-        `PRAGMA table_info(${table}) must match`,
+    const runs = db
+      .all<Record<string, unknown>>(
+        'SELECT id, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, usage_source, completed_at, usage_baseline_json, spawn_id, session_id FROM agent_runs ORDER BY id',
+      )
+      .map((r) => ({ ...r }));
+    assert.deepEqual(runs, [
+      {
+        id: 1, tokens_in: null, tokens_out: null, tokens_total: 0, cache_read_tokens: null, cache_creation_tokens: null,
+        usage_source: 'unmeasured', completed_at: '2026-01-02T08:00:00.000Z', usage_baseline_json: '{"spawn_id":"s-zero"}',
+        spawn_id: null, session_id: null,
+      },
+      {
+        id: 2, tokens_in: 100, tokens_out: 50, tokens_total: 150, cache_read_tokens: 1000, cache_creation_tokens: 20,
+        usage_source: 'transcript', completed_at: '2026-01-02T08:00:00.000Z', usage_baseline_json: null,
+        spawn_id: null, session_id: null,
+      },
+      {
+        id: 3, tokens_in: 7, tokens_out: 9, tokens_total: 16, cache_read_tokens: 0, cache_creation_tokens: 0,
+        usage_source: 'subagent_stop', completed_at: '2026-01-02T07:00:00.000Z', usage_baseline_json: '{"spawn_id":"s-3"}',
+        spawn_id: null, session_id: null,
+      },
+      {
+        id: 4, tokens_in: 0, tokens_out: 0, tokens_total: 0, cache_read_tokens: 0, cache_creation_tokens: 0,
+        usage_source: null, completed_at: null, usage_baseline_json: '{"baseline":1}',
+        spawn_id: null, session_id: null,
+      },
+    ], 'all-zero closed → NULL + unmeasured; measured bro → transcript; swe → subagent_stop; open row untouched');
+
+    const issue = db.get<{ created_at: string; updated_at: string }>('SELECT created_at, updated_at FROM issues WHERE id = 5');
+    assert.deepEqual({ ...issue }, { created_at: '2026-01-01T10:00:00.000Z', updated_at: '2026-01-01T10:00:00.000Z' });
+    assert.equal(
+      db.get<{ created_at: string }>('SELECT created_at FROM tasks WHERE id = 10')!.created_at,
+      '2026-01-01T10:00:00.123Z',
+      'an ms-ISO stamp is left untouched',
+    );
+
+    const ordered = db.all<{ id: number; created_at: string }>(
+      'SELECT id, created_at FROM audit WHERE id BETWEEN 31 AND 34 ORDER BY created_at, id',
+    ).map((r) => ({ ...r }));
+    assert.deepEqual(ordered, [
+      { id: 31, created_at: '2026-01-01T10:00:00.000Z' },
+      { id: 34, created_at: '2026-01-01T10:00:00.250Z' },
+      { id: 32, created_at: '2026-01-01T10:00:01.000Z' },
+      { id: 33, created_at: '2026-01-01T10:00:01.500Z' },
+    ], 'normalized 19/20-char stamps sort correctly against ms-ISO stamps of the same second');
+    assert.equal(
+      db.all("SELECT rowid FROM audit_fts WHERE audit_fts MATCH 'nineteen'").length,
+      1,
+      'the audit UPDATE keeps audit_fts in sync',
+    );
+
+    const cheatcode = db.get<{ id: number; installed_at: string }>("SELECT id, installed_at FROM cheatcodes WHERE name = 'pdf'");
+    assert.deepEqual({ ...cheatcode }, { id: 100, installed_at: '2026-01-04T00:00:00.000Z' }, 'cheatcode ids survive the rebuild');
+    assert.equal(
+      db.get<{ n: number }>('SELECT COUNT(*) AS n FROM cheatcode_attachments WHERE cheatcode_id = 100')!.n,
+      1,
+      'cheatcode_attachments rows survive the cheatcodes rebuild',
+    );
+    db.run("DELETE FROM cheatcodes WHERE id = 100");
+    assert.equal(
+      db.get<{ n: number }>('SELECT COUNT(*) AS n FROM cheatcode_attachments')!.n,
+      0,
+      'the ON DELETE CASCADE FK still points at the rebuilt cheatcodes table',
+    );
+    assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM discussions_embeddings')!.n, 1, 'embeddings unchanged');
+
+    const now = new Date().toISOString();
+    const insertRemote = (remote: string | null): void => {
+      db.run(
+        `INSERT INTO discussions (issue_id, author, kind, body, created_at, remote_comment_id) VALUES (5, 'bro', 'note', 'n', ?, ?)`,
+        [now, remote],
       );
-      assert.deepEqual(
-        migrated.all(`PRAGMA foreign_key_list(${table})`),
-        fresh.all(`PRAGMA foreign_key_list(${table})`),
-        `PRAGMA foreign_key_list(${table}) must match`,
-      );
-    }
+    };
+    insertRemote(null);
+    insertRemote(null);
+    insertRemote('gh-7');
+    assert.throws(() => insertRemote('gh-7'), /UNIQUE/, 'remote_comment_id is unique when non-NULL');
 
-    assert.deepEqual(indexNames(migrated), indexNames(fresh), 'index name sets must match');
+    db.run(`INSERT INTO agent_runs (task_id, agent_type, spawn_id, session_id) VALUES (11, 'swe', 'sp-1', 'sess-1')`);
+    assert.throws(
+      () => db.run(`INSERT INTO agent_runs (task_id, agent_type, spawn_id) VALUES (11, 'swe', 'sp-1')`),
+      /UNIQUE/,
+      'one agent_runs row per (task_id, spawn_id)',
+    );
 
-    const triggers = (db: TrajectoryDB): string[] =>
-      db.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name").map((r) => r.name);
-    assert.deepEqual(triggers(migrated), triggers(fresh), 'trigger sets must match');
-
-    migrated.close();
-    fresh.close();
+    assert.equal(db.all('PRAGMA foreign_key_check').length, 0, 'foreign_key_check must be clean');
+    assert.equal(db.get<{ integrity_check: string }>('PRAGMA integrity_check')!.integrity_check, 'ok');
+    db.close();
   });
+
+  it('is idempotent — reopening at v30 does not rebuild, re-backup or change rows', () => {
+    const tmpDir = makeTmpDir();
+    const dbPath = join(tmpDir, 'trajectory.db');
+    seedV29(dbPath);
+
+    const first = new TrajectoryDB(dbPath);
+    const snapshot = (db: TrajectoryDB): unknown[] =>
+      db.all('SELECT * FROM agent_runs ORDER BY id').map((r) => ({ ...(r as object) }));
+    const before = snapshot(first);
+    first.close();
+
+    const db = new TrajectoryDB(dbPath);
+    assertV30Shape(db);
+    assertTimestampsIso(db);
+    assert.deepEqual(snapshot(db), before, 'agent_runs rows are unchanged by a reopen');
+    assert.equal(
+      readdirSync(tmpDir).filter((f) => f.includes('.pre-v30.') && f.endsWith('.bak')).length,
+      1,
+      'reopening at v30 must not create another backup',
+    );
+    assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM audit WHERE id BETWEEN 31 AND 34')!.n, 4);
+    db.close();
+  });
+
+  it('aborts and leaves the DB at v29 when a timestamp cannot be normalized', () => {
+    const tmpDir = makeTmpDir();
+    const dbPath = join(tmpDir, 'trajectory.db');
+    seedV29(dbPath);
+    const raw = new DatabaseSync(dbPath);
+    raw.exec("UPDATE audit SET created_at = 'yesterday' WHERE id = 32");
+    raw.close();
+
+    assert.throws(
+      () => new TrajectoryDB(dbPath),
+      (e: Error) => /migrateV29toV30/.test(e.message) && e.message.includes('audit.created_at = "yesterday"'),
+    );
+
+    const after = new DatabaseSync(dbPath);
+    const meta = after.prepare('SELECT schema_version FROM plugin_meta').get() as { schema_version: number };
+    assert.equal(meta.schema_version, 29, 'a failed migration leaves the DB at v29');
+    const cols = (after.prepare('PRAGMA table_info(agent_runs)').all() as Array<{ name: string }>).map((c) => c.name);
+    assert.ok(!cols.includes('usage_source'), 'the rollback leaves the v29 agent_runs shape intact');
+    const stamp = after.prepare('SELECT created_at FROM audit WHERE id = 31').get() as { created_at: string };
+    assert.equal(stamp.created_at, '2026-01-01 10:00:00', 'the normalization rolls back with the failed migration');
+    after.close();
+  });
+});
+
+function assertSchemaParity(migrated: TrajectoryDB, fresh: TrajectoryDB): void {
+  const tables = (db: TrajectoryDB): string[] =>
+    db
+      .all<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%_fts%' ORDER BY name",
+      )
+      .map((r) => r.name);
+  assert.deepEqual(tables(migrated), tables(fresh), 'table sets must match');
+
+  for (const table of tables(fresh)) {
+    assert.deepEqual(
+      migrated.all(`PRAGMA table_info(${table})`),
+      fresh.all(`PRAGMA table_info(${table})`),
+      `PRAGMA table_info(${table}) must match`,
+    );
+    assert.deepEqual(
+      migrated.all(`PRAGMA foreign_key_list(${table})`),
+      fresh.all(`PRAGMA foreign_key_list(${table})`),
+      `PRAGMA foreign_key_list(${table}) must match`,
+    );
+  }
+
+  assert.deepEqual(indexNames(migrated), indexNames(fresh), 'index name sets must match');
+
+  const triggers = (db: TrajectoryDB): string[] =>
+    db.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name").map((r) => r.name);
+  assert.deepEqual(triggers(migrated), triggers(fresh), 'trigger sets must match');
+
+  const indexSql = (db: TrajectoryDB): Array<{ name: string; sql: string }> =>
+    db
+      .all<{ name: string; sql: string }>(
+        "SELECT name, sql FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL ORDER BY name",
+      )
+      .map((r) => ({ name: r.name, sql: r.sql.replace(/\s+/g, ' ').trim() }));
+  assert.deepEqual(indexSql(migrated), indexSql(fresh), 'index definitions must match');
+}
+
+describe('schema parity — a migrated DB matches a fresh v30 DB', () => {
+  for (const [label, seed] of [
+    ['v28', seedV28],
+    ['v29', seedV29],
+  ] as const) {
+    it(`a migrated ${label} DB has identical table columns, foreign keys, index names and triggers`, () => {
+      const tmpDir = makeTmpDir();
+      const migratedPath = join(tmpDir, 'migrated.db');
+      seed(migratedPath);
+      const migrated = new TrajectoryDB(migratedPath);
+      const fresh = new TrajectoryDB(join(tmpDir, 'fresh.db'));
+
+      assertSchemaParity(migrated, fresh);
+      assertV30Shape(migrated);
+      assertV30Shape(fresh);
+
+      migrated.close();
+      fresh.close();
+    });
+  }
 });

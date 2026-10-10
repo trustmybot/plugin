@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
-import { assertV29Shape } from './fixtures/v29-shape.js';
+import { assertTimestampsIso, assertV30Shape } from './fixtures/v30-shape.js';
 describe('schema — current table set, default values, constraints', () => {
     it('fresh prod-mode DB contains the current table set (skills folded into cheatcodes, #101; world model in kuzu)', () => {
         const db = tempDB();
@@ -98,16 +98,57 @@ describe('schema — current table set, default values, constraints', () => {
         }, /CHECK/i);
         db.close();
     });
-    it('fresh DB carries every v29 constraint, drop and index', () => {
+    it('fresh DB carries every v29 + v30 constraint, drop, column and index', () => {
         const db = tempDB();
-        assertV29Shape(db);
+        assertV30Shape(db);
         db.close();
     });
-    it('fresh DB has schema_version = 29 in plugin_meta', () => {
+    it('fresh DB seeds and DEFAULTs write only 24-char ms-ISO timestamps (v30)', () => {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES ('plugin', '/tmp/plugin')`);
+        db.run(`INSERT INTO agents (name, kind, scope, file_path) VALUES ('legal', 'consultant', 'project-local', 'a.md')`);
+        assertTimestampsIso(db);
+        const repo = db.get("SELECT last_scanned_at FROM repos WHERE name = 'plugin'");
+        assert.match(repo.last_scanned_at, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+        db.close();
+    });
+    it('fresh DB: discussions.remote_comment_id is unique only when non-NULL (v30)', () => {
+        const db = tempDB();
+        const now = new Date().toISOString();
+        const insert = (remote) => {
+            db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at, remote_comment_id) VALUES (-1, 'bro', 'note', 'b', ?, ?)`, [now, remote]);
+        };
+        insert(null);
+        insert(null);
+        insert('gh-comment-1');
+        assert.throws(() => insert('gh-comment-1'), /UNIQUE/, 'a duplicate remote_comment_id must be rejected');
+        db.close();
+    });
+    it('fresh DB: agent_runs token columns default to NULL and spawn_id is unique per task (v30)', () => {
+        const db = tempDB();
+        db.run(`INSERT INTO agent_runs (agent_type) VALUES ('bro')`);
+        const row = db.get('SELECT tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, tokens_total, usage_source FROM agent_runs');
+        assert.deepEqual({ ...row }, {
+            tokens_in: null,
+            tokens_out: null,
+            cache_read_tokens: null,
+            cache_creation_tokens: null,
+            tokens_total: 0,
+            usage_source: null,
+        });
+        const now = new Date().toISOString();
+        db.run(`INSERT INTO tasks (id, issue_id, branch_id, description, created_at, updated_at) VALUES (1, -1, 'fix/a', 'd', ?, ?)`, [now, now]);
+        db.run(`INSERT INTO agent_runs (task_id, agent_type, spawn_id) VALUES (1, 'swe', 's-1')`);
+        db.run(`INSERT INTO agent_runs (task_id, agent_type, spawn_id) VALUES (1, 'swe', NULL)`);
+        db.run(`INSERT INTO agent_runs (task_id, agent_type, spawn_id) VALUES (1, 'swe', NULL)`);
+        assert.throws(() => db.run(`INSERT INTO agent_runs (task_id, agent_type, spawn_id) VALUES (1, 'swe', 's-1')`), /UNIQUE/, 'one row per (task_id, spawn_id)');
+        db.close();
+    });
+    it('fresh DB has schema_version = 30 in plugin_meta', () => {
         const db = tempDB();
         const meta = db.get('SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-        assert.equal(meta.schema_version, 29);
+        assert.equal(meta.schema_version, 30);
         assert.ok(typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0, 'plugin_version must be a non-empty string');
         db.close();
     });

@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -162,8 +163,8 @@ export function agentTools(db, dbPath = '') {
             let promoted = false;
             if (existing) {
                 if (scope === 'project-local' && (existing.scope === 'template')) {
-                    db.run(`UPDATE agents SET scope = ?, kind = ?, file_path = ?, updated_at = datetime('now')
-             WHERE name = ?`, [scope, kind, filePath, name]);
+                    db.run(`UPDATE agents SET scope = ?, kind = ?, file_path = ?, updated_at = ?
+             WHERE name = ?`, [scope, kind, filePath, nowISO(), name]);
                     promoted = true;
                 }
                 // already project-local or other idempotent case: silent no-op
@@ -177,7 +178,7 @@ export function agentTools(db, dbPath = '') {
             if (scope === 'project-local' && kind === 'consultant' && (inserted || promoted) && row) {
                 const contentJson = JSON.stringify({ name, mode: 'agent_register', agent_id: row.id });
                 db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, ?, 'tmb_agent_created', ?, ?, datetime('now'))`, [String(args['agent']), `Agent registered: ${name}`, contentJson]);
+           VALUES (-1, NULL, ?, 'tmb_agent_created', ?, ?, ?)`, [String(args['agent']), `Agent registered: ${name}`, contentJson, nowISO()]);
             }
             return ok(row);
         }),

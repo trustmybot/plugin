@@ -487,11 +487,11 @@ export function roundtableTools(db) {
             const participants = db.all(`SELECT DISTINCT participant FROM roundtable_votes
            WHERE roundtable_id = ? AND participant != 'human' AND participant IS NOT NULL`, [roundtableId]).map((r) => r.participant);
             const answerRows = db.all(`SELECT body FROM discussions WHERE issue_id = ? AND kind = 'answer'
-           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`, [issueId, roundtable.created_at, updated.closed_at]).map((r) => r.body);
+           AND created_at >= ? AND created_at <= COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`, [issueId, roundtable.created_at, updated.closed_at]).map((r) => r.body);
             const noteRows = db.all(`SELECT body FROM discussions WHERE issue_id = ? AND kind = 'note' AND body LIKE 'not ratified: %'
-           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`, [issueId, roundtable.created_at, updated.closed_at]).map((r) => r.body.replace(/^not ratified: /, ''));
+           AND created_at >= ? AND created_at <= COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`, [issueId, roundtable.created_at, updated.closed_at]).map((r) => r.body.replace(/^not ratified: /, ''));
             const decisionRows = db.all(`SELECT body FROM discussions WHERE issue_id = ? AND kind = 'decision' AND body NOT LIKE 'Ratified: %'
-           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`, [issueId, roundtable.created_at, updated.closed_at]);
+           AND created_at >= ? AND created_at <= COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`, [issueId, roundtable.created_at, updated.closed_at]);
             const disagreementsResolved = decisionRows.map((r) => ({
                 decision_body: r.body,
             }));

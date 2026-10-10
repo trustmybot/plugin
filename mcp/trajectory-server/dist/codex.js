@@ -21264,7 +21264,7 @@ function sqlLog(entry) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 29;
+var TARGET_SCHEMA_VERSION = 30;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
 }
@@ -21645,6 +21645,9 @@ function runMigrations(db, fromVersion, toVersion) {
   if (fromVersion < 29 && toVersion >= 29) {
     migrateV28toV29(db);
   }
+  if (fromVersion < 30 && toVersion >= 30) {
+    migrateV29toV30(db);
+  }
 }
 function hasColumn(db, table, column) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -21653,6 +21656,25 @@ function hasColumn(db, table, column) {
 function tableExists(db, table) {
   const row = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table);
   return row !== void 0;
+}
+function readTableSql(db, table) {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?").get(table);
+  return row?.sql ?? "";
+}
+function rebuildTable(db, table, createBody, columns) {
+  const scratch = `${table}_new`;
+  const select = columns.map(([name, fallback]) => hasColumn(db, table, name) ? name : `${fallback} AS ${name}`).join(", ");
+  const seqRow = tableExists(db, "sqlite_sequence") ? db.prepare("SELECT seq FROM sqlite_sequence WHERE name = ?").get(table) : void 0;
+  db.exec(`DROP TABLE IF EXISTS ${scratch}`);
+  db.exec(`CREATE TABLE ${scratch} (${createBody})`);
+  db.exec(
+    `INSERT INTO ${scratch} (${columns.map(([name]) => name).join(", ")}) SELECT ${select} FROM ${table}`
+  );
+  db.exec(`DROP TABLE ${table}`);
+  db.exec(`ALTER TABLE ${scratch} RENAME TO ${table}`);
+  if (seqRow !== void 0) {
+    db.prepare("UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = ?").run(seqRow.seq, table);
+  }
 }
 function migrateV8toV9(db) {
   db.exec("BEGIN");
@@ -22041,26 +22063,9 @@ function migrateV27toV28(db) {
   }
 }
 function migrateV28toV29(db) {
-  const tableSql = (table) => {
-    const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?").get(table);
-    return row?.sql ?? "";
-  };
+  const tableSql = (table) => readTableSql(db, table);
   const needsRebuild = (table, checkMarker, droppedColumn) => tableExists(db, table) && (droppedColumn !== void 0 && hasColumn(db, table, droppedColumn) || !tableSql(table).includes(checkMarker));
-  const rebuild = (table, createBody, columns) => {
-    const scratch = `${table}_new`;
-    const select = columns.map(([name, fallback]) => hasColumn(db, table, name) ? name : `${fallback} AS ${name}`).join(", ");
-    const seqRow = tableExists(db, "sqlite_sequence") ? db.prepare("SELECT seq FROM sqlite_sequence WHERE name = ?").get(table) : void 0;
-    db.exec(`DROP TABLE IF EXISTS ${scratch}`);
-    db.exec(`CREATE TABLE ${scratch} (${createBody})`);
-    db.exec(
-      `INSERT INTO ${scratch} (${columns.map(([name]) => name).join(", ")}) SELECT ${select} FROM ${table}`
-    );
-    db.exec(`DROP TABLE ${table}`);
-    db.exec(`ALTER TABLE ${scratch} RENAME TO ${table}`);
-    if (seqRow !== void 0) {
-      db.prepare("UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = ?").run(seqRow.seq, table);
-    }
-  };
+  const rebuild = (table, createBody, columns) => rebuildTable(db, table, createBody, columns);
   const TASK_STATUSES = "'pending','running','needs_validation','completed','closed','failed','escalated'";
   const OPEN_CLOSED = "'open','closed'";
   const VERDICTS = "'pass','fail','escalate'";
@@ -22308,6 +22313,263 @@ function migrateV28toV29(db) {
     if (fkViolations.length > 0) {
       throw new Error(
         `migrateV28toV29: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v29 rebuilds`
+      );
+    }
+    db.exec("COMMIT");
+  } catch (err5) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+    }
+    throw err5;
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
+  }
+}
+var ISO_NOW_DEFAULT = "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))";
+var TIMESTAMP_COLUMNS = [
+  ["audit", "created_at"],
+  ["tasks", "created_at"],
+  ["tasks", "updated_at"],
+  ["tasks", "completed_at"],
+  ["issues", "created_at"],
+  ["issues", "updated_at"],
+  ["issues", "closed_at"],
+  ["discussions", "created_at"],
+  ["validation_attempts", "created_at"],
+  ["agent_runs", "started_at"],
+  ["agent_runs", "completed_at"],
+  ["roundtables", "created_at"],
+  ["roundtables", "closed_at"],
+  ["roundtable_votes", "created_at"],
+  ["agents", "created_at"],
+  ["agents", "updated_at"],
+  ["cheatcodes", "installed_at"],
+  ["cheatcodes", "created_at"],
+  ["cheatcodes", "updated_at"],
+  ["cheatcode_attachments", "created_at"],
+  ["repos", "last_scanned_at"],
+  ["pr_review_runs", "last_fetched_at"],
+  ["discussions_embeddings", "embedded_at"],
+  ["audit_embeddings", "embedded_at"]
+];
+function migrateV29toV30(db) {
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.exec("BEGIN");
+  try {
+    const probes = [
+      ["agents", "kind", "kind NOT IN ('backbone','consultant')"],
+      ["agents", "scope", "scope NOT IN ('global','template','project-local')"],
+      ["cheatcodes", "kind", "kind NOT IN ('skill','mcp','plugin')"],
+      ["cheatcodes", "origin", "origin NOT IN ('builtin','marketplace','external')"],
+      ["cheatcodes", "scope", "scope NOT IN ('global','template','project-local')"],
+      ["cheatcodes", "name", "kind = 'skill' AND file_path IS NULL"],
+      ["cheatcodes", "name", "origin <> 'builtin' AND source_url IS NULL"],
+      ["cheatcodes", "name", "origin = 'builtin' AND source_url IS NOT NULL"]
+    ];
+    const violations = [];
+    for (const [table, column, predicate] of probes) {
+      if (!tableExists(db, table) || !hasColumn(db, table, column)) continue;
+      const bad = db.prepare(`SELECT DISTINCT ${column} AS v FROM ${table} WHERE ${predicate} LIMIT 20`).all();
+      if (bad.length > 0) {
+        violations.push(`${table}.${column} = ${bad.map((r) => JSON.stringify(r.v)).join(", ")} (${predicate})`);
+      }
+    }
+    if (violations.length > 0) {
+      throw new Error(
+        `migrateV29toV30: rows violate the rebuilt v30 constraints \u2014 fix or delete them, then reopen: ${violations.join("; ")}`
+      );
+    }
+    if (tableExists(db, "agent_runs") && !hasColumn(db, "agent_runs", "usage_source")) {
+      rebuildTable(
+        db,
+        "agent_runs",
+        `
+          id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id               INTEGER REFERENCES tasks(id),
+          issue_id              INTEGER REFERENCES issues(id),
+          agent_type            TEXT    NOT NULL,
+          tokens_in             INTEGER,
+          tokens_out            INTEGER,
+          tokens_total          INTEGER NOT NULL DEFAULT 0,
+          cache_read_tokens     INTEGER,
+          cache_creation_tokens INTEGER,
+          tool_uses             INTEGER NOT NULL DEFAULT 0,
+          duration_ms           INTEGER NOT NULL DEFAULT 0,
+          started_at            TEXT,
+          completed_at          TEXT,
+          usage_baseline_json   TEXT,
+          repo                  TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          spawn_id              TEXT,
+          session_id            TEXT,
+          usage_source          TEXT CHECK (usage_source IN ('transcript','subagent_stop','unmeasured'))
+        `,
+        [
+          ["id", "NULL"],
+          ["task_id", "NULL"],
+          ["issue_id", "NULL"],
+          ["agent_type", "''"],
+          ["tokens_in", "NULL"],
+          ["tokens_out", "NULL"],
+          ["tokens_total", "0"],
+          ["cache_read_tokens", "NULL"],
+          ["cache_creation_tokens", "NULL"],
+          ["tool_uses", "0"],
+          ["duration_ms", "0"],
+          ["started_at", "NULL"],
+          ["completed_at", "NULL"],
+          ["usage_baseline_json", "NULL"],
+          ["repo", "NULL"],
+          ["spawn_id", "NULL"],
+          ["session_id", "NULL"],
+          ["usage_source", "NULL"]
+        ]
+      );
+      db.exec(`
+        UPDATE agent_runs
+           SET tokens_in = NULL, tokens_out = NULL, cache_read_tokens = NULL, cache_creation_tokens = NULL,
+               usage_source = 'unmeasured'
+         WHERE completed_at IS NOT NULL
+           AND tokens_in = 0 AND tokens_out = 0 AND cache_read_tokens = 0 AND cache_creation_tokens = 0
+      `);
+      db.exec(`
+        UPDATE agent_runs
+           SET usage_source = CASE agent_type WHEN 'bro' THEN 'transcript' ELSE 'subagent_stop' END
+         WHERE completed_at IS NOT NULL AND usage_source IS NULL
+      `);
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_open ON agent_runs(agent_type) WHERE completed_at IS NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id) WHERE session_id IS NOT NULL;
+      `);
+    }
+    if (tableExists(db, "discussions") && !hasColumn(db, "discussions", "remote_comment_id")) {
+      db.exec("ALTER TABLE discussions ADD COLUMN remote_comment_id TEXT");
+      db.exec(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_discussions_remote_comment ON discussions(remote_comment_id) WHERE remote_comment_id IS NOT NULL"
+      );
+    }
+    const needsIsoDefault = (table) => tableExists(db, table) && !readTableSql(db, table).includes("strftime(");
+    if (needsIsoDefault("agents")) {
+      rebuildTable(
+        db,
+        "agents",
+        `
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          name        TEXT    NOT NULL UNIQUE,
+          kind        TEXT    NOT NULL CHECK (kind IN ('backbone','consultant')),
+          scope       TEXT    NOT NULL CHECK (scope IN ('global','template','project-local')),
+          file_path   TEXT    NOT NULL,
+          created_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          updated_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT}
+        `,
+        [
+          ["id", "NULL"],
+          ["name", "NULL"],
+          ["kind", "NULL"],
+          ["scope", "NULL"],
+          ["file_path", "''"],
+          ["created_at", ISO_NOW_DEFAULT],
+          ["updated_at", ISO_NOW_DEFAULT]
+        ]
+      );
+    }
+    if (needsIsoDefault("cheatcodes")) {
+      rebuildTable(
+        db,
+        "cheatcodes",
+        `
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          name         TEXT    NOT NULL UNIQUE,
+          kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
+          origin       TEXT    NOT NULL DEFAULT 'external' CHECK (origin IN ('builtin','marketplace','external')),
+          description  TEXT    NOT NULL DEFAULT '',
+          source_url   TEXT,
+          file_path    TEXT,
+          version      TEXT,
+          trust_tier   TEXT,
+          scope        TEXT    NOT NULL DEFAULT 'project-local'
+                         CHECK (scope IN ('global','template','project-local')),
+          status       TEXT    NOT NULL DEFAULT 'installed',
+          installed_at TEXT    NOT NULL,
+          created_at   TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          updated_at   TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          CHECK (kind != 'skill' OR file_path IS NOT NULL),
+          CHECK (origin = 'builtin' OR source_url IS NOT NULL),
+          CHECK (origin != 'builtin' OR source_url IS NULL)
+        `,
+        [
+          ["id", "NULL"],
+          ["name", "NULL"],
+          ["kind", "NULL"],
+          ["origin", "'external'"],
+          ["description", "''"],
+          ["source_url", "NULL"],
+          ["file_path", "NULL"],
+          ["version", "NULL"],
+          ["trust_tier", "NULL"],
+          ["scope", "'project-local'"],
+          ["status", "'installed'"],
+          ["installed_at", ISO_NOW_DEFAULT],
+          ["created_at", ISO_NOW_DEFAULT],
+          ["updated_at", ISO_NOW_DEFAULT]
+        ]
+      );
+    }
+    if (needsIsoDefault("repos")) {
+      rebuildTable(
+        db,
+        "repos",
+        `
+          name               TEXT PRIMARY KEY,
+          path               TEXT    NOT NULL,
+          file_count         INTEGER NOT NULL DEFAULT 0,
+          last_scanned_at    TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          target_branch      TEXT,
+          branching_model    TEXT,
+          protected_branches TEXT,
+          remotes            TEXT
+        `,
+        [
+          ["name", "NULL"],
+          ["path", "''"],
+          ["file_count", "0"],
+          ["last_scanned_at", ISO_NOW_DEFAULT],
+          ["target_branch", "NULL"],
+          ["branching_model", "NULL"],
+          ["protected_branches", "NULL"],
+          ["remotes", "NULL"]
+        ]
+      );
+    }
+    const presentTimestampColumns = TIMESTAMP_COLUMNS.filter(
+      ([table, column]) => tableExists(db, table) && hasColumn(db, table, column)
+    );
+    for (const [table, column] of presentTimestampColumns) {
+      db.exec(
+        `UPDATE ${table} SET ${column} = strftime('%Y-%m-%dT%H:%M:%fZ', ${column})
+          WHERE ${column} IS NOT NULL AND length(${column}) IN (19, 20)
+            AND strftime('%Y-%m-%dT%H:%M:%fZ', ${column}) IS NOT NULL`
+      );
+    }
+    const malformed = [];
+    for (const [table, column] of presentTimestampColumns) {
+      const bad = db.prepare(`SELECT DISTINCT ${column} AS v FROM ${table} WHERE ${column} IS NOT NULL AND length(${column}) <> 24 LIMIT 5`).all();
+      if (bad.length > 0) {
+        malformed.push(`${table}.${column} = ${bad.map((r) => JSON.stringify(r.v)).join(", ")}`);
+      }
+    }
+    if (malformed.length > 0) {
+      throw new Error(
+        `migrateV29toV30: timestamps not in YYYY-MM-DDTHH:MM:SS.sssZ form \u2014 fix them, then reopen: ${malformed.join("; ")}`
+      );
+    }
+    const fkViolations = db.prepare("PRAGMA foreign_key_check").all();
+    if (fkViolations.length > 0) {
+      throw new Error(
+        `migrateV29toV30: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v30 rebuilds`
       );
     }
     db.exec("COMMIT");

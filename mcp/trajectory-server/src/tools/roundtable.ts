@@ -718,19 +718,19 @@ export function roundtableTools(db: TrajectoryDB): {
 
         const answerRows = db.all<{ body: string }>(
           `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'answer'
-           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`,
+           AND created_at >= ? AND created_at <= COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
           [issueId, roundtable.created_at, updated!.closed_at],
         ).map((r) => r.body);
 
         const noteRows = db.all<{ body: string }>(
           `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'note' AND body LIKE 'not ratified: %'
-           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`,
+           AND created_at >= ? AND created_at <= COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
           [issueId, roundtable.created_at, updated!.closed_at],
         ).map((r) => r.body.replace(/^not ratified: /, ''));
 
         const decisionRows = db.all<{ body: string }>(
           `SELECT body FROM discussions WHERE issue_id = ? AND kind = 'decision' AND body NOT LIKE 'Ratified: %'
-           AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`,
+           AND created_at >= ? AND created_at <= COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
           [issueId, roundtable.created_at, updated!.closed_at],
         );
 
