@@ -1498,9 +1498,10 @@ const TIMESTAMP_COLUMNS: Array<[string, string]> = [
 //   discussions — remote_comment_id via ADD COLUMN (FTS + triggers untouched)
 //                 with a partial UNIQUE index on the non-NULL values.
 //   agents, cheatcodes, repos — rebuilt so their DEFAULTs write ms-ISO.
-//   every timestamp column — 19-char `YYYY-MM-DD HH:MM:SS` and 20-char
-//                 `…SSZ` values are rewritten to `…SS.000Z`; afterwards every
-//                 non-NULL timestamp must be 24 chars or the migration aborts.
+//   every timestamp column — any non-24-char value strftime can parse (the
+//                 hook-written `YYYY-MM-DD HH:MM:SS` and `…SSZ`, microsecond or
+//                 offset stamps, date-only values) is rewritten to the 24-char
+//                 ms-ISO form; a value strftime cannot parse aborts the migration.
 //
 // Same rebuild discipline as v29: foreign_keys OFF, one transaction, rows that
 // would violate a rebuilt table's CHECKs abort up front with one error naming
@@ -1680,14 +1681,17 @@ function migrateV29toV30(db: DatabaseSync): void {
     for (const [table, column] of presentTimestampColumns) {
       db.exec(
         `UPDATE ${table} SET ${column} = strftime('%Y-%m-%dT%H:%M:%fZ', ${column})
-          WHERE ${column} IS NOT NULL AND length(${column}) IN (19, 20)
+          WHERE ${column} IS NOT NULL AND length(${column}) <> 24
             AND strftime('%Y-%m-%dT%H:%M:%fZ', ${column}) IS NOT NULL`,
       );
     }
     const malformed: string[] = [];
     for (const [table, column] of presentTimestampColumns) {
       const bad = db
-        .prepare(`SELECT DISTINCT ${column} AS v FROM ${table} WHERE ${column} IS NOT NULL AND length(${column}) <> 24 LIMIT 5`)
+        .prepare(
+          `SELECT DISTINCT ${column} AS v FROM ${table}
+            WHERE ${column} IS NOT NULL AND strftime('%Y-%m-%dT%H:%M:%fZ', ${column}) IS NULL LIMIT 5`,
+        )
         .all() as Array<{ v: unknown }>;
       if (bad.length > 0) {
         malformed.push(`${table}.${column} = ${bad.map((r) => JSON.stringify(r.v)).join(', ')}`);
@@ -1695,7 +1699,7 @@ function migrateV29toV30(db: DatabaseSync): void {
     }
     if (malformed.length > 0) {
       throw new Error(
-        `migrateV29toV30: timestamps not in YYYY-MM-DDTHH:MM:SS.sssZ form — fix them, then reopen: ${malformed.join('; ')}`,
+        `migrateV29toV30: timestamps that cannot be parsed into YYYY-MM-DDTHH:MM:SS.sssZ — fix them, then reopen: ${malformed.join('; ')}`,
       );
     }
 

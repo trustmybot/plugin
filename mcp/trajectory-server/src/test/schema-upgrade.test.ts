@@ -4052,7 +4052,9 @@ function seedV29(dbPath: string): void {
       VALUES (31, 5, 'e', 'nineteen-char stamp', '2026-01-01 10:00:00'),
              (32, 5, 'e', 'twenty-char stamp', '2026-01-01T10:00:01Z'),
              (33, 5, 'e', 'ms stamp late in the second', '2026-01-01T10:00:01.500Z'),
-             (34, 5, 'e', 'ms stamp early in the second', '2026-01-01T10:00:00.250Z');
+             (34, 5, 'e', 'ms stamp early in the second', '2026-01-01T10:00:00.250Z'),
+             (35, 5, 'e', 'microsecond stamp', '2026-01-01T10:00:02.123456Z'),
+             (36, 5, 'e', 'date-only stamp', '2026-01-02');
     INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, task_id) VALUES (42, 'owner/repo', '2026-01-03T00:00:00Z', 11);
     INSERT INTO cheatcodes (id, name, kind, origin, source_url, scope, status, installed_at)
       VALUES (100, 'pdf', 'plugin', 'marketplace', 'pdf@x', 'project-local', 'installed', '2026-01-04 00:00:00');
@@ -4122,6 +4124,13 @@ describe('schema upgrade — v29 -> v30 metering columns, remote_comment_id, one
       { id: 32, created_at: '2026-01-01T10:00:01.000Z' },
       { id: 33, created_at: '2026-01-01T10:00:01.500Z' },
     ], 'normalized 19/20-char stamps sort correctly against ms-ISO stamps of the same second');
+    const odd = db.all<{ id: number; created_at: string }>(
+      'SELECT id, created_at FROM audit WHERE id IN (35, 36) ORDER BY id',
+    ).map((r) => ({ ...r }));
+    assert.deepEqual(odd, [
+      { id: 35, created_at: '2026-01-01T10:00:02.123Z' },
+      { id: 36, created_at: '2026-01-02T00:00:00.000Z' },
+    ], 'parseable microsecond and date-only stamps normalize to 24 chars instead of aborting');
     assert.equal(
       db.all("SELECT rowid FROM audit_fts WHERE audit_fts MATCH 'nineteen'").length,
       1,
@@ -4187,7 +4196,7 @@ describe('schema upgrade — v29 -> v30 metering columns, remote_comment_id, one
       1,
       'reopening at v30 must not create another backup',
     );
-    assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM audit WHERE id BETWEEN 31 AND 34')!.n, 4);
+    assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM audit WHERE id BETWEEN 31 AND 36')!.n, 6);
     db.close();
   });
 

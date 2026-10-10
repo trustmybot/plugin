@@ -22387,20 +22387,23 @@ function migrateV29toV30(db2) {
     for (const [table, column] of presentTimestampColumns) {
       db2.exec(
         `UPDATE ${table} SET ${column} = strftime('%Y-%m-%dT%H:%M:%fZ', ${column})
-          WHERE ${column} IS NOT NULL AND length(${column}) IN (19, 20)
+          WHERE ${column} IS NOT NULL AND length(${column}) <> 24
             AND strftime('%Y-%m-%dT%H:%M:%fZ', ${column}) IS NOT NULL`
       );
     }
     const malformed = [];
     for (const [table, column] of presentTimestampColumns) {
-      const bad = db2.prepare(`SELECT DISTINCT ${column} AS v FROM ${table} WHERE ${column} IS NOT NULL AND length(${column}) <> 24 LIMIT 5`).all();
+      const bad = db2.prepare(
+        `SELECT DISTINCT ${column} AS v FROM ${table}
+            WHERE ${column} IS NOT NULL AND strftime('%Y-%m-%dT%H:%M:%fZ', ${column}) IS NULL LIMIT 5`
+      ).all();
       if (bad.length > 0) {
         malformed.push(`${table}.${column} = ${bad.map((r) => JSON.stringify(r.v)).join(", ")}`);
       }
     }
     if (malformed.length > 0) {
       throw new Error(
-        `migrateV29toV30: timestamps not in YYYY-MM-DDTHH:MM:SS.sssZ form \u2014 fix them, then reopen: ${malformed.join("; ")}`
+        `migrateV29toV30: timestamps that cannot be parsed into YYYY-MM-DDTHH:MM:SS.sssZ \u2014 fix them, then reopen: ${malformed.join("; ")}`
       );
     }
     const fkViolations = db2.prepare("PRAGMA foreign_key_check").all();

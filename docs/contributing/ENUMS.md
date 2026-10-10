@@ -81,7 +81,7 @@ K8s Events have a `reason` field with a similar shape but different semantics. *
 | Value | Source | Meaning |
 |---|---|---|
 | `open` | GitHub | Milestone accepting issues |
-| `closed` | GitHub | Milestone shipped or retired |
+| `closed` | GitHub | Milestone shipped or wound down |
 
 Schema enforces via `CHECK (state IN ('open','closed'))` (v29).
 
