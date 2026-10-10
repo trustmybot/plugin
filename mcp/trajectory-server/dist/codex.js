@@ -21499,6 +21499,9 @@ var TrajectoryDB = class {
       throw err5;
     }
   }
+  get isOpen() {
+    return this.db.isOpen;
+  }
   close() {
     this.db.close();
   }
@@ -24803,9 +24806,12 @@ var SELECT_SQL = {
   discussions: "SELECT discussion_id AS rowid, embedding FROM discussions_embeddings WHERE model_id = ?",
   audit: "SELECT audit_id AS rowid, embedding FROM audit_embeddings WHERE model_id = ?"
 };
+function auditEmbedText(summary, contentJson) {
+  return contentJson && contentJson !== "{}" ? `${summary} ${contentJson}` : summary;
+}
 async function embedAndStore(db, table, rowid, text) {
   const v = await embed(text);
-  if (v === null) return;
+  if (v === null || !db.isOpen) return;
   const sql = INSERT_SQL[table];
   db.run(sql, [rowid, packEmbedding(v), MODEL_ID, (/* @__PURE__ */ new Date()).toISOString()]);
 }
@@ -24821,6 +24827,52 @@ async function topKByCosine(db, table, query, k) {
   }).filter((r) => r !== null);
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, k);
+}
+
+// src/embeddings/backfill.ts
+var MISSING_SQL = {
+  discussions: "SELECT id, body AS text FROM discussions WHERE id NOT IN (SELECT discussion_id FROM discussions_embeddings) ORDER BY id DESC LIMIT ?",
+  audit: "SELECT id, summary AS text, content_json FROM audit WHERE id NOT IN (SELECT audit_id FROM audit_embeddings) ORDER BY id DESC LIMIT ?"
+};
+async function backfillMissing(db, table, limit = 50, onRow) {
+  const rows = db.all(MISSING_SQL[table], [limit]);
+  for (const r of rows) {
+    const text = table === "audit" ? auditEmbedText(r.text, r.content_json ?? null) : r.text;
+    await embedAndStore(db, table, r.id, text).catch(
+      (e) => console.error(`[embeddings] backfill ${table} #${r.id} failed:`, e)
+    );
+    onRow?.();
+  }
+  return rows.length;
+}
+
+// src/tools/audit.ts
+function resolveIssueRepo(db, issueId) {
+  return db.get("SELECT repo FROM issues WHERE id = ?", [issueId])?.repo ?? null;
+}
+function insertAudit(db, entry) {
+  const contentJson = entry.content_json ?? "{}";
+  const repo = entry.repo ?? resolveIssueRepo(db, entry.issue_id);
+  const res = db.run(
+    `INSERT INTO audit
+       (issue_id, branch_id, from_node, event_type, summary, content_json, created_at, repo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      entry.issue_id,
+      entry.branch_id ?? null,
+      entry.from_node,
+      entry.event_type,
+      entry.summary,
+      contentJson,
+      entry.created_at ?? nowISO(),
+      repo
+    ]
+  );
+  const id = Number(res.lastInsertRowid);
+  void embedAndStore(db, "audit", id, auditEmbedText(entry.summary, contentJson)).catch(
+    (e) => console.error("[embeddings] insertAudit embed failed:", e)
+  );
+  return id;
 }
 
 // src/tools/discussions.ts
@@ -24858,10 +24910,11 @@ function resolveDefaultIssueId(db) {
 }
 function insertDiscussion(db, entry) {
   const createdAt = entry.created_at ?? nowISO();
+  const repo = entry.repo ?? resolveIssueRepo(db, entry.issue_id);
   const res = db.run(
-    `INSERT INTO discussions (issue_id, author, kind, body, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
-    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt]
+    `INSERT INTO discussions (issue_id, author, kind, body, created_at, repo)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt, repo]
   );
   const id = Number(res.lastInsertRowid);
   void embedAndStore(db, "discussions", id, entry.body).catch(
@@ -24989,6 +25042,7 @@ function discussionTools(db) {
       const kind = args["kind"] ?? null;
       const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
       const alpha = Math.min(1, Math.max(0, args["recency_alpha"] ?? 0.3));
+      await backfillMissing(db, "discussions");
       const fetchFtsRows = (limitK) => db.all(
         `SELECT
              d.id, d.issue_id, d.kind, d.author, d.created_at,
@@ -26320,16 +26374,14 @@ function issueTools(db, dbPath = "", options = {}) {
           `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
           [adoption.backend, ghIid, glIid, now, adoptId]
         );
-        db.run(
-          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (?, 'executor', 'issue_adopted', ?, ?, ?)`,
-          [
-            adoptId,
-            `issue ${adoptId} adopted ${adoption.backend} #${remoteIid} at create`,
-            JSON.stringify({ issue_id: adoptId, backend: adoption.backend, remote_iid: remoteIid, at_create: true }),
-            now
-          ]
-        );
+        insertAudit(db, {
+          issue_id: adoptId,
+          from_node: "executor",
+          event_type: "issue_adopted",
+          summary: `issue ${adoptId} adopted ${adoption.backend} #${remoteIid} at create`,
+          content_json: JSON.stringify({ issue_id: adoptId, backend: adoption.backend, remote_iid: remoteIid, at_create: true }),
+          created_at: now
+        });
         const adoptedRow = db.get("SELECT * FROM issues WHERE id = ?", [adoptId]);
         const adoptedIssue = decodeIssue(adoptedRow);
         const adoptedRedacted = redactIssue(adoptedIssue, agent, { include_description: true });
@@ -26537,16 +26589,14 @@ function issueTools(db, dbPath = "", options = {}) {
           }
         }
       } else {
-        db.run(
-          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (?, 'executor', 'sync_skipped', ?, ?, ?)`,
-          [
-            issueId,
-            `issue ${issueId} sync skipped: issue_sync is off`,
-            JSON.stringify({ issue_id: issueId, reason: "issue_sync_off" }),
-            nowISO()
-          ]
-        );
+        insertAudit(db, {
+          issue_id: issueId,
+          from_node: "executor",
+          event_type: "sync_skipped",
+          summary: `issue ${issueId} sync skipped: issue_sync is off`,
+          content_json: JSON.stringify({ issue_id: issueId, reason: "issue_sync_off" }),
+          created_at: nowISO()
+        });
         const preferred = detectPreferred();
         if (preferred !== null) {
           syncDiagnostic = {
@@ -26870,16 +26920,14 @@ function issueTools(db, dbPath = "", options = {}) {
           [iid, now, issueId]
         );
       }
-      db.run(
-        `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-         VALUES (?, 'executor', 'issue_linked', ?, ?, ?)`,
-        [
-          parseInt(issueId, 10),
-          `issue ${issueId} linked to ${backend} #${iid}${force && existingIid != null ? ` (forced, was ${existingIid})` : ""}`,
-          JSON.stringify({ issue_id: issueId, backend, iid, forced: force && existingIid != null }),
-          now
-        ]
-      );
+      insertAudit(db, {
+        issue_id: parseInt(issueId, 10),
+        from_node: "executor",
+        event_type: "issue_linked",
+        summary: `issue ${issueId} linked to ${backend} #${iid}${force && existingIid != null ? ` (forced, was ${existingIid})` : ""}`,
+        content_json: JSON.stringify({ issue_id: issueId, backend, iid, forced: force && existingIid != null }),
+        created_at: now
+      });
       const updated = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       return ok2({ linked: true, backend, iid, issue: decodeIssue(updated) });
     })),
@@ -26910,16 +26958,14 @@ function issueTools(db, dbPath = "", options = {}) {
         [ghIid, glIid, adoption.backend, now, issueId]
       );
       if (!idempotent) {
-        db.run(
-          `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (?, 'executor', 'issue_adopted', ?, ?, ?)`,
-          [
-            parseInt(issueId, 10),
-            `issue ${issueId} adopted ${adoption.backend} #${remoteIid}`,
-            JSON.stringify({ issue_id: issueId, backend: adoption.backend, remote_iid: remoteIid, at_create: false }),
-            now
-          ]
-        );
+        insertAudit(db, {
+          issue_id: parseInt(issueId, 10),
+          from_node: "executor",
+          event_type: "issue_adopted",
+          summary: `issue ${issueId} adopted ${adoption.backend} #${remoteIid}`,
+          content_json: JSON.stringify({ issue_id: issueId, backend: adoption.backend, remote_iid: remoteIid, at_create: false }),
+          created_at: now
+        });
       }
       const updated = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       return ok2({ adopted: true, backend: adoption.backend, remote_iid: remoteIid, idempotent, issue: decodeIssue(updated) });
@@ -27371,23 +27417,21 @@ function scanTools(db, graphHolder = null, dbPath = "") {
           const stats = persistScan(db, graph, out, sessionDir);
           const topDirs = new Set(out.files.map((f) => f.path.split("/")[0]).filter(Boolean));
           const structuralChange = detectStructuralChange(db, out.repos, topDirs);
-          db.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'deep_scan_completed', ?, ?, ?)`,
-            [
-              `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} \u2014 source=${source}${structuralChange ? ", structural-change" : ""}`,
-              JSON.stringify({
-                ...stats,
-                session_dir: out.session_dir,
-                scanned_at: out.scanned_at,
-                source,
-                structural_change: structuralChange,
-                repos_seen: out.repos.map((r) => r.name),
-                top_dirs: Array.from(topDirs).sort()
-              }),
-              nowISO()
-            ]
-          );
+          insertAudit(db, {
+            issue_id: -1,
+            from_node: "bro",
+            event_type: "deep_scan_completed",
+            summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} \u2014 source=${source}${structuralChange ? ", structural-change" : ""}`,
+            content_json: JSON.stringify({
+              ...stats,
+              session_dir: out.session_dir,
+              scanned_at: out.scanned_at,
+              source,
+              structural_change: structuralChange,
+              repos_seen: out.repos.map((r) => r.name),
+              top_dirs: Array.from(topDirs).sort()
+            })
+          });
           return ok3({
             session_dir: out.session_dir,
             scanned_at: out.scanned_at,

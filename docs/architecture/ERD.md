@@ -127,6 +127,7 @@ erDiagram
         TEXT feedback
         INT  mcp_available "NOT NULL, no default; 0 = MCP-down fallback"
         TEXT subagent_session_id
+        TEXT repo "FK → repos.name; task repo, else issue repo, at write time"
     }
 
     audit {
@@ -137,6 +138,7 @@ erDiagram
         TEXT event_type
         TEXT summary
         TEXT content_json
+        TEXT repo "FK → repos.name; issue repo at write time (NULL for issue -1)"
     }
 
     discussions {
@@ -146,6 +148,7 @@ erDiagram
         TEXT kind "CHECK intent|question|answer|decision|note|analysis"
         TEXT body
         TEXT remote_comment_id "UNIQUE when non-NULL; PR/MR comment dedupe key"
+        TEXT repo "FK → repos.name; issue repo at write time (NULL for issue -1)"
     }
 
     roundtables {
@@ -178,6 +181,7 @@ erDiagram
         TEXT spawn_id "UNIQUE (task_id, spawn_id) when non-NULL"
         TEXT session_id
         TEXT usage_source "CHECK transcript|subagent_stop|unmeasured"
+        TEXT repo "FK → repos.name; task repo at write time"
     }
 
     pr_review_runs {
@@ -239,6 +243,9 @@ erDiagram
 | `validation_attempts` | `task_id` | `tasks.id` | every validation attempt belongs to one task |
 | `agent_runs` | `task_id` | `tasks.id` | resource tracking per SWE spawn |
 | `agent_runs` | `issue_id` | `issues.id` | resource tracking scoped to issue |
+| `audit`, `discussions` | `repo` | `repos.name` | populated at write time from the parent issue's repo (explicit `repo` wins); NULL for the system issue `-1` |
+| `validation_attempts` | `repo` | `repos.name` | populated at write time from the task's repo, else its issue's repo |
+| `agent_runs` | `repo` | `repos.name` | populated at write time from the task's repo |
 | `cheatcode_attachments` | `cheatcode_id` | `cheatcodes.id` | what an install wired, for exact uninstall (ON DELETE CASCADE) |
 | `milestones` | `repo` | `repos.name` | each milestone belongs to one repo (ON DELETE RESTRICT) |
 | `issues` | `(milestone, repo)` | `milestones.(name, repo)` | nullable composite FK — an issue's milestone is scoped to its repo (ON DELETE RESTRICT) |
@@ -267,8 +274,8 @@ erDiagram
 | `pr_review_runs` | Per-PR monitor incremental-polling cursor (`last_fetched_at`, `last_comment_id`) — cursor-only since v29. Used by `/monitor` flow — `pr_monitor_comments_get` reads the cursor on entry and upserts it on exit so the next call only fetches new comments; no cursor is kept when no repo slug resolves. Table-level `UNIQUE (pr_number, repo)` with `CHECK (pr_number > 0)` and `CHECK (repo <> '')`. `task_id` links the PR to its task for `post-pr-comments-persist`. |
 | `debug_trajectory` | Deterministic-trajectory capture (only when `TMB_DEBUG_TRAJECTORY=1`). Used by L5 scoring. |
 | `eval_results` | Per-scorer results for L5/A-B prompt-eval runs. One row per (run_id, flow_name, scorer_name). |
-| `discussions_embeddings` | Embedding cache for `discussions` rows — one BLOB per discussion, keyed by `discussion_id` + `model_id`. Populated on write + background backfill; used by `discussion_search` semantic path. |
-| `audit_embeddings` | Embedding cache for `audit` rows — one BLOB per audit event. Used by `audit_search` semantic path. |
+| `discussions_embeddings` | Embedding cache for `discussions` rows — one BLOB per discussion, keyed by `discussion_id` + `model_id`. Populated on write (`insertDiscussion`); rows written outside the server are embedded by the boot-time backfill and by a lazy tick (up to 50 rows) at the start of every `discussion_search`. Used by the `discussion_search` semantic path. |
+| `audit_embeddings` | Embedding cache for `audit` rows — one BLOB per audit event. Populated on write (`insertAudit`, the single server audit write path); rows written outside the server are embedded by the boot-time backfill and by a lazy tick (up to 50 rows) at the start of every `audit_search`. Used by the `audit_search` semantic path. |
 
 ## Indexes
 

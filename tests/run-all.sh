@@ -61,6 +61,7 @@ run_step "L1 lint: no citations in prompts"           bash "$HERE/l1-lint/no-cit
 run_step "L1 lint: no file_registry refs (v7 retirement)"  bash "$HERE/l1-lint/no-file-registry-refs.sh"
 run_step "L1 lint: kuzu trustedDependencies declared"  bash "$HERE/l1-lint/kuzu-trusted-dep.sh"
 run_step "L1 lint: no audit_append kind= arg"         bash "$HERE/l1-lint/no-audit-log-kind.sh"
+run_step "L1 lint: single audit write path (insertAudit)"  bash "$HERE/l1-lint/single-audit-write-path.sh"
 run_step "L1 lint: no developer paths in artifacts"   bash "$HERE/l1-lint/no-developer-paths.sh"
 run_step "L1 lint: no stale framing prose"            bash "$HERE/l1-lint/stale-framing-prose.sh"
 run_step "L1 lint: no hardcoded plugin name"          bash "$HERE/l1-lint/no-hardcoded-plugin-name.sh"

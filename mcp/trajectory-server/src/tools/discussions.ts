@@ -4,6 +4,8 @@ import { nowISO } from '../db.js';
 import type { Discussion, Issue, Task } from '../types.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
 import { embedAndStore, topKByCosine } from '../embeddings/store.js';
+import { backfillMissing } from '../embeddings/backfill.js';
+import { resolveIssueRepo } from './audit.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -48,7 +50,9 @@ export function resolveDefaultIssueId(db: TrajectoryDB): number {
 
 /**
  * The single insert+embed path for discussions. Synchronously INSERTs the row
- * and returns its id, then fires `embedAndStore` for semantic discussion_search.
+ * (`repo` defaults to the parent issue's repo) and returns its id, then fires
+ * `embedAndStore` for semantic discussion_search. `insertAudit` shares this
+ * contract.
  *
  * The embed is intentionally NOT awaited: `embed()` yields to the event loop, so
  * the embedding-table write runs in a later turn — after a surrounding
@@ -61,13 +65,21 @@ export function resolveDefaultIssueId(db: TrajectoryDB): number {
  */
 export function insertDiscussion(
   db: TrajectoryDB,
-  entry: { issue_id: number | string; author: string; kind: string; body: string; created_at?: string },
+  entry: {
+    issue_id: number | string;
+    author: string;
+    kind: string;
+    body: string;
+    created_at?: string;
+    repo?: string | null;
+  },
 ): number {
   const createdAt = entry.created_at ?? nowISO();
+  const repo = entry.repo ?? resolveIssueRepo(db, entry.issue_id);
   const res = db.run(
-    `INSERT INTO discussions (issue_id, author, kind, body, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
-    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt],
+    `INSERT INTO discussions (issue_id, author, kind, body, created_at, repo)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt, repo],
   );
   const id = Number(res.lastInsertRowid);
   void embedAndStore(db, 'discussions', id, entry.body).catch((e) =>
@@ -211,6 +223,8 @@ export function discussionTools(db: TrajectoryDB): {
       const kind = (args['kind'] as string | undefined) ?? null;
       const k = Math.min(Math.max(1, (args['k'] as number | undefined) ?? 5), 20);
       const alpha = Math.min(1, Math.max(0, (args['recency_alpha'] as number | undefined) ?? 0.3));
+
+      await backfillMissing(db, 'discussions');
 
       type MatchRow = {
         id: number;

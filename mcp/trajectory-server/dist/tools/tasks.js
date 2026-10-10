@@ -1,6 +1,7 @@
 import { nowISO } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { serverLog } from '../logger.js';
+import { insertAudit } from './audit.js';
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolve, dirname } from 'node:path';
@@ -717,21 +718,21 @@ export function taskTools(db) {
                         // time. `completed_at` stays NULL until bro_atomic_close finalizes
                         // the row with duration + (eventually) tokens. Makes bro's
                         // skill/rule invocations attributable to a tracked agent_run.
-                        db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at)
-               VALUES (?, ?, 'bro', ?)`, [row.id, issueId, now]);
+                        db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo)
+               VALUES (?, ?, 'bro', ?, ?)`, [row.id, issueId, now, row.repo ?? null]);
                     }
                 }
                 // Audit rows for any branches auto-created by ensureBranchInRepo (#529).
                 for (const ac of autocreatedAudits) {
-                    db.run(`INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, 'trajectory-server', 'tmb_branch_autocreated', ?, ?, ?)`, [
-                        issueId,
-                        ac.branchId,
-                        `Auto-created branch '${ac.branchId}' from '${ac.startPoint}' in repo '${ac.repoPath}'.`,
-                        JSON.stringify({ branch: ac.branchId, start_point: ac.startPoint, repo_path: ac.repoPath }),
-                        now,
-                    ]);
+                    insertAudit(db, {
+                        issue_id: issueId,
+                        branch_id: ac.branchId,
+                        from_node: 'trajectory-server',
+                        event_type: 'tmb_branch_autocreated',
+                        summary: `Auto-created branch '${ac.branchId}' from '${ac.startPoint}' in repo '${ac.repoPath}'.`,
+                        content_json: JSON.stringify({ branch: ac.branchId, start_point: ac.startPoint, repo_path: ac.repoPath }),
+                        created_at: now,
+                    });
                 }
                 // Optional atomic audit emission: when emit_planning_complete=true, insert
                 // the planning_complete event in the SAME transaction as the task creation.
@@ -751,9 +752,15 @@ export function taskTools(db) {
                         parent_branch_ids: results.map((r) => r.parent_branch_id),
                     });
                     const fromNode = args['agent'] ?? 'bro';
-                    db.run(`INSERT INTO audit
-               (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'planning_complete', ?, ?, ?)`, [issueId, branchForAudit, fromNode, summary, contentJson, now]);
+                    insertAudit(db, {
+                        issue_id: issueId,
+                        branch_id: branchForAudit,
+                        from_node: fromNode,
+                        event_type: 'planning_complete',
+                        summary,
+                        content_json: contentJson,
+                        created_at: now,
+                    });
                 }
                 // Audit log for gate waivers so pr-reviewer / human-review can flag
                 // tasks that skipped the alignment loop. Runs inside the same txn as
@@ -762,73 +769,73 @@ export function taskTools(db) {
                 const firstBranch = results[0]?.branch_id ?? '';
                 const agentFromNode = args['agent'];
                 if (waived) {
-                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'scope_gate_waived', ?, ?, ?)`, [
-                        issueId,
-                        firstBranch,
-                        agentFromNode,
-                        waiverReason.slice(0, 200),
-                        JSON.stringify({
+                    insertAudit(db, {
+                        issue_id: issueId,
+                        branch_id: firstBranch,
+                        from_node: agentFromNode,
+                        event_type: 'scope_gate_waived',
+                        summary: waiverReason.slice(0, 200),
+                        content_json: JSON.stringify({
                             waive_scope_gate_reason: waiverReason,
                             tasks_created: results.length,
                         }),
-                        now,
-                    ]);
+                        created_at: now,
+                    });
                 }
                 if (branchGateWaived) {
-                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'branch_gate_waived', ?, ?, ?)`, [
-                        issueId,
-                        firstBranch,
-                        agentFromNode,
-                        branchGateWaiverReason.slice(0, 200),
-                        JSON.stringify({ waive_branch_gate_reason: branchGateWaiverReason, tasks_created: results.length }),
-                        now,
-                    ]);
+                    insertAudit(db, {
+                        issue_id: issueId,
+                        branch_id: firstBranch,
+                        from_node: agentFromNode,
+                        event_type: 'branch_gate_waived',
+                        summary: branchGateWaiverReason.slice(0, 200),
+                        content_json: JSON.stringify({ waive_branch_gate_reason: branchGateWaiverReason, tasks_created: results.length }),
+                        created_at: now,
+                    });
                 }
                 if (registryGateWaived) {
-                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'registry_gate_waived', ?, ?, ?)`, [
-                        issueId,
-                        firstBranch,
-                        agentFromNode,
-                        registryGateWaiverReason.slice(0, 200),
-                        JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: results.length }),
-                        now,
-                    ]);
+                    insertAudit(db, {
+                        issue_id: issueId,
+                        branch_id: firstBranch,
+                        from_node: agentFromNode,
+                        event_type: 'registry_gate_waived',
+                        summary: registryGateWaiverReason.slice(0, 200),
+                        content_json: JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: results.length }),
+                        created_at: now,
+                    });
                 }
                 if (intentGateWaived) {
-                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'intent_gate_waived', ?, ?, ?)`, [
-                        issueId,
-                        firstBranch,
-                        agentFromNode,
-                        intentGateWaiverReason.slice(0, 200),
-                        JSON.stringify({ waive_intent_gate_reason: intentGateWaiverReason, tasks_created: results.length }),
-                        now,
-                    ]);
+                    insertAudit(db, {
+                        issue_id: issueId,
+                        branch_id: firstBranch,
+                        from_node: agentFromNode,
+                        event_type: 'intent_gate_waived',
+                        summary: intentGateWaiverReason.slice(0, 200),
+                        content_json: JSON.stringify({ waive_intent_gate_reason: intentGateWaiverReason, tasks_created: results.length }),
+                        created_at: now,
+                    });
                 }
                 if (decisionGateWaived) {
-                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'decision_gate_waived', ?, ?, ?)`, [
-                        issueId,
-                        firstBranch,
-                        agentFromNode,
-                        decisionGateWaiverReason.slice(0, 200),
-                        JSON.stringify({ waive_decision_gate_reason: decisionGateWaiverReason, tasks_created: results.length }),
-                        now,
-                    ]);
+                    insertAudit(db, {
+                        issue_id: issueId,
+                        branch_id: firstBranch,
+                        from_node: agentFromNode,
+                        event_type: 'decision_gate_waived',
+                        summary: decisionGateWaiverReason.slice(0, 200),
+                        content_json: JSON.stringify({ waive_decision_gate_reason: decisionGateWaiverReason, tasks_created: results.length }),
+                        created_at: now,
+                    });
                 }
                 if (specShapeWaived) {
-                    db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (?, ?, ?, 'spec_shape_gate_waived', ?, ?, ?)`, [
-                        issueId,
-                        firstBranch,
-                        agentFromNode,
-                        specShapeWaiverReason.slice(0, 200),
-                        JSON.stringify({ waive_spec_shape_reason: specShapeWaiverReason, tasks_created: results.length }),
-                        now,
-                    ]);
+                    insertAudit(db, {
+                        issue_id: issueId,
+                        branch_id: firstBranch,
+                        from_node: agentFromNode,
+                        event_type: 'spec_shape_gate_waived',
+                        summary: specShapeWaiverReason.slice(0, 200),
+                        content_json: JSON.stringify({ waive_spec_shape_reason: specShapeWaiverReason, tasks_created: results.length }),
+                        created_at: now,
+                    });
                 }
                 return results;
             });

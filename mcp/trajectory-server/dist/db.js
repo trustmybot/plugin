@@ -307,6 +307,9 @@ export class TrajectoryDB {
             throw err;
         }
     }
+    get isOpen() {
+        return this.db.isOpen;
+    }
     close() {
         this.db.close();
     }

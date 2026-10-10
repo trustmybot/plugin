@@ -121,8 +121,10 @@ export function validationTools(db: TrajectoryDB): {
         );
       }
 
-      const taskExists = db.get<{ id: number }>(
-        `SELECT id FROM tasks WHERE id = ?`,
+      const taskExists = db.get<{ id: number; repo: string | null }>(
+        `SELECT t.id, COALESCE(t.repo, i.repo) AS repo
+           FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
+          WHERE t.id = ?`,
         [taskId],
       );
       if (!taskExists) {
@@ -135,16 +137,17 @@ export function validationTools(db: TrajectoryDB): {
 
       db.run(
         `INSERT INTO validation_attempts
-           (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at, repo)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(task_id, attempt_n) DO UPDATE SET
            agent = excluded.agent,
            verdict = excluded.verdict,
            feedback = excluded.feedback,
            mcp_available = excluded.mcp_available,
            subagent_session_id = excluded.subagent_session_id,
-           created_at = excluded.created_at`,
-        [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, now],
+           created_at = excluded.created_at,
+           repo = excluded.repo`,
+        [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, now, taskExists.repo],
       );
 
       const row = db.get<ValidationAttempt>(

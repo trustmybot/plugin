@@ -1,6 +1,8 @@
 import { nowISO } from '../db.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
 import { embedAndStore, topKByCosine } from '../embeddings/store.js';
+import { backfillMissing } from '../embeddings/backfill.js';
+import { resolveIssueRepo } from './audit.js';
 const ALLOWED_KINDS = new Set(['intent', 'question', 'answer', 'decision', 'note', 'analysis']);
 const MAX_BODY_BYTES = 65_536;
 function ok(data) {
@@ -34,7 +36,9 @@ export function resolveDefaultIssueId(db) {
 }
 /**
  * The single insert+embed path for discussions. Synchronously INSERTs the row
- * and returns its id, then fires `embedAndStore` for semantic discussion_search.
+ * (`repo` defaults to the parent issue's repo) and returns its id, then fires
+ * `embedAndStore` for semantic discussion_search. `insertAudit` shares this
+ * contract.
  *
  * The embed is intentionally NOT awaited: `embed()` yields to the event loop, so
  * the embedding-table write runs in a later turn — after a surrounding
@@ -47,8 +51,9 @@ export function resolveDefaultIssueId(db) {
  */
 export function insertDiscussion(db, entry) {
     const createdAt = entry.created_at ?? nowISO();
-    const res = db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
-     VALUES (?, ?, ?, ?, ?)`, [entry.issue_id, entry.author, entry.kind, entry.body, createdAt]);
+    const repo = entry.repo ?? resolveIssueRepo(db, entry.issue_id);
+    const res = db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at, repo)
+     VALUES (?, ?, ?, ?, ?, ?)`, [entry.issue_id, entry.author, entry.kind, entry.body, createdAt, repo]);
     const id = Number(res.lastInsertRowid);
     void embedAndStore(db, 'discussions', id, entry.body).catch((e) => console.error('[embeddings] insertDiscussion embed failed:', e));
     return id;
@@ -172,6 +177,7 @@ export function discussionTools(db) {
             const kind = args['kind'] ?? null;
             const k = Math.min(Math.max(1, args['k'] ?? 5), 20);
             const alpha = Math.min(1, Math.max(0, args['recency_alpha'] ?? 0.3));
+            await backfillMissing(db, 'discussions');
             const fetchFtsRows = (limitK) => db.all(`SELECT
              d.id, d.issue_id, d.kind, d.author, d.created_at,
              snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,

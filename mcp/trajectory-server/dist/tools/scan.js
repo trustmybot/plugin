@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { insertAudit } from './audit.js';
 import { WorldModelGraph } from '../graph-db.js';
 import { classifyUrl } from '../utils/classify-url.js';
 import { frameUntrusted } from '../utils/untrusted.js';
@@ -538,10 +539,12 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
                 const structuralChange = detectStructuralChange(db, out.repos, topDirs);
                 // Emit deep_scan_completed audit row. Attach to the system issue
                 // (id=-1) — this is a session-level event, not work-issue scoped.
-                db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'deep_scan_completed', ?, ?, ?)`, [
-                    `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} — source=${source}${structuralChange ? ', structural-change' : ''}`,
-                    JSON.stringify({
+                insertAudit(db, {
+                    issue_id: -1,
+                    from_node: 'bro',
+                    event_type: 'deep_scan_completed',
+                    summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} — source=${source}${structuralChange ? ', structural-change' : ''}`,
+                    content_json: JSON.stringify({
                         ...stats,
                         session_dir: out.session_dir,
                         scanned_at: out.scanned_at,
@@ -550,8 +553,7 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
                         repos_seen: out.repos.map((r) => r.name),
                         top_dirs: Array.from(topDirs).sort(),
                     }),
-                    nowISO(),
-                ]);
+                });
                 return ok({
                     session_dir: out.session_dir,
                     scanned_at: out.scanned_at,

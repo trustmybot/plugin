@@ -1,6 +1,7 @@
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
-import { embedAndStore, topKByCosine } from '../embeddings/store.js';
+import { auditEmbedText, embedAndStore, topKByCosine } from '../embeddings/store.js';
+import { backfillMissing } from '../embeddings/backfill.js';
 const MAX_CONTENT_BYTES = 1_000_000;
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -37,6 +38,34 @@ function decodeCursor(cursor) {
 }
 function encodeCursor(row) {
     return Buffer.from(JSON.stringify({ created_at: row.created_at, id: row.id })).toString('base64');
+}
+export function resolveIssueRepo(db, issueId) {
+    return db.get('SELECT repo FROM issues WHERE id = ?', [issueId])?.repo ?? null;
+}
+/**
+ * The single insert+embed path for audit rows. `repo` defaults to the parent
+ * issue's repo. The embed is fire-and-forget so the helper is safe inside
+ * `db.transaction()` callbacks — see `insertDiscussion` in discussions.ts for
+ * the full reasoning.
+ */
+export function insertAudit(db, entry) {
+    const contentJson = entry.content_json ?? '{}';
+    const repo = entry.repo ?? resolveIssueRepo(db, entry.issue_id);
+    const res = db.run(`INSERT INTO audit
+       (issue_id, branch_id, from_node, event_type, summary, content_json, created_at, repo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [
+        entry.issue_id,
+        entry.branch_id ?? null,
+        entry.from_node,
+        entry.event_type,
+        entry.summary,
+        contentJson,
+        entry.created_at ?? nowISO(),
+        repo,
+    ]);
+    const id = Number(res.lastInsertRowid);
+    void embedAndStore(db, 'audit', id, auditEmbedText(entry.summary, contentJson)).catch((e) => console.error('[embeddings] insertAudit embed failed:', e));
+    return id;
 }
 // Audit table is event-only — every row is a lifecycle event with
 // (event_type, summary, content_json). Tool-call records live in
@@ -122,6 +151,7 @@ export function auditTools(db) {
             const eventTypes = args['event_types'] ?? null;
             const k = Math.min(Math.max(1, args['k'] ?? 5), 20);
             const alpha = Math.min(1, Math.max(0, args['recency_alpha'] ?? 0.3));
+            await backfillMissing(db, 'audit');
             let eventTypeFilter = '';
             let eventTypeParams = [];
             if (eventTypes && eventTypes.length > 0) {
@@ -257,15 +287,16 @@ export function auditTools(db) {
             if (byteLength > MAX_CONTENT_BYTES) {
                 return err(`content_json exceeds 1MB limit (${byteLength} bytes); truncate before calling audit_append`);
             }
-            db.run(`INSERT INTO audit
-           (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`, [issueId, branchId, fromNode, eventType, summary, contentJson, now]);
-            const row = db.get('SELECT * FROM audit WHERE rowid = last_insert_rowid()');
-            if (row) {
-                const embedText = contentJson !== '{}' ? `${summary} ${contentJson}` : summary;
-                await embedAndStore(db, 'audit', row.id, embedText).catch((e) => console.error('[embeddings] audit_append embed failed:', e));
-            }
-            return ok(row);
+            const id = insertAudit(db, {
+                issue_id: issueId,
+                branch_id: branchId,
+                from_node: fromNode,
+                event_type: eventType,
+                summary,
+                content_json: contentJson,
+                created_at: now,
+            });
+            return ok(db.get('SELECT * FROM audit WHERE id = ?', [id]));
         })),
         audit_list: wrapHandler(async (args) => {
             requireArg(args, 'agent');

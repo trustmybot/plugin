@@ -34,6 +34,10 @@ const SELECT_SQL: Record<string, string> = {
 
 export type EmbeddableTable = 'discussions' | 'audit';
 
+export function auditEmbedText(summary: string, contentJson: string | null): string {
+  return contentJson && contentJson !== '{}' ? `${summary} ${contentJson}` : summary;
+}
+
 export async function embedAndStore(
   db: TrajectoryDB,
   table: EmbeddableTable,
@@ -41,7 +45,7 @@ export async function embedAndStore(
   text: string,
 ): Promise<void> {
   const v = await embed(text);
-  if (v === null) return;
+  if (v === null || !db.isOpen) return;
   const sql = INSERT_SQL[table]!;
   db.run(sql, [rowid, packEmbedding(v), MODEL_ID, new Date().toISOString()]);
 }

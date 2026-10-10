@@ -6,6 +6,7 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB, CheatcodeRow } from '../db.js';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { insertAudit } from './audit.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -748,6 +749,16 @@ export function cheatcodeTools(db: TrajectoryDB): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
 } {
+  const auditCheatcode = (eventType: string, summary: string, contentJson: string, createdAt: string): number =>
+    insertAudit(db, {
+      issue_id: -1,
+      from_node: 'bro',
+      event_type: eventType,
+      summary,
+      content_json: contentJson,
+      created_at: createdAt,
+    });
+
   const definitions: Tool[] = [
     {
       name: 'cheatcode_search',
@@ -923,19 +934,16 @@ export function cheatcodeTools(db: TrajectoryDB): {
 
         const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS);
 
-        db.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'cheatcode_search', ?, ?, ?)`,
-          [
-            `Cheatcode search: '${query}' (kind=${kind}) → ${out.candidates.length} ranked candidate(s)`,
-            JSON.stringify({
-              query,
-              kind,
-              candidate_count: out.candidates.length,
-              top: out.candidates.slice(0, 5).map((c) => ({ name: c.name, kind: c.kind, score: c.score })),
-            }),
-            nowISO(),
-          ],
+        auditCheatcode(
+          'cheatcode_search',
+          `Cheatcode search: '${query}' (kind=${kind}) → ${out.candidates.length} ranked candidate(s)`,
+          JSON.stringify({
+            query,
+            kind,
+            candidate_count: out.candidates.length,
+            top: out.candidates.slice(0, 5).map((c) => ({ name: c.name, kind: c.kind, score: c.score })),
+          }),
+          nowISO(),
         );
 
         return ok({ query, kind, candidates: out.candidates });
@@ -965,19 +973,16 @@ export function cheatcodeTools(db: TrajectoryDB): {
 
         const out = await runVetWithScript(resolveVetScript(), candidate, VET_TIMEOUT_MS);
 
-        db.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'cheatcode_vet', ?, ?, ?)`,
-          [
-            `Cheatcode vet: '${name}' (kind=${kind}) → trust_tier=${out.trust_tier}`,
-            JSON.stringify({
-              candidate: out.candidate,
-              trust_tier: out.trust_tier,
-              capabilities: out.capabilities,
-              rationale: out.rationale,
-            }),
-            nowISO(),
-          ],
+        auditCheatcode(
+          'cheatcode_vet',
+          `Cheatcode vet: '${name}' (kind=${kind}) → trust_tier=${out.trust_tier}`,
+          JSON.stringify({
+            candidate: out.candidate,
+            trust_tier: out.trust_tier,
+            capabilities: out.capabilities,
+            rationale: out.rationale,
+          }),
+          nowISO(),
         );
 
         return ok(out);
@@ -991,14 +996,11 @@ export function cheatcodeTools(db: TrajectoryDB): {
         if ('error' in parsed) return err(parsed.error);
         const { name, kind, sourceUrl } = parsed;
 
-        db.run(
-          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-           VALUES (-1, NULL, 'bro', 'cheatcode_approved', ?, ?, ?)`,
-          [
-            `Cheatcode approved for install: '${name}' (kind=${kind})`,
-            JSON.stringify({ name, kind, source_url: sourceUrl }),
-            nowISO(),
-          ],
+        auditCheatcode(
+          'cheatcode_approved',
+          `Cheatcode approved for install: '${name}' (kind=${kind})`,
+          JSON.stringify({ name, kind, source_url: sourceUrl }),
+          nowISO(),
         );
 
         return ok({ approved: true, candidate: { name, kind, source_url: sourceUrl } });
@@ -1174,30 +1176,24 @@ export function cheatcodeTools(db: TrajectoryDB): {
             );
           }
 
-          db.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_install', ?, ?, ?)`,
-            [
-              `Cheatcode install: '${name}' (kind=${kind}, method=${out.method})`,
-              JSON.stringify({ name, kind, source_url: sourceUrl, method: out.method }),
-              installedAt,
-            ],
+          auditCheatcode(
+            'cheatcode_install',
+            `Cheatcode install: '${name}' (kind=${kind}, method=${out.method})`,
+            JSON.stringify({ name, kind, source_url: sourceUrl, method: out.method }),
+            installedAt,
           );
-          db.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_installed', ?, ?, ?)`,
-            [
-              `Cheatcode installed: '${name}' → cheatcode_id=${id}`,
-              JSON.stringify({
-                cheatcode_id: id,
-                name,
-                kind,
-                source_url: sourceUrl,
-                installed: out.installed,
-                attachments: out.attachments,
-              }),
-              installedAt,
-            ],
+          auditCheatcode(
+            'cheatcode_installed',
+            `Cheatcode installed: '${name}' → cheatcode_id=${id}`,
+            JSON.stringify({
+              cheatcode_id: id,
+              name,
+              kind,
+              source_url: sourceUrl,
+              installed: out.installed,
+              attachments: out.attachments,
+            }),
+            installedAt,
           );
           return id;
         });
@@ -1309,11 +1305,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
               existing.id,
             ]);
           }
-          db.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_uninstalled', ?, ?, ?)`,
-            [auditSummary, auditContent, uninstalledAt],
-          );
+          auditCheatcode('cheatcode_uninstalled', auditSummary, auditContent, uninstalledAt);
         });
 
         return ok({
@@ -1373,21 +1365,18 @@ export function cheatcodeTools(db: TrajectoryDB): {
               existing.id,
             ]);
           }
-          db.run(
-            `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-             VALUES (-1, NULL, 'bro', 'cheatcode_activate', ?, ?, ?)`,
-            [
-              `Cheatcode activate: '${existing.name}' (kind=${existing.kind}) → ${verdict.status}`,
-              JSON.stringify({
-                cheatcode_id: existing.id,
-                name: existing.name,
-                kind: existing.kind,
-                status: verdict.status,
-                row_status: rowStatus ?? existing.status,
-                reason: verdict.reason,
-              }),
-              activatedAt,
-            ],
+          auditCheatcode(
+            'cheatcode_activate',
+            `Cheatcode activate: '${existing.name}' (kind=${existing.kind}) → ${verdict.status}`,
+            JSON.stringify({
+              cheatcode_id: existing.id,
+              name: existing.name,
+              kind: existing.kind,
+              status: verdict.status,
+              row_status: rowStatus ?? existing.status,
+              reason: verdict.reason,
+            }),
+            activatedAt,
           );
         });
 

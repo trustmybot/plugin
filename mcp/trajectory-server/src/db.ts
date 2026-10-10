@@ -365,6 +365,10 @@ export class TrajectoryDB {
     }
   }
 
+  get isOpen(): boolean {
+    return this.db.isOpen;
+  }
+
   close(): void {
     this.db.close();
   }
