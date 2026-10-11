@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Hook: Block SWE agent spawn unless prompt references a valid tasks row.
 # Reads task_id=<N> from the spawn prompt, queries the trajectory DB via SQLite.
+# A spawn is allowed on a pending task, or on a running task with no open swe
+# agent_runs row (rework after task_reopen); a running task whose swe run is
+# still open is denied with that run named.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,7 +30,11 @@ DB=$(tmb_db_path) || exit 0
 tmb_have_sqlite || exit 0
 
 SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
-ROW=$(tmb_gate_read "$DB" "SELECT status, LENGTH(COALESCE(spec_body, '')) FROM tasks WHERE id = ${SAFE_TASK_ID};")
+ROW=$(tmb_gate_read "$DB" "SELECT t.status, LENGTH(COALESCE(t.spec_body, '')),
+  COALESCE((SELECT r.id || ' (started ' || COALESCE(r.started_at, '?') || ')' FROM agent_runs r
+             WHERE r.task_id = t.id AND r.agent_type = 'swe' AND r.completed_at IS NULL
+             ORDER BY r.id DESC LIMIT 1), '')
+  FROM tasks t WHERE t.id = ${SAFE_TASK_ID};")
 
 if [ "$ROW" = "__ERR__" ]; then
   tmb_deny_db_unavailable require-task-spec
@@ -42,9 +49,15 @@ fi
 ROW=$(printf '%s' "$ROW" | tr '|' '\n')
 STATUS=$(echo "$ROW" | awk 'NR==1')
 BODY_LEN=$(echo "$ROW" | awk 'NR==2')
+LIVE_RUN=$(echo "$ROW" | awk 'NR==3')
 
-if [ "$STATUS" != "pending" ] && [ "$STATUS" != "open" ]; then
-  jq -nc --arg id "$TASK_ID" --arg st "$STATUS" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: task_id="+$id+" has status="+$st+", expected pending or open.")}}'
+if [ "$STATUS" = "running" ] && [ -n "$LIVE_RUN" ]; then
+  jq -nc --arg id "$TASK_ID" --arg run "$LIVE_RUN" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: task_id="+$id+" is running with a live swe run: agent_runs "+$run+". Wait for that swe to return; if it is gone, move the task to failed (task_update_status) and task_reopen it.")}}'
+  exit 0
+fi
+
+if [ "$STATUS" != "pending" ] && [ "$STATUS" != "running" ]; then
+  jq -nc --arg id "$TASK_ID" --arg st "$STATUS" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: task_id="+$id+" has status="+$st+", expected pending, or running with no live swe run. Reopen finished work with task_reopen.")}}'
   exit 0
 fi
 

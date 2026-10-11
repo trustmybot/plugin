@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# PostToolUse hook (#171 follow-up). When bro flips a task to `closed`, the
-# corresponding SWE worktree is no longer needed — its commits live on the
-# branch (which stays for push-gate review). This hook removes the worktree
-# directory + prunes git's internal tracking, freeing disk + keeping
-# .claude/worktrees/ tidy.
+# PostToolUse hook (#171 follow-up). Once a task's work is done and reviewed,
+# its SWE worktree is no longer needed — its commits live on the branch. This
+# hook removes the worktree directory + prunes git's internal tracking,
+# freeing disk + keeping .claude/worktrees/ tidy.
 #
 # Triggers ONLY on:
-#   - tool_name = mcp__plugin_<channel>_trajectory-server__task_update_status
-#   - args.agent = 'bro'
-#   - args.status = 'closed'
+#   - task_update_status with args.agent = 'bro' and args.status = 'closed'
+#   - validation_record with args.verdict = 'pass', when the task is closed and
+#     carries a passing review for its current commit (_CWC_HAS_PASS)
 #   - the task row has a branch_id with a matching worktree
+# bro_atomic_close runs before pr-reviewer, so it leaves the worktree in place:
+# a failed review reworks in the same worktree (task_reopen).
 #
 # Silent no-op when:
 #   - any of the above don't match
@@ -27,12 +28,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/resolve-repo.sh
 . "$SCRIPT_DIR/lib/resolve-repo.sh"
 
+# Byte-identical copy of lifecycle.ts HAS_PASS_SQL (lifecycle.test.ts pins
+# them equal): a pass verdict counts only at or after the earliest
+# bro_verification_pass naming the task and its current commit. `t` is the
+# task alias.
+_CWC_HAS_PASS="EXISTS (SELECT 1 FROM validation_attempts va
+  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
+    SELECT MIN(a.created_at) FROM audit a
+      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
+        AND json_extract(a.content_json, '\$.task_id') = t.id
+        AND json_extract(a.content_json, '\$.commit_sha') = t.commit_sha))"
+
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
 
 case "$TOOL_NAME" in
   mcp__*trajectory-server__task_update_status) ;;
-  mcp__*trajectory-server__bro_atomic_close)   ;;
+  mcp__*trajectory-server__validation_record)  ;;
   *) exit 0 ;;
 esac
 
@@ -43,14 +55,15 @@ fi
 AGENT=$(echo "$INPUT" | jq -r '.tool_input.agent // ""' 2>/dev/null)
 TASK_ID=$(echo "$INPUT" | jq -r '.tool_input.task_id // ""' 2>/dev/null)
 
-# bro_atomic_close always closes; task_update_status requires explicit status=closed.
 case "$TOOL_NAME" in
-  *bro_atomic_close) STATUS="closed" ;;
-  *)                 STATUS=$(echo "$INPUT" | jq -r '.tool_input.status // ""' 2>/dev/null) ;;
+  *validation_record)
+    [ "$(echo "$INPUT" | jq -r '.tool_input.verdict // ""' 2>/dev/null)" = "pass" ] || exit 0
+    ;;
+  *)
+    [ "$AGENT" = "bro" ] || exit 0
+    [ "$(echo "$INPUT" | jq -r '.tool_input.status // ""' 2>/dev/null)" = "closed" ] || exit 0
+    ;;
 esac
-
-[ "$AGENT" = "bro" ] || exit 0
-[ "$STATUS" = "closed" ] || exit 0
 [ -n "$TASK_ID" ] || exit 0
 
 SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
@@ -61,6 +74,13 @@ DB_PATH=$(tmb_db_path 2>/dev/null || true)
 [ -f "$DB_PATH" ] || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0
 command -v git >/dev/null 2>&1 || exit 0
+
+case "$TOOL_NAME" in
+  *validation_record)
+    PASSED=$(sqlite3 "$DB_PATH" "SELECT 1 FROM tasks t WHERE t.id=${SAFE_TASK_ID} AND t.status='closed' AND ${_CWC_HAS_PASS};" 2>/dev/null)
+    [ "$PASSED" = "1" ] || exit 0
+    ;;
+esac
 
 BRANCH_ID=$(sqlite3 "$DB_PATH" "SELECT branch_id FROM tasks WHERE id=${SAFE_TASK_ID} LIMIT 1;" 2>/dev/null)
 [ -n "$BRANCH_ID" ] || exit 0

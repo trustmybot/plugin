@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Tests for scripts/hooks/cleanup-worktree-on-task-close.sh.
-# Hook contract: PostToolUse on task_update_status. When agent='bro' AND
-# status='closed' AND task has a worktree, remove the worktree. Silent
-# no-op for any unmet condition. Worktree match is path/slug-based — the
+# Hook contract: PostToolUse on task_update_status (agent='bro',
+# status='closed') and on validation_record (verdict='pass' on a closed task
+# with a passing review for its current commit). When the task has a
+# worktree, remove it. bro_atomic_close leaves it in place. Silent no-op for
+# any unmet condition. Worktree match is path/slug-based — the
 # hook just compares the worktree directory name to the task's slug, so it
 # works regardless of whether the worktree is branch-attached or detached.
 #
@@ -142,9 +144,9 @@ echo "  nested-repo repo-rooted worktree removed successfully"
 rm -rf "$WORKSPACE_TMP"
 cd "$REPO"
 
-# ---- #350: bro_atomic_close trigger -----------------------------------------
-# The hook must fire on bro_atomic_close (the canonical close path), treating it
-# as status=closed even though there is no .tool_input.status field.
+# ---- bro_atomic_close leaves the worktree; a passing review removes it ------
+# pr-reviewer runs after bro_atomic_close, so a failed review must find the
+# worktree still there for the rework.
 
 bro_atomic_close_input() {
   local tool="$1" agent="$2" task_id="$3"
@@ -154,32 +156,70 @@ bro_atomic_close_input() {
   }'
 }
 
-test_case "#350: bro_atomic_close fires cleanup (no status field in input)"
+validation_input() {
+  local verdict="$1" task_id="$2"
+  jq -n --arg verdict "$verdict" --argjson tid "$task_id" '{
+    tool_name: "mcp__plugin_tmb_trajectory-server__validation_record",
+    tool_input: { agent: "pr-reviewer", task_id: $tid, attempt_n: 1, verdict: $verdict, feedback: "x" }
+  }'
+}
+
+sqlite3 "$DB" "
+  ALTER TABLE tasks ADD COLUMN commit_sha TEXT;
+  CREATE TABLE validation_attempts (id INTEGER PRIMARY KEY, task_id INTEGER, verdict TEXT, created_at TEXT);
+  CREATE TABLE audit (id INTEGER PRIMARY KEY, event_type TEXT, content_json TEXT, created_at TEXT);
+"
+
+test_case "bro_atomic_close: silent, worktree kept for review rework"
 git branch fix/atomic HEAD
 git worktree add -q .claude/worktrees/atomic fix/atomic
-sqlite3 "$DB" "INSERT INTO tasks (id, branch_id, status) VALUES (10, 'fix/atomic', 'completed');"
-[ -d "$REPO/.claude/worktrees/atomic" ] || { echo "FAIL: atomic worktree not created"; exit 1; }
+sqlite3 "$DB" "INSERT INTO tasks (id, branch_id, status, commit_sha) VALUES (10, 'fix/atomic', 'closed', 'abc1234');"
 out=$(bro_atomic_close_input 'mcp__plugin_tmb_trajectory-server__bro_atomic_close' 'bro' 10 \
   | bash "$HOOK" 2>&1 || true)
-assert_contains "$out" 'cleaned up worktree' "bro_atomic_close must trigger cleanup"
-[ ! -d "$REPO/.claude/worktrees/atomic" ] || { echo "FAIL: atomic worktree still present"; exit 1; }
-echo "  bro_atomic_close worktree cleanup OK"
+assert_eq "" "$out" "bro_atomic_close must not trigger cleanup"
+[ -d "$REPO/.claude/worktrees/atomic" ] || { echo "FAIL: worktree removed at bro_atomic_close"; exit 1; }
 
-test_case "#350: bro_atomic_close with TMB_KEEP_CLOSED_WORKTREES=1 bypass: worktree intact"
+test_case "failing validation_record: silent, worktree kept"
+sqlite3 "$DB" "
+  INSERT INTO audit (event_type, content_json, created_at)
+    VALUES ('bro_verification_pass', '{\"task_id\":10,\"commit_sha\":\"abc1234\"}', '2026-10-11T10:00:00.000Z');
+  INSERT INTO validation_attempts (task_id, verdict, created_at) VALUES (10, 'fail', '2026-10-11T10:05:00.000Z');
+"
+out=$(validation_input fail 10 | bash "$HOOK" 2>&1 || true)
+assert_eq "" "$out" "a failing verdict must not trigger cleanup"
+[ -d "$REPO/.claude/worktrees/atomic" ] || { echo "FAIL: worktree removed on a failing review"; exit 1; }
+
+test_case "pass verdict without a passing review for the current commit: silent"
+sqlite3 "$DB" "UPDATE tasks SET commit_sha = 'def5678' WHERE id = 10;
+  INSERT INTO validation_attempts (task_id, verdict, created_at) VALUES (10, 'pass', '2026-10-11T10:10:00.000Z');"
+out=$(validation_input pass 10 | bash "$HOOK" 2>&1 || true)
+assert_eq "" "$out" "a pass for an older commit must not trigger cleanup"
+[ -d "$REPO/.claude/worktrees/atomic" ] || { echo "FAIL: worktree removed for a stale pass"; exit 1; }
+
+test_case "passing validation_record for the current commit: worktree removed"
+sqlite3 "$DB" "UPDATE tasks SET commit_sha = 'abc1234' WHERE id = 10;"
+out=$(validation_input pass 10 | bash "$HOOK" 2>&1 || true)
+assert_contains "$out" 'cleaned up worktree' "a passing review triggers cleanup"
+[ ! -d "$REPO/.claude/worktrees/atomic" ] || { echo "FAIL: worktree still present after a passing review"; exit 1; }
+
+test_case "passing validation_record with TMB_KEEP_CLOSED_WORKTREES=1: worktree intact"
 git branch fix/atomic2 HEAD
 git worktree add -q .claude/worktrees/atomic2 fix/atomic2
-sqlite3 "$DB" "INSERT INTO tasks (id, branch_id, status) VALUES (11, 'fix/atomic2', 'completed');"
-out=$(bro_atomic_close_input 'mcp__plugin_tmb_trajectory-server__bro_atomic_close' 'bro' 11 \
-  | env TMB_KEEP_CLOSED_WORKTREES=1 bash "$HOOK" 2>&1 || true)
-assert_eq "" "$out" "bypass env var must silence bro_atomic_close cleanup"
+sqlite3 "$DB" "
+  INSERT INTO tasks (id, branch_id, status, commit_sha) VALUES (11, 'fix/atomic2', 'closed', 'abc1234');
+  INSERT INTO audit (event_type, content_json, created_at)
+    VALUES ('bro_verification_pass', '{\"task_id\":11,\"commit_sha\":\"abc1234\"}', '2026-10-11T10:00:00.000Z');
+  INSERT INTO validation_attempts (task_id, verdict, created_at) VALUES (11, 'pass', '2026-10-11T10:05:00.000Z');
+"
+out=$(validation_input pass 11 | env TMB_KEEP_CLOSED_WORKTREES=1 bash "$HOOK" 2>&1 || true)
+assert_eq "" "$out" "bypass env var silences review cleanup"
 [ -d "$REPO/.claude/worktrees/atomic2" ] || { echo "FAIL: atomic2 worktree was removed despite bypass"; exit 1; }
-echo "  bro_atomic_close bypass OK"
 
-test_case "#350: bro_atomic_close with agent!=bro: silent no-op"
-out=$(bro_atomic_close_input 'mcp__plugin_tmb_trajectory-server__bro_atomic_close' 'swe' 11 \
-  | bash "$HOOK" 2>&1 || true)
-assert_eq "" "$out" "non-bro agent must be silent no-op for bro_atomic_close"
-[ -d "$REPO/.claude/worktrees/atomic2" ] || { echo "FAIL: worktree removed for non-bro agent"; exit 1; }
+test_case "passing validation_record on a reopened (running) task: worktree intact"
+sqlite3 "$DB" "UPDATE tasks SET status = 'running' WHERE id = 11;"
+out=$(validation_input pass 11 | bash "$HOOK" 2>&1 || true)
+assert_eq "" "$out" "a running task keeps its worktree"
+[ -d "$REPO/.claude/worktrees/atomic2" ] || { echo "FAIL: worktree removed from a running task"; exit 1; }
 
 # ---- #559: per-repo HEAD-reset target resolution -----------------------------
 # Set up the repos table in the main DB for these cases. The hook resolves the

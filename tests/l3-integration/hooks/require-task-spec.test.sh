@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Tests for scripts/hooks/require-task-spec.sh (DB-backed form)
 # Hook contract: block SWE spawns unless the prompt cites a valid
-# task_id=<N> whose row in tasks table has status IN (pending, open)
-# AND a non-empty spec_body. See plugin CHANGELOG for history.
+# task_id=<N> whose row in tasks table is pending, or running with no open swe
+# agent_runs row, AND has a non-empty spec_body. See plugin CHANGELOG for history.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,11 +22,23 @@ sqlite3 "$DB" "
     status TEXT NOT NULL,
     spec_body TEXT
   );
+  CREATE TABLE agent_runs (
+    id INTEGER PRIMARY KEY,
+    task_id INTEGER,
+    agent_type TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT
+  );
   INSERT INTO tasks VALUES (1, 'pending',     'Do the thing.');
   INSERT INTO tasks VALUES (2, 'pending',     '');
-  INSERT INTO tasks VALUES (3, 'open',        'Also valid.');
+  INSERT INTO tasks VALUES (3, 'running',     'Reopened, no live swe.');
   INSERT INTO tasks VALUES (4, 'completed',   'Already done.');
   INSERT INTO tasks VALUES (5, 'in_progress', 'Mid-flight.');
+  INSERT INTO tasks VALUES (6, 'running',     'swe still working.');
+  INSERT INTO tasks VALUES (7, 'closed',      'Closed.');
+  INSERT INTO agent_runs VALUES (10, 3, 'swe', '2026-10-01T00:00:00.000Z', '2026-10-01T01:00:00.000Z');
+  INSERT INTO agent_runs VALUES (11, 3, 'bro', '2026-10-01T00:00:00.000Z', NULL);
+  INSERT INTO agent_runs VALUES (12, 6, 'swe', '2026-10-11T09:00:00.000Z', NULL);
 "
 
 swe_input() {
@@ -84,9 +96,24 @@ out=$(run_hook "$(swe_input 'task_id: 1
 please do the thing')")
 assert_eq "" "$out" "silent pass for colon form"
 
-test_case "SWE with open task and non-empty body passes silently"
+test_case "SWE on a running task with no open swe run passes silently"
 out=$(run_hook "$(swe_input 'task_id=3 please do the thing')")
 assert_eq "" "$out" "silent pass"
+
+test_case "SWE on a running task with a live swe run is blocked, naming the run"
+out=$(run_hook "$(swe_input 'task_id=6 please do the thing')")
+assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
+assert_contains "$out" "live swe run: agent_runs 12" "reason names the live run"
+
+test_case "SWE on a closed task is blocked"
+out=$(run_hook "$(swe_input 'task_id=7 please do the thing')")
+assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
+assert_contains "$out" "status=closed" "reason cites the status"
+
+test_case "hook carries no 'open' task-status literal"
+if grep -nE "[\"']open[\"']" "$HOOK"; then
+  echo "FAIL: require-task-spec.sh still names an 'open' status"; exit 1
+fi
 
 test_case "when prompt has multiple task_id tokens, first wins"
 out=$(run_hook "$(swe_input 'task_id=1 and also task_id=4')")

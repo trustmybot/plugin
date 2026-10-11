@@ -15,8 +15,9 @@ export const WAIVE_REVIEW_REASON_MIN = 10;
 // this commit_sha (bro's first verification of that exact commit). No such
 // row = no anchor = no pass; completed_at is not an anchor because no audit
 // row records which sha a completion carried. validation_attempts carries no
-// commit_sha, so time is the only link. close-issue-on-merge.sh holds a
-// byte-identical copy (_CIM_HAS_PASS); a unit test pins the two equal.
+// commit_sha, so time is the only link. close-issue-on-merge.sh
+// (_CIM_HAS_PASS) and cleanup-worktree-on-task-close.sh (_CWC_HAS_PASS) hold
+// byte-identical copies; a unit test pins them equal.
 export const HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
   WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
     SELECT MIN(a.created_at) FROM audit a
