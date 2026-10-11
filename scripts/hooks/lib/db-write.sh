@@ -128,20 +128,63 @@ _tmb_from_node_valid() {
   return 1
 }
 
+_TMB_AUDIT_EVENTS_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/audit-events.txt"
+
+# _tmb_audit_event_valid <event_type>
+# True when <event_type> is a line of audit-events.txt, the closed set that
+# `npm run build` generates from mcp/trajectory-server/src/audit-events.ts.
+_tmb_audit_event_valid() {
+  [ -n "${1:-}" ] && [ -f "$_TMB_AUDIT_EVENTS_FILE" ] && grep -qxF -- "$1" "$_TMB_AUDIT_EVENTS_FILE"
+}
+
+# tmb_audit_dedupe_guard <event_type> <content_json> <json_path>...
+# Prints a guard condition for tmb_audit_sql: true when no audit row of
+# <event_type> already carries the same value as <content_json> at every
+# <json_path> (e.g. $.task_id $.commit_sha). Inside the tmb_db_write
+# transaction the check and the insert are atomic, so a hook that fires more
+# than once per event writes one row. Exit 2 + stderr on a malformed path or
+# no path.
+tmb_audit_dedupe_guard() {
+  if [ "$#" -lt 3 ]; then
+    printf 'tmb_audit_append: %s: dedupe guard needs at least one json path\n' "$(_tmb_db_write_caller)" >&2
+    return 2
+  fi
+  local event_type="$1" content_json="$2"
+  shift 2
+  [ -n "$content_json" ] || content_json='{}'
+  local safe_content safe_event cond="" path
+  safe_content=$(tmb_sql_quote "$content_json")
+  safe_event=$(tmb_sql_quote "$event_type")
+  for path in "$@"; do
+    if ! [[ "$path" =~ ^\$(\.[A-Za-z_][A-Za-z0-9_]*)+$ ]]; then
+      printf 'tmb_audit_append: %s: invalid dedupe json path %s\n' "$(_tmb_db_write_caller)" "'$path'" >&2
+      return 2
+    fi
+    cond="${cond} AND json_extract(d.content_json, '${path}') IS json_extract('${safe_content}', '${path}')"
+  done
+  printf "NOT EXISTS (SELECT 1 FROM audit d WHERE d.event_type = '%s' AND json_valid(d.content_json)%s)" "$safe_event" "$cond"
+}
+
 # tmb_audit_sql <issue_id> <branch_id|''> <from_node> <event_type> <summary> <content_json> [<guard_sql>]
 # Prints one validated INSERT INTO audit statement for composing with other
 # statements in a single tmb_db_write transaction. Every argument is quoted;
 # repo is taken from the parent issue; created_at is tmb_now_iso. An empty
-# branch_id is stored as NULL. The optional <guard_sql> is a constant SQL
-# condition (never user data) the row is conditional on, e.g.
-# "(SELECT changes()) > 0" after an UPDATE in the same transaction.
-# Exit 2 + stderr on an invalid from_node or a non-integer issue_id.
+# branch_id is stored as NULL. The optional <guard_sql> is a SQL condition the
+# row is conditional on: a constant (never user data) such as
+# "(SELECT changes()) > 0" after an UPDATE in the same transaction, or the
+# output of tmb_audit_dedupe_guard.
+# Exit 2 + stderr on an invalid from_node, an event_type outside
+# audit-events.txt, or a non-integer issue_id.
 tmb_audit_sql() {
   local issue_id="${1:-}" branch_id="${2:-}" from_node="${3:-}" event_type="${4:-}" summary="${5:-}" content_json="${6:-}" guard_sql="${7:-}"
   local caller
   caller=$(_tmb_db_write_caller)
   if ! _tmb_from_node_valid "$from_node"; then
     printf 'tmb_audit_append: %s: invalid from_node %s (want hook:<name> or system)\n' "$caller" "'$from_node'" >&2
+    return 2
+  fi
+  if ! _tmb_audit_event_valid "$event_type"; then
+    printf 'tmb_audit_append: %s: unknown event_type %s (not in %s; add it to mcp/trajectory-server/src/audit-events.ts and rebuild)\n' "$caller" "'$event_type'" "$_TMB_AUDIT_EVENTS_FILE" >&2
     return 2
   fi
   local safe_issue
@@ -165,14 +208,20 @@ tmb_audit_sql() {
     "$safe_issue" "$(tmb_now_iso)" "$where_sql"
 }
 
-# tmb_audit_append <db> <issue_id> <branch_id|''> <from_node> <event_type> <summary> <content_json>
+# tmb_audit_append <db> <issue_id> <branch_id|''> <from_node> <event_type> <summary> <content_json> [<dedupe_json_path>...]
 # The only way a hook inserts an audit row. Hooks pass from_node
-# hook:<their-basename-without-.sh>. Returns 2 on invalid input, else
-# tmb_db_write's exit code.
+# hook:<their-basename-without-.sh>. Optional dedupe json paths (e.g.
+# '$.task_id' '$.commit_sha') make the write idempotent: no row is written when
+# one of <event_type> already matches <content_json> at every path (see
+# tmb_audit_dedupe_guard). Returns 2 on invalid input, else tmb_db_write's
+# exit code.
 tmb_audit_append() {
   local db="${1:-}"
   shift
-  local sql
-  sql=$(tmb_audit_sql "${1:-}" "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}") || return 2
+  local guard="" sql
+  if [ "$#" -gt 6 ]; then
+    guard=$(tmb_audit_dedupe_guard "${4:-}" "${6:-}" "${@:7}") || return 2
+  fi
+  sql=$(tmb_audit_sql "${1:-}" "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}" "$guard") || return 2
   tmb_db_write "$db" "$sql"
 }

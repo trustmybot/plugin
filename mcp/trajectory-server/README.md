@@ -12,6 +12,8 @@ node dist/index.js
 
 (The plugin spawns this automatically via `.mcp.json` — manual run is only needed for isolated testing.)
 
+The build also writes `scripts/hooks/lib/audit-events.txt` (via `scripts/maintenance/gen-enums-doc.mjs --txt`): the closed `audit.event_type` set from `src/audit-events.ts` that the hooks validate against. After adding an event type, run `node scripts/maintenance/gen-enums-doc.mjs` from the plugin root to regenerate the `audit.event_type` table in `docs/contributing/ENUMS.md`.
+
 The Codex entry exposes an immutable 15-tool adapter registry: 13 local Bro planning tools plus `agent_materialization_get` and `agent_materialization_set`. Every call requires an explicit Git worktree root with `.tmb/` already ignored and no tracked `.tmb/` files. Planning state stays beneath `<project>/.tmb/tmb/`.
 
 The two materialization tools manage only `.codex/agents/tmb_swe.toml` and `.codex/agents/tmb_pr_reviewer.toml`. The getter is read-only and does not create `.tmb` or `.codex`. The setter installs or removes both current templates without overwriting unknown bytes. It rejects symlinks and unexpected file types, preserves all third-party Agent files, and reports a partial result if one managed target changes before a later failure. Scope 4 intentionally has no historical-template upgrades, process lock, rollback, fsync, or crash recovery.

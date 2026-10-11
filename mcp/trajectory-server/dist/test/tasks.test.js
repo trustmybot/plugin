@@ -1024,7 +1024,7 @@ describe('taskTools', () => {
             issue_id: String(issueId),
             from_node: 'bro',
             kind: 'event',
-            event_type: 'some_other_event',
+            event_type: 'planning_complete',
             summary: 'not a branch_id_proposed event',
         });
         const result = await call(tools.handlers, 'task_create_batch', {

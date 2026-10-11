@@ -7,6 +7,7 @@ import type { TrajectoryDB, CheatcodeRow } from '../db.js';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
+import type { AuditEventType } from '../audit-events.js';
 import { outsideProject, projectRootFromDbPath } from './containment.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -735,7 +736,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
 } {
-  const auditCheatcode = (eventType: string, summary: string, contentJson: string, createdAt: string): number =>
+  const auditCheatcode = (eventType: AuditEventType, summary: string, contentJson: string, createdAt: string): number =>
     insertAudit(db, {
       issue_id: -1,
       from_node: 'bro',

@@ -489,7 +489,7 @@ describe('issue_report_md summary mode (#210)', () => {
         agent: 'bro',
         issue_id: String(issueId),
         from_node: 'bro',
-        event_type: 'test_event',
+        event_type: 'planning_complete',
         summary: `Audit event ${i}`,
       });
     }
@@ -533,7 +533,7 @@ describe('issue_report_md summary mode (#210)', () => {
       agent: 'bro',
       issue_id: String(issueId),
       from_node: 'bro',
-      event_type: 'task_started',
+      event_type: 'planning_complete',
       summary: 'Detail mode audit entry',
     });
 
@@ -572,7 +572,7 @@ describe('branch_report_md summary mode (#210)', () => {
         issue_id: String(issueId),
         branch_id: branchId,
         from_node: 'bro',
-        event_type: 'test_event',
+        event_type: 'planning_complete',
         summary: `Branch event ${i}`,
       });
     }

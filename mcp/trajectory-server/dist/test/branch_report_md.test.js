@@ -73,7 +73,7 @@ describe('branchReportMdTools', () => {
             branch_id: branchId,
             from_node: 'swe',
             kind: 'event',
-            event_type: 'task_started',
+            event_type: 'planning_complete',
             summary: 'SWE began work on feature',
         });
         const validation = validationTools(db);
@@ -226,7 +226,7 @@ describe('branchReportMdTools', () => {
             branch_id: targetBranch,
             from_node: 'swe',
             kind: 'event',
-            event_type: 'task_started',
+            event_type: 'planning_complete',
             summary: 'Started target branch work',
         });
         await call(audit.handlers, 'audit_append', {
@@ -235,7 +235,7 @@ describe('branchReportMdTools', () => {
             branch_id: siblingBranch,
             from_node: 'swe',
             kind: 'event',
-            event_type: 'task_started',
+            event_type: 'planning_complete',
             summary: 'Started sibling branch work',
         });
         const tools = branchReportMdTools(db);

@@ -2,6 +2,7 @@ import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { auditEmbedText, embedAndStore, topKByCosine } from '../embeddings/store.js';
 import { backfillMissing } from '../embeddings/backfill.js';
+import { AUDIT_EVENT_TYPES, assertAuditEventType, isAuditEventType } from '../audit-events.js';
 const MAX_CONTENT_BYTES = 1_000_000;
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -49,6 +50,7 @@ export function resolveIssueRepo(db, issueId) {
  * the full reasoning.
  */
 export function insertAudit(db, entry) {
+    assertAuditEventType(entry.event_type);
     const contentJson = entry.content_json ?? '{}';
     const repo = entry.repo ?? resolveIssueRepo(db, entry.issue_id);
     const res = db.run(`INSERT INTO audit
@@ -105,7 +107,7 @@ export function auditTools(db) {
         },
         {
             name: 'audit_append',
-            description: 'Insert an audit lifecycle event (planning_complete, bro_verification_pass, branch_id_proposed, etc.). Both event_type and summary are required.',
+            description: 'Insert an audit lifecycle event. event_type must be in its closed enum (unknown values are rejected); event_type and summary are required.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -113,7 +115,7 @@ export function auditTools(db) {
                     issue_id: { type: 'string' },
                     branch_id: { type: 'string' },
                     from_node: { type: 'string' },
-                    event_type: { type: 'string', description: 'Required. Lifecycle event identifier (e.g. planning_complete).' },
+                    event_type: { type: 'string', enum: AUDIT_EVENT_TYPES.map((e) => e.type), description: 'Required. Lifecycle event identifier from the closed audit event set (e.g. planning_complete).' },
                     summary: { type: 'string', description: 'Required. One-line human-readable summary.' },
                     content_json: { type: 'string', description: 'Optional. JSON string with structured event payload, max 1 MB.' },
                 },
@@ -281,6 +283,9 @@ export function auditTools(db) {
             requireArg(args, 'event_type');
             requireArg(args, 'summary');
             const eventType = args['event_type'];
+            if (!isAuditEventType(eventType)) {
+                return err(`unknown audit event_type '${String(eventType)}'. Allowed: ${AUDIT_EVENT_TYPES.map((e) => e.type).join(', ')}`);
+            }
             const summary = args['summary'];
             const contentJson = args['content_json'] ?? '{}';
             const byteLength = Buffer.byteLength(contentJson, 'utf8');

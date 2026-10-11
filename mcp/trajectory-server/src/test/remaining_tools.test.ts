@@ -145,13 +145,13 @@ describe('auditTools', () => {
       agent: 'bro',
       issue_id: String(issueId),
       from_node: 'bro',
-      event_type: 'embed_await_test',
+      event_type: 'roundtable_summary',
       summary: 'embedding await test',
     });
 
     assert.ok(!result.isError, `audit_append must succeed: ${JSON.stringify(parseResult(result))}`);
     const row = parseResult(result);
-    assert.equal(row.event_type, 'embed_await_test');
+    assert.equal(row.event_type, 'roundtable_summary');
 
     const auditRow = db.get<{ id: number }>('SELECT id FROM audit WHERE id = ?', [row.id]);
     assert.ok(auditRow, 'audit row must be persisted before tool returns');
@@ -168,7 +168,7 @@ describe('auditTools', () => {
       agent: 'bro',
       issue_id: String(issueId),
       from_node: 'bro',
-      event_type: 'embed_prime',
+      event_type: 'planning_complete',
       summary: 'first call primes loadFailed state',
     });
     assert.ok(!r1.isError, 'first call must succeed');
@@ -177,12 +177,12 @@ describe('auditTools', () => {
       agent: 'bro',
       issue_id: String(issueId),
       from_node: 'bro',
-      event_type: 'embed_degraded',
+      event_type: 'bro_verification_fail',
       summary: 'second call with loadFailed=true must succeed (graceful degradation)',
     });
     assert.ok(!r2.isError, 'subsequent call with failed embed must still succeed');
     const d2 = parseResult(r2);
-    assert.equal(d2.event_type, 'embed_degraded');
+    assert.equal(d2.event_type, 'bro_verification_fail');
 
     db.close();
   });
@@ -540,7 +540,7 @@ describe('reportTools', () => {
       agent: 'bro',
       issue_id: String(issueId),
       from_node: 'swe',
-      event_type: 'task_started',
+      event_type: 'planning_complete',
       summary: 'SWE began work',
     });
 

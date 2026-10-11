@@ -60,7 +60,8 @@ sqlite3 "$DB" "
     repo TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
     spec_body TEXT NOT NULL DEFAULT '',
-    verification TEXT NOT NULL DEFAULT '[]'
+    verification TEXT NOT NULL DEFAULT '[]',
+    commit_sha TEXT
   );
   CREATE TABLE audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,10 +76,10 @@ sqlite3 "$DB" "
   );
   INSERT INTO issues VALUES (1, 'test', '', 'open', datetime('now'), datetime('now'), NULL);
   INSERT INTO repos VALUES (1, 'plugin', '$REPO_DIR');
-  INSERT INTO tasks VALUES (1, 1, 'feat/my-feature', 'plugin', 'pending', '', '[\"bash tests/run.sh\"]');
-  INSERT INTO tasks VALUES (2, 1, 'feat/no-verify', 'plugin', 'pending', '', '[]');
-  INSERT INTO tasks VALUES (3, 1, 'feat/fail-verify', 'plugin', 'pending', '', '[\"exit 1\"]');
-  INSERT INTO tasks VALUES (4, 1, 'feat/multi-cmd', 'plugin', 'pending', '', '[\"echo ok\",\"exit 0\"]');
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (1, 1, 'feat/my-feature', 'plugin', 'pending', '', '[\"bash tests/run.sh\"]');
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (2, 1, 'feat/no-verify', 'plugin', 'pending', '', '[]');
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (3, 1, 'feat/fail-verify', 'plugin', 'pending', '', '[\"exit 1\"]');
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (4, 1, 'feat/multi-cmd', 'plugin', 'pending', '', '[\"echo ok\",\"exit 0\"]');
 "
 
 # Create a passing test runner in the worktree.
@@ -180,7 +181,7 @@ assert_not_contains "$out" '"permissionDecision":"deny"' "no DB should allow"
 # ---- Timeout: DENIED --------------------------------------------------------
 test_case "Verification timeout: DENIED"
 sqlite3 "$DB" "
-  INSERT INTO tasks VALUES (99, 1, 'feat/slow-test', 'plugin', 'pending', '', '[\"sleep 5\",\"echo done\"]');
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (99, 1, 'feat/slow-test', 'plugin', 'pending', '', '[\"sleep 5\",\"echo done\"]');
 "
 mkdir -p "$WT_ROOT/slow-test"
 out=$(cd "$REPO_DIR" && \
@@ -194,7 +195,7 @@ assert_contains "$out" "timed out" "deny reason should mention timeout"
 # reads (permissionDecisionReason), not denyReason.
 test_case "timeout path: deny uses permissionDecisionReason mentioning the timeout, no denyReason"
 sqlite3 "$DB" "
-  INSERT INTO tasks VALUES (98, 1, 'feat/slow-mid', 'plugin', 'pending', '', '[\"sleep 5\"]');
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (98, 1, 'feat/slow-mid', 'plugin', 'pending', '', '[\"sleep 5\"]');
 "
 mkdir -p "$WT_ROOT/slow-mid"
 out=$(cd "$REPO_DIR" && \
@@ -234,10 +235,30 @@ assert_contains "$ROW" "it's a doc-only change" "stored content_json should reta
 EXTRACTED=$(sqlite3 "$DB" "SELECT json_extract(content_json, '\$.waiver_reason') FROM audit WHERE event_type='verification_gate_waived' ORDER BY id DESC LIMIT 1;")
 assert_contains "$EXTRACTED" "can't run here" "content_json should be valid JSON (json_extract works)"
 
+# ---- Waiver is idempotent per (task, commit_sha) ------------------------------
+test_case "Two waiver invocations for the same (task, sha) write one verification_gate_waived row"
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification, commit_sha) VALUES (50, 1, 'feat/waive-twice', 'plugin', 'running', '', '[\"exit 1\"]', 'aaa1111');"
+waive_input() {
+  jq -n --arg sha "$1" '{
+    tool_name: "mcp__tmb__trajectory-server__task_update_status",
+    tool_input: ({agent: "swe", status: "completed", task_id: "50", waive_verification_gate_reason: "doc-only change, nothing to run"} + (if $sha == "" then {} else {commit_sha: $sha} end))
+  }'
+}
+waived_rows() { sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='verification_gate_waived' AND json_extract(content_json, '\$.task_id') = 50 AND json_extract(content_json, '\$.commit_sha') = '$1';"; }
+out1=$(run_hook "$(waive_input "")")
+out2=$(run_hook "$(waive_input "")")
+assert_not_contains "$out1$out2" '"permissionDecision":"deny"' "both waiver invocations allow"
+assert_eq "1" "$(waived_rows aaa1111)" "same (task, task commit_sha) twice → one row"
+out3=$(run_hook "$(waive_input bbb2222)")
+out4=$(run_hook "$(waive_input bbb2222)")
+assert_not_contains "$out3$out4" '"permissionDecision":"deny"' "waiver with an explicit commit_sha allows"
+assert_eq "1" "$(waived_rows bbb2222)" "same (task, tool_input commit_sha) twice → one row"
+assert_eq "1" "$(waived_rows aaa1111)" "the earlier commit's row is untouched"
+
 # ---- Multi-command typed verification[]: passing -----------------------------
 test_case "multi-command typed verification[]: all pass → allowed"
 sqlite3 "$DB" "
-  INSERT INTO tasks VALUES (10, 1, 'feat/typed-pass', 'plugin', 'pending', '', '[\"echo typed-ok\",\"exit 0\"]');
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (10, 1, 'feat/typed-pass', 'plugin', 'pending', '', '[\"echo typed-ok\",\"exit 0\"]');
 "
 mkdir -p "$WT_ROOT/typed-pass"
 out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 10)")
@@ -246,7 +267,7 @@ assert_not_contains "$out" '"permissionDecision":"deny"' "typed multi-command al
 # ---- Typed verification[]: failing command -----------------------------------
 test_case "typed verification[]: failing command → DENIED"
 sqlite3 "$DB" "
-  INSERT INTO tasks VALUES (11, 1, 'feat/typed-fail', 'plugin', 'pending', '', '[\"exit 1\"]');
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (11, 1, 'feat/typed-fail', 'plugin', 'pending', '', '[\"exit 1\"]');
 "
 mkdir -p "$WT_ROOT/typed-fail"
 out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 11)")
@@ -256,7 +277,7 @@ assert_contains "$out" "verification failed" "deny reason should say verificatio
 # ---- Typed verification[] with shell metacharacters in a command -------------
 test_case "typed verification[]: command with pipes/redirects runs verbatim → allowed"
 sqlite3 "$DB" "
-  INSERT INTO tasks VALUES (12, 1, 'feat/typed-shell', 'plugin', 'pending', '', '[\"echo a | grep a\"]');
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (12, 1, 'feat/typed-shell', 'plugin', 'pending', '', '[\"echo a | grep a\"]');
 "
 mkdir -p "$WT_ROOT/typed-shell"
 out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 12)")
@@ -270,7 +291,7 @@ assert_not_contains "$out" '"permissionDecision":"deny"' "shell-metachar command
 # finds ws/plugin/.claude/worktrees/. (#156)
 test_case "repo-subdir layout: gate resolves worktree under the repo root and runs"
 sqlite3 "$DB" "
-  INSERT INTO tasks VALUES (20, 1, 'feat/repo-subdir', 'plugin', 'pending', '', '[\"echo repo-subdir-ok\"]');
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (20, 1, 'feat/repo-subdir', 'plugin', 'pending', '', '[\"echo repo-subdir-ok\"]');
 "
 mkdir -p "$WT_ROOT/repo-subdir"
 # A decoy worktree at the WORKSPACE root must NOT be picked up — only the
@@ -330,7 +351,7 @@ if [ -n "$TOOL" ]; then
   # Passing: a verification command invoking the toolchain tool resolves and runs.
   test_case "minimal PATH: passing verification using mise/homebrew tool resolves and ALLOWS (#673)"
   sqlite3 "$DB" "
-    INSERT INTO tasks VALUES (30, 1, 'feat/toolchain-pass', 'plugin', 'pending', '', '[\"$TOOL --version\"]');
+    INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (30, 1, 'feat/toolchain-pass', 'plugin', 'pending', '', '[\"$TOOL --version\"]');
   "
   mkdir -p "$WT_ROOT/toolchain-pass"
   out=$(cd "$REPO_DIR" && run_hook_min_path "$(make_input swe completed 30)")
@@ -339,7 +360,7 @@ if [ -n "$TOOL" ]; then
   # Failing: the same tool exits non-zero → genuine DENY (resolution still works).
   test_case "minimal PATH: failing verification using mise/homebrew tool resolves and DENIES (#673)"
   sqlite3 "$DB" "
-    INSERT INTO tasks VALUES (31, 1, 'feat/toolchain-fail', 'plugin', 'pending', '', '[\"$TOOL --no-such-flag-xyz; exit 1\"]');
+    INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (31, 1, 'feat/toolchain-fail', 'plugin', 'pending', '', '[\"$TOOL --no-such-flag-xyz; exit 1\"]');
   "
   mkdir -p "$WT_ROOT/toolchain-fail"
   out=$(cd "$REPO_DIR" && run_hook_min_path "$(make_input swe completed 31)")
@@ -355,7 +376,7 @@ fi
 # gate from an arbitrary cwd). (#156)
 test_case "no worktree + non-empty verification[]: fail CLOSED with a named reason (deny)"
 sqlite3 "$DB" "
-  INSERT INTO tasks VALUES (40, 1, 'feat/no-worktree', 'plugin', 'pending', '', '[\"echo should-not-run\"]');
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (40, 1, 'feat/no-worktree', 'plugin', 'pending', '', '[\"echo should-not-run\"]');
 "
 # Deliberately do NOT create the worktree dir for this slug. The repo resolves
 # (repos.path), but no worktree exists under it → the gate must fail closed.
@@ -379,10 +400,10 @@ assert_contains "$out" "trajectory DB unavailable" "deny names the unavailable D
 COUNT_FILE="$TMPDIR/verify-runs.log"
 LOCK_ROOT="$WS/.claude/tmb/locks"
 sqlite3 "$DB" "
-  INSERT INTO tasks VALUES (60, 1, 'feat/lock-pass', 'plugin', 'pending', '', '[\"echo run >> $COUNT_FILE; sleep 2\"]');
-  INSERT INTO tasks VALUES (61, 1, 'feat/lock-fail', 'plugin', 'pending', '', '[\"echo run >> $COUNT_FILE.fail; sleep 2; echo boom; exit 3\"]');
-  INSERT INTO tasks VALUES (62, 1, 'feat/lock-stale', 'plugin', 'pending', '', '[\"echo run >> $COUNT_FILE.stale\"]');
-  INSERT INTO tasks VALUES (63, 1, 'feat/lock-unstamped', 'plugin', 'pending', '', '[\"echo run >> $COUNT_FILE.unstamped\"]');
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (60, 1, 'feat/lock-pass', 'plugin', 'pending', '', '[\"echo run >> $COUNT_FILE; sleep 2\"]');
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (61, 1, 'feat/lock-fail', 'plugin', 'pending', '', '[\"echo run >> $COUNT_FILE.fail; sleep 2; echo boom; exit 3\"]');
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (62, 1, 'feat/lock-stale', 'plugin', 'pending', '', '[\"echo run >> $COUNT_FILE.stale\"]');
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (63, 1, 'feat/lock-unstamped', 'plugin', 'pending', '', '[\"echo run >> $COUNT_FILE.unstamped\"]');
 "
 mkdir -p "$WT_ROOT/lock-pass" "$WT_ROOT/lock-fail" "$WT_ROOT/lock-stale" "$WT_ROOT/lock-unstamped"
 

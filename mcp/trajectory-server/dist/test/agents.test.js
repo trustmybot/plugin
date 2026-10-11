@@ -215,7 +215,7 @@ describe('audit_append requireRoles guard', () => {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
-            event_type: 'test_event',
+            event_type: 'planning_complete',
             summary: 'test summary',
         });
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
@@ -229,7 +229,7 @@ describe('audit_append requireRoles guard', () => {
             agent: 'swe',
             issue_id: String(issueId),
             from_node: 'swe',
-            event_type: 'test_event',
+            event_type: 'planning_complete',
             summary: 'test summary',
         });
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
@@ -243,7 +243,7 @@ describe('audit_append requireRoles guard', () => {
             agent: 'architect',
             issue_id: String(issueId),
             from_node: 'architect',
-            event_type: 'test_event',
+            event_type: 'planning_complete',
             summary: 'test summary',
         });
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
@@ -257,7 +257,7 @@ describe('audit_append requireRoles guard', () => {
             agent: '!!!invalid!!!',
             issue_id: String(issueId),
             from_node: '!!!invalid!!!',
-            event_type: 'test_event',
+            event_type: 'planning_complete',
             summary: 'test summary',
         });
         assert.ok(result.isError, 'Expected isError=true for unknown agent');

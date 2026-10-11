@@ -23,7 +23,9 @@
 #   - Non-SWE caller              → allow
 #   - Status != 'completed'       → allow
 #   - Empty typed verification[]  → allow with additionalContext warning
-#   - waive_verification_gate_reason (>=10 chars) → allow + audit row
+#   - waive_verification_gate_reason (>=10 chars) → allow + one audit row per
+#     (task, commit_sha): the commit is tool_input.commit_sha, else the task's
+#     commit_sha; a repeat invocation for the same pair writes nothing
 #   - Verification passes          → allow
 #   - Verification fails           → DENY with failing command + output tail
 #   - Total timeout (default 900s) → DENY with timeout message
@@ -104,14 +106,19 @@ fi
 # Check for waiver BEFORE running verification.
 WAIVER=$(echo "$INPUT" | jq -r '.tool_input.waive_verification_gate_reason // empty' 2>/dev/null || true)
 if [ -n "$WAIVER" ] && [ ${#WAIVER} -ge 10 ]; then
-  CONTENT_JSON=$(jq -nc --argjson tid "$TASK_ID" --arg reason "$WAIVER" '{task_id: $tid, waiver_reason: $reason}')
-  TASK_ROW=$(tmb_gate_read "$DB" "SELECT COALESCE(issue_id, -1) || '|' || COALESCE(branch_id, '') FROM tasks WHERE id = ${SAFE_TASK_ID} LIMIT 1;")
+  TASK_ROW=$(tmb_gate_read "$DB" "SELECT COALESCE(issue_id, -1) || '|' || COALESCE(branch_id, '') || '|' || COALESCE(commit_sha, '') FROM tasks WHERE id = ${SAFE_TASK_ID} LIMIT 1;")
   if [ "$TASK_ROW" = "__ERR__" ]; then
     tmb_deny_db_unavailable "swe-verification-gate (waiver)"
     exit 0
   fi
-  if [ -n "$TASK_ROW" ] && ! tmb_audit_append "$DB" "${TASK_ROW%%|*}" "${TASK_ROW#*|}" "hook:swe-verification-gate" "verification_gate_waived" \
-      "SWE waived verification gate for task_id=${TASK_ID}" "$CONTENT_JSON"; then
+  WAIVER_ISSUE="${TASK_ROW%%|*}"
+  WAIVER_REST="${TASK_ROW#*|}"
+  WAIVER_BRANCH="${WAIVER_REST%%|*}"
+  WAIVER_SHA=$(echo "$INPUT" | jq -r '.tool_input.commit_sha // empty' 2>/dev/null || true)
+  [ -n "$WAIVER_SHA" ] || WAIVER_SHA="${WAIVER_REST#*|}"
+  CONTENT_JSON=$(jq -nc --argjson tid "$TASK_ID" --arg sha "$WAIVER_SHA" --arg reason "$WAIVER" '{task_id: $tid, commit_sha: $sha, waiver_reason: $reason}')
+  if [ -n "$TASK_ROW" ] && ! tmb_audit_append "$DB" "$WAIVER_ISSUE" "$WAIVER_BRANCH" "hook:swe-verification-gate" "verification_gate_waived" \
+      "SWE waived verification gate for task_id=${TASK_ID}" "$CONTENT_JSON" '$.task_id' '$.commit_sha'; then
     jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable — the verification-gate waiver could not be recorded, so it cannot be honoured. Retry once the DB is writable."}}'
   fi
   exit 0

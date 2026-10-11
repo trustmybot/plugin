@@ -92,26 +92,50 @@ assert_eq "2" "$RC" "malformed hook:<name> exits 2"
 assert_eq "0" "$(count "SELECT COUNT(*) FROM audit WHERE event_type='probe_event';")" "rejected rows not written"
 
 test_case "tmb_audit_append accepts hook:<name> and quotes every value"
-tmb_audit_append "$DB" -1 '' "hook:x" probe_ok "it's quoted" '{"note":"it'"'"'s"}' 2>/dev/null && RC=0 || RC=$?
+tmb_audit_append "$DB" -1 '' "hook:x" cheatcode_healthcheck "it's quoted" '{"note":"it'"'"'s"}' 2>/dev/null && RC=0 || RC=$?
 assert_eq "0" "$RC" "hook:x accepted"
-ROW=$(count "SELECT from_node || '|' || summary || '|' || json_extract(content_json, '\$.note') || '|' || COALESCE(branch_id, 'NULL') || '|' || length(created_at) FROM audit WHERE event_type='probe_ok';")
+ROW=$(count "SELECT from_node || '|' || summary || '|' || json_extract(content_json, '\$.note') || '|' || COALESCE(branch_id, 'NULL') || '|' || length(created_at) FROM audit WHERE event_type='cheatcode_healthcheck';")
 assert_eq "hook:x|it's quoted|it's|NULL|24" "$ROW" "row values round-trip"
 
 test_case "tmb_audit_append writes repo from the parent issue"
 sqlite3 "$DB" "INSERT INTO repos (name, path) VALUES ('dbw-repo', '/tmp/dbw-repo');
 INSERT INTO issues (id, objective, description, status, repo, created_at, updated_at)
 VALUES (77, 'o', 'd', 'open', 'dbw-repo', '$(tmb_now_iso)', '$(tmb_now_iso)');" >/dev/null
-tmb_audit_append "$DB" 77 'feat/x' "hook:x" probe_repo "s" '{}' 2>/dev/null
-assert_eq "dbw-repo|feat/x" "$(count "SELECT repo || '|' || branch_id FROM audit WHERE event_type='probe_repo';")" "repo + branch_id"
+tmb_audit_append "$DB" 77 'feat/x' "hook:x" readme_staleness_surfaced "s" '{}' 2>/dev/null
+assert_eq "dbw-repo|feat/x" "$(count "SELECT repo || '|' || branch_id FROM audit WHERE event_type='readme_staleness_surfaced';")" "repo + branch_id"
 
 test_case "tmb_audit_sql guard: audit row only when the preceding UPDATE changed a row"
-SQL_HIT=$(tmb_audit_sql 77 '' "hook:x" probe_guard "hit" '{}' "(SELECT changes()) > 0")
-SQL_MISS=$(tmb_audit_sql 77 '' "hook:x" probe_guard "miss" '{}' "(SELECT changes()) > 0")
+SQL_HIT=$(tmb_audit_sql 77 '' "hook:x" issue_auto_closed_on_merge "hit" '{}' "(SELECT changes()) > 0")
+SQL_MISS=$(tmb_audit_sql 77 '' "hook:x" issue_auto_closed_on_merge "miss" '{}' "(SELECT changes()) > 0")
 tmb_db_write "$DB" "UPDATE issues SET status = 'closed' WHERE id = 77 AND status != 'closed';
 $SQL_HIT" 2>/dev/null
 tmb_db_write "$DB" "UPDATE issues SET status = 'closed' WHERE id = 77 AND status != 'closed';
 $SQL_MISS" 2>/dev/null
-assert_eq "hit" "$(count "SELECT group_concat(summary) FROM audit WHERE event_type='probe_guard';")" "guarded row written once"
+assert_eq "hit" "$(count "SELECT group_concat(summary) FROM audit WHERE event_type='issue_auto_closed_on_merge';")" "guarded row written once"
+
+test_case "tmb_audit_append rejects an event_type outside audit-events.txt"
+ERR=$(tmb_audit_append "$DB" -1 '' "hook:x" not_an_event "x" '{}' 2>&1 >/dev/null) && RC=0 || RC=$?
+assert_eq "2" "$RC" "unknown event_type rejected"
+assert_contains "$ERR" "unknown event_type 'not_an_event'" "stderr names the unknown event"
+ERR=$(tmb_audit_sql -1 '' "hook:x" "" "x" '{}' 2>&1 >/dev/null) && RC=0 || RC=$?
+assert_eq "2" "$RC" "empty event_type rejected by tmb_audit_sql"
+assert_eq "0" "$(count "SELECT COUNT(*) FROM audit WHERE event_type IN ('not_an_event', '');")" "rejected rows not written"
+
+test_case "audit-events.txt lists every type in audit-events.ts"
+TS_TYPES=$(grep -oE "\{ type: '[a-z_]+'" "$PLUGIN_ROOT/mcp/trajectory-server/src/audit-events.ts" | sed -E "s/.*'([a-z_]+)'/\1/")
+assert_eq "$TS_TYPES" "$(cat "$PLUGIN_ROOT/scripts/hooks/lib/audit-events.txt")" "generated txt equals the TS list"
+
+test_case "tmb_audit_append dedupe paths: one row per (event_type, task_id, commit_sha)"
+DEDUPE_A='{"task_id":9,"commit_sha":"abc1234","waiver_reason":"first"}'
+DEDUPE_B='{"task_id":9,"commit_sha":"abc1234","waiver_reason":"second"}'
+DEDUPE_C='{"task_id":9,"commit_sha":"def5678","waiver_reason":"new commit"}'
+for c in "$DEDUPE_A" "$DEDUPE_B" "$DEDUPE_C"; do
+  tmb_audit_append "$DB" -1 '' "hook:x" verification_gate_waived "dedupe" "$c" '$.task_id' '$.commit_sha' 2>/dev/null || _fail "dedupe write returned non-zero"
+done
+assert_eq "first,new commit" "$(count "SELECT group_concat(json_extract(content_json, '\$.waiver_reason')) FROM (SELECT content_json FROM audit WHERE event_type='verification_gate_waived' ORDER BY id);")" "repeat skipped, new commit written"
+ERR=$(tmb_audit_append "$DB" -1 '' "hook:x" verification_gate_waived "x" '{}' "\$.a'); DROP TABLE audit;--" 2>&1 >/dev/null) && RC=0 || RC=$?
+assert_eq "2" "$RC" "malformed dedupe path rejected"
+assert_contains "$ERR" "invalid dedupe json path" "stderr names the bad path"
 
 test_case "tmb_gate_read prints __ERR__ on a missing DB file"
 assert_eq "__ERR__" "$(tmb_gate_read "$TMPDIR_FIXTURE/nope.db" "SELECT 1;")" "missing DB"
