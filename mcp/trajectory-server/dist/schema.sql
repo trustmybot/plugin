@@ -203,7 +203,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 32, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 33, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -219,7 +219,11 @@ CREATE TABLE IF NOT EXISTS plugin_config (
 INSERT OR IGNORE INTO plugin_config (key, value_json) VALUES
     ('issue_sync',         '"off"'),
     ('issue_classification_labels', '["Bug","Feature","Improvement","Docs","Test","Chore"]'),
-    ('issue_priority_labels',       '["Priority: Urgent","Priority: High","Priority: Medium","Priority: Low"]');
+    ('issue_priority_labels',       '["Priority: Urgent","Priority: High","Priority: Medium","Priority: Low"]'),
+    -- model_prices: USD per 1M tokens per model id,
+    -- {"<model>": {"input", "output", "cache_read", "cache_creation"}}; read by
+    -- task_stats.cost_estimate. Seeded empty; filled via config_set.
+    ('model_prices',                '{}');
 
 -- The "onboarded" marker lives in plugin_config now (#2876). The legacy
 -- identity table was a single-row marker with no columns of meaning —
@@ -236,7 +240,8 @@ INSERT OR IGNORE INTO plugin_config (key, value_json) VALUES
 --   swe rows — opened by task_brief; the SubagentStop hook binds the spawn to
 --     the task_id in its spawn prompt and writes the spawn transcript's totals.
 -- bro_atomic_close and a terminal task_update_status close every open row of
--- the task; task_recover sweeps rows whose task is already terminal.
+-- the task; task_recover sweeps rows whose task is already terminal. Whoever
+-- closes a row stamps its exit_reason.
 -- The total token count is not stored: it is computed as tokens_in +
 -- tokens_out + cache_read_tokens + cache_creation_tokens.
 CREATE TABLE IF NOT EXISTS agent_runs (
@@ -266,7 +271,16 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     -- usage_source: where the token values came from; NULL until first measured.
     spawn_id             TEXT,
     session_id           TEXT,
-    usage_source         TEXT CHECK (usage_source IN ('transcript','subagent_stop','unmeasured'))
+    usage_source         TEXT CHECK (usage_source IN ('transcript','subagent_stop','unmeasured','backfill')),
+    -- root_dir: absolute path this run may write to (bro: the project root;
+    --   swe: the task's worktree). The containment-guard hook reads it.
+    -- model: the dominant model id over the run's window (written with tokens).
+    -- host: the agent host that ran it.
+    -- exit_reason: how the row was closed; NULL while open.
+    root_dir             TEXT,
+    model                TEXT,
+    host                 TEXT CHECK (host IN ('claude','codex')),
+    exit_reason          TEXT CHECK (exit_reason IN ('completed','failed','escalated','swept_orphan','swept_stale','issue_closed'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);

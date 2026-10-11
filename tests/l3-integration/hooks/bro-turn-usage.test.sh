@@ -126,4 +126,21 @@ assert_eq "" "$EVIL_OUT" "no SQL error on hostile input"
 assert_eq "1" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='agent_runs';")" "agent_runs table survives"
 assert_eq "0|0|0|0|0|${SESSION}|transcript" "$(row 2)" "non-numeric / negative usage counts as 0; a malformed timestamp is dropped"
 
+test_case "model is the dominant message.model in the row's window; host is stamped"
+MODEL_DB_ROW=$(sqlite3 "$DB" "INSERT INTO agent_runs (agent_type, started_at, session_id) VALUES ('bro', '$(at 200)', '${SESSION}'); SELECT last_insert_rowid();")
+MODEL_T="$TMPDIR_BTU/model.jsonl"
+{
+  printf '{"type":"user","timestamp":"%s","message":{"content":"x"}}\n' "$(at 0)"
+  printf '{"type":"assistant","timestamp":"%s","message":{"id":"mm1","model":"claude-small-1","usage":{"input_tokens":5,"output_tokens":5},"content":[]}}\n' "$(at 210)"
+  printf '{"type":"assistant","timestamp":"%s","message":{"id":"mm2","model":"claude-small-1","usage":{"input_tokens":5,"output_tokens":5},"content":[]}}\n' "$(at 211)"
+  printf '{"type":"assistant","timestamp":"%s","message":{"id":"mm3","model":"claude-big-9","usage":{"input_tokens":500,"output_tokens":5},"content":[]}}\n' "$(at 212)"
+  printf '{"type":"assistant","timestamp":"%s","message":{"id":"mm4","model":"<synthetic>","usage":{"input_tokens":9000,"output_tokens":0},"content":[]}}\n' "$(at 213)"
+  printf '{"type":"assistant","timestamp":"%s","message":{"id":"mm5","model":"x'"'"');DROP TABLE agent_runs;--","usage":{"input_tokens":1,"output_tokens":0},"content":[]}}\n' "$(at 214)"
+} > "$MODEL_T"
+assert_eq "" "$(run_hook "$MODEL_T")" "no SQL error"
+assert_eq "claude-big-9|claude" \
+  "$(sqlite3 "$DB" "SELECT model, host FROM agent_runs WHERE id=${MODEL_DB_ROW};")" \
+  "the model with the most tokens wins; <synthetic> carries no model"
+assert_eq "1" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='agent_runs';")" "a hostile model id cannot reach the SQL"
+
 summarize

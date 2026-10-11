@@ -5,7 +5,8 @@ import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
 import { insertDiscussion } from './discussions.js';
 import { insertAudit } from './audit.js';
-import { closeOpenRunsForTask, openSweRun, sweepRunsOfTerminalTasks } from './agent-runs.js';
+import { claudeRunContext, closeOpenRunsForTask, openBroRun, openSweRun, sweepRunsOfTerminalTasks, } from './agent-runs.js';
+import { outsideProject } from './containment.js';
 import { syncIssueCloseRemotes, resolveDefaultMilestone, milestoneDefaultFields, validateIssueLabels, defaultSyncLabels, } from './issues.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolveSoleRepo } from '../utils/repo-paths.js';
@@ -228,7 +229,7 @@ function closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssue
         SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?
       WHERE id=?`, [commitSha, now, now, task.id]);
     // 3. close every open agent_runs row of the task (bro and swe).
-    closeOpenRunsForTask(db, task.id, now);
+    closeOpenRunsForTask(db, task.id, now, 'completed');
     // 4. optional issue_close — only when this was the last open/active task.
     let issueClosed = false;
     if (closeIssueIfLast) {
@@ -242,7 +243,15 @@ function closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssue
     }
     return { issue_closed: issueClosed };
 }
-export function compositeTools(db, dbPath, graphHolder = null) {
+function outsideProjectResult(refusal) {
+    return { content: [{ type: 'text', text: JSON.stringify(refusal) }], isError: true };
+}
+// The worktree a task's swe runs in: <repo>/.claude/worktrees/<slug>, slug =
+// the branch_id after its type prefix (task_provision's layout).
+function taskWorktreePath(repoPath, branchId) {
+    return `${repoPath}/.claude/worktrees/${branchId.replace(/^[^/]+\//, '')}`;
+}
+export function compositeTools(db, dbPath, graphHolder = null, runContext = claudeRunContext(db, dbPath)) {
     const definitions = [
         {
             name: 'branch_id_propose',
@@ -339,7 +348,7 @@ export function compositeTools(db, dbPath, graphHolder = null) {
         },
         {
             name: 'pr_monitor_worktree',
-            description: 'PR-review worktree composite — creates a per-SHA worktree at /tmp/pr-review-<sha>, runs a caller-supplied command inside it, then removes the worktree atomically.',
+            description: 'PR-review worktree composite — creates a per-SHA worktree at <repo_path>/.claude/worktrees/pr-review-<sha>, runs a caller-supplied command inside it, then removes the worktree atomically. A repo_path outside the project is refused with outside_project.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -627,6 +636,11 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                 return err(`task_provision: cannot resolve a repo path for git setup (task.repo='${repoValue ?? ''}'); ` +
                     `pass task.repo or register a single repo. No task row was created — retry once the repo resolves.`);
             }
+            for (const path of [repoPath, taskWorktreePath(repoPath, branchId)]) {
+                const refusal = outsideProject('task_provision', runContext.projectRoot, path);
+                if (refusal)
+                    return outsideProjectResult(refusal);
+            }
             const base = args['base'] ??
                 (readRepoTargetBranch(db, repoValue) ?? 'dev');
             let branchReused = true;
@@ -691,8 +705,7 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                 const row = db.get('SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()');
                 if (!row)
                     throw new Error('task_provision: task insert succeeded but row lookup failed');
-                db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo)
-             VALUES (?, ?, 'bro', ?, ?)`, [row.id, issueId, now, row.repo]);
+                openBroRun(db, { id: row.id, issue_id: issueId, repo: row.repo }, now, runContext);
                 insertAudit(db, {
                     issue_id: issueId,
                     branch_id: branchId,
@@ -723,7 +736,7 @@ export function compositeTools(db, dbPath, graphHolder = null) {
             // re-created.
             let gitSetup = 'created';
             let diagnostic;
-            const worktreePath = `${repoPath}/.claude/worktrees/${slug}`;
+            const worktreePath = taskWorktreePath(repoPath, branchId);
             try {
                 // Worktree: add only when absent (idempotent). Match by realpath —
                 // `git worktree list --porcelain` emits canonicalized paths (e.g.
@@ -779,7 +792,8 @@ export function compositeTools(db, dbPath, graphHolder = null) {
             if (!task)
                 return err(`No task with id=${taskId}`);
             if (normalizeAgent(args['agent']) === 'swe') {
-                openSweRun(db, task, nowISO());
+                const repoPath = resolveRepoPath(db, task.repo);
+                openSweRun(db, task, nowISO(), runContext, repoPath?.startsWith('/') ? taskWorktreePath(repoPath, task.branch_id) : null);
             }
             // Resolve repo: task.repo, else the single-repo fallback (path-keyed
             // resolution — empty in multi-repo projects, which scope by task.repo).
@@ -978,8 +992,7 @@ export function compositeTools(db, dbPath, graphHolder = null) {
                     throw new Error('insert succeeded but row lookup failed');
                 // Bro-as-agent_run (#2886): open a bro row for the retry task,
                 // mirror of the task_create_batch case.
-                db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo)
-             VALUES (?, ?, 'bro', ?, ?)`, [newTask.id, failed.issue_id, now, newTask.repo]);
+                openBroRun(db, { id: newTask.id, issue_id: failed.issue_id, repo: newTask.repo }, now, runContext);
                 insertAudit(db, {
                     issue_id: failed.issue_id,
                     branch_id: newBranchId,
@@ -1114,7 +1127,10 @@ export function compositeTools(db, dbPath, graphHolder = null) {
             if (!command || command.trim().length === 0) {
                 return err('command must be a non-empty string');
             }
-            const wtPath = `/tmp/pr-review-${commitSha}`;
+            const repoRefusal = outsideProject('pr_monitor_worktree', runContext.projectRoot, repoPath);
+            if (repoRefusal)
+                return outsideProjectResult(repoRefusal);
+            const wtPath = `${repoPath}/.claude/worktrees/pr-review-${commitSha}`;
             let stdout = '';
             let stderr = '';
             let exitCode = 0;

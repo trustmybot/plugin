@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, sep } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
+import { outsideProject, projectRootFromDbPath } from './containment.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -328,24 +329,7 @@ function parseInstallCandidate(raw) {
 // a consultant) for everyone but bro, whose surface is CLAUDE.md. A non-bro
 // target materializes the agent md global→local + a skills: entry; bro
 // materializes a project-local CLAUDE.md reference.
-// Derive the PROJECT ROOT (the dir that owns .claude/) from the trajectory DB
-// path. The DB lives at <root>/.claude/<plugin>/trajectory.db, so the root is
-// the parent of the `.claude` adjacent to the DB — the INNERMOST `.claude`
-// (lastIndexOf). Using the first `.claude` mis-resolves the root to an ancestor
-// when the project itself is nested under a `.claude` ancestor (the L6 chain
-// layout: ~/.claude/<plugin>/l6-chain-runs/<run>/project/.claude/<plugin>/trajectory.db),
-// which leaks materialize/dematerialize writes outside the project. Returns null
-// for an in-memory DB or a path with no `.claude` segment (e.g. a bespoke
-// TRAJECTORY_DB_PATH).
-export function projectRootFromDbPath(dbPath) {
-    if (!dbPath || dbPath === ':memory:')
-        return null;
-    const segments = dbPath.split(sep);
-    const idx = segments.lastIndexOf('.claude');
-    if (idx <= 0)
-        return null;
-    return segments.slice(0, idx).join(sep) || sep;
-}
+export { projectRootFromDbPath };
 // Resolve the GLOBAL agent md the install copies from. The plugin ships its
 // agents at ${CLAUDE_PLUGIN_ROOT}/agents/<target>.md; fall back to the on-disk
 // layout four levels up from this compiled module (mirrors resolveScriptsFile).
@@ -903,6 +887,24 @@ export function cheatcodeTools(db) {
                 return err(`cheatcode install blocked: no approval on record for '${name}' (${sourceUrl}). ` +
                     `Run cheatcode_approve on this candidate first, then re-call cheatcode_install.`);
             }
+            const projectRoot = projectRootFromDbPath(db.dbPath);
+            const writesOutside = (targets) => {
+                if (projectRoot === null)
+                    return null;
+                const paths = [join(projectRoot, '.claude', 'skills', name, 'SKILL.md')];
+                for (const t of targets) {
+                    paths.push(t === 'bro' ? join(projectRoot, '.claude', 'CLAUDE.md') : join(projectRoot, '.claude', 'agents', `${t}.md`));
+                }
+                for (const path of paths) {
+                    const refusal = outsideProject('cheatcode_install', projectRoot, path);
+                    if (refusal)
+                        return { content: [{ type: 'text', text: JSON.stringify(refusal) }], isError: true };
+                }
+                return null;
+            };
+            const refusedBeforeInstall = writesOutside(target ? [target] : []);
+            if (refusedBeforeInstall)
+                return refusedBeforeInstall;
             const candidate = {
                 name,
                 kind,
@@ -958,6 +960,9 @@ export function cheatcodeTools(db) {
                 }
                 if (target)
                     targetSet.add(target);
+                const refusedTargets = writesOutside(targetSet);
+                if (refusedTargets)
+                    return refusedTargets;
                 for (const t of targetSet) {
                     const providedTools = kind === 'plugin' && t !== 'bro' ? detectProvidedTools(name) : [];
                     const result = materializeConsumingAgent(db.dbPath, t, name, providedTools);

@@ -54,7 +54,7 @@ export function assertV30Shape(db: TrajectoryDB): void {
     assert.ok(runCols.some((c) => c.name === name), `agent_runs.${name} must exist`);
   }
   assert.ok(
-    tableDdl(db, 'agent_runs').includes("usage_source IN ('transcript','subagent_stop','unmeasured')"),
+    tableDdl(db, 'agent_runs').includes("usage_source IN ('transcript','subagent_stop','unmeasured'"),
     'agent_runs DDL must CHECK usage_source',
   );
 

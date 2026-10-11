@@ -21324,7 +21324,7 @@ function sqlLog(entry) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 32;
+var TARGET_SCHEMA_VERSION = 33;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
 }
@@ -21716,6 +21716,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 32 && toVersion >= 32) {
     migrateV31toV32(db);
+  }
+  if (fromVersion < 33 && toVersion >= 33) {
+    migrateV32toV33(db);
   }
 }
 function hasColumn(db, table, column) {
@@ -22827,6 +22830,135 @@ function migrateV31toV32(db) {
     if (fkViolations.length > 0) {
       throw new Error(
         `migrateV31toV32: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v32 rebuild`
+      );
+    }
+    db.exec("COMMIT");
+  } catch (err5) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+    }
+    throw err5;
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
+  }
+}
+var ISO_NOW_SQL = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
+function migrateV32toV33(db) {
+  if (!tableExists(db, "agent_runs")) return;
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.exec("BEGIN");
+  try {
+    if (!hasColumn(db, "agent_runs", "exit_reason") || !/'backfill'/.test(readTableSql(db, "agent_runs"))) {
+      rebuildTable(
+        db,
+        "agent_runs",
+        `
+          id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id               INTEGER REFERENCES tasks(id),
+          issue_id              INTEGER REFERENCES issues(id),
+          agent_type            TEXT    NOT NULL,
+          tokens_in             INTEGER,
+          tokens_out            INTEGER,
+          cache_read_tokens     INTEGER,
+          cache_creation_tokens INTEGER,
+          tool_uses             INTEGER NOT NULL DEFAULT 0,
+          duration_ms           INTEGER NOT NULL DEFAULT 0,
+          started_at            TEXT,
+          completed_at          TEXT,
+          repo                  TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          spawn_id              TEXT,
+          session_id            TEXT,
+          usage_source          TEXT CHECK (usage_source IN ('transcript','subagent_stop','unmeasured','backfill')),
+          root_dir              TEXT,
+          model                 TEXT,
+          host                  TEXT CHECK (host IN ('claude','codex')),
+          exit_reason           TEXT CHECK (exit_reason IN ('completed','failed','escalated','swept_orphan','swept_stale','issue_closed'))
+        `,
+        [
+          ["id", "NULL"],
+          ["task_id", "NULL"],
+          ["issue_id", "NULL"],
+          ["agent_type", "''"],
+          ["tokens_in", "NULL"],
+          ["tokens_out", "NULL"],
+          ["cache_read_tokens", "NULL"],
+          ["cache_creation_tokens", "NULL"],
+          ["tool_uses", "0"],
+          ["duration_ms", "0"],
+          ["started_at", "NULL"],
+          ["completed_at", "NULL"],
+          ["repo", "NULL"],
+          ["spawn_id", "NULL"],
+          ["session_id", "NULL"],
+          ["usage_source", "NULL"],
+          ["root_dir", "NULL"],
+          ["model", "NULL"],
+          ["host", "NULL"],
+          ["exit_reason", "NULL"]
+        ]
+      );
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_open ON agent_runs(agent_type) WHERE completed_at IS NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id) WHERE session_id IS NOT NULL;
+      `);
+    }
+    db.exec("UPDATE agent_runs SET host = 'claude' WHERE host IS NULL");
+    if (tableExists(db, "tasks")) db.exec(`
+      UPDATE agent_runs
+         SET exit_reason = CASE
+               WHEN usage_source = 'unmeasured' THEN 'swept_orphan'
+               ELSE (SELECT CASE t.status
+                              WHEN 'closed' THEN 'completed'
+                              WHEN 'completed' THEN 'completed'
+                              WHEN 'failed' THEN 'failed'
+                              WHEN 'escalated' THEN 'escalated'
+                            END
+                       FROM tasks t WHERE t.id = agent_runs.task_id)
+             END
+       WHERE completed_at IS NOT NULL AND exit_reason IS NULL
+    `);
+    if (tableExists(db, "tasks") && tableExists(db, "issues")) {
+      const leaked = db.prepare(
+        `SELECT t.id, t.issue_id, t.branch_id, t.status FROM tasks t JOIN issues i ON i.id = t.issue_id
+            WHERE i.status = 'closed' AND t.status IN ('pending','running','needs_validation','completed')
+            ORDER BY t.id`
+      ).all();
+      const insertRepairAudit = tableExists(db, "audit") ? db.prepare(
+        `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at)
+             VALUES (?, ?, 'system', 'task_escalated_repair', ?, ?, (SELECT repo FROM issues WHERE id = ?), ${ISO_NOW_SQL})`
+      ) : null;
+      const escalate = db.prepare(
+        `UPDATE tasks SET status = 'escalated', completed_at = NULL, updated_at = ${ISO_NOW_SQL} WHERE id = ?`
+      );
+      const closeRuns = db.prepare(
+        `UPDATE agent_runs
+            SET completed_at = ${ISO_NOW_SQL},
+                duration_ms = CASE WHEN duration_ms = 0
+                                   THEN COALESCE(MAX(0, CAST(ROUND((julianday('now') - julianday(started_at)) * 86400000) AS INTEGER)), 0)
+                                   ELSE duration_ms END,
+                exit_reason = 'issue_closed'
+          WHERE task_id = ? AND completed_at IS NULL`
+      );
+      for (const task of leaked) {
+        insertRepairAudit?.run(
+          task.issue_id,
+          task.branch_id,
+          `task ${task.id} escalated: its issue ${task.issue_id} is closed (was ${task.status})`,
+          JSON.stringify({ task_id: task.id, issue_id: task.issue_id, from_status: task.status }),
+          task.issue_id
+        );
+        escalate.run(task.id);
+        closeRuns.run(task.id);
+      }
+    }
+    const fkViolations = db.prepare("PRAGMA foreign_key_check").all();
+    if (fkViolations.length > 0) {
+      throw new Error(
+        `migrateV32toV33: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v33 rebuild`
       );
     }
     db.exec("COMMIT");

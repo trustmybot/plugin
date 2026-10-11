@@ -165,4 +165,20 @@ assert_contains "$(sqlite3 "$DB" "SELECT content_json FROM audit WHERE event_typ
 test_case "foreign keys stay clean"
 assert_eq "" "$(sqlite3 "$DB" "PRAGMA foreign_key_check;")" "foreign_key_check empty"
 
+test_case "the spawn row carries the dominant model, host, worktree root_dir and exit_reason"
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at) VALUES (143, 1, 'fix/task-143', 'dev', 'd', 'completed', '$NOW', '$NOW');"
+T143="$TMPDIR/t143.jsonl"
+printf '%s\n' \
+  '{"type":"user","timestamp":"2026-06-16T19:40:00.000Z","message":{"role":"user","content":"task_id=143 You are swe."}}' \
+  '{"type":"assistant","timestamp":"2026-06-16T19:40:01.000Z","message":{"id":"x1","model":"claude-small-1","usage":{"input_tokens":10,"output_tokens":1},"content":[]}}' \
+  '{"type":"assistant","timestamp":"2026-06-16T19:40:02.000Z","message":{"id":"x2","model":"claude-big-9","usage":{"input_tokens":900,"output_tokens":1},"content":[]}}' \
+  '{"type":"assistant","timestamp":"2026-06-16T19:40:03.000Z","message":{"id":"x3","model":"<synthetic>","usage":{"input_tokens":5000,"output_tokens":0},"content":[]}}' \
+  > "$T143"
+run_hook "$(stop_input "$T143" agent-143)" >/dev/null
+assert_eq "claude-big-9|claude|$(cd "$REPO" && pwd -P)/.claude/worktrees/task-143|completed" \
+  "$(sqlite3 "$DB" "SELECT model, host, root_dir, exit_reason FROM agent_runs WHERE task_id=143;")" \
+  "model by tokens (<synthetic> ignored); root_dir = the task worktree; a completed task ends completed"
+assert_eq "failed" "$(sqlite3 "$DB" "SELECT exit_reason FROM agent_runs WHERE task_id=140;")" "a spawn that stops on a running task ends failed"
+assert_eq "claude" "$(sqlite3 "$DB" "SELECT DISTINCT host FROM agent_runs WHERE task_id IS NOT NULL;")" "every spawn row carries host claude"
+
 summarize

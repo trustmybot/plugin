@@ -177,4 +177,54 @@ describe('statsTools — task_stats', () => {
         db.close();
     });
 });
+describe('statsTools — task_stats cost_estimate', () => {
+    const seed = (db) => {
+        const now = nowISO();
+        db.run("INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES ('i', '', 'open', ?, ?)", [now, now]);
+        const issueId = db.get('SELECT last_insert_rowid() AS id').id;
+        db.run("INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'feat/cost', 't', 'd', 'pending', ?, ?)", [issueId, now, now]);
+        const taskId = db.get('SELECT last_insert_rowid() AS id').id;
+        const run = (host, model, ti, to, cr, cc) => {
+            db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, host, model, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens)
+         VALUES (?, ?, 'swe', ?, ?, ?, ?, ?, ?)`, [taskId, issueId, host, model, ti, to, cr, cc]);
+        };
+        run('claude', 'model-a', 1_000_000, 100_000, 2_000_000, 10_000);
+        run('claude', 'model-a', 500_000, 0, 0, 0);
+        run('codex', 'model-b', 10_000, 10_000, 0, 0);
+        run('claude', null, 7, 3, 0, 0);
+        return taskId;
+    };
+    it('prices each row by model_prices[model] and counts unpriced tokens, grouped by host and model', async () => {
+        const db = tempDB();
+        const taskId = seed(db);
+        db.run(`UPDATE plugin_config SET value_json = ? WHERE key = 'model_prices'`, [
+            JSON.stringify({ 'model-a': { input: 3, output: 15, cache_read: 0.3, cache_creation: 3.75 } }),
+        ]);
+        const payload = parseResult(await call(statsTools(db).handlers, 'task_stats', { agent: 'bro', task_id: taskId }));
+        // model-a row 1: 1.0*3 + 0.1*15 + 2.0*0.3 + 0.01*3.75 = 5.1375; row 2: 0.5*3 = 1.5
+        assert.equal(payload.cost_estimate, 6.6375);
+        assert.equal(payload.unpriced_tokens, 20_000 + 10, 'model-b and the model-less row are unpriced');
+        assert.deepEqual(payload.cost_groups, [
+            { host: 'claude', model: 'model-a', spawn_count: 2, tokens_total: 3_610_000, cost_estimate: 6.6375, unpriced_tokens: 0 },
+            { host: 'codex', model: 'model-b', spawn_count: 1, tokens_total: 20_000, cost_estimate: 0, unpriced_tokens: 20_000 },
+            { host: 'claude', model: null, spawn_count: 1, tokens_total: 10, cost_estimate: 0, unpriced_tokens: 10 },
+        ]);
+        assert.deepEqual(payload.spawns.map((s) => [s.host, s.model]), [['claude', 'model-a'], ['claude', 'model-a'], ['codex', 'model-b'], ['claude', null]]);
+        db.close();
+    });
+    it('rounds to 4 decimals and treats the seeded empty model_prices as all-unpriced', async () => {
+        const db = tempDB();
+        const taskId = seed(db);
+        const empty = parseResult(await call(statsTools(db).handlers, 'task_stats', { agent: 'bro', task_id: taskId }));
+        assert.equal(empty.cost_estimate, 0);
+        assert.equal(empty.unpriced_tokens, 3_610_000 + 20_000 + 10);
+        db.run(`UPDATE plugin_config SET value_json = ? WHERE key = 'model_prices'`, [
+            JSON.stringify({ 'model-b': { input: 0.123456, output: 0, cache_read: 0, cache_creation: 0 }, 'model-a': { input: 1 } }),
+        ]);
+        const partial = parseResult(await call(statsTools(db).handlers, 'task_stats', { agent: 'bro', task_id: taskId }));
+        assert.equal(partial.cost_estimate, 0.0012, '10k × 0.123456 / 1M = 0.00123456 → 0.0012');
+        assert.equal(partial.unpriced_tokens, 3_610_000 + 10, 'an incomplete price entry leaves model-a unpriced');
+        db.close();
+    });
+});
 //# sourceMappingURL=stats.test.js.map

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { tableDdl } from './v29-shape.js';
 import { assertV31Shape } from './v31-shape.js';
-/** Every v32 DDL item (plus all of v29–v31), asserted identically on fresh and migrated DBs. */
+/**
+ * Every v32 DDL item (plus all of v29–v31), asserted identically on fresh and
+ * migrated DBs. The schema_version stamp is asserted by v33-shape.ts.
+ */
 export function assertV32Shape(db) {
-    const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
-    assert.equal(meta.schema_version, 32, 'schema_version must be 32');
     assertV31Shape(db);
     const ddl = tableDdl(db, 'cheatcodes').replace(/\s+/g, ' ');
     assert.match(ddl, /UNIQUE \(name, kind\)/, 'cheatcodes must be keyed by UNIQUE (name, kind)');

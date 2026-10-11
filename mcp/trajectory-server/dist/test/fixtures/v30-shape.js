@@ -43,7 +43,7 @@ export function assertV30Shape(db) {
     for (const name of ['spawn_id', 'session_id', 'usage_source']) {
         assert.ok(runCols.some((c) => c.name === name), `agent_runs.${name} must exist`);
     }
-    assert.ok(tableDdl(db, 'agent_runs').includes("usage_source IN ('transcript','subagent_stop','unmeasured')"), 'agent_runs DDL must CHECK usage_source');
+    assert.ok(tableDdl(db, 'agent_runs').includes("usage_source IN ('transcript','subagent_stop','unmeasured'"), 'agent_runs DDL must CHECK usage_source');
     assert.ok(columns(db, 'discussions').some((c) => c.name === 'remote_comment_id'), 'discussions.remote_comment_id must exist');
     for (const [table, column] of ISO_DEFAULT_COLUMNS) {
         const col = columns(db, table).find((c) => c.name === column);

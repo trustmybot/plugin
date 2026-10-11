@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
 import { assertTimestampsIso } from './fixtures/v30-shape.js';
-import { assertV32Shape } from './fixtures/v32-shape.js';
+import { assertV33Shape } from './fixtures/v33-shape.js';
 
 describe('schema — current table set, default values, constraints', () => {
   it('fresh prod-mode DB contains the current table set (skills folded into cheatcodes, #101; world model in kuzu)', () => {
@@ -139,9 +139,9 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('fresh DB carries every v29 + v30 + v31 + v32 constraint, drop, column and index', () => {
+  it('fresh DB carries every v29 + v30 + v31 + v32 + v33 constraint, drop, column and index', () => {
     const db = tempDB();
-    assertV32Shape(db);
+    assertV33Shape(db);
     db.close();
   });
 
@@ -200,14 +200,14 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('fresh DB has schema_version = 32 in plugin_meta', () => {
+  it('fresh DB has schema_version = 33 in plugin_meta', () => {
     const db = tempDB();
 
     const meta = db.get<{ schema_version: number; plugin_version: string }>(
       'SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-    assert.equal(meta.schema_version, 32);
+    assert.equal(meta.schema_version, 33);
     assert.ok(
       typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0,
       'plugin_version must be a non-empty string',
@@ -341,7 +341,7 @@ describe('schema — current table set, default values, constraints', () => {
     db.close();
   });
 
-  it('plugin_config has the 3 schema-seeded global keys on init (#980: repo-scoped keys live on repos)', () => {
+  it('plugin_config has the 4 schema-seeded global keys on init (#980: repo-scoped keys live on repos)', () => {
     const db = tempDB();
 
     const rows = db.all<{ key: string; value_json: string }>(
@@ -354,6 +354,7 @@ describe('schema — current table set, default values, constraints', () => {
       { key: 'issue_classification_labels', value_json: '["Bug","Feature","Improvement","Docs","Test","Chore"]' },
       { key: 'issue_priority_labels', value_json: '["Priority: Urgent","Priority: High","Priority: Medium","Priority: Low"]' },
       { key: 'issue_sync', value_json: '"off"' },
+      { key: 'model_prices', value_json: '{}' },
     ]);
 
     db.close();
