@@ -14,7 +14,6 @@
 // rules live here, not in the skill.
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import os from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SUBPROCESS_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS } from '../utils/timeouts.js';
@@ -22,7 +21,7 @@ import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
 import { resolveSoleRepoPath } from '../utils/repo-paths.js';
 import { requireRoles } from '../middleware/agent-scope.js';
-import { countShimEntries, removeUserSettingsEnforcementShim, writeUserSettingsEnforcementShim, } from './onboard-hooks-shim.js';
+import { countShimEntries, removeProjectEnforcementShim, writeProjectEnforcementShim, } from './onboard-hooks-shim.js';
 // Resolve the installed plugin's source root: prefer CLAUDE_PLUGIN_ROOT (must
 // have .claude-plugin/plugin.json), else walk up from this module until that
 // manifest is found — correct for both the tsc layout (dist/tools/onboard.js)
@@ -355,15 +354,15 @@ function headlessQuestion(current, isReonboard, entries) {
     }
     options.push({
         label: 'No',
-        description: 'Gates run in interactive sessions only. Nothing is written outside this project.',
+        description: 'Gates run in interactive sessions only.',
         wire: 'no',
     }, {
         label: 'Yes',
-        description: `Also gate headless \`claude -p\` runs. Writes ${entries} PreToolUse entries to ~/.claude/settings.json.`,
+        description: `Also gate headless \`claude -p\` runs. Writes ${entries} PreToolUse entries to this project's .claude/settings.local.json.`,
         wire: 'yes',
     });
     return {
-        question: `Also enforce TMB gates in non-interactive \`claude -p\` runs? Writes ${entries} PreToolUse entries to ~/.claude/settings.json.`,
+        question: `Also enforce TMB gates in non-interactive \`claude -p\` runs? Writes ${entries} PreToolUse entries to this project's .claude/settings.local.json.`,
         header: 'Headless',
         multiSelect: false,
         options,
@@ -470,7 +469,7 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     headless_enforcement: {
                         type: 'string',
                         enum: ['yes', 'no'],
-                        description: "Optional. 'yes' writes TMB's PreToolUse gates into ~/.claude/settings.json so they also fire in headless `claude -p` runs; 'no' removes this project's entries. Omit to keep the stored answer (default 'no').",
+                        description: "Optional. 'yes' writes TMB's PreToolUse gates into the project's .claude/settings.local.json so they also fire in headless `claude -p` runs; 'no' removes them. Omit to keep the stored answer (default 'no').",
                     },
                     repo: {
                         type: 'string',
@@ -505,7 +504,6 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
     };
     const shimOptions = () => ({
         pluginRoot: shimEnv.pluginRoot !== undefined ? shimEnv.pluginRoot : resolvePluginRoot(),
-        homeDir: shimEnv.homeDir ?? os.homedir(),
         projectRoot: projectRoot(),
     });
     const handlers = {
@@ -846,18 +844,18 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     db.run(`UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?, remotes = ? WHERE name = ?`, [effTarget, effModel, JSON.stringify(effProtected), JSON.stringify(effRemotes), row.name]);
                 }
             });
-            // Headless enforcement is opt-in: 'yes' writes this project's shim into
-            // the user settings.json; an explicit 'no' (or a stored 'yes' flipped
-            // to 'no') removes it. An apply that leaves the answer unset at 'no'
-            // never touches settings.json. Best-effort — a failure is reported but
+            // Headless enforcement is opt-in: 'yes' writes the shim into the
+            // project's .claude/settings.local.json; an explicit 'no' (or a stored
+            // 'yes' flipped to 'no') removes it. An apply that leaves the answer
+            // unset at 'no' touches nothing. Best-effort — a failure is reported but
             // never fails onboarding.
             let headless_shim = { skipped: 'headless_enforcement_off' };
             try {
                 if (headless_enforcement === 'yes') {
-                    headless_shim = { ...writeUserSettingsEnforcementShim({ ...shimOptions(), headlessEnforcement: headless_enforcement }) };
+                    headless_shim = { ...writeProjectEnforcementShim({ ...shimOptions(), headlessEnforcement: headless_enforcement }) };
                 }
                 else if (headlessAnswered || storedHeadless === 'yes') {
-                    headless_shim = { ...removeUserSettingsEnforcementShim(shimOptions()) };
+                    headless_shim = { ...removeProjectEnforcementShim(shimOptions()) };
                 }
             }
             catch (e) {

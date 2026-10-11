@@ -322,8 +322,8 @@ if [ "$cache_exists" = "no" ] && [ "$matching_count" -eq 0 ]; then
   printf 'Done. To reinstall:\n'
   printf '  1. Launch Claude Code.\n'
   printf '  2. /plugin install %s\n' "$PLUGIN_ENTRY"
-  printf '  3. Verify with: tail -1 ~/.claude/%s/logs/mcp-health.log\n' "$PLUGIN_NAME"
-  printf '     (expect mcp_alive:true and mode:null)\n'
+  printf '  3. Verify with: tail -1 <project>/.claude/%s/logs/mcp-health.log\n' "$PLUGIN_NAME"
+  printf '     (expect mcp_alive:true)\n'
   exit 0
 fi
 
@@ -366,5 +366,5 @@ fi
 printf '\nDone. To reinstall:\n'
 printf '  1. Launch Claude Code.\n'
 printf '  2. /plugin install %s\n' "$PLUGIN_ENTRY"
-printf '  3. Verify with: tail -1 ~/.claude/%s/logs/mcp-health.log\n' "$PLUGIN_NAME"
-printf '     (expect mcp_alive:true and mode:null)\n'
+printf '  3. Verify with: tail -1 <project>/.claude/%s/logs/mcp-health.log\n' "$PLUGIN_NAME"
+printf '     (expect mcp_alive:true)\n'

@@ -77,19 +77,18 @@ tmb_db_schema_current() {
   _tmb_db_probe "${1:-}"
 }
 
-# _tmb_db_resolve <use_sentinel:0|1>
+# _tmb_db_resolve
 # Steps 1-3 of the rule (docs/reference/TRAJECTORY_DB_LOCATION.md):
 #   1. TRAJECTORY_DB_PATH, if set (must exist; no further steps).
 #   2. CLAUDE_PROJECT_DIR/<host>/<plugin>/trajectory.db, if CLAUDE_PROJECT_DIR
 #      is set (must exist; no walking).
 #   3. Only without CLAUDE_PROJECT_DIR: walk up from cwd, never entering $HOME
 #      unless started there, no .git stop; every ancestor DB that is not a
-#      stale schema is a candidate; the outermost wins. Then the
-#      active-workspace sentinel (when <use_sentinel> is 1).
+#      stale schema is a candidate; the outermost wins.
 # A candidate whose probe read fails is kept: it is resolved, and the read
 # error surfaces through tmb_db_state instead of silently resolving elsewhere.
 _tmb_db_resolve() {
-  local use_sentinel="${1:-1}" candidate
+  local candidate
   if [ -n "${TRAJECTORY_DB_PATH:-}" ]; then
     [ -f "$TRAJECTORY_DB_PATH" ] || return 1
     printf '%s\n' "$TRAJECTORY_DB_PATH"
@@ -115,21 +114,8 @@ _tmb_db_resolve() {
     fi
     dir="$(dirname "$dir")"
   done
-  if [ -n "$outermost" ]; then
-    printf '%s\n' "$outermost"
-    return 0
-  fi
-  [ "$use_sentinel" = "1" ] || return 1
-  local sentinel ws
-  sentinel="$HOME/$TMB_STATE_HOST_DIR/$(tmb_plugin_name)-active-workspace"
-  [ -f "$sentinel" ] || return 1
-  ws=$(head -1 "$sentinel" 2>/dev/null)
-  [ -n "$ws" ] || return 1
-  candidate=$(tmb_db_location "$ws")
-  [ -f "$candidate" ] || return 1
-  _tmb_db_probe "$candidate"
-  [ $? -ne 1 ] || return 1
-  printf '%s\n' "$candidate"
+  [ -n "$outermost" ] || return 1
+  printf '%s\n' "$outermost"
 }
 
 # tmb_db_path
@@ -141,16 +127,19 @@ tmb_db_path() {
     return 0
   fi
   local db
-  db=$(_tmb_db_resolve 1) || return 1
+  db=$(_tmb_db_resolve) || return 1
   _TMB_DB_PATH_CACHE="$db"
   echo "$db"
 }
 
-# tmb_db_path_local
-# tmb_db_path without the sentinel step, for callers that must stay inside the
-# current project (the sentinel writer itself, the orphan scan).
-tmb_db_path_local() {
-  _tmb_db_resolve 0
+# tmb_state_dir
+# Prints this project's TMB state directory (<project>/.claude/<plugin>, the
+# directory holding the trajectory DB); non-zero exit when unresolved. Every
+# file a hook writes lives under it — never under $HOME.
+tmb_state_dir() {
+  local db
+  db=$(tmb_db_path) || return 1
+  dirname "$db"
 }
 
 # tmb_db_state

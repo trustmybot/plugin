@@ -907,72 +907,73 @@ describe('onboard tools', () => {
             },
         };
         function sandbox() {
-            const home = mkdtempSync(join(tmpdir(), 'onboard-headless-'));
-            const pluginRoot = join(home, '.claude', 'plugins', 'cache', 'trustmybot', 'tmb', '1.0.0');
+            const base = mkdtempSync(join(tmpdir(), 'onboard-headless-'));
+            const pluginRoot = join(base, 'claude-home', 'plugins', 'cache', 'trustmybot', 'tmb', '1.0.0');
             mkdirSync(join(pluginRoot, 'hooks'), { recursive: true });
             mkdirSync(join(pluginRoot, 'scripts', 'lib'), { recursive: true });
             writeFileSync(join(pluginRoot, 'hooks', 'hooks.json'), JSON.stringify(HOOKS_JSON));
             writeFileSync(join(pluginRoot, 'scripts', 'lib', 'resolve-hook.sh'), '#!/usr/bin/env bash\nexit 0\n');
-            const settings = join(home, '.claude', 'settings.json');
-            return { home, pluginRoot, settings };
+            const project = join(base, 'proj');
+            mkdirSync(project);
+            const dbPath = join(project, '.claude', 'tmb', 'trajectory.db');
+            const settings = join(project, '.claude', 'settings.local.json');
+            return { base, pluginRoot, project, dbPath, settings };
         }
-        const DB_PATH = '/work/proj/.claude/tmb/trajectory.db';
         it('round=headless returns one question, default No, N entries quoted', async () => {
             const db = tempDB();
-            const { home, pluginRoot } = sandbox();
-            const tools = onboardTools(db, DB_PATH, { homeDir: home, pluginRoot });
+            const { base, pluginRoot, dbPath } = sandbox();
+            const tools = onboardTools(db, dbPath, { pluginRoot });
             const data = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'headless' }));
             const questions = data.questions;
             assert.equal(questions.length, 1);
             assert.equal(questions[0].header, 'Headless');
-            assert.match(questions[0].question, /Writes 2 PreToolUse entries to ~\/\.claude\/settings\.json/);
+            assert.match(questions[0].question, /Writes 2 PreToolUse entries to this project's \.claude\/settings\.local\.json/);
             assert.equal(questions[0].options[questions[0].default_index].wire, 'no');
-            rmSync(home, { recursive: true, force: true });
+            rmSync(base, { recursive: true, force: true });
             db.close();
         });
-        it('default apply never writes settings.json and stores no', async () => {
+        it('default apply never writes the shim and stores no', async () => {
             const db = tempDB();
-            const { home, pluginRoot, settings } = sandbox();
-            const tools = onboardTools(db, DB_PATH, { homeDir: home, pluginRoot });
+            const { base, pluginRoot, dbPath, settings } = sandbox();
+            const tools = onboardTools(db, dbPath, { pluginRoot });
             const data = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local' }));
             const applied = data.applied;
             assert.equal(applied.headless_enforcement, 'no');
             assert.ok(!existsSync(settings));
-            assert.ok(!existsSync(join(home, '.claude', 'tmb-hooks')));
-            rmSync(home, { recursive: true, force: true });
+            rmSync(base, { recursive: true, force: true });
             db.close();
         });
-        it('yes writes project-tagged --shim entries; yes→no purges them', async () => {
+        it('yes writes project-tagged --shim entries into the project; yes→no purges them', async () => {
             const db = tempDB();
-            const { home, pluginRoot, settings } = sandbox();
-            const tools = onboardTools(db, DB_PATH, { homeDir: home, pluginRoot });
+            const { base, pluginRoot, project, dbPath, settings } = sandbox();
+            const tools = onboardTools(db, dbPath, { pluginRoot });
             await call(tools.handlers, 'onboard_apply', { shape: 'local', headless_enforcement: 'yes' });
             const written = JSON.parse(readFileSync(settings, 'utf8'));
             const entries = written.hooks.PreToolUse.flatMap((g) => g.hooks);
             assert.equal(entries.length, 2);
             for (const e of entries) {
-                assert.equal(e._tmb_project, '/work/proj');
-                assert.match(e.command, /--shim --project \/work\/proj$/);
+                assert.equal(e._tmb_project, project);
+                assert.ok(e.command.endsWith(`--shim --project ${project}`), e.command);
             }
+            assert.ok(existsSync(join(project, '.claude', 'tmb', 'resolve-hook.sh')));
             const state = parse(await call(tools.handlers, 'onboard_state_get', {}));
             assert.equal(state.current.headless_enforcement, 'yes');
             await call(tools.handlers, 'onboard_apply', { shape: 'local', headless_enforcement: 'no' });
-            const after = JSON.parse(readFileSync(settings, 'utf8'));
-            assert.equal(after.hooks?.PreToolUse, undefined);
-            assert.ok(!existsSync(join(home, '.claude', 'tmb-hooks')));
-            rmSync(home, { recursive: true, force: true });
+            assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), {});
+            assert.ok(!existsSync(join(project, '.claude', 'tmb', 'resolve-hook.sh')));
+            rmSync(base, { recursive: true, force: true });
             db.close();
         });
         it('re-onboard without an answer keeps a stored yes', async () => {
             const db = tempDB();
-            const { home, pluginRoot, settings } = sandbox();
-            const tools = onboardTools(db, DB_PATH, { homeDir: home, pluginRoot });
+            const { base, pluginRoot, dbPath, settings } = sandbox();
+            const tools = onboardTools(db, dbPath, { pluginRoot });
             await call(tools.handlers, 'onboard_apply', { shape: 'local', headless_enforcement: 'Yes' });
             const before = readFileSync(settings, 'utf8');
             const data = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local' }));
             assert.equal(data.applied.headless_enforcement, 'yes');
             assert.equal(readFileSync(settings, 'utf8'), before);
-            rmSync(home, { recursive: true, force: true });
+            rmSync(base, { recursive: true, force: true });
             db.close();
         });
         it('the isolated HOME stays empty across every onboard test', () => {

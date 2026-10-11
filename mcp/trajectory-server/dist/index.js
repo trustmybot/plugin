@@ -3587,49 +3587,49 @@ var require_fast_uri = __commonJS({
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative3, options, skipNormalization) {
+    function resolveComponent(base, relative2, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse3(serialize(base, options), options);
-        relative3 = parse3(serialize(relative3, options), options);
+        relative2 = parse3(serialize(relative2, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative3.scheme) {
-        target.scheme = relative3.scheme;
-        target.userinfo = relative3.userinfo;
-        target.host = relative3.host;
-        target.port = relative3.port;
-        target.path = removeDotSegments(relative3.path || "");
-        target.query = relative3.query;
+      if (!options.tolerant && relative2.scheme) {
+        target.scheme = relative2.scheme;
+        target.userinfo = relative2.userinfo;
+        target.host = relative2.host;
+        target.port = relative2.port;
+        target.path = removeDotSegments(relative2.path || "");
+        target.query = relative2.query;
       } else {
-        if (relative3.userinfo !== void 0 || relative3.host !== void 0 || relative3.port !== void 0) {
-          target.userinfo = relative3.userinfo;
-          target.host = relative3.host;
-          target.port = relative3.port;
-          target.path = removeDotSegments(relative3.path || "");
-          target.query = relative3.query;
+        if (relative2.userinfo !== void 0 || relative2.host !== void 0 || relative2.port !== void 0) {
+          target.userinfo = relative2.userinfo;
+          target.host = relative2.host;
+          target.port = relative2.port;
+          target.path = removeDotSegments(relative2.path || "");
+          target.query = relative2.query;
         } else {
-          if (!relative3.path) {
+          if (!relative2.path) {
             target.path = base.path;
-            if (relative3.query !== void 0) {
-              target.query = relative3.query;
+            if (relative2.query !== void 0) {
+              target.query = relative2.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative3.path[0] === "/") {
-              target.path = removeDotSegments(relative3.path);
+            if (relative2.path[0] === "/") {
+              target.path = removeDotSegments(relative2.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative3.path;
+                target.path = "/" + relative2.path;
               } else if (!base.path) {
-                target.path = relative3.path;
+                target.path = relative2.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative3.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative2.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative3.query;
+            target.query = relative2.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -3637,7 +3637,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative3.fragment;
+      target.fragment = relative2.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -21018,19 +21018,7 @@ function findExistingClaudeDbUp(startDir, pluginName, opts) {
     const candidate = claudeDbLocation(dir, pluginName);
     if (existsSync(candidate) && probe(candidate) !== "stale") outermost = candidate;
   }
-  if (outermost) return outermost;
-  const sentinel = join(home, CLAUDE_STATE_HOST_DIR, `${pluginName}-active-workspace`);
-  if (!existsSync(sentinel)) return null;
-  let workspace = "";
-  try {
-    workspace = (readFileSync(sentinel, "utf8").split("\n")[0] ?? "").trim();
-  } catch {
-    return null;
-  }
-  if (!workspace) return null;
-  const fromSentinel = claudeDbLocation(workspace, pluginName);
-  if (!existsSync(fromSentinel) || probe(fromSentinel) === "stale") return null;
-  return fromSentinel;
+  return outermost;
 }
 function assertPathContained(root, path2, label) {
   const rel = relative(root, path2);
@@ -23569,6 +23557,7 @@ function redactValidationRow(row, agent, scope) {
 // src/embeddings/model.ts
 import { homedir as homedir2 } from "node:os";
 import { join as join4 } from "node:path";
+var TMB_MODEL_CACHE_DIR = process.env["TMB_MODEL_CACHE_DIR"] ?? process.env["HF_HOME"] ?? join4(homedir2(), ".cache", "huggingface");
 var pipelinePromise = null;
 var loadFailed = false;
 async function embed(text) {
@@ -23576,7 +23565,7 @@ async function embed(text) {
   if (!pipelinePromise) {
     try {
       const { pipeline, env } = await import("@huggingface/transformers");
-      env.cacheDir = process.env.HF_HOME ?? join4(homedir2(), ".cache", "huggingface");
+      env.cacheDir = TMB_MODEL_CACHE_DIR;
       pipelinePromise = pipeline("feature-extraction", "Xenova/bge-small-en-v1.5");
       pipelinePromise.catch(() => {
         loadFailed = true;
@@ -30906,17 +30895,15 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
 // src/tools/onboard.ts
 import { spawnSync as spawnSync6 } from "node:child_process";
 import { existsSync as existsSync6 } from "node:fs";
-import os from "node:os";
 import { dirname as dirname8, join as join9 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/tools/onboard-hooks-shim.ts
 import { readFileSync as readFileSync4, writeFileSync as writeFileSync2, mkdirSync as mkdirSync4, existsSync as existsSync5, chmodSync, rmSync } from "node:fs";
-import { dirname as dirname7, isAbsolute as isAbsolute2, join as join8, relative as relative2, sep as sep3 } from "node:path";
-var STABLE_RESOLVER_DIR = [".claude", "tmb-hooks"];
-var STABLE_RESOLVER_NAME = "resolve-hook.sh";
-var STABLE_RESOLVER_SIGNATURE = "/.claude/tmb-hooks/resolve-hook.sh";
-var CANONICAL_RESOLVER_REL = ["scripts", "lib", "resolve-hook.sh"];
+import { dirname as dirname7, join as join8 } from "node:path";
+var RESOLVER_NAME = "resolve-hook.sh";
+var CANONICAL_RESOLVER_REL = ["scripts", "lib", RESOLVER_NAME];
+var SETTINGS_REL = [".claude", "settings.local.json"];
 var ADVISORY_HOOK_DENYLIST = /* @__PURE__ */ new Set([
   "swe-brief-gate.sh",
   "naming-lint.sh",
@@ -30937,13 +30924,17 @@ function shellWord(value) {
   if (/^[A-Za-z0-9_./:@%+=-]+$/.test(value)) return value;
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
-function installedMarketplace(pluginRoot, homeDir) {
-  const cacheRoot = join8(homeDir, ".claude", "plugins", "cache");
-  const rel = relative2(cacheRoot, pluginRoot);
-  if (rel === "" || rel.startsWith("..") || isAbsolute2(rel)) return null;
-  const segs = rel.split(sep3).filter((seg) => seg.length > 0);
-  if (segs.length !== 3) return null;
-  return segs[0] ?? null;
+function installedMarketplace(pluginRoot) {
+  const m = pluginRoot.match(/\/plugins\/cache\/([^/]+)\/[^/]+\/[^/]+\/?$/);
+  return m?.[1] ?? null;
+}
+function pluginNameOf(pluginRoot) {
+  try {
+    const parsed = JSON.parse(readFileSync4(join8(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
+    if (typeof parsed.name === "string" && /^[A-Za-z0-9_.-]+$/.test(parsed.name)) return parsed.name;
+  } catch {
+  }
+  return "tmb";
 }
 function readPreToolUseFromHooksJson(pluginRoot) {
   const hooksJsonPath = join8(pluginRoot, "hooks", "hooks.json");
@@ -30985,58 +30976,43 @@ function countShimEntries(pluginRoot) {
   if (!pre) return 0;
   return pre.reduce((n, g) => n + keptHooks(g).length, 0);
 }
-function materializeResolver(pluginRoot, homeDir) {
+function resolverPathFor(projectRoot, pluginName) {
+  return join8(projectRoot, ".claude", pluginName, RESOLVER_NAME);
+}
+function materializeResolver(pluginRoot, resolverPath) {
   const canonical = join8(pluginRoot, ...CANONICAL_RESOLVER_REL);
   if (!existsSync5(canonical)) return null;
-  const resolverDir = join8(homeDir, ...STABLE_RESOLVER_DIR);
-  const resolverPath = join8(resolverDir, STABLE_RESOLVER_NAME);
-  mkdirSync4(resolverDir, { recursive: true });
+  mkdirSync4(dirname7(resolverPath), { recursive: true });
   writeFileSync2(resolverPath, readFileSync4(canonical, "utf8"));
   chmodSync(resolverPath, 493);
   return resolverPath;
 }
-function isTmbEntry(h, tmbHookNames) {
+function isTmbEntry(h) {
   if (h._tmb_managed === true) return true;
   const command = h.command ?? "";
-  if (command.includes(STABLE_RESOLVER_SIGNATURE) || command.includes("/resolve-headless-hook.sh")) {
-    return true;
-  }
-  if (command.includes("/plugins/cache/") && command.includes("/tmb/") && command.includes("/scripts/hooks/")) {
-    return true;
-  }
-  if (command.includes("/scripts/hooks/") && tmbHookNames.has(hookName(command))) {
-    return true;
-  }
-  return false;
+  return command.includes(`/${RESOLVER_NAME} --marketplace `);
 }
-function isOwnedEntry(h, tmbHookNames, projectRoot) {
-  if (!isTmbEntry(h, tmbHookNames)) return false;
-  return h._tmb_project === void 0 || h._tmb_project === projectRoot;
-}
-function purgeOwnedEntries(pre, tmbHookNames, projectRoot) {
+function purgeTmbEntries(pre) {
   const kept = [];
   let removed = 0;
   for (const group of pre) {
-    const hooks = (group.hooks ?? []).filter((h) => !isOwnedEntry(h, tmbHookNames, projectRoot));
+    const hooks = (group.hooks ?? []).filter((h) => !isTmbEntry(h));
     removed += (group.hooks ?? []).length - hooks.length;
     if (hooks.length === 0) continue;
     kept.push({ ...group, hooks });
   }
   return { kept, removed };
 }
-function tmbHookNamesFor(pre) {
-  return new Set(pre.flatMap((g) => (g.hooks ?? []).map((h) => hookName(h.command))));
-}
-function installedPluginGuard(pluginRoot, homeDir) {
+function installedPluginGuard(pluginRoot) {
   if (!pluginRoot) return { reason: "plugin root unresolvable" };
-  const marketplace = installedMarketplace(pluginRoot, homeDir);
+  const marketplace = installedMarketplace(pluginRoot);
   if (!marketplace) return { reason: "plugin-root-not-installed" };
   const pre = readPreToolUseFromHooksJson(pluginRoot);
   if (!pre) return { reason: "hooks/hooks.json missing or has no PreToolUse" };
-  return { pre, marketplace };
+  return { root: pluginRoot, pre, marketplace, pluginName: pluginNameOf(pluginRoot) };
 }
-function settingsFile(homeDir) {
-  return join8(homeDir, ".claude", "settings.json");
+function settingsFile(projectRoot) {
+  return join8(projectRoot, ...SETTINGS_REL);
 }
 function readSettings(path2) {
   if (!existsSync5(path2)) return { settings: {}, exists: false };
@@ -31044,7 +31020,7 @@ function readSettings(path2) {
     const raw = readFileSync4(path2, "utf8").trim();
     return { settings: raw.length > 0 ? JSON.parse(raw) : {}, exists: true };
   } catch {
-    return { reason: "existing settings.json is not valid JSON" };
+    return { reason: "existing settings.local.json is not valid JSON" };
   }
 }
 function preToolUseOf(settings) {
@@ -31058,62 +31034,46 @@ function writeSettings(path2, settings) {
     writeFileSync2(path2, JSON.stringify(settings, null, 2) + "\n");
     return null;
   } catch (e) {
-    return `settings.json write failed: ${e.message}`;
+    return `settings.local.json write failed: ${e.message}`;
   }
 }
 function skip(event, reason, result) {
   serverLog({ event, reason });
   return result;
 }
-function writeUserSettingsEnforcementShim(opts) {
-  const { pluginRoot, homeDir, projectRoot } = opts;
+function writeProjectEnforcementShim(opts) {
+  const { pluginRoot, projectRoot } = opts;
   if (opts.headlessEnforcement !== "yes") {
     const reason = "headless_enforcement_off";
     return skip("onboard_hooks_shim_skip", reason, { written: false, reason });
   }
-  const guard = installedPluginGuard(pluginRoot, homeDir);
+  const guard = installedPluginGuard(pluginRoot);
   if ("reason" in guard) {
     return skip("onboard_hooks_shim_skip", guard.reason, { written: false, reason: guard.reason });
   }
-  const resolverPath = materializeResolver(pluginRoot, homeDir);
-  if (!resolverPath) {
-    const reason = "canonical resolver script missing";
-    return skip("onboard_hooks_shim_skip", reason, { written: false, reason });
-  }
-  const path2 = settingsFile(homeDir);
+  const path2 = settingsFile(projectRoot);
   const read = readSettings(path2);
   if ("reason" in read) {
     return skip("onboard_hooks_shim_skip", read.reason, { written: false, reason: read.reason });
   }
+  const resolverPath = materializeResolver(guard.root, resolverPathFor(projectRoot, guard.pluginName));
+  if (!resolverPath) {
+    const reason = "canonical resolver script missing";
+    return skip("onboard_hooks_shim_skip", reason, { written: false, reason });
+  }
   const tmbGroups = buildTmbGroups(guard.pre, resolverPath, guard.marketplace, projectRoot);
   const { hooks, pre } = preToolUseOf(read.settings);
-  const { kept } = purgeOwnedEntries(pre, tmbHookNamesFor(guard.pre), projectRoot);
-  hooks.PreToolUse = [...kept, ...tmbGroups];
+  hooks.PreToolUse = [...purgeTmbEntries(pre).kept, ...tmbGroups];
   read.settings.hooks = hooks;
   const failure2 = writeSettings(path2, read.settings);
   if (failure2) return skip("onboard_hooks_shim_skip", failure2, { written: false, reason: failure2 });
   const entries = tmbGroups.reduce((n, g) => n + g.hooks.length, 0);
   serverLog({ event: "onboard_hooks_shim_written", settingsPath: path2, groups: tmbGroups.length, entries });
-  return { written: true, entries };
+  return { written: true, entries, settings_path: path2 };
 }
-function referencesResolver(settings) {
-  const hooks = settings.hooks;
-  if (!hooks || typeof hooks !== "object") return false;
-  for (const groups of Object.values(hooks)) {
-    if (!Array.isArray(groups)) continue;
-    for (const g of groups) {
-      if ((g.hooks ?? []).some((h) => (h.command ?? "").includes(STABLE_RESOLVER_SIGNATURE))) return true;
-    }
-  }
-  return false;
-}
-function removeUserSettingsEnforcementShim(opts) {
-  const { pluginRoot, homeDir, projectRoot } = opts;
-  const guard = installedPluginGuard(pluginRoot, homeDir);
-  if ("reason" in guard) {
-    return skip("onboard_hooks_shim_remove_skip", guard.reason, { removed: 0, resolver_removed: false, reason: guard.reason });
-  }
-  const path2 = settingsFile(homeDir);
+function removeProjectEnforcementShim(opts) {
+  const { pluginRoot, projectRoot } = opts;
+  const path2 = settingsFile(projectRoot);
   const read = readSettings(path2);
   if ("reason" in read) {
     return skip("onboard_hooks_shim_remove_skip", read.reason, { removed: 0, resolver_removed: false, reason: read.reason });
@@ -31121,25 +31081,28 @@ function removeUserSettingsEnforcementShim(opts) {
   let removed = 0;
   if (read.exists) {
     const { hooks, pre } = preToolUseOf(read.settings);
-    const purge = purgeOwnedEntries(pre, tmbHookNamesFor(guard.pre), projectRoot);
+    const purge = purgeTmbEntries(pre);
     removed = purge.removed;
     if (removed > 0) {
       if (purge.kept.length > 0) hooks.PreToolUse = purge.kept;
       else delete hooks.PreToolUse;
-      read.settings.hooks = hooks;
+      if (Object.keys(hooks).length > 0) read.settings.hooks = hooks;
+      else delete read.settings.hooks;
       const failure2 = writeSettings(path2, read.settings);
       if (failure2) {
         return skip("onboard_hooks_shim_remove_skip", failure2, { removed: 0, resolver_removed: false, reason: failure2 });
       }
     }
   }
-  const resolverDir = join8(homeDir, ...STABLE_RESOLVER_DIR);
+  const resolverPath = resolverPathFor(projectRoot, pluginRoot ? pluginNameOf(pluginRoot) : "tmb");
   let resolver_removed = false;
-  if (existsSync5(resolverDir) && !referencesResolver(read.settings)) {
-    rmSync(resolverDir, { recursive: true, force: true });
+  if (existsSync5(resolverPath)) {
+    rmSync(resolverPath, { force: true });
     resolver_removed = true;
   }
-  serverLog({ event: "onboard_hooks_shim_removed", settingsPath: path2, removed, resolver_removed });
+  if (removed > 0 || resolver_removed) {
+    serverLog({ event: "onboard_hooks_shim_removed", settingsPath: path2, removed, resolver_removed });
+  }
   return { removed, resolver_removed };
 }
 
@@ -31432,17 +31395,17 @@ function headlessQuestion(current, isReonboard, entries) {
   options.push(
     {
       label: "No",
-      description: "Gates run in interactive sessions only. Nothing is written outside this project.",
+      description: "Gates run in interactive sessions only.",
       wire: "no"
     },
     {
       label: "Yes",
-      description: `Also gate headless \`claude -p\` runs. Writes ${entries} PreToolUse entries to ~/.claude/settings.json.`,
+      description: `Also gate headless \`claude -p\` runs. Writes ${entries} PreToolUse entries to this project's .claude/settings.local.json.`,
       wire: "yes"
     }
   );
   return {
-    question: `Also enforce TMB gates in non-interactive \`claude -p\` runs? Writes ${entries} PreToolUse entries to ~/.claude/settings.json.`,
+    question: `Also enforce TMB gates in non-interactive \`claude -p\` runs? Writes ${entries} PreToolUse entries to this project's .claude/settings.local.json.`,
     header: "Headless",
     multiSelect: false,
     options,
@@ -31537,7 +31500,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           headless_enforcement: {
             type: "string",
             enum: ["yes", "no"],
-            description: "Optional. 'yes' writes TMB's PreToolUse gates into ~/.claude/settings.json so they also fire in headless `claude -p` runs; 'no' removes this project's entries. Omit to keep the stored answer (default 'no')."
+            description: "Optional. 'yes' writes TMB's PreToolUse gates into the project's .claude/settings.local.json so they also fire in headless `claude -p` runs; 'no' removes them. Omit to keep the stored answer (default 'no')."
           },
           repo: {
             type: "string",
@@ -31561,7 +31524,6 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
   };
   const shimOptions = () => ({
     pluginRoot: shimEnv.pluginRoot !== void 0 ? shimEnv.pluginRoot : resolvePluginRoot2(),
-    homeDir: shimEnv.homeDir ?? os.homedir(),
     projectRoot: projectRoot()
   });
   const handlers = {
@@ -31859,9 +31821,9 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         let headless_shim = { skipped: "headless_enforcement_off" };
         try {
           if (headless_enforcement === "yes") {
-            headless_shim = { ...writeUserSettingsEnforcementShim({ ...shimOptions(), headlessEnforcement: headless_enforcement }) };
+            headless_shim = { ...writeProjectEnforcementShim({ ...shimOptions(), headlessEnforcement: headless_enforcement }) };
           } else if (headlessAnswered || storedHeadless === "yes") {
-            headless_shim = { ...removeUserSettingsEnforcementShim(shimOptions()) };
+            headless_shim = { ...removeProjectEnforcementShim(shimOptions()) };
           }
         } catch (e) {
           headless_shim = { reason: e.message };
@@ -32668,7 +32630,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
 // src/tools/cheatcode.ts
 import { spawn as spawn2 } from "node:child_process";
 import { existsSync as existsSync9, mkdirSync as mkdirSync6, readFileSync as readFileSync6, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname11, join as join11, sep as sep4 } from "node:path";
+import { dirname as dirname11, join as join11, sep as sep3 } from "node:path";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
 function ok18(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
@@ -32952,10 +32914,10 @@ function parseInstallCandidate(raw) {
 }
 function projectRootFromDbPath(dbPath2) {
   if (!dbPath2 || dbPath2 === ":memory:") return null;
-  const segments = dbPath2.split(sep4);
+  const segments = dbPath2.split(sep3);
   const idx = segments.lastIndexOf(".claude");
   if (idx <= 0) return null;
-  return segments.slice(0, idx).join(sep4) || sep4;
+  return segments.slice(0, idx).join(sep3) || sep3;
 }
 function resolveGlobalAgentMd(target) {
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];

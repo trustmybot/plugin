@@ -20,8 +20,7 @@ run_hook() {
 
 test_case "no config (fresh install) is non-blocking for commits"
 # Isolate like the #549 case: a fresh temp git repo with NO ancestor
-# .claude/tmb DB, and a clean temp HOME so no tmb-active-workspace sentinel
-# resolves. Otherwise tmb_db_path walks up and finds the real workspace DB
+# .claude/tmb DB, and a clean temp HOME. Otherwise tmb_db_path walks up and finds the real workspace DB
 # (gitflow/dev policy) when the suite runs nested inside a live TMB checkout,
 # which would block the commit and fail the assertion. The repo is on a
 # feature branch so the fresh-install safe-default ([main,dev] protected) does

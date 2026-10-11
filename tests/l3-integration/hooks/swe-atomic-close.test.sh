@@ -241,7 +241,7 @@ assert_eq "$((AR_COUNT_NV2_BEFORE + 1))" "$AR_COUNT_NV2_AFTER" "agent_runs writt
 # ---- Test: entry-log fires for non-swe subagent (regression for #94) ----
 echo '--- Test: entry-log fires regardless of subagent_type ---'
 
-LOG="$HOME/.claude/tmb/logs/mcp-health.log"
+LOG="$REPO/.claude/tmb/logs/mcp-health.log"
 LOG_BEFORE=$(wc -l < "$LOG" 2>/dev/null || echo 0)
 
 run_hook "$(non_swe_input)" >/dev/null

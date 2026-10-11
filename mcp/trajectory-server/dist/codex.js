@@ -21101,19 +21101,7 @@ function findExistingClaudeDbUp(startDir, pluginName, opts) {
     const candidate = claudeDbLocation(dir, pluginName);
     if (existsSync(candidate) && probe(candidate) !== "stale") outermost = candidate;
   }
-  if (outermost) return outermost;
-  const sentinel = join2(home, CLAUDE_STATE_HOST_DIR, `${pluginName}-active-workspace`);
-  if (!existsSync(sentinel)) return null;
-  let workspace = "";
-  try {
-    workspace = (readFileSync2(sentinel, "utf8").split("\n")[0] ?? "").trim();
-  } catch {
-    return null;
-  }
-  if (!workspace) return null;
-  const fromSentinel = claudeDbLocation(workspace, pluginName);
-  if (!existsSync(fromSentinel) || probe(fromSentinel) === "stale") return null;
-  return fromSentinel;
+  return outermost;
 }
 function canonicalDirectory(path, label, ErrorType = Error) {
   if (!isAbsolute(path)) {
@@ -25014,6 +25002,7 @@ function redactIssue(issue2, agent, opts) {
 // src/embeddings/model.ts
 import { homedir as homedir2 } from "node:os";
 import { join as join6 } from "node:path";
+var TMB_MODEL_CACHE_DIR = process.env["TMB_MODEL_CACHE_DIR"] ?? process.env["HF_HOME"] ?? join6(homedir2(), ".cache", "huggingface");
 var pipelinePromise = null;
 var loadFailed = false;
 async function embed(text) {
@@ -25021,7 +25010,7 @@ async function embed(text) {
   if (!pipelinePromise) {
     try {
       const { pipeline, env } = await import("@huggingface/transformers");
-      env.cacheDir = process.env.HF_HOME ?? join6(homedir2(), ".cache", "huggingface");
+      env.cacheDir = TMB_MODEL_CACHE_DIR;
       pipelinePromise = pipeline("feature-extraction", "Xenova/bge-small-en-v1.5");
       pipelinePromise.catch(() => {
         loadFailed = true;

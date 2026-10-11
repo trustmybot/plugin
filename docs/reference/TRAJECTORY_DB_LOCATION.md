@@ -6,13 +6,14 @@ One rule decides which `trajectory.db` the MCP server and every hook use. It is 
 
 1. **`TRAJECTORY_DB_PATH`**, if set. The file must exist; otherwise the DB is unresolved (the server creates it there).
 2. **The project root**: `<root>/.claude/<plugin>/trajectory.db`, where `<root>` is `CLAUDE_PROJECT_DIR` (Claude Code sets it for hooks and for the MCP server). No walking: when the file is absent the DB is unresolved, and the server creates it there.
-3. **Fallback, only without a project root** (e.g. a subagent inheriting `cwd=~`, a bare `node dist/index.js`): walk up from the working directory and collect every ancestor `.claude/<plugin>/trajectory.db`.
+3. **Fallback, only without a project root** (e.g. a bare `node dist/index.js`, a test harness — Claude Code sets `CLAUDE_PROJECT_DIR` for every hook, subagent ones included): walk up from the working directory and collect every ancestor `.claude/<plugin>/trajectory.db`.
    - Never enter `$HOME` unless the walk started there.
    - No `.git` stop: a workspace root above a nested repo is reachable.
    - Skip a stale legacy DB (its `tasks` table has no `prompt_bearing` column). A candidate whose read fails is kept, so the failure surfaces instead of resolving somewhere else.
    - The **outermost** candidate wins (the workspace root beats a nested repo).
-   - With no candidate, read the active-workspace sentinel `~/.claude/<plugin>-active-workspace` (first line = workspace root) and apply the same checks to its DB.
 4. Otherwise **unresolved**.
+
+Nothing under `$HOME` takes part in the rule.
 
 `<plugin>` is the `name` in `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` (`tmb` when unset). The `.claude` host directory is one variable in each implementation (`TMB_STATE_HOST_DIR` in the hook lib, `CLAUDE_STATE_HOST_DIR` in `platform.ts`).
 

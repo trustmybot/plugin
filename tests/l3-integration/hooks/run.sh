@@ -18,7 +18,7 @@ unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT CLAUDE_CONFIG_DIR
 FOOTPRINT_HOME="$(mktemp -d)"
 trap 'rm -rf "$FOOTPRINT_HOME"' EXIT
 export TMB_TEST_REAL_HOME="$HOME"
-export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
+export TMB_MODEL_CACHE_DIR="${TMB_MODEL_CACHE_DIR:-${HF_HOME:-$HOME/.cache/huggingface}}"
 export HOME="$FOOTPRINT_HOME"
 
 FAILED=0

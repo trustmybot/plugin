@@ -51,14 +51,13 @@ command -v jq >/dev/null 2>&1 || exit 0
 # fully sandboxed.
 SCAN_HOME="${TMB_ORPHAN_SCAN_HOME:-$HOME}"
 
-# Live DB for THIS project (the one DB-path rule, without the cross-project
-# sentinel step). Always kept; the anchor for everything below. Unresolved =
+# Live DB for THIS project (the one DB-path rule). Always kept; the anchor for everything below. Unresolved =
 # not onboarded yet: the live DB is where the project root would hold it.
 if [ -n "${TMB_ORPHAN_SCAN_PROJECT_DIR:-}" ]; then
-  LIVE_DB=$(CLAUDE_PROJECT_DIR="$TMB_ORPHAN_SCAN_PROJECT_DIR" tmb_db_path_local || true)
+  LIVE_DB=$(CLAUDE_PROJECT_DIR="$TMB_ORPHAN_SCAN_PROJECT_DIR" tmb_db_path || true)
   PROJECT_DIR="$TMB_ORPHAN_SCAN_PROJECT_DIR"
 else
-  LIVE_DB=$(tmb_db_path_local || true)
+  LIVE_DB=$(tmb_db_path || true)
   PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
   [ -n "$LIVE_DB" ] && [ -z "${TRAJECTORY_DB_PATH:-}" ] && PROJECT_DIR=$(dirname "$(dirname "$(dirname "$LIVE_DB")")")
 fi

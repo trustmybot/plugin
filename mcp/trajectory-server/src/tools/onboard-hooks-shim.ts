@@ -1,12 +1,12 @@
 // Headless enforcement shim — opt-in at /onboard (`headless_enforcement: yes`).
 //
 // Marketplace plugin hooks do not fire in non-interactive `claude -p` runs;
-// user settings.json hooks do. On opt-in, /onboard copies the plugin's
-// deny-capable PreToolUse gates into ~/.claude/settings.json and materializes
-// one stable resolver at ~/.claude/tmb-hooks/resolve-hook.sh (outside the
-// versioned cache, so a plugin upgrade never orphans it). Each entry is:
+// project settings hooks do. On opt-in, /onboard copies the plugin's
+// deny-capable PreToolUse gates into <project>/.claude/settings.local.json and
+// materializes the resolver at <project>/.claude/<plugin>/resolve-hook.sh.
+// Nothing is written outside the project. Each entry is:
 //
-//   bash <stable-resolver> --marketplace <mp> --hook <basename> --shim --project <root>
+//   bash <project>/.claude/<plugin>/resolve-hook.sh --marketplace <mp> --hook <basename> --shim --project <root>
 //
 // stamped `_tmb_managed: true` and `_tmb_project: <root>`. The resolver
 // discovers the active plugin version at fire time and execs the real gate —
@@ -17,15 +17,12 @@
 // Interactive sessions therefore run each gate once, from the plugin; headless
 // runs get the shim.
 //
-// Answering `no` (or re-onboarding to `no`) purges this project's entries and
-// removes ~/.claude/tmb-hooks/ once no remaining entry references it. Entries
-// tagged for other projects are left alone.
-//
-// Only PreToolUse gates are copied; the other events are side-effecting and
-// must run once, from the plugin.
+// Answering `no` (or re-onboarding to `no`) purges the managed entries and the
+// project resolver. Only PreToolUse gates are copied; the other events are
+// side-effecting and must run once, from the plugin.
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, rmSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, sep } from 'node:path';
+import { dirname, join } from 'node:path';
 import { serverLog } from '../logger.js';
 
 interface HookCommand {
@@ -43,7 +40,6 @@ interface HookGroup {
 
 export interface ShimOptions {
   pluginRoot: string | null;
-  homeDir: string;
   projectRoot: string;
 }
 
@@ -55,6 +51,7 @@ export interface ShimWriteOptions extends ShimOptions {
 export interface ShimWriteResult {
   written: boolean;
   entries?: number;
+  settings_path?: string;
   reason?: string;
 }
 
@@ -64,18 +61,14 @@ export interface ShimRemoveResult {
   reason?: string;
 }
 
-// Stable resolver location (outside the versioned cache so it never orphans).
-const STABLE_RESOLVER_DIR = ['.claude', 'tmb-hooks'];
-const STABLE_RESOLVER_NAME = 'resolve-hook.sh';
-const STABLE_RESOLVER_SIGNATURE = '/.claude/tmb-hooks/resolve-hook.sh';
+const RESOLVER_NAME = 'resolve-hook.sh';
 // Canonical resolver authored in the plugin, relative to the plugin root.
-const CANONICAL_RESOLVER_REL = ['scripts', 'lib', 'resolve-hook.sh'];
+const CANONICAL_RESOLVER_REL = ['scripts', 'lib', RESOLVER_NAME];
+const SETTINGS_REL = ['.claude', 'settings.local.json'];
 
-// Every TMB-managed hook entry is stamped with `_tmb_managed: true`. The
-// idempotency purge keys on THIS field, never on a path substring: dev/worktree
-// command paths (e.g. .claude/worktrees/X/scripts/hooks/...) contain no /tmb/
-// segment, so a substring purge missed them and every re-run appended (the
-// 543KB/2268-entry accumulation incident). CC ignores unknown hook-object keys.
+// Every TMB-managed hook entry is stamped with `_tmb_managed: true`; the purge
+// keys on that field (plus the resolver-invocation signature), never on a broad
+// path substring. CC ignores unknown hook-object keys.
 
 // As a settings-hook chain, the FIRST hook in a matcher group that returns a
 // decision short-circuits the rest. hooks.json lists advisory / allow-returning
@@ -114,18 +107,23 @@ function shellWord(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-// The marketplace of an installed plugin. CC installs land at
-// <home>/.claude/plugins/cache/<marketplace>/<plugin>/<version>; any other root
-// (a repo checkout, a worktree, a /tmp copy, a --plugin-dir) is a dev context
-// and yields null, as does an install under a different home than the one the
-// shim would write — so a test or dev server never touches a real settings.json.
-function installedMarketplace(pluginRoot: string, homeDir: string): string | null {
-  const cacheRoot = join(homeDir, '.claude', 'plugins', 'cache');
-  const rel = relative(cacheRoot, pluginRoot);
-  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return null;
-  const segs = rel.split(sep).filter((seg) => seg.length > 0);
-  if (segs.length !== 3) return null;
-  return segs[0] ?? null;
+// The marketplace of an installed plugin: CC installs land at
+// .../plugins/cache/<marketplace>/<plugin>/<version>. Any other root (a repo
+// checkout, a worktree, a /tmp copy, a --plugin-dir) is a dev context and
+// yields null, so a dev or test server never writes the shim.
+function installedMarketplace(pluginRoot: string): string | null {
+  const m = pluginRoot.match(/\/plugins\/cache\/([^/]+)\/[^/]+\/[^/]+\/?$/);
+  return m?.[1] ?? null;
+}
+
+function pluginNameOf(pluginRoot: string): string {
+  try {
+    const parsed = JSON.parse(readFileSync(join(pluginRoot, '.claude-plugin', 'plugin.json'), 'utf8'));
+    if (typeof parsed.name === 'string' && /^[A-Za-z0-9_.-]+$/.test(parsed.name)) return parsed.name;
+  } catch {
+    // fall through to the default name
+  }
+  return 'tmb';
 }
 
 function readPreToolUseFromHooksJson(pluginRoot: string): HookGroup[] | null {
@@ -185,70 +183,37 @@ export function countShimEntries(pluginRoot: string | null): number {
   return pre.reduce((n, g) => n + keptHooks(g).length, 0);
 }
 
-// Materialize the stable resolver at ~/.claude/tmb-hooks/resolve-hook.sh from
-// the canonical copy authored in the plugin. Idempotent: always (re)writes the
-// current canonical contents and chmod +x. Returns the absolute resolver path,
-// or null if the canonical copy is missing.
-function materializeResolver(pluginRoot: string, homeDir: string): string | null {
+function resolverPathFor(projectRoot: string, pluginName: string): string {
+  return join(projectRoot, '.claude', pluginName, RESOLVER_NAME);
+}
+
+// Materialize the project resolver from the canonical copy authored in the
+// plugin. Idempotent: always (re)writes the current canonical contents and
+// chmod +x. Returns null if the canonical copy is missing.
+function materializeResolver(pluginRoot: string, resolverPath: string): string | null {
   const canonical = join(pluginRoot, ...CANONICAL_RESOLVER_REL);
   if (!existsSync(canonical)) return null;
-  const resolverDir = join(homeDir, ...STABLE_RESOLVER_DIR);
-  const resolverPath = join(resolverDir, STABLE_RESOLVER_NAME);
-  mkdirSync(resolverDir, { recursive: true });
+  mkdirSync(dirname(resolverPath), { recursive: true });
   writeFileSync(resolverPath, readFileSync(canonical, 'utf8'));
   chmodSync(resolverPath, 0o755);
   return resolverPath;
 }
 
-// Recognize a TMB-managed PreToolUse entry. The `_tmb_managed` sentinel is the
-// primary key; the command-string signatures are the legacy backstop for entries
-// written before the sentinel existed (so an already-polluted settings.json
-// self-heals on the next /onboard). The signatures are deliberately specific —
-// the #661 incident showed a broad `/tmb/` substring purge produced
-// false-NEGATIVES (missed worktree paths → accumulation), and a broad purge here
-// would risk false-POSITIVES against genuine user hooks. A signature never
-// matches a path lacking `/scripts/hooks/` unless it is the stable resolver path.
-function isTmbEntry(h: HookCommand, tmbHookNames: Set<string>): boolean {
-  // (a) sentinel — the primary key.
+// Recognize a TMB-managed PreToolUse entry: the `_tmb_managed` sentinel, or a
+// resolver invocation written without it.
+function isTmbEntry(h: HookCommand): boolean {
   if (h._tmb_managed === true) return true;
   const command = h.command ?? '';
-  // (b) stable resolver path (the version-agnostic invocation, no sentinel).
-  if (command.includes(STABLE_RESOLVER_SIGNATURE) || command.includes('/resolve-headless-hook.sh')) {
-    return true;
-  }
-  // (c) version-pinned cache install path.
-  if (
-    command.includes('/plugins/cache/') &&
-    command.includes('/tmb/') &&
-    command.includes('/scripts/hooks/')
-  ) {
-    return true;
-  }
-  // (d) a TMB hook basename under a /scripts/hooks/ dir (e.g. dev/worktree path).
-  if (command.includes('/scripts/hooks/') && tmbHookNames.has(hookName(command))) {
-    return true;
-  }
-  return false;
+  return command.includes(`/${RESOLVER_NAME} --marketplace `);
 }
 
-// An entry this project owns: TMB-managed and either tagged for this project or
-// untagged (a legacy user-global entry, owned by whichever project re-onboards).
-function isOwnedEntry(h: HookCommand, tmbHookNames: Set<string>, projectRoot: string): boolean {
-  if (!isTmbEntry(h, tmbHookNames)) return false;
-  return h._tmb_project === undefined || h._tmb_project === projectRoot;
-}
-
-// Remove every entry this project owns, dropping now-empty matcher groups.
-// Non-TMB user entries and other projects' tagged entries are preserved.
-function purgeOwnedEntries(
-  pre: HookGroup[],
-  tmbHookNames: Set<string>,
-  projectRoot: string,
-): { kept: HookGroup[]; removed: number } {
+// Remove every TMB-managed entry, dropping now-empty matcher groups. Non-TMB
+// user entries are preserved untouched.
+function purgeTmbEntries(pre: HookGroup[]): { kept: HookGroup[]; removed: number } {
   const kept: HookGroup[] = [];
   let removed = 0;
   for (const group of pre) {
-    const hooks = (group.hooks ?? []).filter((h) => !isOwnedEntry(h, tmbHookNames, projectRoot));
+    const hooks = (group.hooks ?? []).filter((h) => !isTmbEntry(h));
     removed += (group.hooks ?? []).length - hooks.length;
     if (hooks.length === 0) continue;
     kept.push({ ...group, hooks });
@@ -256,27 +221,20 @@ function purgeOwnedEntries(
   return { kept, removed };
 }
 
-function tmbHookNamesFor(pre: HookGroup[]): Set<string> {
-  return new Set(pre.flatMap((g) => (g.hooks ?? []).map((h) => hookName(h.command))));
-}
-
-// Shared guard: only a plugin installed in <homeDir>'s plugins cache manages
-// that home's settings.json. Dev checkouts, worktree builds and test servers
-// never touch it.
+// Shared guard: only an installed (plugins-cache) plugin manages the shim.
 function installedPluginGuard(
   pluginRoot: string | null,
-  homeDir: string,
-): { pre: HookGroup[]; marketplace: string } | { reason: string } {
+): { root: string; pre: HookGroup[]; marketplace: string; pluginName: string } | { reason: string } {
   if (!pluginRoot) return { reason: 'plugin root unresolvable' };
-  const marketplace = installedMarketplace(pluginRoot, homeDir);
+  const marketplace = installedMarketplace(pluginRoot);
   if (!marketplace) return { reason: 'plugin-root-not-installed' };
   const pre = readPreToolUseFromHooksJson(pluginRoot);
   if (!pre) return { reason: 'hooks/hooks.json missing or has no PreToolUse' };
-  return { pre, marketplace };
+  return { root: pluginRoot, pre, marketplace, pluginName: pluginNameOf(pluginRoot) };
 }
 
-function settingsFile(homeDir: string): string {
-  return join(homeDir, '.claude', 'settings.json');
+function settingsFile(projectRoot: string): string {
+  return join(projectRoot, ...SETTINGS_REL);
 }
 
 type SettingsRead = { settings: Record<string, unknown>; exists: boolean } | { reason: string };
@@ -287,7 +245,7 @@ function readSettings(path: string): SettingsRead {
     const raw = readFileSync(path, 'utf8').trim();
     return { settings: raw.length > 0 ? JSON.parse(raw) : {}, exists: true };
   } catch {
-    return { reason: 'existing settings.json is not valid JSON' };
+    return { reason: 'existing settings.local.json is not valid JSON' };
   }
 }
 
@@ -306,7 +264,7 @@ function writeSettings(path: string, settings: Record<string, unknown>): string 
     writeFileSync(path, JSON.stringify(settings, null, 2) + '\n');
     return null;
   } catch (e) {
-    return `settings.json write failed: ${(e as Error).message}`;
+    return `settings.local.json write failed: ${(e as Error).message}`;
   }
 }
 
@@ -315,33 +273,36 @@ function skip<T extends object>(event: string, reason: string, result: T): T {
   return result;
 }
 
-export function writeUserSettingsEnforcementShim(opts: ShimWriteOptions): ShimWriteResult {
-  const { pluginRoot, homeDir, projectRoot } = opts;
+/**
+ * Write this project's shim into <project>/.claude/settings.local.json —
+ * only when headless enforcement is 'yes' and the plugin is an installed one.
+ */
+export function writeProjectEnforcementShim(opts: ShimWriteOptions): ShimWriteResult {
+  const { pluginRoot, projectRoot } = opts;
   if (opts.headlessEnforcement !== 'yes') {
     const reason = 'headless_enforcement_off';
     return skip('onboard_hooks_shim_skip', reason, { written: false, reason });
   }
-  const guard = installedPluginGuard(pluginRoot, homeDir);
+  const guard = installedPluginGuard(pluginRoot);
   if ('reason' in guard) {
     return skip('onboard_hooks_shim_skip', guard.reason, { written: false, reason: guard.reason });
   }
 
-  const resolverPath = materializeResolver(pluginRoot as string, homeDir);
-  if (!resolverPath) {
-    const reason = 'canonical resolver script missing';
-    return skip('onboard_hooks_shim_skip', reason, { written: false, reason });
-  }
-
-  const path = settingsFile(homeDir);
+  const path = settingsFile(projectRoot);
   const read = readSettings(path);
   if ('reason' in read) {
     return skip('onboard_hooks_shim_skip', read.reason, { written: false, reason: read.reason });
   }
 
+  const resolverPath = materializeResolver(guard.root, resolverPathFor(projectRoot, guard.pluginName));
+  if (!resolverPath) {
+    const reason = 'canonical resolver script missing';
+    return skip('onboard_hooks_shim_skip', reason, { written: false, reason });
+  }
+
   const tmbGroups = buildTmbGroups(guard.pre, resolverPath, guard.marketplace, projectRoot);
   const { hooks, pre } = preToolUseOf(read.settings);
-  const { kept } = purgeOwnedEntries(pre, tmbHookNamesFor(guard.pre), projectRoot);
-  hooks.PreToolUse = [...kept, ...tmbGroups];
+  hooks.PreToolUse = [...purgeTmbEntries(pre).kept, ...tmbGroups];
   read.settings.hooks = hooks;
 
   const failure = writeSettings(path, read.settings);
@@ -349,34 +310,17 @@ export function writeUserSettingsEnforcementShim(opts: ShimWriteOptions): ShimWr
 
   const entries = tmbGroups.reduce((n, g) => n + g.hooks.length, 0);
   serverLog({ event: 'onboard_hooks_shim_written', settingsPath: path, groups: tmbGroups.length, entries });
-  return { written: true, entries };
-}
-
-function referencesResolver(settings: Record<string, unknown>): boolean {
-  const hooks = settings.hooks;
-  if (!hooks || typeof hooks !== 'object') return false;
-  for (const groups of Object.values(hooks as Record<string, unknown>)) {
-    if (!Array.isArray(groups)) continue;
-    for (const g of groups as HookGroup[]) {
-      if ((g.hooks ?? []).some((h) => (h.command ?? '').includes(STABLE_RESOLVER_SIGNATURE))) return true;
-    }
-  }
-  return false;
+  return { written: true, entries, settings_path: path };
 }
 
 /**
- * Purge this project's shim entries from ~/.claude/settings.json and remove
- * ~/.claude/tmb-hooks/ when nothing references it any more. settings.json is
- * left byte-identical when it holds no entry this project owns.
+ * Purge the managed entries from <project>/.claude/settings.local.json and
+ * remove the project resolver. The settings file is left byte-identical when
+ * it holds no managed entry.
  */
-export function removeUserSettingsEnforcementShim(opts: ShimOptions): ShimRemoveResult {
-  const { pluginRoot, homeDir, projectRoot } = opts;
-  const guard = installedPluginGuard(pluginRoot, homeDir);
-  if ('reason' in guard) {
-    return skip('onboard_hooks_shim_remove_skip', guard.reason, { removed: 0, resolver_removed: false, reason: guard.reason });
-  }
-
-  const path = settingsFile(homeDir);
+export function removeProjectEnforcementShim(opts: ShimOptions): ShimRemoveResult {
+  const { pluginRoot, projectRoot } = opts;
+  const path = settingsFile(projectRoot);
   const read = readSettings(path);
   if ('reason' in read) {
     return skip('onboard_hooks_shim_remove_skip', read.reason, { removed: 0, resolver_removed: false, reason: read.reason });
@@ -385,12 +329,13 @@ export function removeUserSettingsEnforcementShim(opts: ShimOptions): ShimRemove
   let removed = 0;
   if (read.exists) {
     const { hooks, pre } = preToolUseOf(read.settings);
-    const purge = purgeOwnedEntries(pre, tmbHookNamesFor(guard.pre), projectRoot);
+    const purge = purgeTmbEntries(pre);
     removed = purge.removed;
     if (removed > 0) {
       if (purge.kept.length > 0) hooks.PreToolUse = purge.kept;
       else delete hooks.PreToolUse;
-      read.settings.hooks = hooks;
+      if (Object.keys(hooks).length > 0) read.settings.hooks = hooks;
+      else delete read.settings.hooks;
       const failure = writeSettings(path, read.settings);
       if (failure) {
         return skip('onboard_hooks_shim_remove_skip', failure, { removed: 0, resolver_removed: false, reason: failure });
@@ -398,13 +343,15 @@ export function removeUserSettingsEnforcementShim(opts: ShimOptions): ShimRemove
     }
   }
 
-  const resolverDir = join(homeDir, ...STABLE_RESOLVER_DIR);
+  const resolverPath = resolverPathFor(projectRoot, pluginRoot ? pluginNameOf(pluginRoot) : 'tmb');
   let resolver_removed = false;
-  if (existsSync(resolverDir) && !referencesResolver(read.settings)) {
-    rmSync(resolverDir, { recursive: true, force: true });
+  if (existsSync(resolverPath)) {
+    rmSync(resolverPath, { force: true });
     resolver_removed = true;
   }
 
-  serverLog({ event: 'onboard_hooks_shim_removed', settingsPath: path, removed, resolver_removed });
+  if (removed > 0 || resolver_removed) {
+    serverLog({ event: 'onboard_hooks_shim_removed', settingsPath: path, removed, resolver_removed });
+  }
   return { removed, resolver_removed };
 }

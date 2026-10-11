@@ -19,6 +19,18 @@ TRANSCRIPT_PLAIN="$TMPDIR/transcript-plain.jsonl"
 
 export TRAJECTORY_DB_PATH="$DB"
 
+# Stub pgrep so the MCP-liveness check is hermetic: the server counts as
+# running unless $MCP_DOWN exists.
+MCP_DOWN="$TMPDIR/mcp-down"
+mkdir -p "$TMPDIR/bin"
+cat > "$TMPDIR/bin/pgrep" <<EOF
+#!/usr/bin/env bash
+[ -e "$MCP_DOWN" ] && exit 1
+echo 99999
+EOF
+chmod +x "$TMPDIR/bin/pgrep"
+export PATH="$TMPDIR/bin:$PATH"
+
 sqlite3 "$DB" "
   CREATE TABLE plugin_config (
     key TEXT PRIMARY KEY,
@@ -149,11 +161,36 @@ else
   _fail "stable onboarded= at byte $onboarded_pos_fc should be before volatile pending= at byte $pending_pos_fc"
 fi
 
+# ---- MCP liveness: HALT only on evidence at UserPromptSubmit ----
+
+test_case "bro mode + server running: no HALT"
+out=$(run_hook "$(input '@bro status')")
+assert_not_contains "$out" "HALT" "no HALT while the server runs"
+
+test_case "bro mode + server absent: HALT + recovery pointer, DB context kept"
+touch "$MCP_DOWN"
+out=$(run_hook "$(input '@bro status')")
+ctx=$(echo "$out" | jq -r '.hookSpecificOutput.additionalContext')
+assert_contains "$ctx" "Bro: HALT" "HALT emitted"
+assert_contains "$ctx" "tmb_recovery §C" "recovery pointer"
+assert_contains "$ctx" "onboarded=" "pre-fetched state still injected"
+
+test_case "non-bro prompt + server absent: silent"
+out=$(run_hook "$(input 'just a normal question')")
+assert_eq "" "$out" "no output outside bro mode"
+rm -f "$MCP_DOWN"
+
 # ---- DB-missing graceful path ----
 
 test_case "bro trigger but DB doesn't exist: silent no-op (graceful first-activation)"
 rm -f "$DB"
 out=$(run_hook "$(input '@bro hi')")
 assert_eq "" "$out" "no output when DB missing"
+
+test_case "bro trigger, DB missing, server absent: HALT alone"
+touch "$MCP_DOWN"
+out=$(run_hook "$(input '@bro hi')")
+assert_contains "$(echo "$out" | jq -r '.hookSpecificOutput.additionalContext')" "Bro: HALT" "HALT without a DB"
+rm -f "$MCP_DOWN"
 
 summarize

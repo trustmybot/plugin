@@ -31,7 +31,7 @@ fi
 # The embedding model cache is a shared user cache, not TMB state: keep using
 # the real one so the suite never re-downloads the model.
 TOOL_PATH="$PATH"
-export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
+export TMB_MODEL_CACHE_DIR="${TMB_MODEL_CACHE_DIR:-${HF_HOME:-$HOME/.cache/huggingface}}"
 FOOTPRINT_HOME="$(mktemp -d)"
 trap 'rm -rf "$FOOTPRINT_HOME"' EXIT
 unset CLAUDE_PLUGIN_ROOT CLAUDE_PROJECT_DIR CLAUDE_CONFIG_DIR

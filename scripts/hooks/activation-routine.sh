@@ -12,6 +12,11 @@
 #   - the transcript shows a prior "Entering bro mode." line AND no later
 #     "exit bro mode" / "stop being bro".
 #
+# MCP HALT: in bro mode the hook also checks that this plugin's
+# trajectory-server process is running. By UserPromptSubmit the session is up,
+# so an absent server is evidence (unlike a SessionStart sample): the context
+# then carries the HALT + recovery pointer (tmb_recovery §C).
+#
 # Silent no-op when:
 #   - not in bro mode
 #   - DB doesn't exist yet (first activation in a fresh project)
@@ -52,9 +57,36 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
 
-DB_PATH=$(tmb_db_path_advisory activation-routine) || exit 0
-tmb_have_sqlite || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
+
+HALT_TEXT=""
+if command -v pgrep >/dev/null 2>&1; then
+  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+    _pattern="${CLAUDE_PLUGIN_ROOT}/mcp/trajectory-server/dist/index.js"
+  else
+    _pattern="trajectory-server/dist/index.js"
+  fi
+  if [ "$({ pgrep -f "$_pattern" 2>/dev/null || true; } | wc -l | tr -d ' ')" = "0" ]; then
+    HALT_TEXT="⛔ MCP trajectory-server is not running at this prompt — trajectory tools (state reads and writes) are unreachable. Bro: HALT. Do not dispatch work; load tmb_recovery §C and follow it. The read-only sqlite3 fallback (bro-sqlite-readonly.sh) stays available for emergency reads."
+  fi
+fi
+
+emit() {
+  jq -nc --arg ctx "$1" '{
+    hookSpecificOutput: {
+      hookEventName: "UserPromptSubmit",
+      additionalContext: $ctx
+    }
+  }'
+}
+
+halt_only() {
+  [ -n "$HALT_TEXT" ] && emit "$HALT_TEXT"
+  exit 0
+}
+
+DB_PATH=$(tmb_db_path_advisory activation-routine) || halt_only
+tmb_have_sqlite || halt_only
 
 ONBOARDED_ROW_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM plugin_config WHERE key='onboarded' AND value_json='true';" 2>/dev/null)
 PENDING=$(sqlite3 -separator $'\x1f' "$DB_PATH" \
@@ -88,9 +120,7 @@ else
   CONTEXT="[tmb activation routine — pre-fetched by hook] ${ONBOARDED_LINE}. Use this to compose the welcome banner; do NOT also call issue_resume — they would be redundant duplicate reads. ${PENDING_LINE}"
 fi
 
-jq -nc --arg ctx "$CONTEXT" '{
-  hookSpecificOutput: {
-    hookEventName: "UserPromptSubmit",
-    additionalContext: $ctx
-  }
-}'
+if [ -n "$HALT_TEXT" ]; then
+  CONTEXT="${HALT_TEXT} ${CONTEXT}"
+fi
+emit "$CONTEXT"

@@ -162,12 +162,12 @@ fi
 # ---------------------------------------------------------------------------
 
 test_case "mcp-health-check: masked token multiset matches golden"
-MCP_OUT=$(PATH="$MCP_STUB_DIR:$PATH" bash "$PLUGIN_ROOT/scripts/hooks/mcp-health-check.sh" \
+MCP_OUT=$(PATH="$MCP_STUB_DIR:$PATH" TMB_MCP_HEALTH_INTERVAL_S=0.05 bash "$PLUGIN_ROOT/scripts/hooks/mcp-health-check.sh" \
     <<< '{"hook_event_name":"SessionStart","session_id":"golden-test","source":"startup"}' \
     2>/dev/null \
   | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
 if [ -z "$MCP_OUT" ]; then
-  _fail "mcp-health-check produced no output (expected Mode A warning)"
+  _fail "mcp-health-check produced no output (expected the soft not-detected note)"
 else
   MCP_MASKED=$(mask_mcp_health_check "$MCP_OUT")
   MCP_GOLDEN=$(cat "$FIXTURES/mcp-health-check.golden.txt")

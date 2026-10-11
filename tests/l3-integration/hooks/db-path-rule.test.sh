@@ -117,10 +117,11 @@ for MODE in root walk; do
   out=$(run_ws "$MODE" session-start-prescan.sh '{}' TMB_SKIP_AUTO_PRESCAN=1)
   assert_contains "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext')" "Open issues:       3" "issue count from the workspace DB"
 
-  test_case "[$MODE] mcp-health-check logs the workspace DB"
-  rm -f "$FAKE_HOME/.claude/tmb/logs/mcp-health.log"
-  run_ws "$MODE" mcp-health-check.sh '{"hook_event_name":"UserPromptSubmit","session_id":"s"}' >/dev/null
-  assert_eq "$WS_DB" "$(tail -1 "$FAKE_HOME/.claude/tmb/logs/mcp-health.log" | jq -r '.db_path')" "db_path logged"
+  test_case "[$MODE] mcp-health-check logs the workspace DB, beside it"
+  WS_HEALTH_LOG="$(dirname "$WS_DB")/logs/mcp-health.log"
+  rm -f "$WS_HEALTH_LOG"
+  run_ws "$MODE" mcp-health-check.sh '{"hook_event_name":"SessionStart","session_id":"s"}' TMB_MCP_HEALTH_SAMPLES=1 >/dev/null
+  assert_eq "$WS_DB" "$(tail -1 "$WS_HEALTH_LOG" | jq -r '.db_path')" "db_path logged"
 
   test_case "[$MODE] orphan-scan anchors on the workspace project"
   SLUG=$(printf '%s' "$WS" | sed -E 's/[^A-Za-z0-9]+/-/g')

@@ -11,6 +11,13 @@ command -v jq >/dev/null 2>&1 || { printf "SKIP jq not found\n"; exit 0; }
 WORKSPACE=$(mktemp -d)
 trap 'rm -rf "$WORKSPACE"' EXIT
 
+# Scan shells out to `claude plugin list`; a stub keeps the run hermetic (the
+# real CLI writes its own state under HOME).
+mkdir -p "$WORKSPACE/stub-bin"
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$WORKSPACE/stub-bin/claude"
+chmod +x "$WORKSPACE/stub-bin/claude"
+export PATH="$WORKSPACE/stub-bin:$PATH"
+
 REPO="$WORKSPACE/testrepo"
 mkdir -p "$REPO/subdir"
 

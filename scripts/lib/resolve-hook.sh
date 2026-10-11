@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Version-agnostic hook resolver (#74/#680).
 #
-# When a project opts in to headless enforcement, /onboard materializes a
-# stable copy of this script at ~/.claude/tmb-hooks/resolve-hook.sh and writes
-# project-tagged commands into ~/.claude/settings.json (which DO fire under
-# `claude -p`, unlike marketplace plugin hooks). Each settings.json command is:
+# When a project opts in to headless enforcement, /onboard materializes a copy
+# of this script at <project>/.claude/<plugin>/resolve-hook.sh and writes
+# project-tagged commands into <project>/.claude/settings.local.json (project
+# settings hooks DO fire under `claude -p`, unlike marketplace plugin hooks).
+# Each command is:
 #
-#   bash ~/.claude/tmb-hooks/resolve-hook.sh --marketplace <mp> --hook <basename> --shim --project <root>
+#   bash <project>/.claude/<plugin>/resolve-hook.sh --marketplace <mp> --hook <basename> --shim --project <root>
 #
 # Shim mode (--shim) exits 0 without running the gate when:
 #   - CLAUDE_PROJECT_DIR is set and is not <root> (another project's session), or
@@ -130,10 +131,12 @@ fi
 if [ "$shim" = "1" ]; then
   session_root="${CLAUDE_PROJECT_DIR:-$project}"
   session_id=""
-  plugin_name="tmb"
+  # <cache>/<marketplace>/<plugin>/<version>: the manifest name, else the dir.
+  plugin_name="$(basename "$(dirname "$version_root")")"
   if command -v jq >/dev/null 2>&1; then
     session_id="$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null || true)"
-    plugin_name="$(jq -r '.name // "tmb"' "$version_root/.claude-plugin/plugin.json" 2>/dev/null || echo tmb)"
+    manifest_name="$(jq -r '.name // empty' "$version_root/.claude-plugin/plugin.json" 2>/dev/null || true)"
+    [ -n "$manifest_name" ] && plugin_name="$manifest_name"
   fi
   case "$session_id" in
     ''|*/*|.*) ;;

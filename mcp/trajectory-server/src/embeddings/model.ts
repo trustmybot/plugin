@@ -1,6 +1,11 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+// The embedding model cache is the one path TMB uses outside the project: a
+// shared, re-downloadable user cache, overridable via TMB_MODEL_CACHE_DIR.
+export const TMB_MODEL_CACHE_DIR =
+  process.env['TMB_MODEL_CACHE_DIR'] ?? process.env['HF_HOME'] ?? join(homedir(), '.cache', 'huggingface');
+
 let pipelinePromise: Promise<unknown> | null = null;
 let loadFailed = false;
 
@@ -9,7 +14,7 @@ export async function embed(text: string): Promise<Float32Array | null> {
   if (!pipelinePromise) {
     try {
       const { pipeline, env } = await import('@huggingface/transformers');
-      env.cacheDir = process.env.HF_HOME ?? join(homedir(), '.cache', 'huggingface');
+      env.cacheDir = TMB_MODEL_CACHE_DIR;
       pipelinePromise = pipeline('feature-extraction', 'Xenova/bge-small-en-v1.5');
       pipelinePromise.catch(() => {
         loadFailed = true;

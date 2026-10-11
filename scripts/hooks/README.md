@@ -5,7 +5,9 @@ The Claude Code lifecycle hook engine — the deterministic enforcement layer th
 ## Grouped by lifecycle
 
 ### SessionStart — preflight
-`ensure-gitignore.sh`, `mcp-health-check.sh`, `deferred-tools-drift-warn.sh`, `write-active-workspace-sentinel.sh`, `session-start-prescan.sh`, `ensure-kuzu-installed.sh`, `substrate-preflight.sh`, `cheatcode-healthcheck.sh`, `orphan-scan.sh` — make sure the gitignore, MCP server, kuzu native binary, workspace sentinel, and required host binaries are in place before a session does real work, and reconcile cheatcode statuses.
+`ensure-gitignore.sh`, `mcp-health-check.sh`, `deferred-tools-drift-warn.sh`, `plugin-hooks-marker.sh`, `session-start-prescan.sh`, `ensure-kuzu-installed.sh`, `substrate-preflight.sh`, `cheatcode-healthcheck.sh`, `orphan-scan.sh` — make sure the gitignore, MCP server, kuzu native binary, and required host binaries are in place before a session does real work, mark the session as running the plugin's own hooks (so the opt-in headless shim yields), warn about TMB-managed hooks left in `~/.claude/settings.json`, and reconcile cheatcode statuses.
+
+Every file a hook writes lives under `<project>/.claude/<plugin>/` (logs, locks, session markers); nothing is written under `$HOME` (`tests/l1-lint/no-home-writes.sh`).
 
 #### `orphan-scan.sh` — project-scoped cross-upgrade orphan scan
 
@@ -31,7 +33,7 @@ Sets each `cheatcodes` row's `status` to `active` or `broken` from runtime evide
 A row whose evidence source is unavailable (no `claude` CLI, an unparseable plugin list, no MCP listing) is left untouched. Bypass: `TMB_DISABLE_CHEATCODE_HEALTHCHECK=1`.
 
 ### UserPromptSubmit — per-turn setup + routing
-`activation-routine.sh`, `mcp-health-check.sh`, `session-log-capture.sh`, `prompt-intent-hints.sh`, `roundtable-slash-detect.sh` — inject identity/context, log the turn, and route phrasing hints (onboarding nudges, roundtable detection).
+`activation-routine.sh`, `session-log-capture.sh`, `prompt-intent-hints.sh`, `roundtable-slash-detect.sh` — inject identity/context (plus the HALT + recovery pointer when the trajectory-server is not running at the prompt), log the turn, and route phrasing hints (onboarding nudges, roundtable detection).
 
 ### PreToolUse — gates (deny on violation)
 Git: `git-guards.sh`, `git-push-guard.sh`, `no-remote-auth-guard.sh`, `stay-on-base-guard.sh`, `no-source-edit-from-main.sh`, `no-worktree-branch-create.sh`, `branch-up-to-date-with-remote.sh`, `commit-msg-lint.sh`. The git guards are **registration-scoped**: they resolve the command's cwd git-root to a `repos` row (via `lib/resolve-repo.sh`) and only enforce on a registered repo — unregistered sibling trees no-op. The protected set is the Rule 2 union of `protected_branches`, `target_branch`, `pr_target`, and the parent branches of this repo's tasks. The first three are read per-repo from the `repos` row — the `repos` row is the source of truth, with no `plugin_config` fallback — and the last comes from the tasks table. See [`docs/architecture/REPO_RESOLUTION.md`](../../docs/architecture/REPO_RESOLUTION.md).
