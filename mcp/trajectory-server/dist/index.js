@@ -1297,21 +1297,21 @@ var require_errors = __commonJS({
     function extendErrors({ gen, keyword, schemaValue, data, errsCount, it }) {
       if (errsCount === void 0)
         throw new Error("ajv implementation error");
-      const err19 = gen.name("err");
+      const err20 = gen.name("err");
       gen.forRange("i", errsCount, names_1.default.errors, (i) => {
-        gen.const(err19, (0, codegen_1._)`${names_1.default.vErrors}[${i}]`);
-        gen.if((0, codegen_1._)`${err19}.instancePath === undefined`, () => gen.assign((0, codegen_1._)`${err19}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it.errorPath)));
-        gen.assign((0, codegen_1._)`${err19}.schemaPath`, (0, codegen_1.str)`${it.errSchemaPath}/${keyword}`);
+        gen.const(err20, (0, codegen_1._)`${names_1.default.vErrors}[${i}]`);
+        gen.if((0, codegen_1._)`${err20}.instancePath === undefined`, () => gen.assign((0, codegen_1._)`${err20}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it.errorPath)));
+        gen.assign((0, codegen_1._)`${err20}.schemaPath`, (0, codegen_1.str)`${it.errSchemaPath}/${keyword}`);
         if (it.opts.verbose) {
-          gen.assign((0, codegen_1._)`${err19}.schema`, schemaValue);
-          gen.assign((0, codegen_1._)`${err19}.data`, data);
+          gen.assign((0, codegen_1._)`${err20}.schema`, schemaValue);
+          gen.assign((0, codegen_1._)`${err20}.data`, data);
         }
       });
     }
     exports.extendErrors = extendErrors;
     function addError(gen, errObj) {
-      const err19 = gen.const("err", errObj);
-      gen.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen.assign(names_1.default.vErrors, (0, codegen_1._)`[${err19}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err19})`);
+      const err20 = gen.const("err", errObj);
+      gen.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen.assign(names_1.default.vErrors, (0, codegen_1._)`[${err20}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err20})`);
       gen.code((0, codegen_1._)`${names_1.default.errors}++`);
     }
     function returnErrors(it, errs) {
@@ -1512,8 +1512,8 @@ var require_dataType = __commonJS({
       return types;
     }
     exports.getSchemaTypes = getSchemaTypes;
-    function getJSONTypes(ts) {
-      const types = Array.isArray(ts) ? ts : ts ? [ts] : [];
+    function getJSONTypes(ts2) {
+      const types = Array.isArray(ts2) ? ts2 : ts2 ? [ts2] : [];
       if (types.every(rules_1.isJSONType))
         return types;
       throw new Error("type must be JSONType or JSONType[]: " + types.join(","));
@@ -2555,18 +2555,18 @@ var require_validate = __commonJS({
       });
       narrowSchemaTypes(it, types);
     }
-    function checkMultipleTypes(it, ts) {
-      if (ts.length > 1 && !(ts.length === 2 && ts.includes("null"))) {
+    function checkMultipleTypes(it, ts2) {
+      if (ts2.length > 1 && !(ts2.length === 2 && ts2.includes("null"))) {
         strictTypesError(it, "use allowUnionTypes to allow union type keyword");
       }
     }
-    function checkKeywordTypes(it, ts) {
+    function checkKeywordTypes(it, ts2) {
       const rules = it.self.RULES.all;
       for (const keyword in rules) {
         const rule = rules[keyword];
         if (typeof rule == "object" && (0, applicability_1.shouldUseRule)(it.schema, rule)) {
           const { type } = rule.definition;
-          if (type.length && !type.some((t) => hasApplicableType(ts, t))) {
+          if (type.length && !type.some((t) => hasApplicableType(ts2, t))) {
             strictTypesError(it, `missing type "${type.join(",")}" for keyword "${keyword}"`);
           }
         }
@@ -2575,18 +2575,18 @@ var require_validate = __commonJS({
     function hasApplicableType(schTs, kwdT) {
       return schTs.includes(kwdT) || kwdT === "number" && schTs.includes("integer");
     }
-    function includesType(ts, t) {
-      return ts.includes(t) || t === "integer" && ts.includes("number");
+    function includesType(ts2, t) {
+      return ts2.includes(t) || t === "integer" && ts2.includes("number");
     }
     function narrowSchemaTypes(it, withTypes) {
-      const ts = [];
+      const ts2 = [];
       for (const t of it.dataTypes) {
         if (includesType(withTypes, t))
-          ts.push(t);
+          ts2.push(t);
         else if (withTypes.includes("integer") && t === "number")
-          ts.push("integer");
+          ts2.push("integer");
       }
-      it.dataTypes = ts;
+      it.dataTypes = ts2;
     }
     function strictTypesError(it, msg) {
       const schemaPath = it.schemaEnv.baseId + it.errSchemaPath;
@@ -6800,7 +6800,7 @@ var require_dist = __commonJS({
 // src/index.ts
 import path from "node:path";
 import { mkdirSync as mkdirSync8, readFileSync as readFileSync9 } from "node:fs";
-import { performance as performance2 } from "node:perf_hooks";
+import { performance as performance3 } from "node:perf_hooks";
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
 var util;
@@ -7420,8 +7420,8 @@ var ZodType = class {
         } : {
           issues: ctx.common.issues
         };
-      } catch (err19) {
-        if (err19?.message?.toLowerCase()?.includes("encountered")) {
+      } catch (err20) {
+        if (err20?.message?.toLowerCase()?.includes("encountered")) {
           this["~standard"].async = true;
         }
         ctx.common = {
@@ -20841,7 +20841,7 @@ var StdioServerTransport = class {
 import { copyFileSync, readFileSync as readFileSync2, readdirSync } from "node:fs";
 import { basename as basename2, join as join3, dirname as dirname2 } from "node:path";
 import { fileURLToPath } from "node:url";
-import { performance } from "node:perf_hooks";
+import { performance as performance2 } from "node:perf_hooks";
 import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
 
 // src/logger.ts
@@ -21277,7 +21277,7 @@ var TrajectoryDB = class {
     }
   }
   run(sql, params) {
-    const start = performance.now();
+    const start = performance2.now();
     try {
       const stmt = this.db.prepare(sql);
       const result = stmt.run(...params ?? []);
@@ -21286,25 +21286,25 @@ var TrajectoryDB = class {
         kind: "run",
         sql,
         params: params ?? [],
-        duration_ms: Math.round(performance.now() - start),
+        duration_ms: Math.round(performance2.now() - start),
         rows_affected: out.changes,
         ok: true
       });
       return out;
-    } catch (err19) {
+    } catch (err20) {
       this.sqlLog({
         kind: "run",
         sql,
         params: params ?? [],
-        duration_ms: Math.round(performance.now() - start),
+        duration_ms: Math.round(performance2.now() - start),
         ok: false,
-        error_message: err19 instanceof Error ? err19.message : String(err19)
+        error_message: err20 instanceof Error ? err20.message : String(err20)
       });
-      throw err19;
+      throw err20;
     }
   }
   get(sql, params) {
-    const start = performance.now();
+    const start = performance2.now();
     try {
       const stmt = this.db.prepare(sql);
       const row = stmt.get(...params ?? []);
@@ -21312,25 +21312,25 @@ var TrajectoryDB = class {
         kind: "get",
         sql,
         params: params ?? [],
-        duration_ms: Math.round(performance.now() - start),
+        duration_ms: Math.round(performance2.now() - start),
         row_count: row === void 0 ? 0 : 1,
         ok: true
       });
       return row;
-    } catch (err19) {
+    } catch (err20) {
       this.sqlLog({
         kind: "get",
         sql,
         params: params ?? [],
-        duration_ms: Math.round(performance.now() - start),
+        duration_ms: Math.round(performance2.now() - start),
         ok: false,
-        error_message: err19 instanceof Error ? err19.message : String(err19)
+        error_message: err20 instanceof Error ? err20.message : String(err20)
       });
-      throw err19;
+      throw err20;
     }
   }
   all(sql, params) {
-    const start = performance.now();
+    const start = performance2.now();
     try {
       const stmt = this.db.prepare(sql);
       const rows = stmt.all(...params ?? []);
@@ -21338,21 +21338,21 @@ var TrajectoryDB = class {
         kind: "all",
         sql,
         params: params ?? [],
-        duration_ms: Math.round(performance.now() - start),
+        duration_ms: Math.round(performance2.now() - start),
         row_count: rows.length,
         ok: true
       });
       return rows;
-    } catch (err19) {
+    } catch (err20) {
       this.sqlLog({
         kind: "all",
         sql,
         params: params ?? [],
-        duration_ms: Math.round(performance.now() - start),
+        duration_ms: Math.round(performance2.now() - start),
         ok: false,
-        error_message: err19 instanceof Error ? err19.message : String(err19)
+        error_message: err20 instanceof Error ? err20.message : String(err20)
       });
-      throw err19;
+      throw err20;
     }
   }
   /**
@@ -21366,12 +21366,12 @@ var TrajectoryDB = class {
       const result = fn();
       this.db.exec("COMMIT");
       return result;
-    } catch (err19) {
+    } catch (err20) {
       try {
         this.db.exec("ROLLBACK");
       } catch {
       }
-      throw err19;
+      throw err20;
     }
   }
   get isOpen() {
@@ -21596,12 +21596,12 @@ function migrateV8toV9(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV9toV10(db2) {
@@ -21613,12 +21613,12 @@ function migrateV9toV10(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV10toV11(db2) {
@@ -21636,12 +21636,12 @@ function migrateV10toV11(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV11toV12(db2) {
@@ -21653,12 +21653,12 @@ function migrateV11toV12(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV12toV13(db2) {
@@ -21673,12 +21673,12 @@ function migrateV12toV13(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV13toV14(db2) {
@@ -21710,12 +21710,12 @@ function migrateV13toV14(db2) {
       "CREATE INDEX IF NOT EXISTS idx_cheatcode_attachments_cheatcode ON cheatcode_attachments(cheatcode_id)"
     );
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV14toV15(db2) {
@@ -21725,12 +21725,12 @@ function migrateV14toV15(db2) {
       db2.exec("ALTER TABLE cheatcodes ADD COLUMN scope TEXT NOT NULL DEFAULT 'local'");
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV15toV16(db2) {
@@ -21739,12 +21739,12 @@ function migrateV15toV16(db2) {
     db2.exec("DROP TABLE IF EXISTS rule_invocations");
     db2.exec("DROP TABLE IF EXISTS rules");
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV16toV17(db2) {
@@ -21752,12 +21752,12 @@ function migrateV16toV17(db2) {
   try {
     db2.exec("DROP TABLE IF EXISTS commands");
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV17toV18(db2) {
@@ -21795,12 +21795,12 @@ function migrateV17toV18(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -21895,12 +21895,12 @@ function migrateV18toV19(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -21928,12 +21928,12 @@ function migrateV19toV20(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV20toV21(db2) {
@@ -22203,12 +22203,12 @@ function migrateV28toV29(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -22463,12 +22463,12 @@ function migrateV29toV30(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -22533,12 +22533,12 @@ function migrateV30toV31(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -22648,12 +22648,12 @@ function migrateV31toV32(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -22777,12 +22777,12 @@ function migrateV32toV33(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -22963,12 +22963,12 @@ function migrateV22toV23(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -23035,12 +23035,12 @@ function migrateV23toV24(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -23072,12 +23072,12 @@ function migrateV24toV25(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV25toV26(db2) {
@@ -23120,12 +23120,12 @@ function migrateV25toV26(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
@@ -23175,12 +23175,12 @@ function migrateV26toV27(db2) {
       "DELETE FROM plugin_config WHERE key IN ('pr_target', 'branching_model', 'protected_branches', 'remotes')"
     ).run();
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV7toV8(db2) {
@@ -23196,12 +23196,12 @@ function migrateV7toV8(db2) {
     db2.exec("DROP TABLE IF EXISTS directories_fts");
     db2.exec("DROP TABLE IF EXISTS directories");
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV6toV7(db2) {
@@ -23216,12 +23216,12 @@ function migrateV6toV7(db2) {
     db2.exec("DROP TABLE IF EXISTS file_registry_fts");
     db2.exec("DROP TABLE IF EXISTS file_registry");
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV5toV6(db2) {
@@ -23255,12 +23255,12 @@ function migrateV5toV6(db2) {
       "CREATE INDEX IF NOT EXISTS idx_directories_embeddings_model ON directories_embeddings(model_id)"
     );
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV4toV5(db2) {
@@ -23281,12 +23281,12 @@ function migrateV4toV5(db2) {
       );
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV3toV4(db2) {
@@ -23335,12 +23335,12 @@ function migrateV3toV4(db2) {
       `);
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV2toV3(db2) {
@@ -23437,12 +23437,12 @@ function migrateV2toV3(db2) {
       db2.exec(`INSERT INTO file_registry_fts(rowid, summary, path) SELECT rowid, summary, path FROM file_registry WHERE summary IS NOT NULL`);
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 function migrateV1toV2(db2) {
@@ -23622,12 +23622,12 @@ function migrateV1toV2(db2) {
       }
     }
     db2.exec("COMMIT");
-  } catch (err19) {
+  } catch (err20) {
     try {
       db2.exec("ROLLBACK");
     } catch {
     }
-    throw err19;
+    throw err20;
   }
 }
 
@@ -23866,6 +23866,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "tmb_agent_created", description: "`agent_register` registered a project-local consultant; `content_json` carries `name`, `mode`, `agent_id`" },
   { type: "tmb_branch_autocreated", description: "`task_create_batch` created the task's feature branch ref" },
   { type: "tmb_skill_created", description: "`tmb_skill-creator` landed a new skill; written by bro via `audit_append`", reserved: true },
+  { type: "trajectory_doctor_run", description: "`trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`)" },
   { type: "verification_gate_waived", description: "`swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason`" }
 ];
 var KNOWN = new Set(AUDIT_EVENT_TYPES.map((e) => e.type));
@@ -35533,12 +35534,12 @@ function sessionMessages(records) {
   records.forEach((r, i) => {
     const msg = messageOf(r);
     if (r["isSidechain"] === true || !msg || msg["usage"] === void 0 || msg["usage"] === null) return;
-    const ts = isoMs(r["timestamp"]);
-    if (ts === null) return;
+    const ts2 = isoMs(r["timestamp"]);
+    if (ts2 === null) return;
     const key = messageKey(r, i);
     const prev = groups.get(key);
     groups.set(key, {
-      ts: prev && prev.ts < ts ? prev.ts : ts,
+      ts: prev && prev.ts < ts2 ? prev.ts : ts2,
       u: usageOf(msg["usage"]),
       m: modelId(msg["model"]),
       tu: (prev?.tu ?? 0) + toolUseCount(r)
@@ -35939,6 +35940,348 @@ function agentRunsBackfillTools(db2, dbPath2) {
   return { definitions, handlers };
 }
 
+// src/tools/trajectory-doctor.ts
+import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
+
+// src/data-contracts.ts
+var daysAgo = (days) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${days} days')`;
+var ts = (column) => `strftime('%Y-%m-%dT%H:%M:%fZ', ${column})`;
+var auditTaskId = (alias) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.task_id') END`;
+var auditCommitSha = (alias) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.commit_sha') END`;
+var REVIEW_GRACE_HOURS_DEFAULT = 24;
+var LIVE_TASK_STATUSES2 = "'pending','running','needs_validation','completed'";
+var POPULATED_COLUMNS = [
+  { table: "agent_runs", column: "session_id", created_column: "started_at", floor: 0.2, min_schema: 30 },
+  { table: "agent_runs", column: "usage_source", created_column: "started_at", scope: "completed_at IS NOT NULL", scope_label: "completed rows", floor: 0.05, min_schema: 30 },
+  { table: "agent_runs", column: "model", created_column: "started_at", scope: "usage_source IN ('transcript','subagent_stop','backfill')", scope_label: "measured rows", floor: 0.1, min_schema: 33 },
+  { table: "agent_runs", column: "host", created_column: "started_at", floor: 0, min_schema: 33 },
+  { table: "agent_runs", column: "root_dir", created_column: "started_at", floor: 0.05, min_schema: 33 },
+  { table: "agent_runs", column: "exit_reason", created_column: "started_at", scope: "completed_at IS NOT NULL", scope_label: "completed rows", floor: 0.05, min_schema: 33 },
+  { table: "tasks", column: "prompt_bearing", created_column: "created_at", floor: 0, min_schema: 0 }
+];
+function populatedContract(c) {
+  const where = [`${ts(c.created_column)} >= ${daysAgo(30)}`, ...c.scope ? [c.scope] : []].join(" AND ");
+  return {
+    id: `populated_${c.table}_${c.column}`,
+    severity: "warn",
+    description: `${c.table}.${c.column} NULL rate over ${c.scope_label ?? "rows"} created in the last 30 days stays at or under ${c.floor}`,
+    sql: `SELECT COALESCE(AVG(CASE WHEN ${c.column} IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM ${c.table} WHERE ${where}`,
+    expect: { op: "<=", value: c.floor },
+    sample_sql: `SELECT id FROM ${c.table} WHERE ${where} AND ${c.column} IS NULL ORDER BY id DESC LIMIT 5`,
+    ...c.min_schema > 0 ? { min_schema: c.min_schema } : {}
+  };
+}
+function eventTypeList(types) {
+  for (const t of types) {
+    if (!/^[a-z][a-z0-9_]*$/.test(t)) throw new Error(`data-contracts: invalid documented event type '${t}'`);
+  }
+  return types.map((t) => `'${t}'`).join(",");
+}
+function buildDataContracts(documentedEventTypes) {
+  const events = eventTypeList(documentedEventTypes);
+  return [
+    {
+      id: "fk_check_empty",
+      severity: "error",
+      description: "PRAGMA foreign_key_check reports no dangling foreign key",
+      sql: "SELECT COUNT(*) FROM pragma_foreign_key_check",
+      expect: { op: "=", value: 0 },
+      sample_sql: 'SELECT "table" AS child_table, rowid, parent FROM pragma_foreign_key_check LIMIT 5'
+    },
+    {
+      id: "event_type_documented",
+      severity: "error",
+      description: "every audit.event_type is in the documented event set",
+      sql: `SELECT COUNT(*) FROM audit WHERE event_type NOT IN (${events})`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT event_type, COUNT(*) AS n FROM audit WHERE event_type NOT IN (${events}) GROUP BY event_type ORDER BY n DESC LIMIT 5`
+    },
+    {
+      id: "swe_runs_metered",
+      severity: "error",
+      min_schema: 30,
+      description: "swe/pr-reviewer agent_runs completed in the last 7 days and not marked unmeasured carry tokens",
+      sql: `SELECT COUNT(*) FROM agent_runs
+             WHERE agent_type IN ('swe','pr-reviewer') AND completed_at IS NOT NULL AND ${ts("completed_at")} >= ${daysAgo(7)}
+               AND (usage_source IS NULL OR usage_source <> 'unmeasured')
+               AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0
+               AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT id, task_id, agent_type, usage_source, completed_at FROM agent_runs
+             WHERE agent_type IN ('swe','pr-reviewer') AND completed_at IS NOT NULL AND ${ts("completed_at")} >= ${daysAgo(7)}
+               AND (usage_source IS NULL OR usage_source <> 'unmeasured')
+               AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0
+               AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0
+             ORDER BY id DESC LIMIT 5`
+    },
+    {
+      id: "closed_tasks_reviewed",
+      severity: "error",
+      description: "tasks closed in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago have a passing pr-reviewer verdict or a review_gate_bypassed/review_gate_waived row (bro_atomic_close closes before pr-reviewer runs; tasks has no closed_at, so the close time is updated_at)",
+      sql: `SELECT COUNT(*) FROM tasks t
+             WHERE t.status = 'closed' AND ${ts("t.updated_at")} >= ${daysAgo(30)}
+               AND ${ts("t.updated_at")} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')
+               AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass')
+               AND NOT EXISTS (SELECT 1 FROM audit a WHERE a.event_type IN ('review_gate_bypassed','review_gate_waived')
+                                AND ${auditTaskId("a")} = t.id)`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT t.id, t.issue_id, t.branch_id, t.updated_at FROM tasks t
+             WHERE t.status = 'closed' AND ${ts("t.updated_at")} >= ${daysAgo(30)}
+               AND ${ts("t.updated_at")} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')
+               AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass')
+               AND NOT EXISTS (SELECT 1 FROM audit a WHERE a.event_type IN ('review_gate_bypassed','review_gate_waived')
+                                AND ${auditTaskId("a")} = t.id)
+             ORDER BY t.id DESC LIMIT 5`,
+      params: [{ name: "grace_hours", env: "TMB_REVIEW_GRACE_HOURS", default: REVIEW_GRACE_HOURS_DEFAULT }]
+    },
+    {
+      id: "no_stale_running",
+      severity: "warn",
+      description: "no running task has gone TMB_STALE_RUNNING_HOURS (default 6) without an update and without an open swe agent_runs row",
+      sql: `SELECT COUNT(*) FROM tasks t
+             WHERE t.status = 'running' AND ${ts("t.updated_at")} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :stale_hours || ' hours')
+               AND NOT EXISTS (SELECT 1 FROM agent_runs r WHERE r.task_id = t.id AND r.agent_type = 'swe' AND r.completed_at IS NULL)`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT t.id, t.issue_id, t.updated_at FROM tasks t
+             WHERE t.status = 'running' AND ${ts("t.updated_at")} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :stale_hours || ' hours')
+               AND NOT EXISTS (SELECT 1 FROM agent_runs r WHERE r.task_id = t.id AND r.agent_type = 'swe' AND r.completed_at IS NULL)
+             ORDER BY t.id LIMIT 5`,
+      params: [{ name: "stale_hours", env: "TMB_STALE_RUNNING_HOURS", default: STALE_RUNNING_HOURS_DEFAULT }]
+    },
+    {
+      id: "scan_fresh",
+      severity: "warn",
+      description: "some repo was scanned in the last 7 days (1 when fresh; passes with no repo row)",
+      sql: `SELECT CASE WHEN COUNT(*) = 0 THEN 1 WHEN MAX(${ts("last_scanned_at")}) >= ${daysAgo(7)} THEN 1 ELSE 0 END FROM repos`,
+      expect: { op: ">=", value: 1 },
+      sample_sql: `SELECT name, last_scanned_at FROM repos ORDER BY last_scanned_at DESC LIMIT 5`
+    },
+    {
+      id: "waiver_not_duplicated",
+      severity: "warn",
+      description: "no (task_id, commit_sha) carries more than one verification_gate_waived row",
+      sql: `SELECT COUNT(*) FROM (SELECT 1 FROM audit a WHERE a.event_type = 'verification_gate_waived'
+             GROUP BY ${auditTaskId("a")}, COALESCE(${auditCommitSha("a")}, '') HAVING COUNT(*) > 1)`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT ${auditTaskId("a")} AS task_id, ${auditCommitSha("a")} AS commit_sha, COUNT(*) AS n FROM audit a
+             WHERE a.event_type = 'verification_gate_waived'
+             GROUP BY ${auditTaskId("a")}, COALESCE(${auditCommitSha("a")}, '') HAVING COUNT(*) > 1 ORDER BY n DESC LIMIT 5`
+    },
+    ...POPULATED_COLUMNS.map(populatedContract),
+    {
+      id: "issues_closed_no_live_tasks",
+      severity: "error",
+      description: "no closed issue still has a pending/running/needs_validation/completed task",
+      sql: `SELECT COUNT(DISTINCT i.id) FROM issues i JOIN tasks t ON t.issue_id = i.id
+             WHERE i.status = 'closed' AND t.status IN (${LIVE_TASK_STATUSES2})`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT i.id AS issue_id, t.id AS task_id, t.status FROM issues i JOIN tasks t ON t.issue_id = i.id
+             WHERE i.status = 'closed' AND t.status IN (${LIVE_TASK_STATUSES2}) ORDER BY i.id DESC, t.id LIMIT 5`
+    }
+  ];
+}
+var DATA_CONTRACTS = buildDataContracts(AUDIT_EVENT_TYPES.map((e) => e.type));
+var DATA_CONTRACTS_SCHEMA_VERSION = Math.max(0, ...DATA_CONTRACTS.map((c) => c.min_schema ?? 0));
+function schemaTooOldReason(stored, required2) {
+  return `schema v${stored} < v${required2} \u2014 start the trajectory server to migrate`;
+}
+function contractHolds(actual, expect) {
+  if (actual === null || !Number.isFinite(actual)) return false;
+  switch (expect.op) {
+    case "=":
+      return actual === expect.value;
+    case "<=":
+      return actual <= expect.value;
+    case ">=":
+      return actual >= expect.value;
+  }
+}
+function contractParamValues(contract, env = process.env) {
+  const values = {};
+  for (const p of contract.params ?? []) {
+    const raw = Number(env[p.env]);
+    values[p.name] = Number.isFinite(raw) && raw > 0 ? raw : p.default;
+  }
+  return values;
+}
+
+// src/tools/trajectory-doctor.ts
+var STATEMENT_TIMEOUT_MS_DEFAULT = 2e3;
+var bind = (params) => Object.keys(params).length > 0 ? [params] : [];
+function trajectoryDbReader(db2) {
+  return {
+    get: (sql, params) => db2.get(sql, bind(params)),
+    all: (sql, params) => db2.all(sql, bind(params))
+  };
+}
+function sqliteReader(conn) {
+  return {
+    get: (sql, params) => conn.prepare(sql).get(...bind(params)),
+    all: (sql, params) => conn.prepare(sql).all(...bind(params))
+  };
+}
+function statementTimeoutMs(env = process.env) {
+  const raw = Number(env["TMB_DOCTOR_STATEMENT_TIMEOUT_MS"]);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : STATEMENT_TIMEOUT_MS_DEFAULT;
+}
+function readSchemaVersion(reader) {
+  try {
+    return firstNumber(reader.get("SELECT schema_version FROM plugin_meta LIMIT 1", {}));
+  } catch {
+    return null;
+  }
+}
+function firstNumber(row) {
+  if (row === void 0) return null;
+  const value = Object.values(row)[0];
+  if (typeof value === "number") return value;
+  if (typeof value === "bigint") return Number(value);
+  return null;
+}
+function runDataContracts(reader, contracts, opts = {}) {
+  const timeoutMs = opts.statementTimeoutMs ?? statementTimeoutMs(opts.env);
+  const now = opts.now ?? (() => performance.now());
+  const stored = readSchemaVersion(reader);
+  const required2 = Math.max(0, ...contracts.map((c) => c.min_schema ?? 0));
+  const report = {
+    healthy: true,
+    checked_at: nowISO(),
+    schema: { stored, required: required2, current: stored === null || stored >= required2 },
+    violations: [],
+    skipped: []
+  };
+  for (const contract of contracts) {
+    if (stored !== null && (contract.min_schema ?? 0) > stored) {
+      report.skipped.push({ id: contract.id, reason: schemaTooOldReason(stored, contract.min_schema) });
+      if (contract.severity === "error") report.healthy = false;
+      continue;
+    }
+    const params = contractParamValues(contract, opts.env);
+    const started = now();
+    let actual;
+    try {
+      actual = firstNumber(reader.get(contract.sql, params));
+    } catch (e) {
+      report.skipped.push({ id: contract.id, reason: `error: ${e.message}` });
+      if (contract.severity === "error") report.healthy = false;
+      continue;
+    }
+    const elapsed = Math.round(now() - started);
+    if (elapsed > timeoutMs) {
+      report.skipped.push({ id: contract.id, reason: `timeout: ${elapsed}ms > ${timeoutMs}ms` });
+      if (contract.severity === "error") report.healthy = false;
+      continue;
+    }
+    if (contractHolds(actual, contract.expect)) continue;
+    let sample = [];
+    if (contract.sample_sql) {
+      try {
+        sample = reader.all(contract.sample_sql, params);
+      } catch {
+        sample = [];
+      }
+    }
+    report.violations.push({
+      id: contract.id,
+      severity: contract.severity,
+      description: contract.description,
+      actual,
+      expected: contract.expect,
+      sample
+    });
+    if (contract.severity === "error") report.healthy = false;
+  }
+  return report;
+}
+function openReadOnly(dbPath2, timeoutMs) {
+  if (!dbPath2 || dbPath2 === ":memory:") return null;
+  for (const readOnly of [true, false]) {
+    let conn = null;
+    try {
+      conn = new DatabaseSync3(dbPath2, { readOnly });
+      conn.exec(`PRAGMA busy_timeout = ${Math.floor(timeoutMs)}`);
+      conn.exec("PRAGMA query_only = ON");
+      conn.prepare("SELECT COUNT(*) FROM sqlite_master").get();
+      return conn;
+    } catch {
+      conn?.close();
+    }
+  }
+  return null;
+}
+function selectContracts(ids) {
+  if (ids === void 0) return { contracts: DATA_CONTRACTS };
+  if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string")) {
+    return { error: "ids must be an array of contract id strings" };
+  }
+  const known = DATA_CONTRACTS.map((c) => c.id);
+  const unknown2 = ids.filter((id) => !known.includes(id));
+  if (unknown2.length > 0) return { error: `unknown contract id(s): ${unknown2.join(", ")}`, known_ids: known };
+  const wanted = new Set(ids);
+  return { contracts: DATA_CONTRACTS.filter((c) => wanted.has(c.id)) };
+}
+function ok21(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function err19(message, extra = {}) {
+  return { content: [{ type: "text", text: JSON.stringify({ error: message, ...extra }) }], isError: true };
+}
+function trajectoryDoctorTools(db2) {
+  const definitions = [
+    {
+      name: "trajectory_doctor",
+      description: "Check the trajectory DB against its data contracts (read-only). Returns {healthy, violations, skipped}; record:true logs one trajectory_doctor_run audit row.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          record: { type: "boolean", description: "Write one trajectory_doctor_run audit row with the report. Default false." },
+          ids: { type: "array", items: { type: "string" }, description: "Run only these contract ids." }
+        },
+        required: ["agent"]
+      }
+    }
+  ];
+  const handler = async (args) => {
+    const record2 = args["record"] === true;
+    const selected = selectContracts(args["ids"]);
+    if ("error" in selected) {
+      const { error: error2, ...extra } = selected;
+      return err19(error2, extra);
+    }
+    const contracts = selected.contracts;
+    const timeoutMs = statementTimeoutMs();
+    const ro = openReadOnly(db2.dbPath, timeoutMs);
+    let report;
+    try {
+      report = runDataContracts(ro ? sqliteReader(ro) : trajectoryDbReader(db2), contracts, { statementTimeoutMs: timeoutMs });
+    } finally {
+      ro?.close();
+    }
+    if (!record2) return ok21(report);
+    const auditId = insertAudit(db2, {
+      issue_id: -1,
+      from_node: "bro",
+      event_type: "trajectory_doctor_run",
+      summary: report.healthy ? `trajectory_doctor: healthy (${report.violations.length} warn violation(s), ${report.skipped.length} skipped)` : `trajectory_doctor: unhealthy \u2014 ${report.violations.length} violation(s), ${report.skipped.length} skipped`,
+      content_json: JSON.stringify(report)
+    });
+    return ok21({ ...report, audit_id: auditId });
+  };
+  return {
+    definitions,
+    handlers: {
+      trajectory_doctor: requireRoles("trajectory_doctor", ["bro"], async (args) => {
+        try {
+          return await handler(args);
+        } catch (e) {
+          return err19(e.message);
+        }
+      })
+    }
+  };
+}
+
 // src/tools/index.ts
 var toolDefinitions = [];
 var toolHandlers = {};
@@ -35986,6 +36329,7 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
   const cheatcode = cheatcodeTools(db2);
   const worldModel = worldModelTools(db2, graphHolder2);
   const backfill = agentRunsBackfillTools(db2, dbPath2);
+  const doctor = trajectoryDoctorTools(db2);
   toolDefinitions = decorateWithAgent([
     ...discussions.definitions,
     ...issues.definitions,
@@ -36007,7 +36351,8 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
     ...repos.definitions,
     ...cheatcode.definitions,
     ...worldModel.definitions,
-    ...backfill.definitions
+    ...backfill.definitions,
+    ...doctor.definitions
   ]);
   toolHandlers = {
     ...discussions.handlers,
@@ -36030,7 +36375,8 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
     ...repos.handlers,
     ...cheatcode.handlers,
     ...worldModel.handlers,
-    ...backfill.handlers
+    ...backfill.handlers,
+    ...doctor.handlers
   };
 }
 
@@ -36120,10 +36466,10 @@ var shutdown = createShutdown({
   exit: (code) => process.exit(code),
   pid: process.pid
 });
-process.on("uncaughtException", (err19) => {
-  serverLogSync({ kind: "uncaughtException", error_message: err19.message, stack: err19.stack, pid: process.pid });
-  process.stderr.write(`uncaughtException: ${err19.message}
-${err19.stack ?? ""}
+process.on("uncaughtException", (err20) => {
+  serverLogSync({ kind: "uncaughtException", error_message: err20.message, stack: err20.stack, pid: process.pid });
+  process.stderr.write(`uncaughtException: ${err20.message}
+${err20.stack ?? ""}
 `);
   process.exit(1);
 });
@@ -36141,7 +36487,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (!handler) {
     throw new Error(`Unknown tool: ${name}`);
   }
-  const start = performance2.now();
+  const start = performance3.now();
   const agent = args?.agent ?? null;
   serverLog({ kind: "tool_entry", tool: name, agent });
   if (name === "task_create_batch") {
@@ -36167,19 +36513,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   let result;
   try {
     result = await handler(args ?? {});
-  } catch (err19) {
-    const duration_ms2 = Math.round(performance2.now() - start);
+  } catch (err20) {
+    const duration_ms2 = Math.round(performance3.now() - start);
     serverLog({
       kind: "tool_exit",
       tool: name,
       agent,
       is_error: true,
-      error_message: err19 instanceof Error ? err19.message : String(err19),
+      error_message: err20 instanceof Error ? err20.message : String(err20),
       duration_ms: duration_ms2
     });
-    throw err19;
+    throw err20;
   }
-  const duration_ms = Math.round(performance2.now() - start);
+  const duration_ms = Math.round(performance3.now() - start);
   serverLog({
     kind: "tool_exit",
     tool: name,

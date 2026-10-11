@@ -180,6 +180,7 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `tmb_agent_created` | `agent_register` registered a project-local consultant; `content_json` carries `name`, `mode`, `agent_id` |
 | `tmb_branch_autocreated` | `task_create_batch` created the task's feature branch ref |
 | `tmb_skill_created` | reserved — `tmb_skill-creator` landed a new skill; written by bro via `audit_append` |
+| `trajectory_doctor_run` | `trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`) |
 | `verification_gate_waived` | `swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason` |
 <!-- END GENERATED audit.event_type -->
 

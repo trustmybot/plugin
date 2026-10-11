@@ -19,6 +19,7 @@ import { repoTools } from './repos.js';
 import { cheatcodeTools } from './cheatcode.js';
 import { worldModelTools } from './world_model.js';
 import { agentRunsBackfillTools } from './agent-runs-backfill.js';
+import { trajectoryDoctorTools } from './trajectory-doctor.js';
 export let toolDefinitions = [];
 export let toolHandlers = {};
 function decorateWithAgent(tools) {
@@ -65,6 +66,7 @@ export function registerTools(server, db, dbPath = '', graphHolder = null) {
     const cheatcode = cheatcodeTools(db);
     const worldModel = worldModelTools(db, graphHolder);
     const backfill = agentRunsBackfillTools(db, dbPath);
+    const doctor = trajectoryDoctorTools(db);
     toolDefinitions = decorateWithAgent([
         ...discussions.definitions,
         ...issues.definitions,
@@ -87,6 +89,7 @@ export function registerTools(server, db, dbPath = '', graphHolder = null) {
         ...cheatcode.definitions,
         ...worldModel.definitions,
         ...backfill.definitions,
+        ...doctor.definitions,
     ]);
     toolHandlers = {
         ...discussions.handlers,
@@ -110,6 +113,7 @@ export function registerTools(server, db, dbPath = '', graphHolder = null) {
         ...cheatcode.handlers,
         ...worldModel.handlers,
         ...backfill.handlers,
+        ...doctor.handlers,
     };
 }
 //# sourceMappingURL=index.js.map

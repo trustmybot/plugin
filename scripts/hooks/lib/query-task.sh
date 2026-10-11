@@ -55,6 +55,34 @@ tmb_gate_read() {
   return 0
 }
 
+# tmb_db_read_budget <db> <budget_ms>
+# Read helper with a hard wall-clock budget: runs the SQL script on stdin
+# through sqlite3 -readonly (busy timeout = the budget) and kills it once the
+# budget is spent. Prints whatever the script printed. Returns 0 when sqlite3
+# succeeded, 124 on timeout, else non-zero (missing DB, read or SQL error —
+# output already printed is kept, so a caller can tell which statements ran).
+tmb_db_read_budget() {
+  local db="${1:-}" ms="${2:-}"
+  local kill_after_pl='
+    my $ms = shift @ARGV;
+    my $pid = fork();
+    exit 1 unless defined $pid;
+    if ($pid == 0) { exec @ARGV; exit 1; }
+    local $SIG{ALRM} = sub { kill 9, $pid; waitpid($pid, 0); exit 124 };
+    alarm($ms / 1000);
+    waitpid($pid, 0);
+    alarm 0;
+    exit(($? >> 8) & 0xff);'
+  if [ -z "$db" ] || [ ! -f "$db" ]; then
+    cat >/dev/null
+    return 1
+  fi
+  case "$ms" in ''|*[!0-9]*) ms=1500 ;; esac
+  [ "$ms" -gt 0 ] || ms=1
+  { printf '.timeout %s\n' "$ms"; cat; } | perl -MTime::HiRes=alarm -e "$kill_after_pl" "$ms" \
+    sqlite3 -readonly "$db" 2>/dev/null
+}
+
 # _tmb_db_probe <db>
 # 0 = current schema (tasks.prompt_bearing exists), 1 = stale legacy schema,
 # 2 = the read itself failed (busy, corrupt, unreadable). With no sqlite3 the

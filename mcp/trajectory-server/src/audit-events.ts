@@ -71,6 +71,7 @@ export const AUDIT_EVENT_TYPES = [
   { type: 'tmb_agent_created', description: '`agent_register` registered a project-local consultant; `content_json` carries `name`, `mode`, `agent_id`' },
   { type: 'tmb_branch_autocreated', description: '`task_create_batch` created the task\'s feature branch ref' },
   { type: 'tmb_skill_created', description: '`tmb_skill-creator` landed a new skill; written by bro via `audit_append`', reserved: true },
+  { type: 'trajectory_doctor_run', description: '`trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`)' },
   { type: 'verification_gate_waived', description: '`swe-verification-gate` honoured a SWE\'s `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason`' },
 ] as const satisfies readonly AuditEventDef[];
 

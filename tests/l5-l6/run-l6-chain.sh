@@ -451,9 +451,18 @@ done
 
 l6c_write_chain_summary "$RUN_DIR" "$RESULTS_JSONL"
 
+printf "\n=== trajectory_doctor (run DB) ===\n"
+DOCTOR_FAIL=0
+if l6c_trajectory_doctor "$PROJECT/.claude/tmb/trajectory.db" "$RUN_DIR/trajectory-doctor.json"; then
+  printf "  ✓ trajectory DB healthy\n"
+else
+  DOCTOR_FAIL=1
+fi
+
 printf "\n========================================\n"
 printf "L6 chain: %d passed, %d failed\n" "$CHAIN_PASS" "$CHAIN_FAIL"
+[ "$DOCTOR_FAIL" = "1" ] && printf "Trajectory DB: unhealthy — see %s/trajectory-doctor.json\n" "$RUN_DIR"
 printf "Logs:     %s\n" "$RUN_DIR"
 printf "Summary:  %s/chain-summary.md\n" "$RUN_DIR"
 
-[ "$CHAIN_FAIL" = "0" ] && exit 0 || exit 1
+[ "$CHAIN_FAIL" = "0" ] && [ "$DOCTOR_FAIL" = "0" ] && exit 0 || exit 1

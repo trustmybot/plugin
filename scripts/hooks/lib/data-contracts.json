@@ -1,0 +1,192 @@
+{
+  "generated_from": "mcp/trajectory-server/src/data-contracts.ts",
+  "schema_version": 33,
+  "contracts": [
+    {
+      "id": "fk_check_empty",
+      "severity": "error",
+      "description": "PRAGMA foreign_key_check reports no dangling foreign key",
+      "sql": "SELECT COUNT(*) FROM pragma_foreign_key_check",
+      "expect": {
+        "op": "=",
+        "value": 0
+      },
+      "sample_sql": "SELECT \"table\" AS child_table, rowid, parent FROM pragma_foreign_key_check LIMIT 5"
+    },
+    {
+      "id": "event_type_documented",
+      "severity": "error",
+      "description": "every audit.event_type is in the documented event set",
+      "sql": "SELECT COUNT(*) FROM audit WHERE event_type NOT IN ('agent_runs_capture_skipped','agent_runs_backfilled','agent_runs_claimed','branch_gate_waived','branch_id_proposed','bro_verification_fail','bro_verification_pass','cheatcode_activate','cheatcode_approved','cheatcode_healthcheck','cheatcode_install','cheatcode_installed','cheatcode_search','cheatcode_uninstalled','cheatcode_vet','config_changed','consultant_spawn_nudged','containment_denied','decision_gate_waived','deep_scan_completed','intent_gate_waived','issue_adopted','issue_auto_close_deferred','issue_auto_close_remote_skipped','issue_auto_closed_on_merge','issue_linked','mcp_unavailable_fallback_invoked','milestone_closed','milestone_reconcile_failed','milestone_seed_skipped','milestone_seeded','milestones_reconciled','planning_complete','readme_staleness_surfaced','registry_gate_waived','repo_rename_detected','repo_renamed','review_gate_bypassed','review_gate_waived','roundtable_slash_invoked','roundtable_summary','scan_discovered','scan_discovered_repair','scope_gate_waived','skill_creator_blocked','spec_shape_gate_waived','swe_brief_fetched','sync_skipped','task_escalated_by_issue_close','task_escalated_repair','task_recovered','task_reopened','task_retry_attempted','task_spec_amended','task_stale_swept','tmb_agent_created','tmb_branch_autocreated','tmb_skill_created','trajectory_doctor_run','verification_gate_waived')",
+      "expect": {
+        "op": "=",
+        "value": 0
+      },
+      "sample_sql": "SELECT event_type, COUNT(*) AS n FROM audit WHERE event_type NOT IN ('agent_runs_capture_skipped','agent_runs_backfilled','agent_runs_claimed','branch_gate_waived','branch_id_proposed','bro_verification_fail','bro_verification_pass','cheatcode_activate','cheatcode_approved','cheatcode_healthcheck','cheatcode_install','cheatcode_installed','cheatcode_search','cheatcode_uninstalled','cheatcode_vet','config_changed','consultant_spawn_nudged','containment_denied','decision_gate_waived','deep_scan_completed','intent_gate_waived','issue_adopted','issue_auto_close_deferred','issue_auto_close_remote_skipped','issue_auto_closed_on_merge','issue_linked','mcp_unavailable_fallback_invoked','milestone_closed','milestone_reconcile_failed','milestone_seed_skipped','milestone_seeded','milestones_reconciled','planning_complete','readme_staleness_surfaced','registry_gate_waived','repo_rename_detected','repo_renamed','review_gate_bypassed','review_gate_waived','roundtable_slash_invoked','roundtable_summary','scan_discovered','scan_discovered_repair','scope_gate_waived','skill_creator_blocked','spec_shape_gate_waived','swe_brief_fetched','sync_skipped','task_escalated_by_issue_close','task_escalated_repair','task_recovered','task_reopened','task_retry_attempted','task_spec_amended','task_stale_swept','tmb_agent_created','tmb_branch_autocreated','tmb_skill_created','trajectory_doctor_run','verification_gate_waived') GROUP BY event_type ORDER BY n DESC LIMIT 5"
+    },
+    {
+      "id": "swe_runs_metered",
+      "severity": "error",
+      "min_schema": 30,
+      "description": "swe/pr-reviewer agent_runs completed in the last 7 days and not marked unmeasured carry tokens",
+      "sql": "SELECT COUNT(*) FROM agent_runs\n             WHERE agent_type IN ('swe','pr-reviewer') AND completed_at IS NOT NULL AND strftime('%Y-%m-%dT%H:%M:%fZ', completed_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days')\n               AND (usage_source IS NULL OR usage_source <> 'unmeasured')\n               AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0\n               AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0",
+      "expect": {
+        "op": "=",
+        "value": 0
+      },
+      "sample_sql": "SELECT id, task_id, agent_type, usage_source, completed_at FROM agent_runs\n             WHERE agent_type IN ('swe','pr-reviewer') AND completed_at IS NOT NULL AND strftime('%Y-%m-%dT%H:%M:%fZ', completed_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days')\n               AND (usage_source IS NULL OR usage_source <> 'unmeasured')\n               AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0\n               AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0\n             ORDER BY id DESC LIMIT 5"
+    },
+    {
+      "id": "closed_tasks_reviewed",
+      "severity": "error",
+      "description": "tasks closed in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago have a passing pr-reviewer verdict or a review_gate_bypassed/review_gate_waived row (bro_atomic_close closes before pr-reviewer runs; tasks has no closed_at, so the close time is updated_at)",
+      "sql": "SELECT COUNT(*) FROM tasks t\n             WHERE t.status = 'closed' AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days')\n               AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')\n               AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass')\n               AND NOT EXISTS (SELECT 1 FROM audit a WHERE a.event_type IN ('review_gate_bypassed','review_gate_waived')\n                                AND CASE WHEN json_valid(a.content_json) THEN json_extract(a.content_json, '$.task_id') END = t.id)",
+      "expect": {
+        "op": "=",
+        "value": 0
+      },
+      "sample_sql": "SELECT t.id, t.issue_id, t.branch_id, t.updated_at FROM tasks t\n             WHERE t.status = 'closed' AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days')\n               AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')\n               AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass')\n               AND NOT EXISTS (SELECT 1 FROM audit a WHERE a.event_type IN ('review_gate_bypassed','review_gate_waived')\n                                AND CASE WHEN json_valid(a.content_json) THEN json_extract(a.content_json, '$.task_id') END = t.id)\n             ORDER BY t.id DESC LIMIT 5",
+      "params": [
+        {
+          "name": "grace_hours",
+          "env": "TMB_REVIEW_GRACE_HOURS",
+          "default": 24
+        }
+      ]
+    },
+    {
+      "id": "no_stale_running",
+      "severity": "warn",
+      "description": "no running task has gone TMB_STALE_RUNNING_HOURS (default 6) without an update and without an open swe agent_runs row",
+      "sql": "SELECT COUNT(*) FROM tasks t\n             WHERE t.status = 'running' AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :stale_hours || ' hours')\n               AND NOT EXISTS (SELECT 1 FROM agent_runs r WHERE r.task_id = t.id AND r.agent_type = 'swe' AND r.completed_at IS NULL)",
+      "expect": {
+        "op": "=",
+        "value": 0
+      },
+      "sample_sql": "SELECT t.id, t.issue_id, t.updated_at FROM tasks t\n             WHERE t.status = 'running' AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :stale_hours || ' hours')\n               AND NOT EXISTS (SELECT 1 FROM agent_runs r WHERE r.task_id = t.id AND r.agent_type = 'swe' AND r.completed_at IS NULL)\n             ORDER BY t.id LIMIT 5",
+      "params": [
+        {
+          "name": "stale_hours",
+          "env": "TMB_STALE_RUNNING_HOURS",
+          "default": 6
+        }
+      ]
+    },
+    {
+      "id": "scan_fresh",
+      "severity": "warn",
+      "description": "some repo was scanned in the last 7 days (1 when fresh; passes with no repo row)",
+      "sql": "SELECT CASE WHEN COUNT(*) = 0 THEN 1 WHEN MAX(strftime('%Y-%m-%dT%H:%M:%fZ', last_scanned_at)) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days') THEN 1 ELSE 0 END FROM repos",
+      "expect": {
+        "op": ">=",
+        "value": 1
+      },
+      "sample_sql": "SELECT name, last_scanned_at FROM repos ORDER BY last_scanned_at DESC LIMIT 5"
+    },
+    {
+      "id": "waiver_not_duplicated",
+      "severity": "warn",
+      "description": "no (task_id, commit_sha) carries more than one verification_gate_waived row",
+      "sql": "SELECT COUNT(*) FROM (SELECT 1 FROM audit a WHERE a.event_type = 'verification_gate_waived'\n             GROUP BY CASE WHEN json_valid(a.content_json) THEN json_extract(a.content_json, '$.task_id') END, COALESCE(CASE WHEN json_valid(a.content_json) THEN json_extract(a.content_json, '$.commit_sha') END, '') HAVING COUNT(*) > 1)",
+      "expect": {
+        "op": "=",
+        "value": 0
+      },
+      "sample_sql": "SELECT CASE WHEN json_valid(a.content_json) THEN json_extract(a.content_json, '$.task_id') END AS task_id, CASE WHEN json_valid(a.content_json) THEN json_extract(a.content_json, '$.commit_sha') END AS commit_sha, COUNT(*) AS n FROM audit a\n             WHERE a.event_type = 'verification_gate_waived'\n             GROUP BY CASE WHEN json_valid(a.content_json) THEN json_extract(a.content_json, '$.task_id') END, COALESCE(CASE WHEN json_valid(a.content_json) THEN json_extract(a.content_json, '$.commit_sha') END, '') HAVING COUNT(*) > 1 ORDER BY n DESC LIMIT 5"
+    },
+    {
+      "id": "populated_agent_runs_session_id",
+      "severity": "warn",
+      "description": "agent_runs.session_id NULL rate over rows created in the last 30 days stays at or under 0.2",
+      "sql": "SELECT COALESCE(AVG(CASE WHEN session_id IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days')",
+      "expect": {
+        "op": "<=",
+        "value": 0.2
+      },
+      "sample_sql": "SELECT id FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND session_id IS NULL ORDER BY id DESC LIMIT 5",
+      "min_schema": 30
+    },
+    {
+      "id": "populated_agent_runs_usage_source",
+      "severity": "warn",
+      "description": "agent_runs.usage_source NULL rate over completed rows created in the last 30 days stays at or under 0.05",
+      "sql": "SELECT COALESCE(AVG(CASE WHEN usage_source IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND completed_at IS NOT NULL",
+      "expect": {
+        "op": "<=",
+        "value": 0.05
+      },
+      "sample_sql": "SELECT id FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND completed_at IS NOT NULL AND usage_source IS NULL ORDER BY id DESC LIMIT 5",
+      "min_schema": 30
+    },
+    {
+      "id": "populated_agent_runs_model",
+      "severity": "warn",
+      "description": "agent_runs.model NULL rate over measured rows created in the last 30 days stays at or under 0.1",
+      "sql": "SELECT COALESCE(AVG(CASE WHEN model IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND usage_source IN ('transcript','subagent_stop','backfill')",
+      "expect": {
+        "op": "<=",
+        "value": 0.1
+      },
+      "sample_sql": "SELECT id FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND usage_source IN ('transcript','subagent_stop','backfill') AND model IS NULL ORDER BY id DESC LIMIT 5",
+      "min_schema": 33
+    },
+    {
+      "id": "populated_agent_runs_host",
+      "severity": "warn",
+      "description": "agent_runs.host NULL rate over rows created in the last 30 days stays at or under 0",
+      "sql": "SELECT COALESCE(AVG(CASE WHEN host IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days')",
+      "expect": {
+        "op": "<=",
+        "value": 0
+      },
+      "sample_sql": "SELECT id FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND host IS NULL ORDER BY id DESC LIMIT 5",
+      "min_schema": 33
+    },
+    {
+      "id": "populated_agent_runs_root_dir",
+      "severity": "warn",
+      "description": "agent_runs.root_dir NULL rate over rows created in the last 30 days stays at or under 0.05",
+      "sql": "SELECT COALESCE(AVG(CASE WHEN root_dir IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days')",
+      "expect": {
+        "op": "<=",
+        "value": 0.05
+      },
+      "sample_sql": "SELECT id FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND root_dir IS NULL ORDER BY id DESC LIMIT 5",
+      "min_schema": 33
+    },
+    {
+      "id": "populated_agent_runs_exit_reason",
+      "severity": "warn",
+      "description": "agent_runs.exit_reason NULL rate over completed rows created in the last 30 days stays at or under 0.05",
+      "sql": "SELECT COALESCE(AVG(CASE WHEN exit_reason IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND completed_at IS NOT NULL",
+      "expect": {
+        "op": "<=",
+        "value": 0.05
+      },
+      "sample_sql": "SELECT id FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND completed_at IS NOT NULL AND exit_reason IS NULL ORDER BY id DESC LIMIT 5",
+      "min_schema": 33
+    },
+    {
+      "id": "populated_tasks_prompt_bearing",
+      "severity": "warn",
+      "description": "tasks.prompt_bearing NULL rate over rows created in the last 30 days stays at or under 0",
+      "sql": "SELECT COALESCE(AVG(CASE WHEN prompt_bearing IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM tasks WHERE strftime('%Y-%m-%dT%H:%M:%fZ', created_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days')",
+      "expect": {
+        "op": "<=",
+        "value": 0
+      },
+      "sample_sql": "SELECT id FROM tasks WHERE strftime('%Y-%m-%dT%H:%M:%fZ', created_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND prompt_bearing IS NULL ORDER BY id DESC LIMIT 5"
+    },
+    {
+      "id": "issues_closed_no_live_tasks",
+      "severity": "error",
+      "description": "no closed issue still has a pending/running/needs_validation/completed task",
+      "sql": "SELECT COUNT(DISTINCT i.id) FROM issues i JOIN tasks t ON t.issue_id = i.id\n             WHERE i.status = 'closed' AND t.status IN ('pending','running','needs_validation','completed')",
+      "expect": {
+        "op": "=",
+        "value": 0
+      },
+      "sample_sql": "SELECT i.id AS issue_id, t.id AS task_id, t.status FROM issues i JOIN tasks t ON t.issue_id = i.id\n             WHERE i.status = 'closed' AND t.status IN ('pending','running','needs_validation','completed') ORDER BY i.id DESC, t.id LIMIT 5"
+    }
+  ]
+}
