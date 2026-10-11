@@ -4,8 +4,8 @@
 # <project>/.claude/<plugin>/; the only path outside the project is the
 # embedding model cache, declared once as TMB_MODEL_CACHE_DIR.
 #
-# Scans scripts/ (shell, *.sh) and mcp/trajectory-server/src/ (TypeScript,
-# tests excluded). A line is a violation when it writes and its target
+# Scans scripts/ and skills/*/scripts/ (shell, *.sh) and mcp/trajectory-server/src/
+# (TypeScript, tests excluded). A line is a violation when it writes and its target
 # references the home directory — directly ($HOME, ${HOME}, ~/, homedir(),
 # process.env.HOME) or through a variable assigned from one in the same file.
 #   shell writes: > / >> redirects (target), mkdir, tee, touch (any arg),
@@ -130,7 +130,7 @@ allowed() {
 }
 FILES=()
 while IFS= read -r f; do allowed "$f" || FILES+=("$f"); done < <(
-  find scripts -type f -name '*.sh' | sort
+  find scripts skills/*/scripts -type f -name '*.sh' 2>/dev/null | sort
   find mcp/trajectory-server/src -type f -name '*.ts' -not -path '*/test/*' | sort
 )
 VIOLATIONS=$(scan "${FILES[@]}")

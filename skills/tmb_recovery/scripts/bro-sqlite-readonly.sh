@@ -77,16 +77,17 @@ resolve_db_path() {
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
-LOG_DIR="$HOME/.claude/tmb/logs"
-LOG_FILE="$LOG_DIR/mcp-health.log"
-
+# Beside the trajectory DB (<project>/.claude/<plugin>/logs/), as the hooks
+# log; nothing is written when the DB is unresolved.
 append_log() {
   local tool="$1"
-  if [[ -d "$LOG_DIR" ]]; then
-    local ts
-    ts=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
-    printf '{"ts":"%s","kind":"fallback","tool":"%s","agent":"bro"}\n' "$ts" "$tool" >> "$LOG_FILE" 2>/dev/null || true
-  fi
+  [[ -n "$DB_PATH" && -f "$DB_PATH" ]] || return 0
+  local log_dir
+  log_dir="$(dirname "$DB_PATH")/logs"
+  mkdir -p "$log_dir" 2>/dev/null || return 0
+  local ts
+  ts=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
+  printf '{"ts":"%s","kind":"fallback","tool":"%s","agent":"bro"}\n' "$ts" "$tool" >> "$log_dir/mcp-health.log" 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
