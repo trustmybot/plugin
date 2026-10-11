@@ -35,16 +35,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _CIM_FROM="hook:close-issue-on-merge"
 _CIM_LIVE="'pending','running','needs_validation','completed'"
 
-# The review rule lifecycle.ts applies (HAS_PASS_SQL): a pass verdict recorded
-# at or after the newest bro_verification_pass naming the task's current
-# commit, else after the task's completed_at. `t` is the task alias.
+# Byte-identical copies of lifecycle.ts HAS_PASS_SQL and
+# GATE_SKIP_RECORDED_SQL (lifecycle.test.ts pins them equal): a pass verdict
+# counts only at or after the earliest bro_verification_pass naming the task
+# and its current commit; with no such row there is no pass. `t` is the task
+# alias.
 _CIM_HAS_PASS="EXISTS (SELECT 1 FROM validation_attempts va
-  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= COALESCE(
-    (SELECT MAX(a.created_at) FROM audit a
+  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
+    SELECT MIN(a.created_at) FROM audit a
       WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
         AND json_extract(a.content_json, '\$.task_id') = t.id
-        AND json_extract(a.content_json, '\$.commit_sha') = t.commit_sha),
-    t.completed_at, ''))"
+        AND json_extract(a.content_json, '\$.commit_sha') = t.commit_sha))"
 _CIM_SKIP_RECORDED="EXISTS (SELECT 1 FROM audit g
   WHERE g.event_type IN ('review_gate_bypassed', 'review_gate_waived') AND json_valid(g.content_json)
     AND json_extract(g.content_json, '\$.task_id') = t.id
@@ -164,7 +165,7 @@ _cim_sync_on() {
 }
 
 # _cim_tasks_sql <db> <branch> — SQL that closes the live tasks of the merged
-# branch (review bypass rows first, while completed_at still anchors the rule)
+# branch (one review bypass row per unreviewed task whose commit has none yet)
 # and closes their open runs as completed.
 _cim_tasks_sql() {
   local db="$1" SAFE_BRANCH SAFE_NOW rows row SAFE_TID SAFE_ISSUE sha sha_json audit

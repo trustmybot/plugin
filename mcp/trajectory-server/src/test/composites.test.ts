@@ -522,6 +522,8 @@ describe('bro_atomic_close', () => {
         agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234',
       });
 
+      seedReviewedCommit(db, issueId, taskId, 'abc1234');
+
       const r = await call(composites.handlers, 'bro_atomic_close', {
         agent: 'bro',
         task_id: taskId,
@@ -596,6 +598,8 @@ describe('bro_atomic_close', () => {
         agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234',
       });
 
+      seedReviewedCommit(db, issueId, taskId, 'abc1234');
+
       const r = await call(composites.handlers, 'bro_atomic_close', {
         agent: 'bro', task_id: taskId, commit_sha: 'abc1234', verification_summary: 'ok',
         close_issue_if_last_task: true, waive_scope_gate: true, _spawnFn: spawnFn,
@@ -613,6 +617,21 @@ describe('bro_atomic_close', () => {
     }
   });
 });
+
+// A prior bro verification of the commit followed by a pr-reviewer pass: the
+// review evidence close_issue_if_last_task requires before it closes an issue.
+function seedReviewedCommit(db: TrajectoryDB, issueId: string, taskId: string, sha: string): void {
+  const earlier = new Date(Date.now() - 60_000).toISOString();
+  const later = new Date(Date.now() - 30_000).toISOString();
+  db.run(
+    `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, 'bro', 'bro_verification_pass', 'ok', ?, ?)`,
+    [issueId, JSON.stringify({ task_id: Number(taskId), commit_sha: sha }), earlier],
+  );
+  db.run(
+    `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at) VALUES (?, 1, 'pr-reviewer', 'pass', 1, ?)`,
+    [taskId, later],
+  );
+}
 
 describe('scopeCheckCommit (#157)', () => {
   it('covers exact paths and dir-prefix entries; flags the rest', () => {

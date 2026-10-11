@@ -25299,18 +25299,14 @@ function openSweRun(db2, task, now, ctx, rootDir) {
 var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
 var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
 var WAIVE_REVIEW_REASON_MIN = 10;
-var REVIEW_ANCHOR_SQL = `COALESCE(
-  (SELECT MAX(a.created_at) FROM audit a
-    WHERE a.event_type = 'bro_verification_pass'
-      AND json_valid(a.content_json)
-      AND json_extract(a.content_json, '$.task_id') = t.id
-      AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha),
-  t.completed_at, '')`;
 var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
-  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= ${REVIEW_ANCHOR_SQL})`;
+  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
+    SELECT MIN(a.created_at) FROM audit a
+      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
+        AND json_extract(a.content_json, '$.task_id') = t.id
+        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
 var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
-  WHERE g.event_type IN ('review_gate_bypassed', 'review_gate_waived')
-    AND json_valid(g.content_json)
+  WHERE g.event_type IN ('review_gate_bypassed', 'review_gate_waived') AND json_valid(g.content_json)
     AND json_extract(g.content_json, '$.task_id') = t.id
     AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
 function liveTasksOfIssue(db2, issueId) {
@@ -25320,9 +25316,13 @@ function liveTasksOfIssue(db2, issueId) {
     [issueId]
   );
 }
-function taskHasPassingReview(db2, taskId) {
-  const row = db2.get(`SELECT ${HAS_PASS_SQL} AS ok FROM tasks t WHERE t.id = ?`, [taskId]);
-  return row?.ok === 1;
+function reviewStateAt(db2, taskId, commitSha) {
+  const row = db2.get(
+    `SELECT ${HAS_PASS_SQL} AS pass, ${GATE_SKIP_RECORDED_SQL} AS skip
+       FROM (SELECT id, ? AS commit_sha FROM tasks WHERE id = ?) t`,
+    [commitSha, taskId]
+  );
+  return { pass: row?.pass === 1, skipRecorded: row?.skip === 1 };
 }
 function closedTasksWithoutReview(db2, issueId) {
   return db2.all(
@@ -25334,7 +25334,8 @@ function closedTasksWithoutReview(db2, issueId) {
   );
 }
 function recordReviewBypassIfUnreviewed(db2, task, closedBy, fromNode, now) {
-  if (taskHasPassingReview(db2, task.id)) return false;
+  const state = reviewStateAt(db2, task.id, task.commit_sha);
+  if (state.pass || state.skipRecorded) return false;
   insertAudit(db2, {
     issue_id: task.issue_id,
     branch_id: task.branch_id,
@@ -30263,6 +30264,15 @@ function insertIntentAndNote(db2, issueId, intentVerbatim, noteLine, now) {
   return written;
 }
 function closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssueIfLast, bypassClosedBy = null) {
+  insertAudit(db2, {
+    issue_id: task.issue_id,
+    branch_id: task.branch_id,
+    from_node: "bro",
+    event_type: "bro_verification_pass",
+    summary: verificationSummary.slice(0, 200),
+    content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha }),
+    created_at: now
+  });
   let reviewGateBypassed = false;
   if (bypassClosedBy !== null) {
     reviewGateBypassed = recordReviewBypassIfUnreviewed(
@@ -30273,15 +30283,6 @@ function closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssu
       now
     );
   }
-  insertAudit(db2, {
-    issue_id: task.issue_id,
-    branch_id: task.branch_id,
-    from_node: "bro",
-    event_type: "bro_verification_pass",
-    summary: verificationSummary.slice(0, 200),
-    content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha }),
-    created_at: now
-  });
   db2.run(
     `UPDATE tasks
         SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?
@@ -30290,24 +30291,27 @@ function closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssu
   );
   closeOpenRunsForTask(db2, task.id, now, "completed");
   let issueClosed = false;
-  let openTasks = [];
+  let leftOpen = null;
   if (closeIssueIfLast) {
     const live = liveTasksOfIssue(db2, task.issue_id);
-    if (live.length === 0) {
+    const unreviewed = live.length === 0 ? closedTasksWithoutReview(db2, task.issue_id) : [];
+    if (live.length > 0) {
+      leftOpen = { reason: "issue_has_open_tasks", tasks: live.map((t) => ({ task_id: t.id, status: t.status })) };
+    } else if (unreviewed.length > 0) {
+      leftOpen = {
+        reason: "tasks_without_review",
+        tasks: unreviewed.map((t) => ({ task_id: t.id, commit_sha: t.commit_sha })),
+        review_pending: true
+      };
+    } else {
       db2.run(
         `UPDATE issues SET status='closed', closed_at=COALESCE(closed_at,?), updated_at=? WHERE id=? AND status != 'closed'`,
         [now, now, task.issue_id]
       );
       issueClosed = true;
-    } else {
-      openTasks = live.map((t) => ({ task_id: t.id, status: t.status }));
     }
   }
-  return { issue_closed: issueClosed, issue_open_tasks: openTasks, review_gate_bypassed: reviewGateBypassed };
-}
-function issueLeftOpen(requested, openTasks) {
-  if (!requested || openTasks.length === 0) return {};
-  return { issue_left_open: { reason: "issue_has_open_tasks", tasks: openTasks } };
+  return { issue_closed: issueClosed, issue_left_open: leftOpen, review_gate_bypassed: reviewGateBypassed };
 }
 function outsideProjectResult(refusal2) {
   return { content: [{ type: "text", text: JSON.stringify(refusal2) }], isError: true };
@@ -30449,7 +30453,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "bro_atomic_close",
-      description: "Bro task-close composite \u2014 writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. Runs before pr-reviewer: the payload carries review_pending=true (spawn pr-reviewer next). close_issue_if_last_task never closes the issue over a live sibling task; it leaves the issue open and returns issue_left_open {reason, tasks}. PostToolUse hooks fire on bro_atomic_close (not task_update_status).",
+      description: "Bro task-close composite \u2014 writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. Runs before pr-reviewer: the payload carries review_pending=true (spawn pr-reviewer next). close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. PostToolUse hooks fire on bro_atomic_close (not task_update_status).",
       inputSchema: {
         type: "object",
         properties: {
@@ -30462,7 +30466,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           },
           close_issue_if_last_task: {
             type: "boolean",
-            description: "When true and no other task of the issue is pending/running/needs_validation/completed, also close the issue in the same transaction; otherwise the issue stays open and the payload names the live tasks (issue_left_open)."
+            description: "When true and no task of the issue is live (pending/running/needs_validation/completed) or closed without a passing review, also close the issue in the same transaction; otherwise the issue stays open and issue_left_open says why. Before pr-reviewer has passed this task the issue stays open (tasks_without_review, review_pending)."
           },
           waive_scope_gate: {
             type: "boolean",
@@ -30490,7 +30494,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           },
           close_issue_if_last_task: {
             type: "boolean",
-            description: "When true and this is the issue's last open task, also close the issue in the same transaction."
+            description: "When true, also close the issue in the same transaction under the issue_close rules (no live task, no closed task without a passing review or recorded bypass); otherwise issue_left_open says why."
           }
         },
         required: ["agent"]
@@ -31342,7 +31346,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             task_id: task.id,
             issue_closed: closed.issue_closed,
             review_pending: true,
-            ...issueLeftOpen(closeIssueIfLast, closed.issue_open_tasks)
+            ...closed.issue_left_open ? { issue_left_open: closed.issue_left_open } : {}
           };
         });
         if (result.issue_closed) {
@@ -31421,7 +31425,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           commit_sha: commitSha,
           issue_closed: result.issue_closed,
           review_gate_bypassed: result.review_gate_bypassed,
-          ...issueLeftOpen(closeIssueIfLast, result.issue_open_tasks),
+          ...result.issue_left_open ? { issue_left_open: result.issue_left_open } : {},
           ...sweepResult
         });
       })

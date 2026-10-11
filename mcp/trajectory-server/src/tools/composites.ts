@@ -18,7 +18,7 @@ import {
   type RunContext,
 } from './agent-runs.js';
 import { outsideProject } from './containment.js';
-import { liveTasksOfIssue, recordReviewBypassIfUnreviewed, sweepStaleTasks } from './lifecycle.js';
+import { closedTasksWithoutReview, liveTasksOfIssue, recordReviewBypassIfUnreviewed, sweepStaleTasks } from './lifecycle.js';
 import {
   syncIssueCloseRemotes,
   resolveDefaultMilestone,
@@ -257,15 +257,22 @@ function insertIntentAndNote(
   return written;
 }
 
+// Why close_issue_if_last_task left the issue open: live tasks hold it, or
+// closed tasks (this one included) carry no passing review for their current
+// commit and no recorded bypass/waiver — the manual issue_close rule.
+type IssueLeftOpen =
+  | { reason: 'issue_has_open_tasks'; tasks: Array<{ task_id: number; status: string }> }
+  | { reason: 'tasks_without_review'; tasks: Array<{ task_id: number; commit_sha: string | null }>; review_pending: true };
+
 // Shared close path for bro_atomic_close + task_recover: in the caller's
 // transaction, advance a task to closed (writing bro_verification_pass +
-// finalizing the bro agent_run row) and optionally close the parent issue when
-// no other task of it is live. `bypassClosedBy` names a closer that is not
-// bro_atomic_close: when the task has no passing review for its current
-// commit, a review_gate_bypassed row records it before the close. Returns
-// whether the issue was closed (so the caller can mirror the close to the
-// remote after the transaction commits) and, when it was left open, the live
-// tasks that held it.
+// finalizing the bro agent_run row) and optionally close the parent issue
+// under the issue_close rules. `bypassClosedBy` names a closer that is not
+// bro_atomic_close: once this close's bro_verification_pass row is written,
+// a task with no passing review for the commit gets one review_gate_bypassed
+// row. Returns whether the issue was closed (so the caller can mirror the
+// close to the remote after the transaction commits) and, when it was left
+// open, why.
 function closeTaskInTx(
   db: TrajectoryDB,
   task: { id: number; issue_id: number; branch_id: string; status: string; commit_sha: string | null },
@@ -274,7 +281,19 @@ function closeTaskInTx(
   now: string,
   closeIssueIfLast: boolean,
   bypassClosedBy: string | null = null,
-): { issue_closed: boolean; issue_open_tasks: Array<{ task_id: number; status: string }>; review_gate_bypassed: boolean } {
+): { issue_closed: boolean; issue_left_open: IssueLeftOpen | null; review_gate_bypassed: boolean } {
+  // 1. bro_verification_pass audit row — the review anchor of this commit.
+  insertAudit(db, {
+    issue_id: task.issue_id,
+    branch_id: task.branch_id,
+    from_node: 'bro',
+    event_type: 'bro_verification_pass',
+    summary: verificationSummary.slice(0, 200),
+    content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha }),
+    created_at: now,
+  });
+
+  // 2. review bypass for a non-atomic closer, judged against that anchor.
   let reviewGateBypassed = false;
   if (bypassClosedBy !== null) {
     reviewGateBypassed = recordReviewBypassIfUnreviewed(
@@ -286,18 +305,7 @@ function closeTaskInTx(
     );
   }
 
-  // 1. bro_verification_pass audit row.
-  insertAudit(db, {
-    issue_id: task.issue_id,
-    branch_id: task.branch_id,
-    from_node: 'bro',
-    event_type: 'bro_verification_pass',
-    summary: verificationSummary.slice(0, 200),
-    content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha }),
-    created_at: now,
-  });
-
-  // 2. flip task to closed.
+  // 3. flip task to closed.
   db.run(
     `UPDATE tasks
         SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?
@@ -305,36 +313,34 @@ function closeTaskInTx(
     [commitSha, now, now, task.id],
   );
 
-  // 3. close every open agent_runs row of the task (bro and swe).
+  // 4. close every open agent_runs row of the task (bro and swe).
   closeOpenRunsForTask(db, task.id, now, 'completed');
 
-  // 4. optional issue close — the issue_close rule: never over a live task.
+  // 5. optional issue close — the issue_close rules: never over a live task,
+  // never over a closed task without a review.
   let issueClosed = false;
-  let openTasks: Array<{ task_id: number; status: string }> = [];
+  let leftOpen: IssueLeftOpen | null = null;
   if (closeIssueIfLast) {
     const live = liveTasksOfIssue(db, task.issue_id);
-    if (live.length === 0) {
+    const unreviewed = live.length === 0 ? closedTasksWithoutReview(db, task.issue_id) : [];
+    if (live.length > 0) {
+      leftOpen = { reason: 'issue_has_open_tasks', tasks: live.map((t) => ({ task_id: t.id, status: t.status })) };
+    } else if (unreviewed.length > 0) {
+      leftOpen = {
+        reason: 'tasks_without_review',
+        tasks: unreviewed.map((t) => ({ task_id: t.id, commit_sha: t.commit_sha })),
+        review_pending: true,
+      };
+    } else {
       db.run(
         `UPDATE issues SET status='closed', closed_at=COALESCE(closed_at,?), updated_at=? WHERE id=? AND status != 'closed'`,
         [now, now, task.issue_id],
       );
       issueClosed = true;
-    } else {
-      openTasks = live.map((t) => ({ task_id: t.id, status: t.status }));
     }
   }
 
-  return { issue_closed: issueClosed, issue_open_tasks: openTasks, review_gate_bypassed: reviewGateBypassed };
-}
-
-// The payload field that tells the caller why close_issue_if_last_task left
-// the issue open.
-function issueLeftOpen(
-  requested: boolean,
-  openTasks: Array<{ task_id: number; status: string }>,
-): Record<string, unknown> {
-  if (!requested || openTasks.length === 0) return {};
-  return { issue_left_open: { reason: 'issue_has_open_tasks', tasks: openTasks } };
+  return { issue_closed: issueClosed, issue_left_open: leftOpen, review_gate_bypassed: reviewGateBypassed };
 }
 
 function outsideProjectResult(refusal: NonNullable<ReturnType<typeof outsideProject>>): CallToolResult {
@@ -501,7 +507,7 @@ export function compositeTools(
       description:
         'Bro task-close composite — writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. ' +
         'Runs before pr-reviewer: the payload carries review_pending=true (spawn pr-reviewer next). ' +
-        'close_issue_if_last_task never closes the issue over a live sibling task; it leaves the issue open and returns issue_left_open {reason, tasks}. ' +
+        'close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. ' +
         'PostToolUse hooks fire on bro_atomic_close (not task_update_status).',
       inputSchema: {
         type: 'object',
@@ -516,8 +522,9 @@ export function compositeTools(
           close_issue_if_last_task: {
             type: 'boolean',
             description:
-              'When true and no other task of the issue is pending/running/needs_validation/completed, also close the issue in the ' +
-              'same transaction; otherwise the issue stays open and the payload names the live tasks (issue_left_open).',
+              'When true and no task of the issue is live (pending/running/needs_validation/completed) or closed without a passing review, ' +
+              'also close the issue in the same transaction; otherwise the issue stays open and issue_left_open says why. ' +
+              'Before pr-reviewer has passed this task the issue stays open (tasks_without_review, review_pending).',
           },
           waive_scope_gate: {
             type: 'boolean',
@@ -553,8 +560,8 @@ export function compositeTools(
           close_issue_if_last_task: {
             type: 'boolean',
             description:
-              'When true and this is the issue\'s last open task, also close the issue in the ' +
-              'same transaction.',
+              'When true, also close the issue in the same transaction under the issue_close rules (no live task, ' +
+              'no closed task without a passing review or recorded bypass); otherwise issue_left_open says why.',
           },
         },
         required: ['agent'],
@@ -1665,7 +1672,7 @@ export function compositeTools(
             task_id: task.id,
             issue_closed: closed.issue_closed,
             review_pending: true,
-            ...issueLeftOpen(closeIssueIfLast, closed.issue_open_tasks),
+            ...(closed.issue_left_open ? { issue_left_open: closed.issue_left_open } : {}),
           };
         });
 
@@ -1779,7 +1786,7 @@ export function compositeTools(
           commit_sha: commitSha,
           issue_closed: result.issue_closed,
           review_gate_bypassed: result.review_gate_bypassed,
-          ...issueLeftOpen(closeIssueIfLast, result.issue_open_tasks),
+          ...(result.issue_left_open ? { issue_left_open: result.issue_left_open } : {}),
           ...sweepResult,
         });
       }),

@@ -90,9 +90,19 @@ add_run() { # add_run <task>
   sqlite3 "$DB" "INSERT INTO agent_runs (task_id, agent_type, started_at) VALUES ($1, 'swe', '$NOW_MINUS_2H');"
 }
 
-add_pass() { # add_pass <task>
+add_verification() { # add_verification <task> <commit> <at>
+  sqlite3 "$DB" "INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
+    VALUES (0, 'bro', 'bro_verification_pass', 'ok', '{\"task_id\":$1,\"commit_sha\":\"$2\"}', '$3');"
+}
+
+add_verdict() { # add_verdict <task> <at>
   sqlite3 "$DB" "INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, mcp_available, created_at)
-    VALUES ($1, 1, 'pr-reviewer', 'pass', 1, '$NOW_MINUS_1H');"
+    VALUES ($1, (SELECT COUNT(*) + 1 FROM validation_attempts WHERE task_id = $1), 'pr-reviewer', 'pass', 1, '$2');"
+}
+
+add_pass() { # add_pass <task> [commit] — bro verifies the commit, then pr-reviewer passes it
+  add_verification "$1" "${2:-abc1234}" "$NOW_MINUS_2H"
+  add_verdict "$1" "$NOW_MINUS_1H"
 }
 
 # input <command> [response] — synthesize a PostToolUse(Bash) payload.
@@ -315,6 +325,31 @@ assert_eq '{"task_id":1,"commit_sha":"abc1234","closed_by":"close-issue-on-merge
 assert_eq "hook:close-issue-on-merge" "$(q "SELECT from_node FROM audit WHERE event_type='review_gate_bypassed';")" "written by the hook"
 run_hook "$(input 'gh pr merge feat/x --squash')" >/dev/null
 assert_eq "1" "$(audit_count review_gate_bypassed 5)" "a re-run records no second bypass"
+_pass
+
+# ---------------------------------------------------------------------------
+test_case "(n) a pass with no bro_verification_pass for the commit is no pass"
+seed_db
+add_issue 5 122
+add_task 1 5 feat/x completed
+add_verdict 1 "$NOW_MINUS_1H"
+EXTRA_ENV=(CLOSING_REFS=122 PR_BODY="Closes GH #122" HEAD_REF=feat/x)
+run_hook "$(input 'gh pr merge feat/x --squash')" >/dev/null
+assert_eq "1" "$(audit_count review_gate_bypassed 5)" "completed_at anchors nothing"
+_pass
+
+# ---------------------------------------------------------------------------
+test_case "(o) a pass of an older commit never covers the merged commit"
+seed_db
+add_issue 5 122
+add_task 1 5 feat/x completed def5678
+add_verification 1 abc1234 "2026-01-01T09:00:00.000Z"
+add_verdict 1 "2026-01-01T09:30:00.000Z"
+add_verification 1 def5678 "$NOW_MINUS_2H"
+EXTRA_ENV=(CLOSING_REFS=122 PR_BODY="Closes GH #122" HEAD_REF=feat/x)
+run_hook "$(input 'gh pr merge feat/x --squash')" >/dev/null
+assert_eq '{"task_id":1,"commit_sha":"def5678","closed_by":"close-issue-on-merge"}' \
+  "$(q "SELECT content_json FROM audit WHERE event_type='review_gate_bypassed';")" "bypass names the merged commit"
 _pass
 
 summarize

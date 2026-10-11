@@ -26355,18 +26355,14 @@ function closeOpenRunsForTask(db, taskId, now, exitReason) {
 var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
 var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
 var WAIVE_REVIEW_REASON_MIN = 10;
-var REVIEW_ANCHOR_SQL = `COALESCE(
-  (SELECT MAX(a.created_at) FROM audit a
-    WHERE a.event_type = 'bro_verification_pass'
-      AND json_valid(a.content_json)
-      AND json_extract(a.content_json, '$.task_id') = t.id
-      AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha),
-  t.completed_at, '')`;
 var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
-  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= ${REVIEW_ANCHOR_SQL})`;
+  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
+    SELECT MIN(a.created_at) FROM audit a
+      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
+        AND json_extract(a.content_json, '$.task_id') = t.id
+        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
 var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
-  WHERE g.event_type IN ('review_gate_bypassed', 'review_gate_waived')
-    AND json_valid(g.content_json)
+  WHERE g.event_type IN ('review_gate_bypassed', 'review_gate_waived') AND json_valid(g.content_json)
     AND json_extract(g.content_json, '$.task_id') = t.id
     AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
 function liveTasksOfIssue(db, issueId) {

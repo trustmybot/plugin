@@ -5,25 +5,24 @@ export const LIVE_TASK_STATUSES = ['pending', 'running', 'needs_validation', 'co
 const LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(', ');
 export const WAIVE_REVIEW_REASON_MIN = 10;
 // A task has a passing review when a validation_attempts row with
-// verdict='pass' was recorded at or after the moment its current commit was
-// verified: the newest bro_verification_pass audit row naming this task and
-// its current commit_sha, else the task's completed_at (the SWE's completion
-// report that set the sha). With neither anchor, any pass counts.
-// validation_attempts carries no commit_sha, so time is the only link.
-export const REVIEW_ANCHOR_SQL = `COALESCE(
-  (SELECT MAX(a.created_at) FROM audit a
-    WHERE a.event_type = 'bro_verification_pass'
-      AND json_valid(a.content_json)
-      AND json_extract(a.content_json, '$.task_id') = t.id
-      AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha),
-  t.completed_at, '')`;
+// verdict='pass' was recorded at or after the review anchor of its current
+// commit: the earliest bro_verification_pass audit row naming this task and
+// this commit_sha (bro's first verification of that exact commit). No such
+// row = no anchor = no pass; completed_at is not an anchor because no audit
+// row records which sha a completion carried. validation_attempts carries no
+// commit_sha, so time is the only link. close-issue-on-merge.sh holds a
+// byte-identical copy (_CIM_HAS_PASS); a unit test pins the two equal.
 export const HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
-  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= ${REVIEW_ANCHOR_SQL})`;
+  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
+    SELECT MIN(a.created_at) FROM audit a
+      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
+        AND json_extract(a.content_json, '$.task_id') = t.id
+        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
 // A recorded bypass or waiver for the task's current commit means the
-// trajectory already says the review gate was skipped.
-const GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
-  WHERE g.event_type IN ('review_gate_bypassed', 'review_gate_waived')
-    AND json_valid(g.content_json)
+// trajectory already says the review gate was skipped. close-issue-on-merge.sh
+// holds a byte-identical copy (_CIM_SKIP_RECORDED).
+export const GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
+  WHERE g.event_type IN ('review_gate_bypassed', 'review_gate_waived') AND json_valid(g.content_json)
     AND json_extract(g.content_json, '$.task_id') = t.id
     AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
 export function liveTasksOfIssue(db, issueId) {
@@ -34,6 +33,13 @@ export function taskHasPassingReview(db, taskId) {
     const row = db.get(`SELECT ${HAS_PASS_SQL} AS ok FROM tasks t WHERE t.id = ?`, [taskId]);
     return row?.ok === 1;
 }
+// Judges a task as if its commit_sha were `commitSha` (the sha a close is
+// about to write): a pass, or a bypass/waiver already recorded for it.
+function reviewStateAt(db, taskId, commitSha) {
+    const row = db.get(`SELECT ${HAS_PASS_SQL} AS pass, ${GATE_SKIP_RECORDED_SQL} AS skip
+       FROM (SELECT id, ? AS commit_sha FROM tasks WHERE id = ?) t`, [commitSha, taskId]);
+    return { pass: row?.pass === 1, skipRecorded: row?.skip === 1 };
+}
 // Closed tasks of an issue with neither a passing review nor a recorded
 // bypass/waiver for their current commit.
 export function closedTasksWithoutReview(db, issueId) {
@@ -42,12 +48,15 @@ export function closedTasksWithoutReview(db, issueId) {
         AND NOT ${HAS_PASS_SQL} AND NOT ${GATE_SKIP_RECORDED_SQL}
       ORDER BY t.id`, [issueId]);
 }
-// Call inside the transaction that moves a task to closed, before any write
-// of that transaction: when the task has no passing review for its current
-// commit, one review_gate_bypassed audit row records who closed it anyway.
+// Call inside the transaction that moves a task to closed, with
+// task.commit_sha set to the sha the close writes: when the task has no
+// passing review for that commit and no bypass/waiver is recorded for it yet,
+// one review_gate_bypassed audit row records who closed it anyway, so a
+// (task, commit) carries at most one such row across any status hops.
 // Returns whether the row was written.
 export function recordReviewBypassIfUnreviewed(db, task, closedBy, fromNode, now) {
-    if (taskHasPassingReview(db, task.id))
+    const state = reviewStateAt(db, task.id, task.commit_sha);
+    if (state.pass || state.skipRecorded)
         return false;
     insertAudit(db, {
         issue_id: task.issue_id,
