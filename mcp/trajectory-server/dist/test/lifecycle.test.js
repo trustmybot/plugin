@@ -248,6 +248,12 @@ describe('issue_close: review evidence for closed tasks', () => {
         assert.equal(shellVar('_CIM_HAS_PASS'), HAS_PASS_SQL);
         assert.equal(shellVar('_CIM_SKIP_RECORDED'), GATE_SKIP_RECORDED_SQL);
     });
+    it('cleanup-worktree-on-task-close.sh carries a byte-identical copy of the pass rule', () => {
+        const hook = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', 'scripts', 'hooks', 'cleanup-worktree-on-task-close.sh'), 'utf8');
+        const m = /^_CWC_HAS_PASS="([^"]*)"$/m.exec(hook);
+        assert.ok(m, '_CWC_HAS_PASS not found in cleanup-worktree-on-task-close.sh');
+        assert.equal(m[1].replace(/\\\$/g, '$'), HAS_PASS_SQL);
+    });
     it('waive_review + reason closes and writes review_gate_waived per task', async () => {
         const db = tempDB();
         const issue = seedIssue(db);

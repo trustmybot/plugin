@@ -255,3 +255,20 @@ test('pr_monitor_runs_list — bro allowed, others forbidden', async (t) => {
   assert.equal(ok.ok, true, `bro should be allowed; got ${JSON.stringify(ok)}`);
   assert.equal(ok.data.count, 0, 'fresh DB has no cursors yet');
 });
+
+// task_reopen / task_update_spec amend a task's fences and lifecycle: bro only.
+test('task_reopen + task_update_spec — bro only; swe/pr-reviewer/architect forbidden', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  for (const tool of ['task_reopen', 'task_update_spec']) {
+    for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
+      const res = await call(client, tool, { agent: wrongRole, task_id: 1, reason: 'x', files: ['a'] });
+      assert.equal(res.ok, false, `${wrongRole} must be forbidden from ${tool}`);
+      assert.equal(res.error?.error, 'forbidden');
+    }
+    const bro = await call(client, tool, { agent: 'bro', task_id: 999999, reason: 'x', files: ['a'] });
+    assert.equal(bro.ok, false, `${tool} on a missing task is an error`);
+    assert.notEqual(bro.error?.error, 'forbidden', `bro passes the role gate on ${tool}`);
+  }
+});

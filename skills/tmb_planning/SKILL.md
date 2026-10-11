@@ -84,7 +84,7 @@ Then spawn SWE with the `task_id` it returned. For multiple tasks, provision eac
 The Agent PreToolUse gates enforce a spawn contract:
 
 - The spawn prompt MUST contain the literal `task_id=<N>` from the `task_provision` response — a bare `task_id 5` without `=` fails the gate.
-- The task must be `pending`/`open` with a non-empty `spec_body` — `task_provision` guarantees this.
+- The task must be `pending` (or `running` with no live SWE run) with a non-empty `spec_body` — `task_provision` guarantees this.
 - The branch and worktree are created by `task_provision` — don't pre-create the branch or `EnterWorktree` manually.
 
 ## 6. Verify on SWE return + atomic close
@@ -96,6 +96,15 @@ After SWE returns `status=completed`, pull the work (`task_get` plus a `git diff
 3. Each `## Success Criteria` bullet is visibly met by the diff.
 4. `world_model_get` on the changed directory confirms the change landed where expected.
 
-All four pass → close with the `bro_atomic_close` composite (`close_issue_if_last_task=true` when it's the last task); the post-close hook re-scans so the world model refreshes. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself right after `bro_atomic_close` so the world model reflects the new structure within this session; the background post-close rescan stays the safety net for ordinary changes. Then spawn pr-reviewer for the push gate — the spawn-shape hook enforces the anchors. On a reviewer FAIL: surface it, file the fix as a follow-up issue, and hold the push.
+All four pass → close with the `bro_atomic_close` composite (`close_issue_if_last_task=true` when it's the last task); the post-close hook re-scans so the world model refreshes. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself right after `bro_atomic_close` so the world model reflects the new structure within this session; the background post-close rescan stays the safety net for ordinary changes. Then spawn pr-reviewer for the push gate — the spawn-shape hook enforces the anchors. On a reviewer FAIL: surface it, hold the push, and rework the task (below).
 
 If any of the four checks fails, record it with `bro_verification_fail_record` (name which check and why), leave the task open, and either retry via `task_retry` or escalate.
+
+### Rework and spec changes
+
+- **Branch already exists.** `task_provision` reuses a `branch_id` only when it sits at or behind the base; a diverged one comes back as `branch_exists_diverged` with its distance and any open PR. Pick a fresh name with `branch_id_propose`, or pass `reuse_existing: true` when that branch holds the work you mean to continue.
+- **Same task, more work** (a review FAIL, a failed or escalated run): `task_reopen(task_id, reason, files_add?, verification_add?, session_id?)` moves it back to `running`, widens its fences, and recreates its worktree when missing; then spawn SWE on it again.
+- **Wrong approach:** `task_retry` starts a fresh task on a new branch with a corrected spec.
+- **Spec fix on a live task** (a typo, a missing path or command): `task_update_spec(task_id, reason, files?, verification?, spec_body?)`.
+
+The worktree stays in place through `bro_atomic_close` and is removed once pr-reviewer passes the task, so rework continues where SWE left off.

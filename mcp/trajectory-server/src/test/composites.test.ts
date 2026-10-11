@@ -1961,8 +1961,11 @@ describe('task_provision (#157)', () => {
       const first = parse(await call(composites.handlers, 'task_provision', { ...baseArgs, issue_id: 1 }));
       assert.equal(first['git_setup'], 'created');
 
+      assert.equal(first['worktree_reused'], false);
+
       const second = parse(await call(composites.handlers, 'task_provision', { ...baseArgs, issue_id: 2 }));
       assert.equal(second['git_setup'], 'reused', 'existing branch + worktree reused, not error');
+      assert.equal(second['worktree_reused'], true);
       assert.equal(second['worktree_path'], first['worktree_path']);
       assert.notEqual(second['task_id'], first['task_id']);
       db.close();
@@ -2220,6 +2223,193 @@ describe('task_provision (#157)', () => {
     }
   });
 
+  describe('existing branch policy', () => {
+    const provisionArgs = (branch_id: string, extra: Record<string, unknown> = {}) => ({
+      agent: 'bro', issue_id: 1, branch_id, decision_body: 'approach: existing-branch policy; trade-off none.',
+      task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+      ...extra,
+    });
+    // Advance origin/main by one commit without touching the local checkout.
+    function advanceOrigin(repoRoot: string, git: (cwd: string, ...a: string[]) => string): string {
+      const tree = git(repoRoot, 'rev-parse', 'HEAD^{tree}');
+      const sha = git(repoRoot, 'commit-tree', tree, '-p', git(repoRoot, 'rev-parse', 'refs/remotes/origin/main'), '-m', 'origin advance');
+      git(repoRoot, 'update-ref', 'refs/remotes/origin/main', sha);
+      return sha;
+    }
+    // A local branch carrying one commit that base does not have.
+    function divergedBranch(repoRoot: string, git: (cwd: string, ...a: string[]) => string, branch: string): void {
+      const tree = git(repoRoot, 'rev-parse', 'HEAD^{tree}');
+      const sha = git(repoRoot, 'commit-tree', tree, '-p', git(repoRoot, 'rev-parse', 'refs/remotes/origin/main'), '-m', 'stale work');
+      git(repoRoot, 'update-ref', `refs/heads/${branch}`, sha);
+    }
+
+    it('fresh branch_id: git_setup created, worktree_reused false', async () => {
+      const { ws, repoRoot } = makeRepo();
+      try {
+        const db = tempDB();
+        seedIssue(db, repoRoot);
+        const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+        const out = parse(await call(composites.handlers, 'task_provision', provisionArgs('feat/fresh')));
+        assert.equal(out['git_setup'], 'created');
+        assert.equal(out['worktree_reused'], false);
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+
+    it('existing branch behind the base tip is fast-forwarded and reported reused', async () => {
+      const { ws, repoRoot, git } = makeRepo();
+      try {
+        git(repoRoot, 'branch', 'feat/behind', 'refs/remotes/origin/main');
+        const newTip = advanceOrigin(repoRoot, git);
+        const db = tempDB();
+        seedIssue(db, repoRoot);
+        const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+        const r = await call(composites.handlers, 'task_provision', provisionArgs('feat/behind'));
+        assert.ok(!r.isError, JSON.stringify(parse(r)));
+        assert.equal(parse(r)['git_setup'], 'reused');
+        assert.equal(parse(r)['worktree_reused'], false);
+        assert.equal(git(repoRoot, 'rev-parse', 'refs/heads/feat/behind'), newTip, 'fast-forwarded to the base tip');
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+
+    it('existing branch checked out in its worktree is fast-forwarded there', async () => {
+      const { ws, repoRoot, git } = makeRepo();
+      try {
+        git(repoRoot, 'branch', 'feat/checked-out', 'refs/remotes/origin/main');
+        git(repoRoot, 'worktree', 'add', '-q', join(repoRoot, '.claude', 'worktrees', 'checked-out'), 'feat/checked-out');
+        const newTip = advanceOrigin(repoRoot, git);
+        const db = tempDB();
+        seedIssue(db, repoRoot);
+        const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+        const out = parse(await call(composites.handlers, 'task_provision', provisionArgs('feat/checked-out')));
+        assert.equal(out['git_setup'], 'reused');
+        assert.equal(out['worktree_reused'], true);
+        assert.equal(git(repoRoot, 'rev-parse', 'refs/heads/feat/checked-out'), newTip);
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+
+    it('branch only on origin, ancestor of base: local ref created at the base tip, reported reused', async () => {
+      const { ws, repoRoot, git } = makeRepo();
+      try {
+        git(repoRoot, 'update-ref', 'refs/remotes/origin/feat/remote-only', git(repoRoot, 'rev-parse', 'refs/remotes/origin/main'));
+        const newTip = advanceOrigin(repoRoot, git);
+        const db = tempDB();
+        seedIssue(db, repoRoot);
+        const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+        const out = parse(await call(composites.handlers, 'task_provision', provisionArgs('feat/remote-only')));
+        assert.equal(out['git_setup'], 'reused');
+        assert.equal(git(repoRoot, 'rev-parse', 'refs/heads/feat/remote-only'), newTip);
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+
+    it('diverged branch is refused with branch_exists_diverged + distance; nothing written', async () => {
+      const { ws, repoRoot, git } = makeRepo();
+      try {
+        divergedBranch(repoRoot, git, 'feat/stale');
+        advanceOrigin(repoRoot, git);
+        const before = git(repoRoot, 'rev-parse', 'refs/heads/feat/stale');
+        const db = tempDB();
+        seedIssue(db, repoRoot);
+        const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+        const r = await call(composites.handlers, 'task_provision', provisionArgs('feat/stale'));
+        assert.equal(r.isError, true);
+        const out = parse(r);
+        assert.equal(out['error'], 'branch_exists_diverged');
+        assert.equal(out['ref'], 'refs/heads/feat/stale');
+        assert.equal(out['base'], 'origin/main');
+        assert.equal(out['ahead'], 1);
+        assert.equal(out['behind'], 1);
+        assert.deepEqual(out['open_prs'], []);
+        assert.match(String(out['message']), /branch_id_propose/);
+        assert.match(String(out['message']), /reuse_existing/);
+        assert.equal(db.get<{ c: number }>('SELECT COUNT(*) AS c FROM tasks')!.c, 0, 'no task row');
+        assert.equal(git(repoRoot, 'rev-parse', 'refs/heads/feat/stale'), before, 'ref untouched');
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+
+    it('diverged refusal names the open PR when the sync gate is on (mocked gh)', async () => {
+      const { ws, repoRoot, git } = makeRepo();
+      try {
+        divergedBranch(repoRoot, git, 'feat/has-pr');
+        const db = tempDB();
+        seedIssue(db, repoRoot);
+        db.run(`UPDATE repos SET remotes = ? WHERE name = 'app'`, [
+          JSON.stringify([{ name: 'origin', url: 'https://github.com/acme/app.git', provider: 'github' }]),
+        ]);
+        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+        const calls: string[][] = [];
+        const spawnFn = (cmd: string, a: string[]) => {
+          calls.push([cmd, ...a]);
+          return { status: 0, stdout: JSON.stringify([{ number: 42, url: 'https://github.com/acme/app/pull/42' }]), stderr: '' };
+        };
+        const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+        const r = await call(composites.handlers, 'task_provision', provisionArgs('feat/has-pr', { _spawnFn: spawnFn }));
+        const out = parse(r);
+        assert.equal(out['error'], 'branch_exists_diverged');
+        assert.deepEqual(out['open_prs'], [{ backend: 'gh', number: 42, url: 'https://github.com/acme/app/pull/42' }]);
+        assert.match(String(out['message']), /pull\/42/);
+        assert.deepEqual(calls[0]!.slice(0, 5), ['gh', 'pr', 'list', '--head', 'feat/has-pr']);
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+
+    it('sync gate off: no remote call is made for the PR lookup', async () => {
+      const { ws, repoRoot, git } = makeRepo();
+      try {
+        divergedBranch(repoRoot, git, 'feat/gate-off');
+        const db = tempDB();
+        seedIssue(db, repoRoot);
+        db.run(`UPDATE repos SET remotes = ? WHERE name = 'app'`, [
+          JSON.stringify([{ name: 'origin', url: 'https://github.com/acme/app.git', provider: 'github' }]),
+        ]);
+        let called = 0;
+        const spawnFn = () => { called++; return { status: 0, stdout: '[]', stderr: '' }; };
+        const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+        const out = parse(await call(composites.handlers, 'task_provision', provisionArgs('feat/gate-off', { _spawnFn: spawnFn })));
+        assert.equal(out['error'], 'branch_exists_diverged');
+        assert.equal(called, 0);
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+
+    it('reuse_existing keeps a diverged branch as-is and reports reused', async () => {
+      const { ws, repoRoot, git } = makeRepo();
+      try {
+        divergedBranch(repoRoot, git, 'feat/keep-me');
+        const before = git(repoRoot, 'rev-parse', 'refs/heads/feat/keep-me');
+        const db = tempDB();
+        seedIssue(db, repoRoot);
+        const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+        const r = await call(composites.handlers, 'task_provision', provisionArgs('feat/keep-me', { reuse_existing: true }));
+        assert.ok(!r.isError, JSON.stringify(parse(r)));
+        assert.equal(parse(r)['git_setup'], 'reused');
+        assert.equal(git(repoRoot, 'rev-parse', 'refs/heads/feat/keep-me'), before, 'diverged ref kept');
+        assert.equal(db.get<{ c: number }>('SELECT COUNT(*) AS c FROM tasks')!.c, 1);
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+  });
+
   it('rejects a non-bro caller', async () => {
     const db = tempDB();
     const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
@@ -2348,6 +2538,269 @@ describe('task_provision (#157)', () => {
         0,
         'no waiver audit row on the warm path',
       );
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('task_reopen + task_update_spec', () => {
+  const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- works'].join('\n');
+
+  function setup(): {
+    ws: string;
+    repoRoot: string;
+    db: TrajectoryDB;
+    handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+    git: (cwd: string, ...a: string[]) => string;
+  } {
+    const ws = mkdtempSync(join(tmpdir(), 'reopen-'));
+    const repoRoot = join(ws, 'app');
+    mkdirSync(repoRoot, { recursive: true });
+    const git = (cwd: string, ...a: string[]) =>
+      execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+    git(repoRoot, 'init', '-q', '-b', 'main');
+    git(repoRoot, 'config', 'user.email', 't@t.t');
+    git(repoRoot, 'config', 'user.name', 't');
+    writeFileSync(join(repoRoot, 'a.txt'), 'one\n');
+    git(repoRoot, 'add', '.');
+    git(repoRoot, 'commit', '-q', '-m', 'base');
+    git(repoRoot, 'update-ref', 'refs/remotes/origin/main', git(repoRoot, 'rev-parse', 'HEAD'));
+    const db = tempDB();
+    db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('app', ?, 'main')`, [repoRoot]);
+    db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+            VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+    const handlers = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db')).handlers;
+    return { ws, repoRoot, db, handlers, git };
+  }
+
+  async function provision(
+    handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
+    branch_id: string,
+  ): Promise<number> {
+    const out = parse(await call(handlers, 'task_provision', {
+      agent: 'bro', issue_id: 1, branch_id, decision_body: 'approach: lifecycle fixture.',
+      task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+    }));
+    return out['task_id'] as number;
+  }
+
+  const taskRow = (db: TrajectoryDB, id: number) =>
+    db.get<{ status: string; files: string; verification: string; spec_body: string; completed_at: string | null }>(
+      `SELECT status, files, verification, spec_body, completed_at FROM tasks WHERE id = ?`,
+      [id],
+    )!;
+  const auditOf = (db: TrajectoryDB, eventType: string) =>
+    db.all<{ from_node: string; summary: string; content_json: string }>(
+      `SELECT from_node, summary, content_json FROM audit WHERE event_type = ? ORDER BY id`,
+      [eventType],
+    );
+
+  for (const fromStatus of ['closed', 'failed', 'escalated', 'running']) {
+    it(`task_reopen: ${fromStatus} → running, fences appended, decision + task_reopened audit`, async () => {
+      const { ws, db, handlers } = setup();
+      try {
+        const id = await provision(handlers, `fix/reopen-${fromStatus}`);
+        db.run(`UPDATE tasks SET status = ?, completed_at = datetime('now') WHERE id = ?`, [fromStatus, id]);
+        const r = await call(handlers, 'task_reopen', {
+          agent: 'bro', task_id: id, reason: 'review found a missing test',
+          files_add: ['src/y.ts', 'src/x.ts'], verification_add: ['npm test'],
+        });
+        assert.ok(!r.isError, JSON.stringify(parse(r)));
+        const out = parse(r);
+        assert.equal(out['from_status'], fromStatus);
+        assert.equal(out['status'], 'running');
+        const row = taskRow(db, id);
+        assert.equal(row.status, 'running');
+        assert.equal(row.completed_at, null);
+        assert.deepEqual(JSON.parse(row.files), ['src/x.ts', 'src/y.ts'], 'appended, duplicates ignored');
+        assert.deepEqual(JSON.parse(row.verification), ['true', 'npm test']);
+        const audit = auditOf(db, 'task_reopened');
+        assert.equal(audit.length, 1);
+        assert.equal(audit[0]!.from_node, 'bro');
+        assert.deepEqual(JSON.parse(audit[0]!.content_json), {
+          task_id: id, from_status: fromStatus, reason: 'review found a missing test',
+          files_add: ['src/y.ts', 'src/x.ts'], verification_add: ['npm test'],
+        });
+        const decision = db.get<{ body: string }>(
+          `SELECT body FROM discussions WHERE kind = 'decision' AND body LIKE 'Task % reopened%'`,
+        );
+        assert.match(decision!.body, new RegExp(`reopened from ${fromStatus}: review found a missing test`));
+        assert.match(decision!.body, /files\[\] \+= src\/y\.ts, src\/x\.ts/);
+        db.close();
+      } finally {
+        rmSync(ws, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it('task_reopen opens one bro agent_runs row for the rework and reuses it on a second reopen', async () => {
+    const { ws, db, handlers } = setup();
+    try {
+      const id = await provision(handlers, 'fix/metered');
+      db.run(`UPDATE agent_runs SET completed_at = datetime('now') WHERE task_id = ?`, [id]);
+      db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [id]);
+      const openBro = () => db.all<{ root_dir: string; host: string; session_id: string | null; usage_source: string | null }>(
+        `SELECT root_dir, host, session_id, usage_source FROM agent_runs
+          WHERE task_id = ? AND agent_type = 'bro' AND completed_at IS NULL`,
+        [id],
+      );
+      const r = await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'review failed', session_id: 'sess-1234abcd' });
+      assert.ok(!r.isError, JSON.stringify(parse(r)));
+      assert.deepEqual(openBro().map((row) => ({ ...row })), [
+        { root_dir: ws, host: 'claude', session_id: 'sess-1234abcd', usage_source: null },
+      ]);
+      await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'second pass' });
+      assert.equal(openBro().length, 1, 'the open bro row is reused');
+
+      const bad = await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'x', session_id: 'short' });
+      assert.equal(bad.isError, true);
+      assert.match(String(parse(bad)['error']), /session_id must be 8–64 characters/);
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('task_reopen without session_id opens a bro row with NULL session_id', async () => {
+    const { ws, db, handlers } = setup();
+    try {
+      const id = await provision(handlers, 'fix/metered-legacy');
+      db.run(`UPDATE agent_runs SET completed_at = datetime('now') WHERE task_id = ?`, [id]);
+      db.run(`UPDATE tasks SET status = 'failed' WHERE id = ?`, [id]);
+      await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'retry the run' });
+      const rows = db.all<{ session_id: string | null }>(
+        `SELECT session_id FROM agent_runs WHERE task_id = ? AND agent_type = 'bro' AND completed_at IS NULL`,
+        [id],
+      );
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0]!.session_id, null);
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('task_reopen recreates a missing worktree and leaves an existing one alone', async () => {
+    const { ws, repoRoot, db, handlers, git } = setup();
+    try {
+      const id = await provision(handlers, 'fix/rework');
+      const wt = join(repoRoot, '.claude', 'worktrees', 'rework');
+      git(repoRoot, 'worktree', 'remove', '--force', wt);
+      db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [id]);
+      const out = parse(await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'review failed' }));
+      assert.equal(out['worktree_recreated'], true);
+      assert.equal(out['worktree_path'], wt);
+      assert.match(git(repoRoot, 'worktree', 'list', '--porcelain'), /worktrees\/rework/);
+
+      const again = parse(await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'second pass' }));
+      assert.equal(again['from_status'], 'running');
+      assert.equal(again['worktree_recreated'], false);
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('task_reopen refuses pending/completed tasks, a closed issue, and a missing reason', async () => {
+    const { ws, db, handlers } = setup();
+    try {
+      const id = await provision(handlers, 'fix/not-reopenable');
+      for (const status of ['pending', 'completed', 'needs_validation']) {
+        db.run(`UPDATE tasks SET status = ? WHERE id = ?`, [status, id]);
+        const r = await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'x' });
+        assert.equal(r.isError, true, status);
+        assert.match(String(parse(r)['error']), /task_update_spec/);
+      }
+      db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [id]);
+      const noReason = await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: '  ' });
+      assert.equal(noReason.isError, true);
+      db.run(`UPDATE issues SET status = 'closed' WHERE id = 1`);
+      const closedIssue = await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'x' });
+      assert.equal(closedIssue.isError, true);
+      assert.match(String(parse(closedIssue)['error']), /issue 1 is closed/);
+      assert.equal(taskRow(db, id).status, 'closed');
+      assert.equal(auditOf(db, 'task_reopened').length, 0);
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('task_reopen and task_update_spec reject swe', async () => {
+    const { ws, db, handlers } = setup();
+    try {
+      const id = await provision(handlers, 'fix/role-gate');
+      db.run(`UPDATE tasks SET status = 'running' WHERE id = ?`, [id]);
+      const reopen = await call(handlers, 'task_reopen', { agent: 'swe', task_id: id, reason: 'x', files_add: ['b'] });
+      assert.equal(reopen.isError, true);
+      assert.equal(parse(reopen)['error'], 'forbidden');
+      const amend = await call(handlers, 'task_update_spec', { agent: 'swe', task_id: id, reason: 'x', files: ['b'] });
+      assert.equal(amend.isError, true);
+      assert.equal(parse(amend)['error'], 'forbidden');
+      assert.deepEqual(JSON.parse(taskRow(db, id).files), ['src/x.ts']);
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('task_update_spec replaces fields and records an old→new summary', async () => {
+    const { ws, db, handlers } = setup();
+    try {
+      const id = await provision(handlers, 'fix/amend');
+      const newSpec = `${SPEC}\n- also this`;
+      const r = await call(handlers, 'task_update_spec', {
+        agent: 'bro', task_id: id, reason: 'typo in the fence',
+        files: ['src/x.ts', 'src/z.ts'], verification: ['npm test'], spec_body: newSpec,
+      });
+      assert.ok(!r.isError, JSON.stringify(parse(r)));
+      assert.deepEqual(parse(r)['changed'], ['files', 'verification', 'spec_body']);
+      const row = taskRow(db, id);
+      assert.deepEqual(JSON.parse(row.files), ['src/x.ts', 'src/z.ts']);
+      assert.deepEqual(JSON.parse(row.verification), ['npm test']);
+      assert.equal(row.spec_body, newSpec);
+      assert.equal(row.status, 'pending', 'status unchanged');
+      const audit = auditOf(db, 'task_spec_amended');
+      assert.equal(audit.length, 1);
+      assert.match(audit[0]!.summary, /files \+1\/-0; verification \+1\/-1; spec_body \d+→\d+ chars/);
+      const content = JSON.parse(audit[0]!.content_json) as Record<string, unknown>;
+      assert.equal(content['reason'], 'typo in the fence');
+      assert.deepEqual((content['changes'] as Record<string, unknown>)['verification'], { added: ['npm test'], removed: ['true'] });
+      const decision = db.get<{ c: number }>(
+        `SELECT COUNT(*) AS c FROM discussions WHERE kind = 'decision' AND body LIKE 'Task % spec amended%typo in the fence'`,
+      );
+      assert.equal(decision!.c, 1);
+
+      const filesOnly = await call(handlers, 'task_update_spec', { agent: 'bro', task_id: id, reason: 'narrow', files: ['src/x.ts'] });
+      assert.deepEqual(parse(filesOnly)['changed'], ['files']);
+      assert.deepEqual(JSON.parse(taskRow(db, id).verification), ['npm test'], 'untouched field kept');
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('task_update_spec refuses closed/failed/escalated tasks, empty input, and a spec without Success Criteria', async () => {
+    const { ws, db, handlers } = setup();
+    try {
+      const id = await provision(handlers, 'fix/amend-refused');
+      const none = await call(handlers, 'task_update_spec', { agent: 'bro', task_id: id, reason: 'x' });
+      assert.equal(none.isError, true);
+      const badSpec = await call(handlers, 'task_update_spec', { agent: 'bro', task_id: id, reason: 'x', spec_body: '## Description\nno criteria' });
+      assert.equal(badSpec.isError, true);
+      assert.match(String(parse(badSpec)['error']), /Success Criteria/);
+      const emptyFiles = await call(handlers, 'task_update_spec', { agent: 'bro', task_id: id, reason: 'x', files: [] });
+      assert.equal(emptyFiles.isError, true);
+      for (const status of ['closed', 'failed', 'escalated']) {
+        db.run(`UPDATE tasks SET status = ? WHERE id = ?`, [status, id]);
+        const r = await call(handlers, 'task_update_spec', { agent: 'bro', task_id: id, reason: 'x', files: ['b'] });
+        assert.equal(r.isError, true, status);
+        assert.match(String(parse(r)['error']), /task_reopen/);
+      }
+      assert.deepEqual(JSON.parse(taskRow(db, id).files), ['src/x.ts']);
+      assert.equal(auditOf(db, 'task_spec_amended').length, 0);
       db.close();
     } finally {
       rmSync(ws, { recursive: true, force: true });

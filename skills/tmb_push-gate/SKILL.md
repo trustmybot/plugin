@@ -44,4 +44,4 @@ Read the verdict + `mcp_available` off each task's validation row via `validatio
 
 ### Post-merge cleanup
 
-`git switch <pr_target> && git pull --ff-only && git branch -d <feature>`. The cleanup-on-task-close hook removes the SWE worktree automatically on task close.
+`git switch <pr_target> && git pull --ff-only && git branch -d <feature>`. The SWE worktree stays through task close and is removed automatically once pr-reviewer passes the task or the branch merges, so a failed review reworks in place.

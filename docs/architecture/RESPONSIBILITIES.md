@@ -47,7 +47,7 @@ Source: `CLAUDE.md` (no `agents/bro.md` — bro is a persona on main Claude).
 1. `session-start-prescan.sh` (auto hook — inventory) → decide
 2. `branch_id_propose` MCP composite (open MCP issue + propose `branch_id`)
 3. `tmb_planning` skill — cold-start judgment + spec authoring (defaults table + a `kind=decision` discussion when the change is architectural: new boundary/module, public API, schema, strategic stack, external side effects)
-4. `task_provision(issue_id, branch_id, decision_body, task, base?)` MCP composite — one DB transaction: writes the `kind='decision'` discussion + creates the task (with `planning_complete`); then the git side-effects after commit (branch ref + worktree, idempotent/fail-soft). Returns the spawn-ready shape (`task_id`, `branch_id`, `worktree_path`, `git_setup`).
+4. `task_provision(issue_id, branch_id, decision_body, task, base?)` MCP composite — one DB transaction: writes the `kind='decision'` discussion + creates the task (with `planning_complete`); then the git side-effects after commit (branch ref + worktree, idempotent/fail-soft). Returns the spawn-ready shape (`task_id`, `branch_id`, `worktree_path`, `git_setup`, `worktree_reused`); an existing branch is reused only at or behind the base tip — a diverged one is refused with `branch_exists_diverged` unless `reuse_existing: true`.
 5. spawn SWE against the provisioned branch + worktree
 6. SWE returns
 7. **bro verification (V1/V2/V3)**:
@@ -79,7 +79,7 @@ Bro is the only agent allowed to call:
 | `no-source-edit-from-main.sh` | PreToolUse Edit/Write | Deny bro source edits outside SWE worktree, scoped by registration: Rule 1 only guards registered repo subtrees (a `repos` row matched by path), so absolute edits to unregistered sibling repos in a multi-repo workspace are allowed (#592) |
 | `no-worktree-branch-create.sh` | PreToolUse Bash | Deny `git worktree add -b/-B/--detach` (branch authority is bro's pre-creation; attached worktrees only) |
 | `branch-up-to-date-with-remote.sh` | PreToolUse Bash | Deny worktree-add to a branch behind `origin/<pr_target>` |
-| `cleanup-worktree-on-task-close.sh` | PostToolUse `task_update_status` | Remove worktree after bro closes task |
+| `cleanup-worktree-on-task-close.sh` | PostToolUse `task_update_status` + `validation_record` | Remove worktree after bro closes the task via `task_update_status`, or once pr-reviewer passes the closed task's current commit (kept through `bro_atomic_close` for review rework) |
 | `post-task-close-rescan.sh` | PostToolUse `bro_atomic_close` | Background `scan_run` refreshes the world model |
 
 ### Universal rules
@@ -95,7 +95,7 @@ Frontmatter: `model: opus`, `maxTurns: 150`, `tools: Read, Glob, Grep, Bash, Wri
 
 ### Spawn contract
 
-- Spawn input MUST include `task_id=<N>`. SWE rejects spawn if missing or task status isn't `pending`/`open` (Layer 2 hook `require-task-spec.sh` enforces).
+- Spawn input MUST include `task_id=<N>`. SWE rejects spawn if missing or the task is neither `pending` nor `running` without a live swe run (Layer 2 hook `require-task-spec.sh` enforces).
 - bro spawns SWE with `isolation='worktree'`; the `WorktreeCreate` hook (`worktree-create.sh`) is the sole creator — it adds the worktree at `.claude/worktrees/<slug>` on `tasks.branch_id` (bro pre-created the branch) and routes it to `tasks.repo`. SWE arrives already in the worktree.
 - **First response** (parallel batch): `task_brief(agent='swe', task_id=N)` + `Bash(cd <worktree>)`. SWE never runs `git worktree add` itself.
 
@@ -122,7 +122,7 @@ Batch in one response:
 
 | Hook | When | Effect |
 |---|---|---|
-| `require-task-spec.sh` | PreToolUse Agent | Deny SWE spawn without valid `task_id` referencing a `pending`/`open` task with non-empty spec |
+| `require-task-spec.sh` | PreToolUse Agent | Deny SWE spawn without valid `task_id` referencing a `pending` task (or a `running` one with no live swe run) with non-empty spec |
 | `git-guards.sh`, `git-push-guard.sh` | PreToolUse Bash | PR/MR must target `pr_target` (git/gh/glab); local merge/rebase/cherry-pick denied in the main checkout (integration via PRs only); no force-push to protected branches. Push blocked without a signed `validation_attempts` row (`git-push-guard.sh`). |
 | `no-worktree-branch-create.sh` | PreToolUse Bash | Deny `git worktree add -b/-B/--detach` |
 | `branch-up-to-date-with-remote.sh` | PreToolUse Bash | Deny SWE attaching worktree to a stale branch |
@@ -199,6 +199,7 @@ Source of truth: `mcp/trajectory-server/src/middleware/agent-scope.ts` `requireR
 |---|:---:|:---:|:---:|:---:|
 | `issue_create` / `issue_close` | ✓ | | | |
 | `task_provision` | ✓ | | | |
+| `task_reopen` / `task_update_spec` | ✓ | | | |
 | `task_update_status(closed)` | ✓ | | | |
 | `task_update_status(completed/failed)` | ✓ | ✓ | | |
 | `validation_record` | | | ✓ | |

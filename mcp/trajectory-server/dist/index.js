@@ -27754,7 +27754,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
         if (!allowed.has(status)) {
           const valid = [...allowed].join(", ") || "(none \u2014 terminal)";
           throw new Error(
-            `task_update_status rejected: bro may not move task ${taskId} from '${task.status}' to '${status}'. Allowed from '${task.status}': ${valid}. Close verified work via bro_atomic_close; reopen a closed task by escalating. See #278.`
+            `task_update_status rejected: bro may not move task ${taskId} from '${task.status}' to '${status}'. Allowed from '${task.status}': ${valid}. Close verified work via bro_atomic_close; reopen a task for rework with task_reopen. See #278.`
           );
         }
       }
@@ -30319,6 +30319,107 @@ function outsideProjectResult(refusal2) {
 function taskWorktreePath(repoPath, branchId) {
   return `${repoPath}/.claude/worktrees/${branchId.replace(/^[^/]+\//, "")}`;
 }
+function git(repoPath, args, timeout = SUBPROCESS_TIMEOUT_MS) {
+  return execFileSync("git", ["-C", repoPath, ...args], {
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout
+  }).toString().trim();
+}
+function refSha(repoPath, ref) {
+  try {
+    return git(repoPath, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]) || null;
+  } catch {
+    return null;
+  }
+}
+function isAncestor(repoPath, ancestor, descendant) {
+  try {
+    git(repoPath, ["merge-base", "--is-ancestor", ancestor, descendant]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function refDistance(repoPath, baseRef, ref) {
+  try {
+    const [behind, ahead] = git(repoPath, ["rev-list", "--left-right", "--count", `${baseRef}...${ref}`]).split(/\s+/).map((n) => Number.parseInt(n, 10));
+    if (!Number.isFinite(ahead) || !Number.isFinite(behind)) return null;
+    return { ahead, behind };
+  } catch {
+    return null;
+  }
+}
+function worktreeOfBranch(repoPath, branchId) {
+  let list;
+  try {
+    list = git(repoPath, ["worktree", "list", "--porcelain"]);
+  } catch {
+    return null;
+  }
+  let current = null;
+  for (const line of list.split("\n")) {
+    if (line.startsWith("worktree ")) current = line.slice("worktree ".length);
+    else if (line === `branch refs/heads/${branchId}` && current) return current;
+  }
+  return null;
+}
+function ensureTaskWorktree(repoPath, branchId) {
+  const worktreePath = taskWorktreePath(repoPath, branchId);
+  let reused = false;
+  if (existsSync4(worktreePath)) {
+    const canonicalWt = realpathSync3(worktreePath);
+    try {
+      reused = git(repoPath, ["worktree", "list", "--porcelain"]).split("\n").some((l) => l.startsWith("worktree ") && l.slice("worktree ".length) === canonicalWt);
+    } catch {
+      reused = false;
+    }
+  }
+  if (!reused) {
+    git(repoPath, ["worktree", "add", worktreePath, branchId], WORKTREE_TIMEOUT_MS);
+  }
+  return { worktreePath, reused };
+}
+function openChangeRequestsForBranch(db2, repoName, repoPath, branchId, spawnFn) {
+  if (!repoName) return [];
+  const { gated, targets } = resolveMilestoneTargets(db2, repoName, spawnFn);
+  if (!gated) return [];
+  const spawn3 = spawnFn ?? defaultSpawnFn;
+  const found = [];
+  for (const target of targets) {
+    const args = target.backend === "gh" ? ["pr", "list", "--head", branchId, "--state", "open", "--json", "number,url", "--repo", target.slug] : ["mr", "list", "--source-branch", branchId, "--output", "json", "-R", target.slug];
+    try {
+      const res = spawn3(target.backend, args, { cwd: repoPath, timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" });
+      if (res.status !== 0) continue;
+      const rows = JSON.parse(res.stdout || "[]");
+      if (!Array.isArray(rows)) continue;
+      for (const row of rows) {
+        const number3 = Number(row["number"] ?? row["iid"]);
+        const url2 = String(row["url"] ?? row["web_url"] ?? "");
+        if (Number.isFinite(number3)) found.push({ backend: target.backend, number: number3, url: url2 });
+      }
+    } catch {
+      continue;
+    }
+  }
+  return found;
+}
+function validateFenceAdditions(value, field) {
+  if (value === void 0 || value === null) return [];
+  if (!Array.isArray(value)) throw new Error(`${field} must be an array of strings.`);
+  for (const el of value) {
+    if (typeof el !== "string" || el.trim().length === 0) {
+      throw new Error(`${field} entries must each be a non-empty string.`);
+    }
+  }
+  return value;
+}
+function appendUnique(existing, additions) {
+  const out = [...existing];
+  for (const a of additions) if (!out.includes(a)) out.push(a);
+  return out;
+}
+var REOPENABLE_STATUSES = /* @__PURE__ */ new Set(["closed", "failed", "escalated", "running"]);
+var SPEC_AMENDABLE_STATUSES = /* @__PURE__ */ new Set(["pending", "running", "needs_validation", "completed"]);
 function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRunContext(db2, dbPath2)) {
   const definitions = [
     {
@@ -30502,7 +30603,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_provision",
-      description: "Bro's atomic planning composite \u2014 collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and creates the branch ref (idempotent) BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft). Returns the spawn-ready shape {task_id, branch_id, repo, slug, worktree_path, git_setup, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
+      description: "Bro's atomic planning composite \u2014 collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). Returns the spawn-ready shape {task_id, branch_id, repo, slug, worktree_path, git_setup, worktree_reused, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
       inputSchema: {
         type: "object",
         properties: {
@@ -30516,6 +30617,10 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           base: {
             type: "string",
             description: "Optional start-point for the branch ref. Defaults to the repo's target_branch || 'dev'."
+          },
+          reuse_existing: {
+            type: "boolean",
+            description: "Keep an existing branch_id that has diverged from base as-is instead of refusing with branch_exists_diverged."
           },
           session_id: RUN_SESSION_ID_SCHEMA,
           waive_registry_gate: {
@@ -30559,6 +30664,49 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           }
         },
         required: ["agent", "issue_id", "branch_id", "decision_body", "task"]
+      }
+    },
+    {
+      name: "task_reopen",
+      description: "Rework a task in one call: moves a closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, opens a bro agent_runs row for the rework (reusing an open one; stamped with session_id when passed), and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          task_id: { type: "number", description: "Task to reopen." },
+          reason: { type: "string", description: "Why the task is reopened (e.g. the review finding); stored on the decision discussion and the audit row." },
+          files_add: {
+            type: "array",
+            items: { type: "string" },
+            description: "Paths appended to the task files[] fence (duplicates ignored)."
+          },
+          verification_add: {
+            type: "array",
+            items: { type: "string" },
+            description: "Commands appended to the task verification[] list (duplicates ignored)."
+          },
+          session_id: RUN_SESSION_ID_SCHEMA
+        },
+        required: ["agent", "task_id", "reason"]
+      }
+    },
+    {
+      name: "task_update_spec",
+      description: "Amend a pending, running, needs_validation or completed task: replaces files[], verification[] and/or spec_body (each optional, at least one), writes a kind='decision' discussion + a task_spec_amended audit row with an old\u2192new summary. The scope fence and verification gate read the amended values on their next run. Returns {task_id, changed, files, verification}.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          task_id: { type: "number", description: "Task to amend." },
+          reason: { type: "string", description: "Why the spec changes; stored on the decision discussion and the audit row." },
+          files: { type: "array", items: { type: "string" }, description: "Replacement files[] fence (non-empty)." },
+          verification: { type: "array", items: { type: "string" }, description: "Replacement verification[] commands (non-empty)." },
+          spec_body: {
+            type: "string",
+            description: `Replacement spec_body; max ${SPEC_BODY_MAX_BYTES} chars, must contain a ## Success Criteria H2.`
+          }
+        },
+        required: ["agent", "task_id", "reason"]
       }
     },
     {
@@ -30685,31 +30833,70 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           if (refusal2) return outsideProjectResult(refusal2);
         }
         const base = args["base"] ?? (readRepoTargetBranch(db2, repoValue) ?? "dev");
-        let branchReused = true;
-        try {
-          execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branchId}`], {
-            stdio: ["ignore", "pipe", "pipe"],
-            timeout: SUBPROCESS_TIMEOUT_MS
-          });
-        } catch {
-          branchReused = false;
+        const reuseExisting = args["reuse_existing"] === true;
+        const localRef = `refs/heads/${branchId}`;
+        const originRef = `refs/remotes/origin/${branchId}`;
+        const localSha = refSha(repoPath, localRef);
+        const originSha = refSha(repoPath, originRef);
+        const branchExists2 = localSha !== null || originSha !== null;
+        const resolvedBaseRef = resolveBaseRef(repoPath, base);
+        if (!resolvedBaseRef && !(branchExists2 && reuseExisting)) {
+          return err15(
+            `task_provision: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue}'. No task row was created \u2014 retry with a valid base and the same branch_id.`
+          );
         }
-        if (!branchReused) {
-          const resolvedBaseRef = resolveBaseRef(repoPath, base);
-          if (!resolvedBaseRef) {
-            return err15(
-              `task_provision: base does not resolve as 'origin/${base}' or local '${base}' in repo '${repoValue}'. No task row was created \u2014 retry with a valid base and the same branch_id.`
+        const gitFailure = (what, e) => err15(
+          `task_provision: ${what} in repo '${repoValue}' (${e.message.split("\n")[0] || "git failed"}). No task row was created \u2014 retry with the same branch_id.`
+        );
+        if (!branchExists2) {
+          try {
+            git(repoPath, ["branch", branchId, resolvedBaseRef]);
+          } catch (e) {
+            return gitFailure(`failed to create branch '${branchId}' from '${resolvedBaseRef}'`, e);
+          }
+        } else {
+          const diverged = resolvedBaseRef ? [localSha ? localRef : null, originSha ? originRef : null].filter((r) => r !== null).find((r) => !isAncestor(repoPath, r, resolvedBaseRef)) : void 0;
+          if (diverged && !reuseExisting) {
+            const distance = refDistance(repoPath, resolvedBaseRef, diverged);
+            const openPrs = openChangeRequestsForBranch(
+              db2,
+              repoValue,
+              repoPath,
+              branchId,
+              args["_spawnFn"]
             );
+            const prNote = openPrs.length > 0 ? ` Open PR/MR: ${openPrs.map((p) => p.url || `#${p.number}`).join(", ")}.` : "";
+            return {
+              isError: true,
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    error: "branch_exists_diverged",
+                    branch_id: branchId,
+                    ref: diverged,
+                    base: resolvedBaseRef,
+                    ahead: distance?.ahead ?? null,
+                    behind: distance?.behind ?? null,
+                    open_prs: openPrs,
+                    message: `task_provision: branch '${branchId}' already exists and '${diverged}' has diverged from '${resolvedBaseRef}' (${distance ? `${distance.ahead} ahead, ${distance.behind} behind` : "distance unknown"}).${prNote} Pick a fresh branch_id (branch_id_propose), or pass reuse_existing: true to keep the existing branch as-is. No task row was created.`
+                  })
+                }
+              ]
+            };
           }
           try {
-            execFileSync("git", ["-C", repoPath, "branch", branchId, resolvedBaseRef], {
-              stdio: ["ignore", "pipe", "pipe"],
-              timeout: SUBPROCESS_TIMEOUT_MS
-            });
+            if (diverged || !resolvedBaseRef) {
+              if (!localSha) git(repoPath, ["branch", branchId, originRef]);
+            } else if (!localSha) {
+              git(repoPath, ["branch", branchId, resolvedBaseRef]);
+            } else if (localSha !== refSha(repoPath, resolvedBaseRef)) {
+              const checkedOutAt = worktreeOfBranch(repoPath, branchId);
+              if (checkedOutAt) git(checkedOutAt, ["merge", "--ff-only", "--quiet", resolvedBaseRef]);
+              else git(repoPath, ["branch", "-f", branchId, resolvedBaseRef]);
+            }
           } catch (e) {
-            return err15(
-              `task_provision: failed to create branch '${branchId}' from '${resolvedBaseRef}' in repo '${repoValue}' (${e.message.split("\n")[0] || "git branch failed"}). No task row was created \u2014 retry with the same branch_id.`
-            );
+            return gitFailure(`failed to fast-forward existing branch '${branchId}' to '${resolvedBaseRef ?? base}'`, e);
           }
         }
         const now = nowISO();
@@ -30762,30 +30949,12 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           }
           return { task_id: row.id };
         });
-        let gitSetup = "created";
+        let gitSetup = branchExists2 ? "reused" : "created";
+        let worktreeReused = false;
         let diagnostic;
         const worktreePath = taskWorktreePath(repoPath, branchId);
         try {
-          let worktreeReused = false;
-          if (existsSync4(worktreePath)) {
-            const canonicalWt = realpathSync3(worktreePath);
-            try {
-              const list = execFileSync("git", ["-C", repoPath, "worktree", "list", "--porcelain"], {
-                stdio: ["ignore", "pipe", "pipe"],
-                timeout: SUBPROCESS_TIMEOUT_MS
-              }).toString();
-              worktreeReused = list.split("\n").some((l) => l.startsWith("worktree ") && l.slice("worktree ".length) === canonicalWt);
-            } catch {
-              worktreeReused = false;
-            }
-          }
-          if (!worktreeReused) {
-            execFileSync("git", ["-C", repoPath, "worktree", "add", worktreePath, branchId], {
-              stdio: ["ignore", "pipe", "pipe"],
-              timeout: WORKTREE_TIMEOUT_MS
-            });
-          }
-          gitSetup = branchReused && worktreeReused ? "reused" : "created";
+          worktreeReused = ensureTaskWorktree(repoPath, branchId).reused;
         } catch (e) {
           gitSetup = "error";
           diagnostic = e.message;
@@ -30797,8 +30966,200 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           slug,
           worktree_path: worktreePath,
           git_setup: gitSetup,
+          worktree_reused: worktreeReused,
           ...diagnostic ? { diagnostic } : {}
         });
+      })
+    ),
+    task_reopen: requireRoles(
+      "task_reopen",
+      ["bro"],
+      wrap3(async (args) => {
+        const agent = args["agent"] ?? "bro";
+        const taskId = Number(args["task_id"]);
+        const reason = args["reason"];
+        if (!Number.isInteger(taskId)) return err15("task_id must be a number");
+        if (typeof reason !== "string" || reason.trim().length === 0) {
+          return err15("reason must be a non-empty string");
+        }
+        const sessionId = parseRunSessionId(args["session_id"]);
+        const filesAdd = validateFenceAdditions(args["files_add"], "files_add");
+        const verificationAdd = validateFenceAdditions(args["verification_add"], "verification_add");
+        const task = db2.get(
+          `SELECT t.id, t.issue_id, t.branch_id, t.status, t.files, t.verification, t.repo, i.status AS issue_status
+             FROM tasks t JOIN issues i ON i.id = t.issue_id WHERE t.id = ?`,
+          [taskId]
+        );
+        if (!task) return err15(`task_reopen: task ${taskId} not found`);
+        if (!REOPENABLE_STATUSES.has(task.status)) {
+          return err15(
+            `task_reopen: task ${taskId} is '${task.status}'; task_reopen moves closed, failed, escalated or running tasks. Amend a live task's spec with task_update_spec.`
+          );
+        }
+        if (task.issue_status === "closed") {
+          return err15(`task_reopen: issue ${task.issue_id} is closed; track the rework under an open issue.`);
+        }
+        const repoPath = resolveRepoPath(db2, task.repo);
+        if (repoPath) {
+          for (const path2 of [repoPath, taskWorktreePath(repoPath, task.branch_id)]) {
+            const refusal2 = outsideProject("task_reopen", runContext.projectRoot, path2);
+            if (refusal2) return outsideProjectResult(refusal2);
+          }
+        }
+        const files = appendUnique(parseTaskFiles(task.files), filesAdd);
+        const verification = appendUnique(parseTaskFiles(task.verification), verificationAdd);
+        const now = nowISO();
+        db2.transaction(() => {
+          db2.run(
+            `UPDATE tasks SET status = 'running', files = ?, verification = ?, completed_at = NULL, updated_at = ? WHERE id = ?`,
+            [JSON.stringify(files), JSON.stringify(verification), now, taskId]
+          );
+          const fenceLines = [
+            filesAdd.length > 0 ? `files[] += ${filesAdd.join(", ")}` : null,
+            verificationAdd.length > 0 ? `verification[] += ${verificationAdd.join(" ; ")}` : null
+          ].filter((l) => l !== null);
+          insertDiscussion(db2, {
+            issue_id: task.issue_id,
+            author: agent,
+            kind: "decision",
+            body: [`Task ${taskId} reopened from ${task.status}: ${reason}`, ...fenceLines].join("\n"),
+            created_at: now
+          });
+          insertAudit(db2, {
+            issue_id: task.issue_id,
+            branch_id: task.branch_id,
+            from_node: agent,
+            event_type: "task_reopened",
+            summary: `Task ${taskId} reopened from ${task.status}: ${reason}`.slice(0, 200),
+            content_json: JSON.stringify({
+              task_id: taskId,
+              from_status: task.status,
+              reason,
+              files_add: filesAdd,
+              verification_add: verificationAdd
+            }),
+            created_at: now
+          });
+          const openBro = db2.get(
+            `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'bro' AND completed_at IS NULL LIMIT 1`,
+            [taskId]
+          );
+          if (!openBro) openBroRun(db2, { id: taskId, issue_id: task.issue_id, repo: task.repo }, now, runContext, sessionId);
+        });
+        let worktreePath = null;
+        let worktreeRecreated = false;
+        let diagnostic;
+        if (repoPath) {
+          try {
+            if (!refSha(repoPath, `refs/heads/${task.branch_id}`) && refSha(repoPath, `refs/remotes/origin/${task.branch_id}`)) {
+              git(repoPath, ["branch", task.branch_id, `refs/remotes/origin/${task.branch_id}`]);
+            }
+            const wt = ensureTaskWorktree(repoPath, task.branch_id);
+            worktreePath = wt.worktreePath;
+            worktreeRecreated = !wt.reused;
+          } catch (e) {
+            worktreePath = taskWorktreePath(repoPath, task.branch_id);
+            diagnostic = e.message;
+          }
+        } else {
+          diagnostic = `cannot resolve a repo path for task.repo='${task.repo ?? ""}'; worktree not checked`;
+        }
+        return ok15({
+          task_id: taskId,
+          from_status: task.status,
+          status: "running",
+          files,
+          verification,
+          worktree_path: worktreePath,
+          worktree_recreated: worktreeRecreated,
+          ...diagnostic ? { diagnostic } : {}
+        });
+      })
+    ),
+    task_update_spec: requireRoles(
+      "task_update_spec",
+      ["bro"],
+      wrap3(async (args) => {
+        const agent = args["agent"] ?? "bro";
+        const taskId = Number(args["task_id"]);
+        const reason = args["reason"];
+        if (!Number.isInteger(taskId)) return err15("task_id must be a number");
+        if (typeof reason !== "string" || reason.trim().length === 0) {
+          return err15("reason must be a non-empty string");
+        }
+        const replacement = (field) => {
+          if (args[field] === void 0) return void 0;
+          const value = validateFenceAdditions(args[field], field);
+          if (value.length === 0) throw new Error(`${field} must be a non-empty array of strings.`);
+          return value;
+        };
+        const newFiles = replacement("files");
+        const newVerification = replacement("verification");
+        const newSpec = args["spec_body"];
+        if (newSpec !== void 0) {
+          if (typeof newSpec !== "string" || newSpec.trim().length === 0) {
+            return err15("spec_body must be a non-empty string");
+          }
+          if (newSpec.length > SPEC_BODY_MAX_BYTES) {
+            return err15(`spec_body exceeds ${SPEC_BODY_MAX_BYTES} char limit (actual: ${newSpec.length}).`);
+          }
+          if (!/^## Success Criteria\s*$/m.test(newSpec)) {
+            return err15("spec_body must contain a ## Success Criteria H2 section.");
+          }
+        }
+        if (newFiles === void 0 && newVerification === void 0 && newSpec === void 0) {
+          return err15("task_update_spec: pass at least one of files, verification, spec_body");
+        }
+        const task = db2.get(`SELECT id, issue_id, branch_id, status, files, verification, spec_body FROM tasks WHERE id = ?`, [taskId]);
+        if (!task) return err15(`task_update_spec: task ${taskId} not found`);
+        if (!SPEC_AMENDABLE_STATUSES.has(task.status)) {
+          return err15(
+            `task_update_spec: task ${taskId} is '${task.status}'; only pending, running, needs_validation or completed tasks are amended. Reopen a closed, failed or escalated task with task_reopen (files_add / verification_add).`
+          );
+        }
+        const oldFiles = parseTaskFiles(task.files);
+        const oldVerification = parseTaskFiles(task.verification);
+        const diffSummary = (oldList, newList) => ({
+          added: newList.filter((x) => !oldList.includes(x)),
+          removed: oldList.filter((x) => !newList.includes(x))
+        });
+        const changes = {};
+        if (newFiles !== void 0) changes["files"] = diffSummary(oldFiles, newFiles);
+        if (newVerification !== void 0) changes["verification"] = diffSummary(oldVerification, newVerification);
+        if (newSpec !== void 0) {
+          changes["spec_body"] = { old_length: (task.spec_body ?? "").length, new_length: newSpec.length };
+        }
+        const changed = Object.keys(changes);
+        const summaryParts = changed.map((field) => {
+          const c = changes[field];
+          return field === "spec_body" ? `spec_body ${c.old_length}\u2192${c.new_length} chars` : `${field} +${c.added.length}/-${c.removed.length}`;
+        });
+        const files = newFiles ?? oldFiles;
+        const verification = newVerification ?? oldVerification;
+        const now = nowISO();
+        db2.transaction(() => {
+          db2.run(
+            `UPDATE tasks SET files = ?, verification = ?, spec_body = ?, updated_at = ? WHERE id = ?`,
+            [JSON.stringify(files), JSON.stringify(verification), newSpec ?? task.spec_body, now, taskId]
+          );
+          insertDiscussion(db2, {
+            issue_id: task.issue_id,
+            author: agent,
+            kind: "decision",
+            body: `Task ${taskId} spec amended (${summaryParts.join("; ")}): ${reason}`,
+            created_at: now
+          });
+          insertAudit(db2, {
+            issue_id: task.issue_id,
+            branch_id: task.branch_id,
+            from_node: agent,
+            event_type: "task_spec_amended",
+            summary: `Task ${taskId} spec amended: ${summaryParts.join("; ")}`.slice(0, 200),
+            content_json: JSON.stringify({ task_id: taskId, status: task.status, reason, changes }),
+            created_at: now
+          });
+        });
+        return ok15({ task_id: taskId, changed, files, verification });
       })
     ),
     task_brief: requireRoles(
@@ -31239,12 +31600,12 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           const slug = task.branch_id.replace(/^[^/]+\//, "");
           if (task.commit_sha) {
             try {
-              const refSha = execFileSync(
+              const refSha2 = execFileSync(
                 "git",
                 ["-C", repoPath, "rev-parse", "--verify", `refs/heads/${task.branch_id}`],
                 { stdio: ["ignore", "pipe", "pipe"], timeout: 3e4 }
               ).toString().trim();
-              if (refSha.toLowerCase().startsWith(task.commit_sha.toLowerCase())) {
+              if (refSha2.toLowerCase().startsWith(task.commit_sha.toLowerCase())) {
                 results.push({ task_id: task.id, branch_id: task.branch_id, slug, commit_sha: task.commit_sha, reaped: true });
                 continue;
               }
@@ -32204,7 +32565,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
       "onboard_state_get",
       ["bro"],
       wrapHandler13(async () => {
-        const git = probeGit(probeDir());
+        const git2 = probeGit(probeDir());
         const gh = probeCli("gh");
         const glab = probeCli("glab");
         const onboarded = readOnboardedFlag(db2);
@@ -32222,9 +32583,9 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             sandbox_enforcement: readConfig(db2, "sandbox_enforcement") ?? "no"
           },
           probe: {
-            in_git: git.in_git,
-            origin_kind: git.origin_kind,
-            detected_remotes: git.detected_remotes,
+            in_git: git2.in_git,
+            origin_kind: git2.origin_kind,
+            detected_remotes: git2.detected_remotes,
             gh_installed: gh.installed,
             gh_authed: gh.authed,
             glab_installed: glab.installed,
@@ -32240,9 +32601,9 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         const shape = args["shape"];
         const round = args["round"];
         const repo = args["repo"];
-        const git = probeGit(probeDir());
+        const git2 = probeGit(probeDir());
         if (round === "shape") {
-          return ok16({ questions: [shapeQuestion(git.origin_kind)] });
+          return ok16({ questions: [shapeQuestion(git2.origin_kind)] });
         }
         if (round === "sandbox") {
           const current = readConfig(db2, "sandbox_enforcement");
@@ -32287,7 +32648,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           if (shape === "remote") {
             questions.push(prTargetQuestion(currentPrTarget, currentBranching, isReonboard));
             questions.push(
-              remoteQuestion(git.origin_kind, gh.installed, glab.installed, isReonboard, currentRemotes)
+              remoteQuestion(git2.origin_kind, gh.installed, glab.installed, isReonboard, currentRemotes)
             );
           }
         } else if (round === "sync") {

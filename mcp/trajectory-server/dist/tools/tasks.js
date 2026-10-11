@@ -146,8 +146,8 @@ const VALID_STATUSES = new Set([
 //     into 'closed' is bro_atomic_close, so task_update_status must not offer
 //     those edges (else bro could close a task without the atomic close's
 //     side effects).
-//   - 'closed'→'escalated' is the push-gate pushback path (pr-reviewer FAILs
-//     after the task was closed; bro reopens the work).
+//   - 'closed'→'escalated' hands a closed task back to the Human; rework
+//     after a failed review goes through task_reopen (closed → running).
 const BRO_TRANSITIONS = {
     pending: new Set(['running', 'failed', 'escalated']),
     running: new Set(['pending', 'needs_validation', 'completed', 'failed', 'escalated']),
@@ -955,7 +955,7 @@ export function taskTools(db, runContext = claudeRunContext(db)) {
                     const valid = [...allowed].join(', ') || '(none — terminal)';
                     throw new Error(`task_update_status rejected: bro may not move task ${taskId} from '${task.status}' to '${status}'. ` +
                         `Allowed from '${task.status}': ${valid}. ` +
-                        `Close verified work via bro_atomic_close; reopen a closed task by escalating. See #278.`);
+                        `Close verified work via bro_atomic_close; reopen a task for rework with task_reopen. See #278.`);
                 }
             }
             const now = nowISO();

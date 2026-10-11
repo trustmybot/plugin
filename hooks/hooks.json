@@ -253,7 +253,7 @@
         ]
       },
       {
-        "matcher": "mcp__.*trajectory-server__bro_atomic_close",
+        "matcher": "mcp__.*trajectory-server__validation_record",
         "hooks": [
           {
             "type": "command",
