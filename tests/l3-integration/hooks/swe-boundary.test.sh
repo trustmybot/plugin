@@ -492,6 +492,34 @@ EOF" \
   assert_not_contains "$out" '"permissionDecision":"deny"' "a read or a quoted/heredoc mention is allowed"
 done
 
+# Rule (b) — gh/glab is found at any word of a statement, so any wrapper,
+# its options and VAR=value prefixes run it without hiding it.
+
+for gh_cmd in 'timeout 5 gh pr merge 3' 'nice gh issue create -t x' \
+  'xargs gh pr merge <<< 3' 'echo 3 | xargs -I{} gh pr merge {}' \
+  'time -p gh api -X POST x' 'timeout 5 gh api -X POST x' \
+  'nice -n 10 glab mr merge 4' 'stdbuf -oL gh issue close 9' \
+  'FOO=1 timeout 5 gh pr merge 3' 'ionice -c3 gh pr merge 3' \
+  'env -i FOO=1 gh pr merge 3' 'sudo -u bob gh pr merge 3' \
+  'xargs -I{} -P4 gh issue close {}'; do
+  test_case "(b) SWE wrapped '$gh_cmd': DENIED"
+  out=$(run_hook_swe "$(make_bash_input swe "$gh_cmd")")
+  assert_contains "$out" "gh/glab mutating" "a wrapped forge write must be denied for SWE"
+done
+
+for gh_cmd in 'timeout 5 gh pr view 3' 'echo "timeout 5 gh pr merge 3"' \
+  'gh api -X GET x' 'git log --grep="gh pr merge"'; do
+  test_case "(b) SWE wrapped read or data '$gh_cmd': NOT denied"
+  out=$(run_hook_swe "$(make_bash_input swe "$gh_cmd")")
+  assert_not_contains "$out" '"permissionDecision":"deny"' "a wrapped read or a quoted mention is allowed"
+done
+
+test_case "(b) tmb_gh_mutation keeps no wrapper allowlist"
+gh_fn=$(sed -n '/^tmb_gh_mutation() {/,/^}/p' "$PLUGIN_ROOT/scripts/hooks/lib/cmd-analysis.sh")
+assert_not_contains "$gh_fn" "nohup" "no wrapper list in tmb_gh_mutation"
+assert_not_contains "$gh_fn" "*/sudo" "no wrapper list in tmb_gh_mutation"
+assert_not_contains "$gh_fn" "--split-string" "no wrapper option list in tmb_gh_mutation"
+
 # ===========================================================================
 # Layer 1 — schema-mismatch fail-safe (#596)
 # A stale legacy ~/.claude/tmb/trajectory.db (old schema, no prompt_bearing

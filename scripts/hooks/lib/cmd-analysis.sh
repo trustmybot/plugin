@@ -68,9 +68,11 @@
 #   nothing for any other statement.
 #
 # tmb_gh_mutation <statement>
-#   For a `gh …` / `glab …` statement (argv0 found after sudo/env/command
-#   wrappers, their options and VAR=value assignments, by basename so
-#   /usr/bin/gh counts) prints what makes it a write to the forge: the HTTP
+#   For a statement that runs `gh …` / `glab …` (every word whose basename is
+#   gh or glab is parsed from there, so /usr/bin/gh, VAR=value prefixes and
+#   any wrapper such as timeout, nice, xargs or time -p count; quoted and
+#   heredoc text is stripped before this point) prints the first write to the
+#   forge it makes: the HTTP
 #   verb of an `api` call (-X <V>, -X<V>, --method <V>, --method=<V> in any
 #   position, V in POST|PATCH|PUT|DELETE, case-insensitive; with no verb,
 #   POST when a -f/-F/--field/--raw-field/--input parameter is present, as
@@ -505,24 +507,23 @@ tmb_git_subcommand() {
 
 tmb_gh_mutation() {
   local -a w
-  local k=0 n tool="" skipval=0 a verb="" group="" action="" writes="" fields=0
+  local k n found
   read -r -a w <<< "${1:-}"
   n=${#w[@]}
-  while [ "$k" -lt "$n" ]; do
-    a="${w[$k]}"
-    k=$((k + 1))
-    if [ "$skipval" = 1 ]; then skipval=0; continue; fi
-    case "$a" in
-      sudo|*/sudo|env|*/env|command|nohup|exec|time) continue ;;
-      -u|-g|-U|-C|-D|-p|-r|-t|-T|-h|-S|--user|--group|--chdir|--unset|--split-string) skipval=1; continue ;;
-      -*) continue ;;
-      [A-Za-z_]*=*) continue ;;
+  for ((k = 0; k < n; k++)); do
+    case "${w[$k]##*/}" in
+      gh|glab)
+        found=$(tmb_gh_mutation_from "${w[@]:$k}")
+        if [ -n "$found" ]; then printf '%s\n' "$found"; return 0; fi
+        ;;
     esac
-    case "${a##*/}" in gh|glab) tool="${a##*/}" ;; esac
-    break
   done
-  [ -n "$tool" ] || return 0
-  skipval=0
+}
+
+tmb_gh_mutation_from() {
+  local -a w=("$@")
+  local k=1 n=$# tool skipval=0 a verb="" group="" action="" writes="" fields=0
+  tool="${w[0]##*/}"
   while [ "$k" -lt "$n" ]; do
     a="${w[$k]}"
     k=$((k + 1))
