@@ -16,8 +16,14 @@ unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT CLAUDE_CONFIG_DIR
 # Tests that resolve the user's real toolchain (mise/homebrew) read it from
 # TMB_TEST_REAL_HOME; the embedding cache stays the shared user cache.
 FOOTPRINT_HOME="$(mktemp -d)"
-trap 'rm -rf "$FOOTPRINT_HOME"' EXIT
 export TMB_TEST_REAL_HOME="$HOME"
+# mise shims on PATH resolve tools from the real install + config; their own
+# state and caches go to the throwaway dir, not the footprint HOME.
+TOOL_STATE="$(mktemp -d)"
+trap 'rm -rf "$FOOTPRINT_HOME" "$TOOL_STATE"' EXIT
+export MISE_DATA_DIR="${MISE_DATA_DIR:-$HOME/.local/share/mise}"
+export MISE_CONFIG_DIR="${MISE_CONFIG_DIR:-$HOME/.config/mise}"
+export MISE_STATE_DIR="$TOOL_STATE/mise-state" MISE_CACHE_DIR="$TOOL_STATE/mise-cache"
 export TMB_MODEL_CACHE_DIR="${TMB_MODEL_CACHE_DIR:-${HF_HOME:-$HOME/.cache/huggingface}}"
 export HOME="$FOOTPRINT_HOME"
 

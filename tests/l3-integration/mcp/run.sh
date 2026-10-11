@@ -33,7 +33,13 @@ fi
 TOOL_PATH="$PATH"
 export TMB_MODEL_CACHE_DIR="${TMB_MODEL_CACHE_DIR:-${HF_HOME:-$HOME/.cache/huggingface}}"
 FOOTPRINT_HOME="$(mktemp -d)"
-trap 'rm -rf "$FOOTPRINT_HOME"' EXIT
+# mise shims resolve tools from the real install + config; their own state and
+# caches go to a throwaway dir, not the footprint HOME.
+TOOL_STATE="$(mktemp -d)"
+trap 'rm -rf "$FOOTPRINT_HOME" "$TOOL_STATE"' EXIT
+export MISE_DATA_DIR="${MISE_DATA_DIR:-$HOME/.local/share/mise}"
+export MISE_CONFIG_DIR="${MISE_CONFIG_DIR:-$HOME/.config/mise}"
+export MISE_STATE_DIR="$TOOL_STATE/mise-state" MISE_CACHE_DIR="$TOOL_STATE/mise-cache"
 unset CLAUDE_PLUGIN_ROOT CLAUDE_PROJECT_DIR CLAUDE_CONFIG_DIR
 
 rc=0

@@ -319,7 +319,7 @@ if [ -n "$TOOL" ]; then
   # Toolchain resolution reads the user's real mise/homebrew install, which
   # lives under the real home (run.sh points HOME at an empty footprint dir).
   run_hook_min_path() {
-    echo "$1" | env -u MISE_DATA_DIR -u MISE_STATE_DIR -u MISE_CACHE_DIR PATH="$MINIMAL_PATH" HOME="${TMB_TEST_REAL_HOME:-$HOME}" bash "$HOOK" 2>&1 || true
+    echo "$1" | env -u MISE_DATA_DIR PATH="$MINIMAL_PATH" HOME="${TMB_TEST_REAL_HOME:-$HOME}" bash "$HOOK" 2>&1 || true
   }
 
   # Sanity: under the minimal PATH the tool is genuinely unresolvable.
