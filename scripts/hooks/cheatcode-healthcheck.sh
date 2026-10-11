@@ -2,12 +2,16 @@
 # Cheatcode health-check (#113): SessionStart probe that reconciles each
 # cheatcodes row's `status` against the real runtime.
 #
-# Per kind:
+# Per kind (every name match is exact, never a substring):
 #   skill  — file_path exists on disk  → active, else broken.
-#   mcp    — server present in `claude mcp list` (or ~/.claude.json
-#            mcpServers)             → active, else broken.
-#   plugin — present + enabled in `claude plugin list`
-#                                    → active, else broken.
+#   mcp    — source_url 'mcp:<plugin>/<server>' (a plugin-bundled server):
+#            `claude plugin list --json` has <plugin> enabled and its
+#            mcpServers has the key <server> → active, else broken.
+#            Any other mcp row: <name> is a server name in `claude mcp list`
+#            or a ~/.claude.json mcpServers key → active, else broken.
+#   plugin — an entry of `claude plugin list --json` whose id before '@' is
+#            <name> and is enabled  → active, else broken.
+# A row is left untouched when its evidence source is unavailable.
 # For any row whose computed status differs from the stored one, UPDATE the
 # row and emit a `cheatcode_healthcheck` audit row (old→new, name, kind).
 #
@@ -57,11 +61,16 @@ HAVE_CLAUDE=0
 command -v claude >/dev/null 2>&1 && HAVE_CLAUDE=1
 
 MCP_LIST=""
-PLUGIN_LIST=""
+PLUGIN_JSON=""
 if [ "$HAVE_CLAUDE" = "1" ]; then
   MCP_LIST=$(_run_bounded claude mcp list)
-  PLUGIN_LIST=$(_run_bounded claude plugin list)
+  PLUGIN_JSON=$(_run_bounded claude plugin list --json)
 fi
+printf '%s' "$PLUGIN_JSON" | jq -e 'type == "array"' >/dev/null 2>&1 || PLUGIN_JSON=""
+
+# Server names from `claude mcp list` ("<name>: <command-or-url> - <status>"),
+# one per line, for exact matching.
+MCP_NAMES=$(printf '%s\n' "$MCP_LIST" | sed -n 's/: .*//p')
 
 # Fallback MCP source: ~/.claude.json mcpServers keys.
 CLAUDE_JSON_MCP=""
@@ -73,7 +82,7 @@ fi
 # Echoes the computed status, or nothing when this kind can't be probed
 # (caller leaves the row untouched — never flip on absent evidence).
 compute_status() {
-  local kind="$1" file_path="$2" name="$3"
+  local kind="$1" file_path="$2" name="$3" source_url="$4"
   case "$kind" in
     skill)
       [ -n "$file_path" ] || { echo "broken"; return 0; }
@@ -85,18 +94,33 @@ compute_status() {
       if [ -f "$resolved" ] || [ -f "$file_path" ]; then echo "active"; else echo "broken"; fi
       ;;
     mcp)
-      # No runtime evidence available at all → don't flip.
-      [ "$HAVE_CLAUDE" = "1" ] || [ -n "$CLAUDE_JSON_MCP" ] || return 0
-      if printf '%s\n' "$MCP_LIST" | grep -qiF -- "$name" \
-        || printf '%s\n' "$CLAUDE_JSON_MCP" | grep -qxF -- "$name"; then
-        echo "active"
-      else
-        echo "broken"
-      fi
+      case "$source_url" in
+        mcp:?*/?*)
+          [ -n "$PLUGIN_JSON" ] || return 0
+          local bundle="${source_url#mcp:}"
+          if printf '%s' "$PLUGIN_JSON" | jq -e --arg p "${bundle%%/*}" --arg s "${bundle#*/}" \
+            'any(.[]; ((.id // "") | split("@")[0]) == $p and .enabled == true and ((.mcpServers // {}) | has($s)))' \
+            >/dev/null 2>&1; then
+            echo "active"
+          else
+            echo "broken"
+          fi
+          ;;
+        *)
+          [ -n "$MCP_NAMES" ] || [ -n "$CLAUDE_JSON_MCP" ] || return 0
+          if printf '%s\n' "$MCP_NAMES" | grep -qx -- "$name" \
+            || printf '%s\n' "$CLAUDE_JSON_MCP" | grep -qx -- "$name"; then
+            echo "active"
+          else
+            echo "broken"
+          fi
+          ;;
+      esac
       ;;
     plugin)
-      [ "$HAVE_CLAUDE" = "1" ] || return 0
-      if printf '%s\n' "$PLUGIN_LIST" | grep -qiF -- "$name"; then
+      [ -n "$PLUGIN_JSON" ] || return 0
+      if printf '%s' "$PLUGIN_JSON" | jq -e --arg n "$name" \
+        'any(.[]; ((.id // "") | split("@")[0]) == $n and .enabled == true)' >/dev/null 2>&1; then
         echo "active"
       else
         echo "broken"
@@ -107,16 +131,16 @@ compute_status() {
 
 # --- Iterate rows + reconcile. -------------------------------------------
 ROWS=$(tmb_sqlite_ro "$DB" "
-  SELECT id || '|' || kind || '|' || status || '|' || COALESCE(file_path, '') || '|' || name
+  SELECT id || '|' || kind || '|' || status || '|' || COALESCE(file_path, '') || '|' || COALESCE(source_url, '') || '|' || name
     FROM cheatcodes;
 ")
 [ -n "$ROWS" ] || exit 0
 
 NOW=$(tmb_now_iso)
 
-while IFS='|' read -r id kind old_status file_path name; do
+while IFS='|' read -r id kind old_status file_path source_url name; do
   [ -n "$id" ] || continue
-  new_status=$(compute_status "$kind" "$file_path" "$name")
+  new_status=$(compute_status "$kind" "$file_path" "$name" "$source_url")
   [ -n "$new_status" ] || continue
   [ "$new_status" = "$old_status" ] && continue
 

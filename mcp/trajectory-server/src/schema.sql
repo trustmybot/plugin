@@ -203,7 +203,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 31, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 32, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -372,9 +372,12 @@ CREATE INDEX IF NOT EXISTS idx_audit_embeddings_model ON audit_embeddings(model_
 -- cheatcode_uninstall (#676) reverses them. skill_register/skill_promote operate
 -- on builtin rows. trust_tier carries the cheatcode_vet (#658) classification for
 -- installed rows and the curation tier for builtin ones; status tracks lifecycle.
+-- The natural key is (name, kind): a plugin and the MCP server it bundles
+-- routinely share a name (`linear` plugin → `linear` server). scan.sh records a
+-- plugin-bundled server with source_url 'mcp:<plugin>/<server>'.
 CREATE TABLE IF NOT EXISTS cheatcodes (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    name         TEXT    NOT NULL UNIQUE,
+    name         TEXT    NOT NULL,
     kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
     -- origin (#101, #152): provenance, not lifecycle. 'builtin' = plugin-shipped;
     -- 'marketplace' = from a registered marketplace ref; 'external' = from a raw
@@ -410,7 +413,8 @@ CREATE TABLE IF NOT EXISTS cheatcodes (
     -- external) must carry its source identity; a builtin must not (#101, #152).
     CHECK (kind != 'skill' OR file_path IS NOT NULL),
     CHECK (origin = 'builtin' OR source_url IS NOT NULL),
-    CHECK (origin != 'builtin' OR source_url IS NULL)
+    CHECK (origin != 'builtin' OR source_url IS NULL),
+    UNIQUE (name, kind)
 );
 
 -- Schema-seed the bundled tmb_* skills (#2884, #101). Without this seed the

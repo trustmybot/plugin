@@ -11,6 +11,12 @@
 #   - re-run                             → no duplicate (idempotent on name+kind)
 #   - already-tracked skill              → untouched, no audit (left to #113)
 #   - absent `claude` CLI                → graceful (skills still from disk)
+#   - a plugin bundling a same-named MCP server (fixture `claude plugin list
+#     --json`) → both rows registered once with description/version, exactly
+#     two scan_discovered rows; a re-scan adds nothing and writes no stderr
+#   - a legacy 'mcp:<server>' row → rewritten to 'mcp:<plugin>/<server>', blank
+#     plugin version filled, no audit; a new bundled server inherits the
+#     parent plugin's trust_tier
 #
 # All state lives under a mktemp sandbox (per #810); TRAJECTORY_DB_PATH pins
 # the DB so the real plugin DB is never touched. assert_not_in_plugin_repo
@@ -34,39 +40,12 @@ WS="$TMPDIR/ws"
 mkdir -p "$WS/.claude/tmb"
 DB="$WS/.claude/tmb/trajectory.db"
 
-# Minimal schema: tasks carries prompt_bearing so tmb_db_schema_current accepts
-# the DB; cheatcodes carries the columns the discovery INSERT names; audit
-# mirrors the production shape.
+# The shipped schema, so the discovery writes meet the real (name, kind) key,
+# CHECKs and foreign keys.
+SCHEMA_SQL="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
 seed_db() {
-  rm -f "$DB"
-  sqlite3 "$DB" "
-    CREATE TABLE tasks (id INTEGER PRIMARY KEY, prompt_bearing INTEGER NOT NULL DEFAULT 0);
-    CREATE TABLE cheatcodes (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      name         TEXT NOT NULL,
-      kind         TEXT NOT NULL,
-      origin       TEXT NOT NULL DEFAULT 'installed',
-      source_url   TEXT,
-      file_path    TEXT,
-      scope        TEXT NOT NULL DEFAULT 'project-local',
-      status       TEXT NOT NULL DEFAULT 'installed',
-      installed_at TEXT NOT NULL,
-      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE TABLE issues (id INTEGER PRIMARY KEY, repo TEXT);
-    CREATE TABLE audit (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      issue_id     INTEGER NOT NULL DEFAULT -1,
-      branch_id    TEXT,
-      from_node    TEXT NOT NULL DEFAULT 'bro',
-      event_type   TEXT NOT NULL,
-      summary      TEXT NOT NULL DEFAULT '',
-      content_json TEXT NOT NULL DEFAULT '{}',
-      repo TEXT,
-      created_at   TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-  "
+  rm -f "$DB" "$DB-wal" "$DB-shm"
+  sqlite3 "$DB" < "$SCHEMA_SQL" >/dev/null
 }
 
 # A project-local skill on disk under the scanned session dir.
@@ -97,6 +76,8 @@ run_scan() {
 cc_row() { sqlite3 "$DB" "SELECT origin||'|'||COALESCE(source_url,'')||'|'||status||'|'||COALESCE(file_path,'') FROM cheatcodes WHERE name='$1' AND kind='$2';"; }
 cc_count() { sqlite3 "$DB" "SELECT COUNT(*) FROM cheatcodes WHERE name='$1' AND kind='$2';"; }
 audit_count() { sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='scan_discovered' AND summary LIKE '$1%';"; }
+discovered_total() { sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='scan_discovered';"; }
+row_total() { sqlite3 "$DB" "SELECT (SELECT COUNT(*) FROM cheatcodes) || '/' || (SELECT COUNT(*) FROM audit);"; }
 
 # ---------------------------------------------------------------------------
 # Case 1 — a new local skill on disk is registered + audited.
@@ -170,6 +151,89 @@ JSON=$(env -i HOME="$TMPDIR/home" PATH="$NOCLAUDE_BIN" \
   TRAJECTORY_DB_PATH="$TMPDIR/nope/trajectory.db" \
   bash "$SCAN" "$WS" 2>/dev/null || true)
 assert_contains "$JSON" '"session_dir"' "scan json (no-db)"
+
+# ---------------------------------------------------------------------------
+# Cases 6-7 — a stub `claude` answers `plugin list --json` from a fixture.
+# ---------------------------------------------------------------------------
+FIXTURES="$HERE/fixtures/scan-resource-discovery"
+STUB_BIN="$TMPDIR/stub_bin"
+mkdir -p "$STUB_BIN" "$TMPDIR/install/linear/.claude-plugin"
+printf '{"name": "linear", "description": "Linear issue tracking"}' \
+  > "$TMPDIR/install/linear/.claude-plugin/plugin.json"
+cat > "$STUB_BIN/claude" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  "plugin list --json") cat "$STUB_PLUGIN_JSON" ;;
+  *) exit 1 ;;
+esac
+STUB
+chmod +x "$STUB_BIN/claude"
+
+# run_stub_scan <plugin-list.json> — prints the scan's stderr only.
+run_stub_scan() {
+  { env -i \
+    HOME="$TMPDIR/home" \
+    PATH="$STUB_BIN:$NOCLAUDE_BIN" \
+    TRAJECTORY_DB_PATH="$DB" \
+    STUB_PLUGIN_JSON="$1" \
+    bash "$SCAN" "$WS" >/dev/null || true; } 2>&1
+}
+cc_fields() { sqlite3 "$DB" "SELECT origin||'|'||source_url||'|'||status||'|'||description||'|'||COALESCE(version,'')||'|'||COALESCE(trust_tier,'') FROM cheatcodes WHERE name='$1' AND kind='$2';"; }
+
+rm -rf "$WS/.claude/skills"
+seed_db
+sed "s#INSTALL_ROOT#$TMPDIR/install#" "$FIXTURES/plugin-list-bundled.json" > "$TMPDIR/bundled.json"
+ERR=$(run_stub_scan "$TMPDIR/bundled.json")
+
+test_case "first scan writes no stderr"
+assert_eq "" "$ERR" "first scan stderr"
+
+test_case "plugin row registered with manifest description + version"
+assert_eq "marketplace|linear@claude-plugins-official|active|Linear issue tracking|1.2.3|" \
+  "$(cc_fields linear plugin)" "linear plugin row"
+
+test_case "same-named bundled server registered as mcp:<plugin>/<server>"
+assert_eq "marketplace|mcp:linear/linear|active|linear MCP server bundled by linear|1.2.3|" \
+  "$(cc_fields linear mcp)" "linear mcp row"
+
+test_case "exactly two scan_discovered audit rows"
+assert_eq "2" "$(discovered_total)" "scan_discovered count"
+
+BEFORE=$(row_total)
+ERR=$(run_stub_scan "$TMPDIR/bundled.json")
+
+test_case "re-scan adds zero cheatcodes and zero audit rows"
+assert_eq "$BEFORE" "$(row_total)" "cheatcodes/audit totals after re-scan"
+
+test_case "re-scan writes no stderr"
+assert_eq "" "$ERR" "re-scan stderr"
+
+seed_db
+sqlite3 "$DB" "
+  INSERT INTO cheatcodes (name, kind, origin, source_url, trust_tier, scope, status, installed_at)
+    VALUES ('tmb', 'plugin', 'marketplace', 'tmb@trustmybot-dev', 'reputable', 'project-local', 'active', 'x'),
+           ('trajectory-server', 'mcp', 'marketplace', 'mcp:trajectory-server', NULL, 'project-local', 'active', 'x');
+"
+ERR=$(run_stub_scan "$FIXTURES/plugin-list-legacy.json")
+
+test_case "legacy scan writes no stderr"
+assert_eq "" "$ERR" "legacy scan stderr"
+
+test_case "legacy mcp:<server> row rewritten to mcp:<plugin>/<server> with manifest fields"
+assert_eq "marketplace|mcp:tmb/trajectory-server|active|trajectory-server MCP server bundled by tmb|1.0.2|" \
+  "$(cc_fields trajectory-server mcp)" "trajectory-server row"
+
+test_case "existing plugin row gains its blank description + NULL version, keeps trust_tier"
+assert_eq "marketplace|tmb@trustmybot-dev|active|Trust me bro|1.0.2|reputable" \
+  "$(cc_fields tmb plugin)" "tmb plugin row"
+
+test_case "new bundled server inherits the parent plugin's trust_tier"
+assert_eq "marketplace|mcp:tmb/helper|active|helper MCP server bundled by tmb|1.0.2|reputable" \
+  "$(cc_fields helper mcp)" "helper mcp row"
+
+test_case "only the new server is audited"
+assert_eq "1" "$(discovered_total)" "scan_discovered count (legacy)"
+assert_eq "1" "$(audit_count 'helper')" "helper audit count"
 
 summarize
 printf "PASS scan-resource-discovery\n"

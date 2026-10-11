@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, chmodSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1999,6 +1999,23 @@ describe('projectRootFromDbPath', () => {
     it('returns null for :memory: and empty db paths', () => {
         assert.equal(projectRootFromDbPath(':memory:'), null);
         assert.equal(projectRootFromDbPath(''), null);
+    });
+});
+describe('cheatcodes lookups qualify by more than name (natural key is (name, kind))', () => {
+    it('no SQL string in src/tools/*.ts matches cheatcodes on a bare WHERE name = ?', () => {
+        const toolsDir = join(PLUGIN_ROOT, 'mcp', 'trajectory-server', 'src', 'tools');
+        const offenders = [];
+        for (const file of readdirSync(toolsDir).filter((f) => f.endsWith('.ts'))) {
+            const source = readFileSync(join(toolsDir, file), 'utf8');
+            for (const literal of source.match(/`[^`]*`|'[^'\n]*'|"[^"\n]*"/g) ?? []) {
+                if (!/\bcheatcodes\b/.test(literal))
+                    continue;
+                const sql = literal.replace(/\s+/g, ' ');
+                if (/\bWHERE name = \?(?! AND\b)/i.test(sql))
+                    offenders.push(`${file}: ${sql.slice(0, 120)}`);
+            }
+        }
+        assert.deepEqual(offenders, [], 'every cheatcodes lookup by name must also qualify by kind, origin or source_url');
     });
 });
 //# sourceMappingURL=cheatcode.test.js.map

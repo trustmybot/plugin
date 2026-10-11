@@ -130,6 +130,7 @@ Returned in the created-issue payload, not stored.
 | `milestone_seed_skipped` | `scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`) |
 | `milestone_closed` | `milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed` |
 | `agent_runs_capture_skipped` | `swe-atomic-close` could not bind a SWE spawn to a task (no `task_id=<N>` in the spawn transcript, or no such task) and wrote no `agent_runs` row; filed under the system issue `-1`; `content_json` carries `reason`, `transcript`, `spawn_id`, `task_id` |
+| `scan_discovered_repair` | The v32 migration deleted `scan_discovered` rows whose `(name, kind)` has no `cheatcodes` row (phantom discoveries from a failed insert); filed under the system issue `-1` by `system`; `content_json` carries `deleted` |
 
 **TMB-specific** — these are TMB workflow events. New event types require a row here. Bro should not invent ad-hoc event types.
 
@@ -174,7 +175,7 @@ No `CHECK` constraint — runtime reconciliation to `active`/`broken` is the hea
 
 ### `plugin_meta.schema_version` — DB schema version (integer)
 
-Currently `31`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration step in `db.ts:runMigrations`.
+Currently `32`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration step in `db.ts:runMigrations`.
 
 ### `agent_runs.usage_source` — where a run's token values came from
 
