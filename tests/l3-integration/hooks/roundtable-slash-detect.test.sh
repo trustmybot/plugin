@@ -53,6 +53,12 @@ run_hook "hey /roundtable on this topic"
 COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_slash_invoked';")
 assert_eq "1" "$COUNT" "mid-prompt /roundtable detected"
 
+test_case "GH 1199: a subagent hand-back quoting /roundtable writes no audit row"
+sqlite3 "$DB" "DELETE FROM audit;"
+run_hook "[Subagent hand-back] swe: bro may want /roundtable on this"
+COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_slash_invoked';")
+assert_eq "0" "$COUNT" "a harness turn is not the Human typing /roundtable"
+
 # ── walk-up DB resolution (no TRAJECTORY_DB_PATH) ────────────────────────────
 # Plant the DB in a subdirectory and run from a child directory to exercise the
 # tmb_db_path walk-up. The hook sources lib/query-task.sh which implements it.

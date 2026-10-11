@@ -22,7 +22,7 @@
 #     host's own temp dir ($TMPDIR when the host sets it, e.g. /tmp/claude-501,
 #     and its realpath) and /dev/null, /dev/stdout, /dev/stderr, /dev/tty,
 #     /dev/fd/*.
-#   Main session only (bro: no agent_type, or bro, outside a swe worktree):
+#   Main session only (bro: no agent_type, or bro):
 #     Claude Code's own host-owned state — its per-project dir
 #     (${CLAUDE_CONFIG_DIR:-~/.claude}/projects/<slug of the root>, the slug
 #     being the path with every non-alphanumeric character turned into `-`)

@@ -74,6 +74,14 @@ out=$(echo "$(input 'Bash' 'git worktree add --detach .claude/worktrees/x fix/fo
   | env TMB_ALLOW_WORKTREE_DETACH=1 bash "$HOOK" 2>&1 || true)
 assert_eq "" "$out" "detach bypass works"
 
+test_case "GH 1196: heredoc mentioning git worktree add -b: silent pass"
+out=$(run_hook "$(input 'Bash' "$(printf '%s\n' "cat > notes.md <<'EOF'" 'git worktree add -b foo .claude/worktrees/x' 'EOF')")")
+assert_eq "" "$out" "heredoc content is not a worktree add"
+
+test_case "GH 1196: git -C <repo> worktree add -b NAME path: BLOCK"
+out=$(run_hook "$(input 'Bash' 'git -C /repo worktree add -b foo .claude/worktrees/x')")
+assert_contains "$out" '"permissionDecision":"deny"' "a -C-scoped branch-create still blocks"
+
 test_case "no DB (not a TMB project): pass even on -B"
 rm -f "$DB"
 out=$(run_hook "$(input 'Bash' 'git worktree add -B foo .claude/worktrees/x HEAD')")

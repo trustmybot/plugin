@@ -10,8 +10,18 @@
 # Soft-warn via `additionalContext` — does not block the commit. Bypass:
 # TMB_SKIP_COMMIT_MSG_LINT=1, or run a real `commit-msg` git hook for
 # hard enforcement.
+#
+# Fires only on a real `git [-C <p>] commit` statement of the command's
+# executable skeleton (lib/cmd-analysis.sh); the subject is the first -m of
+# that statement's argv. A heredoc or quoted text that merely mentions
+# `git commit` is data and never linted; a message built by `$(cat <<EOF …)`
+# cannot be seen from the command string and is skipped.
 
 set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh
+. "$SCRIPT_DIR/lib/cmd-analysis.sh"
 
 INPUT=$(cat)
 
@@ -21,29 +31,21 @@ TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
 [ "$TOOL_NAME" = "Bash" ] || exit 0
 
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null)
-[ -n "$CMD" ] || exit 0
+case "$CMD" in *commit*) ;; *) exit 0 ;; esac
 
-# Only fire on `git commit` lines (handle `git -C path commit` too).
-case "$CMD" in
-  *"git commit "*|*"git -C "*" commit "*) ;;
-  *) exit 0 ;;
-esac
+COMMIT_SUB=""
+while IFS="$(printf '\t')" read -r _dir stmt; do
+  sub=$(tmb_git_subcommand "$stmt")
+  case "$sub" in commit|"commit "*) COMMIT_SUB="$sub"; break ;; esac
+done < <(tmb_cmd_statements "$CMD" /)
+[ -n "$COMMIT_SUB" ] || exit 0
 
 # Skip merge / amend / fixup / squash — those have their own message rules.
-case "$CMD" in
+case " $COMMIT_SUB " in
   *" --amend"*|*" --no-edit"*|*" --fixup"*|*" --squash"*|*" --merge"*) exit 0 ;;
 esac
 
-# Extract the -m / --message argument.
-MSG=$(printf '%s' "$CMD" | sed -nE "s/.*-m[[:space:]]+['\"]([^'\"]+)['\"].*/\1/p")
-if [ -z "$MSG" ]; then
-  MSG=$(printf '%s' "$CMD" | sed -nE "s/.*--message[[:space:]]*[=]?[[:space:]]*['\"]([^'\"]+)['\"].*/\1/p")
-fi
-
-# HEREDOC commits (`-m "$(cat <<EOF ... EOF)"`) are common in the project's
-# own workflow; we can't see the rendered body from the command string, so
-# skip those rather than false-warn.
-if echo "$CMD" | grep -qE '<<-?\s*[A-Za-z]+'; then exit 0; fi
+MSG=$(tmb_git_commit_message "$CMD")
 if [ -z "$MSG" ]; then exit 0; fi
 
 FIRST_LINE=$(printf '%s' "$MSG" | head -n 1)

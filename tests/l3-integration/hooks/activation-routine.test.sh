@@ -86,6 +86,14 @@ test_case "#276: bare 'bro' in transcript (no @sigil, no announce): no sticky no
 out=$(run_hook "$(input 'a normal question' "$TRANSCRIPT_BARE_BRO")")
 assert_eq "" "$out" "casual 'bro' mention must not make the session sticky-bro"
 
+test_case "GH 1199: a subagent hand-back mentioning bro does not activate bro mode"
+out=$(run_hook "$(input '[Subagent hand-back] swe reports to bro: task done')")
+assert_eq "" "$out" "a harness turn's bro word is not the Human's"
+
+test_case "GH 1199: a hand-back in a sticky bro session still gets the activation context"
+out=$(run_hook "$(input '<agent-message from="swe">done</agent-message>' "$TRANSCRIPT_BRO")")
+assert_contains "$out" 'tmb activation routine' "sticky bro mode is unaffected"
+
 # ---- bro trigger paths: emit additionalContext ----
 
 test_case "@bro greeting + empty DB state (no identity, no pending): emit FIRST CONTACT auto-fire signal"

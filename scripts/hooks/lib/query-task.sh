@@ -283,34 +283,11 @@ tmb_config_array() {
 }
 
 # tmb_swe_context [<agent_type>]
-# Returns "yes" when the calling context is a SWE subagent; "no" otherwise.
-# Three deterministic signals, priority order:
-#   1. <agent_type> == 'swe' → yes (most reliable when CC populates the field).
-#   2. <agent_type> is a known non-SWE role → no (explicit identity wins; no PWD fallback).
-#      Known non-SWE roles: bro, pr-reviewer, architect, cto, ceo, pm, consultant.
-#   3. <agent_type> absent/empty + $PWD inside .claude/worktrees/* → yes.
-#      Structural fallback for cases where CC quirk #97 strips the agent_type field.
-# Callers must normalize <agent_type> via tmb_normalize_role before passing.
-# Never fails the caller.
+# Returns "yes" when <agent_type> (normalized via tmb_normalize_role) is swe,
+# "no" otherwise. The role comes from the agent identity alone; a path never
+# decides it. Never fails the caller.
 tmb_swe_context() {
-  local agent_type="${1:-}"
-  if [ "$agent_type" = "swe" ]; then
-    echo "yes"
-    return 0
-  fi
-  case "$agent_type" in
-    bro|pr-reviewer|architect|cto|ceo|pm|consultant)
-      echo "no"
-      return 0
-      ;;
-  esac
-  case "$PWD" in
-    */.claude/worktrees/*)
-      echo "yes"
-      return 0
-      ;;
-  esac
-  echo "no"
+  if [ "${1:-}" = "swe" ]; then echo "yes"; else echo "no"; fi
 }
 
 # tmb_sql_int <value>

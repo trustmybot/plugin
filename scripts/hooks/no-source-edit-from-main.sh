@@ -34,14 +34,14 @@ set -uo pipefail
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$PLUGIN_ROOT/scripts/hooks/lib/query-task.sh"
-# shellcheck source=scripts/hooks/lib/normalize-role.sh
-. "$PLUGIN_ROOT/scripts/hooks/lib/normalize-role.sh"
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh
+. "$PLUGIN_ROOT/scripts/hooks/lib/cmd-analysis.sh"
 # shellcheck source=scripts/hooks/lib/resolve-repo.sh
 . "$PLUGIN_ROOT/scripts/hooks/lib/resolve-repo.sh"
 
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
-AGENT_TYPE=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)")
+AGENT_TYPE=$(tmb_agent_role "$INPUT")
 
 case "$TOOL_NAME" in
   Edit|Write|MultiEdit|NotebookEdit|Bash) ;;
@@ -86,104 +86,19 @@ if [ "$TOOL_NAME" = "Bash" ]; then
     return 1
   }
 
-  # _main_bash_writes_prompt_surface: destination-coupled matching. The verb/
-  # redirect operator must be adjacent to the prompt-surface path token. On a
-  # match it prints the destination token (so the caller can test THAT token
-  # against the worktree exemption) and returns 0; otherwise returns 1.
-  _main_bash_writes_prompt_surface() {
-    local cmd="$1"
-
-    # --- Redirect forms: > <dest> or >> <dest> ---
-    local after_redir=""
-    case "$cmd" in
-      *">>"*)
-        after_redir="${cmd##*>>}"
-        after_redir="${after_redir#"${after_redir%%[! ]*}"}"
-        local dest_tok="${after_redir%% *}"
-        _is_prompt_surface_token "$dest_tok" && { printf '%s' "$dest_tok"; return 0; }
-        ;;
-    esac
-    case "$cmd" in
-      *">"*)
-        local no_dbl
-        no_dbl=$(printf '%s' "$cmd" | sed 's/>>//g')
-        case "$no_dbl" in
-          *">"*)
-            after_redir="${no_dbl##*>}"
-            after_redir="${after_redir#"${after_redir%%[! ]*}"}"
-            local dest_tok2="${after_redir%% *}"
-            _is_prompt_surface_token "$dest_tok2" && { printf '%s' "$dest_tok2"; return 0; }
-            ;;
-        esac
-        ;;
-    esac
-
-    # --- tee: match "tee <dest>" or "tee -a <dest>" ---
-    local tee_rest=""
-    case "$cmd" in
-      *" tee "*|*" tee	"*|"tee "*)
-        case "$cmd" in
-          *" tee "*) tee_rest="${cmd##* tee }" ;;
-          "tee "*) tee_rest="${cmd#tee }" ;;
-        esac
-        case "$tee_rest" in
-          "-a "*) tee_rest="${tee_rest#-a }" ;;
-        esac
-        local tee_dest="${tee_rest%% *}"
-        _is_prompt_surface_token "$tee_dest" && { printf '%s' "$tee_dest"; return 0; }
-        ;;
-    esac
-
-    # --- sed -i: file is the last token after sed -i ---
-    case "$cmd" in
-      *"sed -i"*|*"sed --in-place"*)
-        local after_sedi=""
-        case "$cmd" in
-          *"sed --in-place"*) after_sedi="${cmd##*sed --in-place}" ;;
-          *"sed -i"*) after_sedi="${cmd##*sed -i}" ;;
-        esac
-        local sedi_file="${after_sedi##* }"
-        _is_prompt_surface_token "$sedi_file" && { printf '%s' "$sedi_file"; return 0; }
-        ;;
-    esac
-
-    # --- perl -i: file is the last token after perl -i ---
-    case "$cmd" in
-      *"perl -i"*)
-        local after_perli="${cmd##*perl -i}"
-        local perli_file="${after_perli##* }"
-        _is_prompt_surface_token "$perli_file" && { printf '%s' "$perli_file"; return 0; }
-        ;;
-    esac
-
-    # --- python/python3 open(<path>, 'w'|'a'): path inside open() ---
-    case "$cmd" in
-      *"python"*"open("*"'w'"*|*"python"*"open("*'"w"'*|*"python"*"open("*"'a'"*|*"python"*"open("*'"a"'*)
-        local open_arg="${cmd##*open(}"
-        local open_path="${open_arg%%,*}"
-        open_path="${open_path#\'}"
-        open_path="${open_path%\'}"
-        open_path="${open_path#\"}"
-        open_path="${open_path%\"}"
-        _is_prompt_surface_token "$open_path" && { printf '%s' "$open_path"; return 0; }
-        ;;
-    esac
-
-    # --- cp/mv/rsync: destination is the LAST argument ---
-    case "$cmd" in
-      "cp "*|*" cp "*|"mv "*|*" mv "*|"rsync "*|*" rsync "*)
-        local copy_last="${cmd##* }"
-        _is_prompt_surface_token "$copy_last" && { printf '%s' "$copy_last"; return 0; }
-        ;;
-    esac
-
-    return 1
-  }
-
-  # Exempt only when the WRITE DESTINATION is inside a worktree (#1031) — not
-  # when the command merely reads from one.
-  _BASH_DEST_TOK=$(_main_bash_writes_prompt_surface "$CMD")
-  if [ -n "$_BASH_DEST_TOK" ] && ! _token_in_worktree "$_BASH_DEST_TOK"; then
+  # Destination-coupled matching on the command's executable skeleton
+  # (tmb_cmd_write_paths: redirect, tee, cp/mv/rsync destination, sed -i,
+  # perl -i, python open w/a). A prompt-surface path inside quoted text or a
+  # heredoc body is data. Exempt only when the WRITE DESTINATION is inside a
+  # worktree (#1031) — not when the command merely reads from one.
+  _BASH_DEST_TOK=""
+  while IFS= read -r _wpath; do
+    if _is_prompt_surface_token "$_wpath" && ! _token_in_worktree "$_wpath"; then
+      _BASH_DEST_TOK="$_wpath"
+      break
+    fi
+  done < <(tmb_cmd_write_paths "$CMD")
+  if [ -n "$_BASH_DEST_TOK" ]; then
     BASH_DENY_REASON="BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md, CODEX/CURSOR/GEMINI.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed."
     jq -nc --arg reason "$BASH_DENY_REASON" '{
       hookSpecificOutput: {

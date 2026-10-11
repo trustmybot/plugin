@@ -29,36 +29,41 @@
 
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
 [ "$TOOL_NAME" = "Bash" ] || exit 0
 
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null)
-[ -n "$CMD" ] || exit 0
-
 case "$CMD" in
-  *"git worktree add"*) ;;
+  *worktree*) ;;
   *) exit 0 ;;
 esac
 
-VIOLATION=""
-case "$CMD" in
-  *"git worktree add -b "*|*"git worktree add -B "*|*"git worktree add --create-branch "*)
-    [ "${TMB_ALLOW_WORKTREE_BRANCH_CREATE:-0}" = "1" ] || VIOLATION="branch-create"
-    ;;
-esac
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh
+. "$SCRIPT_DIR/lib/cmd-analysis.sh"
 
-if [ -z "$VIOLATION" ]; then
-  case "$CMD" in
-    *"git worktree add"*"--detach"*)
-      [ "${TMB_ALLOW_WORKTREE_DETACH:-0}" = "1" ] || VIOLATION="detach"
+# Judge every `git [-C <p>] worktree add` statement of the command's executable
+# skeleton; one named in quoted text or a heredoc is data.
+VIOLATION=""
+while IFS="$(printf '\t')" read -r _dir stmt; do
+  sub=$(tmb_git_subcommand "$stmt")
+  case "$sub" in "worktree add "*) ;; *) continue ;; esac
+  case " $sub " in
+    *" -b "*|*" -B "*|*" --create-branch "*)
+      if [ "${TMB_ALLOW_WORKTREE_BRANCH_CREATE:-0}" != "1" ]; then VIOLATION="branch-create"; break; fi
       ;;
   esac
-fi
+  case " $sub " in
+    *" --detach "*)
+      if [ "${TMB_ALLOW_WORKTREE_DETACH:-0}" != "1" ]; then VIOLATION="detach"; break; fi
+      ;;
+  esac
+done < <(tmb_cmd_statements "$CMD" /)
 
 [ -n "$VIOLATION" ] || exit 0
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
 

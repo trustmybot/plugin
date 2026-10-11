@@ -124,4 +124,25 @@ out=$(run_hook "git checkout feat/open-task")
 assert_eq "" "$out" "no DB = not TMB = allow"
 export TRAJECTORY_DB_PATH="$ORIG_DB"
 
+# GH 1196: switches named in a heredoc are data; the dir comes from the command.
+test_case "ALLOW: heredoc mentioning git checkout <open-task-branch>"
+out=$(run_hook "$(printf '%s\n' "cat > notes.md <<'EOF'" 'git checkout feat/open-task' 'EOF')")
+assert_eq "" "$out" "heredoc content is not a switch"
+
+REPO="$TMPDIR/repo"
+git init -q -b dev "$REPO"
+git -C "$REPO" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+git -C "$REPO" branch feat/running-task
+git -C "$REPO" branch feat/open-task
+git -C "$REPO" worktree add -q "$REPO/.claude/worktrees/running-task" feat/running-task
+
+test_case "DENY ambiguous_git_target: bare switch to an open-task branch while worktrees exist"
+out=$(run_hook "git checkout feat/open-task" "$REPO")
+assert_contains "$out" "ambiguous_git_target" "no dir and several checkouts — the real reason"
+assert_contains "$out" "git -C <path> or cd <path>" "the deny carries the remedy"
+
+test_case "DENY: 'git -C <main> checkout <open-task-branch>' while worktrees exist"
+out=$(run_hook "git -C $REPO checkout feat/open-task" "$REPO/.claude/worktrees/running-task")
+assert_contains "$out" "belongs to open task" "an explicit main dir decides, not the cwd"
+
 summarize

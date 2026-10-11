@@ -325,6 +325,14 @@ test_case "Bash git commit -m message mentioning agents/swe.md: NOT denied"
 out=$(run_hook "$(bash_input 'git commit -m "touch agents/swe.md"')")
 assert_eq "" "$out" "commit message mentioning prompt path should not be denied"
 
+test_case "GH 1196: heredoc whose body mentions a redirect to agents/swe.md: NOT denied"
+out=$(run_hook "$(bash_input "$(printf '%s\n' "cat > /tmp/notes.md <<'EOF'" 'echo x > agents/swe.md' 'EOF')")")
+assert_eq "" "$out" "heredoc content is data; the real destination is /tmp/notes.md"
+
+test_case "GH 1196: heredoc written straight to a prompt surface: DENIED"
+out=$(run_hook "$(bash_input "$(printf '%s\n' "cat > agents/swe.md <<'EOF'" 'text' 'EOF')")")
+assert_contains "$out" '"permissionDecision":"deny"' "the heredoc's own redirect target is a write"
+
 # ---- Non-isolated SWE first-class (agent_type=swe permit) ----
 # Restore DB (removed in the "no DB" test case above)
 sqlite3 "$DB" "CREATE TABLE meta (k TEXT);" 2>/dev/null || true

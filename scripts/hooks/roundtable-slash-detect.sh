@@ -18,6 +18,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/query-task.sh"
 # shellcheck source=scripts/hooks/lib/db-write.sh
 . "$SCRIPT_DIR/lib/db-write.sh"
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh
+. "$SCRIPT_DIR/lib/cmd-analysis.sh"
 export TMB_DB_WRITE_TIMEOUT_MS=5000
 export TMB_DB_WRITE_RUN_BUDGET_MS=10200
 
@@ -26,6 +28,10 @@ command -v jq >/dev/null 2>&1 || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0
 
 PROMPT=$(echo "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)
+
+# A harness turn (notification, subagent hand-back, agent message) quoting
+# /roundtable was not typed by the Human — never record it as the ceremony.
+tmb_is_harness_turn "$PROMPT" && exit 0
 
 # Match /roundtable at the start of the prompt or after whitespace.
 # The trailing context can be anything (topic, args, etc.).

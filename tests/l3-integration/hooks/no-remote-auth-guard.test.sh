@@ -208,4 +208,12 @@ test_case "(H6) cd into the with-remote sibling → allow (resolved from cd targ
 out_mr2=$( (cd "$NORM" && echo "$(input_bash "cd $WITH && gh auth login")" | TRAJECTORY_DB_PATH="$MR_DB" bash "$HOOK" 2>/dev/null) || true)
 assert_eq "" "$out_mr2" "with-remote sibling must allow even when \$PWD has no remote"
 
+test_case "GH 1196: heredoc mentioning gh auth login → allow (data, not a login)"
+out_hd=$( (cd "$NORM" && echo "$(input_bash "$(printf '%s\n' "cat > notes.md <<'EOF'" 'gh auth login' 'EOF')")" | TRAJECTORY_DB_PATH="$MR_DB" bash "$HOOK" 2>/dev/null) || true)
+assert_eq "" "$out_hd" "heredoc content is not a login"
+
+test_case "GH 1196: payload cwd names the with-remote sibling → allow (no false no-remote claim)"
+out_cwd=$( (cd "$NORM" && jq -cn --arg d "$WITH" '{tool_name:"Bash",cwd:$d,tool_input:{command:"gh auth login"}}' | TRAJECTORY_DB_PATH="$MR_DB" bash "$HOOK" 2>/dev/null) || true)
+assert_eq "" "$out_cwd" "the payload cwd's repo has a remote"
+
 summarize

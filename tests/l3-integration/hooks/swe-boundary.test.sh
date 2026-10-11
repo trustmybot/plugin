@@ -437,6 +437,90 @@ out=$(run_hook_swe "$(make_bash_with_transcript swe 'git commit -m "touch agents
 assert_not_contains "$out" '"permissionDecision":"deny"' "commit message mentioning prompt path should not be denied"
 
 # ===========================================================================
+# GH 1196 — role from identity only; quoted text and heredocs are data
+# ===========================================================================
+
+make_bash_no_agent() {
+  jq -n --arg d "$1" --arg c "$2" '{tool_name: "Bash", cwd: $d, tool_input: {command: $c}}'
+}
+
+test_case "GH 1196: bro 'cd <main> && gh issue create' with the shell inside a worktree: NOT denied"
+out=$(run_hook_swe "$(make_bash_no_agent "$WORKTREE" "cd $TMPDIR/repo && gh issue create --title t --body b")")
+assert_not_contains "$out" '"permissionDecision":"deny"' "no agent_type is bro, whatever the cwd"
+
+test_case "GH 1196: bro 'git -C <main> push' with the shell inside a worktree: NOT denied"
+out=$(run_hook_swe "$(make_bash_no_agent "$WORKTREE" "git -C $TMPDIR/repo push origin dev")")
+assert_not_contains "$out" "SWE must never push" "a path never makes bro an SWE"
+
+test_case "GH 1196: SWE python one-liner writing text that mentions gh pr merge: NOT denied"
+out=$(run_hook_swe "$(make_bash_input swe "python3 -c \"open('t.txt','w').write('then gh pr merge 3 --merge')\"")")
+assert_not_contains "$out" '"permissionDecision":"deny"' "a python program's text is data"
+
+test_case "GH 1196: SWE markdown heredoc mentioning gh pr merge and git push: NOT denied"
+out=$(run_hook_swe "$(make_bash_input swe "$(printf '%s\n' "cat > notes.md <<'EOF'" 'gh pr merge 12 --merge' 'git push origin dev' 'EOF')")")
+assert_not_contains "$out" '"permissionDecision":"deny"' "heredoc content is data"
+
+test_case "GH 1196: SWE real gh pr merge after a heredoc: DENIED"
+out=$(run_hook_swe "$(make_bash_input swe "$(printf '%s\n' "cat > notes.md <<'EOF'" 'text' 'EOF' 'gh pr merge 12 --merge')")")
+assert_contains "$out" "gh/glab mutating" "a real statement after the heredoc still fires"
+
+# ===========================================================================
+# Rule (b) word parsing — the HTTP verb of an api call is found in any flag
+# position and spelling; wrappers and absolute paths do not hide argv0.
+# ===========================================================================
+
+for gh_cmd in 'gh api -X POST x' 'gh api -XPOST x' 'gh api --method DELETE x' \
+  'gh api --method=PATCH x' 'gh api x -X PUT' '/usr/bin/gh api -X POST x' \
+  'sudo gh api -X POST x' 'glab api -X POST x' 'gh api -X post x' \
+  'gh issue comment 3 --body x' 'gh release create v1' 'gh repo delete o/r' \
+  'gh api repos/o/r/issues -f title=x' 'gh api repos/o/r/issues -F body=@f' \
+  'gh api --input body.json repos/o/r/labels' 'glab api projects/1/issues -f title=x'; do
+  test_case "(b) SWE '$gh_cmd': DENIED"
+  out=$(run_hook_swe "$(make_bash_input swe "$gh_cmd")")
+  assert_contains "$out" "gh/glab mutating" "a forge write must be denied for SWE"
+done
+
+for gh_cmd in 'gh api repos/o/r' 'gh api -X GET x' 'gh release view v1' \
+  'gh api -X GET repos/o/r -f per_page=5' 'echo "gh api repos/o/r/issues -f title=x"' \
+  "cat > notes.md <<'EOF'
+gh api -X POST x
+gh api --method=PATCH x
+EOF" \
+  'echo "gh api -X POST x"' "grep -n 'gh api --method DELETE x' notes.md"; do
+  test_case "(b) SWE read-only or data '${gh_cmd%%$'\n'*}': NOT denied"
+  out=$(run_hook_swe "$(make_bash_input swe "$gh_cmd")")
+  assert_not_contains "$out" '"permissionDecision":"deny"' "a read or a quoted/heredoc mention is allowed"
+done
+
+# Rule (b) — gh/glab is found at any word of a statement, so any wrapper,
+# its options and VAR=value prefixes run it without hiding it.
+
+for gh_cmd in 'timeout 5 gh pr merge 3' 'nice gh issue create -t x' \
+  'xargs gh pr merge <<< 3' 'echo 3 | xargs -I{} gh pr merge {}' \
+  'time -p gh api -X POST x' 'timeout 5 gh api -X POST x' \
+  'nice -n 10 glab mr merge 4' 'stdbuf -oL gh issue close 9' \
+  'FOO=1 timeout 5 gh pr merge 3' 'ionice -c3 gh pr merge 3' \
+  'env -i FOO=1 gh pr merge 3' 'sudo -u bob gh pr merge 3' \
+  'xargs -I{} -P4 gh issue close {}'; do
+  test_case "(b) SWE wrapped '$gh_cmd': DENIED"
+  out=$(run_hook_swe "$(make_bash_input swe "$gh_cmd")")
+  assert_contains "$out" "gh/glab mutating" "a wrapped forge write must be denied for SWE"
+done
+
+for gh_cmd in 'timeout 5 gh pr view 3' 'echo "timeout 5 gh pr merge 3"' \
+  'gh api -X GET x' 'git log --grep="gh pr merge"'; do
+  test_case "(b) SWE wrapped read or data '$gh_cmd': NOT denied"
+  out=$(run_hook_swe "$(make_bash_input swe "$gh_cmd")")
+  assert_not_contains "$out" '"permissionDecision":"deny"' "a wrapped read or a quoted mention is allowed"
+done
+
+test_case "(b) tmb_gh_mutation keeps no wrapper allowlist"
+gh_fn=$(sed -n '/^tmb_gh_mutation() {/,/^}/p' "$PLUGIN_ROOT/scripts/hooks/lib/cmd-analysis.sh")
+assert_not_contains "$gh_fn" "nohup" "no wrapper list in tmb_gh_mutation"
+assert_not_contains "$gh_fn" "*/sudo" "no wrapper list in tmb_gh_mutation"
+assert_not_contains "$gh_fn" "--split-string" "no wrapper option list in tmb_gh_mutation"
+
+# ===========================================================================
 # Layer 1 — schema-mismatch fail-safe (#596)
 # A stale legacy ~/.claude/tmb/trajectory.db (old schema, no prompt_bearing
 # column) up-tree from the hook's cwd must be treated as UNRESOLVED, not
