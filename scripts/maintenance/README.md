@@ -9,9 +9,10 @@ Operational and one-off scripts that keep a TMB install healthy: version bumps, 
 | `bump-version.sh` | Atomic plugin-version bump — updates the five files that must stay in sync (the Claude and Codex manifests, two package manifests, and the `bun.lock` workspace version), or fails leaving every file unchanged. Idempotent. |
 | `heal-mcp-cache.sh` | Interactive remediation for the Claude Code plugin MCP-config cache bug — clears stale `disabledMcpServers` entries and other recovery steps. |
 | `cleanup-stale-worktrees.sh` | One-time cleanup of repo-rooted SWE worktrees left over before worktrees moved to workspace-rooted paths. Idempotent. |
+| `backfill-agent-runs.sh` | Recovers `agent_runs` rows from the Claude Code transcripts still on disk by calling the server's `agent_runs_backfill` tool as bro. Dry run by default (`--apply` writes; `--since`, `--transcripts-dir`); reads transcripts only and writes nothing but the project's trajectory DB. Idempotent. |
 | `run-scan.mjs` | Standalone scan invoker used by the `post-task-close-rescan.sh` hook to re-run the scan against the current commit after an atomic close. Reuses the same `scan_run` logic as the MCP tool; silent on failure. |
 | `run-scan-initial.mjs` | Mirror of `run-scan.mjs` for the cold-world-model SessionStart prescan, tagged with a distinct audit source. Silent on failure. |
 
 ## How it fits
 
-`bump-version.sh` backs the release/version-sync flow; `heal-mcp-cache.sh` and `cleanup-stale-worktrees.sh` are recovery tooling; the two `run-scan*.mjs` invokers let hooks refresh the world model without duplicating the MCP tool's scan logic.
+`bump-version.sh` backs the release/version-sync flow; `heal-mcp-cache.sh` and `cleanup-stale-worktrees.sh` are recovery tooling, as is `backfill-agent-runs.sh` for metering lost before v1.0.3; the two `run-scan*.mjs` invokers let hooks refresh the world model without duplicating the MCP tool's scan logic.

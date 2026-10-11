@@ -6799,7 +6799,7 @@ var require_dist = __commonJS({
 
 // src/index.ts
 import path from "node:path";
-import { mkdirSync as mkdirSync8, readFileSync as readFileSync8 } from "node:fs";
+import { mkdirSync as mkdirSync8, readFileSync as readFileSync9 } from "node:fs";
 import { performance as performance2 } from "node:perf_hooks";
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
@@ -33416,17 +33416,17 @@ function deriveDirectoryEntries(out) {
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames) {
   const leaf = dirPath === "" ? "(repo root)" : basename3(dirPath);
-  const join14 = (names) => {
+  const join15 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
   };
   const parts = [];
   if (fileNames.length > 0) {
-    parts.push(`${fileNames.length} file${fileNames.length === 1 ? "" : "s"} (${join14(fileNames.slice().sort())})`);
+    parts.push(`${fileNames.length} file${fileNames.length === 1 ? "" : "s"} (${join15(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts.push(`subdirs: ${join14(subdirNames.slice().sort())}`);
+    parts.push(`subdirs: ${join15(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts.length > 0 ? parts.join("; ") : "empty directory"}`;
 }
@@ -35329,6 +35329,539 @@ function worldModelTools(db2, graphHolder2) {
   return { definitions, handlers };
 }
 
+// src/tools/agent-runs-backfill.ts
+import { existsSync as existsSync11, readdirSync as readdirSync2, readFileSync as readFileSync8, statSync as statSync3 } from "node:fs";
+import { homedir as homedir3 } from "node:os";
+import { basename as basename4, join as join14 } from "node:path";
+var UNBOUND_SAMPLE = 20;
+var BACKFILL_AGENTS = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
+function readRecords(path2) {
+  let text;
+  try {
+    text = readFileSync8(path2, "utf8");
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const v = JSON.parse(line);
+      if (v && typeof v === "object" && !Array.isArray(v)) out.push(v);
+    } catch {
+      continue;
+    }
+  }
+  return out;
+}
+function messageOf(r) {
+  const m = r["message"];
+  return m && typeof m === "object" && !Array.isArray(m) ? m : null;
+}
+function taskIdFromTranscript(path2) {
+  let text;
+  try {
+    text = readFileSync8(path2, "utf8");
+  } catch {
+    return null;
+  }
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    let rec;
+    try {
+      rec = JSON.parse(line);
+    } catch {
+      return null;
+    }
+    if (rec === null || typeof rec !== "object" || Array.isArray(rec)) return null;
+    const msg = rec["message"];
+    if (msg !== void 0 && msg !== null && (typeof msg !== "object" || Array.isArray(msg))) return null;
+    const raw = msg ? msg["content"] : void 0;
+    const content = raw === void 0 || raw === null || raw === false ? [] : raw;
+    const s = typeof content === "string" ? content : JSON.stringify(content);
+    const m = /task_id=([0-9]+)/.exec(s);
+    if (m) return Number(m[1]);
+  }
+  return null;
+}
+function isoMs(v) {
+  if (typeof v !== "string") return null;
+  const m = /^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(\.([0-9]+))?Z$/.exec(v);
+  if (!m) return null;
+  return `${m[1]}.${((m[3] ?? "") + "000").slice(0, 3)}Z`;
+}
+function nonNegInt(v) {
+  return typeof v === "number" && v >= 0 ? Math.floor(v) : 0;
+}
+function modelId(v) {
+  if (typeof v !== "string" || v.startsWith("<")) return "";
+  return v.replace(/[^A-Za-z0-9._:@/[\]-]/g, "");
+}
+function toolUseCount(r) {
+  const content = messageOf(r)?.["content"];
+  if (!Array.isArray(content)) return 0;
+  return content.filter((b) => b && typeof b === "object" && b["type"] === "tool_use").length;
+}
+function usageOf(u) {
+  const o = u && typeof u === "object" ? u : {};
+  return {
+    ti: nonNegInt(o["input_tokens"]),
+    to: nonNegInt(o["output_tokens"]),
+    cr: nonNegInt(o["cache_read_input_tokens"]),
+    cc: nonNegInt(o["cache_creation_input_tokens"])
+  };
+}
+function usageTotal(u) {
+  return u.ti + u.to + u.cr + u.cc;
+}
+function messageKey(r, i) {
+  const id = messageOf(r)?.["id"] ?? r["uuid"];
+  return id === void 0 || id === null || id === false ? `line-${i}` : String(id);
+}
+function dominantModel(msgs) {
+  const byModel = /* @__PURE__ */ new Map();
+  for (const x of msgs) {
+    if (x.m === "") continue;
+    byModel.set(x.m, (byModel.get(x.m) ?? 0) + usageTotal(x.u));
+  }
+  const ranked = [...byModel].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  return ranked[0]?.[0] ?? null;
+}
+function spawnStats(records) {
+  const stamps = records.map((r) => isoMs(r["timestamp"])).filter((s) => s !== null).sort();
+  const groups = /* @__PURE__ */ new Map();
+  records.forEach((r, i) => {
+    const msg = messageOf(r);
+    if (!msg || msg["usage"] === void 0 || msg["usage"] === null) return;
+    groups.set(messageKey(r, i), { u: usageOf(msg["usage"]), m: modelId(msg["model"]) });
+  });
+  const msgs = [...groups.values()];
+  const sum = (k) => msgs.reduce((a, x) => a + x.u[k], 0);
+  const first = stamps[0] ?? null;
+  const last = stamps[stamps.length - 1] ?? null;
+  return {
+    ti: sum("ti"),
+    to: sum("to"),
+    cr: sum("cr"),
+    cc: sum("cc"),
+    tool_uses: records.reduce((a, r) => a + toolUseCount(r), 0),
+    duration_ms: stamps.length < 2 ? 0 : Date.parse(last) - Date.parse(first),
+    first_ts: first,
+    last_ts: last,
+    model: dominantModel(msgs)
+  };
+}
+function sessionMessages(records) {
+  const groups = /* @__PURE__ */ new Map();
+  records.forEach((r, i) => {
+    const msg = messageOf(r);
+    if (r["isSidechain"] === true || !msg || msg["usage"] === void 0 || msg["usage"] === null) return;
+    const ts = isoMs(r["timestamp"]);
+    if (ts === null) return;
+    const key = messageKey(r, i);
+    const prev = groups.get(key);
+    groups.set(key, {
+      ts: prev && prev.ts < ts ? prev.ts : ts,
+      u: usageOf(msg["usage"]),
+      m: modelId(msg["model"]),
+      tu: (prev?.tu ?? 0) + toolUseCount(r)
+    });
+  });
+  return [...groups.values()].sort((a, b) => a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0);
+}
+function normalizeRole(v) {
+  return typeof v === "string" && v !== "" ? v.slice(v.indexOf(":") + 1) : null;
+}
+function sessionSpawnTypes(records) {
+  const byToolUse = /* @__PURE__ */ new Map();
+  const out = /* @__PURE__ */ new Map();
+  for (const r of records) {
+    const content = messageOf(r)?.["content"];
+    if (!Array.isArray(content)) continue;
+    for (const b of content) {
+      if (b?.["type"] === "tool_use" && typeof b["id"] === "string") {
+        const t = b["input"]?.["subagent_type"];
+        if (typeof t === "string") byToolUse.set(b["id"], t);
+      }
+    }
+  }
+  for (const r of records) {
+    const agentId = r["toolUseResult"]?.["agentId"];
+    const content = messageOf(r)?.["content"];
+    if (typeof agentId !== "string" || !Array.isArray(content)) continue;
+    for (const b of content) {
+      const t = typeof b?.["tool_use_id"] === "string" ? byToolUse.get(b["tool_use_id"]) : void 0;
+      if (t) out.set(agentId, t);
+    }
+  }
+  return out;
+}
+function defaultTranscriptsDir(projectRoot) {
+  const configDir = process.env["CLAUDE_CONFIG_DIR"] || join14(homedir3(), ".claude");
+  return join14(configDir, "projects", projectRoot.replace(/[^A-Za-z0-9]/g, "-"));
+}
+function listTranscripts(dir) {
+  const sessions = [];
+  const subagents = [];
+  for (const name of readdirSync2(dir).sort()) {
+    const p = join14(dir, name);
+    if (name.endsWith(".jsonl")) {
+      sessions.push(p);
+      continue;
+    }
+    const sub = join14(p, "subagents");
+    if (!existsSync11(sub) || !statSync3(sub).isDirectory()) continue;
+    for (const f of readdirSync2(sub).sort()) {
+      if (/^agent-.+\.jsonl$/.test(f)) subagents.push({ path: join14(sub, f), session: name });
+    }
+  }
+  return { sessions, subagents };
+}
+function spawnAgentType(path2, sessionTypes) {
+  const meta3 = path2.replace(/\.jsonl$/, ".meta.json");
+  if (existsSync11(meta3)) {
+    try {
+      const t = normalizeRole(JSON.parse(readFileSync8(meta3, "utf8"))["agentType"]);
+      if (t) return t;
+    } catch {
+    }
+  }
+  return normalizeRole(sessionTypes?.get(agentIdOf(path2)));
+}
+function agentIdOf(path2) {
+  return basename4(path2).replace(/^agent-/, "").replace(/\.jsonl$/, "");
+}
+var RUN_COLS = "id, task_id, agent_type, started_at, completed_at, spawn_id, session_id, usage_source, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens";
+var MEASURED_SOURCES = /* @__PURE__ */ new Set(["transcript", "subagent_stop", "backfill"]);
+function isMeasured(r) {
+  if (r.usage_source !== null && MEASURED_SOURCES.has(r.usage_source)) return true;
+  if (r.usage_source === "unmeasured") return false;
+  return (r.tokens_in ?? 0) + (r.tokens_out ?? 0) + (r.cache_read_tokens ?? 0) + (r.cache_creation_tokens ?? 0) > 0;
+}
+function exitReasonFor(status) {
+  if (status === "completed" || status === "closed" || status === "needs_validation") return "completed";
+  if (status === "escalated") return "escalated";
+  return "failed";
+}
+function agentRunsBackfill(db2, opts) {
+  const { sessions, subagents } = listTranscripts(opts.transcriptsDir);
+  const report = {
+    dry_run: opts.dryRun,
+    transcripts_dir: opts.transcriptsDir,
+    transcripts_seen: 0,
+    sessions_seen: 0,
+    bound: 0,
+    unbound: { count: 0, first: [] },
+    rows_inserted: 0,
+    rows_updated: 0,
+    rows_skipped_measured: 0,
+    tokens_total_added: 0
+  };
+  const writes = [];
+  const unbound = (path2, reason) => {
+    report.unbound.count++;
+    if (report.unbound.first.length < UNBOUND_SAMPLE) report.unbound.first.push({ path: path2, reason });
+  };
+  const sessionRecords = /* @__PURE__ */ new Map();
+  for (const p of sessions) sessionRecords.set(basename4(p, ".jsonl"), readRecords(p));
+  const spawnTypes = /* @__PURE__ */ new Map();
+  const claimedRunIds = /* @__PURE__ */ new Set();
+  const plannedSwe = [];
+  for (const { path: path2, session } of subagents) {
+    const records = readRecords(path2);
+    const stats = spawnStats(records);
+    if (opts.since && (stats.last_ts === null || stats.last_ts < opts.since)) continue;
+    report.transcripts_seen++;
+    if (!spawnTypes.has(session)) spawnTypes.set(session, sessionSpawnTypes(sessionRecords.get(session) ?? []));
+    const agentType = spawnAgentType(path2, spawnTypes.get(session));
+    if (!agentType || !BACKFILL_AGENTS.has(agentType)) {
+      unbound(path2, `subagent_type ${agentType ?? "unknown"} is not swe or pr-reviewer`);
+      continue;
+    }
+    const taskId = taskIdFromTranscript(path2);
+    if (taskId === null) {
+      unbound(path2, "no task_id=<N> in the spawn prompt");
+      continue;
+    }
+    const task = db2.get(
+      "SELECT id, issue_id, branch_id, status, repo FROM tasks WHERE id = ?",
+      [taskId]
+    );
+    if (!task) {
+      unbound(path2, `task_id=${taskId} has no task row`);
+      continue;
+    }
+    if (stats.first_ts === null || stats.last_ts === null) {
+      unbound(path2, "transcript carries no timestamps");
+      continue;
+    }
+    report.bound++;
+    const keyed = db2.get(
+      "SELECT " + RUN_COLS + " FROM agent_runs WHERE task_id = ? AND spawn_id IN (?, ?) ORDER BY id LIMIT 1",
+      [task.id, path2, agentIdOf(path2)]
+    );
+    const inWindow = keyed ? [] : db2.all(
+      "SELECT " + RUN_COLS + ` FROM agent_runs
+              WHERE task_id = ? AND agent_type = ? AND spawn_id IS NULL
+                AND started_at >= strftime('%Y-%m-%dT%H:%M:%fZ', ?, '-2 seconds') AND started_at <= ?
+              ORDER BY id DESC`,
+      [task.id, agentType, stats.first_ts, stats.last_ts]
+    ).filter((r) => !claimedRunIds.has(r.id));
+    const target = keyed ?? inWindow.find((r) => !isMeasured(r)) ?? inWindow[0];
+    if (target && isMeasured(target)) {
+      report.rows_skipped_measured++;
+      continue;
+    }
+    const tokens = usageTotal(stats);
+    report.tokens_total_added += tokens;
+    const repoPath = resolveRepoPath(db2, task.repo);
+    const rootDir = repoPath?.startsWith("/") ? taskWorktreePath(repoPath, task.branch_id) : null;
+    if (target) {
+      claimedRunIds.add(target.id);
+      report.rows_updated++;
+      if (agentType === "swe") {
+        plannedSwe.push({ id: target.id, task_id: task.id, started_at: target.started_at ?? stats.first_ts, completed_at: stats.last_ts });
+      }
+      writes.push({
+        kind: "update_spawn",
+        id: target.id,
+        values: [
+          stats.ti,
+          stats.to,
+          stats.cr,
+          stats.cc,
+          stats.tool_uses,
+          stats.duration_ms,
+          stats.first_ts,
+          stats.last_ts,
+          path2,
+          session,
+          stats.model,
+          rootDir,
+          exitReasonFor(task.status),
+          target.id
+        ]
+      });
+    } else {
+      report.rows_inserted++;
+      if (agentType === "swe") {
+        plannedSwe.push({ id: null, task_id: task.id, started_at: stats.first_ts, completed_at: stats.last_ts });
+      }
+      writes.push({
+        kind: "insert",
+        values: [
+          task.id,
+          task.issue_id,
+          agentType,
+          stats.ti,
+          stats.to,
+          stats.cr,
+          stats.cc,
+          stats.tool_uses,
+          stats.duration_ms,
+          stats.first_ts,
+          stats.last_ts,
+          task.repo,
+          path2,
+          session,
+          stats.model,
+          rootDir,
+          exitReasonFor(task.status)
+        ]
+      });
+    }
+  }
+  planBroRows(db2, sessionRecords, plannedSwe, opts, report, writes);
+  if (!opts.dryRun) {
+    db2.transaction(() => {
+      applyWrites(db2, writes, opts.now);
+      insertAudit(db2, {
+        issue_id: -1,
+        from_node: "bro",
+        event_type: "agent_runs_backfilled",
+        summary: `agent_runs backfill: ${report.rows_inserted} inserted, ${report.rows_updated} updated from ${report.transcripts_seen} transcripts`,
+        content_json: JSON.stringify(report),
+        created_at: opts.now
+      });
+    });
+  }
+  return report;
+}
+function planBroRows(db2, sessionRecords, plannedSwe, opts, report, writes) {
+  const spans = [];
+  for (const [session, records] of sessionRecords) {
+    const stamps = records.map((r) => isoMs(r["timestamp"])).filter((s) => s !== null).sort();
+    if (stamps.length === 0) continue;
+    const last = stamps[stamps.length - 1];
+    if (opts.since && last < opts.since) continue;
+    report.sessions_seen++;
+    spans.push({ session, first: stamps[0], last, msgs: sessionMessages(records) });
+  }
+  const legacyOwner = /* @__PURE__ */ new Map();
+  for (const s of spans) {
+    const rows = db2.all(
+      `SELECT id FROM agent_runs
+        WHERE agent_type = 'bro' AND session_id IS NULL AND started_at IS NOT NULL
+          AND started_at >= strftime('%Y-%m-%dT%H:%M:%fZ', ?, '-2 seconds') AND started_at <= ?`,
+      [s.first, s.last]
+    );
+    for (const r of rows) {
+      const prev = legacyOwner.get(r.id);
+      if (!prev || prev.first < s.first) legacyOwner.set(r.id, { session: s.session, first: s.first });
+    }
+  }
+  for (const s of spans) {
+    const legacyIds = [...legacyOwner].filter(([, o]) => o.session === s.session).map(([id]) => id);
+    const runs = db2.all(
+      `SELECT r.id, r.task_id, r.agent_type, r.started_at, r.completed_at, r.spawn_id, r.session_id, r.usage_source,
+              r.tokens_in, r.tokens_out, r.cache_read_tokens, r.cache_creation_tokens, strftime('%Y-%m-%dT%H:%M:%fZ', r.started_at, '-2 seconds') AS window_start,
+              CASE WHEN t.status = 'running' THEN t.updated_at END AS running_since
+         FROM agent_runs r LEFT JOIN tasks t ON t.id = r.task_id
+        WHERE r.agent_type = 'bro' AND r.started_at IS NOT NULL
+          AND (r.session_id = ? OR r.id IN (SELECT value FROM json_each(?)))`,
+      [s.session, JSON.stringify(legacyIds)]
+    );
+    if (runs.length === 0) continue;
+    const taskIds = JSON.stringify([...new Set(runs.map((r) => r.task_id))]);
+    const sweRows = db2.all(
+      `SELECT id, task_id, started_at, completed_at FROM agent_runs
+        WHERE agent_type = 'swe' AND started_at IS NOT NULL AND task_id IN (SELECT value FROM json_each(?))`,
+      [taskIds]
+    );
+    const planned = new Map(plannedSwe.filter((p) => p.id !== null).map((p) => [p.id, p]));
+    const sweRuns = [
+      ...sweRows.map((r) => planned.get(r.id) ?? r),
+      ...plannedSwe.filter((p) => p.id === null)
+    ];
+    const briefs = db2.all(
+      `SELECT CAST(json_extract(content_json, '$.task_id') AS INTEGER) AS task_id, created_at FROM audit
+        WHERE event_type = 'swe_brief_fetched'
+          AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) IN (SELECT value FROM json_each(?))`,
+      [taskIds]
+    );
+    const owned = /* @__PURE__ */ new Map();
+    for (const m of s.msgs) {
+      let best = null;
+      for (const r of runs) {
+        if (!(r.window_start <= m.ts && (r.completed_at === null || m.ts < r.completed_at))) continue;
+        const active = r.running_since !== null && r.running_since <= m.ts || sweRuns.some((w) => w.task_id === r.task_id && w.started_at <= m.ts && (w.completed_at === null || m.ts < w.completed_at));
+        const briefedAt = briefs.filter((b) => b.task_id === r.task_id && b.created_at <= m.ts).reduce((a, b) => b.created_at > a ? b.created_at : a, "");
+        const key = [active ? 1 : 0, briefedAt, r.started_at, r.id];
+        if (!best || compareKey(key, best.key) > 0) best = { id: r.id, key };
+      }
+      if (!best) continue;
+      const acc = owned.get(best.id) ?? { u: { ti: 0, to: 0, cr: 0, cc: 0 }, tu: 0, models: /* @__PURE__ */ new Map() };
+      acc.u.ti += m.u.ti;
+      acc.u.to += m.u.to;
+      acc.u.cr += m.u.cr;
+      acc.u.cc += m.u.cc;
+      acc.tu += m.tu;
+      if (m.m !== "") acc.models.set(m.m, (acc.models.get(m.m) ?? 0) + usageTotal(m.u));
+      owned.set(best.id, acc);
+    }
+    for (const r of runs) {
+      if (isMeasured(r)) {
+        report.rows_skipped_measured++;
+        continue;
+      }
+      const acc = owned.get(r.id) ?? { u: { ti: 0, to: 0, cr: 0, cc: 0 }, tu: 0, models: /* @__PURE__ */ new Map() };
+      const model = [...acc.models].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))[0]?.[0] ?? null;
+      report.rows_updated++;
+      report.tokens_total_added += usageTotal(acc.u);
+      writes.push({ kind: "update_bro", id: r.id, session: s.session, u: acc.u, tu: acc.tu, model });
+    }
+  }
+}
+function compareKey(a, b) {
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] < b[i]) return -1;
+    if (a[i] > b[i]) return 1;
+  }
+  return 0;
+}
+function applyWrites(db2, writes, now) {
+  for (const w of writes) {
+    if (w.kind === "insert") {
+      db2.run(
+        `INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, cache_read_tokens,
+                                 cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at, repo,
+                                 spawn_id, session_id, usage_source, model, host, root_dir, exit_reason)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'backfill', ?, 'claude', ?, ?)`,
+        w.values
+      );
+    } else if (w.kind === "update_spawn") {
+      db2.run(
+        `UPDATE agent_runs
+            SET tokens_in = ?, tokens_out = ?, cache_read_tokens = ?, cache_creation_tokens = ?,
+                tool_uses = ?, duration_ms = ?,
+                started_at = COALESCE(started_at, ?), completed_at = ?,
+                spawn_id = COALESCE(spawn_id, ?), session_id = COALESCE(session_id, ?),
+                usage_source = 'backfill', model = COALESCE(?, model), host = COALESCE(host, 'claude'),
+                root_dir = COALESCE(root_dir, ?), exit_reason = COALESCE(exit_reason, ?)
+          WHERE id = ?`,
+        w.values
+      );
+    } else {
+      db2.run(
+        `UPDATE agent_runs
+            SET tokens_in = ?, tokens_out = ?, cache_read_tokens = ?, cache_creation_tokens = ?, tool_uses = ?,
+                duration_ms = MAX(0, CAST(ROUND((julianday(COALESCE(completed_at, ?)) - julianday(started_at)) * 86400000) AS INTEGER)),
+                session_id = COALESCE(session_id, ?), usage_source = 'backfill', model = COALESCE(?, model),
+                host = COALESCE(host, 'claude')
+          WHERE id = ?`,
+        [w.u.ti, w.u.to, w.u.cr, w.u.cc, w.tu, now, w.session, w.model, w.id]
+      );
+    }
+  }
+}
+function okResult(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function errResult(message) {
+  return { content: [{ type: "text", text: JSON.stringify({ error: message }) }], isError: true };
+}
+function agentRunsBackfillTools(db2, dbPath2) {
+  const definitions = [
+    {
+      name: "agent_runs_backfill",
+      description: "Recover swe/pr-reviewer/bro agent_runs from Claude Code transcripts on disk (read-only) as usage_source='backfill'; never overwrites measured rows; idempotent. dry_run (default true) only reports.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          dry_run: { type: "boolean", description: "Report only, write nothing (default true)." },
+          since: { type: "string", description: "ISO timestamp: skip transcripts whose last message is older." },
+          transcripts_dir: { type: "string", description: "Override ~/.claude/projects/<project-slug>." }
+        }
+      }
+    }
+  ];
+  const handlers = {
+    agent_runs_backfill: requireRoles("agent_runs_backfill", ["bro"], async (args) => {
+      try {
+        const dryRun = args["dry_run"] !== false;
+        const sinceArg = args["since"];
+        let since = null;
+        if (sinceArg !== void 0 && sinceArg !== null) {
+          const t = typeof sinceArg === "string" ? Date.parse(sinceArg) : NaN;
+          if (Number.isNaN(t)) return errResult("since must be an ISO timestamp");
+          since = new Date(t).toISOString();
+        }
+        let dir = typeof args["transcripts_dir"] === "string" && args["transcripts_dir"] !== "" ? args["transcripts_dir"] : null;
+        if (dir === null) {
+          const root = projectRootFromDbPath(dbPath2 || db2.dbPath);
+          if (!root) return errResult("no project root for this DB; pass transcripts_dir");
+          dir = defaultTranscriptsDir(root);
+        }
+        if (!existsSync11(dir) || !statSync3(dir).isDirectory()) return errResult(`transcripts_dir not found: ${dir}`);
+        return okResult(agentRunsBackfill(db2, { dryRun, since, transcriptsDir: dir, now: (/* @__PURE__ */ new Date()).toISOString() }));
+      } catch (e) {
+        return errResult(e.message);
+      }
+    })
+  };
+  return { definitions, handlers };
+}
+
 // src/tools/index.ts
 var toolDefinitions = [];
 var toolHandlers = {};
@@ -35375,6 +35908,7 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
   const repos = repoTools(db2, graphHolder2);
   const cheatcode = cheatcodeTools(db2);
   const worldModel = worldModelTools(db2, graphHolder2);
+  const backfill = agentRunsBackfillTools(db2, dbPath2);
   toolDefinitions = decorateWithAgent([
     ...discussions.definitions,
     ...issues.definitions,
@@ -35395,7 +35929,8 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
     ...scan.definitions,
     ...repos.definitions,
     ...cheatcode.definitions,
-    ...worldModel.definitions
+    ...worldModel.definitions,
+    ...backfill.definitions
   ]);
   toolHandlers = {
     ...discussions.handlers,
@@ -35417,7 +35952,8 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
     ...scan.handlers,
     ...repos.handlers,
     ...cheatcode.handlers,
-    ...worldModel.handlers
+    ...worldModel.handlers,
+    ...backfill.handlers
   };
 }
 
@@ -35450,7 +35986,7 @@ function readPackageVersion() {
   try {
     const here = path.dirname(new URL(import.meta.url).pathname);
     const pkgPath = path.join(here, "..", "package.json");
-    const pkg = JSON.parse(readFileSync8(pkgPath, "utf8"));
+    const pkg = JSON.parse(readFileSync9(pkgPath, "utf8"));
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch {
     return "0.0.0";

@@ -61,6 +61,7 @@ Tools are registered in `src/tools/index.ts`, grouped by domain:
 | Scan (workspace + repos) | `tools/scan.ts` | `scan_run` (forks `scripts/scan.sh` for deterministic discovery; returns `rename_candidates`), `repos_list` |
 | Repos | `tools/repos.ts` | `repo_rename` (bro only; moves the `repos` row, its FK children, `pr_review_runs` slugs and world-model nodes in one transaction) |
 | World model | `tools/world_model.ts` | `world_model_get`, `world_model_search` → kuzu graph DB |
+| Metering backfill | `tools/agent-runs-backfill.ts` | `agent_runs_backfill` (bro: recover swe/pr-reviewer/bro `agent_runs` from Claude Code transcripts on disk, `usage_source = 'backfill'`, dry run by default) |
 
 Role-gating is enforced per-tool via `requireRoles()` in `middleware/agent-scope.ts`. Valid first-class roles: `bro`, `swe`, `pr-reviewer`. Consultant roles (`architect`, `cto`, `ceo`, `pm`, and any user-created agent name) are accepted as open-enum values; the server grants them consultant-level access.
 

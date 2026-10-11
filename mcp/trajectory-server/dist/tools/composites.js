@@ -85,7 +85,7 @@ export function scopeCheckCommit(repoPath, baseRef, commitSha, files) {
 // Resolve a task's repo to its on-disk path (repos.path; relative → resolved
 // against the trajectory DB's directory). Sole-repo fallback applies when the
 // task has no explicit repo. Returns null when no repo can be resolved.
-function resolveRepoPath(db, repoValue) {
+export function resolveRepoPath(db, repoValue) {
     const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db)?.name ?? null;
     if (!name)
         return null;
