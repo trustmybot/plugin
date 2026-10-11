@@ -52,11 +52,13 @@ Runtime location: `plugin/commands/<name>.md`.
 
 ## Logs
 
-- `~/.claude/tmb/logs/cc.log` — CC session log (rotated to .log.1)
-- `~/.claude/tmb/logs/mcp-server.log` — MCP server tool calls
-- `~/.claude/tmb/logs/mcp-health.log` — MCP health check + hook diagnostics
-- `~/.claude/tmb/logs/issue-sync.log` — `issue_sync_active` warnings + sync errors
-- `~/.claude/tmb/logs/sql.log` — SQL trace (when enabled)
+All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`); TMB writes nothing under `~/.claude`:
+
+- `<date>-<session-id>.jsonl` — per-session CC log capture
+- `mcp-server.log` — MCP server tool calls
+- `mcp-health.log` — SessionStart MCP sample + SubagentStop hook diagnostics
+- `issue-sync.log` — `issue_sync_active` warnings + sync errors
+- `sql.log` — SQL trace (when enabled)
 - `~/.claude/tmb/l5-trajectories/<flow>/<run_id>/` — trajectory.jsonl + trajectory.db preserved per flow run (written by `l5_preserve_trajectory` in flow-helpers.sh)
 
 ## Env vars
@@ -72,14 +74,14 @@ Runtime location: `plugin/commands/<name>.md`.
 | Hook | Trigger | Purpose |
 |---|---|---|
 | `ensure-gitignore.sh` | SessionStart | Project .gitignore must exclude .claude/ |
-| `mcp-health-check.sh` | SessionStart + UserPromptSubmit (periodic) | MCP server liveness probe |
+| `mcp-health-check.sh` | SessionStart | MCP server presence sample (soft note, never HALT) + warning about TMB-managed hooks in `~/.claude/settings.json` |
 | `deferred-tools-drift-warn.sh` | SessionStart | Warn when MCP tools on disk newer than running server |
-| `write-active-workspace-sentinel.sh` | SessionStart | Sentinel for cross-session workspace resolution |
+| `plugin-hooks-marker.sh` | SessionStart | Mark the session as running the plugin's hooks (`<project>/.claude/tmb/sessions/<id>.plugin-hooks`) so the opt-in headless shim yields |
 | `session-start-prescan.sh` | SessionStart | Inject project inventory (git state, stacks, world-model warmth) |
 | `ensure-kuzu-installed.sh` | SessionStart | Lazy-install kuzu native binary for the world-model graph DB (first session after plugin install/update) |
 | `substrate-preflight.sh` | SessionStart | Verify the trajectory DB + world-model substrates are reachable before the session proceeds |
 | `cheatcode-healthcheck.sh` | SessionStart | Check the cheatcodes registry is consistent on boot |
-| `activation-routine.sh` | UserPromptSubmit | Pre-fetch onboarded marker + pending issue for bro banner |
+| `activation-routine.sh` | UserPromptSubmit | Pre-fetch onboarded marker + pending issue for bro banner; HALT + recovery pointer when the MCP server is not running |
 | `session-log-capture.sh` | UserPromptSubmit | Track current cc.log for diagnostics |
 | `prompt-intent-hints.sh` | UserPromptSubmit | Route intent phrases (concerns / push / resume / reonboard / ADR / consultant / search-grounding) to the right guidance |
 | `roundtable-slash-detect.sh` | UserPromptSubmit | Detect `/roundtable` invocation for server gate |

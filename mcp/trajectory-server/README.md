@@ -31,9 +31,11 @@ node --test dist/test/*.test.js
 
 | Variable | Default | Description |
 |---|---|---|
-| `TRAJECTORY_DB_PATH` | `<CLAUDE_PROJECT_DIR>/.claude/<plugin-name>/trajectory.db`; without a project root, the outermost existing DB walking up from `<cwd>`, then the active-workspace sentinel — see [Where the trajectory DB lives](../../docs/reference/TRAJECTORY_DB_LOCATION.md) | Absolute path to the SQLite database, or `:memory:` for ephemeral runs. Filenames `world-model.kuzu` and `*.world-model.kuzu` are reserved for graph storage and rejected. |
+| `TRAJECTORY_DB_PATH` | `<CLAUDE_PROJECT_DIR>/.claude/<plugin-name>/trajectory.db`; without a project root, the outermost existing DB walking up from `<cwd>` — see [Where the trajectory DB lives](../../docs/reference/TRAJECTORY_DB_LOCATION.md) | Absolute path to the SQLite database, or `:memory:` for ephemeral runs. Filenames `world-model.kuzu` and `*.world-model.kuzu` are reserved for graph storage and rejected. |
 
 Default is project-local, per-user, gitignored (the plugin-root `.gitignore` excludes `.claude/`). The `<plugin-name>` segment is read from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field. Both stable and RC channels currently ship `name=tmb`, so both resolve to `.claude/tmb/` — install only one channel at a time to avoid DB collision. The hooks resolve the same DB by the same rule ([`docs/reference/TRAJECTORY_DB_LOCATION.md`](../../docs/reference/TRAJECTORY_DB_LOCATION.md)). Set the env var to override for CI, isolated tests, or shared testbeds.
+
+Server logs (`mcp-server.log`, `sql.log`, `issue-sync.log`) live in `logs/` beside the trajectory DB; an in-memory DB logs to the OS temp dir. The server writes nothing under the user's home; the one path outside the project is the embedding model cache, `TMB_MODEL_CACHE_DIR` (default `HF_HOME`, else `~/.cache/huggingface`).
 
 `TrajectoryDB` has two construction modes. The existing one-argument constructor keeps Claude behavior and discovers `plugin_version` from `CLAUDE_PLUGIN_ROOT`. Supplying `TrajectoryDBDependencies` switches to an authoritative explicit mode: the provided `pluginVersion`, `serverLog`, and `sqlLog` are used without falling back to Claude process state; `pluginVersion: null` deliberately disables version synchronization. Logger callback failures are isolated and never change a database operation's result.
 

@@ -21,6 +21,13 @@ DIST="$PLUGIN_ROOT/mcp/trajectory-server/dist/db.js"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
+# Scan shells out to `claude plugin list`; a stub keeps the run hermetic (the
+# real CLI writes its own state under HOME).
+mkdir -p "$TMPDIR/stub-bin"
+printf '#!/usr/bin/env bash\necho "[]"\n' > "$TMPDIR/stub-bin/claude"
+chmod +x "$TMPDIR/stub-bin/claude"
+export PATH="$TMPDIR/stub-bin:$PATH"
+
 # ── Fixture ──────────────────────────────────────────────────────────────────
 # Workspace layout:
 #   $WS/                        ← workspace root (holds the trajectory DB)

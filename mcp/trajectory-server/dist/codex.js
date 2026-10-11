@@ -20896,7 +20896,7 @@ import {
   realpathSync as realpathSync2,
   statSync
 } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import {
   basename,
@@ -20934,10 +20934,33 @@ function resolveClaudePluginName(env = process.env) {
 function resolveClaudePluginVersion(env = process.env) {
   return readClaudePluginMetadata(env).version;
 }
+function resolveClaudeProjectRoot(env = process.env) {
+  const root = env["CLAUDE_PROJECT_DIR"];
+  return root && root.trim().length > 0 ? root : null;
+}
+function resolveClaudeDbPathForPlugin(pluginName, opts) {
+  const { env, cwd, home } = opts;
+  const override = env["TRAJECTORY_DB_PATH"];
+  if (override && override.trim().length > 0) return override;
+  const projectRoot = resolveClaudeProjectRoot(env);
+  const found = findExistingClaudeDbUp(cwd, pluginName, { home, env, projectRoot });
+  if (found) return found;
+  return claudeDbLocation(projectRoot ?? cwd, pluginName);
+}
+var CLAUDE_STATE_HOST_DIR = ".claude";
+function claudeDbLocation(root, pluginName) {
+  return join2(root, CLAUDE_STATE_HOST_DIR, pluginName, "trajectory.db");
+}
+function claudeLogDirFor(trajectoryDb, pluginName) {
+  if (trajectoryDb === ":memory:") return join2(tmpdir(), `${pluginName}-memory-logs`);
+  return join2(dirname2(trajectoryDb), "logs");
+}
 function resolveClaudeLogDir(opts) {
   const env = opts?.env ?? process.env;
+  const cwd = opts?.cwd ?? process.cwd();
   const home = opts?.home ?? homedir();
-  return join2(home, ".claude", resolveClaudePluginName(env), "logs");
+  const pluginName = resolveClaudePluginName(env);
+  return claudeLogDirFor(resolveClaudeDbPathForPlugin(pluginName, { env, cwd, home }), pluginName);
 }
 function deriveCodexRuntimePaths(input) {
   if (!isAbsolute(input.projectRoot)) {
@@ -21043,6 +21066,42 @@ function assertSafeProjectWritePath(projectRoot, path, label = "Codex writable p
     label,
     expectedKind
   );
+}
+function probeClaudeDb(path) {
+  let db = null;
+  try {
+    db = new DatabaseSync(path, { readOnly: true });
+    const cols = db.prepare("SELECT name FROM pragma_table_info('tasks')").all();
+    return cols.some((c) => c.name === "prompt_bearing") ? "current" : "stale";
+  } catch {
+    return "error";
+  } finally {
+    try {
+      db?.close();
+    } catch {
+    }
+  }
+}
+function findExistingClaudeDbUp(startDir, pluginName, opts) {
+  const home = opts?.home ?? homedir();
+  const env = opts?.env ?? process.env;
+  const probe = opts?.probe ?? probeClaudeDb;
+  const override = env["TRAJECTORY_DB_PATH"];
+  if (override && override.trim().length > 0) {
+    return existsSync(override) ? override : null;
+  }
+  const projectRoot = opts?.projectRoot !== void 0 ? opts.projectRoot : resolveClaudeProjectRoot(env);
+  if (projectRoot) {
+    const atRoot = claudeDbLocation(projectRoot, pluginName);
+    return existsSync(atRoot) ? atRoot : null;
+  }
+  let outermost = null;
+  for (let dir = startDir; dirname2(dir) !== dir; dir = dirname2(dir)) {
+    if (dir === home && startDir !== home) break;
+    const candidate = claudeDbLocation(dir, pluginName);
+    if (existsSync(candidate) && probe(candidate) !== "stale") outermost = candidate;
+  }
+  return outermost;
 }
 function canonicalDirectory(path, label, ErrorType = Error) {
   if (!isAbsolute(path)) {
@@ -24943,6 +25002,7 @@ function redactIssue(issue2, agent, opts) {
 // src/embeddings/model.ts
 import { homedir as homedir2 } from "node:os";
 import { join as join6 } from "node:path";
+var TMB_MODEL_CACHE_DIR = process.env["TMB_MODEL_CACHE_DIR"] ?? process.env["HF_HOME"] ?? join6(homedir2(), ".cache", "huggingface");
 var pipelinePromise = null;
 var loadFailed = false;
 async function embed(text) {
@@ -24950,7 +25010,7 @@ async function embed(text) {
   if (!pipelinePromise) {
     try {
       const { pipeline, env } = await import("@huggingface/transformers");
-      env.cacheDir = process.env.HF_HOME ?? join6(homedir2(), ".cache", "huggingface");
+      env.cacheDir = TMB_MODEL_CACHE_DIR;
       pipelinePromise = pipeline("feature-extraction", "Xenova/bge-small-en-v1.5");
       pipelinePromise.catch(() => {
         loadFailed = true;
@@ -25737,11 +25797,10 @@ function resolveBackend(configValue, repoRemotes, hasSpawnFn = false, availabili
 // src/sync/issue_sync.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync5 } from "node:fs";
-import { homedir as homedir3 } from "node:os";
 import { join as join7 } from "node:path";
 function resolveLogDir() {
   if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
-  return join7(homedir3(), ".claude", resolvePluginName(process.env), "logs");
+  return resolveClaudeLogDir();
 }
 var logDir = resolveLogDir();
 var syncLogPath = join7(logDir, "issue-sync.log");

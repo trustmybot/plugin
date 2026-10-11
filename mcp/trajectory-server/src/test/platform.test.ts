@@ -54,7 +54,7 @@ describe('runtime contexts', () => {
     );
     assert.equal(
       context.paths.logDir,
-      join('/user/home', '.claude', 'tmb', 'logs'),
+      join('/invocation/cwd', '.claude', 'tmb', 'logs'),
     );
   });
 
@@ -531,18 +531,14 @@ describe('findExistingClaudeDbUp (the one DB-location rule)', () => {
     }
   });
 
-  it('3: the active-workspace sentinel resolves when the walk finds nothing', () => {
+  it('3: a home-level workspace pointer is never consulted', () => {
     const { root, home, ws } = layout();
     try {
-      const workspaceDb = plant(ws);
+      plant(ws);
       const elsewhere = join(root, 'elsewhere');
       mkdirSync(elsewhere);
       mkdirSync(join(home, '.claude'), { recursive: true });
       writeFileSync(join(home, '.claude', 'tmb-active-workspace'), `${ws}\n`);
-      assert.equal(findExistingClaudeDbUp(elsewhere, 'tmb', { home, env: {} }), workspaceDb);
-
-      rmSync(join(ws, '.claude'), { recursive: true, force: true });
-      plant(ws, 'stale');
       assert.equal(findExistingClaudeDbUp(elsewhere, 'tmb', { home, env: {} }), null);
     } finally {
       rmSync(root, { recursive: true, force: true });

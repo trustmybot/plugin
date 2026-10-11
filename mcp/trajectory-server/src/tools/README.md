@@ -26,7 +26,7 @@ The MCP tool modules for the trajectory server — one TypeScript file per domai
 | Scan | `scan.ts` | `scan_run` (forks `scripts/scan.sh`), `repos_list` |
 | World model | `world_model.ts` | `world_model_get` (kuzu graph + an `unmerged_work` field: closed-task branches with a live local ref whose tip is not yet merged into the target), `world_model_search` |
 
-`onboard-hooks-shim.ts` is a non-tool helper: it writes the plugin's PreToolUse hooks into the user's `settings.json` so they fire in non-interactive `claude -p` runs, where marketplace plugin hooks are absent.
+`onboard-hooks-shim.ts` is a non-tool helper: when the project opts in (`headless_enforcement: yes`), it writes the plugin's PreToolUse gates into the project's `.claude/settings.local.json` so they fire in non-interactive `claude -p` runs, where marketplace plugin hooks are absent; `no` removes them. It writes nothing outside the project.
 
 ## How it fits
 

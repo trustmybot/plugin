@@ -15,6 +15,10 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/swe-verification-gate.sh"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
+# The gate's toolchain resolution may invoke mise, which keeps its own state
+# under HOME; keep that inside the sandbox.
+export MISE_DATA_DIR="$TMPDIR/mise/data" MISE_STATE_DIR="$TMPDIR/mise/state" MISE_CACHE_DIR="$TMPDIR/mise/cache"
+
 # Plugin-subdir layout (mirrors the real TMB workspace):
 #   <ws>/.claude/tmb/trajectory.db        — DB lives at the workspace root
 #   <ws>/plugin/                          — the repo (a subdir of the workspace)
@@ -312,8 +316,10 @@ if [ -n "$TOOL" ]; then
   done
   MINIMAL_PATH="${MINIMAL_PATH}:/usr/bin:/bin:/usr/sbin:/sbin"
 
+  # Toolchain resolution reads the user's real mise/homebrew install, which
+  # lives under the real home (run.sh points HOME at an empty footprint dir).
   run_hook_min_path() {
-    echo "$1" | env PATH="$MINIMAL_PATH" bash "$HOOK" 2>&1 || true
+    echo "$1" | env -u MISE_DATA_DIR PATH="$MINIMAL_PATH" HOME="${TMB_TEST_REAL_HOME:-$HOME}" bash "$HOOK" 2>&1 || true
   }
 
   # Sanity: under the minimal PATH the tool is genuinely unresolvable.
@@ -366,5 +372,59 @@ printf 'not a sqlite database %.0s' 1 2 3 4 5 6 7 8 > "$BAD_DB"
 out=$(cd "$REPO_DIR" && echo "$(make_input swe completed 1)" | TRAJECTORY_DB_PATH="$BAD_DB" bash "$HOOK" 2>&1 || true)
 assert_contains "$out" '"permissionDecision":"deny"' "DB read error must deny, not skip the gate"
 assert_contains "$out" "trajectory DB unavailable" "deny names the unavailable DB"
+
+# ---- Run lock: one verification run per (task, worktree HEAD) ---------------
+# Two concurrent invocations (the gate registered twice) run verification[]
+# once; the second waits and reuses the first's verdict.
+COUNT_FILE="$TMPDIR/verify-runs.log"
+LOCK_ROOT="$WS/.claude/tmb/locks"
+sqlite3 "$DB" "
+  INSERT INTO tasks VALUES (60, 1, 'feat/lock-pass', 'plugin', 'pending', '', '[\"echo run >> $COUNT_FILE; sleep 2\"]');
+  INSERT INTO tasks VALUES (61, 1, 'feat/lock-fail', 'plugin', 'pending', '', '[\"echo run >> $COUNT_FILE.fail; sleep 2; echo boom; exit 3\"]');
+  INSERT INTO tasks VALUES (62, 1, 'feat/lock-stale', 'plugin', 'pending', '', '[\"echo run >> $COUNT_FILE.stale\"]');
+  INSERT INTO tasks VALUES (63, 1, 'feat/lock-unstamped', 'plugin', 'pending', '', '[\"echo run >> $COUNT_FILE.unstamped\"]');
+"
+mkdir -p "$WT_ROOT/lock-pass" "$WT_ROOT/lock-fail" "$WT_ROOT/lock-stale" "$WT_ROOT/lock-unstamped"
+
+test_case "run lock: concurrent passing invocations run verification[] once, both allow"
+(cd "$REPO_DIR" && run_hook "$(make_input swe completed 60)" > "$TMPDIR/lock-a.out") &
+sleep 0.5
+(cd "$REPO_DIR" && run_hook "$(make_input swe completed 60)" > "$TMPDIR/lock-b.out") &
+wait
+assert_eq "1" "$(wc -l < "$COUNT_FILE" | tr -d ' ')" "verification[] ran exactly once"
+assert_not_contains "$(cat "$TMPDIR/lock-a.out")" '"permissionDecision":"deny"' "first invocation allows"
+assert_not_contains "$(cat "$TMPDIR/lock-b.out")" '"permissionDecision":"deny"' "second invocation allows"
+assert_eq "no" "$([ -d "$LOCK_ROOT/verify-60-nohead" ] && echo yes || echo no)" "lock removed on exit"
+assert_eq "allow" "$(jq -r '.verdict' "$LOCK_ROOT/verify-60-nohead.result")" "verdict persisted beside the lock"
+
+test_case "run lock: the waiter reuses a failing verdict"
+(cd "$REPO_DIR" && run_hook "$(make_input swe completed 61)" > "$TMPDIR/lock-c.out") &
+sleep 0.5
+(cd "$REPO_DIR" && run_hook "$(make_input swe completed 61)" > "$TMPDIR/lock-d.out") &
+wait
+assert_eq "1" "$(wc -l < "$COUNT_FILE.fail" | tr -d ' ')" "failing verification[] ran exactly once"
+assert_contains "$(cat "$TMPDIR/lock-c.out")" '"permissionDecision":"deny"' "holder denies"
+assert_contains "$(cat "$TMPDIR/lock-d.out")" '"permissionDecision":"deny"' "waiter gets the same deny"
+assert_contains "$(cat "$TMPDIR/lock-d.out")" "boom" "waiter's deny carries the holder's output tail"
+
+test_case "run lock: a later, non-concurrent invocation re-runs"
+(cd "$REPO_DIR" && run_hook "$(make_input swe completed 60)" >/dev/null)
+assert_eq "2" "$(wc -l < "$COUNT_FILE" | tr -d ' ')" "sequential call runs verification[] again"
+
+test_case "run lock: a stale lock is reclaimed"
+mkdir -p "$LOCK_ROOT/verify-62-nohead"
+echo 1000 > "$LOCK_ROOT/verify-62-nohead/started"
+out=$(cd "$REPO_DIR" && TMB_VERIFICATION_TIMEOUT_S=5 run_hook "$(make_input swe completed 62)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "reclaimed lock lets the run proceed"
+assert_eq "1" "$(wc -l < "$COUNT_FILE.stale" | tr -d ' ')" "verification[] ran after reclaiming"
+assert_eq "no" "$([ -d "$LOCK_ROOT/verify-62-nohead" ] && echo yes || echo no)" "reclaimed lock removed"
+
+test_case "run lock: a stale lock without a started stamp is reclaimed by mtime"
+mkdir -p "$LOCK_ROOT/verify-63-nohead"
+touch -t 200001010000 "$LOCK_ROOT/verify-63-nohead"
+out=$(cd "$REPO_DIR" && TMB_VERIFICATION_TIMEOUT_S=5 run_hook "$(make_input swe completed 63)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "unstamped stale lock lets the run proceed"
+assert_eq "1" "$(wc -l < "$COUNT_FILE.unstamped" 2>/dev/null | tr -d ' ')" "verification[] ran after reclaiming the unstamped lock"
+assert_eq "no" "$([ -d "$LOCK_ROOT/verify-63-nohead" ] && echo yes || echo no)" "unstamped lock removed"
 
 summarize

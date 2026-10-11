@@ -8,12 +8,6 @@
 # DB lives at <workspace_root>/<host-dir>/<plugin>/<db-file>, so three
 # dirname calls resolve back to the workspace root.
 #
-# Sentinel fallback: if the DB-derived workspace does not have the expected
-# .claude/worktrees/<slug> directory, the caller should fall back to the
-# active-workspace sentinel file at ${HOME}/.claude/${plugin}-active-workspace
-# (first line = workspace root). That fallback belongs to the caller because
-# it requires a slug to verify — this function only does the DB-path math.
-#
 # Single-repo installs: DB at <repo>/<host-dir>/<plugin>/<db-file> →
 # dirname×3 == repo root == workspace root. Unaffected.
 tmb_workspace_root() {

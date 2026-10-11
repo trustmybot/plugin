@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 # Version-agnostic hook resolver (#74/#680).
 #
-# /onboard materializes a stable copy of this script at ~/.claude/tmb-hooks/
-# resolve-hook.sh and writes version-agnostic commands into the user-global
-# ~/.claude/settings.json (which DO fire under `claude -p`, unlike
-# marketplace plugin hooks). Each settings.json command is:
+# When a project opts in to headless enforcement, /onboard materializes a copy
+# of this script at <project>/.claude/<plugin>/resolve-hook.sh and writes
+# project-tagged commands into <project>/.claude/settings.local.json (project
+# settings hooks DO fire under `claude -p`, unlike marketplace plugin hooks).
+# Each command is:
 #
-#   bash ~/.claude/tmb-hooks/resolve-hook.sh --marketplace <mp> --hook <basename>
+#   bash <project>/.claude/<plugin>/resolve-hook.sh --marketplace <mp> --hook <basename> --shim --project <root>
+#
+# Shim mode (--shim) exits 0 without running the gate when:
+#   - CLAUDE_PROJECT_DIR is set and is not <root> (another project's session), or
+#   - the plugin's own hooks are active in this session: the plugin's
+#     SessionStart hook left <project>/.claude/<plugin>/sessions/<session_id>.plugin-hooks
+#     for the payload's session_id. Interactive sessions run each gate once,
+#     from the plugin; headless runs (no plugin hooks, no marker) get the shim.
 #
 # This resolver discovers the ACTIVE tmb cache version at hook-fire time and
 # execs the real gate `.../cache/<mp>/tmb/<version>/scripts/hooks/<basename>.sh`,
@@ -31,6 +39,8 @@ MANIFEST="$CLAUDE_HOME/plugins/installed_plugins.json"
 
 marketplace=""
 hook=""
+shim=0
+project=""
 passthrough=()
 
 while [ $# -gt 0 ]; do
@@ -41,6 +51,14 @@ while [ $# -gt 0 ]; do
       ;;
     --hook)
       hook="${2:-}"
+      shift 2
+      ;;
+    --shim)
+      shim=1
+      shift
+      ;;
+    --project)
+      project="${2:-}"
       shift 2
       ;;
     *)
@@ -58,6 +76,19 @@ warn_open() {
 
 if [ -z "$marketplace" ] || [ -z "$hook" ]; then
   warn_open "missing --marketplace/--hook arg"
+fi
+
+canonical_dir() {
+  (cd "$1" 2>/dev/null && pwd -P) || printf '%s\n' "$1"
+}
+
+payload=""
+if [ "$shim" = "1" ]; then
+  payload="$(cat)"
+  if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -n "$project" ] \
+     && [ "$(canonical_dir "$CLAUDE_PROJECT_DIR")" != "$(canonical_dir "$project")" ]; then
+    exit 0
+  fi
 fi
 
 # 1) Authoritative: the installPath recorded for tmb@<marketplace> in CC's
@@ -95,6 +126,32 @@ fi
 target="$version_root/scripts/hooks/${hook}.sh"
 if [ ! -f "$target" ]; then
   warn_open "resolved version has no hook script at $target"
+fi
+
+if [ "$shim" = "1" ]; then
+  session_root="${CLAUDE_PROJECT_DIR:-$project}"
+  session_id=""
+  # <cache>/<marketplace>/<plugin>/<version>: the manifest name, else the dir.
+  plugin_name="$(basename "$(dirname "$version_root")")"
+  if command -v jq >/dev/null 2>&1; then
+    session_id="$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null || true)"
+    manifest_name="$(jq -r '.name // empty' "$version_root/.claude-plugin/plugin.json" 2>/dev/null || true)"
+    [ -n "$manifest_name" ] && plugin_name="$manifest_name"
+  fi
+  case "$session_id" in
+    ''|*/*|.*) ;;
+    *)
+      if [ -n "$session_root" ] && [ -e "$session_root/.claude/$plugin_name/sessions/$session_id.plugin-hooks" ]; then
+        exit 0
+      fi
+      ;;
+  esac
+  if [ "${#passthrough[@]}" -gt 0 ]; then
+    printf '%s' "$payload" | bash "$target" "${passthrough[@]}"
+  else
+    printf '%s' "$payload" | bash "$target"
+  fi
+  exit $?
 fi
 
 # Forward stdin + pass-through argv untouched so the real gate sees identical

@@ -20863,7 +20863,7 @@ import {
   realpathSync,
   statSync
 } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import {
   basename,
@@ -20925,10 +20925,16 @@ var CLAUDE_STATE_HOST_DIR = ".claude";
 function claudeDbLocation(root, pluginName) {
   return join(root, CLAUDE_STATE_HOST_DIR, pluginName, "trajectory.db");
 }
+function claudeLogDirFor(trajectoryDb, pluginName) {
+  if (trajectoryDb === ":memory:") return join(tmpdir(), `${pluginName}-memory-logs`);
+  return join(dirname(trajectoryDb), "logs");
+}
 function resolveClaudeLogDir(opts) {
   const env = opts?.env ?? process.env;
+  const cwd = opts?.cwd ?? process.cwd();
   const home = opts?.home ?? homedir();
-  return join(home, ".claude", resolveClaudePluginName(env), "logs");
+  const pluginName = resolveClaudePluginName(env);
+  return claudeLogDirFor(resolveClaudeDbPathForPlugin(pluginName, { env, cwd, home }), pluginName);
 }
 function resolveGraphDbPath(trajectoryDbPath) {
   if (trajectoryDbPath === ":memory:") return ":memory:";
@@ -21012,19 +21018,7 @@ function findExistingClaudeDbUp(startDir, pluginName, opts) {
     const candidate = claudeDbLocation(dir, pluginName);
     if (existsSync(candidate) && probe(candidate) !== "stale") outermost = candidate;
   }
-  if (outermost) return outermost;
-  const sentinel = join(home, CLAUDE_STATE_HOST_DIR, `${pluginName}-active-workspace`);
-  if (!existsSync(sentinel)) return null;
-  let workspace = "";
-  try {
-    workspace = (readFileSync(sentinel, "utf8").split("\n")[0] ?? "").trim();
-  } catch {
-    return null;
-  }
-  if (!workspace) return null;
-  const fromSentinel = claudeDbLocation(workspace, pluginName);
-  if (!existsSync(fromSentinel) || probe(fromSentinel) === "stale") return null;
-  return fromSentinel;
+  return outermost;
 }
 function assertPathContained(root, path2, label) {
   const rel = relative(root, path2);
@@ -23563,6 +23557,7 @@ function redactValidationRow(row, agent, scope) {
 // src/embeddings/model.ts
 import { homedir as homedir2 } from "node:os";
 import { join as join4 } from "node:path";
+var TMB_MODEL_CACHE_DIR = process.env["TMB_MODEL_CACHE_DIR"] ?? process.env["HF_HOME"] ?? join4(homedir2(), ".cache", "huggingface");
 var pipelinePromise = null;
 var loadFailed = false;
 async function embed(text) {
@@ -23570,7 +23565,7 @@ async function embed(text) {
   if (!pipelinePromise) {
     try {
       const { pipeline, env } = await import("@huggingface/transformers");
-      env.cacheDir = process.env.HF_HOME ?? join4(homedir2(), ".cache", "huggingface");
+      env.cacheDir = TMB_MODEL_CACHE_DIR;
       pipelinePromise = pipeline("feature-extraction", "Xenova/bge-small-en-v1.5");
       pipelinePromise.catch(() => {
         loadFailed = true;
@@ -24613,11 +24608,10 @@ function resolveBackend(configValue, repoRemotes, hasSpawnFn = false, availabili
 // src/sync/issue_sync.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync2 } from "node:fs";
-import { homedir as homedir3 } from "node:os";
 import { join as join5 } from "node:path";
 function resolveLogDir() {
   if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
-  return join5(homedir3(), ".claude", resolvePluginName(process.env), "logs");
+  return resolveClaudeLogDir();
 }
 var logDir = resolveLogDir();
 var syncLogPath = join5(logDir, "issue-sync.log");
@@ -28931,7 +28925,7 @@ function roundtableTools(db2) {
         normalizeAgent(args["agent"]);
         const roundtableId = requireArg10(args, "roundtable_id");
         const outcome = requireArg10(args, "outcome");
-        const skip = args["skip"] ?? false;
+        const skip2 = args["skip"] ?? false;
         const roundtable = db2.get(
           "SELECT * FROM roundtables WHERE id = ?",
           [roundtableId]
@@ -28939,7 +28933,7 @@ function roundtableTools(db2) {
         if (!roundtable) {
           throw new Error(`Not found: roundtable ${roundtableId}`);
         }
-        if (skip) {
+        if (skip2) {
           const now2 = nowISO();
           db2.run(
             `UPDATE roundtables SET state = 'skipped', outcome = ?, closed_at = ? WHERE id = ?`,
@@ -30901,16 +30895,15 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
 // src/tools/onboard.ts
 import { spawnSync as spawnSync6 } from "node:child_process";
 import { existsSync as existsSync6 } from "node:fs";
-import os from "node:os";
-import { dirname as dirname7, join as join9 } from "node:path";
+import { dirname as dirname8, join as join9 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/tools/onboard-hooks-shim.ts
-import { readFileSync as readFileSync4, writeFileSync as writeFileSync2, mkdirSync as mkdirSync4, existsSync as existsSync5, chmodSync } from "node:fs";
-import { join as join8 } from "node:path";
-var STABLE_RESOLVER_DIR = [".claude", "tmb-hooks"];
-var STABLE_RESOLVER_NAME = "resolve-hook.sh";
-var CANONICAL_RESOLVER_REL = ["scripts", "lib", "resolve-hook.sh"];
+import { readFileSync as readFileSync4, writeFileSync as writeFileSync2, mkdirSync as mkdirSync4, existsSync as existsSync5, chmodSync, rmSync } from "node:fs";
+import { dirname as dirname7, join as join8 } from "node:path";
+var RESOLVER_NAME = "resolve-hook.sh";
+var CANONICAL_RESOLVER_REL = ["scripts", "lib", RESOLVER_NAME];
+var SETTINGS_REL = [".claude", "settings.local.json"];
 var ADVISORY_HOOK_DENYLIST = /* @__PURE__ */ new Set([
   "swe-brief-gate.sh",
   "naming-lint.sh",
@@ -30927,12 +30920,21 @@ function basename3(command) {
 function hookName(command) {
   return basename3(command).replace(/\.sh$/, "");
 }
-function deriveMarketplace(pluginRoot) {
-  const segs = pluginRoot.split("/").filter((s) => s.length > 0);
-  const cacheIdx = segs.lastIndexOf("cache");
-  if (cacheIdx === -1 || cacheIdx + 1 >= segs.length) return null;
-  const mp = segs[cacheIdx + 1];
-  return mp && mp.length > 0 ? mp : null;
+function shellWord(value) {
+  if (/^[A-Za-z0-9_./:@%+=-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+function installedMarketplace(pluginRoot) {
+  const m = pluginRoot.match(/\/plugins\/cache\/([^/]+)\/[^/]+\/[^/]+\/?$/);
+  return m?.[1] ?? null;
+}
+function pluginNameOf(pluginRoot) {
+  try {
+    const parsed = JSON.parse(readFileSync4(join8(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
+    if (typeof parsed.name === "string" && /^[A-Za-z0-9_.-]+$/.test(parsed.name)) return parsed.name;
+  } catch {
+  }
+  return "tmb";
 }
 function readPreToolUseFromHooksJson(pluginRoot) {
   const hooksJsonPath = join8(pluginRoot, "hooks", "hooks.json");
@@ -30947,14 +30949,18 @@ function readPreToolUseFromHooksJson(pluginRoot) {
   if (!Array.isArray(pre)) return null;
   return pre;
 }
-function buildTmbGroups(pre, resolverPath, marketplace) {
+function keptHooks(group) {
+  return (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(basename3(h.command)));
+}
+function buildTmbGroups(pre, resolverPath, marketplace, projectRoot) {
   const groups = [];
   for (const group of pre) {
-    const hooks = (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(basename3(h.command))).map((h) => ({
+    const hooks = keptHooks(group).map((h) => ({
       type: h.type,
-      command: `bash ${resolverPath} --marketplace ${marketplace} --hook ${hookName(h.command)}`,
+      command: `bash ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${hookName(h.command)} --shim --project ${shellWord(projectRoot)}`,
       ...h.timeout !== void 0 ? { timeout: h.timeout } : {},
-      _tmb_managed: true
+      _tmb_managed: true,
+      _tmb_project: projectRoot
     }));
     if (hooks.length === 0) continue;
     groups.push({
@@ -30964,111 +30970,150 @@ function buildTmbGroups(pre, resolverPath, marketplace) {
   }
   return groups;
 }
-function materializeResolver(pluginRoot, homeDir) {
+function countShimEntries(pluginRoot) {
+  if (!pluginRoot) return 0;
+  const pre = readPreToolUseFromHooksJson(pluginRoot);
+  if (!pre) return 0;
+  return pre.reduce((n, g) => n + keptHooks(g).length, 0);
+}
+function resolverPathFor(projectRoot, pluginName) {
+  return join8(projectRoot, ".claude", pluginName, RESOLVER_NAME);
+}
+function materializeResolver(pluginRoot, resolverPath) {
   const canonical = join8(pluginRoot, ...CANONICAL_RESOLVER_REL);
   if (!existsSync5(canonical)) return null;
-  const resolverDir = join8(homeDir, ...STABLE_RESOLVER_DIR);
-  const resolverPath = join8(resolverDir, STABLE_RESOLVER_NAME);
-  mkdirSync4(resolverDir, { recursive: true });
+  mkdirSync4(dirname7(resolverPath), { recursive: true });
   writeFileSync2(resolverPath, readFileSync4(canonical, "utf8"));
   chmodSync(resolverPath, 493);
   return resolverPath;
 }
-function isTmbEntry(h, tmbHookNames) {
+function isTmbEntry(h) {
   if (h._tmb_managed === true) return true;
   const command = h.command ?? "";
-  if (command.includes("/.claude/tmb-hooks/resolve-hook.sh") || command.includes("/resolve-headless-hook.sh")) {
-    return true;
-  }
-  if (command.includes("/plugins/cache/") && command.includes("/tmb/") && command.includes("/scripts/hooks/")) {
-    return true;
-  }
-  if (command.includes("/scripts/hooks/") && tmbHookNames.has(hookName(command))) {
-    return true;
-  }
-  return false;
+  return command.includes(`/${RESOLVER_NAME} --marketplace `);
 }
-function purgeTmbEntries(pre, tmbHookNames) {
-  const cleaned = [];
+function purgeTmbEntries(pre) {
+  const kept = [];
+  let removed = 0;
   for (const group of pre) {
-    const hooks = (group.hooks ?? []).filter((h) => !isTmbEntry(h, tmbHookNames));
+    const hooks = (group.hooks ?? []).filter((h) => !isTmbEntry(h));
+    removed += (group.hooks ?? []).length - hooks.length;
     if (hooks.length === 0) continue;
-    cleaned.push({ ...group, hooks });
+    kept.push({ ...group, hooks });
   }
-  return cleaned;
+  return { kept, removed };
 }
-function writeUserSettingsEnforcementShim(opts) {
-  const { pluginRoot, homeDir } = opts;
-  if (!pluginRoot) {
-    const reason = "plugin root unresolvable";
-    serverLog({ event: "onboard_hooks_shim_skip", reason });
-    return { written: false, reason };
-  }
-  if (pluginRoot.includes("/.claude/worktrees/")) {
-    const reason = "plugin-root-in-worktree";
-    serverLog({ event: "onboard_hooks_shim_skip", reason });
-    return { written: false, reason };
-  }
+function installedPluginGuard(pluginRoot) {
+  if (!pluginRoot) return { reason: "plugin root unresolvable" };
+  const marketplace = installedMarketplace(pluginRoot);
+  if (!marketplace) return { reason: "plugin-root-not-installed" };
   const pre = readPreToolUseFromHooksJson(pluginRoot);
-  if (!pre) {
-    const reason = "hooks/hooks.json missing or has no PreToolUse";
-    serverLog({ event: "onboard_hooks_shim_skip", reason });
-    return { written: false, reason };
+  if (!pre) return { reason: "hooks/hooks.json missing or has no PreToolUse" };
+  return { root: pluginRoot, pre, marketplace, pluginName: pluginNameOf(pluginRoot) };
+}
+function settingsFile(projectRoot) {
+  return join8(projectRoot, ...SETTINGS_REL);
+}
+function readSettings(path2) {
+  if (!existsSync5(path2)) return { settings: {}, exists: false };
+  try {
+    const raw = readFileSync4(path2, "utf8").trim();
+    return { settings: raw.length > 0 ? JSON.parse(raw) : {}, exists: true };
+  } catch {
+    return { reason: "existing settings.local.json is not valid JSON" };
   }
-  const marketplace = deriveMarketplace(pluginRoot);
-  if (!marketplace) {
-    const reason = "cannot derive marketplace from plugin root";
-    serverLog({ event: "onboard_hooks_shim_skip", reason });
-    return { written: false, reason };
+}
+function preToolUseOf(settings) {
+  const hooks = settings.hooks && typeof settings.hooks === "object" ? settings.hooks : {};
+  const pre = Array.isArray(hooks.PreToolUse) ? hooks.PreToolUse : [];
+  return { hooks, pre };
+}
+function writeSettings(path2, settings) {
+  try {
+    mkdirSync4(dirname7(path2), { recursive: true });
+    writeFileSync2(path2, JSON.stringify(settings, null, 2) + "\n");
+    return null;
+  } catch (e) {
+    return `settings.local.json write failed: ${e.message}`;
   }
-  const resolverPath = materializeResolver(pluginRoot, homeDir);
+}
+function skip(event, reason, result) {
+  serverLog({ event, reason });
+  return result;
+}
+function writeProjectEnforcementShim(opts) {
+  const { pluginRoot, projectRoot } = opts;
+  if (opts.headlessEnforcement !== "yes") {
+    const reason = "headless_enforcement_off";
+    return skip("onboard_hooks_shim_skip", reason, { written: false, reason });
+  }
+  const guard = installedPluginGuard(pluginRoot);
+  if ("reason" in guard) {
+    return skip("onboard_hooks_shim_skip", guard.reason, { written: false, reason: guard.reason });
+  }
+  const path2 = settingsFile(projectRoot);
+  const read = readSettings(path2);
+  if ("reason" in read) {
+    return skip("onboard_hooks_shim_skip", read.reason, { written: false, reason: read.reason });
+  }
+  const resolverPath = materializeResolver(guard.root, resolverPathFor(projectRoot, guard.pluginName));
   if (!resolverPath) {
     const reason = "canonical resolver script missing";
-    serverLog({ event: "onboard_hooks_shim_skip", reason });
-    return { written: false, reason };
+    return skip("onboard_hooks_shim_skip", reason, { written: false, reason });
   }
-  const tmbGroups = buildTmbGroups(pre, resolverPath, marketplace);
-  const settingsDir = join8(homeDir, ".claude");
-  const settingsPath = join8(settingsDir, "settings.json");
-  let settings = {};
-  if (existsSync5(settingsPath)) {
-    try {
-      const raw = readFileSync4(settingsPath, "utf8").trim();
-      if (raw.length > 0) settings = JSON.parse(raw);
-    } catch {
-      const reason = "existing settings.json is not valid JSON";
-      serverLog({ event: "onboard_hooks_shim_skip", reason });
-      return { written: false, reason };
+  const tmbGroups = buildTmbGroups(guard.pre, resolverPath, guard.marketplace, projectRoot);
+  const { hooks, pre } = preToolUseOf(read.settings);
+  hooks.PreToolUse = [...purgeTmbEntries(pre).kept, ...tmbGroups];
+  read.settings.hooks = hooks;
+  const failure2 = writeSettings(path2, read.settings);
+  if (failure2) return skip("onboard_hooks_shim_skip", failure2, { written: false, reason: failure2 });
+  const entries = tmbGroups.reduce((n, g) => n + g.hooks.length, 0);
+  serverLog({ event: "onboard_hooks_shim_written", settingsPath: path2, groups: tmbGroups.length, entries });
+  return { written: true, entries, settings_path: path2 };
+}
+function removeProjectEnforcementShim(opts) {
+  const { pluginRoot, projectRoot } = opts;
+  const path2 = settingsFile(projectRoot);
+  const read = readSettings(path2);
+  if ("reason" in read) {
+    return skip("onboard_hooks_shim_remove_skip", read.reason, { removed: 0, resolver_removed: false, reason: read.reason });
+  }
+  let removed = 0;
+  if (read.exists) {
+    const { hooks, pre } = preToolUseOf(read.settings);
+    const purge = purgeTmbEntries(pre);
+    removed = purge.removed;
+    if (removed > 0) {
+      if (purge.kept.length > 0) hooks.PreToolUse = purge.kept;
+      else delete hooks.PreToolUse;
+      if (Object.keys(hooks).length > 0) read.settings.hooks = hooks;
+      else delete read.settings.hooks;
+      const failure2 = writeSettings(path2, read.settings);
+      if (failure2) {
+        return skip("onboard_hooks_shim_remove_skip", failure2, { removed: 0, resolver_removed: false, reason: failure2 });
+      }
     }
   }
-  const hooks = settings.hooks && typeof settings.hooks === "object" ? settings.hooks : {};
-  const existingPre = Array.isArray(hooks.PreToolUse) ? hooks.PreToolUse : [];
-  const tmbHookNames = new Set(
-    pre.flatMap((g) => (g.hooks ?? []).map((h) => hookName(h.command)))
-  );
-  const preserved = purgeTmbEntries(existingPre, tmbHookNames);
-  hooks.PreToolUse = [...preserved, ...tmbGroups];
-  settings.hooks = hooks;
-  try {
-    mkdirSync4(settingsDir, { recursive: true });
-    writeFileSync2(settingsPath, JSON.stringify(settings, null, 2) + "\n");
-  } catch (e) {
-    const reason = `settings.json write failed: ${e.message}`;
-    serverLog({ event: "onboard_hooks_shim_skip", reason });
-    return { written: false, reason };
+  const resolverPath = resolverPathFor(projectRoot, pluginRoot ? pluginNameOf(pluginRoot) : "tmb");
+  let resolver_removed = false;
+  if (existsSync5(resolverPath)) {
+    rmSync(resolverPath, { force: true });
+    resolver_removed = true;
   }
-  serverLog({ event: "onboard_hooks_shim_written", settingsPath, groups: tmbGroups.length });
-  return { written: true };
+  if (removed > 0 || resolver_removed) {
+    serverLog({ event: "onboard_hooks_shim_removed", settingsPath: path2, removed, resolver_removed });
+  }
+  return { removed, resolver_removed };
 }
 
 // src/tools/onboard.ts
 function resolvePluginRoot2() {
   const env = process.env["CLAUDE_PLUGIN_ROOT"];
   if (env && existsSync6(join9(env, ".claude-plugin", "plugin.json"))) return env;
-  let dir = dirname7(fileURLToPath3(import.meta.url));
+  let dir = dirname8(fileURLToPath3(import.meta.url));
   for (; ; ) {
     if (existsSync6(join9(dir, ".claude-plugin", "plugin.json"))) return dir;
-    const parent = dirname7(dir);
+    const parent = dirname8(dir);
     if (parent === dir) break;
     dir = parent;
   }
@@ -31342,6 +31387,31 @@ function issueSyncQuestion(currentSync, isReonboard, authedAtLeastOne) {
     default_index: 0
   };
 }
+function headlessQuestion(current, isReonboard, entries) {
+  const options = [];
+  if (isReonboard && current !== null) {
+    options.push({ label: `Keep "${current}"`, description: "No change.", wire: KEEP_SENTINEL });
+  }
+  options.push(
+    {
+      label: "No",
+      description: "Gates run in interactive sessions only.",
+      wire: "no"
+    },
+    {
+      label: "Yes",
+      description: `Also gate headless \`claude -p\` runs. Writes ${entries} PreToolUse entries to this project's .claude/settings.local.json.`,
+      wire: "yes"
+    }
+  );
+  return {
+    question: `Also enforce TMB gates in non-interactive \`claude -p\` runs? Writes ${entries} PreToolUse entries to this project's .claude/settings.local.json.`,
+    header: "Headless",
+    multiSelect: false,
+    options,
+    default_index: options.findIndex((o) => o.wire === "no")
+  };
+}
 function resolveOption(value, options) {
   if (value === KEEP_SENTINEL) return KEEP_SENTINEL;
   const wire = options.find((o) => o.wire === value);
@@ -31369,7 +31439,11 @@ var ISSUE_SYNC_OPTIONS = [
   { label: "Auto \u2014 sync to the remote you picked", description: "", wire: "auto" },
   { label: "Off \u2014 local DB only", description: "", wire: "off" }
 ];
-function onboardTools(db2, dbPath2 = "") {
+var HEADLESS_OPTIONS = [
+  { label: "No", description: "", wire: "no" },
+  { label: "Yes", description: "", wire: "yes" }
+];
+function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
   const definitions = [
     {
       name: "onboard_state_get",
@@ -31389,8 +31463,8 @@ function onboardTools(db2, dbPath2 = "") {
           },
           round: {
             type: "string",
-            enum: ["shape", "main", "sync"],
-            description: "'shape' = Round 1 (project shape \u2014 Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only \u2014 issue_sync)."
+            enum: ["shape", "main", "sync", "headless"],
+            description: "'shape' = Round 1 (project shape \u2014 Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only \u2014 issue_sync). 'headless' = headless_enforcement (any shape; default No)."
           },
           repo: {
             type: "string",
@@ -31423,6 +31497,11 @@ function onboardTools(db2, dbPath2 = "") {
             enum: ["auto", "off"],
             description: 'Required when shape=remote. Always "off" on local.'
           },
+          headless_enforcement: {
+            type: "string",
+            enum: ["yes", "no"],
+            description: "Optional. 'yes' writes TMB's PreToolUse gates into the project's .claude/settings.local.json so they also fire in headless `claude -p` runs; 'no' removes them. Omit to keep the stored answer (default 'no')."
+          },
           repo: {
             type: "string",
             description: "Optional. Scope the write to a single repos row: only that row's target_branch/branching_model/protected_branches are updated; other repos rows, remotes, issue_sync, and the onboarded marker are NOT touched. Must match an existing repos.name. Omit for the workspace-wide apply."
@@ -31438,6 +31517,15 @@ function onboardTools(db2, dbPath2 = "") {
     const workspaceRoot = dbPath2 ? dbPath2.replace(/\.claude\/[^/]+\/trajectory\.db$/, "").replace(/\/$/, "") : process.cwd();
     return workspaceRoot || process.cwd();
   };
+  const projectRoot = () => {
+    const fromDb = dbPath2.match(/^(.*)\/\.claude\/[^/]+\/trajectory\.db$/);
+    if (fromDb && fromDb[1]) return fromDb[1];
+    return process.env["CLAUDE_PROJECT_DIR"] || process.cwd();
+  };
+  const shimOptions = () => ({
+    pluginRoot: shimEnv.pluginRoot !== void 0 ? shimEnv.pluginRoot : resolvePluginRoot2(),
+    projectRoot: projectRoot()
+  });
   const handlers = {
     onboard_state_get: requireRoles(
       "onboard_state_get",
@@ -31456,7 +31544,8 @@ function onboardTools(db2, dbPath2 = "") {
             pr_target: policy.pr_target,
             protected_branches: policy.protected_branches,
             remotes: policy.remotes,
-            issue_sync: readConfig(db2, "issue_sync")
+            issue_sync: readConfig(db2, "issue_sync"),
+            headless_enforcement: readConfig(db2, "headless_enforcement") ?? "no"
           },
           probe: {
             in_git: git.in_git,
@@ -31480,6 +31569,11 @@ function onboardTools(db2, dbPath2 = "") {
         const git = probeGit(probeDir());
         if (round === "shape") {
           return ok16({ questions: [shapeQuestion(git.origin_kind)] });
+        }
+        if (round === "headless") {
+          const current = readConfig(db2, "headless_enforcement");
+          const entries = countShimEntries(shimOptions().pluginRoot);
+          return ok16({ questions: [headlessQuestion(current, readOnboardedFlag(db2), entries)] });
         }
         if (repo !== void 0) {
           if (round !== "main") {
@@ -31679,10 +31773,22 @@ function onboardTools(db2, dbPath2 = "") {
             warning = `remote URL not detected for ${origin.provider}; issues will not sync \u2014 check the repo's git remote`;
           }
         }
+        const rawHeadless = args["headless_enforcement"];
+        const storedHeadless = readConfig(db2, "headless_enforcement") ?? "no";
+        let headless_enforcement = storedHeadless;
+        const headlessAnswered = rawHeadless !== void 0 && resolveOption(rawHeadless, HEADLESS_OPTIONS) !== KEEP_SENTINEL;
+        if (rawHeadless !== void 0) {
+          const resolved = resolveOption(rawHeadless, HEADLESS_OPTIONS);
+          if (resolved !== KEEP_SENTINEL) headless_enforcement = resolved ?? rawHeadless;
+        }
+        if (headless_enforcement !== "yes" && headless_enforcement !== "no") {
+          throw new Error(`headless_enforcement must be 'yes' or 'no' (got '${headless_enforcement}')`);
+        }
         const protected_branches = deriveProtectedBranches(branching_model, pr_target);
         db2.transaction(() => {
           writeConfig(db2, "onboarded", true);
           writeConfig(db2, "issue_sync", issue_sync);
+          writeConfig(db2, "headless_enforcement", headless_enforcement);
           const rows = db2.all(
             `SELECT name, path FROM repos`
           );
@@ -31712,9 +31818,15 @@ function onboardTools(db2, dbPath2 = "") {
             );
           }
         });
+        let headless_shim = { skipped: "headless_enforcement_off" };
         try {
-          writeUserSettingsEnforcementShim({ pluginRoot: resolvePluginRoot2(), homeDir: os.homedir() });
-        } catch {
+          if (headless_enforcement === "yes") {
+            headless_shim = { ...writeProjectEnforcementShim({ ...shimOptions(), headlessEnforcement: headless_enforcement }) };
+          } else if (headlessAnswered || storedHeadless === "yes") {
+            headless_shim = { ...removeProjectEnforcementShim(shimOptions()) };
+          }
+        } catch (e) {
+          headless_shim = { reason: e.message };
         }
         return ok16({
           ok: true,
@@ -31726,6 +31838,8 @@ function onboardTools(db2, dbPath2 = "") {
             protected_branches,
             remotes,
             issue_sync,
+            headless_enforcement,
+            headless_shim,
             ...warning ? { warning } : {}
           }
         });
@@ -31738,13 +31852,13 @@ function onboardTools(db2, dbPath2 = "") {
 // src/tools/scan.ts
 import { spawn, spawnSync as spawnSync7 } from "node:child_process";
 import { existsSync as existsSync8, readFileSync as readFileSync5, writeFileSync as writeFileSync3, unlinkSync } from "node:fs";
-import { dirname as dirname9, join as join10 } from "node:path";
+import { dirname as dirname10, join as join10 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
 // src/graph-db.ts
 import { createRequire } from "node:module";
 import { mkdirSync as mkdirSync5, existsSync as existsSync7 } from "node:fs";
-import { dirname as dirname8 } from "node:path";
+import { dirname as dirname9 } from "node:path";
 function single(result) {
   return Array.isArray(result) ? result[0] : result;
 }
@@ -31773,8 +31887,8 @@ var WorldModelGraph = class _WorldModelGraph {
       }
     };
     validateWritePath();
-    if (dbPath2 !== ":memory:" && !existsSync7(dirname8(dbPath2))) {
-      mkdirSync5(dirname8(dbPath2), { recursive: true });
+    if (dbPath2 !== ":memory:" && !existsSync7(dirname9(dbPath2))) {
+      mkdirSync5(dirname9(dbPath2), { recursive: true });
     }
     validateWritePath();
     const req = createRequire(import.meta.url);
@@ -32048,7 +32162,7 @@ function wrap4(fn) {
   };
 }
 function resolveScanScript() {
-  const here = dirname9(fileURLToPath4(import.meta.url));
+  const here = dirname10(fileURLToPath4(import.meta.url));
   const candidates = [
     join10(here, "..", "..", "..", "..", "scripts", "scan.sh"),
     join10(here, "..", "..", "..", "scripts", "scan.sh")
@@ -32437,7 +32551,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
             `graph_db_open_failed: ${graphOpenError} \u2014 another process holds the world-model lock (identify the holder by running lsof on the world-model graph file); the server retries automatically on the next call once the holder exits`
           );
         }
-        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join10(dirname9(dbPath2), "scan.lock") : "";
+        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join10(dirname10(dbPath2), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -32516,7 +32630,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
 // src/tools/cheatcode.ts
 import { spawn as spawn2 } from "node:child_process";
 import { existsSync as existsSync9, mkdirSync as mkdirSync6, readFileSync as readFileSync6, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname10, join as join11, sep as sep3 } from "node:path";
+import { dirname as dirname11, join as join11, sep as sep3 } from "node:path";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
 function ok18(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
@@ -32537,7 +32651,7 @@ function wrap5(fn) {
   };
 }
 function resolveScriptsFile(name) {
-  const here = dirname10(fileURLToPath5(import.meta.url));
+  const here = dirname11(fileURLToPath5(import.meta.url));
   const candidates = [
     join11(here, "..", "..", "..", "..", "scripts", name),
     join11(here, "..", "..", "..", "scripts", name)
@@ -32811,7 +32925,7 @@ function resolveGlobalAgentMd(target) {
     const c2 = join11(pluginRoot, "agents", `${target}.md`);
     if (existsSync9(c2)) return c2;
   }
-  const here = dirname10(fileURLToPath5(import.meta.url));
+  const here = dirname11(fileURLToPath5(import.meta.url));
   const c = join11(here, "..", "..", "..", "..", "agents", `${target}.md`);
   if (existsSync9(c)) return c;
   return null;
@@ -32968,7 +33082,7 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
   } else {
     updated = addSkillToAgentFrontmatter(updated, cheatcodeName);
   }
-  mkdirSync6(dirname10(localAgentMd), { recursive: true });
+  mkdirSync6(dirname11(localAgentMd), { recursive: true });
   writeFileSync4(localAgentMd, updated);
   return {
     target,
@@ -33534,7 +33648,7 @@ function cheatcodeTools(db2) {
 
 // src/tools/world_model.ts
 import { spawnSync as spawnSync8 } from "node:child_process";
-import { resolve as resolve4, dirname as dirname11 } from "node:path";
+import { resolve as resolve4, dirname as dirname12 } from "node:path";
 var WORLD_MODEL_GET_MAX_NODES = 500;
 var UNMERGED_WORK_MAX_BRANCHES = 10;
 function computeUnmergedWork(db2, repo) {
@@ -33544,7 +33658,7 @@ function computeUnmergedWork(db2, repo) {
     [repo]
   );
   if (!repoRow) return { unmerged_work: [] };
-  const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname11(db2.dbPath);
+  const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname12(db2.dbPath);
   const repoPath = repoRow.path.startsWith("/") ? repoRow.path : resolve4(dbDir, repoRow.path);
   const target = repoRow.target_branch || "dev";
   const gitCheck = spawnSync8("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {

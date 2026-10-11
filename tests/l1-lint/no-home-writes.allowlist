@@ -1,0 +1,3 @@
+# Human-run repair tools that edit Claude Code's own config by design. Never a
+# hook, never the server.
+scripts/maintenance/heal-mcp-cache.sh

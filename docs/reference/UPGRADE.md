@@ -140,7 +140,7 @@ After a `/plugin disable` → re-enable cycle, or after CC's auto-update lands a
 **Symptoms:**
 
 - `mcp__plugin_tmb_*` tools all fail with "no matching deferred tools".
-- `~/.claude/tmb/logs/mcp-health.log` tail shows `"event":"SessionStart","mcp_alive":false,"mode":"A"`.
+- `<project>/.claude/tmb/logs/mcp-health.log` tail shows `"event":"SessionStart","mcp_alive":false` after all three samples, and bro's prompts carry the activation-routine HALT.
 - The CC log shows hooks/skills/agents/commands loading from `~/.claude/plugins/cache/trustmybot-rc/tmb/<version>/` but no `plugin:tmb:trajectory-server` registration line.
 
 **Recovery escalation — try IN ORDER, stop at the first that brings MCP back:**
@@ -163,7 +163,7 @@ After a `/plugin disable` → re-enable cycle, or after CC's auto-update lands a
    ```
    Then relaunch CC and `/plugin install tmb@trustmybot-rc`.
 
-This is an upstream CC bug — the plugin cannot patch it from inside. The defenses we ship: loud Mode A detection in `mcp-health-check.sh` (the `additionalContext` warning tells bro to halt rather than silently degrade) and the `heal-mcp-cache.sh` helper above. Track at issue #2888.
+This is an upstream CC bug — the plugin cannot patch it from inside. The defenses we ship: `activation-routine.sh` checks the server at every bro prompt and tells bro to halt (with a `tmb_recovery` §C pointer) when it is not running, and the `heal-mcp-cache.sh` helper above. Track at issue #2888.
 
 ### "stored schema_version N is newer than code's max M"
 
@@ -186,7 +186,7 @@ The transaction wrapping the migration step rolls back. Your DB stays at the old
 
 A DB that has workflow tables but **no `plugin_meta` table** predates schema versioning. The MCP server adopts it forward — it reapplies the schema, stamps `schema_version`, and preserves your existing rows — but it does **not** treat it as a clean fresh install. So the upgrade isn't silent, boot emits a warning rather than quietly adopting it:
 
-- `~/.claude/tmb/logs/mcp-server.log` shows a `"kind":"legacy_db_no_plugin_meta","level":"warn"` line, and the startup line carries `"legacy_db_no_plugin_meta":true`.
+- `<project>/.claude/tmb/logs/mcp-server.log` shows a `"kind":"legacy_db_no_plugin_meta","level":"warn"` line, and the startup line carries `"legacy_db_no_plugin_meta":true`.
 - stderr prints `WARNING: trajectory DB had tables but no plugin_meta row …`.
 
 This is non-fatal. If you didn't expect a legacy DB here, back up the file and verify your data before continuing.
@@ -315,7 +315,7 @@ Use the plugin in a real project — accumulate issues, tasks, run `/onboard`. T
 # Restart the CC session (Cmd+R) so the MCP server reboots with new code.
 ```
 
-The MCP server log (`~/.claude/tmb/logs/mcp-server.log`) shows the migration steps. Confirm with the same `sqlite3` queries from Recipe A.
+The MCP server log (`<project>/.claude/tmb/logs/mcp-server.log`) shows the migration steps. Confirm with the same `sqlite3` queries from Recipe A.
 
 **Recipe C — hand-craft a v1 DB (fastest, no install dance).** Useful when iterating on the migration code itself.
 

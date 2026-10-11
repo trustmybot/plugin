@@ -78,6 +78,8 @@ run_step "L1 lint: dir toolchain allowlist"           bash "$HERE/l1-lint/dir-to
 run_step "L1 lint: no raw SQL interpolation in hooks" bash "$HERE/l1-lint/no-raw-sql-interpolation.sh"
 run_step "L1 lint: no direct sqlite3 writes in scripts" bash "$HERE/l1-lint/no-direct-sqlite-write.sh"
 run_step "L1 lint: one trajectory-DB path rule (no private copies)" bash "$HERE/l1-lint/no-private-db-path.sh"
+run_step "L1 lint: no writes under the home directory (self-test)" bash "$HERE/l1-lint/no-home-writes.sh" --self-test
+run_step "L1 lint: no writes under the home directory" bash "$HERE/l1-lint/no-home-writes.sh"
 run_step "L1 lint: no datetime('now') in scripts"     bash "$HERE/l1-lint/no-datetime-now-in-hooks.sh"
 run_step "L1 lint: no secrets in tracked source"    bash "$HERE/l1-lint/no-secrets-in-source.sh"
 run_step "L1 lint: main-source-guard + CODEOWNERS present" bash "$HERE/l1-lint/main-guard-files-present.sh"

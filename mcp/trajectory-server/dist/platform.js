@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync, } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { basename, dirname, isAbsolute, join, relative, sep, } from 'node:path';
 export class UnsafeProjectWritePathError extends Error {
@@ -74,10 +74,22 @@ const CLAUDE_STATE_HOST_DIR = '.claude';
 function claudeDbLocation(root, pluginName) {
     return join(root, CLAUDE_STATE_HOST_DIR, pluginName, 'trajectory.db');
 }
+/**
+ * Server logs live beside the trajectory DB, inside the project — never under
+ * the user's home. An in-memory DB has no project state dir, so its logs go to
+ * the OS temp dir.
+ */
+function claudeLogDirFor(trajectoryDb, pluginName) {
+    if (trajectoryDb === ':memory:')
+        return join(tmpdir(), `${pluginName}-memory-logs`);
+    return join(dirname(trajectoryDb), 'logs');
+}
 export function resolveClaudeLogDir(opts) {
     const env = opts?.env ?? process.env;
+    const cwd = opts?.cwd ?? process.cwd();
     const home = opts?.home ?? homedir();
-    return join(home, '.claude', resolveClaudePluginName(env), 'logs');
+    const pluginName = resolveClaudePluginName(env);
+    return claudeLogDirFor(resolveClaudeDbPathForPlugin(pluginName, { env, cwd, home }), pluginName);
 }
 export function createClaudeRuntimeContext(opts) {
     const env = opts?.env ?? process.env;
@@ -90,7 +102,7 @@ export function createClaudeRuntimeContext(opts) {
         stateDir,
         trajectoryDb,
         graphDb: resolveGraphDbPath(trajectoryDb),
-        logDir: join(home, '.claude', plugin.name, 'logs'),
+        logDir: claudeLogDirFor(trajectoryDb, plugin.name),
     });
     return Object.freeze({
         host: 'claude',
@@ -254,8 +266,7 @@ export function probeClaudeDb(path) {
  * 3. Only without a project root: walk up from `startDir` collecting every
  *    ancestor `.claude/<plugin>/trajectory.db` that is not a stale schema,
  *    never entering `home` unless started there, with no `.git` stop; the
- *    outermost wins (a workspace root beats a nested repo). Then the
- *    `~/.claude/<plugin>-active-workspace` sentinel.
+ *    outermost wins (a workspace root beats a nested repo).
  * 4. Otherwise unresolved.
  *
  * Unresolved means the project is not onboarded and every hook gate allows.
@@ -282,24 +293,7 @@ export function findExistingClaudeDbUp(startDir, pluginName, opts) {
         if (existsSync(candidate) && probe(candidate) !== 'stale')
             outermost = candidate;
     }
-    if (outermost)
-        return outermost;
-    const sentinel = join(home, CLAUDE_STATE_HOST_DIR, `${pluginName}-active-workspace`);
-    if (!existsSync(sentinel))
-        return null;
-    let workspace = '';
-    try {
-        workspace = (readFileSync(sentinel, 'utf8').split('\n')[0] ?? '').trim();
-    }
-    catch {
-        return null;
-    }
-    if (!workspace)
-        return null;
-    const fromSentinel = claudeDbLocation(workspace, pluginName);
-    if (!existsSync(fromSentinel) || probe(fromSentinel) === 'stale')
-        return null;
-    return fromSentinel;
+    return outermost;
 }
 function canonicalDirectory(path, label, ErrorType = Error) {
     if (!isAbsolute(path)) {

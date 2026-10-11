@@ -14,7 +14,6 @@
 // rules live here, not in the skill.
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import os from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SUBPROCESS_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS } from '../utils/timeouts.js';
@@ -22,7 +21,7 @@ import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
 import { resolveSoleRepoPath } from '../utils/repo-paths.js';
 import { requireRoles } from '../middleware/agent-scope.js';
-import { writeUserSettingsEnforcementShim } from './onboard-hooks-shim.js';
+import { countShimEntries, removeProjectEnforcementShim, writeProjectEnforcementShim, } from './onboard-hooks-shim.js';
 // Resolve the installed plugin's source root: prefer CLAUDE_PLUGIN_ROOT (must
 // have .claude-plugin/plugin.json), else walk up from this module until that
 // manifest is found — correct for both the tsc layout (dist/tools/onboard.js)
@@ -348,6 +347,28 @@ function issueSyncQuestion(currentSync, isReonboard, authedAtLeastOne) {
         default_index: 0,
     };
 }
+function headlessQuestion(current, isReonboard, entries) {
+    const options = [];
+    if (isReonboard && current !== null) {
+        options.push({ label: `Keep "${current}"`, description: 'No change.', wire: KEEP_SENTINEL });
+    }
+    options.push({
+        label: 'No',
+        description: 'Gates run in interactive sessions only.',
+        wire: 'no',
+    }, {
+        label: 'Yes',
+        description: `Also gate headless \`claude -p\` runs. Writes ${entries} PreToolUse entries to this project's .claude/settings.local.json.`,
+        wire: 'yes',
+    });
+    return {
+        question: `Also enforce TMB gates in non-interactive \`claude -p\` runs? Writes ${entries} PreToolUse entries to this project's .claude/settings.local.json.`,
+        header: 'Headless',
+        multiSelect: false,
+        options,
+        default_index: options.findIndex((o) => o.wire === 'no'),
+    };
+}
 // ---- Label → wire resolution -----------------------------------------------
 // Resolve a caller-supplied value against a set of options.
 // Accepts exact wire values unchanged; falls back to case-insensitive label match.
@@ -386,8 +407,12 @@ const ISSUE_SYNC_OPTIONS = [
     { label: 'Auto — sync to the remote you picked', description: '', wire: 'auto' },
     { label: 'Off — local DB only', description: '', wire: 'off' },
 ];
+const HEADLESS_OPTIONS = [
+    { label: 'No', description: '', wire: 'no' },
+    { label: 'Yes', description: '', wire: 'yes' },
+];
 // ---- Tool definitions ----------------------------------------------------
-export function onboardTools(db, dbPath = '') {
+export function onboardTools(db, dbPath = '', shimEnv = {}) {
     const definitions = [
         {
             name: 'onboard_state_get',
@@ -407,8 +432,8 @@ export function onboardTools(db, dbPath = '') {
                     },
                     round: {
                         type: 'string',
-                        enum: ['shape', 'main', 'sync'],
-                        description: "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only — issue_sync).",
+                        enum: ['shape', 'main', 'sync', 'headless'],
+                        description: "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only — issue_sync). 'headless' = headless_enforcement (any shape; default No).",
                     },
                     repo: {
                         type: 'string',
@@ -441,6 +466,11 @@ export function onboardTools(db, dbPath = '') {
                         enum: ['auto', 'off'],
                         description: 'Required when shape=remote. Always "off" on local.',
                     },
+                    headless_enforcement: {
+                        type: 'string',
+                        enum: ['yes', 'no'],
+                        description: "Optional. 'yes' writes TMB's PreToolUse gates into the project's .claude/settings.local.json so they also fire in headless `claude -p` runs; 'no' removes them. Omit to keep the stored answer (default 'no').",
+                    },
                     repo: {
                         type: 'string',
                         description: "Optional. Scope the write to a single repos row: only that row's target_branch/branching_model/protected_branches are updated; other repos rows, remotes, issue_sync, and the onboarded marker are NOT touched. Must match an existing repos.name. Omit for the workspace-wide apply.",
@@ -466,6 +496,16 @@ export function onboardTools(db, dbPath = '') {
             : process.cwd();
         return workspaceRoot || process.cwd();
     };
+    const projectRoot = () => {
+        const fromDb = dbPath.match(/^(.*)\/\.claude\/[^/]+\/trajectory\.db$/);
+        if (fromDb && fromDb[1])
+            return fromDb[1];
+        return process.env['CLAUDE_PROJECT_DIR'] || process.cwd();
+    };
+    const shimOptions = () => ({
+        pluginRoot: shimEnv.pluginRoot !== undefined ? shimEnv.pluginRoot : resolvePluginRoot(),
+        projectRoot: projectRoot(),
+    });
     const handlers = {
         onboard_state_get: requireRoles('onboard_state_get', ['bro'], wrapHandler(async () => {
             const git = probeGit(probeDir());
@@ -486,6 +526,7 @@ export function onboardTools(db, dbPath = '') {
                     protected_branches: policy.protected_branches,
                     remotes: policy.remotes,
                     issue_sync: readConfig(db, 'issue_sync'),
+                    headless_enforcement: readConfig(db, 'headless_enforcement') ?? 'no',
                 },
                 probe: {
                     in_git: git.in_git,
@@ -505,6 +546,11 @@ export function onboardTools(db, dbPath = '') {
             const git = probeGit(probeDir());
             if (round === 'shape') {
                 return ok({ questions: [shapeQuestion(git.origin_kind)] });
+            }
+            if (round === 'headless') {
+                const current = readConfig(db, 'headless_enforcement');
+                const entries = countShimEntries(shimOptions().pluginRoot);
+                return ok({ questions: [headlessQuestion(current, readOnboardedFlag(db), entries)] });
             }
             // Per-repo path: branching + pr_target questions seeded from THAT repos
             // row. Only valid on round='main', shape='remote'. The Keep options
@@ -741,12 +787,25 @@ export function onboardTools(db, dbPath = '') {
                     warning = `remote URL not detected for ${origin.provider}; issues will not sync — check the repo's git remote`;
                 }
             }
+            const rawHeadless = args['headless_enforcement'];
+            const storedHeadless = readConfig(db, 'headless_enforcement') ?? 'no';
+            let headless_enforcement = storedHeadless;
+            const headlessAnswered = rawHeadless !== undefined && resolveOption(rawHeadless, HEADLESS_OPTIONS) !== KEEP_SENTINEL;
+            if (rawHeadless !== undefined) {
+                const resolved = resolveOption(rawHeadless, HEADLESS_OPTIONS);
+                if (resolved !== KEEP_SENTINEL)
+                    headless_enforcement = resolved ?? rawHeadless;
+            }
+            if (headless_enforcement !== 'yes' && headless_enforcement !== 'no') {
+                throw new Error(`headless_enforcement must be 'yes' or 'no' (got '${headless_enforcement}')`);
+            }
             const protected_branches = deriveProtectedBranches(branching_model, pr_target);
             db.transaction(() => {
                 // Mark project as onboarded via plugin_config (#2876).
                 // The legacy `identity` table is dropped by the v1→v2 migration in db.ts on first boot after upgrade.
                 writeConfig(db, 'onboarded', true);
                 writeConfig(db, 'issue_sync', issue_sync);
+                writeConfig(db, 'headless_enforcement', headless_enforcement);
                 // The repos table is the sole source of truth for the four repo-scoped
                 // keys (#980). Reconcile each repo against ITS OWN git tree rather than
                 // blasting the managed repo's policy onto every row (#13): a sibling
@@ -785,15 +844,22 @@ export function onboardTools(db, dbPath = '') {
                     db.run(`UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?, remotes = ? WHERE name = ?`, [effTarget, effModel, JSON.stringify(effProtected), JSON.stringify(effRemotes), row.name]);
                 }
             });
-            // Best-effort: write TMB PreToolUse hooks into the user settings.json so
-            // enforcement fires in non-interactive `claude -p` runs under a
-            // marketplace install (plugin hooks don't fire there). A failure must
-            // NOT fail onboarding.
+            // Headless enforcement is opt-in: 'yes' writes the shim into the
+            // project's .claude/settings.local.json; an explicit 'no' (or a stored
+            // 'yes' flipped to 'no') removes it. An apply that leaves the answer
+            // unset at 'no' touches nothing. Best-effort — a failure is reported but
+            // never fails onboarding.
+            let headless_shim = { skipped: 'headless_enforcement_off' };
             try {
-                writeUserSettingsEnforcementShim({ pluginRoot: resolvePluginRoot(), homeDir: os.homedir() });
+                if (headless_enforcement === 'yes') {
+                    headless_shim = { ...writeProjectEnforcementShim({ ...shimOptions(), headlessEnforcement: headless_enforcement }) };
+                }
+                else if (headlessAnswered || storedHeadless === 'yes') {
+                    headless_shim = { ...removeProjectEnforcementShim(shimOptions()) };
+                }
             }
-            catch {
-                // Shim is best-effort; onboarding still succeeds.
+            catch (e) {
+                headless_shim = { reason: e.message };
             }
             return ok({
                 ok: true,
@@ -805,6 +871,8 @@ export function onboardTools(db, dbPath = '') {
                     protected_branches,
                     remotes,
                     issue_sync,
+                    headless_enforcement,
+                    headless_shim,
                     ...(warning ? { warning } : {}),
                 },
             });

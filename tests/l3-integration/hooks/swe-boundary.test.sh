@@ -494,11 +494,10 @@ probe_live=$( . "$PLUGIN_ROOT/scripts/hooks/lib/query-task.sh"; \
   if tmb_db_schema_current "$LIVE_WS/.claude/tmb/trajectory.db"; then echo current; else echo stale; fi )
 assert_eq "current" "$probe_live" "current-schema DB probed as current"
 
-# The #596 failure mode exactly: hook cwd=$HOME, walk-up finds nothing, the
-# sentinel points at $HOME, and $HOME's only DB is the stale legacy one. The
-# resolver must NOT adopt the stale sentinel DB (would default prompt_bearing
-# to 0 and silently deny). tmb_db_path must report unresolved.
-test_case "(L1) stale sentinel DB at \$HOME is NOT adopted by tmb_db_path"
+# The #596 failure mode: hook cwd=$HOME, walk-up finds nothing, and $HOME
+# holds a stale legacy DB plus a home-level workspace pointer. tmb_db_path
+# reads no pointer under $HOME and reports unresolved.
+test_case "(L1) a home-level workspace pointer is never adopted by tmb_db_path"
 SENTINEL_HOME="$TMPDIR/sentinel-stale-home"
 mkdir -p "$SENTINEL_HOME/.claude/tmb"
 sqlite3 "$SENTINEL_HOME/.claude/tmb/trajectory.db" "
@@ -508,47 +507,6 @@ printf '%s\n' "$SENTINEL_HOME" > "$SENTINEL_HOME/.claude/tmb-active-workspace"
 resolved=$( cd "$SENTINEL_HOME" && \
   HOME="$SENTINEL_HOME" env -u TRAJECTORY_DB_PATH \
   bash -c '. "'"$PLUGIN_ROOT"'/scripts/hooks/lib/query-task.sh"; tmb_db_path || true' )
-assert_eq "" "$resolved" "stale sentinel DB must be treated as unresolved"
-
-# ===========================================================================
-# Layer 2 — sentinel writer hardening (#596)
-# ===========================================================================
-SENTINEL_WRITER="$PLUGIN_ROOT/scripts/hooks/write-active-workspace-sentinel.sh"
-
-test_case "(L2) sentinel writer refuses to record \$HOME (legacy home DB)"
-FAKE_HOME="$TMPDIR/l2-home"
-mkdir -p "$FAKE_HOME/.claude/tmb"
-sqlite3 "$FAKE_HOME/.claude/tmb/trajectory.db" "
-  CREATE TABLE tasks (id INTEGER PRIMARY KEY, prompt_bearing INTEGER DEFAULT 0);
-"
-rm -f "$FAKE_HOME/.claude/tmb-active-workspace"
-( cd "$FAKE_HOME" && HOME="$FAKE_HOME" env -u TRAJECTORY_DB_PATH bash "$SENTINEL_WRITER" ) || true
-[ -f "$FAKE_HOME/.claude/tmb-active-workspace" ] && l2_home_wrote="wrote" || l2_home_wrote="refused"
-assert_eq "refused" "$l2_home_wrote" "sentinel writer must not record \$HOME"
-
-test_case "(L2) sentinel writer refuses a stale-schema DB"
-FAKE_WS="$TMPDIR/l2-stale-ws"
-mkdir -p "$FAKE_WS/.claude/tmb"
-sqlite3 "$FAKE_WS/.claude/tmb/trajectory.db" "
-  CREATE TABLE tasks (id INTEGER PRIMARY KEY, branch_id TEXT);
-"
-SENT_HOME="$TMPDIR/l2-stale-home"
-mkdir -p "$SENT_HOME/.claude"
-rm -f "$SENT_HOME/.claude/tmb-active-workspace"
-( cd "$FAKE_WS" && HOME="$SENT_HOME" env -u TRAJECTORY_DB_PATH bash "$SENTINEL_WRITER" ) || true
-[ -f "$SENT_HOME/.claude/tmb-active-workspace" ] && l2_stale_wrote="wrote" || l2_stale_wrote="refused"
-assert_eq "refused" "$l2_stale_wrote" "sentinel writer must refuse stale-schema DB"
-
-test_case "(L2) sentinel writer records a current-schema project workspace"
-GOOD_WS="$TMPDIR/l2-good-ws"
-mkdir -p "$GOOD_WS/.claude/tmb"
-sqlite3 "$GOOD_WS/.claude/tmb/trajectory.db" "
-  CREATE TABLE tasks (id INTEGER PRIMARY KEY, branch_id TEXT, prompt_bearing INTEGER DEFAULT 0);
-"
-GOOD_HOME="$TMPDIR/l2-good-home"
-mkdir -p "$GOOD_HOME/.claude"
-rm -f "$GOOD_HOME/.claude/tmb-active-workspace"
-( cd "$GOOD_WS" && HOME="$GOOD_HOME" env -u TRAJECTORY_DB_PATH bash "$SENTINEL_WRITER" ) || true
-assert_eq "$GOOD_WS" "$(head -1 "$GOOD_HOME/.claude/tmb-active-workspace" 2>/dev/null || true)" "sentinel writer records current-schema workspace"
+assert_eq "" "$resolved" "home-level pointer must be treated as unresolved"
 
 summarize

@@ -28,6 +28,14 @@
 #   - Verification fails           → DENY with failing command + output tail
 #   - Total timeout (default 900s) → DENY with timeout message
 #
+# Run lock: one verification run per (task, worktree HEAD). The gate takes a
+# mkdir lock <project>/.claude/<plugin>/locks/verify-<task_id>-<sha>/; a
+# concurrent second invocation (e.g. the same gate registered twice) waits for
+# the holder and reuses its verdict from verify-<task_id>-<sha>.result instead
+# of re-running verification[]. The lock is removed on exit; a lock older than
+# the total budget + 60s (by its `started` stamp, else the dir mtime) is
+# reclaimed.
+#
 # Environment:
 #   TMB_VERIFICATION_TIMEOUT_S — total seconds (default 900)
 set -euo pipefail
@@ -37,8 +45,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/query-task.sh"
 # shellcheck source=scripts/hooks/lib/normalize-role.sh disable=SC1091
 . "$SCRIPT_DIR/lib/normalize-role.sh"
-# shellcheck source=scripts/lib/resolve-plugin-name.sh disable=SC1091
-. "$SCRIPT_DIR/../lib/resolve-plugin-name.sh"
 # shellcheck source=scripts/hooks/lib/resolve-workspace.sh disable=SC1091
 . "$SCRIPT_DIR/lib/resolve-workspace.sh"
 # shellcheck source=scripts/hooks/lib/resolve-repo.sh disable=SC1091
@@ -165,26 +171,6 @@ if [ -n "$REPO_ROOT" ] && [ -d "${REPO_ROOT}/.claude/worktrees/${SLUG}" ]; then
   WT_PATH="${REPO_ROOT}/.claude/worktrees/${SLUG}"
 fi
 
-# Sentinel fallback: subagents that inherit cwd=~ and lack env vars use the
-# active-workspace sentinel written by the plugin at launch time. The sentinel
-# names the workspace root; the worktree still hangs off the repo subdir, so
-# join the resolved TASK_REPO (single-repo: the workspace root is the repo).
-if [ -z "$WT_PATH" ]; then
-  _PLUGIN_NAME=$(tmb_resolve_plugin_name)
-  SENTINEL="${HOME}/.claude/${_PLUGIN_NAME}-active-workspace"
-  if [ -f "$SENTINEL" ]; then
-    WS=$(head -1 "$SENTINEL" 2>/dev/null || true)
-    if [ -n "$WS" ]; then
-      for cand in "${WS}/${TASK_REPO}" "$WS"; do
-        if [ -n "$cand" ] && [ -d "${cand}/.claude/worktrees/${SLUG}" ]; then
-          WT_PATH="${cand}/.claude/worktrees/${SLUG}"
-          break
-        fi
-      done
-    fi
-  fi
-fi
-
 # Fail CLOSED: when verification[] is non-empty but the task worktree cannot be
 # located, DENY with a named remediation — never skip. The silent skip was a
 # safety hole: it let tasks atomic-close without the gate enforcing
@@ -202,53 +188,117 @@ fi
 TOOLCHAIN_PATH=$(tmb_resolve_toolchain_path "$PATH" 2>/dev/null || printf '%s' "$PATH")
 
 TIMEOUT_S="${TMB_VERIFICATION_TIMEOUT_S:-900}"
-START_TS=$(date +%s 2>/dev/null || echo 0)
 
-FAILED_CMD=""
-FAILED_OUTPUT=""
+# Prints the gate's decision (deny JSON, or nothing for allow).
+run_verification() {
+  START_TS=$(date +%s 2>/dev/null || echo 0)
 
-# Each entry of the typed verification[] array is a clean shell command string
-# (Typed Rails #673) — no markdown bullets/backticks/blockquotes to strip. Run
-# each non-empty line as a command in the worktree.
-while IFS= read -r line; do
-  [ -z "$line" ] && continue
-  CMD="$line"
+  FAILED_CMD=""
+  FAILED_OUTPUT=""
 
-  # Check total timeout before each command.
-  NOW_TS=$(date +%s 2>/dev/null || echo 0)
-  ELAPSED=$(( NOW_TS - START_TS ))
-  REMAINING=$(( TIMEOUT_S - ELAPSED ))
-  if [ "$REMAINING" -le 0 ]; then
-    jq -nc --arg t "$TIMEOUT_S" \
-      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: verification timed out after " + $t + "s total. Increase TMB_VERIFICATION_TIMEOUT_S or fix slow verification commands. (current budget: " + $t + "s via TMB_VERIFICATION_TIMEOUT_S, default 900).")}}'
-    exit 0
-  fi
+  # Each entry of the typed verification[] array is a clean shell command string
+  # (Typed Rails #673) — no markdown bullets/backticks/blockquotes to strip. Run
+  # each non-empty line as a command in the worktree.
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    CMD="$line"
 
-  # Run command in worktree with the resolved toolchain PATH, bounded by the
-  # remaining time budget.
-  CMD_OUTPUT=$( (cd "$WT_PATH" && PATH="$TOOLCHAIN_PATH" tmb_run_with_timeout "$REMAINING" bash -c "$CMD") 2>&1 ) || {
-    CMD_RC=$?
-    if [ "$CMD_RC" -eq 124 ]; then
-      jq -nc --arg cmd "$CMD" --arg t "$TIMEOUT_S" \
-        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: verification timed out after " + $t + "s total budget while running: " + $cmd + ". Increase TMB_VERIFICATION_TIMEOUT_S or fix slow verification commands. (current budget: " + $t + "s via TMB_VERIFICATION_TIMEOUT_S, default 900).")}}'
+    # Check total timeout before each command.
+    NOW_TS=$(date +%s 2>/dev/null || echo 0)
+    ELAPSED=$(( NOW_TS - START_TS ))
+    REMAINING=$(( TIMEOUT_S - ELAPSED ))
+    if [ "$REMAINING" -le 0 ]; then
+      jq -nc --arg t "$TIMEOUT_S" \
+        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: verification timed out after " + $t + "s total. Increase TMB_VERIFICATION_TIMEOUT_S or fix slow verification commands. (current budget: " + $t + "s via TMB_VERIFICATION_TIMEOUT_S, default 900).")}}'
       exit 0
     fi
-    FAILED_CMD="$CMD"
-    FAILED_OUTPUT=$(echo "$CMD_OUTPUT" | tail -20)
-    break
-  }
 
-done <<< "$VERIFICATION_BLOCK"
+    # Run command in worktree with the resolved toolchain PATH, bounded by the
+    # remaining time budget.
+    CMD_OUTPUT=$( (cd "$WT_PATH" && PATH="$TOOLCHAIN_PATH" tmb_run_with_timeout "$REMAINING" bash -c "$CMD") 2>&1 ) || {
+      CMD_RC=$?
+      if [ "$CMD_RC" -eq 124 ]; then
+        jq -nc --arg cmd "$CMD" --arg t "$TIMEOUT_S" \
+          '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: verification timed out after " + $t + "s total budget while running: " + $cmd + ". Increase TMB_VERIFICATION_TIMEOUT_S or fix slow verification commands. (current budget: " + $t + "s via TMB_VERIFICATION_TIMEOUT_S, default 900).")}}'
+        exit 0
+      fi
+      FAILED_CMD="$CMD"
+      FAILED_OUTPUT=$(echo "$CMD_OUTPUT" | tail -20)
+      break
+    }
 
-if [ -n "$FAILED_CMD" ]; then
-  jq -nc --arg cmd "$FAILED_CMD" --arg out "$FAILED_OUTPUT" '
-    {"hookSpecificOutput":{
-      "hookEventName":"PreToolUse",
-      "permissionDecision":"deny",
-      "permissionDecisionReason":("BLOCKED: verification failed.\nFailing command: " + $cmd + "\n\nOutput (last 20 lines):\n" + $out)
-    }}
-  '
+  done <<< "$VERIFICATION_BLOCK"
+
+  if [ -n "$FAILED_CMD" ]; then
+    jq -nc --arg cmd "$FAILED_CMD" --arg out "$FAILED_OUTPUT" '
+      {"hookSpecificOutput":{
+        "hookEventName":"PreToolUse",
+        "permissionDecision":"deny",
+        "permissionDecisionReason":("BLOCKED: verification failed.\nFailing command: " + $cmd + "\n\nOutput (last 20 lines):\n" + $out)
+      }}
+    '
+    exit 0
+  fi
+}
+
+now_s() { date +%s 2>/dev/null || echo 0; }
+
+LOCK_ROOT="$(dirname "$DB")/locks"
+WT_SHA=$(git -C "$WT_PATH" rev-parse HEAD 2>/dev/null || echo nohead)
+LOCK="$LOCK_ROOT/verify-${TASK_ID}-${WT_SHA}"
+RESULT="$LOCK.result"
+STALE_S=$(( TIMEOUT_S + 60 ))
+ARRIVED=$(now_s)
+
+if ! mkdir -p "$LOCK_ROOT" 2>/dev/null; then
+  run_verification
   exit 0
 fi
+find "$LOCK_ROOT" -maxdepth 1 -type f -name 'verify-*.result' -mmin +1440 -delete 2>/dev/null || true
 
+# lock_held_since — epoch seconds the lock was taken: the holder's `started`
+# stamp, else the lock dir's mtime (holder killed between mkdir and the stamp).
+lock_held_since() {
+  local since
+  since=$(cat "$LOCK/started" 2>/dev/null || true)
+  case "$since" in ''|*[!0-9]*)
+    since=$(stat -c %Y "$LOCK" 2>/dev/null || stat -f %m "$LOCK" 2>/dev/null || true) ;;
+  esac
+  case "$since" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s' "$since"
+}
+
+while ! mkdir "$LOCK" 2>/dev/null; do
+  held_since=$(lock_held_since) || held_since=$(now_s)
+  if [ $(( $(now_s) - held_since )) -gt "$STALE_S" ]; then
+    rm -rf "$LOCK" 2>/dev/null || true
+    continue
+  fi
+  while [ -d "$LOCK" ]; do
+    sleep 0.5
+    held_since=$(lock_held_since) || continue
+    [ $(( $(now_s) - held_since )) -gt "$STALE_S" ] && break
+  done
+  [ -d "$LOCK" ] && continue
+  started=$(jq -r '.started_at // empty' "$RESULT" 2>/dev/null || true)
+  case "$started" in ''|*[!0-9]*) continue ;; esac
+  if [ "$started" -le "$ARRIVED" ]; then
+    jq -j '.output' "$RESULT" 2>/dev/null || true
+    exit 0
+  fi
+done
+
+trap 'rm -rf "$LOCK" 2>/dev/null || true' EXIT
+STARTED=$(now_s)
+printf '%s\n' "$STARTED" > "$LOCK/started"
+DECISION=$(run_verification)
+if jq -nc --argjson s "$STARTED" --argjson f "$(now_s)" --arg o "${DECISION:+$DECISION
+}" \
+    '{started_at: $s, finished_at: $f, verdict: (if ($o | test("\"permissionDecision\":\"deny\"")) then "deny" else "allow" end), output: $o}' \
+    > "$RESULT.tmp.$$" 2>/dev/null; then
+  mv -f "$RESULT.tmp.$$" "$RESULT" 2>/dev/null || rm -f "$RESULT.tmp.$$"
+else
+  rm -f "$RESULT.tmp.$$" 2>/dev/null || true
+fi
+[ -n "$DECISION" ] && printf '%s\n' "$DECISION"
 exit 0

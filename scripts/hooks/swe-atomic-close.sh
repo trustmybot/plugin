@@ -21,14 +21,12 @@
 # (started_at preserved); with none, a complete row is INSERTed with started_at =
 # the transcript's first timestamp. A re-fire for the same spawn updates in place.
 #
-# Log: ${HOME}/.claude/<plugin-name>/logs/mcp-health.log (JSONL, appended)
+# Log: <project>/.claude/<plugin-name>/logs/mcp-health.log (JSONL, appended);
+# no log when the project has no TMB state dir.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib/resolve-plugin-name.sh disable=SC1091
-. "$SCRIPT_DIR/../lib/resolve-plugin-name.sh"
-PLUGIN_NAME=$(tmb_resolve_plugin_name)
 # shellcheck source=scripts/hooks/lib/query-task.sh disable=SC1091
 . "$SCRIPT_DIR/lib/query-task.sh" 2>/dev/null || true
 # shellcheck source=scripts/hooks/lib/normalize-role.sh disable=SC1091
@@ -37,8 +35,6 @@ PLUGIN_NAME=$(tmb_resolve_plugin_name)
 . "$SCRIPT_DIR/lib/resolve-repo.sh" 2>/dev/null || true
 # shellcheck source=scripts/hooks/lib/db-write.sh disable=SC1091
 . "$SCRIPT_DIR/lib/db-write.sh"
-
-mkdir -p "${HOME}/.claude/${PLUGIN_NAME}/logs" 2>/dev/null || true
 
 # Parse a JSONL transcript file and print pipe-separated stats:
 #   tokens_in|tokens_out|tool_uses|duration_ms|cache_read_tokens|cache_creation_tokens|first_ts
@@ -90,7 +86,10 @@ tmb_parse_transcript_stats() {
 INPUT=$(cat)
 
 # Rotate mcp-health.log at 1 MB (single .1 generation) to prevent unbounded growth (#389).
-_LOG_FILE="${HOME}/.claude/${PLUGIN_NAME}/logs/mcp-health.log"
+_LOG_FILE=/dev/null
+if _STATE_DIR=$(tmb_state_dir 2>/dev/null) && mkdir -p "$_STATE_DIR/logs" 2>/dev/null; then
+  _LOG_FILE="$_STATE_DIR/logs/mcp-health.log"
+fi
 if [ -f "$_LOG_FILE" ] && [ "$(wc -c < "$_LOG_FILE" 2>/dev/null || echo 0)" -gt 1048576 ]; then
   mv -f "$_LOG_FILE" "${_LOG_FILE}.1" 2>/dev/null || true
 fi
@@ -170,25 +169,6 @@ SLUG="${BRANCH##*/}"
 # the worktree lives at <repoRoot>/.claude/worktrees/<slug>. REPO_ROOT was
 # resolved above from tasks.repo → repos.path (single-repo: repo == workspace).
 WT_PATH="${REPO_ROOT}/.claude/worktrees/${SLUG}"
-
-# Sentinel fallback: subagents that inherit cwd=~ and lack env vars use the
-# active-workspace sentinel written by the plugin at launch time. The sentinel
-# names the workspace root; the worktree still hangs off the repo subdir, so
-# join the resolved TASK_REPO (single-repo: the workspace root is the repo).
-if [ ! -d "$WT_PATH" ]; then
-  _SENTINEL="${HOME}/.claude/${PLUGIN_NAME}-active-workspace"
-  if [ -f "$_SENTINEL" ]; then
-    _WS_SENTINEL=$(head -1 "$_SENTINEL" 2>/dev/null || true)
-    if [ -n "$_WS_SENTINEL" ]; then
-      for _cand in "${_WS_SENTINEL}/${TASK_REPO}" "$_WS_SENTINEL"; do
-        if [ -n "$_cand" ] && [ -d "${_cand}/.claude/worktrees/${SLUG}" ]; then
-          WT_PATH="${_cand}/.claude/worktrees/${SLUG}"
-          break
-        fi
-      done
-    fi
-  fi
-fi
 
 # Read the SWE's worktree HEAD.
 WT_HEAD=$(git -C "$WT_PATH" rev-parse HEAD 2>/dev/null || true)
