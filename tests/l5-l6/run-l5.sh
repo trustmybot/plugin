@@ -110,7 +110,11 @@ for row_dir in "$HERE/rows"/*/ "$HERE/rows"/*/*/; do
   l6c_run_step "$PROJECT" "$row_dir" "$TURN_JSONL"
   tmb_test_sandbox_teardown
 
-  if l5_score_flow "$PROJECT" "$row_name" "$row_dir" "$RUN_ID"; then
+  ROW_OK=1
+  l5_score_flow "$PROJECT" "$row_name" "$row_dir" "$RUN_ID" || ROW_OK=0
+  l6c_trajectory_doctor "$PROJECT/.claude/tmb/trajectory.db" "$PROJECT/trajectory-doctor.json" || ROW_OK=0
+
+  if [ "$ROW_OK" = "1" ]; then
     printf "  ✓ %s passed\n" "$row_name"
     PASS=$((PASS + 1))
   else

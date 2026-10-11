@@ -14,7 +14,7 @@ import {
   resolveClaudePluginVersion,
 } from './platform.js';
 
-const TARGET_SCHEMA_VERSION = 33;
+export const TARGET_SCHEMA_VERSION = 33;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.

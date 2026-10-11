@@ -23,6 +23,7 @@ import { repoTools } from './repos.js';
 import { cheatcodeTools } from './cheatcode.js';
 import { worldModelTools } from './world_model.js';
 import { agentRunsBackfillTools } from './agent-runs-backfill.js';
+import { trajectoryDoctorTools } from './trajectory-doctor.js';
 export let toolDefinitions: Tool[] = [];
 export let toolHandlers: Record<string, (args: Record<string, unknown>) => Promise<CallToolResult>> = {};
 
@@ -76,6 +77,7 @@ export function registerTools(
   const cheatcode = cheatcodeTools(db);
   const worldModel = worldModelTools(db, graphHolder);
   const backfill = agentRunsBackfillTools(db, dbPath);
+  const doctor = trajectoryDoctorTools(db);
 
   toolDefinitions = decorateWithAgent([
     ...discussions.definitions,
@@ -99,6 +101,7 @@ export function registerTools(
     ...cheatcode.definitions,
     ...worldModel.definitions,
     ...backfill.definitions,
+    ...doctor.definitions,
   ]);
 
   toolHandlers = {
@@ -123,5 +126,6 @@ export function registerTools(
     ...cheatcode.handlers,
     ...worldModel.handlers,
     ...backfill.handlers,
+    ...doctor.handlers,
   };
 }

@@ -17,6 +17,21 @@ L6C_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=tests/l5-l6/lib/timeout-shim.sh
 . "$L6C_LIB_DIR/timeout-shim.sh"
 
+# l6c_trajectory_doctor <db> <report_file>
+# Checks the run's trajectory DB against its data contracts
+# (scripts/maintenance/trajectory-doctor.sh) and writes the JSON report to
+# <report_file>. Returns 0 when healthy; otherwise prints the report and
+# returns non-zero — an error-severity violation fails the run.
+l6c_trajectory_doctor() {
+  local db="$1" report="$2" rc=0
+  bash "$L6C_LIB_DIR/../../../scripts/maintenance/trajectory-doctor.sh" --db "$db" > "$report" 2>&1 || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf "  ✗ trajectory_doctor: %s is unhealthy (exit %s)\n" "$db" "$rc"
+    sed 's/^/    /' "$report"
+  fi
+  return "$rc"
+}
+
 # l6c_uuid: emit a UUID for --session-id. Falls back to /dev/urandom hex if
 # `uuidgen` is missing (CI minimal images).
 l6c_uuid() {

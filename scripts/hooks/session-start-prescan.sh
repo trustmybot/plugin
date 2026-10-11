@@ -136,6 +136,60 @@ if [ "$WORLD_MODEL_SCANNED" = "0" ] && [ "$SOURCE_FILE_COUNT" != "0" ]; then
   fi
 fi
 
+# Trajectory DB data contracts (read-only). The contract list is generated
+# from mcp/trajectory-server/src/data-contracts.ts into lib/data-contracts.json;
+# every contract runs in one sqlite3 -readonly pass under a hard budget
+# (TMB_DOCTOR_BUDGET_MS, default 1500, capped at 3000 so the 6 s hook wrapper
+# covers it). A timeout or read error never reports healthy; a DB whose
+# plugin_meta.schema_version is below the contracts' schema_version says so.
+CONTRACTS_JSON="$SCRIPT_DIR/lib/data-contracts.json"
+DOCTOR_BUDGET_MS="${TMB_DOCTOR_BUDGET_MS:-1500}"
+case "$DOCTOR_BUDGET_MS" in ''|*[!0-9]*) DOCTOR_BUDGET_MS=1500 ;; esac
+[ "$DOCTOR_BUDGET_MS" -gt 3000 ] && DOCTOR_BUDGET_MS=3000
+DOCTOR_STATE="unchecked (no contract list)"
+CONTRACT_IDS=$(jq -r '.contracts[].id' "$CONTRACTS_JSON" 2>/dev/null || true)
+CONTRACT_SCRIPT_JQ='
+  def num: (. // "") | tostring | select(test("^[0-9]+([.][0-9]+)?$")) | tonumber | select(. > 0);
+  "SELECT \u0027__schema|\u0027 || COALESCE((SELECT schema_version FROM plugin_meta LIMIT 1), \u0027\u0027);",
+  ([.contracts[] | .params[]? | ".parameter set :\(.name) \(($ENV[.env] | num) // .default)"] | unique | .[]),
+  (.contracts[] | "SELECT \u0027\(.id)|\u0027 || CASE WHEN (\(.sql)) \(.expect.op) \(.expect.value) THEN \u0027ok\u0027 ELSE \u0027fail\u0027 END;")
+'
+CONTRACT_SCRIPT=$(jq -r "$CONTRACT_SCRIPT_JQ" "$CONTRACTS_JSON" 2>/dev/null || true)
+SCHEMA_REQUIRED=$(jq -r '.schema_version // 0' "$CONTRACTS_JSON" 2>/dev/null || echo 0)
+case "$SCHEMA_REQUIRED" in ''|*[!0-9]*) SCHEMA_REQUIRED=0 ;; esac
+if [ -n "$CONTRACT_IDS" ] && [ -n "$CONTRACT_SCRIPT" ]; then
+  DOCTOR_RC=0
+  DOCTOR_OUT=$(tmb_db_read_budget "$DB_PATH" "$DOCTOR_BUDGET_MS" <<<"$CONTRACT_SCRIPT") || DOCTOR_RC=$?
+  if [ "$DOCTOR_RC" -eq 124 ]; then
+    DOCTOR_STATE="unchecked (timeout)"
+  else
+    FAILED_IDS=""
+    FAILED_N=0
+    UNCHECKED_N=0
+    SCHEMA_STORED=$(printf '%s\n' "$DOCTOR_OUT" | sed -n 's/^__schema|//p' | head -1)
+    case "$SCHEMA_STORED" in ''|*[!0-9]*) SCHEMA_STORED="" ;; esac
+    SCHEMA_NOTE=""
+    [ -n "$SCHEMA_STORED" ] && [ "$SCHEMA_STORED" -lt "$SCHEMA_REQUIRED" ] && \
+      SCHEMA_NOTE="schema v${SCHEMA_STORED} < v${SCHEMA_REQUIRED} — start the trajectory server to migrate"
+    while IFS= read -r cid; do
+      [ -n "$cid" ] || continue
+      case "$(printf '%s\n' "$DOCTOR_OUT" | grep -Fx -e "${cid}|ok" -e "${cid}|fail" | head -1)" in
+        "${cid}|ok") ;;
+        "${cid}|fail") FAILED_N=$((FAILED_N + 1)); FAILED_IDS="${FAILED_IDS:+$FAILED_IDS, }$cid" ;;
+        *) UNCHECKED_N=$((UNCHECKED_N + 1)) ;;
+      esac
+    done <<<"$CONTRACT_IDS"
+    if [ "$FAILED_N" -gt 0 ]; then
+      DOCTOR_STATE="${FAILED_N} contract violation(s) [${FAILED_IDS}] — run trajectory_doctor"
+      [ "$UNCHECKED_N" -gt 0 ] && DOCTOR_STATE="${DOCTOR_STATE} (${UNCHECKED_N} unchecked${SCHEMA_NOTE:+: $SCHEMA_NOTE})"
+    elif [ "$UNCHECKED_N" -gt 0 ]; then
+      DOCTOR_STATE="unchecked (${SCHEMA_NOTE:-read error})"
+    else
+      DOCTOR_STATE="healthy"
+    fi
+  fi
+fi
+
 LAST_5=$(printf '%s' "$LAST_5_RAW" | head -5 | sed 's/^/  /')
 
 # Assemble the inventory block.
@@ -160,6 +214,7 @@ Plugin version:    ${PLUGIN_VERSION_LINE}
 Top-level dirs:    ${TOPLEVEL}
 Stacks detected:   ${STACKS}
 World model:       ${WORLD_MODEL_LINE}
+Trajectory DB:     ${DOCTOR_STATE}
 Git branch:        ${BRANCH} (${COMMIT_COUNT} commits, ${DIRTY_COUNT} dirty paths)
 Open issues:       ${OPEN_ISSUES}
 Pending tasks:     ${PENDING_TASKS}

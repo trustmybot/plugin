@@ -34,6 +34,7 @@ mask_session_start_prescan() {
         -e 's/Top-level dirs:.*/Top-level dirs: __VOLATILE__/' \
         -e 's/Stacks detected:.*/Stacks detected: __VOLATILE__/' \
         -e 's/World model:.*/World model: __VOLATILE__/' \
+        -e 's/Trajectory DB:.*/Trajectory DB: __VOLATILE__/' \
         -e 's/Git branch:.*/Git branch: __VOLATILE__/' \
         -e 's/Open issues:.*/Open issues: __VOLATILE__/' \
         -e 's/Pending tasks:.*/Pending tasks: __VOLATILE__/' \

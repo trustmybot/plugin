@@ -287,4 +287,53 @@ NOREPO_OUT=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/
 NOREPO_CTX=$(echo "$NOREPO_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
 assert_contains "$NOREPO_CTX" "World model:       stale (last scan unknown) — run /scan" "unknown age reads stale"
 
+# ---- Trajectory DB data-contract banner ----
+# A DB built from the real schema (rollback journal, so no sidecars), so every
+# contract in scripts/hooks/lib/data-contracts.json can run against it.
+SCHEMA_DB="$TMPDIR/schema-trajectory.db"
+schema_db() {
+  rm -f "$SCHEMA_DB" "${SCHEMA_DB}-wal" "${SCHEMA_DB}-shm"
+  grep -v '^PRAGMA journal_mode' "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" | sqlite3 "$SCHEMA_DB" >/dev/null
+  sqlite3 "$SCHEMA_DB" "INSERT INTO audit (issue_id, from_node, event_type, summary, created_at) VALUES (-1, 'system', 'deep_scan_completed', 'fixture', strftime('%Y-%m-%dT%H:%M:%fZ','now'));"
+}
+doctor_line() {
+  local out
+  out=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$SCHEMA_DB" TMB_SKIP_AUTO_PRESCAN=1 "$@" bash "$HOOK" 2>/dev/null) || true)
+  printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null | grep '^Trajectory DB:' || true
+}
+
+test_case "doctor banner: clean schema DB reports healthy"
+schema_db
+assert_eq "Trajectory DB:     healthy" "$(doctor_line)" "healthy banner"
+
+test_case "doctor banner: line sits right after the World model line"
+schema_db
+BANNER_CTX=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$SCHEMA_DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>/dev/null) | jq -r '.hookSpecificOutput.additionalContext' | grep -A1 '^World model:' | tail -1 || true)
+assert_contains "$BANNER_CTX" "Trajectory DB:" "Trajectory DB line follows World model"
+
+test_case "doctor banner: violations are counted and named"
+schema_db
+sqlite3 "$SCHEMA_DB" "
+  INSERT INTO issues (objective, status, created_at, updated_at) VALUES ('closed', 'closed', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+  INSERT INTO tasks (issue_id, branch_id, description, status, created_at, updated_at)
+    VALUES (last_insert_rowid(), 'feat/x', 'd', 'pending', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+  INSERT INTO audit (issue_id, from_node, event_type, summary, created_at) VALUES (-1, 'system', 'made_up_event', 'x', strftime('%Y-%m-%dT%H:%M:%fZ','now'));"
+assert_eq "Trajectory DB:     2 contract violation(s) [event_type_documented, issues_closed_no_live_tasks] — run trajectory_doctor" \
+  "$(doctor_line)" "violations banner"
+
+test_case "doctor banner: a spent budget reports unchecked (timeout), never healthy"
+schema_db
+assert_eq "Trajectory DB:     unchecked (timeout)" "$(doctor_line TMB_DOCTOR_BUDGET_MS=1)" "timeout banner"
+
+test_case "doctor banner: an older schema names the version gap, never healthy"
+schema_db
+sqlite3 "$SCHEMA_DB" "UPDATE plugin_meta SET schema_version = 29 WHERE id = 1; ALTER TABLE agent_runs RENAME COLUMN session_id TO session_id_v29;"
+assert_eq "Trajectory DB:     unchecked (schema v29 < v33 — start the trajectory server to migrate)" "$(doctor_line)" "schema banner"
+
+test_case "doctor banner: a DB the contracts cannot read reports unchecked, never healthy"
+reset_db "$DB"
+NO_SCHEMA_LINE=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>/dev/null) | jq -r '.hookSpecificOutput.additionalContext' | grep '^Trajectory DB:' || true)
+assert_not_contains "$NO_SCHEMA_LINE" "healthy" "no healthy banner on read errors"
+assert_contains "$NO_SCHEMA_LINE" "unchecked" "read errors leave contracts unchecked"
+
 summarize

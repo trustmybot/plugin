@@ -56,4 +56,5 @@ task_stale_swept
 tmb_agent_created
 tmb_branch_autocreated
 tmb_skill_created
+trajectory_doctor_run
 verification_gate_waived

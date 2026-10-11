@@ -1,0 +1,252 @@
+/**
+ * Data contracts for the trajectory DB: one declarative list of invariants on
+ * the rows TMB writes over time. The `trajectory_doctor` tool, the SessionStart
+ * banner (via the generated `scripts/hooks/lib/data-contracts.json`) and the
+ * L5/L6 gate (`scripts/maintenance/trajectory-doctor.sh`) all run this list.
+ *
+ * Each contract's `sql` is one read-only SELECT returning a single number; the
+ * contract holds when `actual <op> value`. A NULL result never holds. `params`
+ * are bound by name (`:name`), each read from an environment variable with a
+ * numeric default.
+ */
+import { AUDIT_EVENT_TYPES } from './audit-events.js';
+import { STALE_RUNNING_HOURS_DEFAULT } from './tools/lifecycle.js';
+
+export type ContractSeverity = 'error' | 'warn';
+export type ContractOp = '=' | '<=' | '>=';
+
+export interface ContractExpect {
+  readonly op: ContractOp;
+  readonly value: number;
+}
+
+export interface ContractParam {
+  readonly name: string;
+  readonly env: string;
+  readonly default: number;
+}
+
+export interface Contract {
+  readonly id: string;
+  readonly severity: ContractSeverity;
+  readonly description: string;
+  readonly sql: string;
+  readonly expect: ContractExpect;
+  readonly sample_sql?: string;
+  readonly params?: readonly ContractParam[];
+  /** The plugin_meta.schema_version that added the columns this contract reads. */
+  readonly min_schema?: number;
+}
+
+export interface NullableColumn {
+  readonly table: string;
+  readonly column: string;
+  readonly reason: string;
+}
+
+interface PopulatedColumn {
+  readonly table: 'agent_runs' | 'tasks';
+  readonly column: string;
+  readonly created_column: string;
+  readonly scope?: string;
+  readonly scope_label?: string;
+  readonly floor: number;
+  readonly min_schema: number;
+}
+
+const daysAgo = (days: number): string => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${days} days')`;
+// A stored timestamp in the one ms-ISO form, so a legacy `YYYY-MM-DD HH:MM:SS`
+// value compares by time, not by its separator character.
+const ts = (column: string): string => `strftime('%Y-%m-%dT%H:%M:%fZ', ${column})`;
+const auditTaskId = (alias: string): string =>
+  `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.task_id') END`;
+const auditCommitSha = (alias: string): string =>
+  `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.commit_sha') END`;
+
+export const REVIEW_GRACE_HOURS_DEFAULT = 24;
+
+const LIVE_TASK_STATUSES = "'pending','running','needs_validation','completed'";
+
+/** Columns added in v29–v33 that stay NULL by design; they get no contract. */
+export const NULLABLE_COLUMNS: readonly NullableColumn[] = [
+  { table: 'discussions', column: 'remote_comment_id', reason: 'set only on discussions ingested from a PR/MR comment; NULL for every local discussion' },
+  { table: 'agent_runs', column: 'spawn_id', reason: 'set only on swe rows (one per Agent-tool spawn); bro rows have no spawn' },
+];
+
+/**
+ * Columns added in v29–v33 that have a writer: the NULL rate over rows created
+ * in the last 30 days (within `scope`) must stay at or under `floor`.
+ */
+const POPULATED_COLUMNS: readonly PopulatedColumn[] = [
+  { table: 'agent_runs', column: 'session_id', created_column: 'started_at', floor: 0.2, min_schema: 30 },
+  { table: 'agent_runs', column: 'usage_source', created_column: 'started_at', scope: 'completed_at IS NOT NULL', scope_label: 'completed rows', floor: 0.05, min_schema: 30 },
+  { table: 'agent_runs', column: 'model', created_column: 'started_at', scope: "usage_source IN ('transcript','subagent_stop','backfill')", scope_label: 'measured rows', floor: 0.1, min_schema: 33 },
+  { table: 'agent_runs', column: 'host', created_column: 'started_at', floor: 0, min_schema: 33 },
+  { table: 'agent_runs', column: 'root_dir', created_column: 'started_at', floor: 0.05, min_schema: 33 },
+  { table: 'agent_runs', column: 'exit_reason', created_column: 'started_at', scope: 'completed_at IS NOT NULL', scope_label: 'completed rows', floor: 0.05, min_schema: 33 },
+  { table: 'tasks', column: 'prompt_bearing', created_column: 'created_at', floor: 0, min_schema: 0 },
+];
+
+function populatedContract(c: PopulatedColumn): Contract {
+  const where = [`${ts(c.created_column)} >= ${daysAgo(30)}`, ...(c.scope ? [c.scope] : [])].join(' AND ');
+  return {
+    id: `populated_${c.table}_${c.column}`,
+    severity: 'warn',
+    description: `${c.table}.${c.column} NULL rate over ${c.scope_label ?? 'rows'} created in the last 30 days stays at or under ${c.floor}`,
+    sql: `SELECT COALESCE(AVG(CASE WHEN ${c.column} IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM ${c.table} WHERE ${where}`,
+    expect: { op: '<=', value: c.floor },
+    sample_sql: `SELECT id FROM ${c.table} WHERE ${where} AND ${c.column} IS NULL ORDER BY id DESC LIMIT 5`,
+    ...(c.min_schema > 0 ? { min_schema: c.min_schema } : {}),
+  };
+}
+
+function eventTypeList(types: readonly string[]): string {
+  for (const t of types) {
+    if (!/^[a-z][a-z0-9_]*$/.test(t)) throw new Error(`data-contracts: invalid documented event type '${t}'`);
+  }
+  return types.map((t) => `'${t}'`).join(',');
+}
+
+export function buildDataContracts(documentedEventTypes: readonly string[]): readonly Contract[] {
+  const events = eventTypeList(documentedEventTypes);
+  return [
+    {
+      id: 'fk_check_empty',
+      severity: 'error',
+      description: 'PRAGMA foreign_key_check reports no dangling foreign key',
+      sql: 'SELECT COUNT(*) FROM pragma_foreign_key_check',
+      expect: { op: '=', value: 0 },
+      sample_sql: 'SELECT "table" AS child_table, rowid, parent FROM pragma_foreign_key_check LIMIT 5',
+    },
+    {
+      id: 'event_type_documented',
+      severity: 'error',
+      description: 'every audit.event_type is in the documented event set',
+      sql: `SELECT COUNT(*) FROM audit WHERE event_type NOT IN (${events})`,
+      expect: { op: '=', value: 0 },
+      sample_sql: `SELECT event_type, COUNT(*) AS n FROM audit WHERE event_type NOT IN (${events}) GROUP BY event_type ORDER BY n DESC LIMIT 5`,
+    },
+    {
+      id: 'swe_runs_metered',
+      severity: 'error',
+      min_schema: 30,
+      description: 'swe/pr-reviewer agent_runs completed in the last 7 days and not marked unmeasured carry tokens',
+      sql: `SELECT COUNT(*) FROM agent_runs
+             WHERE agent_type IN ('swe','pr-reviewer') AND completed_at IS NOT NULL AND ${ts('completed_at')} >= ${daysAgo(7)}
+               AND (usage_source IS NULL OR usage_source <> 'unmeasured')
+               AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0
+               AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0`,
+      expect: { op: '=', value: 0 },
+      sample_sql: `SELECT id, task_id, agent_type, usage_source, completed_at FROM agent_runs
+             WHERE agent_type IN ('swe','pr-reviewer') AND completed_at IS NOT NULL AND ${ts('completed_at')} >= ${daysAgo(7)}
+               AND (usage_source IS NULL OR usage_source <> 'unmeasured')
+               AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0
+               AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0
+             ORDER BY id DESC LIMIT 5`,
+    },
+    {
+      id: 'closed_tasks_reviewed',
+      severity: 'error',
+      description: 'tasks closed in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago have a passing pr-reviewer verdict or a review_gate_bypassed/review_gate_waived row (bro_atomic_close closes before pr-reviewer runs; tasks has no closed_at, so the close time is updated_at)',
+      sql: `SELECT COUNT(*) FROM tasks t
+             WHERE t.status = 'closed' AND ${ts('t.updated_at')} >= ${daysAgo(30)}
+               AND ${ts('t.updated_at')} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')
+               AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass')
+               AND NOT EXISTS (SELECT 1 FROM audit a WHERE a.event_type IN ('review_gate_bypassed','review_gate_waived')
+                                AND ${auditTaskId('a')} = t.id)`,
+      expect: { op: '=', value: 0 },
+      sample_sql: `SELECT t.id, t.issue_id, t.branch_id, t.updated_at FROM tasks t
+             WHERE t.status = 'closed' AND ${ts('t.updated_at')} >= ${daysAgo(30)}
+               AND ${ts('t.updated_at')} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')
+               AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass')
+               AND NOT EXISTS (SELECT 1 FROM audit a WHERE a.event_type IN ('review_gate_bypassed','review_gate_waived')
+                                AND ${auditTaskId('a')} = t.id)
+             ORDER BY t.id DESC LIMIT 5`,
+      params: [{ name: 'grace_hours', env: 'TMB_REVIEW_GRACE_HOURS', default: REVIEW_GRACE_HOURS_DEFAULT }],
+    },
+    {
+      id: 'no_stale_running',
+      severity: 'warn',
+      description: 'no running task has gone TMB_STALE_RUNNING_HOURS (default 6) without an update and without an open swe agent_runs row',
+      sql: `SELECT COUNT(*) FROM tasks t
+             WHERE t.status = 'running' AND ${ts('t.updated_at')} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :stale_hours || ' hours')
+               AND NOT EXISTS (SELECT 1 FROM agent_runs r WHERE r.task_id = t.id AND r.agent_type = 'swe' AND r.completed_at IS NULL)`,
+      expect: { op: '=', value: 0 },
+      sample_sql: `SELECT t.id, t.issue_id, t.updated_at FROM tasks t
+             WHERE t.status = 'running' AND ${ts('t.updated_at')} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :stale_hours || ' hours')
+               AND NOT EXISTS (SELECT 1 FROM agent_runs r WHERE r.task_id = t.id AND r.agent_type = 'swe' AND r.completed_at IS NULL)
+             ORDER BY t.id LIMIT 5`,
+      params: [{ name: 'stale_hours', env: 'TMB_STALE_RUNNING_HOURS', default: STALE_RUNNING_HOURS_DEFAULT }],
+    },
+    {
+      id: 'scan_fresh',
+      severity: 'warn',
+      description: 'some repo was scanned in the last 7 days (1 when fresh; passes with no repo row)',
+      sql: `SELECT CASE WHEN COUNT(*) = 0 THEN 1 WHEN MAX(${ts('last_scanned_at')}) >= ${daysAgo(7)} THEN 1 ELSE 0 END FROM repos`,
+      expect: { op: '>=', value: 1 },
+      sample_sql: `SELECT name, last_scanned_at FROM repos ORDER BY last_scanned_at DESC LIMIT 5`,
+    },
+    {
+      id: 'waiver_not_duplicated',
+      severity: 'warn',
+      description: 'no (task_id, commit_sha) carries more than one verification_gate_waived row',
+      sql: `SELECT COUNT(*) FROM (SELECT 1 FROM audit a WHERE a.event_type = 'verification_gate_waived'
+             GROUP BY ${auditTaskId('a')}, COALESCE(${auditCommitSha('a')}, '') HAVING COUNT(*) > 1)`,
+      expect: { op: '=', value: 0 },
+      sample_sql: `SELECT ${auditTaskId('a')} AS task_id, ${auditCommitSha('a')} AS commit_sha, COUNT(*) AS n FROM audit a
+             WHERE a.event_type = 'verification_gate_waived'
+             GROUP BY ${auditTaskId('a')}, COALESCE(${auditCommitSha('a')}, '') HAVING COUNT(*) > 1 ORDER BY n DESC LIMIT 5`,
+    },
+    ...POPULATED_COLUMNS.map(populatedContract),
+    {
+      id: 'issues_closed_no_live_tasks',
+      severity: 'error',
+      description: 'no closed issue still has a pending/running/needs_validation/completed task',
+      sql: `SELECT COUNT(DISTINCT i.id) FROM issues i JOIN tasks t ON t.issue_id = i.id
+             WHERE i.status = 'closed' AND t.status IN (${LIVE_TASK_STATUSES})`,
+      expect: { op: '=', value: 0 },
+      sample_sql: `SELECT i.id AS issue_id, t.id AS task_id, t.status FROM issues i JOIN tasks t ON t.issue_id = i.id
+             WHERE i.status = 'closed' AND t.status IN (${LIVE_TASK_STATUSES}) ORDER BY i.id DESC, t.id LIMIT 5`,
+    },
+  ];
+}
+
+export const DATA_CONTRACTS: readonly Contract[] = buildDataContracts(AUDIT_EVENT_TYPES.map((e) => e.type));
+
+/** The schema version every contract can run against: the highest min_schema. */
+export const DATA_CONTRACTS_SCHEMA_VERSION: number = Math.max(0, ...DATA_CONTRACTS.map((c) => c.min_schema ?? 0));
+
+export function schemaTooOldReason(stored: number, required: number): string {
+  return `schema v${stored} < v${required} — start the trajectory server to migrate`;
+}
+
+export function contractHolds(actual: number | null, expect: ContractExpect): boolean {
+  if (actual === null || !Number.isFinite(actual)) return false;
+  switch (expect.op) {
+    case '=':
+      return actual === expect.value;
+    case '<=':
+      return actual <= expect.value;
+    case '>=':
+      return actual >= expect.value;
+  }
+}
+
+/** The named parameter values for a contract, each from its env var when that is a positive number. */
+export function contractParamValues(
+  contract: Contract,
+  env: NodeJS.ProcessEnv = process.env,
+): Record<string, number> {
+  const values: Record<string, number> = {};
+  for (const p of contract.params ?? []) {
+    const raw = Number(env[p.env]);
+    values[p.name] = Number.isFinite(raw) && raw > 0 ? raw : p.default;
+  }
+  return values;
+}
+
+/** The hook-side copy of the contract list: `scripts/hooks/lib/data-contracts.json`. */
+export function dataContractsJson(contracts: readonly Contract[] = DATA_CONTRACTS): string {
+  const schema_version = Math.max(0, ...contracts.map((c) => c.min_schema ?? 0));
+  return `${JSON.stringify({ generated_from: 'mcp/trajectory-server/src/data-contracts.ts', schema_version, contracts }, null, 2)}\n`;
+}

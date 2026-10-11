@@ -293,3 +293,25 @@ test('agent_runs_backfill — bro only; dry run over an empty transcripts dir re
   assert.equal(bro.data.transcripts_seen, 0);
   assert.equal(bro.data.rows_inserted, 0);
 });
+
+test('trajectory_doctor — bro only; read-only unless record:true', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
+    const res = await call(client, 'trajectory_doctor', { agent: wrongRole });
+    assert.equal(res.ok, false, `${wrongRole} must be forbidden from trajectory_doctor`);
+    assert.equal(res.error?.error, 'forbidden');
+  }
+
+  const allowed = await call(client, 'trajectory_doctor', { agent: 'bro' });
+  assert.equal(allowed.ok, true, `bro should run trajectory_doctor; got ${JSON.stringify(allowed)}`);
+  assert.equal(typeof allowed.data?.healthy, 'boolean');
+  assert.ok(Array.isArray(allowed.data?.violations));
+  assert.ok(Array.isArray(allowed.data?.skipped));
+  assert.equal(allowed.data?.audit_id, undefined, 'record defaults to false');
+
+  const recorded = await call(client, 'trajectory_doctor', { agent: 'bro', record: true, ids: ['fk_check_empty'] });
+  assert.equal(recorded.ok, true, `record:true should succeed; got ${JSON.stringify(recorded)}`);
+  assert.equal(typeof recorded.data?.audit_id, 'number');
+});
