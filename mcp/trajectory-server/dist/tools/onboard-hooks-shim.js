@@ -6,14 +6,16 @@
 // materializes the resolver at <project>/.claude/<plugin>/resolve-hook.sh.
 // Nothing is written outside the project. Each entry is:
 //
-//   bash <project>/.claude/<plugin>/resolve-hook.sh --marketplace <mp> --hook <basename> --shim --project <root>
+//   bash <project>/.claude/<plugin>/resolve-hook.sh --marketplace <mp> --hook <gate> --shim --project <root>
 //
-// stamped `_tmb_managed: true` and `_tmb_project: <root>`. The resolver
-// discovers the active plugin version at fire time and execs the real gate —
-// except in shim mode it exits 0 without running the gate when the session
-// belongs to another project (CLAUDE_PROJECT_DIR != --project) or when the
-// plugin's own hooks are active in this session (the plugin's SessionStart
-// hook left <project>/.claude/<plugin>/sessions/<session_id>.plugin-hooks).
+// stamped `_tmb_managed: true` and `_tmb_project: <root>`, where <gate> is the
+// argument of the hooks.json command `dispatch.sh <gate>`. The resolver
+// discovers the active plugin version at fire time and execs its
+// `scripts/hooks/dispatch.sh <gate> --shim`, which runs the gate once per
+// event — and exits 0 without running it when the session belongs to another
+// project (CLAUDE_PROJECT_DIR != --project) or when the plugin's own hooks are
+// active in this session (the plugin's SessionStart hook left
+// <project>/.claude/<plugin>/sessions/<session_id>.plugin-hooks).
 // Interactive sessions therefore run each gate once, from the plugin; headless
 // runs get the shim.
 //
@@ -34,29 +36,30 @@ const SETTINGS_REL = ['.claude', 'settings.local.json'];
 // decision short-circuits the rest. hooks.json lists advisory / allow-returning
 // hooks ahead of the deny-capable gates (e.g. swe-brief-gate before
 // no-source-edit-from-main in the Edit|Write group), so copied verbatim they
-// would swallow the deny. We exclude these advisory hooks by script basename so
+// would swallow the deny. We exclude these advisory hooks by gate name so
 // the deny-capable enforcement gates run first (no-source-edit-from-main becomes
 // first in its group). Keep all genuine deny gates: no-source-edit-from-main,
 // swe-boundary, swe-scope-fence, git-guards, git-push-guard,
 // no-worktree-branch-create, stay-on-base-guard, no-remote-auth-guard,
 // agent-spawn-dispatch, swe-verification-gate, roundtable-auq-shape.
 const ADVISORY_HOOK_DENYLIST = new Set([
-    'swe-brief-gate.sh',
-    'naming-lint.sh',
-    'code-quality-lint.sh',
-    'commit-msg-lint.sh',
-    'askuserquestion-length-lint.sh',
-    'branch-up-to-date-with-remote.sh',
-    'debug-trajectory.sh',
+    'swe-brief-gate',
+    'naming-lint',
+    'code-quality-lint',
+    'commit-msg-lint',
+    'askuserquestion-length-lint',
+    'branch-up-to-date-with-remote',
+    'debug-trajectory',
 ]);
-function basename(command) {
-    const parts = command.split('/');
-    return parts[parts.length - 1] ?? command;
-}
-// Hook script basename without the .sh extension — the value passed to the
-// resolver's --hook arg (it re-appends scripts/hooks/<name>.sh).
-function hookName(command) {
-    return basename(command).replace(/\.sh$/, '');
+// The gate a hooks.json command runs — the value passed to the resolver's
+// --hook arg. hooks.json registers `.../scripts/hooks/dispatch.sh <gate>`; a
+// direct `.../scripts/hooks/<gate>.sh` command maps to the same gate.
+function gateName(command) {
+    const dispatched = command.match(/\/dispatch\.sh\s+([a-z0-9-]+)\s*$/);
+    if (dispatched?.[1])
+        return dispatched[1];
+    const parts = command.trim().split('/');
+    return (parts[parts.length - 1] ?? command).replace(/\.sh$/, '');
 }
 // Single-quote a word for the hook command line unless it is already shell-safe.
 function shellWord(value) {
@@ -100,7 +103,7 @@ function readPreToolUseFromHooksJson(pluginRoot) {
     return pre;
 }
 function keptHooks(group) {
-    return (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(basename(h.command)));
+    return (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(gateName(h.command)));
 }
 // Build fresh TMB-managed PreToolUse groups: drop advisory/allow-returning hooks
 // (so deny gates run first), rewrite each kept command to a project-tagged shim
@@ -111,7 +114,7 @@ function buildTmbGroups(pre, resolverPath, marketplace, projectRoot) {
     for (const group of pre) {
         const hooks = keptHooks(group).map((h) => ({
             type: h.type,
-            command: `bash ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${hookName(h.command)} --shim --project ${shellWord(projectRoot)}`,
+            command: `bash ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${gateName(h.command)} --shim --project ${shellWord(projectRoot)}`,
             ...(h.timeout !== undefined ? { timeout: h.timeout } : {}),
             _tmb_managed: true,
             _tmb_project: projectRoot,

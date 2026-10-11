@@ -7,6 +7,9 @@
 #   5. settings.json without managed groups      → no warning
 #   6. unknown event                             → no JSON
 #   7. the forensic log lives in the project; nothing is written under HOME
+#   8. install notices from installed_plugins.json, once per session:
+#      user + project → "user-scope ... ignored"; user only → "--scope project"
+#      recommended; project only → silent
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,6 +25,7 @@ mkdir -p "$HOME"
 export HOME
 unset CLAUDE_PLUGIN_ROOT CLAUDE_CONFIG_DIR TRAJECTORY_DB_PATH
 export TMB_MCP_HEALTH_INTERVAL_S=0.05
+export TMB_INSTALLED_JSON="$TMP/installed_plugins.json"
 
 PROJECT="$TMP/project"
 mkdir -p "$PROJECT/.claude/tmb"
@@ -97,6 +101,37 @@ echo '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","comm
 out=$(run_hook "$SS")
 assert_eq "" "$out" "silent"
 rm -rf "$HOME/.claude"
+
+USER_INSTALL="$TMP/cache/mp/tmb/1.0.1"
+PROJECT_INSTALL="$TMP/cache/mp-dev/tmb/1.0.3"
+mkdir -p "$USER_INSTALL" "$PROJECT_INSTALL"
+user_entry() { printf '{"scope":"user","installPath":"%s","installedAt":"2026-01-01T00:00:00.000Z","version":"1.0.1"}' "$USER_INSTALL"; }
+project_entry() { printf '{"scope":"local","projectPath":"%s","installPath":"%s","installedAt":"2026-02-01T00:00:00.000Z","version":"1.0.3"}' "$PROJECT" "$PROJECT_INSTALL"; }
+
+test_case "user + project installs: user-scope install named as ignored, once per session"
+reset 1
+printf '{"version":2,"plugins":{"tmb@mp":[%s],"tmb@mp-dev":[%s]}}\n' "$(user_entry)" "$(project_entry)" > "$TMB_INSTALLED_JSON"
+out=$(run_hook '{"hook_event_name":"SessionStart","session_id":"inst-1"}')
+ctx=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext')
+assert_contains "$ctx" "user-scope TMB v1.0.1 ignored — project install v1.0.3 in use" "names both versions"
+out=$(run_hook '{"hook_event_name":"SessionStart","session_id":"inst-1"}')
+assert_eq "" "$out" "second SessionStart in the same session is silent"
+out=$(run_hook '{"hook_event_name":"SessionStart","session_id":"inst-2"}')
+assert_contains "$out" "ignored" "a new session gets the notice"
+
+test_case "user-scope install only: --scope project recommended"
+reset 1
+printf '{"version":2,"plugins":{"tmb@mp":[%s]}}\n' "$(user_entry)" > "$TMB_INSTALLED_JSON"
+out=$(run_hook '{"hook_event_name":"SessionStart","session_id":"inst-3"}')
+ctx=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext')
+assert_contains "$ctx" "TMB installed at user scope; \`--scope project\` is recommended (see docs/reference/INSTALL.md)" "recommendation"
+
+test_case "project install only: no notice"
+reset 1
+printf '{"version":2,"plugins":{"tmb@mp-dev":[%s]}}\n' "$(project_entry)" > "$TMB_INSTALLED_JSON"
+out=$(run_hook '{"hook_event_name":"SessionStart","session_id":"inst-4"}')
+assert_eq "" "$out" "silent"
+rm -f "$TMB_INSTALLED_JSON"
 
 test_case "unknown event: no JSON"
 reset 0

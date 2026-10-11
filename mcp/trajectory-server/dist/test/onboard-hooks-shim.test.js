@@ -4,52 +4,53 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSyn
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { countShimEntries, removeProjectEnforcementShim, writeProjectEnforcementShim, } from '../tools/onboard-hooks-shim.js';
-// A hooks.json mirroring the real plugin's PreToolUse shape: each deny-capable
+// A hooks.json mirroring the real plugin's PreToolUse shape (every command is
+// `dispatch.sh <gate>`): each deny-capable
 // gate is preceded by advisory/allow-returning hooks that must be excluded so
 // the deny gate runs first. Plus a PostToolUse + SessionStart that must NOT be
 // copied into settings.json.
 const HOOKS_JSON = {
     hooks: {
         SessionStart: [
-            { matcher: '', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start-prescan.sh', timeout: 5 }] },
+            { matcher: '', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh session-start-prescan', timeout: 5 }] },
         ],
         PreToolUse: [
             {
                 matcher: 'Bash',
                 hooks: [
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/git-guards.sh', timeout: 10 },
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/git-push-guard.sh', timeout: 10 },
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-boundary.sh', timeout: 5 },
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/branch-up-to-date-with-remote.sh', timeout: 10 },
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/commit-msg-lint.sh', timeout: 5 },
+                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh git-guards', timeout: 10 },
+                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh git-push-guard', timeout: 10 },
+                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-boundary', timeout: 5 },
+                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh branch-up-to-date-with-remote', timeout: 10 },
+                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh commit-msg-lint', timeout: 5 },
                 ],
             },
             {
                 matcher: 'Edit|Write|MultiEdit|NotebookEdit',
                 hooks: [
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-brief-gate.sh', timeout: 5 },
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/no-source-edit-from-main.sh', timeout: 5 },
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-boundary.sh', timeout: 5 },
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-scope-fence.sh', timeout: 5 },
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/naming-lint.sh', timeout: 5 },
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/code-quality-lint.sh', timeout: 5 },
+                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-brief-gate', timeout: 5 },
+                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh no-source-edit-from-main', timeout: 5 },
+                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-boundary', timeout: 5 },
+                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-scope-fence', timeout: 5 },
+                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh naming-lint', timeout: 5 },
+                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh code-quality-lint', timeout: 5 },
                 ],
             },
             {
                 matcher: 'mcp__.*trajectory-server__.*',
-                hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-brief-gate.sh', timeout: 5 }],
+                hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-brief-gate', timeout: 5 }],
             },
             {
                 matcher: 'mcp__.*trajectory-server__task_update_status',
-                hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/swe-verification-gate.sh', timeout: 260 }],
+                hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-verification-gate', timeout: 260 }],
             },
             {
                 matcher: 'Bash|Read|Write|Edit|MultiEdit|Agent|Skill',
-                hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/debug-trajectory.sh', timeout: 5 }],
+                hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh debug-trajectory', timeout: 5 }],
             },
         ],
         PostToolUse: [
-            { matcher: 'Bash', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/attribution-footer.sh', timeout: 15 }] },
+            { matcher: 'Bash', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh attribution-footer', timeout: 15 }] },
         ],
     },
 };
@@ -131,6 +132,10 @@ describe('project enforcement shim', () => {
             assert.equal(h._tmb_project, project);
             assert.ok(h.command.startsWith(`bash ${resolverPath()} --marketplace ${MARKETPLACE} --hook `), h.command);
             assert.ok(h.command.endsWith(` --shim --project ${project}`), h.command);
+            const gate = h.command.match(/--hook (\S+) --shim/)?.[1] ?? '';
+            assert.match(gate, /^[a-z0-9-]+$/, `--hook carries a bare gate name: ${h.command}`);
+            assert.notEqual(gate, 'dispatch', h.command);
+            assert.ok(!h.command.includes('dispatch.sh'), `resolver resolves the dispatcher itself: ${h.command}`);
             assert.ok(!/tmb\/\d+\.\d+\.\d+/.test(h.command), `version segment leaked: ${h.command}`);
         }
     });

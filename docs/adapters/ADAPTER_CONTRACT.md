@@ -44,6 +44,8 @@ Concretely, in both directions:
 - Claude Code adapter code MUST NOT create, read, write, or delete anything under `~/.codex`, `.codex/`, `.agents/`, or `.tmb/`.
 - The same ban extends to every future adapter for every other adapter's directories. The list above enumerates today's hosts; the rule is general.
 
+Within its own host, every adapter also obeys [`../architecture/CONTAINMENT.md`](../architecture/CONTAINMENT.md): TMB writes nothing outside the project, whatever the install scope — under Codex all state goes to `<project>/.tmb/`.
+
 **Host-specific side effects MUST sit behind an explicit runtime-context host check.** A module decides what host it is running under at call time, from the runtime context, and only then touches a host directory. **Module-import-time side effects are forbidden** — a top-level `mkdir` of a host directory, a directory probe that creates on miss, or any filesystem write that happens merely because a file was imported. Importing a module MUST be inert. This matters most for shared code that both adapters load: an import-time `mkdir` in a shared path plants one host's directory in the other host's project the moment the module is pulled in, and no amount of downstream branching undoes it.
 
 ## 4. Rule 3 — Env compatibility (MUST)

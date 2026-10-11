@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Tests for scripts/lib/resolve-hook.sh — the headless-shim resolver.
+# Tests for scripts/lib/resolve-hook.sh — the headless-shim resolver, which
+# execs the resolved version's scripts/hooks/dispatch.sh <gate> [--shim].
 #   - plain mode always runs the gate
 #   - --shim runs the gate (stdin forwarded) when no plugin-hooks marker exists
 #   - --shim yields when <project>/.claude/<plugin>/sessions/<sid>.plugin-hooks exists
 #   - --shim yields (exit 0, gate not run) for a foreign CLAUDE_PROJECT_DIR
+#   - a resolved version without dispatch.sh fails open, loudly
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,10 +16,15 @@ RESOLVER="$PLUGIN_ROOT/scripts/lib/resolve-hook.sh"
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
+# Without CLAUDE_PROJECT_DIR the trajectory DB is found by walking up from cwd;
+# start outside any checkout so no real project state is resolved.
+cd "$TMP"
 
 export CLAUDE_CONFIG_DIR="$TMP/claude"
 VERSION_ROOT="$CLAUDE_CONFIG_DIR/plugins/cache/mp/tmb/1.0.0"
-mkdir -p "$VERSION_ROOT/scripts/hooks" "$VERSION_ROOT/.claude-plugin"
+mkdir -p "$VERSION_ROOT/scripts/hooks/lib" "$VERSION_ROOT/.claude-plugin"
+cp "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" "$VERSION_ROOT/scripts/hooks/"
+cp "$PLUGIN_ROOT/scripts/hooks/lib/"*.sh "$VERSION_ROOT/scripts/hooks/lib/"
 printf '{"name":"tmb"}\n' > "$VERSION_ROOT/.claude-plugin/plugin.json"
 FIRED="$TMP/fired.log"
 cat > "$VERSION_ROOT/scripts/hooks/probe.sh" <<EOF
@@ -73,5 +80,13 @@ test_case "--shim with this project's CLAUDE_PROJECT_DIR and no marker runs the 
 out=$(CLAUDE_PROJECT_DIR="$PROJECT" run --marketplace mp --hook probe --shim --project "$PROJECT")
 assert_contains "$out" '"permissionDecision":"deny"' "gate decision forwarded"
 assert_eq "4" "$(fired_count)" "gate ran"
+
+test_case "resolved version without dispatch.sh fails open, loudly"
+rm "$VERSION_ROOT/scripts/hooks/dispatch.sh"
+rc=0
+err=$(printf '%s' "$PAYLOAD" | bash "$RESOLVER" --marketplace mp --hook probe 2>&1 >/dev/null) || rc=$?
+assert_eq "0" "$rc" "exit 0"
+assert_contains "$err" "no dispatcher" "stderr names the missing dispatcher"
+assert_eq "4" "$(fired_count)" "gate not run"
 
 summarize
