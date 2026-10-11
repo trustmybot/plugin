@@ -2,6 +2,7 @@ import { nowISO } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { serverLog } from '../logger.js';
 import { insertAudit } from './audit.js';
+import { recordReviewBypassIfUnreviewed } from './lifecycle.js';
 import { claudeRunContext, closeOpenRunsForTask, exitReasonForStatus, openBroRun, parseRunSessionId, RUN_SESSION_ID_SCHEMA, TERMINAL_TASK_STATUSES, } from './agent-runs.js';
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
@@ -305,7 +306,7 @@ export function taskTools(db, runContext = claudeRunContext(db)) {
         },
         {
             name: 'task_update_status',
-            description: 'Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically.',
+            description: 'Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to closed with no passing pr-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -964,6 +965,9 @@ export function taskTools(db, runContext = claudeRunContext(db)) {
             // stale completion stamp that downstream gates would trust (#278).
             const completedAt = status === 'completed' ? now : status === 'closed' ? task.completed_at : null;
             db.transaction(() => {
+                if (status === 'closed' && task.status !== 'closed') {
+                    recordReviewBypassIfUnreviewed(db, { ...task, commit_sha: rawCommitSha ?? task.commit_sha ?? null }, 'task_update_status', agent, now);
+                }
                 if (rawCommitSha !== undefined) {
                     db.run(`UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, commit_sha = ? WHERE id = ?`, [status, now, completedAt, rawCommitSha, taskId]);
                 }

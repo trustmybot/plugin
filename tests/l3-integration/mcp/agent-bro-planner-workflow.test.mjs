@@ -72,12 +72,24 @@ test('bro (planner) — simple task workflow: issue → discussion → tasks →
     'validation_history must be empty before pr-reviewer runs',
   );
 
-  // 6. Close the issue (simulate end-of-work)
-  const closed = await call(client, 'issue_close', {
+  // 6. Closing the issue over its still-pending task is refused; an explicit
+  // cascade escalates the task and closes the issue.
+  const refused = await call(client, 'issue_close', {
     agent: 'bro',
     issue_id: issueId,
   });
+  assert.equal(refused.ok, false, `issue_close over a live task must refuse: ${JSON.stringify(refused)}`);
+  assert.match(JSON.stringify(refused), /issue_has_open_tasks/);
+
+  const closed = await call(client, 'issue_close', {
+    agent: 'bro',
+    issue_id: issueId,
+    cascade: true,
+    reason: 'end of simulated workflow',
+  });
   assert.equal(closed.ok, true, `issue_close: ${JSON.stringify(closed)}`);
+  const afterTask = await call(client, 'task_get', { agent: 'bro', task_id: taskId });
+  assert.equal(afterTask.data.status, 'escalated');
 });
 
 test('bro (planner) — difficult-task flow: issue + ADR-style discussion thread', async (t) => {

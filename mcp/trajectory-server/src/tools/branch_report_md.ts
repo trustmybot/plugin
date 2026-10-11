@@ -43,6 +43,11 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
   };
 }
 
+// A completed task still waits on bro_atomic_close; only closed counts as done.
+function statusLabel(status: string): string {
+  return status === 'completed' ? 'completed (awaiting close)' : status;
+}
+
 export function branchReportMdTools(db: TrajectoryDB): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
@@ -111,6 +116,11 @@ export function branchReportMdTools(db: TrajectoryDB): {
         lines.push(`**Issue objective:** ${issue.objective}`);
         lines.push('');
 
+        const doneCount = tasks.filter((t) => t.status === 'closed').length;
+        const awaitingClose = tasks.filter((t) => t.status === 'completed').length;
+        lines.push(`**Done:** ${doneCount} of ${tasks.length} closed, ${awaitingClose} awaiting close`);
+        lines.push('');
+
         if (mode === 'summary') {
           lines.push('## Tasks on this branch');
           lines.push('');
@@ -119,7 +129,7 @@ export function branchReportMdTools(db: TrajectoryDB): {
           for (const t of tasks) {
             const title = t.title || t.description.slice(0, 60);
             const commit = t.commit_sha || '—';
-            lines.push(`| ${t.id} | ${title} | ${t.status} | ${commit} |`);
+            lines.push(`| ${t.id} | ${title} | ${statusLabel(t.status)} | ${commit} |`);
           }
           lines.push('');
 
@@ -170,8 +180,8 @@ export function branchReportMdTools(db: TrajectoryDB): {
         for (const t of tasks) {
           const title = t.title || t.description.slice(0, 60);
           const commit = t.commit_sha || '—';
-          const closed = t.completed_at || '—';
-          lines.push(`| ${t.id} | ${title} | ${t.status} | ${commit} | ${t.created_at} | ${closed} |`);
+          const closed = t.status === 'closed' && t.completed_at ? t.completed_at : '—';
+          lines.push(`| ${t.id} | ${title} | ${statusLabel(t.status)} | ${commit} | ${t.created_at} | ${closed} |`);
         }
         lines.push('');
 

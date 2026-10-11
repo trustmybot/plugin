@@ -26336,6 +26336,76 @@ async function syncIssueClose(opts) {
   }
 }
 
+// src/tools/agent-runs.ts
+var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
+var WINDOW_MS_SQL = "COALESCE(CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)";
+function closeOpenRunsForTask(db, taskId, now, exitReason) {
+  return db.run(
+    `UPDATE agent_runs
+        SET completed_at = ?,
+            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
+            exit_reason = ?
+      WHERE task_id = ?
+        AND completed_at IS NULL`,
+    [now, now, exitReason, taskId]
+  ).changes;
+}
+
+// src/tools/lifecycle.ts
+var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
+var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
+var WAIVE_REVIEW_REASON_MIN = 10;
+var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
+  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= (
+    SELECT MIN(a.created_at) FROM audit a
+      WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
+        AND json_extract(a.content_json, '$.task_id') = t.id
+        AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
+var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
+  WHERE g.event_type IN ('review_gate_bypassed', 'review_gate_waived') AND json_valid(g.content_json)
+    AND json_extract(g.content_json, '$.task_id') = t.id
+    AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
+function liveTasksOfIssue(db, issueId) {
+  return db.all(
+    `SELECT id, issue_id, branch_id, status, commit_sha FROM tasks
+      WHERE issue_id = ? AND status IN (${LIVE_IN}) ORDER BY id`,
+    [issueId]
+  );
+}
+function closedTasksWithoutReview(db, issueId) {
+  return db.all(
+    `SELECT t.id, t.issue_id, t.branch_id, t.status, t.commit_sha FROM tasks t
+      WHERE t.issue_id = ? AND t.status = 'closed'
+        AND NOT ${HAS_PASS_SQL} AND NOT ${GATE_SKIP_RECORDED_SQL}
+      ORDER BY t.id`,
+    [issueId]
+  );
+}
+function escalateLiveTasksForIssueClose(db, tasks, reason, now) {
+  for (const task of tasks) {
+    db.run(
+      `UPDATE tasks SET status = 'escalated', completed_at = NULL, updated_at = ? WHERE id = ?`,
+      [now, task.id]
+    );
+    insertAudit(db, {
+      issue_id: task.issue_id,
+      branch_id: task.branch_id,
+      from_node: "bro",
+      event_type: "task_escalated_by_issue_close",
+      summary: `Task ${task.id} escalated from ${task.status} by issue_close cascade`,
+      content_json: JSON.stringify({ task_id: task.id, from_status: task.status, reason }),
+      created_at: now
+    });
+    closeOpenRunsForTask(db, task.id, now, "issue_closed");
+  }
+}
+function markIssueClosed(db, issueId, now) {
+  db.run(
+    `UPDATE issues SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?) WHERE id = ?`,
+    [now, now, issueId]
+  );
+}
+
 // src/tools/issues.ts
 var DEFAULT_CLASSIFICATION_LABELS = [
   "Bug",
@@ -26454,6 +26524,12 @@ function ok2(data) {
 function err2(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    isError: true
+  };
+}
+function refusal(code, detail) {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ error: code, ...detail }) }],
     isError: true
   };
 }
@@ -26603,19 +26679,35 @@ function issueTools(db, dbPath = "", options = {}) {
     },
     {
       name: "issue_close",
-      description: "Close an issue by setting its status to closed.",
+      description: "Close an issue locally, then mirror the close to its linked remote. Refuses with issue_has_open_tasks (task ids + statuses) while any task is pending/running/needs_validation/completed, unless cascade=true escalates those tasks first (one task_escalated_by_issue_close audit row each, open agent_runs closed issue_closed). Refuses with tasks_without_review while a closed task has no passing pr-reviewer verdict for its current commit, unless waive_review=true + waive_review_reason records review_gate_waived per task.",
       inputSchema: {
         type: "object",
         properties: {
           agent: { type: "string" },
-          issue_id: { type: "string" }
+          issue_id: { type: "string" },
+          cascade: {
+            type: "boolean",
+            description: "When true, escalate every live task of the issue (pending/running/needs_validation/completed) and close their open agent_runs before closing the issue. Default false: refuse while tasks are live."
+          },
+          reason: {
+            type: "string",
+            description: "Optional reason stored on each task_escalated_by_issue_close audit row when cascade=true."
+          },
+          waive_review: {
+            type: "boolean",
+            description: "When true, close even though closed tasks lack a passing pr-reviewer verdict; writes one review_gate_waived audit row per such task. Requires waive_review_reason."
+          },
+          waive_review_reason: {
+            type: "string",
+            description: "Required when waive_review is true (min 10 chars): why the review is skipped."
+          }
         },
         required: ["agent", "issue_id"]
       }
     },
     {
       name: "issue_get_phase",
-      description: "Return the current workflow phase and task completion counts for an issue.",
+      description: "Return the current workflow phase and task counts for an issue. tasks_completed counts closed tasks only; tasks_awaiting_close counts tasks the SWE reported completed that bro has not closed yet. phase is ready_to_close once every task is closed.",
       inputSchema: {
         type: "object",
         properties: {
@@ -27054,15 +27146,56 @@ function issueTools(db, dbPath = "", options = {}) {
       if (!existing) {
         throw new Error(`Not found: ${issueId}`);
       }
-      db.run(
-        `UPDATE issues
-         SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?)
-         WHERE id = ?`,
-        [now, now, issueId]
-      );
+      const cascade = args["cascade"] === true;
+      const waiveReview = args["waive_review"] === true;
+      const waiveReason = args["waive_review_reason"];
+      const cascadeReason = typeof args["reason"] === "string" && args["reason"].trim() !== "" ? args["reason"] : "issue closed with cascade";
+      if (waiveReview && (typeof waiveReason !== "string" || waiveReason.trim().length < WAIVE_REVIEW_REASON_MIN)) {
+        return err2(`waive_review_reason must be a string \u2265${WAIVE_REVIEW_REASON_MIN} chars.`);
+      }
+      const live = liveTasksOfIssue(db, issueId);
+      if (live.length > 0 && !cascade) {
+        return refusal("issue_has_open_tasks", {
+          message: `Issue ${issueId} has tasks not in closed|failed|escalated. Finish them, or pass cascade=true to escalate them and close the issue.`,
+          tasks: live.map((t) => ({ task_id: t.id, status: t.status }))
+        });
+      }
+      const unreviewed = closedTasksWithoutReview(db, issueId);
+      if (unreviewed.length > 0 && !waiveReview) {
+        return refusal("tasks_without_review", {
+          message: `Issue ${issueId} has closed tasks with no passing pr-reviewer verdict for their current commit. Run pr-reviewer, or pass waive_review=true with waive_review_reason="<why>".`,
+          tasks: unreviewed.map((t) => ({ task_id: t.id, commit_sha: t.commit_sha }))
+        });
+      }
+      db.transaction(() => {
+        if (waiveReview) {
+          for (const t of unreviewed) {
+            insertAudit(db, {
+              issue_id: t.issue_id,
+              branch_id: t.branch_id,
+              from_node: "bro",
+              event_type: "review_gate_waived",
+              summary: `issue_close review gate waived for task ${t.id}`,
+              content_json: JSON.stringify({
+                skill: "issue_close",
+                task_id: t.id,
+                commit_sha: t.commit_sha,
+                waive_review_reason: waiveReason
+              }),
+              created_at: now
+            });
+          }
+        }
+        escalateLiveTasksForIssueClose(db, live, cascadeReason, now);
+        markIssueClosed(db, issueId, now);
+      });
       await syncIssueCloseRemotes(db, dbPath, issueId, args["_spawnFn"]);
       const updated = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      return ok2(decodeIssue(updated));
+      return ok2({
+        ...decodeIssue(updated),
+        tasks_escalated: live.map((t) => t.id),
+        review_waived_tasks: waiveReview ? unreviewed.map((t) => t.id) : []
+      });
     })),
     issue_get_phase: wrapHandler2(async (args) => {
       requireArg2(args, "agent");
@@ -27075,7 +27208,8 @@ function issueTools(db, dbPath = "", options = {}) {
       const rawCounts = db.get(
         `SELECT
            COUNT(*) as tasks_total,
-           SUM(CASE WHEN status IN ('completed', 'closed') THEN 1 ELSE 0 END) as tasks_completed,
+           SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) as tasks_completed,
+           SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as tasks_awaiting_close,
            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as tasks_failed
          FROM tasks WHERE issue_id = ?`,
         [issueId]
@@ -27083,6 +27217,7 @@ function issueTools(db, dbPath = "", options = {}) {
       const counts = {
         tasks_total: rawCounts?.tasks_total ?? 0,
         tasks_completed: rawCounts?.tasks_completed ?? 0,
+        tasks_awaiting_close: rawCounts?.tasks_awaiting_close ?? 0,
         tasks_failed: rawCounts?.tasks_failed ?? 0
       };
       let phase;

@@ -88,10 +88,12 @@ export function reportTools(db) {
             lines.push('');
             if (mode === 'summary') {
                 const taskCounts = db.get(`SELECT COUNT(*) AS total,
-                  SUM(CASE WHEN status IN ('completed','closed') THEN 1 ELSE 0 END) AS completed,
+                  SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) AS closed,
+                  SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS awaiting_close,
                   SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
            FROM tasks WHERE issue_id = ?`, [issueId]);
-                lines.push(`**Tasks:** ${taskCounts?.total ?? 0} total, ${taskCounts?.completed ?? 0} completed, ${taskCounts?.failed ?? 0} failed`);
+                lines.push(`**Tasks:** ${taskCounts?.total ?? 0} total, ${taskCounts?.closed ?? 0} done (closed), ` +
+                    `${taskCounts?.awaiting_close ?? 0} awaiting close, ${taskCounts?.failed ?? 0} failed`);
                 lines.push('');
                 const auditCount = (db.get(`SELECT COUNT(*) AS n FROM audit WHERE issue_id = ?`, [issueId]))?.n ?? 0;
                 lines.push(`**Audit events:** ${auditCount}`);

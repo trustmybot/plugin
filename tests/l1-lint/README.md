@@ -46,7 +46,7 @@ bash tests/l1-lint/link-check.sh
 | Script | Catches |
 |---|---|
 | [`no-bare-role-compare.sh`](./no-bare-role-compare.sh) | Bare role-string comparisons instead of requireRoles |
-| [`no-raw-sql-interpolation.sh`](./no-raw-sql-interpolation.sh) | Raw SQL string interpolation (allowlist: `no-raw-sql-interpolation.allowlist`) |
+| [`no-raw-sql-interpolation.sh`](./no-raw-sql-interpolation.sh) | Raw SQL string interpolation (allowlist: `no-raw-sql-interpolation.allowlist`, entries `<file>@<function>`, `<file>:<line>` or `<file>`; a missing function fails; every run self-tests `fixtures/no-raw-sql-interpolation/`) |
 | [`no-destructive-sql.sh`](./no-destructive-sql.sh) | Destructive SQL statements |
 | [`no-direct-sqlite-write.sh`](./no-direct-sqlite-write.sh) | A `sqlite3` write under `scripts/` that bypasses the write library (`scripts/hooks/lib/db-write.sh`) |
 | [`no-private-db-path.sh`](./no-private-db-path.sh) | A `trajectory.db` literal under `scripts/` outside `scripts/hooks/lib/query-task.sh` — a private copy of the DB-path rule (allowlist: `no-private-db-path.allowlist`) |
