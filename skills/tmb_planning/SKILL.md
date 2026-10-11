@@ -59,6 +59,10 @@ The `spec_body` markdown carries the prose bro and swe reason from. Its sections
 - `## Out of Scope`
 - `## Commit` — `<emoji> <type>(<scope>): <msg>`
 
+When the task adds a column, field, enum value, tool-result key or file output, `## Success Criteria` names each one with its own `Writer: <tool, hook or function that sets it>` line and a `Populated: <verification[] command proving a non-null sample or a count above zero>` line, or a `Nullable: <reason>` line when empty is correct. The spawn gate checks schema-touching specs for these lines.
+
+A dry run or smoke test is a `verification[]` command that exits non-zero when its expectation fails, run against a `cp` of reference data so the live DB stays untouched. The one-line form is `bash tests/lib/assert-sql.sh <db-copy> "<sql>" <expected>`. The swe report then cites that command's pass/fail rather than the numbers it saw.
+
 The chosen approach rides into `task_provision` as `decision_body` (§5) — it writes the `kind='decision'` discussion atomically with the task, so there's no separate `discussion_append` here.
 
 ### Architectural changes

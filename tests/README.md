@@ -63,7 +63,7 @@ tests/
 │   ├── mcp/                    ← L3 real server subprocess + JSON-RPC
 │   └── hooks/                  ← L3 hook script tests
 ├── l4-workflow-sim/            ← L4 MCP-only multi-step workflow tests
-├── lib/                        ← shared shell-assert helpers
+├── lib/                        ← shared shell-assert helpers + assert-sql.sh (dry-run assertions)
 └── l5-l6/                      ← L5 + L6
     ├── run-l5.sh, run-l6-chain.sh
     ├── lib/                    ← flow-helpers, l6-chain-helpers, scorers, smoke-helpers, timeout-shim
@@ -275,6 +275,17 @@ Assertion helpers (`tests/lib/assert.sh`):
 - `assert_not_contains <haystack> <needle> [label]`
 - `assert_exit_code <expected> <actual> [label]`
 - `summarize` — prints pass/fail summary; returns non-zero if any assertion failed.
+
+### Dry runs as assertions (`tests/lib/assert-sql.sh`)
+
+A dry run or smoke test belongs in a task's `verification[]` as a command that exits non-zero when its expectation fails, so the verification gate and pr-reviewer re-run it. Point it at a `cp` of the reference data, not the live trajectory DB:
+
+```bash
+cp .claude/tmb/trajectory.db /tmp/ref.db
+bash tests/lib/assert-sql.sh /tmp/ref.db "SELECT count(*) FROM tasks WHERE ended_at IS NOT NULL" 1 --op ge
+```
+
+`assert-sql.sh <db> "<sql>" <expected> [--op eq|ge|le]` opens the DB read-only (`sqlite3 -readonly`), requires the query to return a single value, and compares it to `<expected>`: `eq` (default) as strings, `ge` / `le` numerically. It prints one `PASS` / `FAIL` line and exits 0 on a match, 1 on a mismatch, 2 on a usage error, a missing DB or a SQL error (a write statement fails here too). `bash tests/lib/assert-sql.sh --self-test` covers eq/ge/le, mismatches, a missing DB and the read-only guarantee (the DB's mtime is unchanged). A spec's `Populated:` line is usually one of these commands.
 
 ## L5/L6 sandbox
 

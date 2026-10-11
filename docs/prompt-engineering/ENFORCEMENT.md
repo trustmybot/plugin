@@ -53,7 +53,7 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 
 | Interaction | Layer | Where |
 |---|---|---|
-| Spawned only with valid `task_id` referencing a pending task (or a running one with no live swe run) with non-empty `spec_body` | 2 | `scripts/hooks/require-task-spec.sh` |
+| Spawned only with valid `task_id` referencing a pending task (or a running one with no live swe run) with non-empty `spec_body`; a schema-touching or column-adding spec names each new item's `Writer:` + `Populated:` (or `Nullable:`) | 2 | `scripts/hooks/require-task-spec.sh` |
 | Runs in isolated worktree | 2 | worktree Bash hooks |
 | Cannot create branches (must attach to bro-pre-created branch; no `--detach`) | 2 | `scripts/hooks/no-worktree-branch-create.sh` |
 | Worktree branch must descend from `origin/<pr_target>` | 2 | `scripts/hooks/branch-up-to-date-with-remote.sh` |

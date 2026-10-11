@@ -2,7 +2,9 @@
 # Tests for scripts/hooks/require-task-spec.sh (DB-backed form)
 # Hook contract: block SWE spawns unless the prompt cites a valid
 # task_id=<N> whose row in tasks table is pending, or running with no open swe
-# agent_runs row, AND has a non-empty spec_body. See plugin CHANGELOG for history.
+# agent_runs row, AND has a non-empty spec_body. A schema-touching or
+# column-adding task also needs Writer: + Populated: lines or a Nullable: line,
+# unless bro recorded a spec_shape_gate_waived audit row for the task. See plugin CHANGELOG for history.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,8 +22,14 @@ sqlite3 "$DB" "
   CREATE TABLE tasks (
     id INTEGER PRIMARY KEY,
     status TEXT NOT NULL,
-    spec_body TEXT
+    spec_body TEXT,
+    files TEXT,
+    issue_id INTEGER,
+    branch_id TEXT
   );
+  CREATE TABLE issues (id INTEGER PRIMARY KEY, repo TEXT);
+  CREATE TABLE audit (id INTEGER PRIMARY KEY, issue_id INTEGER, branch_id TEXT, from_node TEXT, event_type TEXT, summary TEXT, content_json TEXT, repo TEXT, created_at TEXT);
+  INSERT INTO issues VALUES (1, 'plugin');
   CREATE TABLE agent_runs (
     id INTEGER PRIMARY KEY,
     task_id INTEGER,
@@ -29,17 +37,33 @@ sqlite3 "$DB" "
     started_at TEXT,
     completed_at TEXT
   );
-  INSERT INTO tasks VALUES (1, 'pending',     'Do the thing.');
-  INSERT INTO tasks VALUES (2, 'pending',     '');
-  INSERT INTO tasks VALUES (3, 'running',     'Reopened, no live swe.');
-  INSERT INTO tasks VALUES (4, 'completed',   'Already done.');
-  INSERT INTO tasks VALUES (5, 'in_progress', 'Mid-flight.');
-  INSERT INTO tasks VALUES (6, 'running',     'swe still working.');
-  INSERT INTO tasks VALUES (7, 'closed',      'Closed.');
+  INSERT INTO tasks (id, status, spec_body) VALUES (1, 'pending',     'Do the thing.');
+  INSERT INTO tasks (id, status, spec_body) VALUES (2, 'pending',     '');
+  INSERT INTO tasks (id, status, spec_body) VALUES (3, 'running',     'Reopened, no live swe.');
+  INSERT INTO tasks (id, status, spec_body) VALUES (4, 'completed',   'Already done.');
+  INSERT INTO tasks (id, status, spec_body) VALUES (5, 'in_progress', 'Mid-flight.');
+  INSERT INTO tasks (id, status, spec_body) VALUES (6, 'running',     'swe still working.');
+  INSERT INTO tasks (id, status, spec_body) VALUES (7, 'closed',      'Closed.');
   INSERT INTO agent_runs VALUES (10, 3, 'swe', '2026-10-01T00:00:00.000Z', '2026-10-01T01:00:00.000Z');
   INSERT INTO agent_runs VALUES (11, 3, 'bro', '2026-10-01T00:00:00.000Z', NULL);
   INSERT INTO agent_runs VALUES (12, 6, 'swe', '2026-10-11T09:00:00.000Z', NULL);
 "
+sqlite3 "$DB" <<'SQL'
+INSERT INTO tasks VALUES (20, 'pending', '## Success Criteria
+- the column exists', '["mcp/trajectory-server/src/schema.sql","mcp/trajectory-server/src/db.ts"]', 1, 'feat/col');
+INSERT INTO tasks VALUES (21, 'pending', '## Success Criteria
+- `Writer: task_update_status`
+- `Populated: bash tests/lib/assert-sql.sh db.copy "SELECT count(*) FROM tasks WHERE x IS NOT NULL" 1 --op ge`', '["migrations/031.sql"]', 1, 'feat/col2');
+INSERT INTO tasks VALUES (22, 'pending', '## Success Criteria
+Nullable: only set for legacy rows', '["mcp/trajectory-server/src/schema.sql"]', 1, 'feat/col3');
+INSERT INTO tasks VALUES (23, 'pending', '## Success Criteria
+- the column exists', '["src/schema.sql"]', 1, 'feat/col4');
+INSERT INTO tasks VALUES (24, 'pending', '## Success Criteria
+- README typo fixed', '["README.md","scripts/"]', 1, 'docs/typo');
+INSERT INTO tasks VALUES (25, 'pending', 'Add a new column ended_at.
+## Success Criteria
+Writer: bro_atomic_close', '["src/handlers.ts"]', 1, 'feat/col5');
+SQL
 
 swe_input() {
   jq -n --arg p "$1" '{tool_input:{subagent_type:"swe",prompt:$p}}'
@@ -128,5 +152,52 @@ printf 'not a sqlite database' > "$TMPDIR/corrupt.db"
 out=$(run_hook_env "$(swe_input 'task_id=1')" "TRAJECTORY_DB_PATH" "$TMPDIR/corrupt.db")
 assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
 assert_contains "$out" "trajectory DB unavailable" "reason cites the unavailable DB"
+
+test_case "schema-touching task without Writer:/Populated: is blocked, naming both lines"
+out=$(run_hook "$(swe_input 'task_id=20 please do the thing')")
+assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
+assert_contains "$out" "missing a Writer: and Populated: line" "reason names the missing lines"
+
+test_case "schema-touching task with Writer: and Populated: passes silently"
+out=$(run_hook "$(swe_input 'task_id=21 please do the thing')")
+assert_eq "" "$out" "silent pass"
+
+test_case "schema-touching task with a Nullable: line passes silently"
+out=$(run_hook "$(swe_input 'task_id=22 please do the thing')")
+assert_eq "" "$out" "silent pass"
+
+test_case "spec_body adding a new column with Writer: only is blocked, naming Populated:"
+out=$(run_hook "$(swe_input 'task_id=25 please do the thing')")
+assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
+assert_contains "$out" "missing a Populated: line" "reason names the missing Populated: line"
+
+test_case "the deny tells bro the audit_append waiver call for this task"
+out=$(run_hook "$(swe_input 'task_id=23 please do the thing')")
+assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny before any waiver"
+assert_contains "$out" 'audit_append(event_type=\"spec_shape_gate_waived\"' "reason names the audit_append call"
+assert_contains "$out" 'issue_id=1, branch_id=\"feat/col4\"' "reason names the task's issue and branch"
+assert_contains "$out" '\"task_id\":23,\"gate\":\"spec_shape\"' "reason names the content_json keys"
+
+test_case "a waiver row for another task, another gate or a short reason does not allow"
+sqlite3 "$DB" "
+  INSERT INTO audit (issue_id, from_node, event_type, summary, content_json) VALUES
+    (1, 'bro', 'spec_shape_gate_waived', 'other task', '{\"task_id\":20,\"gate\":\"spec_shape\",\"reason\":\"column dropped next task\"}'),
+    (1, 'bro', 'spec_shape_gate_waived', 'batch waiver', '{\"task_id\":23,\"reason\":\"column dropped next task\"}'),
+    (1, 'bro', 'spec_shape_gate_waived', 'short', '{\"task_id\":23,\"gate\":\"spec_shape\",\"reason\":\"short\"}');"
+out=$(run_hook "$(swe_input 'task_id=23 please do the thing')")
+assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
+
+test_case "a bro-recorded spec_shape_gate_waived row for the task allows, and the hook writes nothing"
+sqlite3 "$DB" "INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json) VALUES
+  (1, 'feat/col4', 'bro', 'spec_shape_gate_waived', 'waive', '{\"task_id\":\"23\",\"gate\":\"spec_shape\",\"reason\":\"column is dropped again in the next task\"}');"
+before=$(sqlite3 "$DB" "SELECT count(*) FROM audit;")
+out=$(run_hook "$(swe_input 'task_id=23 please do the thing')")
+assert_eq "" "$out" "waived spawn passes silently"
+after=$(sqlite3 "$DB" "SELECT count(*) FROM audit;")
+assert_eq "$before" "$after" "no audit row written by the hook"
+
+test_case "non-schema task without the lines passes silently"
+out=$(run_hook "$(swe_input 'task_id=24 please do the thing')")
+assert_eq "" "$out" "silent pass"
 
 summarize

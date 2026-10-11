@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# Dry-run / smoke assertion as a verification[] command.
+#
+#   bash tests/lib/assert-sql.sh <db> "<sql>" <expected> [--op eq|ge|le]
+#   bash tests/lib/assert-sql.sh --self-test
+#
+# Runs <sql> read-only against <db> (point it at a cp of the reference data),
+# compares the single value it returns to <expected> and prints one line.
+#   eq  string equality (default)
+#   ge  numeric: result >= expected
+#   le  numeric: result <= expected
+# Exit 0 = pass, 1 = mismatch, 2 = usage error, missing DB, or SQL error.
+set -uo pipefail
+
+usage() {
+  echo 'usage: assert-sql.sh <db> "<sql>" <expected> [--op eq|ge|le] | --self-test' >&2
+  exit 2
+}
+
+is_number() {
+  [[ "${1:-}" =~ ^-?[0-9]+(\.[0-9]+)?$ ]]
+}
+
+assert_sql() {
+  local db="" sql="" expected="" op="eq" positional=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --op) [ "$#" -ge 2 ] || usage; op="$2"; shift 2 ;;
+      --op=*) op="${1#--op=}"; shift ;;
+      *) positional+=("$1"); shift ;;
+    esac
+  done
+  [ "${#positional[@]}" -eq 3 ] || usage
+  db="${positional[0]}" sql="${positional[1]}" expected="${positional[2]}"
+  case "$op" in eq|ge|le) ;; *) usage ;; esac
+
+  if [ ! -f "$db" ]; then
+    echo "assert-sql: ERROR database not found: $db"
+    return 2
+  fi
+  command -v sqlite3 >/dev/null 2>&1 || { echo "assert-sql: ERROR sqlite3 not on PATH"; return 2; }
+
+  local out err
+  err=$(mktemp)
+  if ! out=$(sqlite3 -readonly -bail "$db" "$sql" 2>"$err"); then
+    echo "assert-sql: ERROR query failed: $(head -1 "$err")"
+    rm -f "$err"
+    return 2
+  fi
+  rm -f "$err"
+
+  if [ "$(printf '%s' "$out" | grep -c '')" -gt 1 ]; then
+    echo "assert-sql: FAIL expected a single value, got $(printf '%s\n' "$out" | grep -c '') rows: $sql"
+    return 1
+  fi
+
+  local ok=1
+  case "$op" in
+    eq) [ "$out" = "$expected" ] && ok=0 ;;
+    ge|le)
+      if ! is_number "$out" || ! is_number "$expected"; then
+        echo "assert-sql: FAIL --op $op needs numbers, got '$out' vs '$expected': $sql"
+        return 1
+      fi
+      if awk -v a="$out" -v b="$expected" -v o="$op" 'BEGIN { exit !((o == "ge" && a + 0 >= b + 0) || (o == "le" && a + 0 <= b + 0)) }'; then
+        ok=0
+      fi
+      ;;
+  esac
+
+  if [ "$ok" -eq 0 ]; then
+    echo "assert-sql: PASS '$out' $op '$expected': $sql"
+    return 0
+  fi
+  echo "assert-sql: FAIL got '$out', want $op '$expected': $sql"
+  return 1
+}
+
+mtime() {
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"
+}
+
+self_test() {
+  local dir db self="${BASH_SOURCE[0]}" failures=0 before after
+  dir=$(mktemp -d)
+  trap 'rm -rf "$dir"' RETURN
+  db="$dir/ref.db"
+  sqlite3 "$db" "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT); INSERT INTO t (v) VALUES ('a'), ('b'), (NULL);"
+
+  expect() {
+    local want="$1" name="$2" got
+    shift 2
+    bash "$self" "$@" >/dev/null 2>&1
+    got=$?
+    if [ "$got" -eq "$want" ]; then
+      echo "PASS $name"
+    else
+      echo "FAIL $name (exit $got, want $want)"
+      failures=$((failures + 1))
+    fi
+  }
+
+  expect 0 "eq match" "$db" "SELECT count(*) FROM t" 3
+  expect 0 "eq on text" "$db" "SELECT v FROM t WHERE id = 1" a
+  expect 0 "ge match" "$db" "SELECT count(*) FROM t WHERE v IS NOT NULL" 1 --op ge
+  expect 0 "le match" "$db" "SELECT count(*) FROM t WHERE v IS NULL" 1 --op le
+  expect 1 "eq mismatch" "$db" "SELECT count(*) FROM t" 4
+  expect 1 "ge mismatch" "$db" "SELECT count(*) FROM t" 5 --op ge
+  expect 1 "le mismatch" "$db" "SELECT count(*) FROM t" 2 --op le
+  expect 1 "more than one row" "$db" "SELECT id FROM t" 1
+  expect 2 "missing DB" "$dir/absent.db" "SELECT 1" 1
+  expect 2 "bad op" "$db" "SELECT 1" 1 --op gt
+
+  touch -t 202001010000 "$db"
+  before=$(mtime "$db")
+  expect 2 "write is refused" "$db" "INSERT INTO t (v) VALUES ('c')" 0
+  expect 0 "read leaves the DB as it was" "$db" "SELECT count(*) FROM t" 3
+  after=$(mtime "$db")
+  if [ "$before" = "$after" ]; then
+    echo "PASS DB mtime unchanged"
+  else
+    echo "FAIL DB mtime changed ($before -> $after)"
+    failures=$((failures + 1))
+  fi
+
+  if [ "$failures" -eq 0 ]; then
+    echo "assert-sql self-test: all passed"
+    return 0
+  fi
+  echo "assert-sql self-test: $failures failed"
+  return 1
+}
+
+if [ "${1:-}" = "--self-test" ]; then
+  self_test
+  exit $?
+fi
+assert_sql "$@"
+exit $?
