@@ -3,15 +3,17 @@
 # Sourced (not exec'd). No set -e/-euo/-euo pipefail here — libs must not
 # mutate caller shell options.
 #
-# tmb_cmd_strip_literals <command>
+# tmb_cmd_strip_literals <command> [keep]
 #   Prints <command> with the parts that are data rather than shell syntax
 #   neutralized, so a scanner never mistakes them for operators:
 #     - heredoc bodies are dropped (the `<<WORD` operator stays);
 #     - quotes are removed, and inside a quoted string every blank and every
-#       operator character (< > | ; & ( )) becomes `_`, so `echo "> /tmp/z"`
+#       operator character (< > | ; & ( ) `) becomes `_`, so `echo "> /tmp/z"`
 #       is one word while `echo hi > "/tmp/z"` keeps its redirect target;
 #     - `# comments` are dropped.
-#   A quoted string spanning lines joins them with `_`.
+#   A quoted string spanning lines joins them with `_`. With `keep`, those
+#   characters (and backslash-escaped ones) become reversible control bytes
+#   instead of `_` (see tmb_cmd_decode), so a quoted word can be recovered.
 #
 # tmb_cmd_write_targets <stripped-command>
 #   Prints one path per line for every write position in a command already
@@ -25,6 +27,67 @@
 #   assignments and sudo/env/command/nohup/time wrappers are skipped. Paths
 #   are printed as written (no expansion).
 #
+# tmb_cmd_decode <encoded-text>
+#   Reverses the `keep` encoding of tmb_cmd_strip_literals.
+#
+# tmb_cmd_statements <command> [<cwd>]
+#   Prints one line per executable statement of the stripped skeleton:
+#   `<effective_dir><TAB><statement>`. Statements split on && || | ; & newline,
+#   ( ) $( ) and backticks; leading `{ ! if then else elif do while until`,
+#   VAR=value assignments and sudo/env/command/nohup/exec/time wrappers are
+#   dropped, so the statement starts at its real argv0, words single-spaced,
+#   quoted words carrying `_` for their blanks. `bash|sh|zsh|dash|ksh -c <s>`
+#   and `eval <s>` are analyzed recursively. <effective_dir> is, in order:
+#     - the statement's own `git -C <path>` (chained -C compose);
+#     - the dir set by a preceding `cd|pushd <path>` in the same command
+#       (relative paths join the dir before them — <cwd> when that dir
+#       exists; a `( … )` subshell restores the outer dir when it closes);
+#     - <cwd> (default $PWD) when the command never changes dir and <cwd>
+#       belongs to at most one checkout: not a git repo, or a repo without
+#       linked worktrees;
+#     - `?` (ambiguous) when <cwd> is a repo with linked worktrees — the
+#       statement may run in any of them, so a guard that needs its branch
+#       must deny with tmb_deny_ambiguous_git_target;
+#     - `-` (unknown) when the path is behind a variable, `cd -`, or popd.
+#
+# tmb_git_commit_message <command>
+#   Prints the message of the first `git commit` statement as its real argv
+#   carries it (-m <msg>, -m<msg>, --message[=]<msg>, -am <msg>); nothing when
+#   there is none or the message is built by $( ) or backticks. Heredoc bodies
+#   and quoted text elsewhere in the command are never read.
+#
+# tmb_git_subcommand <statement>
+#   For a `git …` statement prints the subcommand followed by its arguments
+#   (global options such as -C <p>, -c <k=v>, --no-pager dropped); prints
+#   nothing for any other statement.
+#
+# tmb_stmt_repo_root <effective_dir> [<cwd>]
+#   Prints the main checkout root of the repo a statement runs in: for a path,
+#   that path's repo; for `?`, the repo of <cwd> (every linked worktree shares
+#   it). Empty for `-`, a missing dir, or a dir outside any repo.
+#
+# tmb_payload_cwd <hook-input-json>
+#   Prints the payload `.cwd`, else $PWD.
+#
+# tmb_deny_ambiguous_git_target <statement>
+#   Prints the PreToolUse deny for a statement whose dir is `?`.
+#
+# tmb_agent_role <hook-input-json>
+#   The role of the agent making the tool call, from its identity alone: the
+#   payload agent_type (subagent_type for older payloads), normalized by
+#   normalize-role.sh; `bro` when absent — the main thread. A path never
+#   decides a role.
+#
+# tmb_is_harness_turn <prompt>
+#   Exit 0 when a UserPromptSubmit prompt was produced by the harness, not
+#   typed by the Human: task notifications, system notifications, subagent
+#   hand-backs, agent and cross-session messages.
+#
+# tmb_strip_quoted_spans <text>
+#   Prints <text> with backticked, single- and double-quoted spans replaced by
+#   a blank. A quote opens only at a word start and closes only at a word end,
+#   so apostrophes (let's, users') stay; an unclosed quote stays as text.
+#
 # tmb_path_canonical <absolute-path>
 #   Prints the path the kernel would reach (realpath -m semantics): components
 #   are walked left to right, every existing symlink is followed before a
@@ -32,10 +95,22 @@
 #   collapses textually only inside the missing tail. /tmp and /private/tmp
 #   compare equal on macOS; the path need not exist.
 
+# shellcheck source=scripts/hooks/lib/normalize-role.sh disable=SC1091
+. "$(dirname "${BASH_SOURCE[0]}")/normalize-role.sh"
+
 tmb_cmd_strip_literals() {
-  printf '%s\n' "${1:-}" | awk -v sq="'" '
-    function neutral(c) { return (c ~ /[ \t<>|;&()]/) ? "_" : c }
-    BEGIN { state = ""; nh = 0; cur = 0; inbody = 0 }
+  local keep=0
+  [ "${2:-}" = "keep" ] && keep=1
+  printf '%s\n' "${1:-}" | awk -v sq="'" -v keep="$keep" '
+    function neutral(c,   k) {
+      if (keep) { k = index(" \t<>|;&()`", c); return k ? enc[k] : c }
+      return (c ~ /[ \t<>|;&()`]/) ? "_" : c
+    }
+    function joiner() { return keep ? enc[12] : "_" }
+    BEGIN {
+      state = ""; nh = 0; cur = 0; inbody = 0
+      for (k = 1; k <= 12; k++) enc[k] = sprintf("%c", k < 7 ? k : k + 7)
+    }
     {
       line = $0
       if (inbody) {
@@ -59,7 +134,7 @@ tmb_cmd_strip_literals() {
           if (c == "\"") { state = "" } else { out = out neutral(c) }
           i++; continue
         }
-        if (c == "\\") { out = out substr(line, i + 1, 1); i += 2; continue }
+        if (c == "\\") { out = out (keep ? neutral(substr(line, i + 1, 1)) : substr(line, i + 1, 1)); i += 2; continue }
         if (c == sq) { state = "s"; i++; continue }
         if (c == "\"") { state = "d"; i++; continue }
         if (c == "#" && (i == 1 || substr(line, i - 1, 1) ~ /[ \t;&|(]/)) break
@@ -80,7 +155,7 @@ tmb_cmd_strip_literals() {
         }
         out = out c; i++
       }
-      if (state != "") { printf "%s_", out } else { print out }
+      if (state != "") { printf "%s%s", out, joiner() } else { print out }
       if (nh > 0 && state == "") { inbody = 1; cur = 1 }
     }
   '
@@ -225,4 +300,285 @@ tmb_path_canonical() {
   done
   [ -n "$cur$tail" ] || cur=/
   printf '%s%s\n' "$cur" "$tail"
+}
+
+tmb_cmd_decode() {
+  printf '%s' "${1:-}" | tr '\001\002\003\004\005\006\016\017\020\021\023' ' \t<>|;&()`\n'
+}
+
+# _tmb_cmd_statements_enc <command> <base-dir-token> <depth>
+# Prints `<dir-token><TAB><encoded statement>` lines. A dir token is an
+# absolute path, `@` (the caller's cwd), `@/<rel>` (relative to it) or `-`.
+_tmb_cmd_statements_enc() {
+  local cmd="${1:-}" base="${2:-@}" depth="${3:-0}"
+  local dir stmt argv0 inner w rest i
+  local -a words
+  tmb_cmd_strip_literals "$cmd" keep | awk -v base="$base" -v home="${HOME:-}" '
+    function norm(p,   n, parts, out, k, m, lead) {
+      lead = ""
+      if (substr(p, 1, 1) == "@") { lead = "@"; p = substr(p, 2) }
+      n = split(p, parts, "/")
+      m = 0
+      for (k = 1; k <= n; k++) {
+        if (parts[k] == "" || parts[k] == ".") continue
+        if (parts[k] == ".." && m > 0 && out[m] != "..") { m--; continue }
+        out[++m] = parts[k]
+      }
+      p = ""
+      for (k = 1; k <= m; k++) p = p "/" out[k]
+      if (lead == "@") return "@" p
+      return (p == "") ? "/" : p
+    }
+    function resolve(d, p) {
+      if (p == "" || p ~ /[$`\001-\006\016-\023]/) return "-"
+      if (p == "~") p = home
+      else if (substr(p, 1, 2) == "~/") p = home substr(p, 2)
+      if (substr(p, 1, 1) == "/") return norm(p)
+      if (d == "-") return "-"
+      return norm(d "/" p)
+    }
+    function flush(   n, w, k, first, a0, d, p, out) {
+      n = split(stmt, w, /[ \t]+/)
+      stmt = ""
+      first = 1
+      while (first <= n) {
+        if (w[first] == "") { first++; continue }
+        if (w[first] ~ /^(\{|\}|!|if|then|else|elif|do|while|until|time|exec|command|nohup|sudo|env|fi|done|esac)$/) { first++; continue }
+        if (w[first] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { first++; continue }
+        break
+      }
+      if (first > n) return
+      a0 = w[first]
+      out = a0
+      for (k = first + 1; k <= n; k++) if (w[k] != "") out = out " " w[k]
+      d = cur
+      if (a0 == "cd" || a0 == "pushd") {
+        p = ""
+        for (k = first + 1; k <= n; k++) {
+          if (w[k] == "") continue
+          if (w[k] ~ /^-[LPe@]+$/) continue
+          p = w[k]; break
+        }
+        if (p == "" || p == "-") cur = "-"
+        else cur = resolve(cur, p)
+      } else if (a0 == "popd") {
+        cur = "-"
+      } else if (a0 == "git") {
+        for (k = first + 1; k <= n; k++) {
+          if (w[k] == "") continue
+          if (w[k] == "-C") { d = resolve(d, w[k + 1]); k++; continue }
+          if (w[k] == "-c") { k++; continue }
+          if (w[k] ~ /^-/) continue
+          break
+        }
+      }
+      printf "%s\t%s\n", d, out
+    }
+    BEGIN { cur = base; sp = 0; bt = 0; stmt = "" }
+    { buf = (NR == 1) ? $0 : buf "\n" $0 }
+    END {
+      n = length(buf)
+      for (i = 1; i <= n; i++) {
+        c = substr(buf, i, 1)
+        nx = substr(buf, i + 1, 1)
+        if (c == "\n" || c == ";") { flush(); continue }
+        if (c == "&") {
+          if (nx == ">" || substr(buf, i - 1, 1) == ">") { stmt = stmt c; continue }
+          if (nx == "&") i++
+          flush(); continue
+        }
+        if (c == "|") {
+          if (substr(buf, i - 1, 1) == ">") { stmt = stmt c; continue }
+          if (nx == "|" || nx == "&") i++
+          flush(); continue
+        }
+        if (c == "(") {
+          if (substr(stmt, length(stmt), 1) ~ /[$<>]/) stmt = substr(stmt, 1, length(stmt) - 1)
+          flush(); stack[++sp] = cur; continue
+        }
+        if (c == ")") { flush(); if (sp > 0) cur = stack[sp--]; continue }
+        if (c == "`") {
+          flush()
+          if (bt) { bt = 0; if (sp > 0) cur = stack[sp--] } else { bt = 1; stack[++sp] = cur }
+          continue
+        }
+        stmt = stmt c
+      }
+      flush()
+    }
+  ' | while IFS="$(printf '\t')" read -r dir stmt; do
+    [ -n "$stmt" ] || continue
+    read -r -a words <<< "$stmt"
+    argv0="${words[0]:-}"
+    inner=""
+    if [ "$depth" -lt 3 ]; then
+      case "$argv0" in
+        bash|sh|zsh|dash|ksh|*/bash|*/sh|*/zsh|*/dash|*/ksh)
+          for ((i = 1; i < ${#words[@]}; i++)); do
+            w="${words[$i]}"
+            case "$w" in
+              -c|-[a-zA-Z]*c|-c[a-zA-Z]*) inner="${words[$((i + 1))]:-}"; break ;;
+              -*) ;;
+              *) break ;;
+            esac
+          done
+          ;;
+        eval)
+          rest="${stmt#eval}"
+          inner="${rest# }"
+          ;;
+      esac
+    fi
+    if [ -n "$inner" ]; then
+      _tmb_cmd_statements_enc "$(tmb_cmd_decode "$inner")" "$dir" $((depth + 1))
+    else
+      printf '%s\t%s\n' "$dir" "$stmt"
+    fi
+  done
+}
+
+# _tmb_cwd_state <cwd> — `?` when <cwd> is in a repo with linked worktrees,
+# `-` when it is not a directory, else <cwd>.
+_tmb_cwd_state() {
+  local cwd="${1:-}" n
+  [ -n "$cwd" ] && [ -d "$cwd" ] || { printf -- '-'; return 0; }
+  if git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1; then
+    n=$(git -C "$cwd" worktree list --porcelain 2>/dev/null | grep -c '^worktree ' || true)
+    if [ "${n:-0}" -gt 1 ]; then printf '?'; return 0; fi
+  fi
+  printf '%s' "$cwd"
+}
+
+tmb_cmd_statements() {
+  local cmd="${1:-}" cwd="${2:-$PWD}" state="" dir stmt
+  _tmb_cmd_statements_enc "$cmd" "@" 0 | while IFS="$(printf '\t')" read -r dir stmt; do
+    case "$dir" in
+      @/*)
+        if [ -d "${cwd%/}${dir#@}" ]; then
+          dir="${cwd%/}${dir#@}"
+        else
+          [ -n "$state" ] || state=$(_tmb_cwd_state "$cwd")
+          case "$state" in
+            '?'|-) dir="$state" ;;
+            *) dir="${state%/}${dir#@}" ;;
+          esac
+        fi
+        ;;
+      @)
+        [ -n "$state" ] || state=$(_tmb_cwd_state "$cwd")
+        dir="$state"
+        ;;
+    esac
+    printf '%s\t%s\n' "$dir" "$(printf '%s' "$stmt" | tr '\001\002\003\004\005\006\016\017\020\021\023' '___________')"
+  done
+}
+
+tmb_git_subcommand() {
+  local -a w
+  local k=1
+  read -r -a w <<< "${1:-}"
+  [ "${w[0]:-}" = "git" ] || return 0
+  while [ "$k" -lt "${#w[@]}" ]; do
+    case "${w[$k]}" in
+      -C|-c|--git-dir|--work-tree|--namespace) k=$((k + 2)) ;;
+      -*) k=$((k + 1)) ;;
+      *) break ;;
+    esac
+  done
+  [ "$k" -lt "${#w[@]}" ] || return 0
+  printf '%s\n' "${w[*]:$k}"
+}
+
+tmb_git_commit_message() {
+  local dir stmt sub w msg="" next=0
+  local -a words
+  while IFS="$(printf '\t')" read -r dir stmt; do
+    sub=$(tmb_git_subcommand "$stmt")
+    case "$sub" in commit|"commit "*) ;; *) continue ;; esac
+    read -r -a words <<< "$sub"
+    for w in "${words[@]:1}"; do
+      if [ "$next" = 1 ]; then msg="$w"; break; fi
+      case "$w" in
+        -m|--message) next=1 ;;
+        --message=*) msg="${w#--message=}"; break ;;
+        -m*) msg="${w#-m}"; break ;;
+        -[a-zA-Z]*m) next=1 ;;
+      esac
+    done
+    break
+  done < <(_tmb_cmd_statements_enc "${1:-}" "-" 0)
+  msg=$(tmb_cmd_decode "$msg")
+  case "$msg" in *'$('*|*'`'*) return 0 ;; esac
+  printf '%s' "$msg"
+}
+
+tmb_stmt_repo_root() {
+  local dir="${1:-}" cwd="${2:-$PWD}" common
+  case "$dir" in
+    '?') dir="$cwd" ;;
+    -|'') return 0 ;;
+  esac
+  [ -d "$dir" ] || return 0
+  common=$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
+  [ -n "$common" ] || return 0
+  case "$common" in
+    */.git) (cd "${common%/.git}" && pwd) 2>/dev/null || true ;;
+    *) git -C "$dir" rev-parse --show-toplevel 2>/dev/null || true ;;
+  esac
+}
+
+tmb_payload_cwd() {
+  local c
+  c=$(printf '%s' "${1:-}" | jq -r '.cwd // empty' 2>/dev/null || true)
+  [ -n "$c" ] || c="$PWD"
+  printf '%s' "$c"
+}
+
+tmb_deny_ambiguous_git_target() {
+  jq -nc --arg r "BLOCKED: ambiguous_git_target: \`${1:-git}\` names no directory and this repo has linked worktrees, so the guard cannot tell which checkout (and branch) it runs in. Run with git -C <path> or cd <path> && …" \
+    '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+}
+
+tmb_agent_role() {
+  local raw
+  raw=$(printf '%s' "${1:-}" | jq -r '.agent_type // .subagent_type // empty' 2>/dev/null || true)
+  raw=$(tmb_normalize_role "$raw")
+  [ -n "$raw" ] || raw="bro"
+  printf '%s' "$raw"
+}
+
+tmb_is_harness_turn() {
+  case "${1:-}" in
+    *"<task-notification>"*|*"[SYSTEM NOTIFICATION"*|*"Another Claude session sent a message"*|*"[Subagent hand-back]"*|*"<agent-message"*|*"<cross-session-message"*) return 0 ;;
+  esac
+  return 1
+}
+
+tmb_strip_quoted_spans() {
+  printf '%s\n' "${1:-}" | awk -v sq="'" '
+    function closes(q, from,   k, m) {
+      m = length(buf)
+      for (k = from + 1; k <= m; k++) {
+        if (substr(buf, k, 1) == q && (k == m || substr(buf, k + 1, 1) !~ /[[:alnum:]]/)) return k
+      }
+      return 0
+    }
+    { buf = (NR == 1) ? $0 : buf "\n" $0 }
+    END {
+      n = length(buf); out = ""; i = 1
+      while (i <= n) {
+        c = substr(buf, i, 1)
+        j = 0
+        if (c == "`") {
+          j = index(substr(buf, i + 1), "`")
+          if (j > 0) j += i
+        } else if ((c == sq || c == "\"") && (i == 1 || substr(buf, i - 1, 1) !~ /[[:alnum:]]/) && substr(buf, i + 1, 1) ~ /[^[:space:]]/) {
+          j = closes(c, i + 1)
+        }
+        if (j > 0) { out = out " "; i = j + 1; continue }
+        out = out c; i++
+      }
+      print out
+    }
+  '
 }
