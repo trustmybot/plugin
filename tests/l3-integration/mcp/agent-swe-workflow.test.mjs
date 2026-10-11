@@ -55,8 +55,8 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
   });
   assert.equal(running.ok, true, `status running: ${JSON.stringify(running)}`);
 
-  // 3. Log progress during work
-  const progressAudit = await call(client, 'audit_append', {
+  // 3. An event outside the closed audit.event_type set is rejected
+  const unknownAudit = await call(client, 'audit_append', {
     agent: 'swe',
     issue_id: issueId,
     branch_id: 'feat/swe-test',
@@ -64,26 +64,16 @@ test('swe — pickup → running → atomic close sequence', async (t) => {
     event_type: 'swe_progress',
     summary: 'wrote initial handler',
   });
-  assert.equal(progressAudit.ok, true, `audit_append: ${JSON.stringify(progressAudit)}`);
+  assert.equal(unknownAudit.ok, false, `unknown event_type must be rejected: ${JSON.stringify(unknownAudit)}`);
+  assert.match(unknownAudit.error.error, /unknown audit event_type 'swe_progress'\. Allowed: .*planning_complete/);
 
-  // 4. Audit log for lifecycle event
-  const outputAudit = await call(client, 'audit_append', {
-    agent: 'swe',
-    issue_id: issueId,
-    branch_id: 'feat/swe-test',
-    from_node: 'swe',
-    event_type: 'tool_output_logged',
-    summary: 'pytest tests/ — OK: 12 passed',
-  });
-  assert.equal(outputAudit.ok, true, `audit_append: ${JSON.stringify(outputAudit)}`);
-
-  // 6. Atomic close — status → completed
+  // 4. Atomic close — status → completed
   const completed = await call(client, 'task_update_status', {
     agent: 'swe', task_id: taskId, status: 'completed',
   });
   assert.equal(completed.ok, true, `status completed: ${JSON.stringify(completed)}`);
 
-  // 7. Verify final state
+  // 5. Verify final state
   const finalTask = await call(client, 'task_get', { agent: 'swe', task_id: taskId });
   assert.equal(finalTask.data.status, 'completed');
 });

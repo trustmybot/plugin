@@ -11,6 +11,7 @@ Operational and one-off scripts that keep a TMB install healthy: version bumps, 
 | `cleanup-stale-worktrees.sh` | One-time cleanup of repo-rooted SWE worktrees left over before worktrees moved to workspace-rooted paths. Idempotent. |
 | `backfill-agent-runs.sh` | Recovers `agent_runs` rows from the Claude Code transcripts still on disk by calling the server's `agent_runs_backfill` tool as bro. Dry run by default (`--apply` writes; `--since`, `--transcripts-dir`); reads transcripts only and writes nothing but the project's trajectory DB. Idempotent. |
 | `run-scan.mjs` | Standalone scan invoker used by the `post-task-close-rescan.sh` hook to re-run the scan against the current commit after an atomic close. Reuses the same `scan_run` logic as the MCP tool; silent on failure. |
+| `gen-enums-doc.mjs` | Generates what derives from `mcp/trajectory-server/src/audit-events.ts` (read through its compiled `dist/`): `--txt` writes `scripts/hooks/lib/audit-events.txt` (run by `npm run build`), `--doc` rewrites the `audit.event_type` table in `docs/contributing/ENUMS.md` between its generated markers, `--check` only reports which is stale (`tests/l1-lint/enums-doc-fresh.sh`). |
 | `run-scan-initial.mjs` | Mirror of `run-scan.mjs` for the cold-world-model SessionStart prescan, tagged with a distinct audit source. Silent on failure. |
 
 ## How it fits

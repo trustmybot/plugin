@@ -75,7 +75,7 @@ describe('insertAudit — single audit write path', () => {
     it('writes repo resolved from the parent issue', () => {
         const db = tempDB();
         const issueId = seedRepoIssue(db);
-        const id = insertAudit(db, { issue_id: issueId, from_node: 'bro', event_type: 'probe', summary: 's' });
+        const id = insertAudit(db, { issue_id: issueId, from_node: 'bro', event_type: 'planning_complete', summary: 's' });
         const row = db.get('SELECT repo, content_json FROM audit WHERE id = ?', [id]);
         assert.equal(row?.repo, 'app');
         assert.equal(row?.content_json, '{}');
@@ -85,14 +85,14 @@ describe('insertAudit — single audit write path', () => {
         const db = tempDB();
         const issueId = seedRepoIssue(db);
         db.run(`INSERT INTO repos (name, path) VALUES ('other', '/tmp/other')`);
-        const id = insertAudit(db, { issue_id: issueId, from_node: 'bro', event_type: 'probe', summary: 's', repo: 'other' });
+        const id = insertAudit(db, { issue_id: issueId, from_node: 'bro', event_type: 'planning_complete', summary: 's', repo: 'other' });
         assert.equal(db.get('SELECT repo FROM audit WHERE id = ?', [id])?.repo, 'other');
         db.close();
     });
     it('system issue -1 keeps repo NULL', () => {
         const db = tempDB();
         seedRepoIssue(db);
-        const id = insertAudit(db, { issue_id: -1, from_node: 'bro', event_type: 'probe', summary: 's' });
+        const id = insertAudit(db, { issue_id: -1, from_node: 'bro', event_type: 'planning_complete', summary: 's' });
         assert.equal(db.get('SELECT repo FROM audit WHERE id = ?', [id])?.repo, null);
         db.close();
     });
@@ -102,7 +102,7 @@ describe('insertAudit — single audit write path', () => {
         const id = insertAudit(db, {
             issue_id: issueId,
             from_node: 'bro',
-            event_type: 'probe',
+            event_type: 'planning_complete',
             summary: 'embedded at write time',
             content_json: JSON.stringify({ k: 'v' }),
         });
@@ -112,7 +112,7 @@ describe('insertAudit — single audit write path', () => {
     it('inside db.transaction() the row commits and is still embedded', async () => {
         const db = tempDB();
         const issueId = seedRepoIssue(db);
-        const id = db.transaction(() => insertAudit(db, { issue_id: issueId, from_node: 'bro', event_type: 'probe', summary: 'in a transaction' }));
+        const id = db.transaction(() => insertAudit(db, { issue_id: issueId, from_node: 'bro', event_type: 'planning_complete', summary: 'in a transaction' }));
         const row = db.get('SELECT repo FROM audit WHERE id = ?', [id]);
         assert.equal(row?.repo, 'app', 'row committed with repo');
         await assertAuditEmbedded(db, id);
@@ -125,12 +125,12 @@ describe('insertAudit — single audit write path', () => {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
-            event_type: 'append_probe',
+            event_type: 'roundtable_summary',
             summary: 'via audit_append',
         });
         assert.ok(!r.isError, JSON.stringify(parse(r)));
         const row = parse(r);
-        assert.equal(row['event_type'], 'append_probe');
+        assert.equal(row['event_type'], 'roundtable_summary');
         assert.equal(row['repo'], 'app');
         await assertAuditEmbedded(db, row['id']);
         db.close();
@@ -142,7 +142,7 @@ describe('insertAudit — single audit write path', () => {
             agent: 'bro',
             issue_id: String(issueId),
             from_node: 'bro',
-            event_type: 'too_big',
+            event_type: 'planning_complete',
             summary: 's',
             content_json: JSON.stringify({ x: 'a'.repeat(1_000_001) }),
         });

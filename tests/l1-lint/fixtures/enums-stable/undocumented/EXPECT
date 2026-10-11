@@ -1,0 +1,1 @@
+audit.event_type 'ghost_event' used in scripts/hooks/extra.sh but missing from ENUMS.md

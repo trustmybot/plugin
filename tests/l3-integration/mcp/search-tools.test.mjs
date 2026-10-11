@@ -264,7 +264,7 @@ test('audit_search — keyword: single match in summary', async (t) => {
   });
   await call(client, 'audit_append', {
     agent: 'bro', issue_id: issueId, from_node: 'bro',
-    event_type: 'swe_complete',
+    event_type: 'bro_verification_pass',
     summary: 'database migration committed',
   });
 
@@ -287,16 +287,16 @@ test('audit_search — keyword: multiple matches + event_types filter', async (t
   });
   await call(client, 'audit_append', {
     agent: 'swe', issue_id: issueId, from_node: 'swe',
-    event_type: 'swe_complete', summary: 'deployment of cache layer committed',
+    event_type: 'bro_verification_pass', summary: 'deployment of cache layer committed',
   });
 
   const res = await call(client, 'audit_search', {
     agent: 'bro', query: 'deployment', mode: 'keyword',
-    event_types: ['swe_complete'],
+    event_types: ['bro_verification_pass'],
   });
   assert.equal(res.ok, true, JSON.stringify(res));
   assert.equal(res.data.total_matched, 1);
-  assert.equal(res.data.results[0].event_type, 'swe_complete');
+  assert.equal(res.data.results[0].event_type, 'bro_verification_pass');
 });
 
 test('audit_search — keyword: no match returns empty', async (t) => {
@@ -421,7 +421,7 @@ test('world_model_search — keyword: match by summary content', async (t) => {
   // We seed a `directories` row + verify world_model_search returns it.
   await call(client, 'audit_append', {
     agent: 'bro', issue_id: '-1', from_node: 'bro',
-    event_type: 'world_model_search_seed', summary: 'test fixture only',
+    event_type: 'roundtable_summary', summary: 'test fixture only',
   });
   // Seeding actual directories rows requires the bro_atomic_close /
   // scan_run path which is exercised by L2 unit tests. Here we verify the

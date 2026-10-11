@@ -109,45 +109,81 @@ Returned in the created-issue payload, not stored.
 | `pm` | TMB consultant template | Project consultant |
 | `<custom>` | per-project | User-created agents (e.g. `legal-reviewer`, `security-reviewer`) |
 | `system` | TMB runtime | A machine event with no agent or hook author |
+| `executor` | TMB server | Issue-sync bookkeeping the server writes on its own (`issue_adopted`, `issue_linked`, `sync_skipped`) |
+| `trajectory-server` | TMB server | `tmb_branch_autocreated` rows written when `task_create_batch` creates a branch ref |
 | `hook:<name>` | TMB hook / script | A row written by a hook or script, `<name>` = its basename without `.sh` (e.g. `hook:swe-brief-gate`, `hook:scan`); matches `hook:[a-z0-9-]+` |
 
 **TMB-specific** — these are TMB's role names. Custom agents added to a project become valid `from_node` values for that project's DB only. A hook never writes an agent role: every audit row a hook writes goes through the write library (`tmb_audit_append` in `scripts/hooks/lib/db-write.sh`) as `hook:<name>`.
 
 ### `audit.event_type` — workflow events
 
+The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table is generated from it by `scripts/maintenance/gen-enums-doc.mjs` (edit the TS source, run `npm run build` in `mcp/trajectory-server/`, then `node scripts/maintenance/gen-enums-doc.mjs`). `insertAudit` and the bro-facing `audit_append` reject any other value with the allowed list; hooks validate against `scripts/hooks/lib/audit-events.txt`, which `npm run build` generates from the same source. A `reserved` row is written by an agent through `audit_append` rather than by a code literal.
+
+<!-- BEGIN GENERATED audit.event_type: scripts/maintenance/gen-enums-doc.mjs -->
 | Value | Trigger |
 |---|---|
-| `planning_complete` | Bro finishes planning, batched task_create + SWE spawn |
-| `scope_gate_waived` | Bro waives the scope gate with explicit reason |
-| `bro_verification_pass` | Bro task-gate V1/V2/V3 all passed |
-| `bro_verification_fail` | Bro task-gate found a check that failed |
-| `deep_scan_completed` | `scan_run` finished; `content_json` carries `source`, `structural_change`, `repos_seen`, `top_dirs` |
-| `swe_retry_spawned` | Bro spawned a SWE retry after failure; captures retry rationale in `content_json` |
-| `cheatcode_search` | `cheatcode_search` finished; `content_json` carries `query`, `kind`, `candidate_count`, and `top` ranked candidates |
-| `milestones_reconciled` | `scan_run` imported a repo's remote milestones; `content_json` carries `imported`, `closed`, `repo` |
-| `milestone_reconcile_failed` | `scan_run` could not read a repo's remote milestones; `content_json` carries `repo`, `backend`, `reason` (the scan still succeeds) |
-| `milestone_seeded` | `scan_run` seeded `v<next-patch>` for a repo with no milestones; `content_json` carries `name`, `repo`, `source`, `remote_created` |
-| `milestone_seed_skipped` | `scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`) |
-| `milestone_closed` | `milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed` |
 | `agent_runs_capture_skipped` | `swe-atomic-close` could not bind a SWE spawn to a task (no `task_id=<N>` in the spawn transcript, or no such task) and wrote no `agent_runs` row; filed under the system issue `-1`; `content_json` carries `reason`, `transcript`, `spawn_id`, `task_id` |
-| `task_escalated_repair` | The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` (GH 1212) and closed its open `agent_runs` rows as `issue_closed`; written by `system` on the task's issue; `content_json` carries `task_id`, `issue_id`, `from_status` |
-| `containment_denied` | `containment-guard` denied a write outside the run's root (from_node `hook:containment-guard`, on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `root`, `task_id` |
-| `agent_runs_backfilled` | `agent_runs_backfill` (dry_run false) recovered `agent_runs` rows from Claude Code transcripts; one row per run on the system issue `-1`, from_node `bro`; `content_json` is the report: `transcripts_dir`, `transcripts_seen`, `sessions_seen`, `bound`, `unbound` (`count`, `first` — up to 20 `{path, reason}`), `rows_inserted`, `rows_updated`, `rows_skipped_measured`, `tokens_total_added` |
-| `agent_runs_claimed` | `bro-turn-usage` claimed bro `agent_runs` rows opened without a `session_id` for its session (from_node `hook:bro-turn-usage`, one row per claim, on the rows' issue when they share one, else the system issue `-1`); `content_json` carries `run_ids`, `session_id` |
-| `scan_discovered_repair` | The v32 migration deleted `scan_discovered` rows whose `(name, kind)` has no `cheatcodes` row (phantom discoveries from a failed insert); filed under the system issue `-1` by `system`; `content_json` carries `deleted` |
-| `task_escalated_by_issue_close` | `issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task, from_node `bro`; `content_json` carries `task_id`, `from_status`, `reason` |
-| `review_gate_waived` | `issue_close(waive_review: true)` closed an issue over a closed task with no passing pr-reviewer verdict for its current commit; one row per such task, from_node `bro`; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason` |
-| `review_gate_bypassed` | A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing pr-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them). from_node = the writer (`bro`, `hook:close-issue-on-merge`); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`; with no such row there is no pass |
-| `issue_auto_closed_on_merge` | `close-issue-on-merge` closed a local issue named by a merged PR's closing-ref (from_node `hook:close-issue-on-merge`); `content_json` carries `gh_iid` |
+| `agent_runs_backfilled` | `agent_runs_backfill` (dry_run false) recovered `agent_runs` rows from archived Claude Code transcripts; one row per run on the system issue `-1`, from_node `bro`; `content_json` is the report: `transcripts_dir`, `transcripts_seen`, `sessions_seen`, `bound`, `unbound` (`count`, `first` — up to 20 `{path, reason}`), `rows_inserted`, `rows_updated`, `rows_skipped_measured`, `tokens_total_added` |
+| `agent_runs_claimed` | `bro-turn-usage` claimed bro `agent_runs` rows opened without a `session_id` for its session (one row per claim, on the rows' issue when they share one, else the system issue `-1`); `content_json` carries `run_ids`, `session_id` |
+| `branch_gate_waived` | `task_create_batch` ran with `waive_branch_gate`; `content_json` carries the waiver reason |
+| `branch_id_proposed` | `intent_start` proposed the issue's feature branch; `content_json` carries `branch_id`, `objective`; the scope and branch gates read it |
+| `bro_verification_fail` | Bro task-gate found a V1/V2/V3 check that failed |
+| `bro_verification_pass` | Bro task-gate V1/V2/V3 all passed; `content_json` carries `task_id`, `commit_sha` |
+| `cheatcode_activate` | `cheatcode_activate` confirmed or failed a cheatcode's load; `content_json` carries the resulting status |
+| `cheatcode_approved` | `cheatcode_approve` recorded the Human's install approval; the `cheatcode-install-approval` hook reads it |
+| `cheatcode_healthcheck` | `cheatcode-healthcheck` moved a cheatcode's status (e.g. `active` → `broken`); filed under the system issue `-1` |
+| `cheatcode_install` | `cheatcode_install` ran the install script; `content_json` carries `method` and the script outcome |
+| `cheatcode_installed` | `cheatcode_install` registered the installed cheatcode row; `content_json` carries `cheatcode_id` |
+| `cheatcode_search` | `cheatcode_search` finished; `content_json` carries `query`, `kind`, `candidate_count`, and `top` ranked candidates |
+| `cheatcode_uninstalled` | `cheatcode_uninstall` removed a cheatcode |
+| `cheatcode_vet` | `cheatcode_vet` classified a candidate; `content_json` carries `trust_tier` and the vet signals |
+| `config_changed` | reserved — An agent changed a `plugin_config` key through `/onboard`; written by bro via `audit_append` |
+| `consultant_spawn_nudged` | `prompt-intent-hints` emitted the consultant-spawn nudge; filed under the system issue `-1` |
+| `containment_denied` | `containment-guard` denied a write outside the run's root (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `root`, `task_id` |
+| `decision_gate_waived` | `task_create_batch` ran with `waive_decision_gate`; `content_json` carries the waiver reason |
+| `deep_scan_completed` | `scan_run` finished; `content_json` carries `source`, `structural_change`, `repos_seen`, `top_dirs` |
+| `intent_gate_waived` | `task_create_batch` ran with `waive_intent_gate`; `content_json` carries the waiver reason |
+| `issue_adopted` | `issue_create` or `issue_adopt_remote` adopted an existing remote issue as the local issue's twin; `content_json` carries `issue_id`, `backend`, `remote_iid` |
 | `issue_auto_close_deferred` | `close-issue-on-merge` left an issue named by a merged PR's closing-ref open because other tasks of it are still live; `content_json` carries `blocking_task_ids`, `gh_iid` |
 | `issue_auto_close_remote_skipped` | `close-issue-on-merge` closed an issue locally but not its GitHub twin because issue sync is off (`plugin_config.issue_sync` unset or `off`, or `TMB_DISABLE_REMOTE_SYNC` set); `content_json` carries `gh_iid`, `reason` |
-| `task_reopened` | `task_reopen` moved a `closed` / `failed` / `escalated` / `running` task back to `running` for rework; from_node `bro`; `content_json` carries `task_id`, `from_status`, `reason`, `files_add`, `verification_add` |
-| `task_spec_amended` | `task_update_spec` replaced a live task's `files` / `verification` / `spec_body`; from_node `bro`; `content_json` carries `task_id`, `status`, `reason`, `changes` (per field: `added` / `removed` for the lists, `old_length` / `new_length` for `spec_body`) |
-| `repo_renamed` | `repo_rename` moved a repo to a new name: the `repos` row, its FK children, `pr_review_runs` host slugs and the world-model nodes; filed under the system issue `-1` by `bro` with `repo` = the new name; `content_json` carries `old`, `new`, `reason`, `rows_by_table` (per table, `pr_review_runs` included), `graph` (`rekeyed`, or `deferred` when kuzu was unavailable or failed — the next `scan_run` rebuilds), `graph_nodes`, and `graph_error` when the re-key failed |
+| `issue_auto_closed_on_merge` | `close-issue-on-merge` closed a local issue named by a merged PR's closing-ref; `content_json` carries `gh_iid` |
+| `issue_linked` | `issue_link` bound a local issue to a remote issue; `content_json` carries `issue_id`, `backend`, `iid`, `forced` |
+| `mcp_unavailable_fallback_invoked` | The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1` |
+| `milestone_closed` | `milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed` |
+| `milestone_reconcile_failed` | `scan_run` could not read a repo's remote milestones; `content_json` carries `repo`, `backend`, `reason` (the scan still succeeds) |
+| `milestone_seed_skipped` | `scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`) |
+| `milestone_seeded` | `scan_run` seeded `v<next-patch>` for a repo with no milestones; `content_json` carries `name`, `repo`, `source`, `remote_created` |
+| `milestones_reconciled` | `scan_run` imported a repo's remote milestones; `content_json` carries `imported`, `closed`, `repo` |
+| `planning_complete` | Bro finished planning: batched `task_create_batch` + SWE spawn |
+| `readme_staleness_surfaced` | `post-atomic-close-readme` surfaced READMEs a closed task may have left stale |
+| `registry_gate_waived` | `task_create_batch` ran with `waive_registry_gate`; `content_json` carries the waiver reason |
 | `repo_rename_detected` | `scan_run` found a discovered repo whose canonical path or primary remote URL matches an existing row under another name; no second row is inserted and the old row is kept until `repo_rename`; filed under the system issue `-1` by `bro`; `content_json` carries `old`, `new`, `by` (`path` or `remote`) |
-| `task_stale_swept` | `task_recover` moved a `running` task with no open swe `agent_runs` row and no update for `TMB_STALE_RUNNING_HOURS` (default 6) to `failed` and closed its open runs as `swept_stale`; from_node `bro`; `content_json` carries `task_id`, `from_status`, `last_updated_at`, `stale_after_hours` |
+| `repo_renamed` | `repo_rename` moved a repo to a new name: the `repos` row, its FK children, `pr_review_runs` host slugs and the world-model nodes; filed under the system issue `-1` by `bro` with `repo` = the new name; `content_json` carries `old`, `new`, `reason`, `rows_by_table`, `graph` (`rekeyed`, or `deferred` when kuzu was unavailable or failed — the next `scan_run` rebuilds), `graph_nodes`, and `graph_error` when the re-key failed |
+| `review_gate_bypassed` | A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing pr-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha` |
+| `review_gate_waived` | `issue_close(waive_review: true)` closed an issue over a closed task with no passing pr-reviewer verdict for its current commit; one row per such task; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason` |
+| `roundtable_slash_invoked` | `roundtable-slash-detect` saw the Human type `/roundtable`; `roundtable_create` consumes the row |
+| `roundtable_summary` | reserved — Bro recorded a roundtable's outcome summary via `audit_append`; `roundtable-cleanup-postcheck` requires it |
+| `scan_discovered` | A scan registered a newly discovered cheatcode (`scan_run`, or `scan.sh` as `hook:scan`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `origin`, `source` |
+| `scan_discovered_repair` | The v32 migration deleted `scan_discovered` rows whose `(name, kind)` has no `cheatcodes` row; filed under the system issue `-1` by `system`; `content_json` carries `deleted` |
+| `scope_gate_waived` | Bro waived the scope gate with an explicit reason |
+| `skill_creator_blocked` | reserved — `tmb_skill-creator` halted before writing the skill (no Human approval); written by bro via `audit_append` |
+| `spec_shape_gate_waived` | `task_create_batch` ran with `waive_spec_shape`; `content_json` carries the waiver reason |
+| `swe_brief_fetched` | `swe-brief-gate` recorded that a SWE fetched its `task_brief`; the brief gate and `bro-turn-usage` read it |
+| `sync_skipped` | Issue sync skipped a remote write because `issue_sync` is off; `content_json` carries `issue_id`, `reason` |
+| `task_escalated_by_issue_close` | `issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason` |
+| `task_escalated_repair` | The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` and closed its open `agent_runs` rows as `issue_closed`; written by `system`; `content_json` carries `task_id`, `issue_id`, `from_status` |
+| `task_recovered` | `task_recover` closed a task stuck in `running`/`completed` at its commit; `content_json` carries `task_id`, `commit_sha`, `prior_status` |
+| `task_reopened` | `task_reopen` moved a `closed` / `failed` / `escalated` / `running` task back to `running` for rework; `content_json` carries `task_id`, `from_status`, `reason`, `files_add`, `verification_add` |
+| `task_retry_attempted` | `task_retry` created a retry task for a failed one; `content_json` carries `failed_task_id`, `new_task_id`, `new_branch_id` |
+| `task_spec_amended` | `task_update_spec` replaced a live task's `files` / `verification` / `spec_body`; `content_json` carries `task_id`, `status`, `reason`, `changes` |
+| `task_stale_swept` | `task_recover` moved a `running` task with no open swe `agent_runs` row and no update for `TMB_STALE_RUNNING_HOURS` (default 6) to `failed` and closed its open runs as `swept_stale`; `content_json` carries `task_id`, `from_status`, `last_updated_at`, `stale_after_hours` |
+| `tmb_agent_created` | `agent_register` registered a project-local consultant; `content_json` carries `name`, `mode`, `agent_id` |
+| `tmb_branch_autocreated` | `task_create_batch` created the task's feature branch ref |
+| `tmb_skill_created` | reserved — `tmb_skill-creator` landed a new skill; written by bro via `audit_append` |
+| `verification_gate_waived` | `swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason` |
+<!-- END GENERATED audit.event_type -->
 
-**TMB-specific** — these are TMB workflow events. New event types require a row here. Bro should not invent ad-hoc event types.
+**TMB-specific** — these are TMB workflow events. A new event type is added to `audit-events.ts`; the server, the hooks and this table follow from it. DBs created before schema v32 may still hold `event_type` and `from_node` values outside these sets, written by older hooks; they are not repaired.
 
 ### `cheatcodes.kind` — capability kind in the unified registry
 
@@ -265,13 +301,13 @@ URL-pattern auto-detection rules:
 
 1. Open a PR that adds the value to this doc AND to the schema/code that consumes it.
 2. Add a test that covers the new value's path.
-3. Update `tests/l1-lint/enums-stable.sh` if it has a hardcoded list.
+3. For `audit.event_type`, add the value to `mcp/trajectory-server/src/audit-events.ts` instead of this doc; the table above is regenerated from it.
 
 ---
 
 ## Lint guard
 
-`tests/l1-lint/enums-stable.sh` checks that this doc and `mcp/trajectory-server/src/schema.sql` agree on the ENUM-bearing columns. Drift fails CI.
+`tests/l1-lint/enums-stable.sh` compares code and this doc both ways for `audit.event_type`, `audit.from_node`, `tasks.status`, `issues.status`, `validation_attempts.verdict`, `discussions.kind`, `milestones.state` and `agent_runs.usage_source`: every value found in `mcp/trajectory-server/src/` (the `schema.sql` `CHECK` lists and the literals written or compared) and `scripts/` (including the event types passed to `tmb_audit_append` / `tmb_audit_sql`) must be documented here, and every documented value must appear in code unless its row is marked `reserved`. `tests/l1-lint/enums-doc-fresh.sh` fails when the generated `audit.event_type` table or `scripts/hooks/lib/audit-events.txt` differs from `audit-events.ts`.
 
 ---
 

@@ -24,7 +24,8 @@ bash tests/l1-lint/link-check.sh
 | Script | Catches |
 |---|---|
 | [`link-check.sh`](./link-check.sh) | Broken relative markdown links |
-| [`enums-stable.sh`](./enums-stable.sh) | Enum values drifting from `docs/contributing/ENUMS.md` |
+| [`enums-stable.sh`](./enums-stable.sh) | Code and `docs/contributing/ENUMS.md` disagreeing, either way, on eight enums (`audit.event_type`, `audit.from_node`, `tasks.status`, `issues.status`, `validation_attempts.verdict`, `discussions.kind`, `milestones.state`, `agent_runs.usage_source`) across `mcp/trajectory-server/src/` and `scripts/`: an undocumented literal, or a documented value no code uses unless its row is marked `reserved` (literal extraction in `enums-stable-extract.pl`; every run self-tests `fixtures/enums-stable/`) |
+| [`enums-doc-fresh.sh`](./enums-doc-fresh.sh) | The generated `audit.event_type` table in `ENUMS.md` or `scripts/hooks/lib/audit-events.txt` differing from `mcp/trajectory-server/src/audit-events.ts` (regenerate with `scripts/maintenance/gen-enums-doc.mjs`) |
 | [`labels-stable.sh`](./labels-stable.sh) | Labels drifting from `docs/contributing/LABELS.md` |
 | [`stale-framing-prose.sh`](./stale-framing-prose.sh) | Outdated framing prose in docs |
 

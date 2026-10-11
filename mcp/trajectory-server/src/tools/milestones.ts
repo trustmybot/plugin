@@ -15,6 +15,7 @@ import {
 import type { MilestoneRemoteFailure, MilestoneTarget, RemoteMilestone } from '../sync/milestone_sync.js';
 import { resolveRepoForSync } from '../utils/repo-paths.js';
 import { insertAudit } from './audit.js';
+import type { AuditEventType } from '../audit-events.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -42,7 +43,7 @@ function wrap(fn: Fn): Fn {
 // Milestone audit rows are session-level (system issue -1). The repo travels in
 // content_json rather than audit.repo so these rows never pin a repo against
 // scan retirement (audit.repo FKs repos ON DELETE RESTRICT).
-function auditMilestone(db: TrajectoryDB, eventType: string, summary: string, content: Record<string, unknown>): void {
+function auditMilestone(db: TrajectoryDB, eventType: AuditEventType, summary: string, content: Record<string, unknown>): void {
   insertAudit(db, {
     issue_id: -1,
     from_node: 'bro',
