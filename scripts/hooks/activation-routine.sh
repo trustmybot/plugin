@@ -8,7 +8,8 @@
 # proved that ceiling is 0/10 in both wording arms.
 #
 # Bro mode active when:
-#   - current prompt contains the word "bro" (case-insensitive), OR
+#   - the current prompt, typed by the Human (not a harness turn), contains
+#     the word "bro" (case-insensitive), OR
 #   - the transcript shows a prior "Entering bro mode." line AND no later
 #     "exit bro mode" / "stop being bro".
 #
@@ -54,11 +55,21 @@ is_sticky_bro() {
   return 1
 }
 
-if ! contains_bro_word "$PROMPT" && ! is_sticky_bro; then
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh
+. "$SCRIPT_DIR/lib/cmd-analysis.sh"
+
+# A harness turn (notification, subagent hand-back, agent message) that merely
+# mentions bro does not activate bro mode; only the Human's own prompt or the
+# sticky transcript signal does.
+PROMPT_SAYS_BRO=0
+if ! tmb_is_harness_turn "$PROMPT" && contains_bro_word "$PROMPT"; then
+  PROMPT_SAYS_BRO=1
+fi
+if [ "$PROMPT_SAYS_BRO" = 0 ] && ! is_sticky_bro; then
   exit 0
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
 

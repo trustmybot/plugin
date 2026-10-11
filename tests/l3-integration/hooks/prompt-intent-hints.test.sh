@@ -360,4 +360,78 @@ for prompt in "" "ls" "why is this slow" "delete the test" "migrate to postgres"
 done
 _pass 2>/dev/null || true
 
+# ---------------------------------------------------------------------------
+# GH 1199: harness hand-back turns are silent; hints read only unquoted text
+# ---------------------------------------------------------------------------
+
+HINT_TMP=$(mktemp -d)
+trap 'rm -rf "$HINT_TMP"' EXIT
+HINT_DB="$HINT_TMP/trajectory.db"
+sqlite3 "$HINT_DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+sqlite3 "$HINT_DB" "
+  INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+    VALUES (1, 'auth work', 'd', 'open', datetime('now'), datetime('now'));
+  INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, commit_sha, created_at, updated_at)
+    VALUES (1, 1, 'feat/done', 'done task', 'd', 'completed', '', 'abc123', datetime('now'), datetime('now'));
+  INSERT INTO tasks (id, issue_id, branch_id, title, description, status, spec_body, created_at, updated_at)
+    VALUES (2, 1, 'feat/next', 'next task', 'd', 'pending', '', datetime('now'), datetime('now'));
+  INSERT INTO audit (issue_id, event_type, summary, created_at)
+    VALUES (1, 'planning_complete', 'planned', datetime('now'));
+" >/dev/null
+
+run_hook_db() {
+  local payload
+  payload=$(jq -cn --arg p "$1" '{prompt:$p}')
+  (cd "$HINT_TMP" && printf '%s' "$payload" | TRAJECTORY_DB_PATH="$HINT_DB" bash "$HOOK" 2>&1 || true)
+}
+
+for framing in \
+  '<task-notification>swe finished; git push origin feat/done next; port the parser to Rust</task-notification>' \
+  '[SYSTEM NOTIFICATION - NOT USER INPUT] still open: push it' \
+  'Another Claude session sent a message: push it, keep going' \
+  '[Subagent hand-back] swe: done. Next: git push origin feat/done; tasks still open.' \
+  '<agent-message from="swe">rewrite the scanner in Go; push it</agent-message>' \
+  '<cross-session-message from="bro">ship it and keep going</cross-session-message>'; do
+  test_case "GH 1199: hand-back framing is silent: ${framing:0:40}"
+  out=$(run_hook_db "$framing")
+  assert_eq "" "$out" "a harness turn emits no hint"
+done
+
+test_case "GH 1199: 'report the result to the user' → no architectural hint"
+out=$(run_hook "report the result to the user")
+assert_not_contains "$out" "architectural-change hint" "report … to is not port … to"
+
+test_case "GH 1199: 'port the parser to Rust' → architectural hint"
+out=$(run_hook "port the parser to Rust")
+assert_contains "$out" "architectural-change hint" "port within 6 words of to"
+
+test_case "GH 1199: 'port' too far from 'to' → no architectural hint"
+out=$(run_hook "port number nine on the old box was later moved to staging")
+assert_not_contains "$out" "architectural-change hint" "more than 6 words apart"
+
+test_case "GH 1199: a quoted git push inside a report → no push hint"
+out=$(run_hook_db 'The guard said "BLOCKED: run git push from the main checkout" — what does that mean?')
+assert_not_contains "$out" "push-intent hint" "quoted hook text is not push intent"
+out=$(run_hook_db 'what does `git push --force-with-lease` do?')
+assert_not_contains "$out" "push-intent hint" "backticked command is not push intent"
+
+test_case "GH 1199: 'push it' → push hint"
+out=$(run_hook_db "looks good, push it")
+assert_contains "$out" "push-intent hint" "unquoted push intent fires"
+assert_contains "$out" "feat/done" "the unsigned task is listed"
+
+test_case "GH 1199: 'still open' inside a quoted report → no resume hint"
+out=$(run_hook_db "swe said 'two tasks still open' — is that right?")
+assert_not_contains "$out" "resume-intent hint" "quoted report text is not resume intent"
+
+test_case "GH 1199: unquoted 'keep going' → resume hint"
+out=$(run_hook_db "keep going")
+assert_contains "$out" "resume-intent hint" "unquoted resume intent fires"
+
+test_case "GH 1199: quoted 'skip validation' → no concerns hint; unquoted → hint"
+out=$(run_hook 'the log line "skip validation: off" confused me')
+assert_not_contains "$out" "concerns-protocol hint" "quoted text is not a doubt-class request"
+out=$(run_hook "skip validation for this one")
+assert_contains "$out" "concerns-protocol hint" "unquoted doubt-class request fires"
+
 summarize

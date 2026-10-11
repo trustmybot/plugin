@@ -13,7 +13,7 @@
 #   push-intent      — push/ship phrases (DB query on match)
 #   reonboard-intent — remote-setup / host-on phrases (DB query on match)
 #   resume-intent    — keep-going / pick-up / continue phrases (DB query on match)
-#   adr-required     — architectural intent (two-token checks)
+#   adr-required     — architectural intent (phrases + word-proximity checks)
 #
 # Bypass env vars forwarded: TMB_DISABLE_CHEATCODE_INSTALL_HINT,
 # TMB_DISABLE_CONSULTANT_HINT, TMB_DISABLE_SEARCH_HINT, TMB_DISABLE_CONCERNS_HINT,
@@ -29,6 +29,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/query-task.sh"
 # shellcheck source=scripts/hooks/lib/db-write.sh disable=SC1091
 . "$SCRIPT_DIR/lib/db-write.sh"
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh disable=SC1091
+. "$SCRIPT_DIR/lib/cmd-analysis.sh"
 
 INPUT=$(cat 2>/dev/null) || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
@@ -36,18 +38,18 @@ command -v jq >/dev/null 2>&1 || exit 0
 PROMPT_RAW=$(printf '%s' "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)
 [ -n "$PROMPT_RAW" ] || exit 0
 
-# Synthetic-turn early-exit — harness-generated turns (subagent reports,
-# system notifications) carry embedded content ("bun install", plugin/mcp
-# paths) that trips the matchers, but no hint class applies to them: every
-# hint class describes HUMAN intent. Markers are case-sensitive as produced
-# by the harness. Exit before any matcher.
-case "$PROMPT_RAW" in
-  *"<task-notification>"*|*"[SYSTEM NOTIFICATION"*) exit 0 ;;
-esac
+# Harness-turn early-exit — task/system notifications, subagent hand-backs,
+# agent and cross-session messages (tmb_is_harness_turn) carry embedded
+# content that trips the matchers, but every hint class describes HUMAN
+# intent. Exit before any matcher.
+tmb_is_harness_turn "$PROMPT_RAW" && exit 0
 
 tmb_db_path_advisory prompt-intent-hints >/dev/null || true
 
 LOWER=$(printf '%s' "$PROMPT_RAW" | tr '[:upper:]' '[:lower:]')
+# The prompt with backticked and quoted spans removed: concerns, push, resume
+# and architectural hints match only what the Human wrote, not text they quote.
+LOWER_OPEN=$(tmb_strip_quoted_spans "$PROMPT_RAW" | tr '[:upper:]' '[:lower:]')
 
 emit_context() {
   local ctx="$1"
@@ -312,7 +314,7 @@ if [ "${TMB_DISABLE_CONCERNS_HINT:-0}" != "1" ]; then
     'weaken the assertion' 'loosen the check' 'just delete' 'just remove' \
     'switch to approxequal' 'use approxequal' 'replace exact equality' \
     'change to approx' 'approxequal with tolerance'; do
-    case "$LOWER" in
+    case "$LOWER_OPEN" in
       *"$pat"*)
         matched="$pat"
         break
@@ -335,7 +337,7 @@ if [ "${TMB_DISABLE_PUSH_INTENT_HINT:-0}" != "1" ]; then
     'git push' 'push it' 'push the work' 'push the branch' 'push the change' \
     'push up' 'push them up' 'push my work' 'ship it' 'ship the work' \
     'send it up' 'time to push'; do
-    case "$LOWER" in
+    case "$LOWER_OPEN" in
       *"$pat"*)
         matched="$pat"
         break
@@ -429,7 +431,7 @@ if [ "${TMB_DISABLE_RESUME_HINT:-0}" != "1" ]; then
     "let's continue" 'continue the work' 'continue with' 'resume' \
     'finish that' 'finish the' 'finish it' 'wrap that up' 'wrap up' \
     'still pending' 'still open' 'still waiting'; do
-    case "$LOWER" in
+    case "$LOWER_OPEN" in
       *"$pat"*)
         matched="$pat"
         break
@@ -497,7 +499,7 @@ if [ "${TMB_DISABLE_ADR_HINT:-0}" != "1" ]; then
     'storage backend' 'backend interface' 'pluggable backend' \
     'pluggable storage' 'swap between' 'plugin loader' \
     'plugin architecture' 'dependency inversion'; do
-    case "$LOWER" in
+    case "$LOWER_OPEN" in
       *"$pat"*)
         matched="$pat"
         break
@@ -505,26 +507,21 @@ if [ "${TMB_DISABLE_ADR_HINT:-0}" != "1" ]; then
     esac
   done
 
-  # Two-token checks (replacing dead 'rewrite ... in' / 'port ... to' literal globs).
-  # Match "rewrite" anywhere AND " in " or " in" at end of string.
-  # Match "port " (noun-form, not "report") AND " to " or " to" at end.
+  # Proximity checks on the unquoted prompt: the word `port` followed within
+  # 6 words by `to`, the word `rewrite` followed within 6 words by `in`
+  # ("report … to" and quoted text never match).
   if [ -z "$matched" ]; then
-    case "$LOWER" in
-      *"rewrite"*)
-        case "$LOWER" in
-          *" in "*|*" in") matched="rewrite ... in" ;;
-        esac
-        ;;
-    esac
-    if [ -z "$matched" ]; then
-      case "$LOWER" in
-        *"port "*)
-          case "$LOWER" in
-            *" to "*|*" to") matched="port ... to" ;;
-          esac
-          ;;
-      esac
-    fi
+    matched=$(printf '%s' "$LOWER_OPEN" | tr '\n' ' ' | awk '
+      {
+        n = split($0, w, /[^a-z0-9]+/)
+        for (i = 1; i <= n; i++) {
+          if (w[i] == "port" || w[i] == "rewrite") {
+            want = (w[i] == "port") ? "to" : "in"
+            for (j = i + 1; j <= n && j <= i + 6; j++) if (w[j] == want) { print w[i] " ... " want; exit }
+          }
+        }
+      }
+    ')
   fi
 
   if [ -n "$matched" ]; then
