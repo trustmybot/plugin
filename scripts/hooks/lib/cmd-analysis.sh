@@ -80,6 +80,12 @@
 #   `<group> <action>` of a mutating subcommand (issue/pr/mr create, merge,
 #   close, edit, comment, …; release and repo writes). Prints nothing for
 #   read-only calls and other statements.
+#   Implied POST: an `api` call with no -X/--method and at least one
+#   -f/-F/--field/--raw-field/--input parameter, for any endpoint. That
+#   covers every `gh api graphql -f query=…` / `-F query=@file` / `--input`
+#   call — GraphQL travels as a POST whether the document is a query or a
+#   mutation, so all of them are mutation candidates. An explicit -X GET
+#   wins, and a bare `gh api <path>` is a GET.
 #
 # tmb_stmt_repo_root <effective_dir> [<cwd>]
 #   Prints the main checkout root of the repo a statement runs in: for a path,
