@@ -30905,20 +30905,19 @@ var RESOLVER_NAME = "resolve-hook.sh";
 var CANONICAL_RESOLVER_REL = ["scripts", "lib", RESOLVER_NAME];
 var SETTINGS_REL = [".claude", "settings.local.json"];
 var ADVISORY_HOOK_DENYLIST = /* @__PURE__ */ new Set([
-  "swe-brief-gate.sh",
-  "naming-lint.sh",
-  "code-quality-lint.sh",
-  "commit-msg-lint.sh",
-  "askuserquestion-length-lint.sh",
-  "branch-up-to-date-with-remote.sh",
-  "debug-trajectory.sh"
+  "swe-brief-gate",
+  "naming-lint",
+  "code-quality-lint",
+  "commit-msg-lint",
+  "askuserquestion-length-lint",
+  "branch-up-to-date-with-remote",
+  "debug-trajectory"
 ]);
-function basename3(command) {
-  const parts = command.split("/");
-  return parts[parts.length - 1] ?? command;
-}
-function hookName(command) {
-  return basename3(command).replace(/\.sh$/, "");
+function gateName(command) {
+  const dispatched = command.match(/\/dispatch\.sh\s+([a-z0-9-]+)\s*$/);
+  if (dispatched?.[1]) return dispatched[1];
+  const parts = command.trim().split("/");
+  return (parts[parts.length - 1] ?? command).replace(/\.sh$/, "");
 }
 function shellWord(value) {
   if (/^[A-Za-z0-9_./:@%+=-]+$/.test(value)) return value;
@@ -30950,14 +30949,14 @@ function readPreToolUseFromHooksJson(pluginRoot) {
   return pre;
 }
 function keptHooks(group) {
-  return (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(basename3(h.command)));
+  return (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(gateName(h.command)));
 }
 function buildTmbGroups(pre, resolverPath, marketplace, projectRoot) {
   const groups = [];
   for (const group of pre) {
     const hooks = keptHooks(group).map((h) => ({
       type: h.type,
-      command: `bash ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${hookName(h.command)} --shim --project ${shellWord(projectRoot)}`,
+      command: `bash ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${gateName(h.command)} --shim --project ${shellWord(projectRoot)}`,
       ...h.timeout !== void 0 ? { timeout: h.timeout } : {},
       _tmb_managed: true,
       _tmb_project: projectRoot
@@ -32265,7 +32264,7 @@ function detectStructuralChange(db2, currentRepos, currentTopDirs) {
 var README_CANDIDATES = ["README.md", "readme.md", "README.rst", "readme.rst"];
 var README_MAX_BYTES = 1024;
 var STRUCTURAL_LIST_MAX = 8;
-function basename4(p) {
+function basename3(p) {
   const i = p.lastIndexOf("/");
   return i >= 0 ? p.slice(i + 1) : p;
 }
@@ -32290,13 +32289,13 @@ function deriveDirectoryEntries(out) {
     const entry = dirMap.get(`${f.repo} ${dirPath}`);
     if (entry) {
       entry.file_count++;
-      entry.file_names.push(basename4(f.path));
+      entry.file_names.push(basename3(f.path));
     }
   }
   return dirMap;
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames) {
-  const leaf = dirPath === "" ? "(repo root)" : basename4(dirPath);
+  const leaf = dirPath === "" ? "(repo root)" : basename3(dirPath);
   const join12 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
@@ -32336,8 +32335,8 @@ function persistDirectoriesGraph(graph, out, now) {
     if (entry.parent_path === null) continue;
     const key = `${entry.repo} ${entry.parent_path}`;
     const list = subdirsByParent.get(key);
-    if (list) list.push(basename4(entry.path));
-    else subdirsByParent.set(key, [basename4(entry.path)]);
+    if (list) list.push(basename3(entry.path));
+    else subdirsByParent.set(key, [basename3(entry.path)]);
   }
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);

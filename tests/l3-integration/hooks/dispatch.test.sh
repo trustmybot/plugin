@@ -28,6 +28,7 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 TMP=$(cd "$TMP" && pwd -P)
+cd "$TMP"
 unset CLAUDE_PLUGIN_ROOT CLAUDE_CONFIG_DIR TRAJECTORY_DB_PATH TMB_SHIM_PROJECT
 export TMB_INSTALLED_JSON="$TMP/installed_plugins.json"
 RUNS="$TMP/runs.log"
