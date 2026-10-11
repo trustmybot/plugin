@@ -50,18 +50,15 @@ TASK_ID=$(tmb_sql_int "$TASK_ID")
 DB=$(tmb_db_path 2>/dev/null || true)
 [ -n "$DB" ] && [ -f "$DB" ] || exit 0
 
-STATUS=$(tmb_sqlite_ro "$DB" "SELECT status FROM tasks WHERE id = $TASK_ID;")
+STATUS=$(tmb_gate_read "$DB" "SELECT status FROM tasks WHERE id = $TASK_ID;")
 
-if [ -z "$STATUS" ]; then
-  # Distinguish DB busy from row-missing: re-probe without -readonly.
-  PROBE=$(sqlite3 "$DB" "SELECT COUNT(*) FROM tasks WHERE id=${TASK_ID};" 2>/dev/null || echo "query_failed")
-  if [ "$PROBE" = "query_failed" ]; then
-    jq -nc --arg id "$TASK_ID" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: DB query failed for task_id="+$id+" (DB busy?). Retry the pr-reviewer spawn once the DB lock clears.")}}'
-    exit 0
-  fi
-  # Row missing — let pr-reviewer surface the error itself.
+if [ "$STATUS" = "__ERR__" ]; then
+  tmb_deny_db_unavailable pr-reviewer-after-atomic-close
   exit 0
 fi
+
+# Row missing — let pr-reviewer surface the error itself.
+[ -n "$STATUS" ] || exit 0
 
 if [ "$STATUS" = "closed" ]; then
   exit 0

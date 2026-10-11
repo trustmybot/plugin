@@ -45,7 +45,7 @@ SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
 
 DB=$(tmb_db_path 2>/dev/null || true)
 if [ -z "$DB" ] || ! tmb_have_sqlite; then
-  echo "ensure-swe-worktree: no trajectory.db or sqlite3 — skipping (non-isolated fallback)" >&2
+  echo "ensure-swe-worktree: no trajectory DB or sqlite3 — skipping (non-isolated fallback)" >&2
   exit 0
 fi
 

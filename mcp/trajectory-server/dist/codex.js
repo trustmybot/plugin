@@ -20875,7 +20875,7 @@ import { copyFileSync, readFileSync as readFileSync3, readdirSync } from "node:f
 import { basename as basename2, join as join4, dirname as dirname3 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { performance } from "node:perf_hooks";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
 
 // src/logger.ts
 import {
@@ -20897,6 +20897,7 @@ import {
   statSync
 } from "node:fs";
 import { homedir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import {
   basename,
   dirname as dirname2,
@@ -21299,7 +21300,7 @@ var TrajectoryDB = class {
         "file"
       );
     }
-    this.db = new DatabaseSync(dbPath);
+    this.db = new DatabaseSync2(dbPath);
     try {
       this.db.exec("PRAGMA journal_mode = WAL");
       this.db.exec("PRAGMA foreign_keys = ON");

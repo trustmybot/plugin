@@ -3,118 +3,198 @@
 # Sourced (not exec'd) by other hook scripts.
 # No set -e/-euo/-euo pipefail here — libs must not mutate caller shell options.
 
+# Trajectory DB location — the hook half of the one resolution rule. The server
+# half is findExistingClaudeDbUp in mcp/trajectory-server/src/platform.ts; the
+# rule is documented once in docs/reference/TRAJECTORY_DB_LOCATION.md. This file
+# is the only place under scripts/ allowed to spell the DB filename
+# (tests/l1-lint/no-private-db-path.sh).
+TMB_STATE_HOST_DIR=".claude"
+TMB_DB_FILENAME="trajectory.db"
+
 # _TMB_DB_PATH_CACHE: process-level memoization of the resolved DB path.
 # Set on first successful resolution; read on subsequent calls.
 _TMB_DB_PATH_CACHE=""
 
-# tmb_db_path
-# Resolve the trajectory DB path:
-#   1. TRAJECTORY_DB_PATH env override wins (tests + advanced setups).
-#   2. Walk up from cwd to filesystem root, collecting all ancestor levels
-#      that contain <dir>/.claude/<plugin-name>/trajectory.db.
-#      Outermost match wins. Walking up from cwd, we collect all ancestor
-#      matches and return the topmost. Inner sibling DBs (e.g. stale leftovers
-#      from a previous workspace layout) won't shadow the active launch-dir DB.
-#      This handles uniformly:
-#        - single-repo CC (CC inside a git repo): DB at git-root.
-#        - workspace pattern (CC outside a git repo, with one or more product
-#          repos as siblings): DB at workspace launch dir, above git-root.
-#        - submodule monorepo (root + nested submodule repos): DB at parent
-#          repo, found via walk-up from inside any submodule.
-#        - SWE worktrees (.claude/worktrees/<slug>/): walks past the worktree
-#          to find the DB at the repo or workspace level.
-#   3. Sentinel file ($HOME/.claude/<plugin-name>-active-workspace) as fallback
-#      when walk-up finds nothing — covers subagents that inherit cwd=~ and
-#      lack env vars.
-#   4. Tests with per-worktree DB fixtures should set TRAJECTORY_DB_PATH
-#      explicitly to pin the resolution.
-# Prints the path only if the file exists; non-zero exit if no DB found.
-# Memoizes the result in _TMB_DB_PATH_CACHE for the lifetime of the process.
-# tmb_db_schema_current <db>
-# Returns 0 when <db> carries the current TMB schema, non-zero otherwise.
-# Cheap probe: the tasks table must have a prompt_bearing column — the column
-# the swe-boundary gate actually reads. A legacy ~/.claude/tmb/trajectory.db
-# from a prior schema lacks it; querying such a DB returns empty and would
-# default prompt_bearing to 0, silently denying a legitimate prompt edit.
-# Treat a schema-mismatched DB as UNRESOLVED instead.
-# When sqlite3 is unavailable the caller cannot query anyway; report current
-# (0) so resolution is not blocked on a missing tool.
-tmb_db_schema_current() {
-  local db="${1:-}"
+tmb_have_sqlite() {
+  command -v sqlite3 >/dev/null 2>&1
+}
+
+# tmb_plugin_name
+# The plugin name from CLAUDE_PLUGIN_ROOT's manifest, else "tmb".
+tmb_plugin_name() {
+  local manifest="${CLAUDE_PLUGIN_ROOT:-}/.claude-plugin/plugin.json"
+  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$manifest" ]; then
+    jq -r '.name // "tmb"' "$manifest" 2>/dev/null || echo "tmb"
+  else
+    echo "tmb"
+  fi
+}
+
+# tmb_db_location <root>
+# Prints where <root>'s trajectory DB lives (whether or not it exists).
+tmb_db_location() {
+  printf '%s/%s/%s/%s\n' "${1:-}" "$TMB_STATE_HOST_DIR" "$(tmb_plugin_name)" "$TMB_DB_FILENAME"
+}
+
+# tmb_gate_read <db> <sql>
+# Read helper for deny-capable gates. Prints the query output, or the literal
+# __ERR__ when sqlite3 fails (missing/corrupt/locked DB) so the caller can tell
+# "no rows" from "DB unavailable" and fail closed. Always returns 0.
+tmb_gate_read() {
+  local db="${1:-}" sql="${2:-}" out ms="${TMB_DB_WRITE_TIMEOUT_MS:-1500}"
+  case "$ms" in ''|*[!0-9]*) ms=1500 ;; esac
+  if [ -z "$db" ] || [ ! -f "$db" ]; then
+    printf '__ERR__\n'
+    return 0
+  fi
+  if out=$(sqlite3 -readonly -cmd ".timeout ${ms}" "$db" "$sql" 2>/dev/null); then
+    [ -n "$out" ] && printf '%s\n' "$out"
+  else
+    printf '__ERR__\n'
+  fi
+  return 0
+}
+
+# _tmb_db_probe <db>
+# 0 = current schema (tasks.prompt_bearing exists), 1 = stale legacy schema,
+# 2 = the read itself failed (busy, corrupt, unreadable). With no sqlite3 the
+# DB cannot be probed and counts as current.
+_tmb_db_probe() {
+  local db="${1:-}" cols
   [ -n "$db" ] && [ -f "$db" ] || return 1
   tmb_have_sqlite || return 0
-  local cols
-  cols=$(tmb_sqlite_ro "$db" "SELECT name FROM pragma_table_info('tasks');")
+  cols=$(tmb_gate_read "$db" "SELECT name FROM pragma_table_info('tasks');")
   case "$cols" in
+    __ERR__) return 2 ;;
     *prompt_bearing*) return 0 ;;
   esac
   return 1
 }
 
-tmb_db_path() {
-  if [ -n "$_TMB_DB_PATH_CACHE" ]; then
-    echo "$_TMB_DB_PATH_CACHE"
-    return 0
-  fi
-  local plugin_name="tmb"
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
-    plugin_name=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
-  fi
+# tmb_db_schema_current <db>
+# Returns 0 when <db> carries the current TMB schema, non-zero otherwise.
+tmb_db_schema_current() {
+  _tmb_db_probe "${1:-}"
+}
+
+# _tmb_db_resolve <use_sentinel:0|1>
+# Steps 1-3 of the rule (docs/reference/TRAJECTORY_DB_LOCATION.md):
+#   1. TRAJECTORY_DB_PATH, if set (must exist; no further steps).
+#   2. CLAUDE_PROJECT_DIR/<host>/<plugin>/trajectory.db, if CLAUDE_PROJECT_DIR
+#      is set (must exist; no walking).
+#   3. Only without CLAUDE_PROJECT_DIR: walk up from cwd, never entering $HOME
+#      unless started there, no .git stop; every ancestor DB that is not a
+#      stale schema is a candidate; the outermost wins. Then the
+#      active-workspace sentinel (when <use_sentinel> is 1).
+# A candidate whose probe read fails is kept: it is resolved, and the read
+# error surfaces through tmb_db_state instead of silently resolving elsewhere.
+_tmb_db_resolve() {
+  local use_sentinel="${1:-1}" candidate
   if [ -n "${TRAJECTORY_DB_PATH:-}" ]; then
-    if [ -f "$TRAJECTORY_DB_PATH" ]; then
-      _TMB_DB_PATH_CACHE="$TRAJECTORY_DB_PATH"
-      echo "$_TMB_DB_PATH_CACHE"
-    fi
+    [ -f "$TRAJECTORY_DB_PATH" ] || return 1
+    printf '%s\n' "$TRAJECTORY_DB_PATH"
     return 0
   fi
-  # P0 guard: do NOT walk into the user's HOME from a descendant cwd.
-  # A stale ~/.claude/<plugin>/trajectory.db (from a prior buggy session or a
-  # test artifact) used to be silently adopted as the live DB on every launch.
-  # Project state belongs to a project. Mirrors db.ts findExistingDbUp.
-  local start
+  if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+    candidate=$(tmb_db_location "$CLAUDE_PROJECT_DIR")
+    [ -f "$candidate" ] || return 1
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+  local start dir outermost=""
   start="$(pwd)"
-  local candidates=()
-  local dir
   dir="$start"
   while [ -n "$dir" ] && [ "$dir" != "/" ]; do
     if [ "$dir" = "$HOME" ] && [ "$start" != "$HOME" ]; then
       break
     fi
-    local candidate="$dir/.claude/$plugin_name/trajectory.db"
-    # Schema-mismatch fail-safe: a candidate whose tasks table lacks the
-    # prompt_bearing column is a stale legacy DB. Skip it rather than adopt
-    # it and silently default prompt_bearing to 0.
-    if [ -f "$candidate" ] && tmb_db_schema_current "$candidate"; then
-      candidates+=("$candidate")
+    candidate=$(tmb_db_location "$dir")
+    if [ -f "$candidate" ]; then
+      _tmb_db_probe "$candidate"
+      [ $? -ne 1 ] && outermost="$candidate"
     fi
     dir="$(dirname "$dir")"
   done
-  if [ ${#candidates[@]} -gt 0 ]; then
-    _TMB_DB_PATH_CACHE="${candidates[${#candidates[@]}-1]}"
+  if [ -n "$outermost" ]; then
+    printf '%s\n' "$outermost"
+    return 0
+  fi
+  [ "$use_sentinel" = "1" ] || return 1
+  local sentinel ws
+  sentinel="$HOME/$TMB_STATE_HOST_DIR/$(tmb_plugin_name)-active-workspace"
+  [ -f "$sentinel" ] || return 1
+  ws=$(head -1 "$sentinel" 2>/dev/null)
+  [ -n "$ws" ] || return 1
+  candidate=$(tmb_db_location "$ws")
+  [ -f "$candidate" ] || return 1
+  _tmb_db_probe "$candidate"
+  [ $? -ne 1 ] || return 1
+  printf '%s\n' "$candidate"
+}
+
+# tmb_db_path
+# Prints the resolved trajectory DB path; non-zero exit when unresolved.
+# Memoized in _TMB_DB_PATH_CACHE for the lifetime of the process.
+tmb_db_path() {
+  if [ -n "$_TMB_DB_PATH_CACHE" ]; then
     echo "$_TMB_DB_PATH_CACHE"
     return 0
   fi
-  # Sentinel fallback: subagents inherit cwd=~ and lack env vars.
-  local sentinel="$HOME/.claude/${plugin_name}-active-workspace"
-  if [ -f "$sentinel" ]; then
-    local ws
-    ws=$(head -1 "$sentinel" 2>/dev/null)
-    if [ -n "$ws" ]; then
-      local sentinel_db="$ws/.claude/$plugin_name/trajectory.db"
-      # Same fail-safe on the sentinel path: a stale-schema sentinel DB is
-      # treated as unresolved rather than queried-and-defaulted-to-0.
-      if [ -f "$sentinel_db" ] && tmb_db_schema_current "$sentinel_db"; then
-        _TMB_DB_PATH_CACHE="$sentinel_db"
-        echo "$_TMB_DB_PATH_CACHE"
-        return 0
-      fi
-    fi
-  fi
-  return 1
+  local db
+  db=$(_tmb_db_resolve 1) || return 1
+  _TMB_DB_PATH_CACHE="$db"
+  echo "$db"
 }
 
-tmb_have_sqlite() {
-  command -v sqlite3 >/dev/null 2>&1
+# tmb_db_path_local
+# tmb_db_path without the sentinel step, for callers that must stay inside the
+# current project (the sentinel writer itself, the orphan scan).
+tmb_db_path_local() {
+  _tmb_db_resolve 0
+}
+
+# tmb_db_state
+# Prints one word:
+#   unresolved — no DB (project not onboarded) or no sqlite3: gates allow
+#   ok         — the DB answers a read
+#   error      — the DB resolved but the read failed: deny-capable gates deny
+tmb_db_state() {
+  local db
+  db=$(tmb_db_path) || { echo unresolved; return 0; }
+  tmb_have_sqlite || { echo unresolved; return 0; }
+  if [ "$(tmb_gate_read "$db" 'SELECT count(*) FROM sqlite_master;')" = "__ERR__" ]; then
+    echo error
+  else
+    echo ok
+  fi
+}
+
+# tmb_db_unavailable_reason <hook>
+# The deny reason every fail-closed gate uses when the DB read errors.
+tmb_db_unavailable_reason() {
+  local db
+  db=$(tmb_db_path 2>/dev/null) || db="<unresolved>"
+  printf 'BLOCKED: trajectory DB unavailable — %s could not read %s (read error: busy, corrupt, or unreadable), so it refuses to fail open. Check the trajectory DB and retry.' "${1:-hook}" "$db"
+}
+
+# tmb_deny_db_unavailable <hook>
+# Prints the PreToolUse deny for a DB read error.
+tmb_deny_db_unavailable() {
+  jq -nc --arg r "$(tmb_db_unavailable_reason "${1:-hook}")" \
+    '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+}
+
+# tmb_db_path_advisory <hook>
+# For advisory hooks: prints the DB path when it resolves and reads cleanly.
+# Unresolved → silent non-zero. Read error → one stderr line, non-zero.
+tmb_db_path_advisory() {
+  local db
+  db=$(tmb_db_path) || return 1
+  if [ "$(tmb_db_state)" = "error" ]; then
+    printf '%s: trajectory DB unavailable (%s) — skipped\n' "${1:-hook}" "$db" >&2
+    return 1
+  fi
+  printf '%s\n' "$db"
 }
 
 # tmb_sqlite_ro <db> <sql>

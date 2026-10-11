@@ -194,7 +194,8 @@ FAKE
 
 # Build a fake scripts tree: hooks/, maintenance/, and scan.sh (availability sentinel).
 FAKE_SCRIPTS="$TMPDIR/fake-scripts"
-mkdir -p "$FAKE_SCRIPTS/hooks"
+mkdir -p "$FAKE_SCRIPTS/hooks/lib"
+cp "$PLUGIN_ROOT/scripts/hooks/lib/query-task.sh" "$FAKE_SCRIPTS/hooks/lib/query-task.sh"
 mkdir -p "$FAKE_SCRIPTS/maintenance"
 cp "$PLUGIN_ROOT/scripts/hooks/session-start-prescan.sh" "$FAKE_SCRIPTS/hooks/session-start-prescan.sh"
 cp "$FAKE_INVOKER_DIR/run-scan-initial.mjs" "$FAKE_SCRIPTS/maintenance/run-scan-initial.mjs"

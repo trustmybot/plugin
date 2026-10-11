@@ -44,8 +44,8 @@ RESPONSE_TEXT=$(echo "$INPUT" | jq -r '.tool_response.content[0].text // ""' 2>/
 TASK_LIST=$(echo "$RESPONSE_TEXT" | jq -r 'if type == "array" then map("  - task_id=\(.id) branch_id=\(.branch_id)") | join("\n") else "" end' 2>/dev/null)
 [ -n "$TASK_LIST" ] || exit 0
 
-# Resolve workspace_root from the trajectory DB path: DB lives at
-# <workspace_root>/.claude/<plugin>/trajectory.db, so dirname 3 times.
+# Resolve workspace_root from the trajectory DB path: the DB lives three
+# levels below <workspace_root>, so dirname 3 times.
 WORKSPACE_ROOT=""
 _DB=$(tmb_db_path 2>/dev/null || true)
 if [ -n "$_DB" ]; then

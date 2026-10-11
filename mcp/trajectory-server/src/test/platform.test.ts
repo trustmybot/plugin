@@ -14,10 +14,13 @@ import { join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
 import { WorldModelGraph } from '../graph-db.js';
 import { createProjectLogger } from '../logger.js';
+import { DatabaseSync } from 'node:sqlite';
 import {
   createClaudeRuntimeContext,
   createCodexRuntimeContext,
   deriveCodexRuntimePaths,
+  findExistingClaudeDbUp,
+  probeClaudeDb,
   resolveGraphDbPath,
 } from '../platform.js';
 
@@ -411,6 +414,147 @@ describe('path derivation', () => {
       '/project/state/WORLD-MODEL.KUZU',
     ]) {
       assert.throws(() => resolveGraphDbPath(reserved), /reserved for graph storage/);
+    }
+  });
+});
+
+describe('findExistingClaudeDbUp (the one DB-location rule)', () => {
+  function plant(root: string, schema: 'current' | 'stale' = 'current'): string {
+    const dir = join(root, '.claude', 'tmb');
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, 'trajectory.db');
+    const db = new DatabaseSync(path);
+    db.exec(
+      schema === 'current'
+        ? 'CREATE TABLE tasks (id INTEGER PRIMARY KEY, prompt_bearing INTEGER)'
+        : 'CREATE TABLE tasks (id INTEGER PRIMARY KEY)',
+    );
+    db.close();
+    return path;
+  }
+
+  function layout(): { root: string; home: string; ws: string; inner: string } {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-dbrule-')));
+    const home = join(root, 'home');
+    const ws = join(root, 'ws');
+    const inner = join(ws, 'plugin', 'src');
+    mkdirSync(home, { recursive: true });
+    mkdirSync(join(ws, 'plugin', '.git'), { recursive: true });
+    mkdirSync(inner, { recursive: true });
+    return { root, home, ws, inner };
+  }
+
+  it('1: TRAJECTORY_DB_PATH wins when it exists, and is unresolved when it does not', () => {
+    const { root, home, ws, inner } = layout();
+    try {
+      plant(ws);
+      const explicit = join(root, 'explicit.db');
+      writeFileSync(explicit, '');
+      assert.equal(
+        findExistingClaudeDbUp(inner, 'tmb', { home, env: { TRAJECTORY_DB_PATH: explicit } }),
+        explicit,
+      );
+      assert.equal(
+        findExistingClaudeDbUp(inner, 'tmb', {
+          home,
+          env: { TRAJECTORY_DB_PATH: join(root, 'missing.db') },
+        }),
+        null,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('2: the project root DB is used with no walking', () => {
+    const { root, home, ws, inner } = layout();
+    try {
+      const workspaceDb = plant(ws);
+      assert.equal(
+        findExistingClaudeDbUp(inner, 'tmb', { home, env: { CLAUDE_PROJECT_DIR: ws } }),
+        workspaceDb,
+      );
+      const repo = join(ws, 'plugin');
+      assert.equal(
+        findExistingClaudeDbUp(inner, 'tmb', { home, env: { CLAUDE_PROJECT_DIR: repo } }),
+        null,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('3: the fallback walk picks the outermost DB, past .git, skipping a stale schema', () => {
+    const { root, home, ws, inner } = layout();
+    try {
+      const workspaceDb = plant(ws);
+      plant(join(ws, 'plugin'));
+      assert.equal(findExistingClaudeDbUp(inner, 'tmb', { home, env: {} }), workspaceDb);
+
+      rmSync(join(ws, '.claude'), { recursive: true, force: true });
+      plant(ws, 'stale');
+      assert.equal(
+        findExistingClaudeDbUp(inner, 'tmb', { home, env: {} }),
+        join(ws, 'plugin', '.claude', 'tmb', 'trajectory.db'),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('3: a candidate whose read fails is kept (resolved, so the error surfaces)', () => {
+    const { root, home, ws, inner } = layout();
+    try {
+      mkdirSync(join(ws, '.claude', 'tmb'), { recursive: true });
+      const corrupt = join(ws, '.claude', 'tmb', 'trajectory.db');
+      writeFileSync(corrupt, 'not a sqlite database at all, just text padding the header');
+      assert.equal(probeClaudeDb(corrupt), 'error');
+      assert.equal(findExistingClaudeDbUp(inner, 'tmb', { home, env: {} }), corrupt);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('3: the walk never enters HOME from below it', () => {
+    const { root } = layout();
+    try {
+      const home = join(root, 'ws');
+      plant(home);
+      const below = join(home, 'plugin', 'src');
+      assert.equal(findExistingClaudeDbUp(below, 'tmb', { home, env: {} }), null);
+      assert.equal(
+        findExistingClaudeDbUp(home, 'tmb', { home, env: {} }),
+        join(home, '.claude', 'tmb', 'trajectory.db'),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('3: the active-workspace sentinel resolves when the walk finds nothing', () => {
+    const { root, home, ws } = layout();
+    try {
+      const workspaceDb = plant(ws);
+      const elsewhere = join(root, 'elsewhere');
+      mkdirSync(elsewhere);
+      mkdirSync(join(home, '.claude'), { recursive: true });
+      writeFileSync(join(home, '.claude', 'tmb-active-workspace'), `${ws}\n`);
+      assert.equal(findExistingClaudeDbUp(elsewhere, 'tmb', { home, env: {} }), workspaceDb);
+
+      rmSync(join(ws, '.claude'), { recursive: true, force: true });
+      plant(ws, 'stale');
+      assert.equal(findExistingClaudeDbUp(elsewhere, 'tmb', { home, env: {} }), null);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('4: unresolved when no DB exists anywhere', () => {
+    const { root, home, inner } = layout();
+    try {
+      assert.equal(findExistingClaudeDbUp(inner, 'tmb', { home, env: {} }), null);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

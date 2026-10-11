@@ -102,29 +102,7 @@ if [ "$AGENT_TYPE" != "swe" ]; then
   exit 0
 fi
 
-# Resolve trajectory DB path (same logic as mcp-health-check.sh / query-task.sh).
-# Walk up from PWD to handle workspace-pattern projects where the live DB
-# lives at the workspace root above the inner repos (#2872 same root cause —
-# the production agent_runs=0 symptom traces here).
-DB=""
-if command -v tmb_db_path >/dev/null 2>&1; then
-  DB=$(tmb_db_path 2>/dev/null || true)
-fi
-if [ -z "$DB" ]; then
-  # P0 guard: never traverse INTO the user's HOME from a descendant cwd.
-  # Project state must not escape into the user's profile (mirrors db.ts).
-  dir="$PWD"
-  for _ in 1 2 3 4 5 6 7 8; do
-    if [ "$dir" = "$HOME" ] && [ "$PWD" != "$HOME" ]; then
-      break
-    fi
-    candidate="$dir/.claude/$PLUGIN_NAME/trajectory.db"
-    if [ -f "$candidate" ]; then DB="$candidate"; break; fi
-    parent=$(dirname "$dir")
-    [ "$parent" = "$dir" ] && break
-    dir="$parent"
-  done
-fi
+DB=$(tmb_db_path 2>/dev/null || true)
 
 if [ -z "$DB" ] || ! command -v sqlite3 >/dev/null 2>&1; then
   exit 0

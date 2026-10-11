@@ -142,7 +142,9 @@ sqlite3 "$db" "
     issue_id INTEGER NOT NULL DEFAULT 1,
     branch_id TEXT NOT NULL,
     status TEXT NOT NULL,
-    spec_body TEXT NOT NULL DEFAULT ''
+    spec_body TEXT NOT NULL DEFAULT '',
+    repo TEXT,
+    parent_branch_id TEXT
   );
   CREATE TABLE issues (
     id INTEGER PRIMARY KEY,
@@ -152,6 +154,8 @@ sqlite3 "$db" "
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  CREATE TABLE repos (name TEXT, path TEXT);
+  INSERT INTO repos (name, path) VALUES ('fixture', '$TMPDIR');
   INSERT INTO issues (id) VALUES (1);
   INSERT INTO tasks (id, issue_id, branch_id, status, spec_body)
     VALUES (1, 1, 'fix/1-foo', 'pending', '## spec body');

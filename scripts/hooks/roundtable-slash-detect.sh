@@ -19,6 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/db-write.sh
 . "$SCRIPT_DIR/lib/db-write.sh"
 export TMB_DB_WRITE_TIMEOUT_MS=5000
+export TMB_DB_WRITE_RUN_BUDGET_MS=10200
 
 INPUT=$(cat 2>/dev/null) || exit 0
 command -v jq >/dev/null 2>&1 || exit 0

@@ -35,37 +35,33 @@ require() {
   return 0
 }
 
-# --- every hook sourcing db-write.sh: write-retry worst case ----------------
-# tmb_db_write waits up to the effective busy timeout per attempt, with a
-# backoff between attempts. The effective timeout is the hook's own
-# `export TMB_DB_WRITE_TIMEOUT_MS=<ms>` when present, else the library default.
-# floor = attempts x timeout + (attempts - 1) x backoff + 1 s margin.
+# --- every hook sourcing db-write.sh: per-run write budget ----------------
+# Every tmb_db_write call in one hook process shares a run budget
+# (TMB_DB_WRITE_RUN_BUDGET_MS): the summed time spent writing never exceeds it,
+# however many rows the hook writes under a held lock. The effective budget is
+# the hook's own `export TMB_DB_WRITE_RUN_BUDGET_MS=<ms>` when present, else
+# the library default. floor = run budget + 1 s margin.
 DBW_LIB="scripts/hooks/lib/db-write.sh"
-DBW_ATTEMPTS=$(grep -oE '^_TMB_DB_WRITE_ATTEMPTS="[0-9 ]+"' "$DBW_LIB" | head -1 | sed -E 's/^[^"]*"//; s/"$//' | wc -w | tr -d ' ')
-DBW_DEFAULT_MS=$(grep -oE 'TMB_DB_WRITE_TIMEOUT_MS:-[0-9]+' "$DBW_LIB" | head -1 | grep -oE '[0-9]+$')
-DBW_BACKOFF=$(grep -oE '^_TMB_DB_WRITE_BACKOFF_S=[0-9.]+' "$DBW_LIB" | head -1 | grep -oE '[0-9.]+$')
+DBW_DEFAULT_RUN_MS=$(grep -oE 'TMB_DB_WRITE_RUN_BUDGET_MS:-[0-9]+' "$DBW_LIB" | head -1 | grep -oE '[0-9]+$' || true)
 DBW_CHECKED=0
 DBW_SUMMARY=""
 
-if require "$DBW_ATTEMPTS" "db-write attempts" \
-   && require "$DBW_DEFAULT_MS" "db-write default busy timeout" \
-   && require "$DBW_BACKOFF" "db-write backoff"; then
+if require "$DBW_DEFAULT_RUN_MS" "db-write default run budget"; then
   for hook in scripts/hooks/*.sh; do
     grep -q 'lib/db-write\.sh' "$hook" || continue
     base=$(basename "$hook")
     wrap=$(wrapper_timeout "$base")
     [ -n "$wrap" ] || continue
-    ms=$(grep -oE '^[[:space:]]*export TMB_DB_WRITE_TIMEOUT_MS=[0-9]+' "$hook" | head -1 | grep -oE '[0-9]+$' || true)
-    [ -n "$ms" ] || ms="$DBW_DEFAULT_MS"
-    floor=$(awk -v a="$DBW_ATTEMPTS" -v ms="$ms" -v b="$DBW_BACKOFF" \
-      'BEGIN { printf "%.1f", a * (ms / 1000) + (a - 1) * b + 1 }')
+    ms=$(grep -oE '^[[:space:]]*export TMB_DB_WRITE_RUN_BUDGET_MS=[0-9]+' "$hook" | head -1 | grep -oE '[0-9]+$' || true)
+    [ -n "$ms" ] || ms="$DBW_DEFAULT_RUN_MS"
+    floor=$(awk -v ms="$ms" 'BEGIN { printf "%.1f", ms / 1000 + 1 }')
     if awk -v w="$wrap" -v f="$floor" 'BEGIN { exit !(w < f) }'; then
-      printf "hook-timeout-budget: FAIL %s wrapper %ss < floor %ss (%s x %sms busy + backoff %ss + 1s margin)\n" \
-        "$base" "$wrap" "$floor" "$DBW_ATTEMPTS" "$ms" "$DBW_BACKOFF" >&2
+      printf "hook-timeout-budget: FAIL %s wrapper %ss < floor %ss (run budget %sms + 1s margin)\n" \
+        "$base" "$wrap" "$floor" "$ms" >&2
       FAIL=$((FAIL + 1))
     fi
     DBW_CHECKED=$((DBW_CHECKED + 1))
-    DBW_SUMMARY="${DBW_SUMMARY}  ${base}: wrapper ${wrap}s >= floor ${floor}s (busy ${ms}ms)
+    DBW_SUMMARY="${DBW_SUMMARY}  ${base}: wrapper ${wrap}s >= floor ${floor}s (run budget ${ms}ms)
 "
   done
 fi

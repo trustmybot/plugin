@@ -292,14 +292,22 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
     # transcript). Bash write-forms have no Edit target path; pass empty so the
     # resolver derives the worktree from $PWD.
     _PB_DB=$(tmb_db_path || true)
+    if [ "$(tmb_db_state)" = "error" ]; then
+      tmb_deny_db_unavailable swe-boundary
+      exit 0
+    fi
     _PB_TASK_ID=$(tmb_resolve_task_id_for_target "" "$INPUT" "$_PB_DB")
     _PB_ALLOWED=""
     if [ -n "$_PB_TASK_ID" ]; then
       if [ -n "$_PB_DB" ] && tmb_have_sqlite; then
-        _PB_VAL=$(tmb_sqlite_ro "$_PB_DB" "
+        _PB_VAL=$(tmb_gate_read "$_PB_DB" "
           SELECT COALESCE(prompt_bearing, 0) FROM tasks WHERE id = ${_PB_TASK_ID} LIMIT 1;
-        " 2>/dev/null || echo "0")
-        [ "${_PB_VAL:-0}" -eq 1 ] && _PB_ALLOWED="yes"
+        ")
+        if [ "$_PB_VAL" = "__ERR__" ]; then
+          tmb_deny_db_unavailable swe-boundary
+          exit 0
+        fi
+        [ "${_PB_VAL:-0}" = "1" ] && _PB_ALLOWED="yes"
       fi
     fi
     if [ "$_PB_ALLOWED" != "yes" ]; then
@@ -364,15 +372,23 @@ esac
 
 if [ "$IS_PROMPT_SURFACE" = "yes" ]; then
   DB=$(tmb_db_path || true)
+  if [ "$(tmb_db_state)" = "error" ]; then
+    tmb_deny_db_unavailable swe-boundary
+    exit 0
+  fi
   if [ -n "$DB" ] && tmb_have_sqlite; then
     # Resolve task_id robustly (worktree branch → slug → transcript), deriving
     # the worktree from the TARGET when $PWD isn't inside one.
     TASK_ID=$(tmb_resolve_task_id_for_target "$TARGET" "$INPUT" "$DB")
     if [ -n "$TASK_ID" ]; then
-      PROMPT_BEARING=$(tmb_sqlite_ro "$DB" "
+      PROMPT_BEARING=$(tmb_gate_read "$DB" "
         SELECT COALESCE(prompt_bearing, 0) FROM tasks WHERE id = ${TASK_ID} LIMIT 1;
-      " 2>/dev/null || echo "0")
-      if [ "${PROMPT_BEARING:-0}" -eq 1 ]; then
+      ")
+      if [ "$PROMPT_BEARING" = "__ERR__" ]; then
+        tmb_deny_db_unavailable swe-boundary
+        exit 0
+      fi
+      if [ "${PROMPT_BEARING:-0}" = "1" ]; then
         exit 0
       fi
     fi

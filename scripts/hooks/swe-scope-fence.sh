@@ -60,6 +60,10 @@ WORKTREE_ROOT=$(tmb_worktree_root_for_target "$TARGET")
 DB=$(tmb_db_path 2>/dev/null || true)
 [ -n "$DB" ] || exit 0
 tmb_have_sqlite || exit 0
+if [ "$(tmb_db_state)" = "error" ]; then
+  tmb_deny_db_unavailable swe-scope-fence
+  exit 0
+fi
 
 # Resolve the active task (worktree branch → slug → transcript), no status filter.
 TASK_ID=$(tmb_resolve_task_id_for_target "$TARGET" "$INPUT" "$DB")
@@ -68,11 +72,15 @@ TASK_ID=$(tmb_resolve_task_id_for_target "$TARGET" "$INPUT" "$DB")
 # Read the typed `files` column (JSON array of path-like strings, Typed Rails
 # #673). One path per line via jq; fail open if the column is absent, empty,
 # or not a JSON array.
-FILES_JSON=$(tmb_sqlite_ro "$DB" "
+FILES_JSON=$(tmb_gate_read "$DB" "
   SELECT COALESCE(files, '[]') FROM tasks
    WHERE id = ${TASK_ID}
    LIMIT 1;
-" 2>/dev/null || true)
+")
+if [ "$FILES_JSON" = "__ERR__" ]; then
+  tmb_deny_db_unavailable swe-scope-fence
+  exit 0
+fi
 
 # Fail open: no task row.
 [ -n "$FILES_JSON" ] || exit 0

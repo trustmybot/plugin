@@ -48,6 +48,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/db-write.sh disable=SC1091
 . "$SCRIPT_DIR/lib/db-write.sh"
 export TMB_DB_WRITE_TIMEOUT_MS=5000
+export TMB_DB_WRITE_RUN_BUDGET_MS=10200
 
 INPUT=$(cat)
 
@@ -87,6 +88,7 @@ case "$TASK_ID" in ''|*[!0-9]*) TASK_ID="" ;; esac
 if [ -z "$TASK_ID" ]; then
   exit 0
 fi
+SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
 
 DB=$(tmb_db_path || true)
 if [ -z "$DB" ] || ! tmb_have_sqlite; then
@@ -97,7 +99,11 @@ fi
 WAIVER=$(echo "$INPUT" | jq -r '.tool_input.waive_verification_gate_reason // empty' 2>/dev/null || true)
 if [ -n "$WAIVER" ] && [ ${#WAIVER} -ge 10 ]; then
   CONTENT_JSON=$(jq -nc --argjson tid "$TASK_ID" --arg reason "$WAIVER" '{task_id: $tid, waiver_reason: $reason}')
-  TASK_ROW=$(tmb_sqlite_ro "$DB" "SELECT COALESCE(issue_id, -1) || '|' || COALESCE(branch_id, '') FROM tasks WHERE id = ${TASK_ID} LIMIT 1;")
+  TASK_ROW=$(tmb_gate_read "$DB" "SELECT COALESCE(issue_id, -1) || '|' || COALESCE(branch_id, '') FROM tasks WHERE id = ${SAFE_TASK_ID} LIMIT 1;")
+  if [ "$TASK_ROW" = "__ERR__" ]; then
+    tmb_deny_db_unavailable "swe-verification-gate (waiver)"
+    exit 0
+  fi
   if [ -n "$TASK_ROW" ] && ! tmb_audit_append "$DB" "${TASK_ROW%%|*}" "${TASK_ROW#*|}" "hook:swe-verification-gate" "verification_gate_waived" \
       "SWE waived verification gate for task_id=${TASK_ID}" "$CONTENT_JSON"; then
     jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable — the verification-gate waiver could not be recorded, so it cannot be honoured. Retry once the DB is writable."}}'
@@ -111,7 +117,6 @@ DB_UNAVAILABLE_DENY='{"hookSpecificOutput":{"hookEventName":"PreToolUse","permis
 # column is a JSON array of command strings (Typed Rails #673).
 VERIFICATION_JSON=$(tmb_sqlite_ro "$DB" \
   "SELECT COALESCE(verification, '[]') FROM tasks WHERE id = ${TASK_ID} LIMIT 1;" 2>/dev/null || true)
-SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
 BRANCH_ID=$(tmb_gate_read "$DB" \
   "SELECT COALESCE(branch_id, '') FROM tasks WHERE id = ${SAFE_TASK_ID} LIMIT 1;")
 if [ "$BRANCH_ID" = "__ERR__" ]; then

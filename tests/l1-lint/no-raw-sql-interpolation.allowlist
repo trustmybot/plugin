@@ -2,9 +2,11 @@
 # Each non-comment line is a substring matched against "file:lineno" output.
 # Add entries here when a site is reviewed and confirmed safe.
 
-# query-task.sh tmb_sqlite_ro: $sql is the helper's whole-statement parameter;
-# sanitization is the CALLER's job and call sites are this lint's subjects.
-scripts/hooks/lib/query-task.sh:127
+# query-task.sh tmb_gate_read and tmb_sqlite_ro: $sql is the helper's
+# whole-statement parameter; sanitization is the CALLER's job and call sites
+# are this lint's subjects.
+scripts/hooks/lib/query-task.sh:50
+scripts/hooks/lib/query-task.sh:207
 
 # db-write.sh is the write library: $sql/$wrapped are whole-statement parameters
 # (callers are this lint's subjects) and tmb_audit_sql quotes every value itself
