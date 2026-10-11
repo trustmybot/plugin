@@ -39,6 +39,42 @@ A hook can be registered more than once for the same event: a project install be
 
 At SessionStart, `mcp-health-check.sh` says once per session when a user-scope install is ignored in favour of the project install, or recommends `--scope project` when only a user-scope install exists.
 
+## Runtime containment: agents write only under their run's root
+
+The invariant above covers what TMB itself writes. The agents it runs are held to the same boundary, in three layers.
+
+**Run root.** Every `agent_runs` row carries `root_dir`: the project root for bro rows (opened by `task_create_batch`, `task_provision`, `task_retry`), the task's worktree (`<repo>/.claude/worktrees/<slug>`) for the swe row `task_brief` opens. Rows also carry `host`, the dominant `model` and, once closed, an `exit_reason` (see [`../contributing/ENUMS.md`](../contributing/ENUMS.md)).
+
+| Tier | Layer | What it holds |
+|---|---|---|
+| 0 | Claude Code's Bash sandbox, written by `/onboard` (`sandbox_enforcement`, default **yes**) | OS-level: Bash, in the main loop and in every subagent, writes only to the working directory, the sandbox temp dir and `sandbox.filesystem.allowWrite` (the project and `TMB_MODEL_CACHE_DIR`). Does not cover the Write/Edit tools. |
+| 1 | Server tools (host-neutral) | `task_provision`, `pr_monitor_worktree` and `cheatcode_install` refuse a path outside the project with `{"error":"outside_project"}`. `pr_monitor_worktree` checks the commit out under `<repo>/.claude/worktrees/pr-review-<sha>`. |
+| 2 | [`scripts/hooks/containment-guard.sh`](../../scripts/hooks/containment-guard.sh) (PreToolUse Write/Edit/MultiEdit/NotebookEdit/Bash) | Denies a write outside the run's root: the open swe/pr-reviewer `root_dir` of the active task, else `CLAUDE_PROJECT_DIR`. File tools by the canonical `file_path`; Bash by its `cwd` and every write position [`lib/cmd-analysis.sh`](../../scripts/hooks/lib/cmd-analysis.sh) finds (redirects, `tee`, `cp`/`mv`/`rsync`/`install` destinations, `mkdir`, `rm`, `touch`, `git worktree add`, `git clone`) after heredoc bodies and quoted text are neutralized. The model cache and `/dev/null`-style devices are allowed; reads are not judged. Each denial writes a `containment_denied` audit row naming the tool, path, root and task. |
+
+The hook is a parser, not a jail: a write behind an unresolvable variable (`> "$OUT"`), an interpreter (`python -c`), or a `cd` earlier in the same command is not judged. Tier 0 is the layer that cannot be talked around for Bash; the hook adds the file tools, the swe-worktree boundary (the sandbox allows the whole project) and the audit trail.
+
+### Tier 0 settings block
+
+On **yes**, `onboard_apply` merges into `<project>/.claude/settings.local.json`:
+
+```json
+{ "sandbox": { "enabled": true, "filesystem": { "allowWrite": ["<project>", "<TMB_MODEL_CACHE_DIR>"] } } }
+```
+
+Every other key, and every `allowWrite` path already present, is kept. What TMB added is recorded in `plugin_config.sandbox_settings`; **no** removes exactly that. Only a project named by the trajectory DB path is written. Network rules are not set, so Claude Code's sandbox defaults apply to network access.
+
+### Phase-0 finding (Claude Code 2.1.296, 2026-10-11)
+
+The keys are `sandbox.enabled` and `sandbox.filesystem.allowWrite` (siblings `denyWrite`, `allowRead`, `denyRead`; also `autoAllowBashIfSandboxed`, `allowUnsandboxedCommands`, `excludedCommands`). A live `claude -p --model haiku` run in a throwaway project with `settings.local.json` = `{"sandbox":{"enabled":true,"autoAllowBashIfSandboxed":true,"allowUnsandboxedCommands":false,"filesystem":{"allowWrite":["<allowed>"]}}}`, an empty `HOME`, and the OAuth token from the environment:
+
+| Write | Main loop Bash | Subagent Bash (Agent tool, general-purpose) |
+|---|---|---|
+| `<project>/x.txt` (cwd) | written | written |
+| `<allowed>/x.txt` (allowWrite) | written | written |
+| `<outside>/x.txt` (sibling of the project) | **blocked**: `operation not permitted`, exit 1 | **blocked**: `operation not permitted`, exit 1 |
+
+(a) The sandbox applies to subagent Bash; (b) a write outside the allow-list is blocked. One caveat: the sandbox's own temp dir (`TMPDIR=/tmp/claude-<uid>`) is writable by default, so a first probe whose "outside" path lay under `/tmp/claude-<uid>` was written. The hook (Tier 2) denies `/tmp` paths outside the root regardless.
+
 ## Enforcement
 
 | Check | What it fails on |
@@ -46,4 +82,5 @@ At SessionStart, `mcp-health-check.sh` says once per session when a user-scope i
 | [`tests/l1-lint/no-home-writes.sh`](../../tests/l1-lint/no-home-writes.sh) | Any write under the home directory from `scripts/`, `skills/*/scripts/` or the server |
 | [`tests/l1-lint/hooks-via-dispatcher.sh`](../../tests/l1-lint/hooks-via-dispatcher.sh) | A hooks.json command that is not `dispatch.sh <gate>`, or a gate script that is missing or not executable |
 | L3 runners (`tests/l3-integration/hooks/run.sh`, `tests/l3-integration/mcp/run.sh`) | Anything left in the empty temp `HOME` they run under |
+| [`tests/l3-integration/hooks/containment-guard.test.sh`](../../tests/l3-integration/hooks/containment-guard.test.sh) | An agent write outside its run's root that the guard allows, a denial without an audit row, or a read / model-cache write that it denies |
 | [`tests/l3-integration/hooks/dispatch.test.sh`](../../tests/l3-integration/hooks/dispatch.test.sh) | A duplicate execution, a duplicated banner, a lost denial, the wrong install's gate, or a missing gate that exits 0 |
