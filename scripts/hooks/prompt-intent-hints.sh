@@ -14,11 +14,12 @@
 #   reonboard-intent — remote-setup / host-on phrases (DB query on match)
 #   resume-intent    — keep-going / pick-up / continue phrases (DB query on match)
 #   adr-required     — architectural intent (phrases + word-proximity checks)
+#   audit-intent     — audit / verify / check / double-check / architecture as whole words
 #
 # Bypass env vars forwarded: TMB_DISABLE_CHEATCODE_INSTALL_HINT,
 # TMB_DISABLE_CONSULTANT_HINT, TMB_DISABLE_SEARCH_HINT, TMB_DISABLE_CONCERNS_HINT,
 # TMB_DISABLE_PUSH_INTENT_HINT, TMB_DISABLE_REONBOARD_HINT, TMB_DISABLE_RESUME_HINT,
-# TMB_DISABLE_ADR_HINT.
+# TMB_DISABLE_ADR_HINT, TMB_DISABLE_AUDIT_HINT.
 #
 # Silent on failure; advisory hooks never exit non-zero.
 
@@ -47,8 +48,8 @@ tmb_is_harness_turn "$PROMPT_RAW" && exit 0
 tmb_db_path_advisory prompt-intent-hints >/dev/null || true
 
 LOWER=$(printf '%s' "$PROMPT_RAW" | tr '[:upper:]' '[:lower:]')
-# The prompt with backticked and quoted spans removed: concerns, push, resume
-# and architectural hints match only what the Human wrote, not text they quote.
+# The prompt with backticked and quoted spans removed: concerns, push, resume,
+# architectural and audit hints match only what the Human wrote, not text they quote.
 LOWER_OPEN=$(tmb_strip_quoted_spans "$PROMPT_RAW" | tr '[:upper:]' '[:lower:]')
 
 emit_context() {
@@ -526,6 +527,25 @@ if [ "${TMB_DISABLE_ADR_HINT:-0}" != "1" ]; then
 
   if [ -n "$matched" ]; then
     CTX="🏛️  architectural-change hint: the user's prompt contains '${matched}'. This change crosses TMB's architectural threshold — load \`tmb_planning\` and follow §\"Architectural changes\" before speccing the work."
+    emit_context "$CTX"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 8. audit-intent — an ask to audit, verify, check or review an architecture;
+#    whole-word match on the unquoted prompt ("verification" never matches)
+# ---------------------------------------------------------------------------
+if [ "${TMB_DISABLE_AUDIT_HINT:-0}" != "1" ]; then
+  matched=""
+  for word in audit verify double-check check architecture; do
+    if has_word "$word" "$LOWER_OPEN"; then
+      matched="$word"
+      break
+    fi
+  done
+
+  if [ -n "$matched" ]; then
+    CTX="🔍 audit-intent hint: the user's prompt contains '${matched}'. Load \`tmb_audit\` and work outputs-first: name the component and the invariants its outputs must satisfy, test each against live data or a dry run before reading code, and report violations architecture-first with their evidence."
     emit_context "$CTX"
   fi
 fi

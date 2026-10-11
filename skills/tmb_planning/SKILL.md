@@ -77,7 +77,7 @@ Blast-radius (external side effects only): default config is the safe state (opt
 
 Call `task_provision(issue_id, branch_id, decision_body, task, base?)` — it atomically writes the `kind='decision'` discussion, creates the task (with the typed `files[]` + `verification[]` and the planning-complete event), creates the git branch, and creates the worktree. It returns the spawn-ready shape `{task_id, branch_id, worktree_path, ...}` — branch and worktree already exist.
 
-Then spawn SWE with the `task_id` it returned. For multiple tasks, provision each, then spawn per task.
+Then spawn SWE with the `task_id` it returned. Independent tasks run concurrently: provision every one of them, then spawn one swe per task in the same turn — one Agent call each, all in one message. A task waits only when it needs another task's merged output, and its `decision_body` names that dependency. Each spec names the sibling tasks running alongside it and their `files[]`, and tells swe to fetch and rebase onto the base branch inside its worktree, keep every CHANGELOG entry, rebuild generated artefacts and re-run `verification[]` before closing.
 
 ### Spawning SWE
 
@@ -88,6 +88,8 @@ The Agent PreToolUse gates enforce a spawn contract:
 - The branch and worktree are created by `task_provision` — don't pre-create the branch or `EnterWorktree` manually.
 
 ## 6. Verify on SWE return + atomic close
+
+Verify, close and review each task as it returns; a task's close waits on nothing but its own review.
 
 After SWE returns `status=completed`, pull the work (`task_get` plus a `git diff` of the commit) and judge it against the spec on four counts:
 
