@@ -46,9 +46,8 @@ mkdir -p "${HOME}/.claude/${PLUGIN_NAME}/logs" 2>/dev/null || true
 #
 # Lines are grouped by message id (CC writes one line per content block, each
 # repeating the message's usage; the last usage of a group wins; tool_uses
-# counts every tool_use block). input/output tokens are disjoint per message and
-# summed. cache_read / cache_creation re-report the cached prefix on every
-# message, so the spawn's own figure is the high-water mark (max). first_ts is
+# counts every tool_use block). Every token column is a per-message sum — usage
+# is billed per request, so these are the same units as bro rows. first_ts is
 # the earliest timestamp normalized to 24-char ms-ISO.
 tmb_parse_transcript_stats() {
   local transcript_path="$1"
@@ -76,8 +75,8 @@ tmb_parse_transcript_stats() {
     ([.[] | .message.content // [] | arrays | .[] | select(.type == "tool_use")] | length) as $all_tu |
     ($msgs | map(.u.input_tokens | n) | add // 0) as $ti |
     ($msgs | map(.u.output_tokens | n) | add // 0) as $to |
-    ($msgs | map(.u.cache_read_input_tokens | n) | max // 0) as $cr |
-    ($msgs | map(.u.cache_creation_input_tokens | n) | max // 0) as $cc |
+    ($msgs | map(.u.cache_read_input_tokens | n) | add // 0) as $cr |
+    ($msgs | map(.u.cache_creation_input_tokens | n) | add // 0) as $cc |
     ($stamps | map(ms) | if length < 2 then 0 else (max - min) end) as $dm |
     [$ti, $to, $all_tu, $dm, $cr, $cc, ($stamps | min // "")] | map(tostring) | join("|")
   ' "$transcript_path" 2>/dev/null) || true

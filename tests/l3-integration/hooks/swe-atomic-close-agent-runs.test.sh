@@ -9,8 +9,7 @@
 #      metrics only, never an auto-complete.
 #   3. One row per spawn — the row task_brief opened is UPDATEd (started_at
 #      preserved); a re-fire with the same agent_id updates, never duplicates.
-#   4. Measures — tokens_in/out are summed per message, cache_read/creation are
-#      the spawn's high-water mark.
+#   4. Measures — every token column is a per-message sum (the bro-row units).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -110,8 +109,8 @@ assert_eq "0" "$(runs 138)" "sibling task 138 has zero rows"
 test_case "tokens_in/out are summed once per message (split content-block lines dedupe)"
 assert_eq "6000|2200" "$(sqlite3 "$DB" "SELECT tokens_in, tokens_out FROM agent_runs WHERE task_id=137;")" "in = 1000+2000+3000, out = 500+800+900"
 
-test_case "cache_read / cache_creation are the spawn's high-water mark"
-assert_eq "18400000|70000" "$(sqlite3 "$DB" "SELECT cache_read_tokens, cache_creation_tokens FROM agent_runs WHERE task_id=137;")" "max, not sum"
+test_case "cache_read / cache_creation are per-message sums (split content-block lines dedupe)"
+assert_eq "35800000|180000" "$(sqlite3 "$DB" "SELECT cache_read_tokens, cache_creation_tokens FROM agent_runs WHERE task_id=137;")" "200K+17.2M+18.4M and 50K+60K+70K"
 
 test_case "tool_uses counts the tool_use blocks"
 assert_eq "2" "$(sqlite3 "$DB" "SELECT tool_uses FROM agent_runs WHERE task_id=137;")" "two tool_use blocks"
