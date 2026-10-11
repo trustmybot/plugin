@@ -2,10 +2,20 @@
 
 The Claude Code lifecycle hook engine — the deterministic enforcement layer that gates, nudges, and reacts to what bro and the subagents do each session. Every script reads a hook JSON payload on stdin and either exits silently, emits `additionalContext`, or returns a `permissionDecision: deny`. The wiring (which script runs on which event) lives in the plugin-root `hooks/hooks.json`; the scripts here are the implementations.
 
+## `dispatch.sh` — the one entry point
+
+Every `hooks/hooks.json` command is `${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh <gate>` (timeout = the gate's budget + 1 s), and the opt-in headless shim execs `dispatch.sh <gate> --shim`. The dispatcher:
+
+1. runs the gate of the install this project uses — `lib/resolve-install.sh` picks it from `installed_plugins.json` (project/local beats user, newest of two project installs, no entry → the invoking plugin root) — with `CLAUDE_PLUGIN_ROOT` pointing at that install;
+2. with `--shim`, exits 0 without running the gate for another project's session or a session the plugin's own hooks already cover (the `plugin-hooks-marker.sh` marker);
+3. runs the gate once per (event, payload, gate): a `mkdir` lock at `<project>/.claude/<plugin>/locks/events/<sha256>/` holds the gate's `result`, `stderr` and `rc`; a concurrent duplicate replays only a denial and otherwise exits 0 silently. A finished result answers duplicates for `TMB_DISPATCH_WINDOW_S` (default 5 s); results are pruned after `TMB_DISPATCH_TTL_MIN` (default 10 min); a lock whose holder died is reclaimed once it is older than the gate's timeout. A project with no trajectory DB gets no lock — the gate just runs.
+
+`tests/l1-lint/hooks-via-dispatcher.sh` keeps every registration on the dispatcher; `tests/l3-integration/hooks/dispatch.test.sh` covers dedup, install resolution and the shim yield. The rule is written up in [`docs/architecture/CONTAINMENT.md`](../../docs/architecture/CONTAINMENT.md).
+
 ## Grouped by lifecycle
 
 ### SessionStart — preflight
-`ensure-gitignore.sh`, `mcp-health-check.sh`, `deferred-tools-drift-warn.sh`, `plugin-hooks-marker.sh`, `session-start-prescan.sh`, `ensure-kuzu-installed.sh`, `substrate-preflight.sh`, `cheatcode-healthcheck.sh`, `orphan-scan.sh` — make sure the gitignore, MCP server, kuzu native binary, and required host binaries are in place before a session does real work, mark the session as running the plugin's own hooks (so the opt-in headless shim yields), warn about TMB-managed hooks left in `~/.claude/settings.json`, and reconcile cheatcode statuses.
+`ensure-gitignore.sh`, `mcp-health-check.sh`, `deferred-tools-drift-warn.sh`, `plugin-hooks-marker.sh`, `session-start-prescan.sh`, `ensure-kuzu-installed.sh`, `substrate-preflight.sh`, `cheatcode-healthcheck.sh`, `orphan-scan.sh` — make sure the gitignore, MCP server, kuzu native binary, and required host binaries are in place before a session does real work, mark the session as running the plugin's own hooks (so the opt-in headless shim yields), warn about TMB-managed hooks left in `~/.claude/settings.json`, say once per session when a user-scope install is ignored for the project's (or recommend `--scope project` when only a user-scope install exists), and reconcile cheatcode statuses.
 
 Every file a hook writes lives under `<project>/.claude/<plugin>/` (logs, locks, session markers); nothing is written under `$HOME` (`tests/l1-lint/no-home-writes.sh`).
 
@@ -57,7 +67,7 @@ Each `agent_runs` row covers `[started_at, completed_at)` of one agent's run on 
 
 ## Subdirectory
 
-- `lib/` — shared helpers sourced by the hook scripts (`db-write.sh`, `normalize-role.sh`, `query-task.sh`, `resolve-repo.sh`, `resolve-toolchain-path.sh`, `resolve-workspace.sh`). `db-write.sh` is the only trajectory-DB write path: `tmb_db_write` (foreign keys on, 2 attempts of a `TMB_DB_WRITE_TIMEOUT_MS` busy wait — default 1500 ms, raised by hooks with a large hooks.json timeout — one transaction, failure reported on stderr), `tmb_audit_append` (audit rows as `from_node` `hook:<name>`), `tmb_now_iso` (the one timestamp format), and `tmb_gate_read` (prints `__ERR__` on a DB error so deny-capable gates fail closed).
+- `lib/` — shared helpers sourced by the hook scripts (`db-write.sh`, `normalize-role.sh`, `query-task.sh`, `resolve-install.sh`, `resolve-repo.sh`, `resolve-toolchain-path.sh`, `resolve-workspace.sh`). `resolve-install.sh` reads `installed_plugins.json` (read only; `TMB_INSTALLED_JSON` overrides the path) and prints the install this project uses (`tmb_active_install`). `db-write.sh` is the only trajectory-DB write path: `tmb_db_write` (foreign keys on, 2 attempts of a `TMB_DB_WRITE_TIMEOUT_MS` busy wait — default 1500 ms, raised by hooks with a large hooks.json timeout — one transaction, failure reported on stderr), `tmb_audit_append` (audit rows as `from_node` `hook:<name>`), `tmb_now_iso` (the one timestamp format), and `tmb_gate_read` (prints `__ERR__` on a DB error so deny-capable gates fail closed).
 
 ## How it fits
 
