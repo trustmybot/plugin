@@ -526,4 +526,68 @@ assert_contains "$out" '"permissionDecision":"deny"' "DB read error must deny, n
 assert_contains "$out" "trajectory DB unavailable" "deny names the unavailable DB"
 cleanup
 
+# ----- GH 1196: role from identity, dir from the command ----------------
+# A real linked worktree; the payload cwd sits inside it (bro's persistent
+# shell left there) while the command names the main checkout.
+
+run_hook_payload() {
+  local agent="$1" cwd="$2" cmd="$3" db="${4:-/nonexistent.db}" payload
+  payload=$(jq -cn --arg a "$agent" --arg d "$cwd" --arg c "$cmd" \
+    'if $a == "" then {cwd:$d,tool_input:{command:$c}} else {agent_type:$a,cwd:$d,tool_input:{command:$c}} end')
+  (cd "$REPO_PATH" && printf '%s' "$payload" | TRAJECTORY_DB_PATH="$db" bash "$HOOK" 2>&1 || true)
+}
+
+setup_repo_with_worktree() {
+  setup_repo
+  git -C "$REPO_PATH" branch feat/wt
+  git -C "$REPO_PATH" worktree add -q "$REPO_PATH/.claude/worktrees/wt" feat/wt
+  WT_PATH="$REPO_PATH/.claude/worktrees/wt"
+}
+
+test_case "GH 1196: bro 'git -C <main> push' with payload cwd inside a worktree → allowed"
+setup_repo_with_worktree
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "$SHA1"
+sign_task   "$db" 1
+insert_task "$db" 2 "$SHA2"
+sign_task   "$db" 2
+out=$(run_hook_payload "" "$WT_PATH" "git -C $REPO_PATH push origin main" "$db")
+assert_not_contains "$out" '"permissionDecision":"deny"' "bro pushing the main checkout by -C is not an SWE push nor a worktree push"
+cleanup
+
+test_case "GH 1196: bro 'cd <main> && git push' with payload cwd inside a worktree → allowed"
+setup_repo_with_worktree
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "$SHA1"
+sign_task   "$db" 1
+insert_task "$db" 2 "$SHA2"
+sign_task   "$db" 2
+out=$(run_hook_payload "" "$WT_PATH" "cd $REPO_PATH && git push origin main" "$db")
+assert_not_contains "$out" '"permissionDecision":"deny"' "the leading cd decides the dir"
+cleanup
+
+test_case "GH 1196: bro bare 'git push' while worktrees exist → ambiguous_git_target, not an SWE rule"
+setup_repo_with_worktree
+db=$(setup_db "$REPO_PATH")
+out=$(run_hook_payload "" "$REPO_PATH" "git push origin main" "$db")
+assert_contains "$out" "ambiguous_git_target" "the deny names the real reason"
+assert_contains "$out" "git -C <path> or cd <path>" "the deny carries the remedy"
+assert_not_contains "$out" "SWE must never push" "bro is never told an SWE rule"
+cleanup
+
+test_case "GH 1196: SWE push is denied by identity, whatever the dir"
+setup_repo_with_worktree
+out=$(run_hook_payload "swe" "$REPO_PATH" "git -C $REPO_PATH push origin main")
+assert_contains "$out" "SWE must never push" "identity decides the role"
+cleanup
+
+test_case "GH 1196: a heredoc that writes markdown mentioning git push is not a push"
+setup_repo_with_worktree
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "$SHA1"
+HEREDOC_CMD=$(printf '%s\n' "cat > $WT_PATH/notes.md <<'EOF'" 'then git push origin main' 'EOF')
+out=$(run_hook_payload "swe" "$REPO_PATH" "$HEREDOC_CMD" "$db")
+assert_not_contains "$out" '"permissionDecision":"deny"' "heredoc content is data"
+cleanup
+
 summarize

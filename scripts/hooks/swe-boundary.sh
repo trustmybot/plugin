@@ -5,7 +5,7 @@
 # This is a tripwire for obvious write-forms, not a Bash sandbox. When in
 # doubt, the hook passes — precision beats recall here.
 #
-# Five rules, all guarded by tmb_swe_context():
+# Five rules, all for an SWE identity (SWE_CTX):
 #
 #   (a) Bash: git push from SWE context                  → DENY
 #   (b) Bash: gh/glab MUTATING subcommands               → DENY (read-only gh allowed)
@@ -20,12 +20,9 @@
 #   templates/*.md, CLAUDE.md, CODEX.md, CURSOR.md, GEMINI.md.
 # Read-only commands (cat, grep, sed -n, sed without -i) are never tripped.
 #
-# SWE-context signal (deterministic, defined once here):
-#   - For Bash tool calls: PWD is inside .claude/worktrees/* AND a tasks row with
-#     matching branch_id exists in state IN ('pending','running','completed'), OR
-#     agent_type == 'swe' in the hook payload.
-#   - For Edit/Write tool calls: agent_type == 'swe' OR the target path is inside
-#     a known worktree path.
+# SWE context = the agent identity (tmb_agent_role in lib/cmd-analysis.sh) is
+# swe. A path never decides the role. Bash rules judge the command's
+# executable statements only: heredoc bodies and quoted text are data.
 #
 # Fires on: PreToolUse — matcher: Bash|Edit|Write|MultiEdit|NotebookEdit
 set -euo pipefail
@@ -33,41 +30,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
-# shellcheck source=scripts/hooks/lib/normalize-role.sh
-. "$SCRIPT_DIR/lib/normalize-role.sh"
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh
+. "$SCRIPT_DIR/lib/cmd-analysis.sh"
 
 INPUT=$(cat)
 
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null || true)
 
-AGENT_TYPE=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)")
-
-# tmb_swe_context: returns "yes" when this hook invocation is in a SWE context.
-# Two deterministic signals, priority order:
-#   1. agent_type field == 'swe' → yes (most reliable when CC populates it)
-#   2. agent_type field is a known non-SWE role → no (explicit identity wins)
-#   3. agent_type field is absent/empty + $PWD inside .claude/worktrees/ → yes
-#      (structural fallback for cases where CC #97 strips the agent_type field)
-# Never returns "yes" when agent_type is explicitly a non-SWE role.
-tmb_swe_context() {
-  if [ "$AGENT_TYPE" = "swe" ]; then
-    echo "yes"
-    return
-  fi
-  case "$AGENT_TYPE" in
-    bro|pr-reviewer|architect|cto|ceo|pm|consultant)
-      echo "no"
-      return
-      ;;
-  esac
-  # agent_type absent or unknown — fall back to PWD signal.
-  case "$PWD" in
-    */.claude/worktrees/*) echo "yes"; return ;;
-  esac
-  echo "no"
-}
-
-SWE_CTX=$(tmb_swe_context)
+SWE_CTX="no"
+[ "$(tmb_agent_role "$INPUT")" = "swe" ] && SWE_CTX="yes"
 
 # Resolve the assigned worktree root once — used by rules (c), (d), and (e).
 # Primary signal: $PWD when it's inside a worktree.
@@ -78,68 +49,52 @@ case "$PWD" in
     ;;
 esac
 
-# ---- Rule (a): git push from SWE context ------------------------------------
-# Already handled by git-push-guard.sh (which checks both WT_CWD and agent_type).
-# This hook adds defense-in-depth by also checking the SWE_CTX signal for
-# non-worktree cases (e.g. SWE calling git push with a cd prefix).
-# We skip force-pushes (delegated to git-guards.sh).
-
+# ---- Rules (a), (b), (e): Bash from SWE context -----------------------------
+# Each rule judges the executable statements of the command
+# (tmb_cmd_statements): a push or gh mutation named in a heredoc, a quoted
+# string, a grep pattern or a commit message is data and never fires.
 if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
   CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || true)
+  STMTS=$(tmb_cmd_statements "$CMD" "$(tmb_payload_cwd "$INPUT")")
 
-  # Whitespace-tolerant, boundary-anchored push detection (#1016): the old
-  # literal `case` substrings failed open on `git  push` (double space),
-  # leading-/newline-prefixed forms, and `bash -c "git push"` / `eval "..."`
-  # wrappers. _norm_cmd strips quotes, squeezes whitespace, pads, and rewrites
-  # shell-executor prefixes (`-c `, `eval `) to a statement separator; a push is
-  # then `git [ -C <p> ] push` anchored at a statement boundary.
-  _norm_cmd() {
-    local n
-    n=$(printf '%s' "$1" | tr -d "\"'" | tr -s '[:space:]' ' ')
-    n=" $n "
-    printf '%s' "$n" | sed -E 's/ -c / ; /g; s/ eval / ; /g'
-  }
-  NCMD=$(_norm_cmd "$CMD")
+  # (a) git push (force pushes are git-guards' job). (b) gh/glab mutating
+  # subcommands; read-only gh (view, list, status) stays allowed.
   IS_PUSH=""
-  IS_FORCE=""
-  printf '%s' "$NCMD" | grep -qE '(^[[:space:]]*|[;&|][[:space:]]*)git[[:space:]]+(-C[[:space:]]+[^[:space:]]+[[:space:]]+)?push([[:space:]]|$)' && IS_PUSH="yes"
-  printf '%s' "$NCMD" | grep -qE 'push[^;&|]*[[:space:]](--force(-with-lease)?|-f)([[:space:]]|$)' && IS_FORCE="yes"
-  if [ "$IS_PUSH" = "yes" ] && [ "$IS_FORCE" != "yes" ]; then
+  GH_MUTATING=""
+  while IFS="$(printf '\t')" read -r _dir stmt; do
+    sub=$(tmb_git_subcommand "$stmt")
+    case "$sub" in
+      push|"push "*)
+        case " ${sub} " in
+          *" --force "*|*" -f "*|*" --force-with-lease "*|*" --force-with-lease="*) ;;
+          *) IS_PUSH="yes" ;;
+        esac
+        ;;
+    esac
+    case "$stmt" in
+      "gh issue create"*|"gh issue close"*|"gh issue edit"*|"gh issue delete"*) GH_MUTATING="yes" ;;
+      "gh pr create"*|"gh pr merge"*|"gh pr close"*|"gh pr edit"*) GH_MUTATING="yes" ;;
+      "gh api "*" -X POST"*|"gh api "*" -X PATCH"*|"gh api "*" -X PUT"*|"gh api "*" -X DELETE"*) GH_MUTATING="yes" ;;
+      "gh api "*" --method POST"*|"gh api "*" --method PATCH"*|"gh api "*" --method PUT"*|"gh api "*" --method DELETE"*) GH_MUTATING="yes" ;;
+      "glab issue create"*|"glab issue close"*|"glab issue edit"*) GH_MUTATING="yes" ;;
+      "glab mr create"*|"glab mr merge"*|"glab mr close"*|"glab mr edit"*) GH_MUTATING="yes" ;;
+    esac
+  done <<< "$STMTS"
+
+  if [ "$IS_PUSH" = "yes" ]; then
     jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: SWE must never push. Bro handles the push gate after pr-reviewer passes. Commit in your worktree and call task_update_status(completed)."}}'
     exit 0
   fi
-
-  # ---- Rule (b): gh/glab MUTATING subcommands from SWE context --------------
-  # Read-only gh is allowed (SWEs legitimately read issues/PRs).
-  # Blocked: gh issue create/close/edit, gh pr create/merge/close, gh api -X POST/PATCH/PUT/DELETE
-  # Same for glab equivalents.
-  GH_MUTATING=""
-  case "$CMD" in
-    *"gh issue create"*|*"gh issue close"*|*"gh issue edit"*|*"gh issue delete"*) GH_MUTATING="yes" ;;
-    *"gh pr create"*|*"gh pr merge"*|*"gh pr close"*|*"gh pr edit"*) GH_MUTATING="yes" ;;
-    *"gh api"*"-X POST"*|*"gh api"*"-X PATCH"*|*"gh api"*"-X PUT"*|*"gh api"*"-X DELETE"*) GH_MUTATING="yes" ;;
-    *"gh api"*"--method POST"*|*"gh api"*"--method PATCH"*|*"gh api"*"--method PUT"*|*"gh api"*"--method DELETE"*) GH_MUTATING="yes" ;;
-    *"glab issue create"*|*"glab issue close"*|*"glab issue edit"*) GH_MUTATING="yes" ;;
-    *"glab mr create"*|*"glab mr merge"*|*"glab mr close"*|*"glab mr edit"*) GH_MUTATING="yes" ;;
-  esac
   if [ "$GH_MUTATING" = "yes" ]; then
     jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: SWE may not run gh/glab mutating commands (create/close/edit/merge/delete/api POST|PATCH|PUT|DELETE). Read-only gh commands (view, list, status) are allowed. Mutations go through bro."}}'
     exit 0
   fi
 
-  # ---- Rule (e): Bash write-form targeting a prompt surface ------------------
-  # Tripwire for the obvious forms only — reads (cat/grep/sed -n) never fire.
-  # Deny lifts when the resolved task has prompt_bearing=1 (same resolution as
-  # rule (d), including the slug fallback).
-  #
-  # Destination-coupled matching: the verb/redirect operator must be adjacent to
-  # the prompt-surface path token. A prompt-surface path mentioned inside a quoted
-  # string argument (grep/echo) or as the SOURCE of cp/mv does not count.
-  #
-  # _is_prompt_surface_token <token>: returns 0 if the token is a prompt-surface path.
+  # (e) A write position (redirect, tee, cp/mv/rsync/install destination,
+  # sed -i / perl -i file, python open w/a) naming a prompt surface. Reads
+  # never fire. Lifts when the resolved task has prompt_bearing=1.
   _is_prompt_surface_token() {
-    local tok="$1"
-    case "$tok" in
+    case "$1" in
       agents/*.md|*/agents/*.md) return 0 ;;
       skills/*/SKILL.md|*/skills/*/SKILL.md) return 0 ;;
       commands/*.md|*/commands/*.md) return 0 ;;
@@ -152,140 +107,10 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
     return 1
   }
 
-  _bash_writes_prompt_surface() {
-    local cmd="$1"
-
-    # --- Redirect forms: > <dest> or >> <dest> ---
-    # Extract the token immediately after > or >> (with optional leading spaces).
-    # We strip the redirect operator and look at what follows.
-    # Pattern: anything then ">>" or ">" then optional space then the dest token.
-    # We use a two-step approach: find the dest token after the last redirect.
-    local after_redir=""
-    case "$cmd" in
-      *">>"*)
-        # Extract what comes after >> (rightmost occurrence for pipelines).
-        after_redir="${cmd##*>>}"
-        # Strip leading whitespace.
-        after_redir="${after_redir#"${after_redir%%[! ]*}"}"
-        # Take first token (up to space or end).
-        local dest_tok="${after_redir%% *}"
-        _is_prompt_surface_token "$dest_tok" && return 0
-        ;;
-    esac
-    case "$cmd" in
-      *">"*)
-        # Only match single > (not >>). Strip >> occurrences first.
-        local no_dbl
-        no_dbl=$(printf '%s' "$cmd" | sed 's/>>//g')
-        case "$no_dbl" in
-          *">"*)
-            after_redir="${no_dbl##*>}"
-            after_redir="${after_redir#"${after_redir%%[! ]*}"}"
-            local dest_tok2="${after_redir%% *}"
-            _is_prompt_surface_token "$dest_tok2" && return 0
-            ;;
-        esac
-        ;;
-    esac
-
-    # --- tee: match "tee <dest>" or "tee -a <dest>" ---
-    # The destination is the last non-flag argument to tee.
-    # Extract the argument after 'tee' (or 'tee -a').
-    local tee_rest=""
-    case "$cmd" in
-      *" tee "*|*" tee	"*|"tee "*)
-        # Capture everything after the last occurrence of " tee " or "tee ".
-        case "$cmd" in
-          *" tee "*) tee_rest="${cmd##* tee }" ;;
-          "tee "*) tee_rest="${cmd#tee }" ;;
-        esac
-        # Skip -a flag if present.
-        case "$tee_rest" in
-          "-a "*) tee_rest="${tee_rest#-a }" ;;
-        esac
-        local tee_dest="${tee_rest%% *}"
-        _is_prompt_surface_token "$tee_dest" && return 0
-        ;;
-    esac
-
-    # --- sed -i: match "sed -i[suffix] ... <file>" ---
-    # The file is the last token. We check if the command has sed -i and a
-    # prompt-surface path token appears after sed -i (not before).
-    case "$cmd" in
-      *"sed -i"*|*"sed --in-place"*)
-        local after_sedi=""
-        case "$cmd" in
-          *"sed --in-place"*) after_sedi="${cmd##*sed --in-place}" ;;
-          *"sed -i"*) after_sedi="${cmd##*sed -i}" ;;
-        esac
-        # The last token in after_sedi is the file.
-        local sedi_file="${after_sedi##* }"
-        _is_prompt_surface_token "$sedi_file" && return 0
-        ;;
-    esac
-
-    # --- perl -i: match "perl -i[suffix] ... <file>" ---
-    case "$cmd" in
-      *"perl -i"*)
-        local after_perli="${cmd##*perl -i}"
-        local perli_file="${after_perli##* }"
-        _is_prompt_surface_token "$perli_file" && return 0
-        ;;
-    esac
-
-    # --- python/python3 open(<path>, 'w'|'a'): the path inside open() ---
-    case "$cmd" in
-      *"python"*"open("*"'w'"*|*"python"*"open("*'"w"'*)
-        local open_arg="${cmd##*open(}"
-        local open_path="${open_arg%%,*}"
-        # Strip surrounding quotes.
-        open_path="${open_path#\'}"
-        open_path="${open_path%\'}"
-        open_path="${open_path#\"}"
-        open_path="${open_path%\"}"
-        _is_prompt_surface_token "$open_path" && return 0
-        ;;
-    esac
-    case "$cmd" in
-      *"python"*"open("*"'a'"*|*"python"*"open("*'"a"'*)
-        local open_arg2="${cmd##*open(}"
-        local open_path2="${open_arg2%%,*}"
-        open_path2="${open_path2#\'}"
-        open_path2="${open_path2%\'}"
-        open_path2="${open_path2#\"}"
-        open_path2="${open_path2%\"}"
-        _is_prompt_surface_token "$open_path2" && return 0
-        ;;
-    esac
-
-    # --- cp/mv/rsync: destination is the LAST argument ---
-    # The prompt-surface path must be the last token (destination).
-    case "$cmd" in
-      "cp "*|*" cp "*)
-        local cp_last="${cmd##* }"
-        _is_prompt_surface_token "$cp_last" && return 0
-        ;;
-    esac
-    case "$cmd" in
-      "mv "*|*" mv "*)
-        local mv_last="${cmd##* }"
-        _is_prompt_surface_token "$mv_last" && return 0
-        ;;
-    esac
-    case "$cmd" in
-      "rsync "*|*" rsync "*)
-        local rsync_last="${cmd##* }"
-        _is_prompt_surface_token "$rsync_last" && return 0
-        ;;
-    esac
-
-    return 1
-  }
-
   BASH_PROMPT_WRITE=""
-  if _bash_writes_prompt_surface "$CMD"; then
-    BASH_PROMPT_WRITE="yes"
-  fi
+  while IFS= read -r _wpath; do
+    if _is_prompt_surface_token "$_wpath"; then BASH_PROMPT_WRITE="yes"; fi
+  done < <(tmb_cmd_write_paths "$CMD")
 
   if [ "$BASH_PROMPT_WRITE" = "yes" ]; then
     # Resolve prompt_bearing via the shared resolver (worktree branch → slug →

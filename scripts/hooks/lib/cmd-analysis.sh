@@ -40,8 +40,8 @@
 #   and `eval <s>` are analyzed recursively. <effective_dir> is, in order:
 #     - the statement's own `git -C <path>` (chained -C compose);
 #     - the dir set by a preceding `cd|pushd <path>` in the same command
-#       (relative paths join the dir before them — <cwd> when that dir
-#       exists; a `( … )` subshell restores the outer dir when it closes);
+#       (a relative path joins the dir before it, <cwd> for the first one;
+#       a `( … )` subshell restores the outer dir when it closes);
 #     - <cwd> (default $PWD) when the command never changes dir and <cwd>
 #       belongs to at most one checkout: not a git repo, or a repo without
 #       linked worktrees;
@@ -49,6 +49,12 @@
 #       statement may run in any of them, so a guard that needs its branch
 #       must deny with tmb_deny_ambiguous_git_target;
 #     - `-` (unknown) when the path is behind a variable, `cd -`, or popd.
+#
+# tmb_cmd_write_paths <command>
+#   tmb_cmd_write_targets of the stripped command, plus the file of an
+#   in-place `sed -i` / `perl -i` (its last argument) and every path a
+#   `python -c` program opens for writing (open('<p>', 'w'|'a'|'x')). One
+#   path per line, as written.
 #
 # tmb_git_commit_message <command>
 #   Prints the message of the first `git commit` statement as its real argv
@@ -63,8 +69,9 @@
 #
 # tmb_stmt_repo_root <effective_dir> [<cwd>]
 #   Prints the main checkout root of the repo a statement runs in: for a path,
-#   that path's repo; for `?`, the repo of <cwd> (every linked worktree shares
-#   it). Empty for `-`, a missing dir, or a dir outside any repo.
+#   the repo of its nearest existing ancestor (a dir a clone in the same
+#   command will create belongs to where it is created); for `?`, the repo of
+#   <cwd> (every linked worktree shares it). Empty for `-` or outside any repo.
 #
 # tmb_payload_cwd <hook-input-json>
 #   Prints the payload `.cwd`, else $PWD.
@@ -454,15 +461,7 @@ tmb_cmd_statements() {
   _tmb_cmd_statements_enc "$cmd" "@" 0 | while IFS="$(printf '\t')" read -r dir stmt; do
     case "$dir" in
       @/*)
-        if [ -d "${cwd%/}${dir#@}" ]; then
-          dir="${cwd%/}${dir#@}"
-        else
-          [ -n "$state" ] || state=$(_tmb_cwd_state "$cwd")
-          case "$state" in
-            '?'|-) dir="$state" ;;
-            *) dir="${state%/}${dir#@}" ;;
-          esac
-        fi
+        if [ -d "$cwd" ]; then dir="${cwd%/}${dir#@}"; else dir=-; fi
         ;;
       @)
         [ -n "$state" ] || state=$(_tmb_cwd_state "$cwd")
@@ -487,6 +486,40 @@ tmb_git_subcommand() {
   done
   [ "$k" -lt "${#w[@]}" ] || return 0
   printf '%s\n' "${w[*]:$k}"
+}
+
+tmb_cmd_write_paths() {
+  local cmd="${1:-}" dir stmt w last inplace prog
+  local -a words
+  tmb_cmd_write_targets "$(tmb_cmd_strip_literals "$cmd")"
+  while IFS="$(printf '\t')" read -r dir stmt; do
+    read -r -a words <<< "$stmt"
+    [ "${#words[@]}" -gt 1 ] || continue
+    last="${words[$((${#words[@]} - 1))]}"
+    inplace=0
+    case "${words[0]##*/}" in
+      sed)
+        for w in "${words[@]:1}"; do
+          case "$w" in -i*|--in-place*|-[a-zA-Z]*i) inplace=1 ;; esac
+        done
+        ;;
+      perl)
+        for w in "${words[@]:1}"; do
+          case "$w" in --*) ;; -*i*) inplace=1 ;; esac
+        done
+        ;;
+      python|python3|python[23].*)
+        for w in "${words[@]:1}"; do
+          prog=$(tmb_cmd_decode "$w")
+          case "$prog" in *open\(*) ;; *) continue ;; esac
+          printf '%s\n' "$prog" | grep -oE "open\([[:space:]]*['\"][^'\"]+['\"][[:space:]]*,[[:space:]]*['\"][wax]" \
+            | sed -E "s/^open\([[:space:]]*['\"]//; s/['\"][[:space:]]*,.*$//"
+        done
+        ;;
+    esac
+    [ "$inplace" = 1 ] && tmb_cmd_decode "$last" && printf '\n'
+  done < <(_tmb_cmd_statements_enc "$cmd" "-" 0)
+  return 0
 }
 
 tmb_git_commit_message() {
@@ -518,7 +551,9 @@ tmb_stmt_repo_root() {
     '?') dir="$cwd" ;;
     -|'') return 0 ;;
   esac
-  [ -d "$dir" ] || return 0
+  while [ ! -d "$dir" ]; do
+    case "$dir" in */*) dir="${dir%/*}"; [ -n "$dir" ] || dir=/ ;; *) return 0 ;; esac
+  done
   common=$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
   [ -n "$common" ] || return 0
   case "$common" in

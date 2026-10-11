@@ -437,6 +437,34 @@ out=$(run_hook_swe "$(make_bash_with_transcript swe 'git commit -m "touch agents
 assert_not_contains "$out" '"permissionDecision":"deny"' "commit message mentioning prompt path should not be denied"
 
 # ===========================================================================
+# GH 1196 — role from identity only; quoted text and heredocs are data
+# ===========================================================================
+
+make_bash_no_agent() {
+  jq -n --arg d "$1" --arg c "$2" '{tool_name: "Bash", cwd: $d, tool_input: {command: $c}}'
+}
+
+test_case "GH 1196: bro 'cd <main> && gh issue create' with the shell inside a worktree: NOT denied"
+out=$(run_hook_swe "$(make_bash_no_agent "$WORKTREE" "cd $TMPDIR/repo && gh issue create --title t --body b")")
+assert_not_contains "$out" '"permissionDecision":"deny"' "no agent_type is bro, whatever the cwd"
+
+test_case "GH 1196: bro 'git -C <main> push' with the shell inside a worktree: NOT denied"
+out=$(run_hook_swe "$(make_bash_no_agent "$WORKTREE" "git -C $TMPDIR/repo push origin dev")")
+assert_not_contains "$out" "SWE must never push" "a path never makes bro an SWE"
+
+test_case "GH 1196: SWE python one-liner writing text that mentions gh pr merge: NOT denied"
+out=$(run_hook_swe "$(make_bash_input swe "python3 -c \"open('t.txt','w').write('then gh pr merge 3 --merge')\"")")
+assert_not_contains "$out" '"permissionDecision":"deny"' "a python program's text is data"
+
+test_case "GH 1196: SWE markdown heredoc mentioning gh pr merge and git push: NOT denied"
+out=$(run_hook_swe "$(make_bash_input swe "$(printf '%s\n' "cat > notes.md <<'EOF'" 'gh pr merge 12 --merge' 'git push origin dev' 'EOF')")")
+assert_not_contains "$out" '"permissionDecision":"deny"' "heredoc content is data"
+
+test_case "GH 1196: SWE real gh pr merge after a heredoc: DENIED"
+out=$(run_hook_swe "$(make_bash_input swe "$(printf '%s\n' "cat > notes.md <<'EOF'" 'text' 'EOF' 'gh pr merge 12 --merge')")")
+assert_contains "$out" "gh/glab mutating" "a real statement after the heredoc still fires"
+
+# ===========================================================================
 # Layer 1 — schema-mismatch fail-safe (#596)
 # A stale legacy ~/.claude/tmb/trajectory.db (old schema, no prompt_bearing
 # column) up-tree from the hook's cwd must be treated as UNRESOLVED, not

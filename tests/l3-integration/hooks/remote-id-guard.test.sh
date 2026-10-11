@@ -153,4 +153,15 @@ out_e=$(echo "$(input_bash "gh pr create --body 'Closes #5'")" | \
   TRAJECTORY_DB_PATH="$DB" TMB_DISABLE_REMOTE_ID_GUARD=1 bash "$HOOK" 2>/dev/null || true)
 assert_eq "" "$out_e" "bypass env honored"
 
+# ============================================================================
+# GH 1196 — a remote-write named in a heredoc or quoted text is data
+# ============================================================================
+test_case "GH 1196: markdown heredoc quoting a gh pr create citing #5: allow"
+out_h=$(run_hook "$(input_bash "$(printf '%s\n' "cat > notes.md <<'EOF'" "gh pr create --body 'Closes #5'" 'EOF')")")
+assert_eq "" "$out_h" "heredoc content is not a remote write"
+
+test_case "GH 1196: echo quoting a gh issue comment citing #5: allow"
+out_q=$(run_hook "$(input_bash "echo \"gh issue comment 1 --body 'see #5'\"")")
+assert_eq "" "$out_q" "quoted text is not a remote write"
+
 summarize

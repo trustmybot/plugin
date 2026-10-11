@@ -128,4 +128,12 @@ git -C "$SIB" branch sib-fresh origin/main
 out=$(run_hook "$(input "cd $SIB && git worktree add .claude/worktrees/z2 sib-fresh")")
 assert_eq "" "$out" "up-to-date sibling branch allowed"
 
+test_case "GH 1196: heredoc mentioning a worktree add of a stale branch: silent pass"
+out=$(run_hook "$(input "$(printf '%s\n' "cat > notes.md <<'EOF'" "cd $SIB && git worktree add .claude/worktrees/z sib-stale" 'EOF')")")
+assert_eq "" "$out" "heredoc content is not a worktree add"
+
+test_case "GH 1196: 'git -C <sibling> worktree add <stale>' resolves the sibling and blocks"
+out=$(run_hook "$(input "git -C $SIB worktree add .claude/worktrees/z3 sib-stale")")
+assert_contains "$out" 'behind origin/main' "the -C target decides the repo"
+
 summarize

@@ -25,6 +25,8 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh
+. "$SCRIPT_DIR/lib/cmd-analysis.sh"
 
 command -v jq >/dev/null 2>&1 || exit 0
 
@@ -36,18 +38,19 @@ CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null ||
 #   gh pr create|edit · gh issue create|edit|comment|close
 #   glab mr create|update · glab issue create|update|note|close
 # Capture the command's PROVIDER alongside the match — the iid to cite depends
-# on which forge the command targets (gh → gh_iid, glab → gl_iid).
+# on which forge the command targets (gh → gh_iid, glab → gl_iid). The command
+# must be an executable statement of the skeleton (lib/cmd-analysis.sh): one
+# named inside quoted text or a heredoc is data.
 REMOTE_WRITE=0
 PROVIDER=""
-if printf '%s' "$CMD" | grep -qE '(^|[[:space:];|&(])gh[[:space:]]+pr[[:space:]]+(create|edit)([[:space:]]|$)'; then
-  REMOTE_WRITE=1; PROVIDER="gh"
-elif printf '%s' "$CMD" | grep -qE '(^|[[:space:];|&(])gh[[:space:]]+issue[[:space:]]+(create|edit|comment|close)([[:space:]]|$)'; then
-  REMOTE_WRITE=1; PROVIDER="gh"
-elif printf '%s' "$CMD" | grep -qE '(^|[[:space:];|&(])glab[[:space:]]+mr[[:space:]]+(create|update)([[:space:]]|$)'; then
-  REMOTE_WRITE=1; PROVIDER="glab"
-elif printf '%s' "$CMD" | grep -qE '(^|[[:space:];|&(])glab[[:space:]]+issue[[:space:]]+(create|update|note|close)([[:space:]]|$)'; then
-  REMOTE_WRITE=1; PROVIDER="glab"
-fi
+while IFS="$(printf '\t')" read -r _dir stmt; do
+  case "$stmt" in
+    "gh pr create"|"gh pr create "*|"gh pr edit"|"gh pr edit "*|"gh issue create"|"gh issue create "*|"gh issue edit"|"gh issue edit "*|"gh issue comment"|"gh issue comment "*|"gh issue close"|"gh issue close "*)
+      REMOTE_WRITE=1; PROVIDER="gh"; break ;;
+    "glab mr create"|"glab mr create "*|"glab mr update"|"glab mr update "*|"glab issue create"|"glab issue create "*|"glab issue update"|"glab issue update "*|"glab issue note"|"glab issue note "*|"glab issue close"|"glab issue close "*)
+      REMOTE_WRITE=1; PROVIDER="glab"; break ;;
+  esac
+done < <(tmb_cmd_statements "$CMD" /)
 [ "$REMOTE_WRITE" = "1" ] || exit 0
 
 # Does the command carry author-supplied text? Only then is a mis-citation

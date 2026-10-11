@@ -112,4 +112,27 @@ out=$(run_hook "$input")
 event=$(echo "$out" | jq -r '.hookSpecificOutput.hookEventName' 2>/dev/null || echo "")
 assert_eq "PreToolUse" "$event" "hookEventName is PreToolUse"
 
+# ──────────────────────────────────────────────────────────────
+# GH 1196: the subject comes from the real argv, never heredoc/quoted text
+# ──────────────────────────────────────────────────────────────
+test_case "GH 1196: markdown heredoc mentioning git commit is silent"
+input=$(make_bash_input "$(printf '%s\n' "cat > notes.md <<'EOF'" "Run git commit -m 'bad message' then gh pr merge 1." 'EOF')")
+out=$(run_hook "$input")
+assert_eq "" "$out" "a heredoc is data, not a commit"
+
+test_case "GH 1196: echo of a git commit line is silent"
+input=$(make_bash_input "echo \"git commit -m 'bad message'\"")
+out=$(run_hook "$input")
+assert_eq "" "$out" "quoted text is data, not a commit"
+
+test_case "GH 1196: the first -m is the subject, not a later body -m"
+input=$(make_bash_input "git -C /w commit -m '✨ feat(x): add y' -m 'body line that is not a subject'")
+out=$(run_hook "$input")
+assert_eq "" "$out" "a valid first -m passes even when a later -m would not"
+
+test_case "GH 1196: a real commit after a heredoc is linted on its own -m"
+input=$(make_bash_input "$(printf '%s\n' "cat > notes.md <<'EOF'" "✨ feat(x): fine" 'EOF' "git commit -m 'bad subject'")")
+out=$(run_hook "$input")
+assert_contains "$out" 'Subject seen: \"bad subject\"' "the real argv subject is linted"
+
 summarize

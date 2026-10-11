@@ -6,6 +6,14 @@
 # pr-reviewer is the push gate — runs only when commits are about to ship.
 # This hook enforces that doctrine at the Bash boundary.
 #
+# A push is a `git [-C <p>] push` statement of the command's executable
+# skeleton (lib/cmd-analysis.sh): pushes named inside heredocs, quoted text,
+# grep patterns or commit messages are data. Each push is judged in its
+# effective dir (git -C, else a preceding cd, else the payload cwd when it
+# belongs to one checkout); a push whose dir is ambiguous or unresolvable is
+# denied with ambiguous_git_target. The role comes from the agent identity
+# only (tmb_agent_role).
+#
 # Skips:
 #   - `git push --force` / `-f` (handled by git-guards.sh — destructive ops)
 #   - commits with no matching tasks row (pre-TMB or non-tracked work)
@@ -14,230 +22,135 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
-# shellcheck source=scripts/hooks/lib/normalize-role.sh
-. "$SCRIPT_DIR/lib/normalize-role.sh"
 # shellcheck source=scripts/hooks/lib/resolve-repo.sh
 . "$SCRIPT_DIR/lib/resolve-repo.sh"
 # shellcheck source=scripts/hooks/lib/db-write.sh
 . "$SCRIPT_DIR/lib/db-write.sh"
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh
+. "$SCRIPT_DIR/lib/cmd-analysis.sh"
 
 INPUT=$(cat)
-CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
-AGENT_TYPE=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)")
+CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')
+printf '%s' "$CMD" | grep -qE 'push' || exit 0
 
-# Only fire for git push (not push --force; that's git-guards's job).
-# Whitespace-tolerant, boundary-anchored detection (#1016): the old literal
-# `case` substrings failed open on `git  push` (double space), leading- or
-# newline-prefixed forms, and `bash -c "git push"` / `eval "..."` wrappers.
-# _norm_cmd strips quotes (so wrapper forms collapse to a bare command),
-# squeezes whitespace runs, pads, and rewrites shell-executor prefixes
-# (`-c `, `eval `) to a statement separator. A push is then `git [ -C <p> ]
-# push` anchored at a statement boundary (start, or after ; & |) — which
-# ignores `git push` sitting inside quoted data (grep/echo/commit -m).
-_norm_cmd() {
-  local n
-  n=$(printf '%s' "$1" | tr -d "\"'" | tr -s '[:space:]' ' ')
-  n=" $n "
-  printf '%s' "$n" | sed -E 's/ -c / ; /g; s/ eval / ; /g'
-}
-_is_git_push() {
-  printf '%s' "$1" | grep -qE '(^[[:space:]]*|[;&|][[:space:]]*)git[[:space:]]+(-C[[:space:]]+[^[:space:]]+[[:space:]]+)?push([[:space:]]|$)'
-}
-_is_force_push_cmd() {
-  printf '%s' "$1" | grep -qE 'push[^;&|]*[[:space:]](--force(-with-lease)?|-f)([[:space:]]|$)'
-}
-NCMD=$(_norm_cmd "$CMD")
-IS_PUSH=""
-IS_FORCE=""
-_is_git_push "$NCMD" && IS_PUSH="yes"
-[ "$IS_PUSH" = "yes" ] && _is_force_push_cmd "$NCMD" && IS_FORCE="yes"
-[ "$IS_PUSH" = "yes" ] || exit 0
-[ "$IS_FORCE" = "yes" ] && exit 0
-
-# Detect "push from worktree". Pushes only happen from the main checkout
-# (where bro reaped the detached commits). Any push originating from
-# .claude/worktrees/ is by definition SWE attempting to push directly.
-#
-# Three signals, in priority order:
-#   1. The command itself does `git -C <worktree-path> push` — explicit.
-#   2. The command starts with `cd <path> && ...` — trust the cd target;
-#      $PWD is stale (PreToolUse hooks fire BEFORE the embedded cd runs).
-#   3. Fall back to $PWD when neither (1) nor (2) match.
-WT_CWD=""
-CD_OVERRIDE=""
-CD_TARGET=""
-
-# Signal 1: explicit `git -C <path> ... push`.
-# Also extract the -C path for later use in git log calls (#368).
-case "$CMD" in
-  *"git -C "*" push"*)
-    GIT_C_PATH=$(printf '%s' "$CMD" | sed -nE 's/.*git[[:space:]]+-C[[:space:]]+([^[:space:]]+).*/\1/p')
-    if [ -n "$GIT_C_PATH" ]; then
-      CD_TARGET="$GIT_C_PATH"
-      case "$GIT_C_PATH" in
-        *"/.claude/worktrees/"*) WT_CWD="yes" ;;
-      esac
-    fi
-    ;;
-esac
-
-# Signal 2: leading `cd <path> && ...` overrides $PWD.
-#   Match shapes: `cd /abs/path && git push`, `cd ./rel && git push`,
-#                 `cd /p ; git push`, etc.
-#   Don't match: `git push && cd /elsewhere` (post-push cd is not relevant).
-if [ -z "$WT_CWD" ]; then
-  case "$CMD" in
-    "cd "*"&&"*"git push"*|"cd "*";"*"git push"*)
-      CD_TARGET=$(printf '%s' "$CMD" | sed -nE 's/^cd[[:space:]]+([^[:space:]&;]+).*/\1/p')
-      if [ -n "$CD_TARGET" ]; then
-        CD_OVERRIDE="yes"
-        case "$CD_TARGET" in
-          *"/.claude/worktrees/"*) WT_CWD="yes" ;;
-        esac
-      fi
-      ;;
+CWD=$(tmb_payload_cwd "$INPUT")
+PUSHES=""
+while IFS="$(printf '\t')" read -r dir stmt; do
+  sub=$(tmb_git_subcommand "$stmt")
+  case "$sub" in push|"push "*) ;; *) continue ;; esac
+  case " ${sub} " in
+    *" --force "*|*" -f "*|*" --force-with-lease "*|*" --force-with-lease="*) continue ;;
   esac
-fi
+  PUSHES="${PUSHES}${dir}$(printf '\t')${stmt}
+"
+done < <(tmb_cmd_statements "$CMD" "$CWD")
+[ -n "$PUSHES" ] || exit 0
 
-# Signal 3: $PWD fallback (only when neither cd nor git -C in command).
-if [ -z "$WT_CWD" ] && [ -z "$CD_OVERRIDE" ] && \
-   ! echo "$CMD" | grep -q 'git -C ' && \
-   echo "$PWD" | grep -q "/.claude/worktrees/"; then
-  WT_CWD="yes"
-fi
-
-if [ "$WT_CWD" = "yes" ]; then
-  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: push from .claude/worktrees/ is forbidden. Bro pushes from the main checkout after reaped the detached-HEAD commits via `git fetch ./.claude/worktrees/<slug> HEAD:<feature>`."}}'
-  exit 0
-fi
-
-# Block any git push from SWE context (enforced structurally by this gate).
-# Defense-in-depth fallback: catches non-worktree SWE pushes and cases where
-# CC #97 might strip the agent_type field from the payload.
-if [ "$AGENT_TYPE" = "swe" ]; then
+ROLE=$(tmb_agent_role "$INPUT")
+if [ "$ROLE" = "swe" ]; then
   jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: SWE must never push. Bro handles the push gate after pr-reviewer passes. Commit in your worktree and call task_update_status(completed)."}}'
   exit 0
 fi
-
-# Block any git push from pr-reviewer context.
-# pr-reviewer renders a verdict row; the push decision belongs to bro
-# after that verdict — pr-reviewer itself must never initiate a push.
-if [ "$AGENT_TYPE" = "pr-reviewer" ]; then
+# pr-reviewer renders a verdict row; the push decision belongs to bro after
+# that verdict — pr-reviewer itself must never initiate a push.
+if [ "$ROLE" = "pr-reviewer" ]; then
   jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: pr-reviewer must not push. The push decision belongs to bro after the verdict row. Bro reads the validation_attempts verdict and handles the push when all tasks are signed."}}'
   exit 0
 fi
 
 DB=$(tmb_db_path || true)
-if [ -z "$DB" ] || ! tmb_have_sqlite; then
-  # No DB or no sqlite3 — TMB isn't tracking anything in this project; let push through.
-  exit 0
-fi
 
-# Determine the git directory to run log/config commands in.
-# Reuse the parsed cd/-C target dir already resolved above (#368): when the
-# command is `cd /other/repo && git push`, $PWD is stale (PreToolUse fires
-# before the cd runs). Running bare `git log` from $PWD would compute the
-# wrong SHA set — a false block or false allow of the pr-reviewer gate.
-GIT_DIR_ARGS=""
-if [ -n "$CD_TARGET" ]; then
-  GIT_DIR_ARGS="-C $CD_TARGET"
-fi
+while IFS="$(printf '\t')" read -r DIR STMT <&3; do
+  [ -n "$STMT" ] || continue
+  case "$DIR" in
+    '?'|-) tmb_deny_ambiguous_git_target "$STMT"; exit 0 ;;
+  esac
+  # Pushes happen from the main checkout, where bro reaped the task commits;
+  # a push run in .claude/worktrees/ is a direct push of unreviewed work.
+  case "$DIR" in
+    */.claude/worktrees/*)
+      jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: push from .claude/worktrees/ is forbidden. Bro pushes from the main checkout after reaped the detached-HEAD commits via `git fetch ./.claude/worktrees/<slug> HEAD:<feature>`."}}'
+      exit 0
+      ;;
+  esac
+  # No DB or no sqlite3 — TMB isn't tracking anything in this project.
+  if [ -z "$DB" ] || ! tmb_have_sqlite; then
+    continue
+  fi
 
-# Determine commits about to be pushed. Use upstream tracking if available.
-# shellcheck disable=SC2086
-PUSH_SHAS=$(git ${GIT_DIR_ARGS} log '@{u}..HEAD' --pretty=%H 2>/dev/null || true)
-if [ -z "$PUSH_SHAS" ]; then
-  # No upstream — first push of new branch. Compute commits unique to this
-  # branch vs the per-repo target_branch (repos table is the sole source).
-  _PUSH_GIT_ROOT=$(tmb_repo_git_root "${CD_TARGET:-$PWD}")
-  _PUSH_REPO_ROW=$(tmb_repo_resolve "$DB" "$_PUSH_GIT_ROOT")
-  PR_TARGET=$(printf '%s' "$_PUSH_REPO_ROW" | cut -d'|' -f1)
-  PR_TARGET="${PR_TARGET:-dev}"
-  # H4 (HIGH): resolve a base ref that ACTUALLY EXISTS. When origin/$PR_TARGET is
-  # missing (main-only / unresolved repo) the old `git log origin/$PR_TARGET..HEAD`
-  # returned empty and the hook exited 0 — letting unsigned commits BYPASS the
-  # pr-reviewer gate. Prefer origin/<target>, then local <target>, then the
-  # remote's real default (origin/HEAD). If none resolve, FAIL CLOSED by gating
-  # the whole branch history (`HEAD`) so unsigned commits are always caught.
-  _BASE_REF=""
-  for _cand in "origin/${PR_TARGET}" "${PR_TARGET}"; do
-    # shellcheck disable=SC2086
-    if git ${GIT_DIR_ARGS} rev-parse --verify --quiet "$_cand" >/dev/null 2>&1; then
-      _BASE_REF="$_cand"
-      break
+  # Commits about to be pushed: upstream tracking when available.
+  PUSH_SHAS=$(git -C "$DIR" log '@{u}..HEAD' --pretty=%H 2>/dev/null || true)
+  if [ -z "$PUSH_SHAS" ]; then
+    # No upstream — first push of a new branch: commits unique to this branch
+    # vs the per-repo target_branch (repos table is the sole source).
+    _PUSH_REPO_ROW=$(tmb_repo_resolve "$DB" "$(tmb_stmt_repo_root "$DIR")")
+    PR_TARGET=$(printf '%s' "$_PUSH_REPO_ROW" | cut -d'|' -f1)
+    PR_TARGET="${PR_TARGET:-dev}"
+    # H4: resolve a base ref that ACTUALLY EXISTS — origin/<target>, <target>,
+    # then the remote's default; none → FAIL CLOSED by gating all of HEAD so
+    # unsigned commits never bypass the gate on a main-only repo.
+    _BASE_REF=""
+    for _cand in "origin/${PR_TARGET}" "${PR_TARGET}"; do
+      if git -C "$DIR" rev-parse --verify --quiet "$_cand" >/dev/null 2>&1; then
+        _BASE_REF="$_cand"
+        break
+      fi
+    done
+    if [ -z "$_BASE_REF" ]; then
+      _PUSH_DEFAULT=$(git -C "$DIR" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##' || true)
+      if [ -n "$_PUSH_DEFAULT" ]; then
+        for _cand in "origin/${_PUSH_DEFAULT}" "${_PUSH_DEFAULT}"; do
+          if git -C "$DIR" rev-parse --verify --quiet "$_cand" >/dev/null 2>&1; then
+            _BASE_REF="$_cand"
+            break
+          fi
+        done
+      fi
     fi
-  done
-  if [ -z "$_BASE_REF" ]; then
-    # shellcheck disable=SC2086
-    _PUSH_DEFAULT=$(git ${GIT_DIR_ARGS} symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##' || true)
-    if [ -n "$_PUSH_DEFAULT" ]; then
-      for _cand in "origin/${_PUSH_DEFAULT}" "${_PUSH_DEFAULT}"; do
-        # shellcheck disable=SC2086
-        if git ${GIT_DIR_ARGS} rev-parse --verify --quiet "$_cand" >/dev/null 2>&1; then
-          _BASE_REF="$_cand"
-          break
-        fi
-      done
+    if [ -n "$_BASE_REF" ]; then
+      PUSH_SHAS=$(git -C "$DIR" log "${_BASE_REF}..HEAD" --pretty=%H 2>/dev/null || true)
+    else
+      PUSH_SHAS=$(git -C "$DIR" log HEAD --pretty=%H 2>/dev/null || true)
     fi
   fi
-  if [ -n "$_BASE_REF" ]; then
-    # shellcheck disable=SC2086
-    PUSH_SHAS=$(git ${GIT_DIR_ARGS} log "${_BASE_REF}..HEAD" --pretty=%H 2>/dev/null || true)
-  else
-    # Fail closed: base unresolvable → gate every commit reachable from HEAD.
-    # shellcheck disable=SC2086
-    PUSH_SHAS=$(git ${GIT_DIR_ARGS} log HEAD --pretty=%H 2>/dev/null || true)
+  [ -n "$PUSH_SHAS" ] || continue
+
+  SHA_LIST=""
+  while IFS= read -r sha; do
+    case "$sha" in ''|*[!0-9a-f]*) continue ;; esac
+    if [ -z "$SHA_LIST" ]; then SHA_LIST="'$sha'"; else SHA_LIST="$SHA_LIST,'$sha'"; fi
+  done <<< "$PUSH_SHAS"
+  [ -n "$SHA_LIST" ] || continue
+
+  # Tasks whose commit_sha is in the push set AND lack a passing validation row.
+  UNSIGNED=$(tmb_gate_read "$DB" "
+    SELECT t.id || '|' || t.branch_id || '|' || substr(t.title, 1, 60)
+      FROM tasks t
+     WHERE t.commit_sha IN ($SHA_LIST)
+       AND NOT EXISTS (
+         SELECT 1 FROM validation_attempts v
+          WHERE v.task_id = t.id
+            AND v.verdict = 'pass'
+       );
+  ")
+
+  if [ "$UNSIGNED" = "__ERR__" ]; then
+    jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable — the push gate could not read task review state (sqlite3 error), so it refuses to fail open. Check the trajectory DB and retry the push."}}'
+    exit 0
   fi
-fi
-[ -z "$PUSH_SHAS" ] && exit 0
+  [ -n "$UNSIGNED" ] || continue
 
-# Build a SQL IN clause from the SHA list.
-SHA_LIST=""
-while IFS= read -r sha; do
-  [ -z "$sha" ] && continue
-  if [ -z "$SHA_LIST" ]; then
-    SHA_LIST="'$sha'"
-  else
-    SHA_LIST="$SHA_LIST,'$sha'"
-  fi
-done <<< "$PUSH_SHAS"
-
-if [ -z "$SHA_LIST" ]; then
-  exit 0
-fi
-
-# Find tasks whose commit_sha is in the push set AND lack a passing validation row.
-UNSIGNED=$(tmb_gate_read "$DB" "
-  SELECT t.id || '|' || t.branch_id || '|' || substr(t.title, 1, 60)
-    FROM tasks t
-   WHERE t.commit_sha IN ($SHA_LIST)
-     AND NOT EXISTS (
-       SELECT 1 FROM validation_attempts v
-        WHERE v.task_id = t.id
-          AND v.verdict = 'pass'
-     );
-")
-
-if [ "$UNSIGNED" = "__ERR__" ]; then
-  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable — the push gate could not read task review state (sqlite3 error), so it refuses to fail open. Check the trajectory DB and retry the push."}}'
-  exit 0
-fi
-
-if [ -z "$UNSIGNED" ]; then
-  # All commits in the push are either (a) reviewed or (b) untracked by TMB. Allow.
-  exit 0
-fi
-
-# Build the block message.
-COUNT=$(echo "$UNSIGNED" | wc -l | tr -d ' ')
-LIST=$(echo "$UNSIGNED" | awk -F'|' '{ printf "  - task_id=%s  %s  (%s)\n", $1, $2, $3 }')
-DENY_REASON="BLOCKED: pushing ${COUNT} unsigned commit(s). The following tasks lack a pr-reviewer pass verdict:
+  COUNT=$(printf '%s\n' "$UNSIGNED" | wc -l | tr -d ' ')
+  LIST=$(printf '%s\n' "$UNSIGNED" | awk -F'|' '{ printf "  - task_id=%s  %s  (%s)\n", $1, $2, $3 }')
+  DENY_REASON="BLOCKED: pushing ${COUNT} unsigned commit(s). The following tasks lack a pr-reviewer pass verdict:
 
 ${LIST}
 Run: @bro review before push
 
 bro will spawn pr-reviewer for each unsigned task. On all-pass the push will proceed. On any fail bro surfaces what needs fixing."
+  jq -nc --arg reason "$DENY_REASON" \
+    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$reason}}'
+  exit 0
+done 3<<< "$PUSHES"
 
-jq -nc --arg reason "$DENY_REASON" \
-  '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$reason}}'
 exit 0
