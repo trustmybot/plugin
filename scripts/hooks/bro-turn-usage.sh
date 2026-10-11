@@ -7,7 +7,8 @@
 # max(0, cumulative_now − baseline). Idempotent: baseline is set once
 # (WHERE usage_baseline_json IS NULL guard).
 #
-# Failure modes are silent — this hook is analytics, never load-bearing.
+# Analytics, never load-bearing: a failed write is reported on stderr and the
+# hook still exits 0.
 # Bypass: TMB_DISABLE_BRO_TURN_USAGE_HOOK=1.
 
 set -uo pipefail
@@ -17,6 +18,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/normalize-role.sh"
 # shellcheck source=lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=lib/db-write.sh
+. "$SCRIPT_DIR/lib/db-write.sh"
 
 INPUT=$(cat 2>/dev/null) || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
@@ -34,8 +37,8 @@ DB_PATH=$(tmb_db_path 2>/dev/null || true)
 RUN_ROW=$(sqlite3 -separator '|' "$DB_PATH" \
   "SELECT id, usage_baseline_json FROM agent_runs WHERE agent_type='bro' AND completed_at IS NULL ORDER BY id DESC LIMIT 1;" 2>/dev/null)
 [ -n "$RUN_ROW" ] || exit 0
-RUN_ID="${RUN_ROW%%|*}"
-[ -n "$RUN_ID" ] || exit 0
+SAFE_RUN_ID=$(tmb_sql_int "${RUN_ROW%%|*}")
+[ -n "$SAFE_RUN_ID" ] || exit 0
 
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/null || true)
 [ -n "$TRANSCRIPT_PATH" ] || exit 0
@@ -85,7 +88,7 @@ BASELINE_ROW=$(sqlite3 -separator '|' "$DB_PATH" "
     COALESCE(MAX(COALESCE(json_extract(usage_baseline_json,'$.cc'),0) + cache_creation_tokens), 0),
     COALESCE(MAX(COALESCE(json_extract(usage_baseline_json,'$.tu'),0) + tool_uses), 0),
     COALESCE(MAX(COALESCE(json_extract(usage_baseline_json,'$.dm'),0) + duration_ms), 0)
-  FROM agent_runs WHERE agent_type='bro' AND id < ${RUN_ID};
+  FROM agent_runs WHERE agent_type='bro' AND id < ${SAFE_RUN_ID};
 " 2>/dev/null) || true
 
 BL_TI=$(echo "$BASELINE_ROW" | cut -d'|' -f1)
@@ -105,12 +108,14 @@ case "${BL_DM}" in (''|*[!0-9]*) BL_DM=0 ;; esac
 BASELINE_JSON="{\"ti\":${BL_TI},\"to\":${BL_TO},\"cr\":${BL_CR},\"cc\":${BL_CC},\"tu\":${BL_TU},\"dm\":${BL_DM}}"
 
 # Write-once: only set baseline if the active row's usage_baseline_json IS NULL.
-sqlite3 "$DB_PATH" \
-  "UPDATE agent_runs SET usage_baseline_json='${BASELINE_JSON}' WHERE id=${RUN_ID} AND usage_baseline_json IS NULL;" 2>/dev/null || true
+SAFE_BASELINE_JSON=$(tmb_sql_quote "$BASELINE_JSON")
+tmb_db_write "$DB_PATH" \
+  "UPDATE agent_runs SET usage_baseline_json='${SAFE_BASELINE_JSON}' WHERE id=${SAFE_RUN_ID} AND usage_baseline_json IS NULL;" \
+  || exit 0
 
 # Re-read the baseline (now guaranteed non-NULL) to compute deltas.
 STORED_BL=$(sqlite3 "$DB_PATH" \
-  "SELECT usage_baseline_json FROM agent_runs WHERE id=${RUN_ID};" 2>/dev/null) || true
+  "SELECT usage_baseline_json FROM agent_runs WHERE id=${SAFE_RUN_ID};" 2>/dev/null) || true
 [ -n "$STORED_BL" ] || STORED_BL="$BASELINE_JSON"
 
 # Extract baseline fields from stored JSON.
@@ -137,7 +142,7 @@ DTU=$(( CUM_TU > SBL_TU ? CUM_TU - SBL_TU : 0 ))
 DDM=$(( CUM_DM > SBL_DM ? CUM_DM - SBL_DM : 0 ))
 DTOTAL=$(( DTI + DTO ))
 
-sqlite3 "$DB_PATH" \
+tmb_db_write "$DB_PATH" \
   "UPDATE agent_runs
       SET tokens_in = ${DTI},
           tokens_out = ${DTO},
@@ -146,7 +151,8 @@ sqlite3 "$DB_PATH" \
           cache_creation_tokens = ${DCC},
           tool_uses = ${DTU},
           duration_ms = ${DDM}
-    WHERE id = ${RUN_ID}
-      AND completed_at IS NULL;" 2>/dev/null || true
+    WHERE id = ${SAFE_RUN_ID}
+      AND completed_at IS NULL;" \
+  || exit 0
 
 exit 0

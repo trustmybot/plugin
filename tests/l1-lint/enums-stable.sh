@@ -32,10 +32,11 @@ extract_section_values() {
 }
 
 TASK_STATUSES=$(extract_section_values "$DOC" "tasks.status")
+FROM_NODES=$(extract_section_values "$DOC" "audit.from_node")
 VERDICTS=$(extract_section_values "$DOC" "validation_attempts.verdict")
 AUDIT_EVENTS=$(extract_section_values "$DOC" "audit.event_type")
 
-if [ -z "$TASK_STATUSES" ] || [ -z "$VERDICTS" ] || [ -z "$AUDIT_EVENTS" ]; then
+if [ -z "$TASK_STATUSES" ] || [ -z "$VERDICTS" ] || [ -z "$AUDIT_EVENTS" ] || [ -z "$FROM_NODES" ]; then
   echo "  ✗ Could not parse ENUMS.md — missing canonical sections" >&2
   exit 1
 fi
@@ -63,6 +64,31 @@ if [ -f "$ROOT/mcp/trajectory-server/src/tools/validation.ts" ]; then
     fi
   done
 fi
+
+# Check: audit.from_node values hooks/scripts may write. The write library
+# (tmb_audit_append) accepts a fixed role list plus the hook:<name> convention;
+# every fixed role must be documented, the convention row must be documented,
+# and every hook:<name> literal under scripts/ must match hook:[a-z0-9-]+.
+DB_WRITE_LIB="$ROOT/scripts/hooks/lib/db-write.sh"
+if [ -f "$DB_WRITE_LIB" ]; then
+  LIB_ROLES=$(grep -E '^[[:space:]]+[a-z|-]+\) return 0 ;;' "$DB_WRITE_LIB" | head -1 | sed -E 's/^[[:space:]]+//; s/\).*//' | tr '|' '\n')
+  for role in $LIB_ROLES; do
+    if ! echo "$FROM_NODES" | grep -qx "$role"; then
+      echo "  ✗ from_node '$role' accepted by tmb_audit_append but missing from ENUMS.md" >&2
+      failed=1
+    fi
+  done
+fi
+if ! echo "$FROM_NODES" | grep -qx 'hook:<name>'; then
+  echo "  ✗ ENUMS.md audit.from_node is missing the hook:<name> convention row" >&2
+  failed=1
+fi
+for node in $(grep -rhoE "[\"']hook:[^\"' ]*[\"']" "$ROOT/scripts" 2>/dev/null | tr -d "\"'" | sort -u); do
+  if ! echo "$node" | grep -qE '^hook:[a-z0-9-]+$'; then
+    echo "  ✗ from_node '$node' under scripts/ does not match hook:[a-z0-9-]+" >&2
+    failed=1
+  fi
+done
 
 # Sanity report
 N_STATUSES=$(echo "$TASK_STATUSES" | wc -l | tr -d ' ')

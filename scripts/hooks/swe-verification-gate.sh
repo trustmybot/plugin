@@ -45,6 +45,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/resolve-repo.sh"
 # shellcheck source=scripts/hooks/lib/resolve-toolchain-path.sh disable=SC1091
 . "$SCRIPT_DIR/lib/resolve-toolchain-path.sh"
+# shellcheck source=scripts/hooks/lib/db-write.sh disable=SC1091
+. "$SCRIPT_DIR/lib/db-write.sh"
+export TMB_DB_WRITE_TIMEOUT_MS=5000
 
 INPUT=$(cat)
 
@@ -93,25 +96,28 @@ fi
 # Check for waiver BEFORE running verification.
 WAIVER=$(echo "$INPUT" | jq -r '.tool_input.waive_verification_gate_reason // empty' 2>/dev/null || true)
 if [ -n "$WAIVER" ] && [ ${#WAIVER} -ge 10 ]; then
-  CONTENT_JSON="{\"task_id\":${TASK_ID},\"waiver_reason\":$(echo "$WAIVER" | jq -Rs .)}"
-  CONTENT_JSON_SQL=${CONTENT_JSON//\'/\'\'}
-  sqlite3 "$DB" "
-    INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-    SELECT COALESCE(t.issue_id, -1), t.branch_id, 'swe', 'verification_gate_waived',
-           'SWE waived verification gate for task_id=${TASK_ID}',
-           '${CONTENT_JSON_SQL}', datetime('now')
-      FROM tasks t WHERE t.id = ${TASK_ID}
-     LIMIT 1;
-  " 2>/dev/null || true
+  CONTENT_JSON=$(jq -nc --argjson tid "$TASK_ID" --arg reason "$WAIVER" '{task_id: $tid, waiver_reason: $reason}')
+  TASK_ROW=$(tmb_sqlite_ro "$DB" "SELECT COALESCE(issue_id, -1) || '|' || COALESCE(branch_id, '') FROM tasks WHERE id = ${TASK_ID} LIMIT 1;")
+  if [ -n "$TASK_ROW" ] && ! tmb_audit_append "$DB" "${TASK_ROW%%|*}" "${TASK_ROW#*|}" "hook:swe-verification-gate" "verification_gate_waived" \
+      "SWE waived verification gate for task_id=${TASK_ID}" "$CONTENT_JSON"; then
+    jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable — the verification-gate waiver could not be recorded, so it cannot be honoured. Retry once the DB is writable."}}'
+  fi
   exit 0
 fi
+
+DB_UNAVAILABLE_DENY='{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable — the verification gate could not read the task row, so it refuses to fail open. Check the trajectory DB (sqlite3 error on read) and retry."}}'
 
 # Fetch the typed `verification` column and branch_id for this task. The typed
 # column is a JSON array of command strings (Typed Rails #673).
 VERIFICATION_JSON=$(tmb_sqlite_ro "$DB" \
   "SELECT COALESCE(verification, '[]') FROM tasks WHERE id = ${TASK_ID} LIMIT 1;" 2>/dev/null || true)
-BRANCH_ID=$(tmb_sqlite_ro "$DB" \
-  "SELECT COALESCE(branch_id, '') FROM tasks WHERE id = ${TASK_ID} LIMIT 1;" 2>/dev/null || true)
+SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
+BRANCH_ID=$(tmb_gate_read "$DB" \
+  "SELECT COALESCE(branch_id, '') FROM tasks WHERE id = ${SAFE_TASK_ID} LIMIT 1;")
+if [ "$BRANCH_ID" = "__ERR__" ]; then
+  printf '%s\n' "$DB_UNAVAILABLE_DENY"
+  exit 0
+fi
 TASK_REPO=$(tmb_sqlite_ro "$DB" \
   "SELECT COALESCE(repo, '') FROM tasks WHERE id = ${TASK_ID} LIMIT 1;" 2>/dev/null || true)
 

@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 # L1 lint: no unguarded shell variable interpolations inside sqlite3 SQL strings.
 #
-# Heuristic: greps hook scripts for patterns of the form
+# Heuristic: greps hook scripts, scripts/lib/, and scripts/scan.sh for patterns
+# of the form
 #   sqlite3 ... "... ${VAR} ..."  or  sqlite3 ... "... $var ..."  or
-#   sqlite3 ... <<SQL ... ${VAR} ... SQL
+#   sqlite3 ... <<SQL ... ${VAR} ... SQL  or
+#   tmb_db_write|tmb_gate_read "$DB" [\ newline] "... ${VAR} ..."
 # (braced or bare, upper- or lowercase) and flags lines where neither of the
 # two safe patterns appears within N lines before the interpolation:
 #   (a) tmb_sql_int / tmb_sql_quote call (shared helper guard), or
 #   (b) a case-guard on the same variable (e.g. case "$VAR" in ''|*[!0-9]*)
-# The sqlite3 db-path argument ("$DB" right after sqlite3 + flags) sits outside
-# the SQL string — it is stripped before extraction, not exempted by name.
+# The db-path argument ("$DB" right after sqlite3 + flags, or after
+# tmb_db_write / tmb_gate_read) sits outside the SQL string — it is stripped
+# before extraction, not exempted by name.
 #
 # Allowlist: tests/l1-lint/no-raw-sql-interpolation.allowlist
 # One relative-path pattern per line (grep -F match against the file:line output).
@@ -27,12 +30,15 @@ ALLOWLIST="$ROOT/tests/l1-lint/no-raw-sql-interpolation.allowlist"
 
 VIOLATIONS=()
 
-HOOK_FILES=$(find scripts/hooks scripts/hooks/lib -maxdepth 1 -name '*.sh' -type f | sort)
+HOOK_FILES=$( { find scripts/hooks scripts/hooks/lib scripts/lib -maxdepth 1 -name '*.sh' -type f; echo scripts/scan.sh; } | sort)
 
 for script in $HOOK_FILES; do
   line_num=0
+  prev_line=""
   while IFS= read -r line; do
     line_num=$((line_num + 1))
+    PREV_LINE="$prev_line"
+    prev_line="$line"
 
     # Only examine lines that contain a $ interpolation inside what looks like a SQL string.
     # Match: sqlite3 heredocs (previous lines) or inline sqlite3 "..." with ${VAR}/$var.
@@ -43,7 +49,7 @@ for script in $HOOK_FILES; do
 
     # Strip the sqlite3 db-path argument (the first quoted var after sqlite3 +
     # flags) — it is a shell argument, not part of the SQL string this lint guards.
-    SCAN_LINE=$(printf '%s' "$line" | sed -E 's/sqlite3[^"]*"\$\{?[A-Za-z_][A-Za-z_0-9]*\}?"//')
+    SCAN_LINE=$(printf '%s' "$line" | sed -E 's/(sqlite3|tmb_db_write|tmb_gate_read)[^"]*"\$\{?[A-Za-z_][A-Za-z_0-9]*\}?"//')
 
     # Extract every variable name: ${VAR}, ${VAR:-...}, $VAR — bare and lowercase included.
     VARS=$(printf '%s\n' "$SCAN_LINE" | grep -oE '\$\{?[A-Za-z_][A-Za-z_0-9]*' | sed 's/^\$//;s/^{//' | sort -u)
@@ -55,8 +61,17 @@ for script in $HOOK_FILES; do
     # Heuristic 2: a sqlite3 heredoc was opened in the preceding 20 lines
     #   (only counts if the heredoc opener is a sqlite3 command, not a plain cat/echo).
     IN_SQL_CONTEXT=0
-    case "${line//command -v sqlite3/}" in
-      *sqlite3*) IN_SQL_CONTEXT=1 ;;
+    #   `sqlite3-<name>` tokens (e.g. the sqlite3-fallback lib's messages) are
+    #   names, not invocations — drop them too.
+    PROBE_LINE="${line//command -v sqlite3/}"
+    PROBE_LINE="${PROBE_LINE//sqlite3-/}"
+    case "$PROBE_LINE" in
+      *sqlite3*|*tmb_db_write*|*tmb_gate_read*) IN_SQL_CONTEXT=1 ;;
+    esac
+    # Heuristic 1b: the SQL argument on the line after a `tmb_db_write "$DB" \`
+    # or `tmb_gate_read "$DB" \` continuation.
+    case "$PREV_LINE" in
+      *tmb_db_write*\\|*tmb_gate_read*\\) IN_SQL_CONTEXT=1 ;;
     esac
     if [ "$IN_SQL_CONTEXT" -eq 0 ]; then
       CONTEXT_LINES=$(sed -n "$((line_num > 20 ? line_num - 20 : 1)),$((line_num - 1))p" "$script" 2>/dev/null || true)

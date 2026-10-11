@@ -2,36 +2,11 @@
 # Each non-comment line is a substring matched against "file:lineno" output.
 # Add entries here when a site is reviewed and confirmed safe.
 
-# roundtable-slash-detect.sh: SUMMARY is produced by sed "s/'/''/g" on the same line above.
-scripts/hooks/roundtable-slash-detect.sh
-
-# swe-atomic-close.sh: TASK_ID is validated via tmb_sql_int ~97 lines earlier (line 167);
-# the guard window (10 lines) doesn't reach it, but the value is confirmed safe.
-scripts/hooks/swe-atomic-close.sh:264
-
 # query-task.sh tmb_sqlite_ro: $sql is the helper's whole-statement parameter;
 # sanitization is the CALLER's job and call sites are this lint's subjects.
 scripts/hooks/lib/query-task.sh:127
 
-# swe-atomic-close.sh: AR_INSERT is assembled one line above exclusively from
-# sanitized values — tmb_sql_int (TASK_ID line 166, SAFE_ISSUE_ID line 310),
-# printf '%d' ints (lines 300-305), and AGENT_TYPE pinned to literal 'swe' (line 85).
-scripts/hooks/swe-atomic-close.sh:318
-
-# swe-atomic-close.sh: $ts/$tid are jq program variables inside a single-quoted
-# jq filter (never shell-expanded); 'sqlite3' on the line is error-message text.
-scripts/hooks/swe-atomic-close.sh:320
-
-# cheatcode-healthcheck.sh: `done <<< "$ROWS"` is the loop's herestring feed, not a
-# SQL string; $ROWS is read-only tmb_sqlite_ro output from our own DB. The heredoc-
-# proximity heuristic flags it; every interpolation inside the SQL above is guarded.
-scripts/hooks/cheatcode-healthcheck.sh:139
-
-# prompt-intent-hints.sh has_word(): `case "$text" in ... "${word}" ...` is shell
-# glob word-matching, not SQL. A consultant-spawn sqlite3 heredoc closes ~15 lines
-# above; the proximity heuristic still flags this case block. No SQL here.
-scripts/hooks/prompt-intent-hints.sh:87
-scripts/hooks/prompt-intent-hints.sh:88
-scripts/hooks/prompt-intent-hints.sh:89
-scripts/hooks/prompt-intent-hints.sh:90
-scripts/hooks/prompt-intent-hints.sh:91
+# db-write.sh is the write library: $sql/$wrapped are whole-statement parameters
+# (callers are this lint's subjects) and tmb_audit_sql quotes every value itself
+# via printf arguments; its own function names put every line in SQL context.
+scripts/hooks/lib/db-write.sh

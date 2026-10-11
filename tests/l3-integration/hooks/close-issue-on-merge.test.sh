@@ -77,6 +77,7 @@ seed_db() {
       created_at TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z',
       updated_at TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z',
       closed_at TEXT,
+      repo TEXT,
       remote_kind TEXT,
       gh_iid INTEGER, gl_iid INTEGER, milestone TEXT
     );
@@ -89,6 +90,7 @@ seed_db() {
       event_type TEXT NOT NULL,
       summary TEXT NOT NULL,
       content_json TEXT NOT NULL DEFAULT '{}',
+      repo TEXT,
       created_at TEXT NOT NULL
     );
   "

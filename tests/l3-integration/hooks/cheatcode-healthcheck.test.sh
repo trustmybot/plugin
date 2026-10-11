@@ -47,6 +47,7 @@ seed_db() {
       status     TEXT NOT NULL,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    CREATE TABLE issues (id INTEGER PRIMARY KEY, repo TEXT);
     CREATE TABLE audit (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       issue_id     INTEGER NOT NULL DEFAULT -1,
@@ -55,6 +56,7 @@ seed_db() {
       event_type   TEXT NOT NULL,
       summary      TEXT NOT NULL DEFAULT '',
       content_json TEXT NOT NULL DEFAULT '{}',
+      repo TEXT,
       created_at   TEXT NOT NULL DEFAULT (datetime('now'))
     );
   "

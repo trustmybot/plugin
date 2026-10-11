@@ -22,6 +22,8 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=lib/db-write.sh
+. "$SCRIPT_DIR/lib/db-write.sh"
 
 # _gh_timeout <args...> — run gh bounded; never hangs the hook.
 _cim_gh() {
@@ -167,17 +169,17 @@ _cim_close_one() {
   fi
 
   # Local: close idempotently and record the audit row in one transaction.
-  local now
-  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  sqlite3 -cmd '.timeout 1000' "$db" "
+  local safe_id safe_now audit_sql
+  safe_id=$(tmb_sql_int "$local_id")
+  [ -n "$safe_id" ] || return 0
+  safe_now=$(tmb_sql_quote "$(tmb_now_iso)")
+  audit_sql=$(tmb_audit_sql "$safe_id" '' "hook:close-issue-on-merge" "issue_auto_closed_on_merge" \
+    "Auto-closed on PR merge" "{\"gh_iid\":${gh_iid:-null}}" "(SELECT changes()) > 0") || return 0
+  tmb_db_write "$db" "
     UPDATE issues
-       SET status = 'closed', closed_at = '${now}', updated_at = '${now}'
-     WHERE id = ${local_id} AND status != 'closed';
-    INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
-    SELECT ${local_id}, 'executor', 'issue_auto_closed_on_merge',
-           'Auto-closed on PR merge', json_object('gh_iid', ${gh_iid:-null}), '${now}'
-     WHERE (SELECT changes()) > 0;
-  " >/dev/null 2>&1 || true
+       SET status = 'closed', closed_at = '${safe_now}', updated_at = '${safe_now}'
+     WHERE id = ${safe_id} AND status != 'closed';
+    ${audit_sql}" >/dev/null || return 0
 
   printf 'tmb: auto-closed issue %s on merge%s\n' "$local_id" \
     "${gh_iid:+ (gh #$gh_iid)}" >&2
