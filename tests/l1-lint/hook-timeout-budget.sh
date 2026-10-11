@@ -5,7 +5,8 @@
 # silently neutered: the process is killed before its budget can elapse.
 # This lint derives each hook's worst-case internal budget from its source and
 # FAILs when the wrapper doesn't cover it, so a future budget bump can't
-# re-neuter a hook without also reddening L1.
+# re-neuter a hook without also reddening L1. Every registration runs through
+# scripts/hooks/dispatch.sh, which adds DISPATCH_OVERHEAD_S to each floor.
 
 set -euo pipefail
 
@@ -15,12 +16,13 @@ cd "$ROOT"
 command -v jq >/dev/null 2>&1 || { printf "hook-timeout-budget: jq required\n" >&2; exit 1; }
 
 HOOKS_JSON="hooks/hooks.json"
+DISPATCH_OVERHEAD_S=1
 FAIL=0
 
-# Wrapper timeout for a hook command, matched by basename.
+# Wrapper timeout for a gate script basename, matched on `dispatch.sh <gate>`.
 wrapper_timeout() {
-  jq -r --arg b "$1" '
-    [.hooks[][]?.hooks[]? | select((.command // "") | endswith("/" + $b)) | .timeout]
+  jq -r --arg g "${1%.sh}" '
+    [.hooks[][]?.hooks[]? | select((.command // "") | endswith("/dispatch.sh " + $g)) | .timeout]
     | first // empty
   ' "$HOOKS_JSON"
 }
@@ -40,7 +42,7 @@ require() {
 # (TMB_DB_WRITE_RUN_BUDGET_MS): the summed time spent writing never exceeds it,
 # however many rows the hook writes under a held lock. The effective budget is
 # the hook's own `export TMB_DB_WRITE_RUN_BUDGET_MS=<ms>` when present, else
-# the library default. floor = run budget + 1 s margin.
+# the library default. floor = run budget + 1 s margin + dispatcher overhead.
 DBW_LIB="scripts/hooks/lib/db-write.sh"
 DBW_DEFAULT_RUN_MS=$(grep -oE 'TMB_DB_WRITE_RUN_BUDGET_MS:-[0-9]+' "$DBW_LIB" | head -1 | grep -oE '[0-9]+$' || true)
 DBW_CHECKED=0
@@ -54,10 +56,10 @@ if require "$DBW_DEFAULT_RUN_MS" "db-write default run budget"; then
     [ -n "$wrap" ] || continue
     ms=$(grep -oE '^[[:space:]]*export TMB_DB_WRITE_RUN_BUDGET_MS=[0-9]+' "$hook" | head -1 | grep -oE '[0-9]+$' || true)
     [ -n "$ms" ] || ms="$DBW_DEFAULT_RUN_MS"
-    floor=$(awk -v ms="$ms" 'BEGIN { printf "%.1f", ms / 1000 + 1 }')
+    floor=$(awk -v ms="$ms" -v d="$DISPATCH_OVERHEAD_S" 'BEGIN { printf "%.1f", ms / 1000 + 1 + d }')
     if awk -v w="$wrap" -v f="$floor" 'BEGIN { exit !(w < f) }'; then
-      printf "hook-timeout-budget: FAIL %s wrapper %ss < floor %ss (run budget %sms + 1s margin)\n" \
-        "$base" "$wrap" "$floor" "$ms" >&2
+      printf "hook-timeout-budget: FAIL %s wrapper %ss < floor %ss (run budget %sms + 1s margin + %ss dispatcher)\n" \
+        "$base" "$wrap" "$floor" "$ms" "$DISPATCH_OVERHEAD_S" >&2
       FAIL=$((FAIL + 1))
     fi
     DBW_CHECKED=$((DBW_CHECKED + 1))
@@ -73,10 +75,10 @@ VG_BUDGET=$(grep -oE 'TMB_VERIFICATION_TIMEOUT_S:-[0-9]+' "$VG_SRC" | head -1 | 
 
 if require "$VG_WRAP" "swe-verification-gate wrapper timeout" \
    && require "$VG_BUDGET" "verification-gate default budget"; then
-  VG_FLOOR=$((VG_BUDGET + 30))
+  VG_FLOOR=$((VG_BUDGET + 30 + DISPATCH_OVERHEAD_S))
   if [ "$VG_WRAP" -lt "$VG_FLOOR" ]; then
-    printf "hook-timeout-budget: FAIL swe-verification-gate wrapper %ss < floor %ss (default budget %ss + 30s margin)\n" \
-      "$VG_WRAP" "$VG_FLOOR" "$VG_BUDGET" >&2
+    printf "hook-timeout-budget: FAIL swe-verification-gate wrapper %ss < floor %ss (default budget %ss + 30s margin + %ss dispatcher)\n" \
+      "$VG_WRAP" "$VG_FLOOR" "$VG_BUDGET" "$DISPATCH_OVERHEAD_S" >&2
     FAIL=$((FAIL + 1))
   fi
 fi

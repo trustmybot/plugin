@@ -186,6 +186,7 @@ else
       # Strip ${CLAUDE_PLUGIN_ROOT} prefix for local resolution
       local_path="${script//\$\{CLAUDE_PLUGIN_ROOT\}/.}"
       local_path="${local_path//\$CLAUDE_PLUGIN_ROOT/.}"
+      local_path="${local_path%% *}"
       if [ ! -f "$local_path" ]; then
         fail "$HOOKS_MANIFEST references missing script: $script (resolved: $local_path)"
         missing=1
