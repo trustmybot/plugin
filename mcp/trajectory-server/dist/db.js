@@ -5,7 +5,7 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logger.js';
 import { assertSafeProjectWritePath, resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
-const TARGET_SCHEMA_VERSION = 31;
+const TARGET_SCHEMA_VERSION = 32;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -474,6 +474,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 31 && toVersion >= 31) {
         migrateV30toV31(db);
+    }
+    if (fromVersion < 32 && toVersion >= 32) {
+        migrateV31toV32(db);
     }
 }
 function hasColumn(db, table, column) {
@@ -1532,6 +1535,131 @@ function migrateV30toV31(db) {
         const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
         if (fkViolations.length > 0) {
             throw new Error(`migrateV30toV31: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v31 rebuild`);
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // original error wins
+        }
+        throw err;
+    }
+    finally {
+        db.exec('PRAGMA foreign_keys = ON');
+    }
+}
+// The MCP server this plugin bundles; its parent plugin row carries the
+// plugin's own name (resolvePluginName), not the server's.
+const OWN_MCP_SERVER_NAME = 'trajectory-server';
+// v31→v32: cheatcodes is keyed by (name, kind). A plugin and the MCP server it
+// bundles share a name (`linear` plugin → `linear` server); UNIQUE(name) made
+// scan.sh's insert of the server fail on every scan, and before the hook writes
+// were transactional each failure still committed a scan_discovered audit row.
+//
+//   1. Rebuild cheatcodes with UNIQUE (name, kind) instead of UNIQUE on name.
+//      Every CHECK is kept; cheatcode_attachments references cheatcodes(id),
+//      which the rebuild preserves.
+//   2. Bundled-server rows recorded as 'mcp:<server>' become
+//      'mcp:<plugin>/<server>' when the parent plugin row is known: a plugin
+//      row of the same name, or, for this plugin's own server, the plugin row
+//      named after this plugin.
+//   3. Delete scan_discovered audit rows whose content_json (name, kind) has no
+//      cheatcodes row. The audit_ad trigger removes their audit_fts entries;
+//      their audit_embeddings rows are deleted here because foreign keys are
+//      OFF during the rebuild, so the ON DELETE CASCADE does not fire. One
+//      scan_discovered_repair audit row records the count.
+//   4. mcp rows with an 'mcp:' source_url wrongly marked broken go back to
+//      installed; the cheatcode health-check re-derives their status.
+//
+// Guarded on the old shape for the rebuild; steps 2–4 are no-ops on a re-run.
+function migrateV31toV32(db) {
+    if (!tableExists(db, 'cheatcodes'))
+        return;
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('BEGIN');
+    try {
+        if (!/UNIQUE\s*\(\s*name\s*,\s*kind\s*\)/.test(readTableSql(db, 'cheatcodes'))) {
+            rebuildTable(db, 'cheatcodes', `
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          name         TEXT    NOT NULL,
+          kind         TEXT    NOT NULL CHECK (kind IN ('skill','mcp','plugin')),
+          origin       TEXT    NOT NULL DEFAULT 'external' CHECK (origin IN ('builtin','marketplace','external')),
+          description  TEXT    NOT NULL DEFAULT '',
+          source_url   TEXT,
+          file_path    TEXT,
+          version      TEXT,
+          trust_tier   TEXT,
+          scope        TEXT    NOT NULL DEFAULT 'project-local'
+                         CHECK (scope IN ('global','template','project-local')),
+          status       TEXT    NOT NULL DEFAULT 'installed',
+          installed_at TEXT    NOT NULL,
+          created_at   TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          updated_at   TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          CHECK (kind != 'skill' OR file_path IS NOT NULL),
+          CHECK (origin = 'builtin' OR source_url IS NOT NULL),
+          CHECK (origin != 'builtin' OR source_url IS NULL),
+          UNIQUE (name, kind)
+        `, [
+                ['id', 'NULL'], ['name', 'NULL'], ['kind', 'NULL'], ['origin', "'external'"], ['description', "''"],
+                ['source_url', 'NULL'], ['file_path', 'NULL'], ['version', 'NULL'], ['trust_tier', 'NULL'],
+                ['scope', "'project-local'"], ['status', "'installed'"], ['installed_at', ISO_NOW_DEFAULT],
+                ['created_at', ISO_NOW_DEFAULT], ['updated_at', ISO_NOW_DEFAULT],
+            ]);
+        }
+        const pluginRow = db.prepare("SELECT 1 FROM cheatcodes WHERE kind = 'plugin' AND name = ? LIMIT 1");
+        const ownPlugin = resolvePluginName();
+        const legacyServers = db
+            .prepare("SELECT id, name FROM cheatcodes WHERE kind = 'mcp' AND source_url = 'mcp:' || name")
+            .all();
+        for (const server of legacyServers) {
+            let parent = null;
+            if (pluginRow.get(server.name) !== undefined) {
+                parent = server.name;
+            }
+            else if (server.name === OWN_MCP_SERVER_NAME && pluginRow.get(ownPlugin) !== undefined) {
+                parent = ownPlugin;
+            }
+            if (parent === null)
+                continue;
+            db.prepare('UPDATE cheatcodes SET source_url = ? WHERE id = ?').run(`mcp:${parent}/${server.name}`, server.id);
+        }
+        let phantoms = 0;
+        if (tableExists(db, 'audit')) {
+            const phantomIds = db
+                .prepare(`SELECT a.id FROM audit a
+            WHERE a.event_type = 'scan_discovered'
+              AND json_valid(a.content_json)
+              AND NOT EXISTS (
+                SELECT 1 FROM cheatcodes c
+                 WHERE c.name = json_extract(a.content_json, '$.name')
+                   AND c.kind = json_extract(a.content_json, '$.kind'))`)
+                .all();
+            phantoms = phantomIds.length;
+            if (phantoms > 0) {
+                const ids = JSON.stringify(phantomIds.map((r) => r.id));
+                if (tableExists(db, 'audit_embeddings')) {
+                    db.prepare(
+                    // LINT-ALLOW: v31→v32 removes the embeddings of phantom scan_discovered audit rows (GH 1200).
+                    'DELETE FROM audit_embeddings WHERE audit_id IN (SELECT value FROM json_each(?))').run(ids);
+                }
+                // LINT-ALLOW: v31→v32 deletes phantom scan_discovered audit rows (GH 1200).
+                db.prepare('DELETE FROM audit WHERE id IN (SELECT value FROM json_each(?))').run(ids);
+                db.prepare(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at)
+           SELECT -1, NULL, 'system', 'scan_discovered_repair', ?, ?, (SELECT repo FROM issues WHERE id = -1), strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            WHERE EXISTS (SELECT 1 FROM issues WHERE id = -1)`).run(`deleted ${phantoms} phantom scan_discovered audit row(s)`, JSON.stringify({ deleted: phantoms }));
+            }
+        }
+        db.exec(`
+      UPDATE cheatcodes
+         SET status = 'installed', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+       WHERE kind = 'mcp' AND source_url LIKE 'mcp:%' AND status = 'broken'
+    `);
+        const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
+        if (fkViolations.length > 0) {
+            throw new Error(`migrateV31toV32: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v32 rebuild`);
         }
         db.exec('COMMIT');
     }

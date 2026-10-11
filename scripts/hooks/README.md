@@ -5,7 +5,7 @@ The Claude Code lifecycle hook engine — the deterministic enforcement layer th
 ## Grouped by lifecycle
 
 ### SessionStart — preflight
-`ensure-gitignore.sh`, `mcp-health-check.sh`, `deferred-tools-drift-warn.sh`, `write-active-workspace-sentinel.sh`, `session-start-prescan.sh`, `ensure-kuzu-installed.sh`, `substrate-preflight.sh`, `orphan-scan.sh` — make sure the gitignore, MCP server, kuzu native binary, workspace sentinel, and required host binaries are in place before a session does real work.
+`ensure-gitignore.sh`, `mcp-health-check.sh`, `deferred-tools-drift-warn.sh`, `write-active-workspace-sentinel.sh`, `session-start-prescan.sh`, `ensure-kuzu-installed.sh`, `substrate-preflight.sh`, `cheatcode-healthcheck.sh`, `orphan-scan.sh` — make sure the gitignore, MCP server, kuzu native binary, workspace sentinel, and required host binaries are in place before a session does real work, and reconcile cheatcode statuses.
 
 #### `orphan-scan.sh` — project-scoped cross-upgrade orphan scan
 
@@ -19,6 +19,16 @@ What it detects, current project only:
 3. **Globally-unused cache versions** — a `~/.claude/plugins/cache/<channel>/<plugin>/<version>` dir referenced by no `installed_plugins.json` entry. A version pinned by any project (current or other) is never a candidate.
 
 **Safety gates.** Detection-first: the default mode reports only and deletes nothing. Cleanup is gated behind `TMB_ORPHAN_SCAN_CLEAN=1` (default OFF) and is limited to this project's provably-dead stale DBs, a confirmed stale duplicate proc on this project's live DB (with a `kill -0` liveness check), and globally-unused cache versions. It never removes the live DB, never touches another project's DB / proc / cache, and never removes a pinned version. The scan is idempotent and soft-fails. (Tests set `TMB_ORPHAN_SCAN_HOME` / `TMB_ORPHAN_SCAN_PROJECT_DIR` to sandbox HOME and project-root resolution.)
+
+#### `cheatcode-healthcheck.sh` — cheatcode status reconciliation
+
+Sets each `cheatcodes` row's `status` to `active` or `broken` from runtime evidence and writes a `cheatcode_healthcheck` audit row per change. Names always match exactly, never as a substring (`tmb` never matches `tmb-x`):
+- `skill` — `file_path` exists on disk.
+- `mcp` with `source_url` `mcp:<plugin>/<server>` (a plugin-bundled server, as `/scan` records it) — `claude plugin list --json` has an entry whose `id` before `@` is `<plugin>`, it is `enabled`, and its `mcpServers` has the key `<server>`.
+- any other `mcp` row — the name is a server name in `claude mcp list` or a `~/.claude.json` `mcpServers` key.
+- `plugin` — `claude plugin list --json` has an enabled entry whose `id` before `@` is the name.
+
+A row whose evidence source is unavailable (no `claude` CLI, an unparseable plugin list, no MCP listing) is left untouched. Bypass: `TMB_DISABLE_CHEATCODE_HEALTHCHECK=1`.
 
 ### UserPromptSubmit — per-turn setup + routing
 `activation-routine.sh`, `mcp-health-check.sh`, `session-log-capture.sh`, `prompt-intent-hints.sh`, `roundtable-slash-detect.sh` — inject identity/context, log the turn, and route phrasing hints (onboarding nudges, roundtable detection).

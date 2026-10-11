@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
-import { scanTools, runScanWithScript } from '../tools/scan.js';
+import { scanTools, runScanWithScript, upsertDiscoveredCheatcode } from '../tools/scan.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -604,3 +604,59 @@ describe('scan_run async spawn + timeout (#398)', () => {
   });
 });
 
+
+describe('upsertDiscoveredCheatcode — the (name, kind) discovery writer', () => {
+  const discoveredCount = (db: ReturnType<typeof tempDB>): number =>
+    db.get<{ n: number }>("SELECT COUNT(*) AS n FROM audit WHERE event_type = 'scan_discovered'")!.n;
+
+  it('registers a plugin and its same-named bundled server once each, auditing each insert', () => {
+    const db = tempDB();
+    const plugin = upsertDiscoveredCheatcode(db, {
+      name: 'linear', kind: 'plugin', origin: 'marketplace', source_url: 'linear@claude-plugins-official',
+      status: 'active', description: 'Linear issue tracking', version: '1.2.3',
+    });
+    db.run("UPDATE cheatcodes SET trust_tier = 'reputable' WHERE id = ?", [plugin.id]);
+    const server = upsertDiscoveredCheatcode(db, {
+      name: 'linear', kind: 'mcp', origin: 'marketplace', source_url: 'mcp:linear/linear', status: 'active',
+      description: 'linear MCP server bundled by linear', version: '1.2.3', trust_parent: 'linear',
+    });
+    assert.equal(plugin.inserted, true);
+    assert.equal(server.inserted, true);
+    assert.notEqual(plugin.id, server.id);
+    const row = db.get<{ source_url: string; version: string; trust_tier: string }>(
+      "SELECT source_url, version, trust_tier FROM cheatcodes WHERE name = 'linear' AND kind = 'mcp'",
+    )!;
+    assert.deepEqual({ ...row }, { source_url: 'mcp:linear/linear', version: '1.2.3', trust_tier: 'reputable' });
+    assert.equal(discoveredCount(db), 2);
+
+    const again = upsertDiscoveredCheatcode(db, {
+      name: 'linear', kind: 'mcp', origin: 'marketplace', source_url: 'mcp:linear/linear', status: 'active',
+    });
+    assert.deepEqual(again, { id: server.id, inserted: false });
+    assert.equal(discoveredCount(db), 2, 'an existing row is not audited again');
+    db.close();
+  });
+
+  it('fills blanks and rewrites a legacy mcp:<server> source_url on an existing row without auditing', () => {
+    const db = tempDB();
+    db.run(
+      `INSERT INTO cheatcodes (name, kind, origin, source_url, scope, status, installed_at)
+       VALUES ('trajectory-server', 'mcp', 'marketplace', 'mcp:trajectory-server', 'project-local', 'active', 'x')`,
+    );
+    const res = upsertDiscoveredCheatcode(db, {
+      name: 'trajectory-server', kind: 'mcp', origin: 'marketplace', source_url: 'mcp:tmb/trajectory-server',
+      status: 'active', description: 'trajectory-server MCP server bundled by tmb', version: '1.0.2',
+    });
+    assert.equal(res.inserted, false);
+    const row = db.get<{ source_url: string; description: string; version: string }>(
+      "SELECT source_url, description, version FROM cheatcodes WHERE name = 'trajectory-server'",
+    )!;
+    assert.deepEqual({ ...row }, {
+      source_url: 'mcp:tmb/trajectory-server',
+      description: 'trajectory-server MCP server bundled by tmb',
+      version: '1.0.2',
+    });
+    assert.equal(discoveredCount(db), 0);
+    db.close();
+  });
+});

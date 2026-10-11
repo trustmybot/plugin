@@ -291,44 +291,71 @@ discover_resources() {
     esac
   }
 
-  # INSERT one discovered resource if it is not already a cheatcodes row
-  # (matched on name+kind). Emits a scan_discovered audit row on insert.
+  # Register one discovered resource, keyed on (name, kind). The INSERT is a
+  # no-op when the row exists, and the scan_discovered audit row is guarded on
+  # the INSERT having inserted, so a re-scan writes nothing. An existing row
+  # only gets its blank description / NULL version filled and a legacy
+  # 'mcp:<server>' source_url rewritten to the bundled 'mcp:<plugin>/<server>'.
   #   $1 kind   skill|mcp|plugin
   #   $2 name   validated against _valid_name (charset gate)
   #   $3 file_path  SKILL.md for skills, '' otherwise
   #   $4 origin     marketplace|external (provenance, never a lifecycle word)
   #   $5 source_url the candidate identity (e.g. <name>@<mkt>); '' → 'scan_discovered'
   #   $6 status     active|installed
+  #   $7 description  '' when the manifest has none
+  #   $8 version      '' → NULL
+  #   $9 trust_parent plugin whose trust_tier the row inherits ('' → NULL)
   _register() {
     local kind="$1" name="$2" file_path="$3" origin="${4:-external}" source_url="${5:-}" status="${6:-installed}"
+    local description="${7:-}" version="${8:-}" trust_parent="${9:-}"
     _valid_name "$name" || return 0
-    local safe_name safe_kind safe_origin safe_status
+    [ -n "$source_url" ] || source_url="scan_discovered"
+    local safe_name safe_kind safe_url safe_desc
     safe_name=$(tmb_sql_quote "$name")
     safe_kind=$(tmb_sql_quote "$kind")
-    safe_origin=$(tmb_sql_quote "$origin")
-    safe_status=$(tmb_sql_quote "$status")
+    safe_url=$(tmb_sql_quote "$source_url")
+    safe_desc=$(tmb_sql_quote "$description")
+    local version_sql="NULL"
+    [ -n "$version" ] && version_sql="'$(tmb_sql_quote "$version")'"
 
     local existing
     existing=$(tmb_sqlite_ro "$db" "
-      SELECT 1 FROM cheatcodes
+      SELECT CASE
+               WHEN (description = '' AND '$safe_desc' <> '')
+                 OR (version IS NULL AND $version_sql IS NOT NULL)
+                 OR (kind = 'mcp' AND source_url = 'mcp:' || name AND '$safe_url' LIKE 'mcp:%/%')
+               THEN 'stale' ELSE 'current' END
+        FROM cheatcodes
        WHERE name = '$safe_name' AND kind = '$safe_kind' LIMIT 1;")
-    [ -n "$existing" ] && return 0
-
-    [ -n "$source_url" ] || source_url="scan_discovered"
-    local safe_url
-    safe_url=$(tmb_sql_quote "$source_url")
+    if [ -n "$existing" ]; then
+      [ "$existing" = "stale" ] || return 0
+      tmb_db_write "$db" "UPDATE cheatcodes
+   SET description = CASE WHEN description = '' THEN '$safe_desc' ELSE description END,
+       version = COALESCE(version, $version_sql),
+       source_url = CASE WHEN kind = 'mcp' AND source_url = 'mcp:' || name AND '$safe_url' LIKE 'mcp:%/%'
+                         THEN '$safe_url' ELSE source_url END,
+       updated_at = '$now'
+ WHERE name = '$safe_name' AND kind = '$safe_kind';" >/dev/null || return 0
+      return 0
+    fi
 
     local fp_sql="NULL"
     if [ -n "$file_path" ]; then
       fp_sql="'$(tmb_sql_quote "$file_path")'"
     fi
+    local trust_sql="NULL"
+    if [ -n "$trust_parent" ]; then
+      trust_sql="(SELECT trust_tier FROM cheatcodes WHERE kind = 'plugin' AND name = '$(tmb_sql_quote "$trust_parent")')"
+    fi
     local content_json audit_sql
     content_json=$(jq -nc --arg name "$name" --arg kind "$kind" --arg origin "$origin" --arg source "$source_url" \
       '{name: $name, kind: $kind, origin: $origin, source: $source}')
-    audit_sql=$(tmb_audit_sql -1 '' "hook:scan" "scan_discovered" "$name ($kind): discovered" "$content_json") || return 0
+    audit_sql=$(tmb_audit_sql -1 '' "hook:scan" "scan_discovered" "$name ($kind): discovered" "$content_json" \
+      "(SELECT changes()) > 0") || return 0
 
-    tmb_db_write "$db" "INSERT INTO cheatcodes (name, kind, origin, source_url, file_path, scope, status, installed_at, created_at, updated_at)
-VALUES ('$safe_name', '$safe_kind', '$safe_origin', '$safe_url', $fp_sql, 'project-local', '$safe_status', '$now', '$now', '$now');
+    tmb_db_write "$db" "INSERT INTO cheatcodes (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+VALUES ('$safe_name', '$safe_kind', '$(tmb_sql_quote "$origin")', '$safe_desc', '$safe_url', $fp_sql, $version_sql, $trust_sql, 'project-local', '$(tmb_sql_quote "$status")', '$now', '$now', '$now')
+ON CONFLICT (name, kind) DO NOTHING;
 $audit_sql" >/dev/null || return 0
   }
 
@@ -355,26 +382,40 @@ $audit_sql" >/dev/null || return 0
     local plugin_json
     plugin_json=$(_run_bounded claude plugin list --json)
     if printf '%s' "$plugin_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
-      # plugins: one TSV line per entry → name<TAB>ref<TAB>status. jq splits the
-      # id on '@' and maps enabled→active/installed; the shell loop validates +
-      # inserts. A blank name (malformed id) is dropped by _valid_name.
-      local pname pref pstatus
-      while IFS=$'\t' read -r pname pref pstatus; do
+      # plugins: one line per entry → name, ref, status, version, description,
+      # installPath, separated by US (\x1f) so empty fields keep their place.
+      # jq splits the id on '@' and maps enabled→active/installed; the shell
+      # loop validates + inserts. A blank name (malformed id) is dropped by
+      # _valid_name. A description absent from the list entry is read from the
+      # installed plugin.json.
+      local pname pref pstatus pversion pdesc ppath
+      while IFS=$'\x1f' read -r pname pref pstatus pversion pdesc ppath; do
         [ -n "$pname" ] || continue
-        _register plugin "$pname" "" marketplace "$pref" "$pstatus"
+        if [ -z "$pdesc" ] && [ -n "$ppath" ] && [ -f "$ppath/.claude-plugin/plugin.json" ]; then
+          pdesc=$(jq -r '.description // ""' "$ppath/.claude-plugin/plugin.json" 2>/dev/null || true)
+        fi
+        _register plugin "$pname" "" marketplace "$pref" "$pstatus" "$pdesc" "$pversion"
       done < <(printf '%s' "$plugin_json" | jq -r '
         .[]? | [ ((.id // "") | split("@")[0]),
                  (.id // ""),
-                 (if .enabled == true then "active" else "installed" end) ]
-        | @tsv' 2>/dev/null)
+                 (if .enabled == true then "active" else "installed" end),
+                 (.version // ""),
+                 ((.description // "") | gsub("[\t\n\r]"; " ")),
+                 (.installPath // "") ]
+        | join("\u001f")' 2>/dev/null)
 
-      # mcp servers contributed by each plugin's mcpServers object.
-      local mname
-      while IFS= read -r mname; do
+      # mcp servers bundled by each plugin's mcpServers object → plugin, server,
+      # version (US-separated). source_url mcp:<plugin>/<server> lets the
+      # health-check find the parent plugin.
+      local mplugin mname mversion
+      while IFS=$'\x1f' read -r mplugin mname mversion; do
         [ -n "$mname" ] || continue
-        _register mcp "$mname" "" marketplace "mcp:$mname" active
+        _valid_name "$mplugin" || continue
+        _register mcp "$mname" "" marketplace "mcp:$mplugin/$mname" active \
+          "$mname MCP server bundled by $mplugin" "$mversion" "$mplugin"
       done < <(printf '%s' "$plugin_json" | jq -r '
-        .[]?.mcpServers? // {} | keys[]?' 2>/dev/null | sort -u)
+        .[]? | ((.id // "") | split("@")[0]) as $p | (.version // "") as $v
+        | (.mcpServers? // {} | keys[]?) | [ $p, ., $v ] | join("\u001f")' 2>/dev/null)
     fi
   fi
 

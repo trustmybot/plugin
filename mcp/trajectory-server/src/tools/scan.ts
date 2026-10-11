@@ -501,6 +501,78 @@ function persistScan(
   };
 }
 
+export interface DiscoveredCheatcode {
+  name: string;
+  kind: 'skill' | 'mcp' | 'plugin';
+  origin: 'marketplace' | 'external';
+  source_url: string;
+  status: 'active' | 'installed';
+  description?: string;
+  version?: string | null;
+  file_path?: string | null;
+  /** Plugin whose trust_tier the row inherits (a bundled MCP server's parent). */
+  trust_parent?: string | null;
+  from_node?: string;
+}
+
+/**
+ * The one writer for a discovered resource, keyed on (name, kind) — the server
+ * twin of scripts/scan.sh `_register`. A new row is inserted with a
+ * scan_discovered audit row; an existing row only gets a blank description /
+ * NULL version filled and a legacy 'mcp:<server>' source_url rewritten to the
+ * bundled 'mcp:<plugin>/<server>' form, without an audit row.
+ */
+export function upsertDiscoveredCheatcode(
+  db: TrajectoryDB,
+  r: DiscoveredCheatcode,
+): { id: number; inserted: boolean } {
+  const description = r.description ?? '';
+  const version = r.version ?? null;
+  return db.transaction(() => {
+    const now = nowISO();
+    const res = db.run(
+      `INSERT INTO cheatcodes
+         (name, kind, origin, description, source_url, file_path, version, trust_tier, scope, status, installed_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?,
+               (SELECT trust_tier FROM cheatcodes WHERE kind = 'plugin' AND name = ?),
+               'project-local', ?, ?, ?, ?)
+       ON CONFLICT (name, kind) DO NOTHING`,
+      [
+        r.name, r.kind, r.origin, description, r.source_url, r.file_path ?? null, version,
+        r.trust_parent ?? null, r.status, now, now, now,
+      ],
+    );
+    if (res.changes > 0) {
+      insertAudit(db, {
+        issue_id: -1,
+        from_node: r.from_node ?? 'system',
+        event_type: 'scan_discovered',
+        summary: `${r.name} (${r.kind}): discovered`,
+        content_json: JSON.stringify({ name: r.name, kind: r.kind, origin: r.origin, source: r.source_url }),
+      });
+      return { id: Number(res.lastInsertRowid), inserted: true };
+    }
+    db.run(
+      `UPDATE cheatcodes
+          SET description = CASE WHEN description = '' THEN ? ELSE description END,
+              version = COALESCE(version, ?),
+              source_url = CASE WHEN kind = 'mcp' AND source_url = 'mcp:' || name AND ? LIKE 'mcp:%/%'
+                                THEN ? ELSE source_url END,
+              updated_at = ?
+        WHERE name = ? AND kind = ?
+          AND ((description = '' AND ? <> '')
+               OR (version IS NULL AND ? IS NOT NULL)
+               OR (kind = 'mcp' AND source_url = 'mcp:' || name AND ? LIKE 'mcp:%/%'))`,
+      [
+        description, version, r.source_url, r.source_url, now, r.name, r.kind,
+        description, version, r.source_url,
+      ],
+    );
+    const row = db.get<{ id: number }>('SELECT id FROM cheatcodes WHERE name = ? AND kind = ?', [r.name, r.kind]);
+    return { id: row!.id, inserted: false };
+  });
+}
+
 const SCAN_TIMEOUT_MS = 10 * 60 * 1000; // 10-minute hard timeout
 
 interface ScanLock {

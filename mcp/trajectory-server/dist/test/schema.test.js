@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
 import { assertTimestampsIso } from './fixtures/v30-shape.js';
-import { assertV31Shape } from './fixtures/v31-shape.js';
+import { assertV32Shape } from './fixtures/v32-shape.js';
 describe('schema — current table set, default values, constraints', () => {
     it('fresh prod-mode DB contains the current table set (skills folded into cheatcodes, #101; world model in kuzu)', () => {
         const db = tempDB();
@@ -99,9 +99,9 @@ describe('schema — current table set, default values, constraints', () => {
         }, /CHECK/i);
         db.close();
     });
-    it('fresh DB carries every v29 + v30 + v31 constraint, drop, column and index', () => {
+    it('fresh DB carries every v29 + v30 + v31 + v32 constraint, drop, column and index', () => {
         const db = tempDB();
-        assertV31Shape(db);
+        assertV32Shape(db);
         db.close();
     });
     it('fresh DB seeds and DEFAULTs write only 24-char ms-ISO timestamps (v30)', () => {
@@ -144,11 +144,11 @@ describe('schema — current table set, default values, constraints', () => {
         assert.throws(() => db.run(`INSERT INTO agent_runs (task_id, agent_type, spawn_id) VALUES (1, 'swe', 's-1')`), /UNIQUE/, 'one row per (task_id, spawn_id)');
         db.close();
     });
-    it('fresh DB has schema_version = 31 in plugin_meta', () => {
+    it('fresh DB has schema_version = 32 in plugin_meta', () => {
         const db = tempDB();
         const meta = db.get('SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-        assert.equal(meta.schema_version, 31);
+        assert.equal(meta.schema_version, 32);
         assert.ok(typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0, 'plugin_version must be a non-empty string');
         db.close();
     });
