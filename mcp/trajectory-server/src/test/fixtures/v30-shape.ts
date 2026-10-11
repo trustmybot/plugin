@@ -84,7 +84,6 @@ export function assertV30Shape(db: TrajectoryDB): void {
   }
   const agentsDdl = tableDdl(db, 'agents');
   assert.ok(agentsDdl.includes("kind IN ('backbone','consultant')"), 'agents DDL must CHECK kind');
-  assert.ok(agentsDdl.includes("scope IN ('global','template','project-local')"), 'agents DDL must CHECK scope');
 
   const fk = db
     .all<{ table: string; on_delete: string }>('PRAGMA foreign_key_list(cheatcode_attachments)')

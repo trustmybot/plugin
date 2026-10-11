@@ -126,27 +126,29 @@ CREATE TABLE IF NOT EXISTS validation_attempts (
     UNIQUE(task_id, attempt_n)
 );
 
+-- agents.file_path names the root the prompt file ships from: 'plugin:' is
+-- relative to the installed plugin root (backbone agents, consultant
+-- templates), 'project:' to the workspace root (.claude/agents/<name>.md).
 CREATE TABLE IF NOT EXISTS agents (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT    NOT NULL UNIQUE,
     kind        TEXT    NOT NULL CHECK (kind IN ('backbone','consultant')),
-    scope       TEXT    NOT NULL CHECK (scope IN ('global','template','project-local')),
-    file_path   TEXT    NOT NULL,
+    file_path   TEXT    NOT NULL CHECK (file_path LIKE 'plugin:%' OR file_path LIKE 'project:%'),
     created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
 -- The seeds run on every open; INSERT … WHERE NOT EXISTS leaves the
 -- AUTOINCREMENT counter untouched when the rows are already present.
-WITH seed (name, kind, scope, file_path) AS (VALUES
-    ('swe',          'backbone',   'global',   'agents/swe.md'),
-    ('pr-reviewer',  'backbone',   'global',   'agents/pr-reviewer.md'),
-    ('architect',    'consultant', 'template', 'templates/agents/architect.md'),
-    ('cto',          'consultant', 'template', 'templates/agents/cto.md'),
-    ('ceo',          'consultant', 'template', 'templates/agents/ceo.md'),
-    ('pm',           'consultant', 'template', 'templates/agents/pm.md'))
-INSERT INTO agents (name, kind, scope, file_path)
-SELECT name, kind, scope, file_path FROM seed
+WITH seed (name, kind, file_path) AS (VALUES
+    ('swe',          'backbone',   'plugin:agents/swe.md'),
+    ('pr-reviewer',  'backbone',   'plugin:agents/pr-reviewer.md'),
+    ('architect',    'consultant', 'plugin:templates/agents/architect.md'),
+    ('cto',          'consultant', 'plugin:templates/agents/cto.md'),
+    ('ceo',          'consultant', 'plugin:templates/agents/ceo.md'),
+    ('pm',           'consultant', 'plugin:templates/agents/pm.md'))
+INSERT INTO agents (name, kind, file_path)
+SELECT name, kind, file_path FROM seed
  WHERE NOT EXISTS (SELECT 1 FROM agents a WHERE a.name = seed.name);
 
 -- Synthetic "system" issue (id=-1) — parent FK for system-level audit and
@@ -208,7 +210,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 33, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 34, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,

@@ -213,7 +213,16 @@ Schema enforces via `CHECK(origin IN ('builtin','installed'))`, plus paired `CHE
 | `template` | `templates/` copied per-project on demand |
 | `project-local` | `<project>/.claude/` authored locally |
 
-Schema enforces via `CHECK(scope IN ('global','template','project-local'))`. The `agents.scope` column uses the same three-value vocabulary.
+Schema enforces via `CHECK(scope IN ('global','template','project-local'))`.
+
+### `agents.file_path` root marker — where an agent's prompt file ships from
+
+| Value | Meaning |
+|---|---|
+| `plugin:` | Relative to the installed plugin root (`plugin:agents/swe.md`, `plugin:templates/agents/cto.md`) |
+| `project:` | Relative to the workspace root (`project:.claude/agents/<name>.md`) |
+
+Schema enforces via `CHECK(file_path LIKE 'plugin:%' OR file_path LIKE 'project:%')` (schema v34). The backbone agents `swe` and `pr-reviewer` are always `plugin:`. `agent_list` filters by `root` (`plugin`/`project`) and returns each row's absolute `resolved_path`.
 
 ### `cheatcodes.status` — install lifecycle
 
@@ -227,7 +236,7 @@ No `CHECK` constraint — runtime reconciliation to `active`/`broken` is the hea
 
 ### `plugin_meta.schema_version` — DB schema version (integer)
 
-Currently `33`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration step in `db.ts:runMigrations`.
+Currently `34`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration step in `db.ts:runMigrations`.
 
 ### `agent_runs.usage_source` — where a run's token values came from
 

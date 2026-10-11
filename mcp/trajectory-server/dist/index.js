@@ -21141,7 +21141,7 @@ function sqlLog(entry) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 33;
+var TARGET_SCHEMA_VERSION = 34;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
 }
@@ -21539,6 +21539,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 33 && toVersion >= 33) {
     migrateV32toV33(db2);
+  }
+  if (fromVersion < 34 && toVersion >= 34) {
+    migrateV33toV34(db2);
   }
 }
 function hasColumn(db2, table, column) {
@@ -22779,6 +22782,55 @@ function migrateV32toV33(db2) {
     if (fkViolations.length > 0) {
       throw new Error(
         `migrateV32toV33: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v33 rebuild`
+      );
+    }
+    db2.exec("COMMIT");
+  } catch (err20) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err20;
+  } finally {
+    db2.exec("PRAGMA foreign_keys = ON");
+  }
+}
+function migrateV33toV34(db2) {
+  if (!tableExists(db2, "agents")) return;
+  if (!hasColumn(db2, "agents", "scope") && /file_path\s+LIKE\s+'plugin:%'/.test(readTableSql(db2, "agents"))) return;
+  db2.exec("PRAGMA foreign_keys = OFF");
+  db2.exec("BEGIN");
+  try {
+    const root = hasColumn(db2, "agents", "scope") ? "CASE WHEN scope = 'project-local' THEN 'project:' ELSE 'plugin:' END" : "'plugin:'";
+    db2.exec(`
+      UPDATE agents
+         SET file_path = ${root} || file_path
+       WHERE file_path NOT LIKE 'plugin:%' AND file_path NOT LIKE 'project:%'
+    `);
+    rebuildTable(
+      db2,
+      "agents",
+      `
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT    NOT NULL UNIQUE,
+        kind        TEXT    NOT NULL CHECK (kind IN ('backbone','consultant')),
+        file_path   TEXT    NOT NULL CHECK (file_path LIKE 'plugin:%' OR file_path LIKE 'project:%'),
+        created_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+        updated_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT}
+      `,
+      [
+        ["id", "NULL"],
+        ["name", "NULL"],
+        ["kind", "NULL"],
+        ["file_path", "''"],
+        ["created_at", ISO_NOW_DEFAULT],
+        ["updated_at", ISO_NOW_DEFAULT]
+      ]
+    );
+    const fkViolations = db2.prepare("PRAGMA foreign_key_check").all();
+    if (fkViolations.length > 0) {
+      throw new Error(
+        `migrateV33toV34: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v34 rebuild`
       );
     }
     db2.exec("COMMIT");
@@ -28259,9 +28311,9 @@ function wrapHandler7(fn) {
   };
 }
 var VALID_KINDS = /* @__PURE__ */ new Set(["backbone", "consultant"]);
-var VALID_SCOPES2 = /* @__PURE__ */ new Set(["global", "template", "project-local"]);
+var VALID_ROOTS = /* @__PURE__ */ new Set(["plugin", "project"]);
 var RESERVED_NAME = "bro";
-var BACKBONE_GLOBAL_ONLY = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
+var BACKBONE_PLUGIN_ONLY = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
 function resolvePluginRoot() {
   const env = process.env["CLAUDE_PLUGIN_ROOT"];
   if (env && existsSync3(join8(env, ".claude-plugin", "plugin.json"))) return env;
@@ -28279,16 +28331,33 @@ function resolveWorkspaceRoot(dbPath2) {
   if (!dbPath2 || dbPath2 === ":memory:") return "";
   return dbPath2.replace(/\.claude\/[^/]+\/trajectory\.db$/, "").replace(/\/$/, "");
 }
+function parseMarkedPath(filePath) {
+  const m = /^(plugin|project):(.+)$/.exec(filePath);
+  if (!m) {
+    throw new Error(
+      `invalid_file_path: '${filePath}' carries no root marker. Use 'plugin:<path under the plugin root>' (e.g. 'plugin:templates/agents/cto.md') or 'project:<path under the workspace root>' (e.g. 'project:.claude/agents/cto.md').`
+    );
+  }
+  return { root: m[1], rel: m[2] };
+}
+function resolveMarkedPath(filePath, workspaceRoot) {
+  const { root, rel } = parseMarkedPath(filePath);
+  if (root === "plugin") return join8(PLUGIN_ROOT, rel);
+  return workspaceRoot ? join8(workspaceRoot, rel) : null;
+}
+function backboneShadowError(tool, name) {
+  return new Error(
+    `${tool} rejected: '${name}' is a backbone agent whose file_path must be plugin:. A project: '${name}' would shadow the backbone and disable it. To extend ${name}, create a differently-named consultant agent instead.`
+  );
+}
 function validateAgentName(name) {
   if (name === RESERVED_NAME) {
     throw new Error(
       `agent_resolve rejected: '${name}' is a reserved orchestrator name and cannot be registered as an agent. Choose a different name for your consultant (e.g. 'security-advisor', 'legal-reviewer').`
     );
   }
-  if (BACKBONE_GLOBAL_ONLY.has(name)) {
-    throw new Error(
-      `agent_resolve rejected: '${name}' is a backbone agent whose scope must be 'global'. A project-local '${name}' would shadow the backbone and disable it. To extend ${name}, create a differently-named consultant agent instead.`
-    );
+  if (BACKBONE_PLUGIN_ONLY.has(name)) {
+    throw backboneShadowError("agent_resolve", name);
   }
   if (!/^[a-z][a-z0-9-]*$/.test(name)) {
     throw new Error(
@@ -28300,103 +28369,101 @@ function agentTools(db2, dbPath2 = "") {
   const definitions = [
     {
       name: "agent_list",
-      description: "List registered agents, optionally filtered by scope.",
+      description: "List registered agents, optionally filtered by the root their file_path ships from. Each row carries resolved_path.",
       inputSchema: {
         type: "object",
         properties: {
           agent: { type: "string" },
-          scope: { type: "string", enum: ["global", "template", "project-local"] }
+          root: { type: "string", enum: ["plugin", "project"] }
         },
         required: ["agent"]
       }
     },
     {
       name: "agent_register",
-      description: "Register a new agent. Promotes a template-seeded row to project-local when called with scope=project-local; emits tmb_agent_created audit on insert or promotion. True idempotent re-registration (already project-local) is a silent no-op.",
+      description: "Register a new agent. file_path carries its root: 'plugin:<path>' or 'project:<path>'. A project: path promotes a plugin: consultant row; emits tmb_agent_created on a project: consultant insert or promotion. Re-registration is a no-op. Returns the row with resolved_path.",
       inputSchema: {
         type: "object",
         properties: {
           agent: { type: "string" },
           name: { type: "string" },
           kind: { type: "string", enum: ["backbone", "consultant"] },
-          scope: { type: "string", enum: ["global", "template", "project-local"] },
-          file_path: { type: "string" }
+          file_path: { type: "string", description: "'plugin:<path>' or 'project:<path>'." }
         },
-        required: ["agent", "name", "kind", "scope", "file_path"]
+        required: ["agent", "name", "kind", "file_path"]
       }
     },
     {
       name: "agent_resolve",
-      description: 'Read-only: resolves creation mode for /tmb:agent-create. Validates the name, then returns one of three modes: "collision" (target path exists \u2014 bro runs collision dialog); "template-copy" (plugin template found \u2014 bro Writes the file then calls agent_register); "from-scratch" (no template \u2014 bro scaffolds from templates/agents/template.md then calls agent_register). Paths returned are absolute. bro owns the file Write and the agent_register call.',
+      description: 'Read-only: resolves creation mode for /tmb:agent-create. Validates the name, then returns one of three modes: "collision" (resolved_path exists \u2014 bro runs collision dialog); "template-copy" (plugin template found \u2014 bro Writes the file then calls agent_register); "from-scratch" (no template \u2014 bro scaffolds from templates/agents/template.md then calls agent_register). Returns file_path (marked, pass it to agent_register) and its absolute resolved_path. bro owns the file Write and the agent_register call.',
       inputSchema: {
         type: "object",
         properties: {
           agent: { type: "string" },
-          name: { type: "string", description: "Kebab-case agent name to resolve." }
+          name: { type: "string", description: "Kebab-case agent name to resolve." },
+          file_path: { type: "string", description: "Target 'plugin:<path>' or 'project:<path>'; default 'project:.claude/agents/<name>.md'." }
         },
         required: ["agent", "name"]
       }
     }
   ];
+  const workspaceRoot = resolveWorkspaceRoot(dbPath2);
+  const withResolvedPath = (row) => ({
+    ...row,
+    resolved_path: resolveMarkedPath(row.file_path, workspaceRoot)
+  });
   const handlers = {
     agent_list: wrapHandler7(async (args) => {
       requireArg7(args, "agent");
-      const scope = args["scope"];
-      if (scope !== void 0 && !VALID_SCOPES2.has(scope)) {
+      const root = args["root"];
+      if (root !== void 0 && !VALID_ROOTS.has(root)) {
         throw new Error(
-          `Invalid scope: "${scope}". Allowed values: ${[...VALID_SCOPES2].join(", ")}`
+          `Invalid root: "${root}". Allowed values: ${[...VALID_ROOTS].join(", ")}`
         );
       }
-      const rows = scope ? db2.all("SELECT * FROM agents WHERE scope = ? ORDER BY name", [scope]) : db2.all("SELECT * FROM agents ORDER BY name");
-      return ok8({ agents: rows });
+      const rows = root ? db2.all("SELECT * FROM agents WHERE file_path LIKE ? ORDER BY name", [`${root}:%`]) : db2.all("SELECT * FROM agents ORDER BY name");
+      return ok8({ agents: rows.map(withResolvedPath) });
     }),
     agent_register: wrapHandler7(async (args) => {
       requireArg7(args, "agent");
       const name = requireArg7(args, "name");
       const kind = requireArg7(args, "kind");
-      const scope = requireArg7(args, "scope");
       const filePath = requireArg7(args, "file_path");
       if (!VALID_KINDS.has(kind)) {
         throw new Error(
           `Invalid kind: "${kind}". Allowed values: ${[...VALID_KINDS].join(", ")}`
         );
       }
-      if (!VALID_SCOPES2.has(scope)) {
-        throw new Error(
-          `Invalid scope: "${scope}". Allowed values: ${[...VALID_SCOPES2].join(", ")}`
-        );
-      }
+      const { root } = parseMarkedPath(filePath);
       if (name === RESERVED_NAME) {
         throw new Error(
           `agent_register rejected: '${name}' is a reserved orchestrator name and cannot be registered as an agent. Choose a different name for your consultant (e.g. 'security-advisor', 'legal-reviewer').`
         );
       }
-      if (BACKBONE_GLOBAL_ONLY.has(name) && scope !== "global") {
-        throw new Error(
-          `agent_register rejected: '${name}' is a backbone agent whose scope must be 'global'. A project-local '${name}' would shadow the backbone and disable it. To extend ${name}, create a differently-named consultant agent instead.`
-        );
+      if (BACKBONE_PLUGIN_ONLY.has(name) && root !== "plugin") {
+        throw backboneShadowError("agent_register", name);
       }
       const existing = db2.get("SELECT * FROM agents WHERE name = ?", [name]);
       let promoted = false;
       if (existing) {
-        if (scope === "project-local" && existing.scope === "template") {
+        if (root === "project" && existing.kind === "consultant" && existing.file_path.startsWith("plugin:")) {
           db2.run(
-            `UPDATE agents SET scope = ?, kind = ?, file_path = ?, updated_at = ?
+            `UPDATE agents SET kind = ?, file_path = ?, updated_at = ?
              WHERE name = ?`,
-            [scope, kind, filePath, nowISO(), name]
+            [kind, filePath, nowISO(), name]
           );
           promoted = true;
         }
       } else {
         db2.run(
-          `INSERT INTO agents (name, kind, scope, file_path)
-           VALUES (?, ?, ?, ?)`,
-          [name, kind, scope, filePath]
+          `INSERT INTO agents (name, kind, file_path)
+           VALUES (?, ?, ?)`,
+          [name, kind, filePath]
         );
       }
       const row = db2.get("SELECT * FROM agents WHERE name = ?", [name]);
       const inserted = !existing && (db2.get("SELECT changes() AS n", [])?.n ?? 0) > 0;
-      if (scope === "project-local" && kind === "consultant" && (inserted || promoted) && row) {
+      if (root === "project" && kind === "consultant" && (inserted || promoted) && row) {
         const contentJson = JSON.stringify({ name, mode: "agent_register", agent_id: row.id });
         insertAudit(db2, {
           issue_id: -1,
@@ -28406,7 +28473,7 @@ function agentTools(db2, dbPath2 = "") {
           content_json: contentJson
         });
       }
-      return ok8(row);
+      return ok8(row ? withResolvedPath(row) : row);
     }),
     agent_resolve: requireRoles(
       "agent_resolve",
@@ -28415,25 +28482,18 @@ function agentTools(db2, dbPath2 = "") {
         requireArg7(args, "agent");
         const name = requireArg7(args, "name");
         validateAgentName(name);
-        const workspaceRoot = resolveWorkspaceRoot(dbPath2);
-        const targetPath = workspaceRoot ? join8(workspaceRoot, ".claude", "agents", `${name}.md`) : join8(".claude", "agents", `${name}.md`);
-        if (workspaceRoot && existsSync3(targetPath)) {
-          return ok8({ mode: "collision", existing_path: targetPath });
+        const filePath = args["file_path"] ?? `project:.claude/agents/${name}.md`;
+        const resolvedPath = resolveMarkedPath(filePath, workspaceRoot);
+        const target = { file_path: filePath, resolved_path: resolvedPath };
+        if (resolvedPath && existsSync3(resolvedPath)) {
+          return ok8({ mode: "collision", ...target });
         }
         const templatePath = join8(PLUGIN_ROOT, "templates", "agents", `${name}.md`);
         if (existsSync3(templatePath)) {
-          return ok8({
-            mode: "template-copy",
-            source_path: templatePath,
-            target_path: targetPath
-          });
+          return ok8({ mode: "template-copy", source_path: templatePath, ...target });
         }
         const scaffoldPath = join8(PLUGIN_ROOT, "templates", "agents", "template.md");
-        return ok8({
-          mode: "from-scratch",
-          scaffold_path: scaffoldPath,
-          target_path: targetPath
-        });
+        return ok8({ mode: "from-scratch", scaffold_path: scaffoldPath, ...target });
       })
     )
   };
