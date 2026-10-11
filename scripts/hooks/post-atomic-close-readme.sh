@@ -81,8 +81,7 @@ esac
 
 # Resolve the repo working tree from the repos table: the task's repo by name,
 # else the sole registered repo. A task with no repo in a project with no
-# registered repo uses the project root (the DB lives at
-# <project>/.claude/<plugin>/trajectory.db).
+# registered repo uses the project root, where tmb_db_path resolves the DB.
 REPO_PATH=$(tmb_repo_resolve_path "$DB" "$REPO")
 if [ -z "$REPO_PATH" ] && [ -z "$REPO" ]; then
   REPO_PATH="$(dirname "$(dirname "$(dirname "$DB")")")"

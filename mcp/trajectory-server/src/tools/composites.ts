@@ -350,7 +350,7 @@ function outsideProjectResult(refusal: NonNullable<ReturnType<typeof outsideProj
 
 // The worktree a task's swe runs in: <repo>/.claude/worktrees/<slug>, slug =
 // the branch_id after its type prefix (task_provision's layout).
-function taskWorktreePath(repoPath: string, branchId: string): string {
+export function taskWorktreePath(repoPath: string, branchId: string): string {
   return `${repoPath}/.claude/worktrees/${branchId.replace(/^[^/]+\//, '')}`;
 }
 

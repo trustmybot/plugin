@@ -1,11 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, renameSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
 import { scanTools, runScanWithScript, upsertDiscoveredCheatcode } from '../tools/scan.js';
+import { renameRepo } from '../tools/repos.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -409,6 +410,70 @@ describe('scan_run — per-repo git remotes into repos.remotes (#979)', () => {
       assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
       const row = db.get<{ remotes: string }>(`SELECT remotes FROM repos WHERE name='plain'`);
       assert.deepEqual(JSON.parse(row!.remotes), []);
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('scan_run — rename detection', () => {
+  it('a repo renamed on disk with the same remote is surfaced, never duplicated; a new repo still inserts', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-rename-'));
+    try {
+      const root = mkRepo(ws, 'app', { 'README.md': 'app\n' });
+      execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:acme/app.git'], { cwd: root });
+      const db = tempDB();
+      const tools = scanTools(db, null);
+      const first = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!first.isError, JSON.stringify(first));
+      db.run(
+        `INSERT INTO issues (objective, description, status, created_at, updated_at, repo) VALUES ('o', 'd', 'open', datetime('now'), datetime('now'), 'app')`,
+      );
+
+      renameSync(root, join(ws, 'app-renamed'));
+      mkRepo(ws, 'lib', { 'core.ts': 'export const x = 1;\n' });
+      const second = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!second.isError, JSON.stringify(second));
+      const out = parse(second);
+      assert.deepEqual(out['rename_candidates'], [
+        { old: 'app', new: 'app-renamed', by: 'remote', path: join(ws, 'app-renamed') },
+      ]);
+
+      const names = db.all<{ name: string }>('SELECT name FROM repos ORDER BY name').map((r) => r.name);
+      assert.deepEqual(names, ['app', 'lib'], 'no duplicate row for the renamed repo; the new repo inserts');
+      const audit = db.get<{ content_json: string }>(
+        `SELECT content_json FROM audit WHERE event_type = 'repo_rename_detected'`,
+      );
+      assert.ok(audit, 'repo_rename_detected audit row');
+      assert.deepEqual(JSON.parse(audit!.content_json), { old: 'app', new: 'app-renamed', by: 'remote' });
+
+      renameRepo(db, null, { old: 'app', new: 'app-renamed', reason: 'dir renamed' });
+      const third = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.deepEqual(parse(third)['rename_candidates'], [], 'no candidate once applied');
+      const row = db.get<{ path: string }>(`SELECT path FROM repos WHERE name = 'app-renamed'`);
+      assert.equal(row?.path, join(ws, 'app-renamed'), 'next scan refreshes the renamed row');
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('a row whose path matches a discovered repo under another name is a path rename candidate', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-rename-path-'));
+    try {
+      const root = mkRepo(ws, 'app', { 'README.md': 'app\n' });
+      const db = tempDB();
+      db.run(`INSERT INTO repos (name, path) VALUES ('legacy', ?)`, [realpathSync(root)]);
+      const r = await call(scanTools(db, null).handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!r.isError, JSON.stringify(r));
+      const candidates = parse(r)['rename_candidates'] as Array<Record<string, unknown>>;
+      assert.equal(candidates.length, 1);
+      assert.equal(candidates[0]!['old'], 'legacy');
+      assert.equal(candidates[0]!['new'], 'app');
+      assert.equal(candidates[0]!['by'], 'path');
+      const names = db.all<{ name: string }>('SELECT name FROM repos ORDER BY name').map((x) => x.name);
+      assert.deepEqual(names, ['legacy'], 'legacy kept, app not inserted');
       db.close();
     } finally {
       rmSync(ws, { recursive: true, force: true });

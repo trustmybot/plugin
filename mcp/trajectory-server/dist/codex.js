@@ -23956,6 +23956,59 @@ var WorldModelGraph = class _WorldModelGraph {
     }
     return toDelete.length;
   }
+  // Re-key every Directory node of oldRepo under newRepo in one kuzu
+  // transaction. The primary key embeds the repo (dirKey), so each node is
+  // re-created under its new key, its CONTAINS edges re-linked, and the old
+  // nodes detach-deleted. Returns the number of nodes moved.
+  renameRepo(oldRepo, newRepo) {
+    const nodes = this.allDirectoriesForRepo(oldRepo);
+    if (nodes.length === 0) return 0;
+    const edges = this.containsEdgesForRepo(oldRepo);
+    this.conn.querySync("BEGIN TRANSACTION");
+    try {
+      for (const n of nodes) {
+        this.upsertDirectory({
+          repo: newRepo,
+          path: n.path,
+          parent_path: n.parent_path,
+          summary: n.summary,
+          summary_source: n.summary_source,
+          summary_updated_at: n.summary_updated_at,
+          file_count: n.file_count
+        });
+      }
+      for (const e of edges) {
+        this.upsertContains({ repo: newRepo, path: e.parent }, { repo: newRepo, path: e.child });
+      }
+      const del = this.conn.prepareSync(`MATCH (d:Directory {repo: $repo}) DETACH DELETE d`);
+      this.conn.executeSync(del, { repo: oldRepo });
+      this.conn.querySync("COMMIT");
+    } catch (e) {
+      try {
+        this.conn.querySync("ROLLBACK");
+      } catch {
+      }
+      throw e;
+    }
+    return nodes.length;
+  }
+  containsEdgesForRepo(repo) {
+    const stmt = this.conn.prepareSync(
+      `MATCH (p:Directory {repo: $repo})-[:CONTAINS]->(c:Directory {repo: $repo})
+       RETURN p.path, c.path`
+    );
+    const result = single(this.conn.executeSync(stmt, { repo }));
+    const edges = [];
+    try {
+      while (result.hasNext()) {
+        const r = result.getNextSync();
+        edges.push({ parent: String(r["p.path"] ?? ""), child: String(r["c.path"] ?? "") });
+      }
+    } finally {
+      result.close();
+    }
+    return edges;
+  }
   allDirectoriesForRepo(repo) {
     const stmt = this.conn.prepareSync(
       `MATCH (d:Directory {repo: $repo})
@@ -27524,7 +27577,7 @@ function issueTools(db, dbPath = "", options = {}) {
 
 // src/tools/scan.ts
 import { spawn, spawnSync as spawnSync4 } from "node:child_process";
-import { existsSync as existsSync4, readFileSync as readFileSync6, writeFileSync, unlinkSync as unlinkSync2 } from "node:fs";
+import { existsSync as existsSync4, readFileSync as readFileSync6, realpathSync as realpathSync5, writeFileSync, unlinkSync as unlinkSync2 } from "node:fs";
 import { dirname as dirname6, join as join9 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
@@ -28060,25 +28113,90 @@ function readRepoRemotes(path) {
     return [];
   }
 }
+function canonicalPath(p) {
+  try {
+    return realpathSync5(p);
+  } catch {
+    return p.replace(/\/+$/, "");
+  }
+}
+function normalizeRemoteUrl(url2) {
+  return url2.trim().replace(/\/+$/, "").replace(/\.git$/, "");
+}
+function primaryRemoteUrl(remotes) {
+  const primary = remotes.find((r) => r.name === "origin") ?? remotes[0];
+  return primary ? normalizeRemoteUrl(primary.url) : null;
+}
+function detectRenames(existing, discovered, remotesByRepo) {
+  const scannedNames = new Set(discovered.map((r) => r.name));
+  const existingNames = new Set(existing.map((r) => r.name));
+  const orphaned = existing.filter((r) => !scannedNames.has(r.name));
+  const claimed = /* @__PURE__ */ new Set();
+  const candidates = [];
+  for (const r of discovered) {
+    if (existingNames.has(r.name)) continue;
+    const path = canonicalPath(r.path);
+    const remote = primaryRemoteUrl(remotesByRepo.get(r.name) ?? []);
+    let match = null;
+    for (const row of orphaned) {
+      if (claimed.has(row.name)) continue;
+      if (canonicalPath(row.path) === path) {
+        match = { name: row.name, by: "path" };
+        break;
+      }
+    }
+    if (!match && remote) {
+      for (const row of orphaned) {
+        if (claimed.has(row.name)) continue;
+        let rowRemotes = [];
+        try {
+          const parsed = JSON.parse(row.remotes ?? "[]");
+          if (Array.isArray(parsed)) rowRemotes = parsed;
+        } catch {
+          continue;
+        }
+        if (primaryRemoteUrl(rowRemotes) === remote) {
+          match = { name: row.name, by: "remote" };
+          break;
+        }
+      }
+    }
+    if (match) {
+      claimed.add(match.name);
+      candidates.push({ old: match.name, new: r.name, by: match.by, path: r.path });
+    }
+  }
+  return candidates;
+}
 function persistScan(db, graph, out, sessionDir) {
   const now = nowISO();
-  const scannedNames = new Set(out.repos.map((r) => r.name));
   const normSession = sessionDir.replace(/\/+$/, "");
   const existing = db.all(
-    `SELECT name, path FROM repos`
+    `SELECT name, path, remotes FROM repos`
   );
+  const remotesByRepo = /* @__PURE__ */ new Map();
+  for (const r of out.repos) remotesByRepo.set(r.name, readRepoRemotes(r.path));
+  const rename_candidates = detectRenames(existing, out.repos, remotesByRepo);
+  const renamedTo = new Set(rename_candidates.map((c) => c.new));
+  const renamedFrom = new Set(rename_candidates.map((c) => c.old));
+  const persisted = {
+    ...out,
+    repos: out.repos.filter((r) => !renamedTo.has(r.name)),
+    files: out.files.filter((f) => !renamedTo.has(f.repo))
+  };
+  const scannedNames = new Set(persisted.repos.map((r) => r.name));
   const toRetire = existing.filter((r) => {
     const normPath = r.path.replace(/\/+$/, "");
     const underSession = normPath === normSession || normPath.startsWith(normSession + "/");
-    return underSession && !scannedNames.has(r.name);
+    return underSession && !scannedNames.has(r.name) && !renamedFrom.has(r.name);
   });
   let repos_upserted = 0;
   let repos_retired = 0;
   let dirs_retired = 0;
   const retired = [];
   db.transaction(() => {
-    for (const r of out.repos) {
-      const remotesJson = JSON.stringify(readRepoRemotes(r.path));
+    for (const r of persisted.repos) {
+      const remotesJson = JSON.stringify(remotesByRepo.get(r.name) ?? []);
       db.run(
         `INSERT INTO repos (name, path, file_count, last_scanned_at, remotes)
          VALUES (?, ?, ?, ?, ?)
@@ -28102,11 +28220,21 @@ function persistScan(db, graph, out, sessionDir) {
         db.run(`DELETE FROM repos WHERE name = ?`, [r.name]);
         db.run(`RELEASE retire_repo`);
         repos_retired++;
-        retired.push(r);
+        retired.push({ name: r.name, path: r.path });
       } catch {
         db.run(`ROLLBACK TO retire_repo`);
         db.run(`RELEASE retire_repo`);
       }
+    }
+    for (const c of rename_candidates) {
+      insertAudit(db, {
+        issue_id: -1,
+        from_node: "bro",
+        event_type: "repo_rename_detected",
+        summary: `Scan: repo ${c.old} looks renamed to ${c.new} (matched by ${c.by}); run repo_rename to apply`,
+        content_json: JSON.stringify({ old: c.old, new: c.new, by: c.by }),
+        repo: c.old
+      });
     }
   });
   if (graph) {
@@ -28119,12 +28247,12 @@ function persistScan(db, graph, out, sessionDir) {
   let dirs_readme_summarized = 0;
   let dirs_structural_summarized = 0;
   if (graph) {
-    const stats = persistDirectoriesGraph(graph, out, now);
+    const stats = persistDirectoriesGraph(graph, persisted, now);
     dirs_upserted = stats.dirs_upserted;
     dirs_readme_summarized = stats.dirs_readme_summarized;
     dirs_structural_summarized = stats.dirs_structural_summarized;
-    const dirMap = deriveDirectoryEntries(out);
-    for (const r of out.repos) {
+    const dirMap = deriveDirectoryEntries(persisted);
+    for (const r of persisted.repos) {
       const keepKeys = /* @__PURE__ */ new Set();
       for (const [, entry] of dirMap) {
         if (entry.repo === r.name) {
@@ -28141,7 +28269,8 @@ function persistScan(db, graph, out, sessionDir) {
     dirs_upserted,
     dirs_retired,
     dirs_readme_summarized,
-    dirs_structural_summarized
+    dirs_structural_summarized,
+    rename_candidates
   };
 }
 var SCAN_TIMEOUT_MS = 10 * 60 * 1e3;
@@ -28179,7 +28308,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
   const definitions = [
     {
       name: "scan_run",
-      description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory nodes + CONTAINS edges to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. Hard timeout: 10 minutes.",
+      description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory nodes + CONTAINS edges to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. A renamed repo lands in rename_candidates for repo_rename, never as a second row. Hard timeout: 10 minutes.",
       inputSchema: {
         type: "object",
         properties: {
@@ -28251,7 +28380,8 @@ function scanTools(db, graphHolder = null, dbPath = "") {
           const out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
           const stats = persistScan(db, graph, out, sessionDir);
           const spawnFn = args["_spawnFn"];
-          for (const r of out.repos) {
+          const renamedTo = new Set(stats.rename_candidates.map((c) => c.new));
+          for (const r of out.repos.filter((repo) => !renamedTo.has(repo.name))) {
             try {
               syncRepoMilestones(db, r.name, r.path, spawnFn);
             } catch (e) {

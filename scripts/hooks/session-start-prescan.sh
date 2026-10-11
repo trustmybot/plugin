@@ -88,18 +88,42 @@ STACKS=$(echo "$STACKS" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 OPEN_ISSUES=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM issues WHERE status='open';" 2>/dev/null || echo 0)
 PENDING_TASKS=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM tasks WHERE status IN ('pending','running');" 2>/dev/null || echo 0)
 
-# World model status (cold vs warm). The world model lives in the kuzu graph
-# (ADR 0002), not SQLite — so the warm/cold proxy is the deep_scan_completed
-# audit event (the same signal the registry-cold gate uses): present ⇒ a scan
-# has populated the graph.
+# World model status. The world model lives in the kuzu graph (ADR 0002), not
+# SQLite. cold = no deep_scan_completed row (the registry-cold gate's signal);
+# otherwise the newest repos.last_scanned_at decides warm (< 7 days) vs stale.
 WORLD_MODEL_SCANNED=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM audit WHERE event_type='deep_scan_completed';" 2>/dev/null || echo 0)
 SOURCE_FILE_COUNT=$(git ls-files 2>/dev/null | grep -cvE '^(\.claude/|node_modules/|dist/|build/|\.git/)' || echo 0)
+WORLD_MODEL_STALE_SECS=$((7 * 24 * 3600))
+SCAN_AGE_ROW=$(tmb_sqlite_ro "$DB_PATH" "SELECT CAST(strftime('%s','now') - strftime('%s', MAX(last_scanned_at)) AS INTEGER), COALESCE(SUM(file_count), 0) FROM repos;")
+SCAN_AGE_SECS="${SCAN_AGE_ROW%%|*}"
+SCANNED_FILE_COUNT="${SCAN_AGE_ROW##*|}"
 
-WORLD_MODEL_STATE="warm"
+relative_age() {
+  local secs="$1"
+  [ "$secs" -lt 0 ] && secs=0
+  if [ "$secs" -lt 60 ]; then
+    printf 'just now'
+  elif [ "$secs" -lt 3600 ]; then
+    printf '%dm ago' $((secs / 60))
+  elif [ "$secs" -lt 86400 ]; then
+    printf '%dh ago' $((secs / 3600))
+  else
+    printf '%dd ago' $((secs / 86400))
+  fi
+}
+
 COLD_NOTE=""
-if [ "$WORLD_MODEL_SCANNED" = "0" ] && [ "$SOURCE_FILE_COUNT" != "0" ]; then
-  WORLD_MODEL_STATE="cold"
+if [ "$WORLD_MODEL_SCANNED" = "0" ] || [ -z "$WORLD_MODEL_SCANNED" ]; then
+  WORLD_MODEL_LINE="cold (no scan yet; ${SOURCE_FILE_COUNT} source files)"
+elif [[ "$SCAN_AGE_SECS" =~ ^-?[0-9]+$ ]] && [ "$SCAN_AGE_SECS" -lt "$WORLD_MODEL_STALE_SECS" ]; then
+  WORLD_MODEL_LINE="warm (${SCANNED_FILE_COUNT} files, last scan $(relative_age "$SCAN_AGE_SECS"))"
+elif [[ "$SCAN_AGE_SECS" =~ ^-?[0-9]+$ ]]; then
+  WORLD_MODEL_LINE="stale (last scan $(relative_age "$SCAN_AGE_SECS")) — run /scan"
+else
+  WORLD_MODEL_LINE="stale (last scan unknown) — run /scan"
+fi
 
+if [ "$WORLD_MODEL_SCANNED" = "0" ] && [ "$SOURCE_FILE_COUNT" != "0" ]; then
   SCAN_SH="$SCRIPT_DIR/../scan.sh"
   INVOKER="$SCRIPT_DIR/../maintenance/run-scan-initial.mjs"
 
@@ -135,7 +159,7 @@ INVENTORY=$(cat <<EOF
 Plugin version:    ${PLUGIN_VERSION_LINE}
 Top-level dirs:    ${TOPLEVEL}
 Stacks detected:   ${STACKS}
-World model:       ${WORLD_MODEL_STATE} (kuzu graph; ${SOURCE_FILE_COUNT} source files)
+World model:       ${WORLD_MODEL_LINE}
 Git branch:        ${BRANCH} (${COMMIT_COUNT} commits, ${DIRTY_COUNT} dirty paths)
 Open issues:       ${OPEN_ISSUES}
 Pending tasks:     ${PENDING_TASKS}

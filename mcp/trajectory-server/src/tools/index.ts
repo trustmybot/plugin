@@ -19,6 +19,7 @@ import { prMonitorTools } from './pr_monitor.js';
 import { compositeTools } from './composites.js';
 import { onboardTools } from './onboard.js';
 import { scanTools } from './scan.js';
+import { repoTools } from './repos.js';
 import { cheatcodeTools } from './cheatcode.js';
 import { worldModelTools } from './world_model.js';
 export let toolDefinitions: Tool[] = [];
@@ -70,6 +71,7 @@ export function registerTools(
   const composites = compositeTools(db, dbPath, graphHolder);
   const onboard = onboardTools(db, dbPath);
   const scan = scanTools(db, graphHolder, dbPath);
+  const repos = repoTools(db, graphHolder);
   const cheatcode = cheatcodeTools(db);
   const worldModel = worldModelTools(db, graphHolder);
 
@@ -91,6 +93,7 @@ export function registerTools(
     ...composites.definitions,
     ...onboard.definitions,
     ...scan.definitions,
+    ...repos.definitions,
     ...cheatcode.definitions,
     ...worldModel.definitions,
   ]);
@@ -113,6 +116,7 @@ export function registerTools(
     ...composites.handlers,
     ...onboard.handlers,
     ...scan.handlers,
+    ...repos.handlers,
     ...cheatcode.handlers,
     ...worldModel.handlers,
   };
