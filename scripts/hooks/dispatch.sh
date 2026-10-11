@@ -10,7 +10,10 @@
 #
 # 1. One install per project. lib/resolve-install.sh picks the install this
 #    project uses; the gate executed is <that install>/scripts/hooks/<gate>.sh,
-#    with CLAUDE_PLUGIN_ROOT pointing at it.
+#    with CLAUDE_PLUGIN_ROOT pointing at it. When that install lacks the gate,
+#    the dispatcher's own copy runs, with a stderr notice. An invalid gate name
+#    or a gate found in neither exits 1 with a stderr line: a visible hook
+#    error, never a silent allow.
 # 2. --shim keeps the headless shim's yield: exit 0 without running the gate
 #    when CLAUDE_PROJECT_DIR is another project than TMB_SHIM_PROJECT, or when
 #    the plugin's own hooks marked this session
@@ -51,8 +54,8 @@ done
 
 case "$GATE" in
   ''|*[!a-z0-9-]*|dispatch)
-    printf 'TMB dispatch: invalid gate name %s — skipped\n' "'${GATE}'" >&2
-    exit 0
+    printf 'TMB dispatch: invalid gate name %s — not run\n' "'${GATE}'" >&2
+    exit 1
     ;;
 esac
 
@@ -68,12 +71,15 @@ export CLAUDE_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$SELF_ROOT}"
 ROOT=$(tmb_active_install)
 TARGET="$ROOT/scripts/hooks/$GATE.sh"
 if [ -z "$ROOT" ] || [ ! -f "$TARGET" ]; then
+  if [ -n "$ROOT" ] && [ "$ROOT" != "$SELF_ROOT" ]; then
+    printf 'TMB dispatch: no gate %s.sh in %s — using %s\n' "$GATE" "$ROOT" "$SELF_ROOT" >&2
+  fi
   ROOT="$SELF_ROOT"
   TARGET="$SELF_ROOT/scripts/hooks/$GATE.sh"
 fi
 if [ ! -f "$TARGET" ]; then
-  printf 'TMB dispatch: no gate %s.sh in %s — skipped\n' "$GATE" "$ROOT" >&2
-  exit 0
+  printf 'TMB dispatch: no gate %s.sh in %s — not run\n' "$GATE" "$ROOT" >&2
+  exit 1
 fi
 export CLAUDE_PLUGIN_ROOT="$ROOT"
 

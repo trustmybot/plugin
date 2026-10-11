@@ -9,15 +9,16 @@
 # installPath, installedAt, version } under the key <plugin>@<marketplace>.
 #
 # tmb_active_install prints the installPath every hook of this project runs:
-#   1. candidates = entries for this plugin (any marketplace) whose installPath
+#   1. a CLAUDE_PLUGIN_ROOT outside any plugins cache that no entry names (a
+#      dev checkout or --plugin-dir) resolves to itself, whatever the manifest
+#      holds for this project;
+#   2. candidates = entries for this plugin (any marketplace) whose installPath
 #      exists;
-#   2. a project/local entry whose canonical projectPath equals the canonical
+#   3. a project/local entry whose canonical projectPath equals the canonical
 #      CLAUDE_PROJECT_DIR wins; two of them → the newest installedAt, with a
 #      stderr notice naming both;
-#   3. otherwise the newest user-scope entry;
-#   4. otherwise (no entry: dev checkout, --plugin-dir, tests) CLAUDE_PLUGIN_ROOT.
-# A CLAUDE_PLUGIN_ROOT outside any plugins cache that no entry names (a dev
-# checkout or --plugin-dir) is never redirected: it resolves to itself.
+#   4. otherwise the newest user-scope entry;
+#   5. otherwise (no entry) CLAUDE_PLUGIN_ROOT.
 
 _tmb_canonical_dir() {
   (cd "${1:-}" 2>/dev/null && pwd -P) || printf '%s\n' "${1:-}"
@@ -76,17 +77,6 @@ tmb_user_installs() {
 
 tmb_active_install() {
   local self="${CLAUDE_PLUGIN_ROOT:-}" projects first second
-  projects=$(tmb_project_installs)
-  if [ -n "$projects" ]; then
-    first=$(printf '%s\n' "$projects" | sed -n 1p | cut -f3)
-    second=$(printf '%s\n' "$projects" | sed -n 2p | cut -f3)
-    if [ -n "$second" ]; then
-      printf 'TMB: two project installs for %s — using %s (newest), ignoring %s\n' \
-        "$CLAUDE_PROJECT_DIR" "$first" "$second" >&2
-    fi
-    printf '%s\n' "$first"
-    return 0
-  fi
   if [ -n "$self" ]; then
     case "$self" in
       */plugins/cache/*) ;;
@@ -97,6 +87,17 @@ tmb_active_install() {
         fi
         ;;
     esac
+  fi
+  projects=$(tmb_project_installs)
+  if [ -n "$projects" ]; then
+    first=$(printf '%s\n' "$projects" | sed -n 1p | cut -f3)
+    second=$(printf '%s\n' "$projects" | sed -n 2p | cut -f3)
+    if [ -n "$second" ]; then
+      printf 'TMB: two project installs for %s — using %s (newest), ignoring %s\n' \
+        "$CLAUDE_PROJECT_DIR" "$first" "$second" >&2
+    fi
+    printf '%s\n' "$first"
+    return 0
   fi
   first=$(tmb_user_installs | sed -n 1p | cut -f3)
   if [ -n "$first" ]; then

@@ -13,8 +13,12 @@
 #   One install per project:
 #     - project install B named in installed_plugins.json → B's gate runs from A
 #     - project beats user; user-only → user; missing installPath skipped
-#     - no entry → local; a dev checkout is never redirected
+#     - no entry → local; a dev checkout is never redirected, even by a
+#       project or user entry for this project; a cached install in the
+#       manifest keeps project > user precedence
 #     - two project installs → newest, stderr notice naming both
+#   Missing gate: invalid name or gate script in no install → rc 1 + stderr;
+#     resolved install lacking the gate → dispatcher's own copy, logged
 #   Shim: marker for the session → yield; foreign project → yield
 #   Parity: every PreToolUse gate in hooks.json gives the same stdout + exit
 #   code through the dispatcher as run directly.
@@ -242,6 +246,67 @@ assert_eq "B" "$(ran_from)" "newest project install executed"
 assert_contains "$err" "$B" "notice names the winner"
 assert_contains "$err" "$A" "notice names the ignored install"
 rm -f "$TMB_INSTALLED_JSON"
+
+test_case "dev checkout runs its own gate despite a project entry for this project"
+reset_runs
+manifest "\"tmb@mp\":[$(entry local "$PROJ" "$B" 2026-06-01T00:00:00.000Z 2.0.0)]"
+FX_SLEEP=0 dispatch "$DEV" fx-allow "$(payload "ls r8" tu-r8)" > /dev/null
+assert_eq "DEV $DEV" "$(tail -1 "$RUNS")" "dev checkout ran its own gate with its own CLAUDE_PLUGIN_ROOT"
+
+test_case "dev checkout runs its own gate despite project and user entries"
+reset_runs
+manifest "\"tmb@mp\":[$(entry user "" "$A" 2026-06-01T00:00:00.000Z 1.0.0)],\"tmb@mp2\":[$(entry project "$PROJ" "$B" 2026-01-01T00:00:00.000Z 2.0.0)]"
+FX_SLEEP=0 dispatch "$DEV" fx-allow "$(payload "ls r9" tu-r9)" > /dev/null
+assert_eq "DEV" "$(ran_from)" "dev checkout ran its own gate"
+
+test_case "cached install named in the manifest keeps project > user precedence"
+reset_runs
+manifest "\"tmb@mp\":[$(entry user "" "$A" 2026-06-01T00:00:00.000Z 1.0.0)],\"tmb@mp2\":[$(entry project "$PROJ" "$B" 2026-01-01T00:00:00.000Z 2.0.0)]"
+FX_SLEEP=0 dispatch "$A" fx-allow "$(payload "ls r10" tu-r10)" > /dev/null
+assert_eq "B" "$(ran_from)" "project install executed from the cached user install"
+
+test_case "checkout named in the manifest is not a dev checkout: project entry wins"
+reset_runs
+manifest "\"tmb@mp\":[$(entry user "" "$DEV" 2026-06-01T00:00:00.000Z 0.0.0)],\"tmb@mp2\":[$(entry project "$PROJ" "$B" 2026-01-01T00:00:00.000Z 2.0.0)]"
+FX_SLEEP=0 dispatch "$DEV" fx-allow "$(payload "ls r11" tu-r11)" > /dev/null
+assert_eq "B" "$(ran_from)" "project install executed"
+rm -f "$TMB_INSTALLED_JSON"
+
+# ===========================================================================
+test_case "invalid gate name: rc 1 with a stderr line"
+reset_runs
+rc=0
+err=$(dispatch "$A" "Bad_Gate" "$(payload "ls g1" tu-g1)" 2>&1 >/dev/null) || rc=$?
+assert_eq "1" "$rc" "exit 1"
+assert_contains "$err" "invalid gate name 'Bad_Gate'" "stderr names the gate"
+rc=0
+err=$(printf '%s' "$(payload)" | CLAUDE_PLUGIN_ROOT="$A" bash "$A/scripts/hooks/dispatch.sh" 2>&1 >/dev/null) || rc=$?
+assert_eq "1" "$rc" "no gate argument: exit 1"
+assert_contains "$err" "invalid gate name" "stderr line for a missing argument"
+
+test_case "gate script in no install: rc 1 with a stderr line"
+reset_runs
+rc=0
+err=$(dispatch "$A" fx-absent "$(payload "ls g2" tu-g2)" 2>&1 >/dev/null) || rc=$?
+assert_eq "1" "$rc" "exit 1"
+assert_contains "$err" "no gate fx-absent.sh in $A" "stderr names the gate and install"
+assert_eq "0" "$(runs)" "nothing ran"
+
+test_case "resolved install lacks the gate: dispatcher's own copy runs, logged"
+reset_runs
+cat > "$A/scripts/hooks/fx-only-a.sh" <<EOF2
+#!/usr/bin/env bash
+cat >/dev/null
+echo "A \${CLAUDE_PLUGIN_ROOT}" >> "$RUNS"
+EOF2
+chmod +x "$A/scripts/hooks/fx-only-a.sh"
+manifest "\"tmb@mp\":[$(entry local "$PROJ" "$B" 2026-06-01T00:00:00.000Z 2.0.0)]"
+rc=0
+err=$(dispatch "$A" fx-only-a "$(payload "ls g3" tu-g3)" 2>&1 >/dev/null) || rc=$?
+assert_eq "0" "$rc" "fallback gate exit code"
+assert_eq "A $A" "$(tail -1 "$RUNS")" "dispatcher's own gate ran with its own CLAUDE_PLUGIN_ROOT"
+assert_contains "$err" "no gate fx-only-a.sh in $B — using $A" "fallback logged on stderr"
+rm -f "$TMB_INSTALLED_JSON" "$A/scripts/hooks/fx-only-a.sh"
 
 # ===========================================================================
 test_case "--shim yields when the plugin hooks marked this session"
