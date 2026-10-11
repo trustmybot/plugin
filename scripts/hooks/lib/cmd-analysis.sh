@@ -72,7 +72,9 @@
 #   wrappers, their options and VAR=value assignments, by basename so
 #   /usr/bin/gh counts) prints what makes it a write to the forge: the HTTP
 #   verb of an `api` call (-X <V>, -X<V>, --method <V>, --method=<V> in any
-#   position, V in POST|PATCH|PUT|DELETE, case-insensitive), or the
+#   position, V in POST|PATCH|PUT|DELETE, case-insensitive; with no verb,
+#   POST when a -f/-F/--field/--raw-field/--input parameter is present, as
+#   gh and glab send it), or the
 #   `<group> <action>` of a mutating subcommand (issue/pr/mr create, merge,
 #   close, edit, comment, …; release and repo writes). Prints nothing for
 #   read-only calls and other statements.
@@ -503,7 +505,7 @@ tmb_git_subcommand() {
 
 tmb_gh_mutation() {
   local -a w
-  local k=0 n tool="" skipval=0 a verb="" group="" action="" writes=""
+  local k=0 n tool="" skipval=0 a verb="" group="" action="" writes="" fields=0
   read -r -a w <<< "${1:-}"
   n=${#w[@]}
   while [ "$k" -lt "$n" ]; do
@@ -541,13 +543,15 @@ tmb_gh_mutation() {
         -X|--method) verb="${w[$k]:-}"; k=$((k + 1)) ;;
         --method=*) verb="${a#--method=}" ;;
         -X*) verb="${a#-X}" ;;
-        *) continue ;;
-      esac
-      verb=$(printf '%s' "$verb" | tr '[:lower:]' '[:upper:]')
-      case "$verb" in
-        POST|PATCH|PUT|DELETE) printf '%s\n' "$verb"; return 0 ;;
+        -f|-F|--field|--raw-field|--input) fields=1; k=$((k + 1)) ;;
+        -f*|-F*|--field=*|--raw-field=*|--input=*) fields=1 ;;
       esac
     done
+    verb=$(printf '%s' "$verb" | tr '[:lower:]' '[:upper:]')
+    [ -n "$verb" ] || { [ "$fields" = 1 ] && verb=POST; }
+    case "$verb" in
+      POST|PATCH|PUT|DELETE) printf '%s\n' "$verb" ;;
+    esac
     return 0
   fi
   case "$tool $group" in

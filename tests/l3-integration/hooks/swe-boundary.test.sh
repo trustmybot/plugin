@@ -472,13 +472,16 @@ assert_contains "$out" "gh/glab mutating" "a real statement after the heredoc st
 for gh_cmd in 'gh api -X POST x' 'gh api -XPOST x' 'gh api --method DELETE x' \
   'gh api --method=PATCH x' 'gh api x -X PUT' '/usr/bin/gh api -X POST x' \
   'sudo gh api -X POST x' 'glab api -X POST x' 'gh api -X post x' \
-  'gh issue comment 3 --body x' 'gh release create v1' 'gh repo delete o/r'; do
+  'gh issue comment 3 --body x' 'gh release create v1' 'gh repo delete o/r' \
+  'gh api repos/o/r/issues -f title=x' 'gh api repos/o/r/issues -F body=@f' \
+  'gh api --input body.json repos/o/r/labels' 'glab api projects/1/issues -f title=x'; do
   test_case "(b) SWE '$gh_cmd': DENIED"
   out=$(run_hook_swe "$(make_bash_input swe "$gh_cmd")")
   assert_contains "$out" "gh/glab mutating" "a forge write must be denied for SWE"
 done
 
 for gh_cmd in 'gh api repos/o/r' 'gh api -X GET x' 'gh release view v1' \
+  'gh api -X GET repos/o/r -f per_page=5' 'echo "gh api repos/o/r/issues -f title=x"' \
   "cat > notes.md <<'EOF'
 gh api -X POST x
 gh api --method=PATCH x
