@@ -1762,6 +1762,40 @@ describe('task_provision (#157)', () => {
     }
   });
 
+  it('stamps the bro row with session_id when passed, NULL when omitted, and rejects an invalid one writing nothing', async () => {
+    const { ws, repoRoot, git } = makeRepo();
+    try {
+      const db = tempDB();
+      seedIssue(db, repoRoot);
+      const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+      const provision = (branch_id: string, extra: Record<string, unknown>) =>
+        call(composites.handlers, 'task_provision', {
+          agent: 'bro', issue_id: 1, branch_id, decision_body: 'Chosen approach: stamp the session.',
+          task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+          ...extra,
+        });
+      const sessionOf = (taskId: unknown) =>
+        db.get<{ s: string | null }>(`SELECT session_id AS s FROM agent_runs WHERE task_id = ? AND agent_type = 'bro'`, [taskId])!.s;
+
+      const stamped = parse(await provision('feat/session-a', { session_id: '0b5e-4c1d_abcdEF12' }));
+      assert.equal(sessionOf(stamped['task_id']), '0b5e-4c1d_abcdEF12');
+
+      const legacy = parse(await provision('feat/session-b', {}));
+      assert.equal(sessionOf(legacy['task_id']), null, 'omitted session_id leaves the row for the Stop-hook claim');
+
+      for (const bad of ['short', 'has space in it', 'x'.repeat(65), "evil';--x", 12345678]) {
+        const r = await provision('feat/session-bad', { session_id: bad });
+        assert.equal(r.isError, true, `session_id ${JSON.stringify(bad)} is rejected`);
+        assert.match(String(parse(r)['error']), /session_id must be 8–64 characters/);
+      }
+      assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM tasks WHERE branch_id = 'feat/session-bad'`)!.c, 0);
+      assert.throws(() => git(repoRoot, 'rev-parse', '--verify', 'refs/heads/feat/session-bad'), 'no branch ref');
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
   it('happy path: writes decision + task + branch + worktree and returns the spawn-ready shape', async () => {
     const { ws, repoRoot, git } = makeRepo();
     try {
@@ -2556,6 +2590,51 @@ describe('agent_runs lifecycle — rows open with their run and close with their
     db.close();
   });
 
+  it('task_create_batch and task_retry stamp session_id on the bro row when passed, NULL when omitted, and reject an invalid one', async () => {
+    const db = tempDB();
+    db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at) VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+    const tasks = taskTools(db, { host: 'claude', projectRoot: '/work/proj' });
+    const WAIVE = 'unit test of session stamping';
+    const batch = (branches: string[], extra: Record<string, unknown>) =>
+      call(tasks.handlers, 'task_create_batch', {
+        agent: 'bro', issue_id: '1',
+        waive_intent_gate: true, waive_intent_gate_reason: WAIVE, waive_decision_gate: true, waive_decision_gate_reason: WAIVE,
+        waive_branch_gate: true, waive_branch_gate_reason: WAIVE, waive_scope_gate: true, waive_scope_gate_reason: WAIVE,
+        waive_spec_shape: true, waive_spec_shape_reason: WAIVE,
+        tasks: branches.map((branch_id) => ({ branch_id, description: 'd', spec_body: SPEC, files: ['src/a.ts'], verification: ['true'] })),
+        ...extra,
+      });
+    const sessionsOf = (ids: number[]) =>
+      ids.map((id) => db.get<{ s: string | null }>(`SELECT session_id AS s FROM agent_runs WHERE task_id = ? AND agent_type = 'bro'`, [id])!.s);
+
+    const stamped = parseBatch(await batch(['fix/sess-a', 'fix/sess-b', 'fix/sess-c'], { session_id: 'sess-0001-batch' }));
+    assert.deepEqual(sessionsOf(stamped.map((t) => t['id'] as number)), ['sess-0001-batch', 'sess-0001-batch', 'sess-0001-batch']);
+
+    const legacy = parseBatch(await batch(['fix/sess-d'], {}));
+    const legacyId = legacy[0]!['id'] as number;
+    assert.deepEqual(sessionsOf([legacyId]), [null]);
+
+    const rejected = await batch(['fix/sess-e'], { session_id: 'bad id!' });
+    assert.equal(rejected.isError, true);
+    assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM tasks WHERE branch_id = 'fix/sess-e'`)!.c, 0, 'nothing written');
+
+    await call(tasks.handlers, 'task_update_status', { agent: 'bro', task_id: String(legacyId), status: 'escalated' });
+    const composites = compositeTools(db, '', null, { host: 'claude', projectRoot: '/work/proj' });
+    const retry = (new_branch_id: string, extra: Record<string, unknown>) =>
+      composites.handlers['task_retry']!({
+        agent: 'bro', failed_task_id: String(legacyId), new_branch_id, corrected_spec_body: SPEC,
+        retry_rationale: 'retry for session stamping', description: 'd', ...extra,
+      }) as Promise<RawResult>;
+
+    const badRetry = await retry('fix/sess-retry-bad', { session_id: 'tiny' });
+    assert.equal(badRetry.isError, true);
+    assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM tasks WHERE branch_id = 'fix/sess-retry-bad'`)!.c, 0);
+
+    const retried = parse(await retry('fix/sess-retry', { session_id: 'sess-0002-retry' }));
+    assert.deepEqual(sessionsOf([retried['task_id'] as number]), ['sess-0002-retry']);
+    db.close();
+  });
+
   for (const status of ['failed', 'escalated'] as const) {
     it(`task_update_status → ${status} stamps exit_reason ${status} on every row it closes`, async () => {
       const db = tempDB();
@@ -2615,6 +2694,43 @@ describe('agent_runs lifecycle — rows open with their run and close with their
     assert.equal(rows[0]!.exit_reason, 'swept_orphan');
     assert.notEqual(rows[0]!.completed_at, null);
     assert.equal(rows[1]!.completed_at, null, 'the new spawn has an open row');
+    db.close();
+  });
+
+  it('task_brief stamps the swept orphan with its window length and exit_reason swept_orphan', async () => {
+    const db = tempDB();
+    const id = seed(db);
+    db.run(
+      `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at) VALUES (?, 1, 'swe', strftime('%Y-%m-%dT%H:%M:%fZ','now','-11 minutes'))`,
+      [id],
+    );
+    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+    await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
+    const orphan = db.get<{ exit_reason: string; duration_ms: number }>(
+      'SELECT exit_reason, duration_ms FROM agent_runs WHERE task_id = ? ORDER BY id LIMIT 1',
+      [id],
+    )!;
+    assert.equal(orphan.exit_reason, 'swept_orphan');
+    assert.ok(orphan.duration_ms >= 11 * 60 * 1000, `the orphan takes its window length (got ${orphan.duration_ms})`);
+    db.close();
+  });
+
+  it('task_brief reuses an open swe row younger than 10 minutes', async () => {
+    const db = tempDB();
+    const id = seed(db);
+    db.run(
+      `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at) VALUES (?, 1, 'swe', strftime('%Y-%m-%dT%H:%M:%fZ','now','-9 minutes'))`,
+      [id],
+    );
+    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+    await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
+    const rows = db.all<{ exit_reason: string | null; completed_at: string | null }>(
+      'SELECT exit_reason, completed_at FROM agent_runs WHERE task_id = ? ORDER BY id',
+      [id],
+    );
+    assert.equal(rows.length, 1, 'no new row opens');
+    assert.equal(rows[0]!.completed_at, null, 'the young row stays open');
+    assert.equal(rows[0]!.exit_reason, null);
     db.close();
   });
 });

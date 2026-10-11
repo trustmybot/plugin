@@ -17,6 +17,10 @@
 # so an absent server is evidence (unlike a SessionStart sample): the context
 # then carries the HALT + recovery pointer (tmb_recovery §C).
 #
+# Session id: the context ends with session_id=<id> (the payload's session_id,
+# when it is 8–64 chars of [A-Za-z0-9_-]) so bro can pass it to task_provision /
+# task_create_batch / task_retry, which stamp it on the task's bro agent_runs row.
+#
 # Silent no-op when:
 #   - not in bro mode
 #   - DB doesn't exist yet (first activation in a fresh project)
@@ -29,6 +33,7 @@ INPUT=$(cat)
 
 PROMPT=$(echo "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)
 TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/null)
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""' 2>/dev/null)
 
 contains_bro_word() {
   echo "$1" | grep -qiE '\bbro\b'
@@ -122,5 +127,8 @@ fi
 
 if [ -n "$HALT_TEXT" ]; then
   CONTEXT="${HALT_TEXT} ${CONTEXT}"
+fi
+if printf '%s' "$SESSION_ID" | grep -qE '^[A-Za-z0-9_-]{8,64}$'; then
+  CONTEXT="${CONTEXT} session_id=${SESSION_ID}"
 fi
 emit "$CONTEXT"

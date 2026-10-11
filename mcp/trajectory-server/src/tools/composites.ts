@@ -12,6 +12,8 @@ import {
   closeOpenRunsForTask,
   openBroRun,
   openSweRun,
+  parseRunSessionId,
+  RUN_SESSION_ID_SCHEMA,
   sweepRunsOfTerminalTasks,
   type RunContext,
 } from './agent-runs.js';
@@ -375,6 +377,7 @@ export function compositeTools(
           },
           title: { type: 'string' },
           description: { type: 'string' },
+          session_id: RUN_SESSION_ID_SCHEMA,
         },
         required: [
           'agent',
@@ -546,6 +549,7 @@ export function compositeTools(
             type: 'string',
             description: "Optional start-point for the branch ref. Defaults to the repo's target_branch || 'dev'.",
           },
+          session_id: RUN_SESSION_ID_SCHEMA,
           waive_registry_gate: {
             type: 'boolean',
             description:
@@ -616,6 +620,7 @@ export function compositeTools(
         const branchId = args['branch_id'] as string;
         const decisionBody = args['decision_body'] as string;
         const task = args['task'] as TaskProvisionInput | undefined;
+        const sessionId = parseRunSessionId(args['session_id']);
 
         if (typeof issueId !== 'number' || !Number.isFinite(issueId)) {
           return err('issue_id must be a number');
@@ -828,7 +833,7 @@ export function compositeTools(
           );
           if (!row) throw new Error('task_provision: task insert succeeded but row lookup failed');
 
-          openBroRun(db, { id: row.id, issue_id: issueId, repo: row.repo }, now, runContext);
+          openBroRun(db, { id: row.id, issue_id: issueId, repo: row.repo }, now, runContext, sessionId);
 
           insertAudit(db, {
             issue_id: issueId,
@@ -1080,6 +1085,7 @@ export function compositeTools(
         const description = args['description'] as string;
         const title = (args['title'] as string | undefined) ?? '';
         const repoOverride = (args['repo'] as string | undefined) ?? null;
+        const sessionId = parseRunSessionId(args['session_id']);
 
         if (!BRANCH_ID_RE.test(newBranchId)) {
           return err(`Invalid new_branch_id "${newBranchId}" — does not match conventional format.`);
@@ -1201,7 +1207,7 @@ export function compositeTools(
 
           // Bro-as-agent_run (#2886): open a bro row for the retry task,
           // mirror of the task_create_batch case.
-          openBroRun(db, { id: newTask.id, issue_id: failed.issue_id, repo: newTask.repo }, now, runContext);
+          openBroRun(db, { id: newTask.id, issue_id: failed.issue_id, repo: newTask.repo }, now, runContext, sessionId);
 
           insertAudit(db, {
             issue_id: failed.issue_id,

@@ -5,7 +5,7 @@ import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
 import { insertDiscussion } from './discussions.js';
 import { insertAudit } from './audit.js';
-import { claudeRunContext, closeOpenRunsForTask, openBroRun, openSweRun, sweepRunsOfTerminalTasks, } from './agent-runs.js';
+import { claudeRunContext, closeOpenRunsForTask, openBroRun, openSweRun, parseRunSessionId, RUN_SESSION_ID_SCHEMA, sweepRunsOfTerminalTasks, } from './agent-runs.js';
 import { outsideProject } from './containment.js';
 import { syncIssueCloseRemotes, resolveDefaultMilestone, milestoneDefaultFields, validateIssueLabels, defaultSyncLabels, } from './issues.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
@@ -297,6 +297,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                     },
                     title: { type: 'string' },
                     description: { type: 'string' },
+                    session_id: RUN_SESSION_ID_SCHEMA,
                 },
                 required: [
                     'agent',
@@ -458,6 +459,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                         type: 'string',
                         description: "Optional start-point for the branch ref. Defaults to the repo's target_branch || 'dev'.",
                     },
+                    session_id: RUN_SESSION_ID_SCHEMA,
                     waive_registry_gate: {
                         type: 'boolean',
                         description: "Bypass the world-model-cold gate (needs a deep_scan_completed audit). Only when /scan can't run.",
@@ -521,6 +523,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             const branchId = args['branch_id'];
             const decisionBody = args['decision_body'];
             const task = args['task'];
+            const sessionId = parseRunSessionId(args['session_id']);
             if (typeof issueId !== 'number' || !Number.isFinite(issueId)) {
                 return err('issue_id must be a number');
             }
@@ -705,7 +708,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 const row = db.get('SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()');
                 if (!row)
                     throw new Error('task_provision: task insert succeeded but row lookup failed');
-                openBroRun(db, { id: row.id, issue_id: issueId, repo: row.repo }, now, runContext);
+                openBroRun(db, { id: row.id, issue_id: issueId, repo: row.repo }, now, runContext, sessionId);
                 insertAudit(db, {
                     issue_id: issueId,
                     branch_id: branchId,
@@ -902,6 +905,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             const description = args['description'];
             const title = args['title'] ?? '';
             const repoOverride = args['repo'] ?? null;
+            const sessionId = parseRunSessionId(args['session_id']);
             if (!BRANCH_ID_RE.test(newBranchId)) {
                 return err(`Invalid new_branch_id "${newBranchId}" — does not match conventional format.`);
             }
@@ -992,7 +996,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                     throw new Error('insert succeeded but row lookup failed');
                 // Bro-as-agent_run (#2886): open a bro row for the retry task,
                 // mirror of the task_create_batch case.
-                openBroRun(db, { id: newTask.id, issue_id: failed.issue_id, repo: newTask.repo }, now, runContext);
+                openBroRun(db, { id: newTask.id, issue_id: failed.issue_id, repo: newTask.repo }, now, runContext, sessionId);
                 insertAudit(db, {
                     issue_id: failed.issue_id,
                     branch_id: newBranchId,
