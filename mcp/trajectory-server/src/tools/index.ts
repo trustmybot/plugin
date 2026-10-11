@@ -22,6 +22,7 @@ import { scanTools } from './scan.js';
 import { repoTools } from './repos.js';
 import { cheatcodeTools } from './cheatcode.js';
 import { worldModelTools } from './world_model.js';
+import { agentRunsBackfillTools } from './agent-runs-backfill.js';
 export let toolDefinitions: Tool[] = [];
 export let toolHandlers: Record<string, (args: Record<string, unknown>) => Promise<CallToolResult>> = {};
 
@@ -74,6 +75,7 @@ export function registerTools(
   const repos = repoTools(db, graphHolder);
   const cheatcode = cheatcodeTools(db);
   const worldModel = worldModelTools(db, graphHolder);
+  const backfill = agentRunsBackfillTools(db, dbPath);
 
   toolDefinitions = decorateWithAgent([
     ...discussions.definitions,
@@ -96,6 +98,7 @@ export function registerTools(
     ...repos.definitions,
     ...cheatcode.definitions,
     ...worldModel.definitions,
+    ...backfill.definitions,
   ]);
 
   toolHandlers = {
@@ -119,5 +122,6 @@ export function registerTools(
     ...repos.handlers,
     ...cheatcode.handlers,
     ...worldModel.handlers,
+    ...backfill.handlers,
   };
 }

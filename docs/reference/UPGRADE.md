@@ -102,6 +102,17 @@ sqlite3 <project>/.claude/tmb/trajectory.db \
 
 Both columns should match the version you just installed.
 
+### Upgrading into v1.0.3 — recover lost agent_runs
+
+Before v1.0.3 the SubagentStop hook dropped swe rows whose spawn prompt was plain text, and bro rows often metered 0. The Claude Code transcripts still on disk (`~/.claude/projects/<project-slug>/`) hold the real numbers; Claude Code prunes old sessions, so recover them soon after upgrading. From the project directory:
+
+```bash
+bash <plugin-source>/scripts/maintenance/backfill-agent-runs.sh            # dry run: prints the report, writes nothing
+bash <plugin-source>/scripts/maintenance/backfill-agent-runs.sh --apply    # writes the rows
+```
+
+bro can run the same thing with the `agent_runs_backfill` tool (`dry_run` defaults to true). Transcripts are only read. Recovered rows carry `usage_source = 'backfill'`; rows a hook already measured are never overwritten, and a second run inserts nothing. The report lists `transcripts_seen`, `bound`, `unbound` (the first 20 paths with the reason: no `task_id=<N>` in the spawn prompt, no such task, or a subagent other than swe / pr-reviewer), `rows_inserted`, `rows_updated`, `rows_skipped_measured` and `tokens_total_added`; a real run also writes one `agent_runs_backfilled` audit row. `--since <ISO>` limits it to transcripts whose last message is newer; `--transcripts-dir <dir>` reads another directory.
+
 ### Upgrading into v1.0.0 (first stable)
 
 v1.0.0 is the first stable release. Upgrading from any v0.10.x rc is a normal channel update — nothing special to do. The schema migrations apply on server start exactly as described above.

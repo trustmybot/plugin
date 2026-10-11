@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { startClient, call } from './harness.mjs';
 
 // Role matrix coverage for tools that currently wrap handlers with `requireRoles`.
@@ -271,4 +274,22 @@ test('task_reopen + task_update_spec — bro only; swe/pr-reviewer/architect for
     assert.equal(bro.ok, false, `${tool} on a missing task is an error`);
     assert.notEqual(bro.error?.error, 'forbidden', `bro passes the role gate on ${tool}`);
   }
+});
+
+// agent_runs_backfill rewrites metering history: bro only; a dry run writes nothing.
+test('agent_runs_backfill — bro only; dry run over an empty transcripts dir reports zero', async (t) => {
+  const { client, close } = await startClient();
+  const dir = mkdtempSync(join(tmpdir(), 'tmb-l3-backfill-'));
+  t.after(async () => { await close(); rmSync(dir, { recursive: true, force: true }); });
+
+  for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
+    const res = await call(client, 'agent_runs_backfill', { agent: wrongRole, transcripts_dir: dir });
+    assert.equal(res.ok, false, `${wrongRole} must be forbidden from agent_runs_backfill`);
+    assert.equal(res.error?.error, 'forbidden');
+  }
+  const bro = await call(client, 'agent_runs_backfill', { agent: 'bro', transcripts_dir: dir });
+  assert.equal(bro.ok, true, `bro should be allowed; got ${JSON.stringify(bro)}`);
+  assert.equal(bro.data.dry_run, true);
+  assert.equal(bro.data.transcripts_seen, 0);
+  assert.equal(bro.data.rows_inserted, 0);
 });

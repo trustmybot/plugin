@@ -132,6 +132,7 @@ Returned in the created-issue payload, not stored.
 | `agent_runs_capture_skipped` | `swe-atomic-close` could not bind a SWE spawn to a task (no `task_id=<N>` in the spawn transcript, or no such task) and wrote no `agent_runs` row; filed under the system issue `-1`; `content_json` carries `reason`, `transcript`, `spawn_id`, `task_id` |
 | `task_escalated_repair` | The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` (GH 1212) and closed its open `agent_runs` rows as `issue_closed`; written by `system` on the task's issue; `content_json` carries `task_id`, `issue_id`, `from_status` |
 | `containment_denied` | `containment-guard` denied a write outside the run's root (from_node `hook:containment-guard`, on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `root`, `task_id` |
+| `agent_runs_backfilled` | `agent_runs_backfill` (dry_run false) recovered `agent_runs` rows from Claude Code transcripts; one row per run on the system issue `-1`, from_node `bro`; `content_json` is the report: `transcripts_dir`, `transcripts_seen`, `sessions_seen`, `bound`, `unbound` (`count`, `first` — up to 20 `{path, reason}`), `rows_inserted`, `rows_updated`, `rows_skipped_measured`, `tokens_total_added` |
 | `agent_runs_claimed` | `bro-turn-usage` claimed bro `agent_runs` rows opened without a `session_id` for its session (from_node `hook:bro-turn-usage`, one row per claim, on the rows' issue when they share one, else the system issue `-1`); `content_json` carries `run_ids`, `session_id` |
 | `scan_discovered_repair` | The v32 migration deleted `scan_discovered` rows whose `(name, kind)` has no `cheatcodes` row (phantom discoveries from a failed insert); filed under the system issue `-1` by `system`; `content_json` carries `deleted` |
 | `task_escalated_by_issue_close` | `issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task, from_node `bro`; `content_json` carries `task_id`, `from_status`, `reason` |
@@ -198,7 +199,7 @@ Currently `33`. Bumped on any breaking schema change. **NOT free-form** — ever
 | `transcript` | Measured by the bro Stop hook from the session transcript (bro rows) |
 | `subagent_stop` | Measured by the SubagentStop hook from the spawn's transcript (swe rows) |
 | `unmeasured` | The run closed without a measurement; the four token columns are NULL |
-| `backfill` | Recreated after the fact from an archived transcript (a maintenance backfill, not a live hook) |
+| `backfill` | Recreated after the fact from an archived transcript by `agent_runs_backfill` / `scripts/maintenance/backfill-agent-runs.sh` (not a live hook); never written over a `transcript` / `subagent_stop` row |
 
 `CHECK`-enforced. NULL until the run is first measured.
 
