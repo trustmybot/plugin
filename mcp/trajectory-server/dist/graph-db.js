@@ -151,6 +151,62 @@ export class WorldModelGraph {
         }
         return toDelete.length;
     }
+    // Re-key every Directory node of oldRepo under newRepo in one kuzu
+    // transaction. The primary key embeds the repo (dirKey), so each node is
+    // re-created under its new key, its CONTAINS edges re-linked, and the old
+    // nodes detach-deleted. Returns the number of nodes moved.
+    renameRepo(oldRepo, newRepo) {
+        const nodes = this.allDirectoriesForRepo(oldRepo);
+        if (nodes.length === 0)
+            return 0;
+        const edges = this.containsEdgesForRepo(oldRepo);
+        this.conn.querySync('BEGIN TRANSACTION');
+        try {
+            for (const n of nodes) {
+                this.upsertDirectory({
+                    repo: newRepo,
+                    path: n.path,
+                    parent_path: n.parent_path,
+                    summary: n.summary,
+                    summary_source: n.summary_source,
+                    summary_updated_at: n.summary_updated_at,
+                    file_count: n.file_count,
+                });
+            }
+            for (const e of edges) {
+                this.upsertContains({ repo: newRepo, path: e.parent }, { repo: newRepo, path: e.child });
+            }
+            const del = this.conn.prepareSync(`MATCH (d:Directory {repo: $repo}) DETACH DELETE d`);
+            this.conn.executeSync(del, { repo: oldRepo });
+            this.conn.querySync('COMMIT');
+        }
+        catch (e) {
+            try {
+                this.conn.querySync('ROLLBACK');
+            }
+            catch {
+                // The original error wins.
+            }
+            throw e;
+        }
+        return nodes.length;
+    }
+    containsEdgesForRepo(repo) {
+        const stmt = this.conn.prepareSync(`MATCH (p:Directory {repo: $repo})-[:CONTAINS]->(c:Directory {repo: $repo})
+       RETURN p.path, c.path`);
+        const result = single(this.conn.executeSync(stmt, { repo }));
+        const edges = [];
+        try {
+            while (result.hasNext()) {
+                const r = result.getNextSync();
+                edges.push({ parent: String(r['p.path'] ?? ''), child: String(r['c.path'] ?? '') });
+            }
+        }
+        finally {
+            result.close();
+        }
+        return edges;
+    }
     allDirectoriesForRepo(repo) {
         const stmt = this.conn.prepareSync(`MATCH (d:Directory {repo: $repo})
        RETURN d.key, d.repo, d.path, d.parent_path, d.summary, d.summary_source, d.summary_updated_at, d.file_count`);

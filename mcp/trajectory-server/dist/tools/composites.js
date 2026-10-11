@@ -271,7 +271,7 @@ function outsideProjectResult(refusal) {
 }
 // The worktree a task's swe runs in: <repo>/.claude/worktrees/<slug>, slug =
 // the branch_id after its type prefix (task_provision's layout).
-function taskWorktreePath(repoPath, branchId) {
+export function taskWorktreePath(repoPath, branchId) {
     return `${repoPath}/.claude/worktrees/${branchId.replace(/^[^/]+\//, '')}`;
 }
 function git(repoPath, args, timeout = SUBPROCESS_TIMEOUT_MS) {

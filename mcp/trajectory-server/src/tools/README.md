@@ -23,7 +23,8 @@ The MCP tool modules for the trajectory server — one TypeScript file per domai
 | Stats | `stats.ts` | `task_stats` |
 | Config | `config.ts` | `config_get`, `config_set`, `config_list` |
 | Onboard | `onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` (+ `origin` helper). Both `onboard_get_questions` and `onboard_apply` take an optional `repo=<name>` param (round='main', shape='remote') to scope the branching + pr_target questions/writes to a single `repos` row; omitting it preserves the workspace-wide behaviour. |
-| Scan | `scan.ts` | `scan_run` (forks `scripts/scan.sh`), `repos_list` |
+| Scan | `scan.ts` | `scan_run` (forks `scripts/scan.sh`; surfaces `rename_candidates`), `repos_list` |
+| Repos | `repos.ts` | `repo_rename` |
 | World model | `world_model.ts` | `world_model_get` (kuzu graph + an `unmerged_work` field: closed-task branches with a live local ref whose tip is not yet merged into the target), `world_model_search` |
 
 `onboard-hooks-shim.ts` is a non-tool helper: when the project opts in (`headless_enforcement: yes`), it writes the plugin's PreToolUse gates into the project's `.claude/settings.local.json` so they fire in non-interactive `claude -p` runs, where marketplace plugin hooks are absent; `no` removes them. It writes nothing outside the project. `onboard-sandbox.ts` writes or removes Claude Code's Bash sandbox block in the same file (`sandbox_enforcement`, default no). `agent-runs.ts` opens and closes `agent_runs` rows with their `root_dir`, `host` and `exit_reason`; `containment.ts` holds the `outside_project` check the path-taking tools share. `lifecycle.ts` holds the issue/task lifecycle rules `issue_close`, `bro_atomic_close`, `task_recover` and `task_update_status` share: the live-task set, the passing-review rule behind `review_gate_bypassed` / `tasks_without_review`, the `issue_close` cascade, and the stale-running sweep.

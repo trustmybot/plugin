@@ -32917,7 +32917,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
 
 // src/tools/scan.ts
 import { spawn, spawnSync as spawnSync7 } from "node:child_process";
-import { existsSync as existsSync9, readFileSync as readFileSync6, writeFileSync as writeFileSync4, unlinkSync } from "node:fs";
+import { existsSync as existsSync9, readFileSync as readFileSync6, realpathSync as realpathSync4, writeFileSync as writeFileSync4, unlinkSync } from "node:fs";
 import { dirname as dirname11, join as join12 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
@@ -33060,6 +33060,59 @@ var WorldModelGraph = class _WorldModelGraph {
       this.conn.executeSync(stmt, { key: d.key });
     }
     return toDelete.length;
+  }
+  // Re-key every Directory node of oldRepo under newRepo in one kuzu
+  // transaction. The primary key embeds the repo (dirKey), so each node is
+  // re-created under its new key, its CONTAINS edges re-linked, and the old
+  // nodes detach-deleted. Returns the number of nodes moved.
+  renameRepo(oldRepo, newRepo) {
+    const nodes = this.allDirectoriesForRepo(oldRepo);
+    if (nodes.length === 0) return 0;
+    const edges = this.containsEdgesForRepo(oldRepo);
+    this.conn.querySync("BEGIN TRANSACTION");
+    try {
+      for (const n of nodes) {
+        this.upsertDirectory({
+          repo: newRepo,
+          path: n.path,
+          parent_path: n.parent_path,
+          summary: n.summary,
+          summary_source: n.summary_source,
+          summary_updated_at: n.summary_updated_at,
+          file_count: n.file_count
+        });
+      }
+      for (const e of edges) {
+        this.upsertContains({ repo: newRepo, path: e.parent }, { repo: newRepo, path: e.child });
+      }
+      const del = this.conn.prepareSync(`MATCH (d:Directory {repo: $repo}) DETACH DELETE d`);
+      this.conn.executeSync(del, { repo: oldRepo });
+      this.conn.querySync("COMMIT");
+    } catch (e) {
+      try {
+        this.conn.querySync("ROLLBACK");
+      } catch {
+      }
+      throw e;
+    }
+    return nodes.length;
+  }
+  containsEdgesForRepo(repo) {
+    const stmt = this.conn.prepareSync(
+      `MATCH (p:Directory {repo: $repo})-[:CONTAINS]->(c:Directory {repo: $repo})
+       RETURN p.path, c.path`
+    );
+    const result = single(this.conn.executeSync(stmt, { repo }));
+    const edges = [];
+    try {
+      while (result.hasNext()) {
+        const r = result.getNextSync();
+        edges.push({ parent: String(r["p.path"] ?? ""), child: String(r["c.path"] ?? "") });
+      }
+    } finally {
+      result.close();
+    }
+    return edges;
   }
   allDirectoriesForRepo(repo) {
     const stmt = this.conn.prepareSync(
@@ -33453,25 +33506,90 @@ function readRepoRemotes(path2) {
     return [];
   }
 }
+function canonicalPath2(p) {
+  try {
+    return realpathSync4(p);
+  } catch {
+    return p.replace(/\/+$/, "");
+  }
+}
+function normalizeRemoteUrl(url2) {
+  return url2.trim().replace(/\/+$/, "").replace(/\.git$/, "");
+}
+function primaryRemoteUrl(remotes) {
+  const primary = remotes.find((r) => r.name === "origin") ?? remotes[0];
+  return primary ? normalizeRemoteUrl(primary.url) : null;
+}
+function detectRenames(existing, discovered, remotesByRepo) {
+  const scannedNames = new Set(discovered.map((r) => r.name));
+  const existingNames = new Set(existing.map((r) => r.name));
+  const orphaned = existing.filter((r) => !scannedNames.has(r.name));
+  const claimed = /* @__PURE__ */ new Set();
+  const candidates = [];
+  for (const r of discovered) {
+    if (existingNames.has(r.name)) continue;
+    const path2 = canonicalPath2(r.path);
+    const remote = primaryRemoteUrl(remotesByRepo.get(r.name) ?? []);
+    let match = null;
+    for (const row of orphaned) {
+      if (claimed.has(row.name)) continue;
+      if (canonicalPath2(row.path) === path2) {
+        match = { name: row.name, by: "path" };
+        break;
+      }
+    }
+    if (!match && remote) {
+      for (const row of orphaned) {
+        if (claimed.has(row.name)) continue;
+        let rowRemotes = [];
+        try {
+          const parsed = JSON.parse(row.remotes ?? "[]");
+          if (Array.isArray(parsed)) rowRemotes = parsed;
+        } catch {
+          continue;
+        }
+        if (primaryRemoteUrl(rowRemotes) === remote) {
+          match = { name: row.name, by: "remote" };
+          break;
+        }
+      }
+    }
+    if (match) {
+      claimed.add(match.name);
+      candidates.push({ old: match.name, new: r.name, by: match.by, path: r.path });
+    }
+  }
+  return candidates;
+}
 function persistScan(db2, graph, out, sessionDir) {
   const now = nowISO();
-  const scannedNames = new Set(out.repos.map((r) => r.name));
   const normSession = sessionDir.replace(/\/+$/, "");
   const existing = db2.all(
-    `SELECT name, path FROM repos`
+    `SELECT name, path, remotes FROM repos`
   );
+  const remotesByRepo = /* @__PURE__ */ new Map();
+  for (const r of out.repos) remotesByRepo.set(r.name, readRepoRemotes(r.path));
+  const rename_candidates = detectRenames(existing, out.repos, remotesByRepo);
+  const renamedTo = new Set(rename_candidates.map((c) => c.new));
+  const renamedFrom = new Set(rename_candidates.map((c) => c.old));
+  const persisted = {
+    ...out,
+    repos: out.repos.filter((r) => !renamedTo.has(r.name)),
+    files: out.files.filter((f) => !renamedTo.has(f.repo))
+  };
+  const scannedNames = new Set(persisted.repos.map((r) => r.name));
   const toRetire = existing.filter((r) => {
     const normPath = r.path.replace(/\/+$/, "");
     const underSession = normPath === normSession || normPath.startsWith(normSession + "/");
-    return underSession && !scannedNames.has(r.name);
+    return underSession && !scannedNames.has(r.name) && !renamedFrom.has(r.name);
   });
   let repos_upserted = 0;
   let repos_retired = 0;
   let dirs_retired = 0;
   const retired = [];
   db2.transaction(() => {
-    for (const r of out.repos) {
-      const remotesJson = JSON.stringify(readRepoRemotes(r.path));
+    for (const r of persisted.repos) {
+      const remotesJson = JSON.stringify(remotesByRepo.get(r.name) ?? []);
       db2.run(
         `INSERT INTO repos (name, path, file_count, last_scanned_at, remotes)
          VALUES (?, ?, ?, ?, ?)
@@ -33495,11 +33613,21 @@ function persistScan(db2, graph, out, sessionDir) {
         db2.run(`DELETE FROM repos WHERE name = ?`, [r.name]);
         db2.run(`RELEASE retire_repo`);
         repos_retired++;
-        retired.push(r);
+        retired.push({ name: r.name, path: r.path });
       } catch {
         db2.run(`ROLLBACK TO retire_repo`);
         db2.run(`RELEASE retire_repo`);
       }
+    }
+    for (const c of rename_candidates) {
+      insertAudit(db2, {
+        issue_id: -1,
+        from_node: "bro",
+        event_type: "repo_rename_detected",
+        summary: `Scan: repo ${c.old} looks renamed to ${c.new} (matched by ${c.by}); run repo_rename to apply`,
+        content_json: JSON.stringify({ old: c.old, new: c.new, by: c.by }),
+        repo: c.old
+      });
     }
   });
   if (graph) {
@@ -33512,12 +33640,12 @@ function persistScan(db2, graph, out, sessionDir) {
   let dirs_readme_summarized = 0;
   let dirs_structural_summarized = 0;
   if (graph) {
-    const stats = persistDirectoriesGraph(graph, out, now);
+    const stats = persistDirectoriesGraph(graph, persisted, now);
     dirs_upserted = stats.dirs_upserted;
     dirs_readme_summarized = stats.dirs_readme_summarized;
     dirs_structural_summarized = stats.dirs_structural_summarized;
-    const dirMap = deriveDirectoryEntries(out);
-    for (const r of out.repos) {
+    const dirMap = deriveDirectoryEntries(persisted);
+    for (const r of persisted.repos) {
       const keepKeys = /* @__PURE__ */ new Set();
       for (const [, entry] of dirMap) {
         if (entry.repo === r.name) {
@@ -33534,7 +33662,8 @@ function persistScan(db2, graph, out, sessionDir) {
     dirs_upserted,
     dirs_retired,
     dirs_readme_summarized,
-    dirs_structural_summarized
+    dirs_structural_summarized,
+    rename_candidates
   };
 }
 var SCAN_TIMEOUT_MS = 10 * 60 * 1e3;
@@ -33572,7 +33701,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
   const definitions = [
     {
       name: "scan_run",
-      description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory nodes + CONTAINS edges to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. Hard timeout: 10 minutes.",
+      description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory nodes + CONTAINS edges to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. A renamed repo lands in rename_candidates for repo_rename, never as a second row. Hard timeout: 10 minutes.",
       inputSchema: {
         type: "object",
         properties: {
@@ -33644,7 +33773,8 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
           const out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
           const stats = persistScan(db2, graph, out, sessionDir);
           const spawnFn = args["_spawnFn"];
-          for (const r of out.repos) {
+          const renamedTo = new Set(stats.rename_candidates.map((c) => c.new));
+          for (const r of out.repos.filter((repo) => !renamedTo.has(repo.name))) {
             try {
               syncRepoMilestones(db2, r.name, r.path, spawnFn);
             } catch (e) {
@@ -33693,12 +33823,196 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
   return { definitions, handlers };
 }
 
+// src/tools/repos.ts
+var REPO_FK_CHILDREN = [
+  ["milestones", "UPDATE milestones SET repo = ? WHERE repo = ?"],
+  ["issues", "UPDATE issues SET repo = ? WHERE repo = ?"],
+  ["tasks", "UPDATE tasks SET repo = ? WHERE repo = ?"],
+  ["audit", "UPDATE audit SET repo = ? WHERE repo = ?"],
+  ["validation_attempts", "UPDATE validation_attempts SET repo = ? WHERE repo = ?"],
+  ["discussions", "UPDATE discussions SET repo = ? WHERE repo = ?"],
+  ["agent_runs", "UPDATE agent_runs SET repo = ? WHERE repo = ?"]
+];
+function pathHasSegment(path2, segment) {
+  return path2.split("/").includes(segment);
+}
+function blockingTasks(db2, old, oldPath) {
+  const tasks = db2.all(
+    `SELECT t.id, t.status, t.branch_id, r.path AS repo_path
+       FROM tasks t LEFT JOIN repos r ON r.name = t.repo
+      WHERE t.status IN (SELECT value FROM json_each(?))`,
+    [JSON.stringify(LIVE_TASK_STATUSES)]
+  );
+  const blocking = [];
+  for (const t of tasks) {
+    const roots = db2.all(
+      `SELECT root_dir FROM agent_runs WHERE task_id = ? AND completed_at IS NULL AND root_dir IS NOT NULL`,
+      [t.id]
+    ).map((r) => r.root_dir);
+    const repoPath = t.repo_path ?? oldPath;
+    const candidates = [taskWorktreePath(repoPath, t.branch_id), ...roots];
+    const hit = candidates.find((p) => pathHasSegment(p, old));
+    if (hit) blocking.push({ id: t.id, status: t.status, worktree: hit });
+  }
+  return blocking;
+}
+function slugRewrites(remotesJson, old, next) {
+  let remotes = [];
+  try {
+    const parsed = JSON.parse(remotesJson ?? "[]");
+    if (Array.isArray(parsed)) remotes = parsed;
+  } catch {
+    return [];
+  }
+  const pairs = /* @__PURE__ */ new Map();
+  for (const r of remotes) {
+    const full = r.url ? repoSlugFromRemoteUrl(r.url) : null;
+    if (!full) continue;
+    const cut = full.lastIndexOf("/");
+    if (cut < 0) continue;
+    const prefix = full.slice(0, cut);
+    const last = full.slice(cut + 1).toLowerCase();
+    if (last !== old.toLowerCase() && last !== next.toLowerCase()) continue;
+    const oldFull = last === old.toLowerCase() ? full : `${prefix}/${old}`;
+    const newFull = last === next.toLowerCase() ? full : `${prefix}/${next}`;
+    pairs.set(oldFull, newFull);
+    const bare = (s) => s.replace(/^[^/]+\//, "");
+    if (bare(oldFull) !== oldFull) pairs.set(bare(oldFull), bare(newFull));
+  }
+  return [...pairs.entries()];
+}
+function renameRepo(db2, graph, input) {
+  const { old, reason } = input;
+  const next = input.new;
+  if (old === next) return { renamed: false, error: "repo_same", old, new: next };
+  const row = db2.get(`SELECT name, path, remotes FROM repos WHERE name = ?`, [old]);
+  if (!row) return { renamed: false, error: "repo_not_found", old, new: next };
+  if (db2.get(`SELECT 1 AS x FROM repos WHERE name = ?`, [next])) {
+    return { renamed: false, error: "repo_exists", old, new: next };
+  }
+  if (!input.force) {
+    const blocking = blockingTasks(db2, old, row.path);
+    if (blocking.length > 0) {
+      return { renamed: false, error: "rename_in_progress", old, new: next, blocking_tasks: blocking };
+    }
+  }
+  db2.run("PRAGMA foreign_keys = OFF");
+  try {
+    return db2.transaction(() => {
+      const rows_by_table = {};
+      db2.run(
+        `INSERT INTO repos (name, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches, remotes)
+         SELECT ?, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches, remotes
+           FROM repos WHERE name = ?`,
+        [next, old]
+      );
+      for (const [table, sql] of REPO_FK_CHILDREN) {
+        rows_by_table[table] = Number(db2.run(sql, [next, old]).changes);
+      }
+      let prRuns = 0;
+      for (const [from, to] of slugRewrites(row.remotes, old, next)) {
+        prRuns += Number(
+          db2.run(`UPDATE pr_review_runs SET repo = ? WHERE repo = ? COLLATE NOCASE`, [to, from]).changes
+        );
+      }
+      rows_by_table["pr_review_runs"] = prRuns;
+      db2.run(`DELETE FROM repos WHERE name = ?`, [old]);
+      const violations = db2.all("PRAGMA foreign_key_check");
+      if (violations.length > 0) {
+        throw new Error(`repo_rename: foreign_key_check found ${violations.length} dangling reference(s); rolled back`);
+      }
+      let graphState = "deferred";
+      let graph_nodes = 0;
+      let graph_error;
+      if (graph) {
+        try {
+          graph_nodes = graph.renameRepo(old, next);
+          graphState = "rekeyed";
+        } catch (e) {
+          graph_error = e.message;
+        }
+      }
+      const audit_id = insertAudit(db2, {
+        issue_id: -1,
+        from_node: input.from_node ?? "bro",
+        event_type: "repo_renamed",
+        summary: `Repo renamed ${old} \u2192 ${next}; graph ${graphState}`,
+        content_json: JSON.stringify({
+          old,
+          new: next,
+          reason,
+          rows_by_table,
+          graph: graphState,
+          graph_nodes,
+          ...graph_error ? { graph_error } : {}
+        }),
+        repo: next
+      });
+      return {
+        renamed: true,
+        old,
+        new: next,
+        rows_by_table,
+        graph: graphState,
+        graph_nodes,
+        ...graph_error ? { graph_error } : {},
+        audit_id
+      };
+    });
+  } finally {
+    db2.run("PRAGMA foreign_keys = ON");
+  }
+}
+function ok18(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function refuse(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }], isError: true };
+}
+function repoTools(db2, graphHolder2 = null) {
+  const definitions = [
+    {
+      name: "repo_rename",
+      description: "Rename a repo in one transaction: the repos row, every repo FK, pr_review_runs slugs and world-model nodes (graph deferred to the next scan_run when kuzu is down). Audited repo_renamed. Refuses repo_same, repo_not_found, repo_exists, rename_in_progress (force overrides).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string" },
+          old: { type: "string" },
+          new: { type: "string" },
+          reason: { type: "string" },
+          force: { type: "boolean", description: "Rename even when a live task worktree sits under the old name." }
+        },
+        required: ["agent", "old", "new", "reason"]
+      }
+    }
+  ];
+  const handlers = {
+    repo_rename: requireRoles("repo_rename", ["bro"], async (args) => {
+      const old = typeof args["old"] === "string" ? args["old"].trim() : "";
+      const next = typeof args["new"] === "string" ? args["new"].trim() : "";
+      const reason = typeof args["reason"] === "string" ? args["reason"].trim() : "";
+      if (!old || !next || !reason) {
+        return refuse({ error: "invalid_args", message: "old, new and reason are required non-empty strings" });
+      }
+      try {
+        const graph = graphHolder2?.ensureGraph() ?? null;
+        const out = renameRepo(db2, graph, { old, new: next, reason, force: args["force"] === true });
+        return out.renamed ? ok18(out) : refuse(out);
+      } catch (e) {
+        return refuse({ error: "rename_failed", message: e.message });
+      }
+    })
+  };
+  return { definitions, handlers };
+}
+
 // src/tools/cheatcode.ts
 import { spawn as spawn2 } from "node:child_process";
 import { existsSync as existsSync10, mkdirSync as mkdirSync7, readFileSync as readFileSync7, writeFileSync as writeFileSync5 } from "node:fs";
 import { dirname as dirname12, join as join13 } from "node:path";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
-function ok18(data) {
+function ok19(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
 function err17(message) {
@@ -34354,7 +34668,7 @@ function cheatcodeTools(db2) {
           }),
           nowISO()
         );
-        return ok18({ query, kind, candidates: out.candidates });
+        return ok19({ query, kind, candidates: out.candidates });
       })
     ),
     cheatcode_vet: requireRoles(
@@ -34388,7 +34702,7 @@ function cheatcodeTools(db2) {
           }),
           nowISO()
         );
-        return ok18(out);
+        return ok19(out);
       })
     ),
     cheatcode_approve: requireRoles(
@@ -34404,7 +34718,7 @@ function cheatcodeTools(db2) {
           JSON.stringify({ name, kind, source_url: sourceUrl }),
           nowISO()
         );
-        return ok18({ approved: true, candidate: { name, kind, source_url: sourceUrl } });
+        return ok19({ approved: true, candidate: { name, kind, source_url: sourceUrl } });
       })
     ),
     cheatcode_install: requireRoles(
@@ -34445,7 +34759,7 @@ function cheatcodeTools(db2) {
             `SELECT target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
             [existing.id]
           );
-          return ok18({
+          return ok19({
             installed: false,
             idempotent: true,
             cheatcode: existing,
@@ -34558,7 +34872,7 @@ function cheatcodeTools(db2) {
           );
           return id;
         });
-        return ok18({
+        return ok19({
           installed: out.installed,
           cheatcode_id: cheatcodeId,
           candidate: out.candidate,
@@ -34596,7 +34910,7 @@ function cheatcodeTools(db2) {
           [idVal]
         );
         if (!existing) {
-          return ok18({ uninstalled: false, idempotent: true, cheatcode_id: idVal });
+          return ok19({ uninstalled: false, idempotent: true, cheatcode_id: idVal });
         }
         const attachments = db2.all(
           `SELECT id, target, artifact FROM cheatcode_attachments WHERE cheatcode_id = ? ORDER BY id`,
@@ -34642,7 +34956,7 @@ function cheatcodeTools(db2) {
           }
           auditCheatcode("cheatcode_uninstalled", auditSummary, auditContent, uninstalledAt);
         });
-        return ok18({
+        return ok19({
           uninstalled: reversal.removed,
           cheatcode_id: existing.id,
           name: existing.name,
@@ -34696,7 +35010,7 @@ function cheatcodeTools(db2) {
             activatedAt
           );
         });
-        return ok18({
+        return ok19({
           cheatcode_id: existing.id,
           name: existing.name,
           kind: existing.kind,
@@ -34728,7 +35042,7 @@ function cheatcodeTools(db2) {
              FROM cheatcodes ${clause} ORDER BY id`,
           params
         );
-        return ok18({ cheatcodes: rows });
+        return ok19({ cheatcodes: rows });
       })
     )
   };
@@ -34801,7 +35115,7 @@ function computeUnmergedWork(db2, repo) {
   }
   return { unmerged_work };
 }
-function ok19(data) {
+function ok20(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
 function err18(message) {
@@ -34921,7 +35235,7 @@ function worldModelTools(db2, graphHolder2) {
         if (!repo) {
           const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
           if (available.length >= 2) {
-            return ok19({ repo: "", root: null, warning: "repo-unspecified", available_repos: available });
+            return ok20({ repo: "", root: null, warning: "repo-unspecified", available_repos: available });
           }
           repo = resolveSoleRepo(db2)?.name ?? "";
         }
@@ -34931,20 +35245,20 @@ function worldModelTools(db2, graphHolder2) {
         const unmerged = computeUnmergedWork(db2, repo);
         const graph = graphHolder2?.ensureGraph() ?? null;
         if (!graph) {
-          return ok19({ repo, root: null, warning: "world-model-unavailable", unmerged_work: unmerged.unmerged_work });
+          return ok20({ repo, root: null, warning: "world-model-unavailable", unmerged_work: unmerged.unmerged_work });
         }
         const nodes = graph.allDirectoriesForRepo(repo);
         if (nodes.length === 0) {
-          return ok19({ repo, root: null, warning: "world-model-empty", unmerged_work: unmerged.unmerged_work });
+          return ok20({ repo, root: null, warning: "world-model-empty", unmerged_work: unmerged.unmerged_work });
         }
         const rows = nodes;
         const nodeCounter = { count: 0, limit: WORLD_MODEL_GET_MAX_NODES };
         const tree = buildTree(rows, path2, depth, { nodeCounter });
         if (!tree) {
-          return ok19({ repo, root: null, warning: "path-not-found", path: path2, unmerged_work: unmerged.unmerged_work });
+          return ok20({ repo, root: null, warning: "path-not-found", path: path2, unmerged_work: unmerged.unmerged_work });
         }
         const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
-        return ok19({
+        return ok20({
           repo,
           root: tree,
           ...truncated ? { truncated: true } : {},
@@ -34965,17 +35279,17 @@ function worldModelTools(db2, graphHolder2) {
         if (!repo) {
           const available = db2.all(`SELECT name FROM repos ORDER BY name`).map((r) => r.name);
           if (available.length >= 2) {
-            return ok19({ repo: "", results: [], total_matched: 0, warning: "repo-unspecified", available_repos: available, mode });
+            return ok20({ repo: "", results: [], total_matched: 0, warning: "repo-unspecified", available_repos: available, mode });
           }
           repo = resolveSoleRepo(db2)?.name ?? "";
         }
         const graph = graphHolder2?.ensureGraph() ?? null;
         if (!graph) {
-          return ok19({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });
+          return ok20({ results: [], total_matched: 0, warning: "world-model-unavailable", mode });
         }
         const hits = graph.keywordSearchDirectories(repo, query, k);
         if (mode === "keyword") {
-          return ok19({
+          return ok20({
             results: hits.map((h) => ({
               repo: h.repo,
               path: h.path,
@@ -34989,14 +35303,14 @@ function worldModelTools(db2, graphHolder2) {
           });
         }
         if (mode === "semantic") {
-          return ok19({
+          return ok20({
             results: [],
             total_matched: 0,
             warning: "semantic_unavailable",
             mode: "semantic"
           });
         }
-        return ok19({
+        return ok20({
           results: hits.map((h) => ({
             repo: h.repo,
             path: h.path,
@@ -35058,6 +35372,7 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
   const composites = compositeTools(db2, dbPath2, graphHolder2);
   const onboard = onboardTools(db2, dbPath2);
   const scan = scanTools(db2, graphHolder2, dbPath2);
+  const repos = repoTools(db2, graphHolder2);
   const cheatcode = cheatcodeTools(db2);
   const worldModel = worldModelTools(db2, graphHolder2);
   toolDefinitions = decorateWithAgent([
@@ -35078,6 +35393,7 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
     ...composites.definitions,
     ...onboard.definitions,
     ...scan.definitions,
+    ...repos.definitions,
     ...cheatcode.definitions,
     ...worldModel.definitions
   ]);
@@ -35099,6 +35415,7 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
     ...composites.handlers,
     ...onboard.handlers,
     ...scan.handlers,
+    ...repos.handlers,
     ...cheatcode.handlers,
     ...worldModel.handlers
   };

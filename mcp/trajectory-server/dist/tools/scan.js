@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, writeFileSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { nowISO } from '../db.js';
@@ -324,6 +324,70 @@ function readRepoRemotes(path) {
         return [];
     }
 }
+function canonicalPath(p) {
+    try {
+        return realpathSync(p);
+    }
+    catch {
+        return p.replace(/\/+$/, '');
+    }
+}
+function normalizeRemoteUrl(url) {
+    return url.trim().replace(/\/+$/, '').replace(/\.git$/, '');
+}
+function primaryRemoteUrl(remotes) {
+    const primary = remotes.find((r) => r.name === 'origin') ?? remotes[0];
+    return primary ? normalizeRemoteUrl(primary.url) : null;
+}
+// A discovered repo with no row of its own whose canonical path or primary
+// remote URL matches an existing row that this scan did not rediscover is a
+// rename, not a new repo. It is surfaced for repo_rename, never applied here.
+function detectRenames(existing, discovered, remotesByRepo) {
+    const scannedNames = new Set(discovered.map((r) => r.name));
+    const existingNames = new Set(existing.map((r) => r.name));
+    const orphaned = existing.filter((r) => !scannedNames.has(r.name));
+    const claimed = new Set();
+    const candidates = [];
+    for (const r of discovered) {
+        if (existingNames.has(r.name))
+            continue;
+        const path = canonicalPath(r.path);
+        const remote = primaryRemoteUrl(remotesByRepo.get(r.name) ?? []);
+        let match = null;
+        for (const row of orphaned) {
+            if (claimed.has(row.name))
+                continue;
+            if (canonicalPath(row.path) === path) {
+                match = { name: row.name, by: 'path' };
+                break;
+            }
+        }
+        if (!match && remote) {
+            for (const row of orphaned) {
+                if (claimed.has(row.name))
+                    continue;
+                let rowRemotes = [];
+                try {
+                    const parsed = JSON.parse(row.remotes ?? '[]');
+                    if (Array.isArray(parsed))
+                        rowRemotes = parsed;
+                }
+                catch {
+                    continue;
+                }
+                if (primaryRemoteUrl(rowRemotes) === remote) {
+                    match = { name: row.name, by: 'remote' };
+                    break;
+                }
+            }
+        }
+        if (match) {
+            claimed.add(match.name);
+            candidates.push({ old: match.name, new: r.name, by: match.by, path: r.path });
+        }
+    }
+    return candidates;
+}
 // Persist repos[] + directories[] from a scan output. Transactional.
 // File-level state lives entirely in the directories rows (file_count) and
 // the world model. Per-file md5/summary state was retired in schema v7
@@ -332,22 +396,34 @@ function readRepoRemotes(path) {
 // falls under sessionDir but are absent from this scan's result are retired.
 function persistScan(db, graph, out, sessionDir) {
     const now = nowISO();
-    const scannedNames = new Set(out.repos.map((r) => r.name));
     const normSession = sessionDir.replace(/\/+$/, '');
+    const existing = db.all(`SELECT name, path, remotes FROM repos`);
+    const remotesByRepo = new Map();
+    for (const r of out.repos)
+        remotesByRepo.set(r.name, readRepoRemotes(r.path));
+    const rename_candidates = detectRenames(existing, out.repos, remotesByRepo);
+    const renamedTo = new Set(rename_candidates.map((c) => c.new));
+    const renamedFrom = new Set(rename_candidates.map((c) => c.old));
+    const persisted = {
+        ...out,
+        repos: out.repos.filter((r) => !renamedTo.has(r.name)),
+        files: out.files.filter((f) => !renamedTo.has(f.repo)),
+    };
+    const scannedNames = new Set(persisted.repos.map((r) => r.name));
     // Find repos in DB that were discovered under sessionDir but are absent now.
-    const existing = db.all(`SELECT name, path FROM repos`);
+    // A rename candidate's old row stays until repo_rename moves it.
     const toRetire = existing.filter((r) => {
         const normPath = r.path.replace(/\/+$/, '');
         const underSession = normPath === normSession || normPath.startsWith(normSession + '/');
-        return underSession && !scannedNames.has(r.name);
+        return underSession && !scannedNames.has(r.name) && !renamedFrom.has(r.name);
     });
     let repos_upserted = 0;
     let repos_retired = 0;
     let dirs_retired = 0;
     const retired = [];
     db.transaction(() => {
-        for (const r of out.repos) {
-            const remotesJson = JSON.stringify(readRepoRemotes(r.path));
+        for (const r of persisted.repos) {
+            const remotesJson = JSON.stringify(remotesByRepo.get(r.name) ?? []);
             db.run(`INSERT INTO repos (name, path, file_count, last_scanned_at, remotes)
          VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(name) DO UPDATE SET
@@ -367,7 +443,7 @@ function persistScan(db, graph, out, sessionDir) {
                 db.run(`DELETE FROM repos WHERE name = ?`, [r.name]);
                 db.run(`RELEASE retire_repo`);
                 repos_retired++;
-                retired.push(r);
+                retired.push({ name: r.name, path: r.path });
             }
             catch {
                 // ON DELETE RESTRICT FK: the repo is still referenced (tasks/issues
@@ -377,6 +453,16 @@ function persistScan(db, graph, out, sessionDir) {
                 db.run(`ROLLBACK TO retire_repo`);
                 db.run(`RELEASE retire_repo`);
             }
+        }
+        for (const c of rename_candidates) {
+            insertAudit(db, {
+                issue_id: -1,
+                from_node: 'bro',
+                event_type: 'repo_rename_detected',
+                summary: `Scan: repo ${c.old} looks renamed to ${c.new} (matched by ${c.by}); run repo_rename to apply`,
+                content_json: JSON.stringify({ old: c.old, new: c.new, by: c.by }),
+                repo: c.old,
+            });
         }
     });
     // Retire kuzu nodes for repos actually removed above (prune all their dirs).
@@ -390,13 +476,13 @@ function persistScan(db, graph, out, sessionDir) {
     let dirs_readme_summarized = 0;
     let dirs_structural_summarized = 0;
     if (graph) {
-        const stats = persistDirectoriesGraph(graph, out, now);
+        const stats = persistDirectoriesGraph(graph, persisted, now);
         dirs_upserted = stats.dirs_upserted;
         dirs_readme_summarized = stats.dirs_readme_summarized;
         dirs_structural_summarized = stats.dirs_structural_summarized;
         // Prune stale directory nodes for each scanned repo (handles renames).
-        const dirMap = deriveDirectoryEntries(out);
-        for (const r of out.repos) {
+        const dirMap = deriveDirectoryEntries(persisted);
+        for (const r of persisted.repos) {
             const keepKeys = new Set();
             for (const [, entry] of dirMap) {
                 if (entry.repo === r.name) {
@@ -414,6 +500,7 @@ function persistScan(db, graph, out, sessionDir) {
         dirs_retired,
         dirs_readme_summarized,
         dirs_structural_summarized,
+        rename_candidates,
     };
 }
 /**
@@ -504,7 +591,7 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
     const definitions = [
         {
             name: 'scan_run',
-            description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory nodes + CONTAINS edges to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. Hard timeout: 10 minutes.",
+            description: "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory nodes + CONTAINS edges to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. A renamed repo lands in rename_candidates for repo_rename, never as a second row. Hard timeout: 10 minutes.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -592,7 +679,8 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
                 // Milestones: reconcile from each repo's remote, then seed one
                 // v<next-patch> where none exist. Never fails the scan.
                 const spawnFn = args['_spawnFn'];
-                for (const r of out.repos) {
+                const renamedTo = new Set(stats.rename_candidates.map((c) => c.new));
+                for (const r of out.repos.filter((repo) => !renamedTo.has(repo.name))) {
                     try {
                         syncRepoMilestones(db, r.name, r.path, spawnFn);
                     }

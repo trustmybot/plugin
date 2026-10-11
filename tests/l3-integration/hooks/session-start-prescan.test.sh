@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tests for scripts/hooks/session-start-prescan.sh.
 # Covers: output is valid JSON, additionalContext is emitted, cache-friendly
-# ordering, cold-session auto-scan launch, bypass env, and warm-session path.
+# ordering, cold-session auto-scan launch, bypass env, and the warm / stale /
+# cold world-model banner.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -68,6 +69,12 @@ reset_db() {
       event_type TEXT NOT NULL,
       payload TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE repos (
+      name TEXT PRIMARY KEY,
+      path TEXT NOT NULL,
+      file_count INTEGER NOT NULL DEFAULT 0,
+      last_scanned_at TEXT NOT NULL
     );
     INSERT INTO issues (objective, status) VALUES ('test issue', 'open');
     INSERT INTO tasks (issue_id, status) VALUES (1, 'pending');
@@ -232,6 +239,9 @@ SKIP_OUT=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRES
 SKIP_CTX=$(echo "$SKIP_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
 assert_contains "$SKIP_CTX" "cold" "skip context mentions cold"
 
+test_case "cold: banner line reads cold when no scan row exists"
+assert_contains "$SKIP_CTX" "World model:       cold" "cold banner"
+
 test_case "cold + TMB_SKIP_AUTO_PRESCAN=1: invoker not called"
 sleep 0.2
 if [ -f "$INVOCATION_FLAG" ]; then
@@ -243,19 +253,38 @@ fi
 test_case "cold + TMB_SKIP_AUTO_PRESCAN=1: no background scan message"
 assert_not_contains "$SKIP_CTX" "scan is running in the background" "no background scan message when bypassed"
 
-# ---- warm session: no scan, no cold note ----
+# ---- warm session: recent scan, banner carries file count + age ----
 
-test_case "warm: context shows warm world model"
+test_case "warm: context shows warm world model with file count and age"
 kill_fixture_node
-sqlite3 "$DB" "INSERT INTO audit (event_type) VALUES ('deep_scan_completed');"
+sqlite3 "$DB" "INSERT INTO audit (event_type) VALUES ('deep_scan_completed');
+  INSERT INTO repos (name, path, file_count, last_scanned_at)
+    VALUES ('fixture', '$FIXTURE_WS', 42, strftime('%Y-%m-%dT%H:%M:%fZ','now','-3 hours'));"
 WARM_OUT=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
 WARM_CTX=$(echo "$WARM_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
-assert_contains "$WARM_CTX" "warm" "warm context shows warm"
+assert_contains "$WARM_CTX" "World model:       warm (42 files, last scan 3h ago)" "warm banner with age"
 
 test_case "warm: no background scan note in context"
 assert_not_contains "$WARM_CTX" "scan is running in the background" "no scan note in warm session"
 
 test_case "warm: no cold-world-model note in context"
 assert_not_contains "$WARM_CTX" "world model is cold" "no cold message in warm session"
+
+# ---- stale session: newest scan older than 7 days ----
+
+test_case "stale: last scan past 7 days reads stale with age and /scan hint"
+sqlite3 "$DB" "UPDATE repos SET last_scanned_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-12 days');"
+STALE_OUT=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
+STALE_CTX=$(echo "$STALE_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
+assert_contains "$STALE_CTX" "World model:       stale (last scan 12d ago) — run /scan" "stale banner"
+
+test_case "stale: never says warm"
+assert_not_contains "$STALE_CTX" "warm" "stale model is not warm"
+
+test_case "stale: a scan row with no repos row still reads stale, never warm"
+sqlite3 "$DB" "DELETE FROM repos;"
+NOREPO_OUT=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
+NOREPO_CTX=$(echo "$NOREPO_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
+assert_contains "$NOREPO_CTX" "World model:       stale (last scan unknown) — run /scan" "unknown age reads stale"
 
 summarize
