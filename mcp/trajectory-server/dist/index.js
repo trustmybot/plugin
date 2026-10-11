@@ -35168,7 +35168,7 @@ function maybeRecordTrajectory(toolName, args, result) {
     db.run(
       `INSERT INTO debug_trajectory
        (session_id, step_n, kind, agent, tool_or_mcp_name, args_json, result_json, is_error, created_at)
-       VALUES (?, ?, 'mcp_call', ?, ?, ?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, 'mcp_call', ?, ?, ?, ?, ?, ?)`,
       [
         debugSessionId,
         ++debugStepCounter,
@@ -35176,7 +35176,8 @@ function maybeRecordTrajectory(toolName, args, result) {
         toolName,
         argsJson,
         resultJson,
-        result.isError ? 1 : 0
+        result.isError ? 1 : 0,
+        nowISO()
       ]
     );
   } catch {

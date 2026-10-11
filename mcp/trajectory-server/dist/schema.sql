@@ -136,13 +136,18 @@ CREATE TABLE IF NOT EXISTS agents (
     updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
-INSERT OR IGNORE INTO agents (name, kind, scope, file_path) VALUES
+-- The seeds run on every open; INSERT … WHERE NOT EXISTS leaves the
+-- AUTOINCREMENT counter untouched when the rows are already present.
+WITH seed (name, kind, scope, file_path) AS (VALUES
     ('swe',          'backbone',   'global',   'agents/swe.md'),
     ('pr-reviewer',  'backbone',   'global',   'agents/pr-reviewer.md'),
     ('architect',    'consultant', 'template', 'templates/agents/architect.md'),
     ('cto',          'consultant', 'template', 'templates/agents/cto.md'),
     ('ceo',          'consultant', 'template', 'templates/agents/ceo.md'),
-    ('pm',           'consultant', 'template', 'templates/agents/pm.md');
+    ('pm',           'consultant', 'template', 'templates/agents/pm.md'))
+INSERT INTO agents (name, kind, scope, file_path)
+SELECT name, kind, scope, file_path FROM seed
+ WHERE NOT EXISTS (SELECT 1 FROM agents a WHERE a.name = seed.name);
 
 -- Synthetic "system" issue (id=-1) — parent FK for system-level audit and
 -- discussion writes that don't belong to any user-created work issue. The
@@ -437,7 +442,7 @@ CREATE TABLE IF NOT EXISTS cheatcodes (
 -- Descriptions come from each SKILL.md's frontmatter (kept short — full routing
 -- logic lives in the SKILL.md body, this row is just the index). origin='builtin'
 -- and source_url omitted (NULL) per the builtin CHECK.
-INSERT OR IGNORE INTO cheatcodes (name, kind, origin, description, file_path, scope, trust_tier, status, installed_at, created_at, updated_at) VALUES
+WITH seed (name, kind, origin, description, file_path, scope, trust_tier, status, installed_at, created_at, updated_at) AS (VALUES
     ('tmb_planning',           'skill', 'builtin', 'Bro''s full code-touching flow — cold-start judgment, branch_id confirm, spec authoring (defaults table + ADR when architectural), decision audit, SWE spawn, V1/V2/V3 verification, atomic close, retry-on-fail.', 'skills/tmb_planning/SKILL.md',           'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     ('tmb_concerns-protocol',  'skill', 'builtin', 'How bro raises a concern when doubting the Human''s plan — surface inline via discussion_append + ask, or spawn a consultant in analysis-only mode for technical disagreement.',                              'skills/tmb_concerns-protocol/SKILL.md',  'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     ('tmb_recovery',           'skill', 'builtin', 'Bro''s response when something fails — AskUserQuestion errors, MCP tool returns is_error=true, or the trajectory-server is unreachable.',                                                                 'skills/tmb_recovery/SKILL.md',           'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -447,7 +452,10 @@ INSERT OR IGNORE INTO cheatcodes (name, kind, origin, description, file_path, sc
     ('tmb_swe-checklist',      'skill', 'builtin', 'SWE''s self-review heuristics — spec-fidelity + scope discipline judgment loaded only when about to atomic-close.',                                                                                          'skills/tmb_swe-checklist/SKILL.md',      'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     ('tmb_docs-conventions',   'skill', 'builtin', 'Discipline rules for editing prompt files (agents, skills, CLAUDE.md, workflow markdown) and the docs-update expectation.',                                                                                  'skills/tmb_docs-conventions/SKILL.md',   'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     ('tmb_skill-creator',      'skill', 'builtin', 'Generate a new project-local skill at .claude/skills/<name>/SKILL.md and attach it to existing agents.',                                                                                                     'skills/tmb_skill-creator/SKILL.md',      'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-    ('tmb_cheatcode',          'skill', 'builtin', 'When bro hits a wall — a task leans on a capability the project lacks and a published skill / MCP toolkit / plugin would close the gap — name the gap, cheatcode_search for ranked candidates, judge the best fit, and recommend it for Human approval.', 'skills/tmb_cheatcode/SKILL.md',          'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+    ('tmb_cheatcode',          'skill', 'builtin', 'When bro hits a wall — a task leans on a capability the project lacks and a published skill / MCP toolkit / plugin would close the gap — name the gap, cheatcode_search for ranked candidates, judge the best fit, and recommend it for Human approval.', 'skills/tmb_cheatcode/SKILL.md',          'global', 'curated', 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')))
+INSERT INTO cheatcodes (name, kind, origin, description, file_path, scope, trust_tier, status, installed_at, created_at, updated_at)
+SELECT name, kind, origin, description, file_path, scope, trust_tier, status, installed_at, created_at, updated_at FROM seed
+ WHERE NOT EXISTS (SELECT 1 FROM cheatcodes c WHERE c.name = seed.name AND c.kind = seed.kind);
 
 -- Attachment records (#677). One row per artifact wired into the project by an
 -- install — the marketplace plugin manifest, an MCP server registration, or a
