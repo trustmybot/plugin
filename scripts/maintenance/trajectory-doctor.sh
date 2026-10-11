@@ -37,12 +37,12 @@ import { pathToFileURL } from "node:url";
 const env = process.env;
 const dist = (p) => pathToFileURL(`${env.TMB_DOCTOR_DIST}/${p}`).href;
 const { resolveDbPath } = await import(dist("db.js"));
-const { checkTrajectoryDbFile, selectContracts, trajectoryDoctorTools } = await import(dist("tools/trajectory-doctor.js"));
 const dbPath = resolveDbPath();
 if (dbPath === ":memory:" || !existsSync(dbPath)) {
   console.error(`trajectory-doctor: no trajectory DB at ${dbPath}; run from the project or pass --db`);
   process.exit(2);
 }
+const { checkTrajectoryDbFile, selectContracts, trajectoryDoctorTools } = await import(dist("tools/trajectory-doctor.js"));
 const ids = env.TMB_DOCTOR_IDS ? env.TMB_DOCTOR_IDS.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
 const selected = selectContracts(ids);
 if ("error" in selected) {

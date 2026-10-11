@@ -44,7 +44,7 @@ unset CLAUDE_PLUGIN_ROOT CLAUDE_PROJECT_DIR CLAUDE_CONFIG_DIR
 
 rc=0
 HOME="$FOOTPRINT_HOME" PATH="$TOOL_PATH" node --experimental-sqlite --test --test-reporter spec "$HERE"/*.test.mjs || rc=$?
-HOME="$FOOTPRINT_HOME" PATH="$TOOL_PATH" bash "$HERE/backfill-script-no-db.test.sh" || rc=$?
+HOME="$FOOTPRINT_HOME" PATH="$TOOL_PATH" bash "$HERE/maintenance-scripts-no-db.test.sh" || rc=$?
 
 leaked="$(find "$FOOTPRINT_HOME" -mindepth 1 -print 2>/dev/null | sed "s|^$FOOTPRINT_HOME|\$HOME|")"
 if [ -n "$leaked" ]; then

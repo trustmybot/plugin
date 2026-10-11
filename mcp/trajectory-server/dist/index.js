@@ -21081,17 +21081,23 @@ function freezePlugin(plugin) {
 }
 
 // src/logger.ts
-function createLogger(opts, appendLine) {
-  let logDirReady = false;
-  try {
-    mkdirSync(opts.logDir, { recursive: true });
-    logDirReady = true;
-  } catch {
-  }
+function createLogger(opts, ensureLogDir, appendLine) {
+  let logDirState = "pending";
+  const logDirReady = () => {
+    if (logDirState === "pending") {
+      try {
+        ensureLogDir();
+        logDirState = "ready";
+      } catch {
+        logDirState = "failed";
+      }
+    }
+    return logDirState === "ready";
+  };
   const serverLogPath = join2(opts.logDir, "mcp-server.log");
   const sqlLogPath = join2(opts.logDir, "sql.log");
   const serverLog2 = (entry) => {
-    if (!logDirReady) return;
+    if (!logDirReady()) return;
     try {
       const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
       appendLine(serverLogPath, line);
@@ -21099,7 +21105,7 @@ function createLogger(opts, appendLine) {
     }
   };
   const sqlLog2 = opts.sqlEnabled === true ? (entry) => {
-    if (!logDirReady) return;
+    if (!logDirReady()) return;
     try {
       const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
       appendLine(sqlLogPath, line);
@@ -21117,11 +21123,10 @@ function createLogger(opts, appendLine) {
 var defaultLogger = null;
 function getDefaultLogger() {
   if (defaultLogger === null) {
+    const logDir = resolveClaudeLogDir();
     defaultLogger = createLogger(
-      {
-        logDir: resolveClaudeLogDir(),
-        sqlEnabled: process.env["TMB_DEBUG_SQL"] === "1"
-      },
+      { logDir, sqlEnabled: process.env["TMB_DEBUG_SQL"] === "1" },
+      () => mkdirSync(logDir, { recursive: true }),
       appendFileSync
     );
   }
@@ -24823,17 +24828,16 @@ function resolveLogDir() {
   if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
   return resolveClaudeLogDir();
 }
-var logDir = resolveLogDir();
-var syncLogPath = join5(logDir, "issue-sync.log");
-try {
-  mkdirSync2(logDir, { recursive: true });
-} catch {
-}
+var readyLogDirs = /* @__PURE__ */ new Set();
 function syncLog(entry) {
-  const currentLogPath = process.env.TMB_SYNC_LOG_DIR ? join5(process.env.TMB_SYNC_LOG_DIR, "issue-sync.log") : syncLogPath;
   try {
+    const logDir = resolveLogDir();
+    if (!readyLogDirs.has(logDir)) {
+      mkdirSync2(logDir, { recursive: true });
+      readyLogDirs.add(logDir);
+    }
     const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-    appendFileSync2(currentLogPath, line);
+    appendFileSync2(join5(logDir, "issue-sync.log"), line);
   } catch {
   }
 }

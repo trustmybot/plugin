@@ -10,22 +10,17 @@ function resolveLogDir(): string {
   return resolveClaudeLogDir();
 }
 
-const logDir = resolveLogDir();
-const syncLogPath = join(logDir, 'issue-sync.log');
-
-try {
-  mkdirSync(logDir, { recursive: true });
-} catch {
-  // Log dir creation failed; logging becomes a no-op.
-}
+const readyLogDirs = new Set<string>();
 
 function syncLog(entry: Record<string, unknown>): void {
-  const currentLogPath = process.env.TMB_SYNC_LOG_DIR
-    ? join(process.env.TMB_SYNC_LOG_DIR, 'issue-sync.log')
-    : syncLogPath;
   try {
+    const logDir = resolveLogDir();
+    if (!readyLogDirs.has(logDir)) {
+      mkdirSync(logDir, { recursive: true });
+      readyLogDirs.add(logDir);
+    }
     const line = JSON.stringify({ ...entry, ts: new Date().toISOString() }) + '\n';
-    appendFileSync(currentLogPath, line);
+    appendFileSync(join(logDir, 'issue-sync.log'), line);
   } catch {
     // Swallow all errors — logging must never break the caller.
   }

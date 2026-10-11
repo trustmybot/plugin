@@ -52,6 +52,8 @@ git -C "$REPO" commit -qm init
 DB="$WS/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$DB")"
 export TRAJECTORY_DB_PATH="$DB"
+node --experimental-sqlite --no-warnings --input-type=module \
+  -e "const { TrajectoryDB } = await import('$DIST'); new TrajectoryDB(process.env.TRAJECTORY_DB_PATH).close();"
 
 # Simulate a worktree path (inner subdir) as cwd.
 WT="$WS/.claude/worktrees/wt-1"
