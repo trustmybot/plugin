@@ -21,10 +21,12 @@ const NULLABLE_TOKEN_COLUMNS = ['tokens_in', 'tokens_out', 'cache_read_tokens', 
 function columns(db, table) {
     return db.all(`PRAGMA table_info(${table})`);
 }
-/** Every v30 DDL item (plus all of v29), asserted identically on fresh and migrated DBs. */
+/**
+ * Every v30 DDL item still present at later versions (plus all of v29),
+ * asserted identically on fresh and migrated DBs. The schema_version stamp and
+ * the columns v31 dropped are asserted by v31-shape.ts.
+ */
 export function assertV30Shape(db) {
-    const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
-    assert.equal(meta.schema_version, 30, 'schema_version must be 30');
     assertV29Shape(db);
     const runCols = columns(db, 'agent_runs');
     for (const name of NULLABLE_TOKEN_COLUMNS) {
@@ -33,12 +35,12 @@ export function assertV30Shape(db) {
         assert.equal(col.notnull, 0, `agent_runs.${name} must be nullable`);
         assert.equal(col.dflt_value, null, `agent_runs.${name} must carry no DEFAULT`);
     }
-    for (const name of ['tokens_total', 'tool_uses', 'duration_ms']) {
+    for (const name of ['tool_uses', 'duration_ms']) {
         const col = runCols.find((c) => c.name === name);
         assert.equal(col?.notnull, 1, `agent_runs.${name} stays NOT NULL`);
         assert.equal(col?.dflt_value, '0', `agent_runs.${name} keeps DEFAULT 0`);
     }
-    for (const name of ['usage_baseline_json', 'spawn_id', 'session_id', 'usage_source']) {
+    for (const name of ['spawn_id', 'session_id', 'usage_source']) {
         assert.ok(runCols.some((c) => c.name === name), `agent_runs.${name} must exist`);
     }
     assert.ok(tableDdl(db, 'agent_runs').includes("usage_source IN ('transcript','subagent_stop','unmeasured')"), 'agent_runs DDL must CHECK usage_source');

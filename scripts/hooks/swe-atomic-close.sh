@@ -1,20 +1,25 @@
 #!/usr/bin/env bash
-# SubagentStop hook — atomic-close safety net for SWE tasks (#87).
+# SubagentStop hook — atomic-close safety net + per-spawn metering for SWE.
 #
-# When a SWE subagent stops, this hook locates the most-recent task in any
-# terminal-eligible status (pending, needs_validation, completed), inspects
-# git state, and either auto-closes a pending task or records metrics-only
-# for tasks already flipped by the SWE workspace override.
+# Task binding: the `task_id=<N>` in the spawn prompt (tmb_task_id_from_transcript),
+# for a task in any status. A transcript with no task id, or an id with no task
+# row, writes one agent_runs_capture_skipped audit row and stops — the hook never
+# guesses a task.
 #
 # Fires on: SubagentStop
 # Target: <1s wall time.
 #
-# Decision matrix:
-#   pending           + HAS_COMMITS=true  → write status='completed' + commit_sha; write agent_runs; log
-#   pending           + HAS_COMMITS=false → emit additionalContext warning; write agent_runs; log
-#   needs_validation  + *                 → metrics-only; write agent_runs; status unchanged
-#   completed         + *                 → metrics-only; write agent_runs; status unchanged
-#   subagent_type != swe                  → silent exit 0
+# Decision matrix (status side-effects):
+#   pending + HAS_COMMITS=true  → status='completed' + commit_sha
+#   pending + HAS_COMMITS=false → additionalContext warning to bro
+#   any other status            → metrics only, status unchanged
+#   subagent_type != swe        → silent exit 0
+#
+# Metering: the spawn's totals from its transcript land on one agent_runs row
+# keyed (task_id, spawn_id), spawn_id = the payload's agent_id, else the
+# transcript path. The row task_brief opened for this spawn is UPDATEd
+# (started_at preserved); with none, a complete row is INSERTed with started_at =
+# the transcript's first timestamp. A re-fire for the same spawn updates in place.
 #
 # Log: ${HOME}/.claude/<plugin-name>/logs/mcp-health.log (JSONL, appended)
 
@@ -35,45 +40,49 @@ PLUGIN_NAME=$(tmb_resolve_plugin_name)
 
 mkdir -p "${HOME}/.claude/${PLUGIN_NAME}/logs" 2>/dev/null || true
 
-# Parse a JSONL transcript file and return pipe-separated stats:
-#   tokens_in|tokens_out|tool_uses|duration_ms|cache_read_tokens|cache_creation_tokens
-# On any error or missing file, prints 0|0|0|0|0|0.
+# Parse a JSONL transcript file and print pipe-separated stats:
+#   tokens_in|tokens_out|tool_uses|duration_ms|cache_read_tokens|cache_creation_tokens|first_ts
+# On a missing or unreadable file, prints 0|0|0|0|0|0| (empty first_ts).
 #
-# Measure semantics (per-spawn, NOT a per-message sum):
-#   - input_tokens / output_tokens are reported per message and are disjoint,
-#     so summing them yields the spawn's true generation cost — `add` is correct.
-#   - cache_read_input_tokens / cache_creation_input_tokens re-report the
-#     *cumulative* cached prefix on every message: each turn reads (nearly) the
-#     whole accumulated context from cache, so each message restates a value
-#     close to the running total. Summing them multicounts the same cached
-#     prefix N times (tens of millions for a normal spawn — issue #685). The
-#     spawn's own cache read is the high-water mark, so we take `max`, not `add`.
-#   - tool_uses is a count of tool_use blocks in the transcript (a snapshot of
-#     the spawn's own activity), not a cumulative re-report, so length is right.
+# Lines are grouped by message id (CC writes one line per content block, each
+# repeating the message's usage; the last usage of a group wins; tool_uses
+# counts every tool_use block). input/output tokens are disjoint per message and
+# summed. cache_read / cache_creation re-report the cached prefix on every
+# message, so the spawn's own figure is the high-water mark (max). first_ts is
+# the earliest timestamp normalized to 24-char ms-ISO.
 tmb_parse_transcript_stats() {
   local transcript_path="$1"
   if [ -z "$transcript_path" ] || [ ! -f "$transcript_path" ]; then
-    echo "0|0|0|0|0|0"
+    echo "0|0|0|0|0|0|"
     return 0
   fi
   local result
   result=$(jq -rsc '
-    (map(select(.message.usage != null) | .message.usage.input_tokens // 0) | add // 0) as $ti |
-    (map(select(.message.usage != null) | .message.usage.output_tokens // 0) | add // 0) as $to |
-    (map(select(.message.usage != null) | .message.usage.cache_read_input_tokens // 0) | max // 0) as $cr |
-    (map(select(.message.usage != null) | .message.usage.cache_creation_input_tokens // 0) | max // 0) as $cc |
-    (map(.message.content // [] | arrays | .[]) | map(select(.type == "tool_use")) | length) as $tu |
-    ( map(select(.timestamp != null) |
-        .timestamp |
-        capture("(?<sec>[^.]+)(?:\\.(?<ms>[0-9]+))?Z$") |
-        ((.sec + "Z") | fromdateiso8601) * 1000 + ((.ms // "0")[0:3] | tonumber)
-      ) |
-      if length < 2 then 0 else (max - min) end
-    ) as $dm |
-    [$ti, $to, $tu, $dm, $cr, $cc] | join("|")
+    def ms:
+      capture("^(?<sec>[^.]+?)(\\.(?<f>[0-9]+))?Z$")
+      | ((.sec + "Z") | fromdateiso8601) * 1000 + (((.f // "") + "000")[0:3] | tonumber);
+    def iso:
+      if type == "string" then
+        (capture("^(?<s>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(\\.(?<f>[0-9]+))?Z$") // null)
+        | if . == null then null else .s + "." + (((.f // "") + "000")[0:3]) + "Z" end
+      else null end;
+    def n: if type == "number" and . >= 0 then floor else 0 end;
+    ([.[] | .timestamp | iso | select(. != null)]) as $stamps |
+    ( [ to_entries[] | .key as $i | .value
+        | select(.message.usage != null)
+        | {id: (.message.id // .uuid // ("line-" + ($i | tostring))), u: .message.usage} ]
+      | group_by(.id)
+      | map({u: .[-1].u}) ) as $msgs |
+    ([.[] | .message.content // [] | arrays | .[] | select(.type == "tool_use")] | length) as $all_tu |
+    ($msgs | map(.u.input_tokens | n) | add // 0) as $ti |
+    ($msgs | map(.u.output_tokens | n) | add // 0) as $to |
+    ($msgs | map(.u.cache_read_input_tokens | n) | max // 0) as $cr |
+    ($msgs | map(.u.cache_creation_input_tokens | n) | max // 0) as $cc |
+    ($stamps | map(ms) | if length < 2 then 0 else (max - min) end) as $dm |
+    [$ti, $to, $all_tu, $dm, $cr, $cc, ($stamps | min // "")] | map(tostring) | join("|")
   ' "$transcript_path" 2>/dev/null) || true
   if [ -z "$result" ]; then
-    echo "0|0|0|0|0|0"
+    echo "0|0|0|0|0|0|"
   else
     echo "$result"
   fi
@@ -108,90 +117,26 @@ if [ -z "$DB" ] || ! command -v sqlite3 >/dev/null 2>&1; then
   exit 0
 fi
 
-# Extract task_id from the subagent transcript (#369).
-# When two SWEs run in parallel, the most-recently-updated task heuristic
-# can auto-complete the WRONG task. The transcript contains the spawn prompt
-# (first human turn) which includes `task_id=N`; prefer that over the
-# updated_at sort.
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.agent_transcript_path // ""' 2>/dev/null || true)
-TRANSCRIPT_PATH="${TRANSCRIPT_PATH:-}"
+AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // ""' 2>/dev/null || true)
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""' 2>/dev/null || true)
+SPAWN_ID="${AGENT_ID:-$TRANSCRIPT_PATH}"
 
-TRANSCRIPT_TASK_ID=""
-if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
-  TRANSCRIPT_TASK_ID=$(jq -r '
-    .message.content // [] |
-    .[] | select(.type == "text") | .text // ""
-  ' "$TRANSCRIPT_PATH" 2>/dev/null \
-    | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
-fi
-
-# Derive worktree slug from input cwd (CC payload) or PWD structural fallback.
-# Used by the slug-based task resolution when the transcript yields no task_id.
-HOOK_CWD=$(echo "$INPUT" | jq -r '.cwd // ""' 2>/dev/null || true)
-HOOK_CWD="${HOOK_CWD:-$PWD}"
-WORKTREE_ROOT=""
-case "$HOOK_CWD" in
-  */.claude/worktrees/*)
-    WORKTREE_ROOT=$(echo "$HOOK_CWD" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|')
-    ;;
-esac
-
-# Find the task to operate on:
-#   1. task_id extracted from the transcript (authoritative — bound to this SWE).
-#   2. Worktree slug match via branch_id LIKE '%/<slug>' (no transcript in this harness).
-#   3. Most-recently-updated task in any SWE-relevant status (last-resort fallback).
-#
-# RESOLVE_CONFIDENCE records HOW the task was bound so the agent_runs write can
-# refuse to attribute metrics to a guessed sibling (#685):
-#   transcript|slug → authoritative (bound to this exact SWE/worktree)
-#   updated_at      → weak heuristic; safe for the close decision but NOT for
-#                     metric attribution when same-batch siblings exist.
+TRANSCRIPT_TASK_ID=$(tmb_sql_int "$(tmb_task_id_from_transcript "$TRANSCRIPT_PATH")")
 ROW=""
-RESOLVE_CONFIDENCE=""
 if [ -n "$TRANSCRIPT_TASK_ID" ]; then
-  SAFE_TRANSCRIPT_TASK_ID=$(tmb_sql_int "$TRANSCRIPT_TASK_ID")
-  if [ -n "$SAFE_TRANSCRIPT_TASK_ID" ]; then
-    ROW=$(sqlite3 "$DB" \
-      "SELECT id, status, branch_id, COALESCE(parent_branch_id, ''), COALESCE(repo, '') FROM tasks
-       WHERE id = ${SAFE_TRANSCRIPT_TASK_ID}
-         AND status IN ('pending', 'needs_validation', 'completed')
-       LIMIT 1;" \
-      2>/dev/null || true)
-    [ -n "$ROW" ] && RESOLVE_CONFIDENCE="transcript"
-  fi
-fi
-if [ -z "$ROW" ] && [ -n "$WORKTREE_ROOT" ]; then
-  WORKTREE_SLUG=$(echo "$WORKTREE_ROOT" | sed -E 's|.*/.claude/worktrees/([^/]+)$|\1|')
-  if [ -n "$WORKTREE_SLUG" ]; then
-    SAFE_SLUG=$(tmb_sql_quote "$WORKTREE_SLUG")
-    SLUG_ID=$(tmb_sqlite_ro "$DB" "
-      SELECT id FROM tasks
-       WHERE branch_id LIKE '%/${SAFE_SLUG}'
-         AND status IN ('pending','running','completed')
-       ORDER BY id DESC
-       LIMIT 1;
-    " 2>/dev/null || true)
-    SLUG_ID=$(tmb_sql_int "$SLUG_ID")
-    if [ -n "$SLUG_ID" ]; then
-      ROW=$(sqlite3 "$DB" \
-        "SELECT id, status, branch_id, COALESCE(parent_branch_id, ''), COALESCE(repo, '') FROM tasks
-         WHERE id = ${SLUG_ID}
-         LIMIT 1;" \
-        2>/dev/null || true)
-      [ -n "$ROW" ] && RESOLVE_CONFIDENCE="slug"
-    fi
-  fi
-fi
-if [ -z "$ROW" ]; then
-  RESOLVE_CONFIDENCE="updated_at"
-  ROW=$(sqlite3 "$DB" \
-    "SELECT id, status, branch_id, COALESCE(parent_branch_id, ''), COALESCE(repo, '') FROM tasks
-     WHERE status IN ('pending', 'needs_validation', 'completed')
-     ORDER BY updated_at DESC, id DESC LIMIT 1;" \
-    2>/dev/null || true)
+  ROW=$(tmb_sqlite_ro "$DB" \
+    "SELECT id, status, branch_id, COALESCE(parent_branch_id, ''), COALESCE(repo, ''), issue_id FROM tasks
+      WHERE id = ${TRANSCRIPT_TASK_ID} LIMIT 1;")
 fi
 
 if [ -z "$ROW" ]; then
+  SKIP_REASON="no task_id=<N> in the spawn transcript"
+  [ -n "$TRANSCRIPT_TASK_ID" ] && SKIP_REASON="spawn transcript names task_id=${TRANSCRIPT_TASK_ID}, which has no task row"
+  SKIP_JSON=$(jq -cn --arg tr "$TRANSCRIPT_PATH" --arg sp "$SPAWN_ID" --arg tid "$TRANSCRIPT_TASK_ID" --arg why "$SKIP_REASON" \
+    '{reason:$why, transcript:$tr, spawn_id:$sp, task_id:(if $tid == "" then null else ($tid | tonumber) end)}')
+  tmb_audit_append "$DB" -1 '' "hook:swe-atomic-close" "agent_runs_capture_skipped" \
+    "SWE spawn not metered: ${SKIP_REASON}" "$SKIP_JSON" || true
   exit 0
 fi
 
@@ -202,6 +147,7 @@ TASK_STATUS=$(echo "$ROW" | cut -d'|' -f2)
 BRANCH=$(echo "$ROW" | cut -d'|' -f3)
 PARENT_BRANCH=$(echo "$ROW" | cut -d'|' -f4)
 TASK_REPO=$(echo "$ROW" | cut -d'|' -f5)
+ISSUE_ID=$(echo "$ROW" | cut -d'|' -f6)
 
 # Resolve REPO_ROOT for worktree path:
 #   1. If task has a repo and repos.path resolves, use it (multi-repo workspace).
@@ -338,140 +284,66 @@ if [ "$TASK_STATUS" = "pending" ]; then
     CONTEXT="SWE for task #${TASK_ID} stopped without committing in worktree at ${WT_PATH}. Bro should send SWE back or mark the task failed."
   fi
 else
-  # needs_validation or completed: SWE pre-flipped the status; capture metrics only.
+  # Any other status (running, failed, needs_validation, completed, ...): metrics only.
   DECISION="metrics-only"
 fi
 
-# Always capture per-spawn resource metrics into agent_runs (#131, #137).
-# CC's SubagentStop payload omits token/duration at the top level but
-# DOES include agent_transcript_path — the JSONL with per-message usage.
-# This never fails the hook — a diagnostic line is written on any parse error.
-#
-# Misattribution guard (#685): a real CC spawn transcript always carries the
-# spawn prompt with task_id=N. When a transcript IS present but yields no such
-# id, the only task we could reach is the weak updated_at fallback — which,
-# among same-batch sibling SWEs, binds metrics to the WRONG task. In that case
-# refuse to guess: skip the agent_runs write and log it. (No transcript at all
-# is the legacy harness where updated_at is the only signal and is acceptable.)
-# The close decision + its logging below always run; only the metric write is
-# withheld.
-AR_ATTRIBUTION_SAFE="true"
-if [ "$RESOLVE_CONFIDENCE" = "updated_at" ] && [ -n "$TRANSCRIPT_PATH" ] && [ -z "$TRANSCRIPT_TASK_ID" ]; then
-  AR_ATTRIBUTION_SAFE="false"
-fi
+# Per-spawn metrics into agent_runs. A failed write is logged, never fatal.
+STATS=$(tmb_parse_transcript_stats "$TRANSCRIPT_PATH")
+IFS='|' read -r TOKENS_IN TOKENS_OUT TOOL_USES DURATION_MS CACHE_READ_TOKENS CACHE_CREATION_TOKENS FIRST_TS <<< "$STATS"
+jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" --arg tr "$TRANSCRIPT_PATH" --arg stats "$STATS" \
+  '{ts:$ts,kind:"agent-runs-stats-parsed",task_id:$tid,stats:$stats,transcript:$tr}' \
+  >> "$_LOG_FILE" 2>/dev/null || true
 
 SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
-ISSUE_ID=$(sqlite3 "$DB" "SELECT issue_id FROM tasks WHERE id=${SAFE_TASK_ID} LIMIT 1;" 2>/dev/null || true)
-ISSUE_ID="${ISSUE_ID:-}"
-
-# TRANSCRIPT_PATH already resolved above for task_id extraction.
-
-TOKENS_IN=0
-TOKENS_OUT=0
-TOOL_USES=0
-DURATION_MS=0
-CACHE_READ_TOKENS=0
-CACHE_CREATION_TOKENS=0
-
-if [ -n "$TRANSCRIPT_PATH" ]; then
-  STATS=$(tmb_parse_transcript_stats "$TRANSCRIPT_PATH")
-  if [ "$STATS" = "0|0|0|0|0|0" ] && [ ! -f "$TRANSCRIPT_PATH" ]; then
-    jq -cn --arg ts "$ts" --arg tr "$TRANSCRIPT_PATH" \
-      '{ts:$ts,kind:"agent-runs-stats-parse-failed",reason:"transcript file not found",transcript:$tr}' \
-      >> "$_LOG_FILE" 2>/dev/null || true
-  else
-    TOKENS_IN=$(echo "$STATS" | cut -d'|' -f1)
-    TOKENS_OUT=$(echo "$STATS" | cut -d'|' -f2)
-    TOOL_USES=$(echo "$STATS" | cut -d'|' -f3)
-    DURATION_MS=$(echo "$STATS" | cut -d'|' -f4)
-    CACHE_READ_TOKENS=$(echo "$STATS" | cut -d'|' -f5)
-    CACHE_CREATION_TOKENS=$(echo "$STATS" | cut -d'|' -f6)
-    jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
-      --argjson tt "$((TOKENS_IN + TOKENS_OUT))" \
-      --argjson cr "$CACHE_READ_TOKENS" --argjson cc "$CACHE_CREATION_TOKENS" \
-      --argjson tu "$TOOL_USES" --argjson dm "$DURATION_MS" \
-      --arg tr "$TRANSCRIPT_PATH" \
-      '{ts:$ts,kind:"agent-runs-stats-parsed",task_id:$tid,tokens_total:$tt,cache_read:$cr,cache_creation:$cc,tool_uses:$tu,duration_ms:$dm,transcript:$tr}' \
-      >> "$_LOG_FILE" 2>/dev/null || true
-  fi
-fi
-
-# Sanitize: ensure all values are integers (default 0 if not)
-case "${TOKENS_IN}" in (''|*[!0-9]*) TOKENS_IN=0 ;; esac
-case "${TOKENS_OUT}" in (''|*[!0-9]*) TOKENS_OUT=0 ;; esac
-case "${TOOL_USES}" in (''|*[!0-9]*) TOOL_USES=0 ;; esac
-case "${DURATION_MS}" in (''|*[!0-9]*) DURATION_MS=0 ;; esac
-case "${CACHE_READ_TOKENS}" in (''|*[!0-9]*) CACHE_READ_TOKENS=0 ;; esac
-case "${CACHE_CREATION_TOKENS}" in (''|*[!0-9]*) CACHE_CREATION_TOKENS=0 ;; esac
-
-TOKENS_TOTAL=$((TOKENS_IN + TOKENS_OUT))
-
-# Resolve issue_id column (NULL-safe, numeric-validated).
-SAFE_ISSUE_ID=$(tmb_sql_int "$ISSUE_ID")
-if [ -n "$SAFE_ISSUE_ID" ]; then
-  AR_ISSUE_FRAGMENT="${SAFE_ISSUE_ID}"
-else
-  AR_ISSUE_FRAGMENT="NULL"
-fi
-
-SAFE_AGENT_TYPE=$(tmb_sql_quote "$AGENT_TYPE")
-
+SAFE_ISSUE_ID=$(tmb_sql_int "$ISSUE_ID"); SAFE_ISSUE_ID=${SAFE_ISSUE_ID:-NULL}
 SAFE_TOKENS_IN=$(tmb_sql_int "$TOKENS_IN"); SAFE_TOKENS_IN=${SAFE_TOKENS_IN:-0}
 SAFE_TOKENS_OUT=$(tmb_sql_int "$TOKENS_OUT"); SAFE_TOKENS_OUT=${SAFE_TOKENS_OUT:-0}
-SAFE_TOKENS_TOTAL=$(tmb_sql_int "$TOKENS_TOTAL"); SAFE_TOKENS_TOTAL=${SAFE_TOKENS_TOTAL:-0}
 SAFE_CACHE_READ_TOKENS=$(tmb_sql_int "$CACHE_READ_TOKENS"); SAFE_CACHE_READ_TOKENS=${SAFE_CACHE_READ_TOKENS:-0}
 SAFE_CACHE_CREATION_TOKENS=$(tmb_sql_int "$CACHE_CREATION_TOKENS"); SAFE_CACHE_CREATION_TOKENS=${SAFE_CACHE_CREATION_TOKENS:-0}
 SAFE_TOOL_USES=$(tmb_sql_int "$TOOL_USES"); SAFE_TOOL_USES=${SAFE_TOOL_USES:-0}
 SAFE_DURATION_MS=$(tmb_sql_int "$DURATION_MS"); SAFE_DURATION_MS=${SAFE_DURATION_MS:-0}
+SAFE_SPAWN_ID=$(tmb_sql_quote "$SPAWN_ID")
+SAFE_NOW=$(tmb_sql_quote "$(tmb_now_iso)")
+SAFE_FIRST_TS=$(tmb_sql_quote "${FIRST_TS:-$(tmb_now_iso)}")
+SAFE_SESSION_SQL="NULL"
+[ -n "$SESSION_ID" ] && SAFE_SESSION_SQL="'$(tmb_sql_quote "$SESSION_ID")'"
 
-SAFE_AR_NOW=$(tmb_sql_quote "$(tmb_now_iso)")
-
-if [ "$AR_ATTRIBUTION_SAFE" != "true" ]; then
-  jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" --arg tr "$TRANSCRIPT_PATH" \
-    '{ts:$ts,kind:"agent-runs-capture-skipped",reason:"task_id unresolved from transcript; refusing sibling-fallback attribution",task_id:$tid,transcript:$tr}' \
+# One transaction: UPDATE this spawn's row — the one already keyed by spawn_id,
+# else the unkeyed swe row task_brief opened inside this spawn — and INSERT a
+# complete row only when nothing was updated.
+if ! tmb_db_write "$DB" "
+UPDATE agent_runs
+   SET tokens_in = ${SAFE_TOKENS_IN},
+       tokens_out = ${SAFE_TOKENS_OUT},
+       cache_read_tokens = ${SAFE_CACHE_READ_TOKENS},
+       cache_creation_tokens = ${SAFE_CACHE_CREATION_TOKENS},
+       tool_uses = ${SAFE_TOOL_USES},
+       duration_ms = ${SAFE_DURATION_MS},
+       started_at = COALESCE(started_at, '${SAFE_FIRST_TS}'),
+       completed_at = '${SAFE_NOW}',
+       spawn_id = '${SAFE_SPAWN_ID}',
+       session_id = COALESCE(${SAFE_SESSION_SQL}, session_id),
+       usage_source = 'subagent_stop'
+ WHERE id = (
+   SELECT id FROM agent_runs
+    WHERE task_id = ${SAFE_TASK_ID}
+      AND (spawn_id = '${SAFE_SPAWN_ID}'
+           OR (spawn_id IS NULL AND agent_type = 'swe'
+               AND (completed_at IS NULL
+                    OR started_at >= strftime('%Y-%m-%dT%H:%M:%fZ', '${SAFE_FIRST_TS}', '-2 seconds'))))
+    ORDER BY (spawn_id IS NOT NULL) DESC, id DESC
+    LIMIT 1);
+INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, cache_read_tokens,
+                        cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at,
+                        repo, spawn_id, session_id, usage_source)
+SELECT ${SAFE_TASK_ID}, ${SAFE_ISSUE_ID}, 'swe', ${SAFE_TOKENS_IN}, ${SAFE_TOKENS_OUT}, ${SAFE_CACHE_READ_TOKENS},
+       ${SAFE_CACHE_CREATION_TOKENS}, ${SAFE_TOOL_USES}, ${SAFE_DURATION_MS}, '${SAFE_FIRST_TS}', '${SAFE_NOW}',
+       (SELECT repo FROM tasks WHERE id = ${SAFE_TASK_ID}), '${SAFE_SPAWN_ID}', ${SAFE_SESSION_SQL}, 'subagent_stop'
+ WHERE (SELECT changes()) = 0;"; then
+  jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
+    '{ts:$ts,kind:"agent-runs-write-failed",task_id:$tid}' \
     >> "$_LOG_FILE" 2>/dev/null || true
-else
-  # Idempotent one-row-per-spawn write (#685). SubagentStop fires once per
-  # time the SWE comes to rest, so a single spawn can re-enter this hook N
-  # times. Key the row on a stable per-spawn identity (the transcript path,
-  # stored in usage_baseline_json as {"spawn_id":...}); later stops UPDATE the
-  # same row in place with refreshed metrics rather than INSERTing a duplicate.
-  #
-  # The marker lives in usage_baseline_json (swe rows never use the bro-turn
-  # baseline). When that column is absent (legacy/minimal schema) or no
-  # transcript identity is available, fall back to a plain INSERT — the prior
-  # one-row-per-stop behavior, acceptable for single-SWE harnesses.
-  AR_HAS_BASELINE_COL=$(sqlite3 "$DB" \
-    "SELECT COUNT(*) FROM pragma_table_info('agent_runs') WHERE name='usage_baseline_json';" \
-    2>/dev/null || echo 0)
-  case "${AR_HAS_BASELINE_COL}" in (''|*[!0-9]*) AR_HAS_BASELINE_COL=0 ;; esac
-
-  AR_EXISTING_ID=""
-  SAFE_SPAWN_ID=""
-  if [ "$AR_HAS_BASELINE_COL" -ge 1 ] && [ -n "$TRANSCRIPT_PATH" ]; then
-    SAFE_SPAWN_ID=$(tmb_sql_quote "$TRANSCRIPT_PATH")
-    AR_EXISTING_ID=$(sqlite3 "$DB" \
-      "SELECT id FROM agent_runs
-        WHERE task_id=${SAFE_TASK_ID}
-          AND agent_type='${SAFE_AGENT_TYPE}'
-          AND json_extract(usage_baseline_json, '\$.spawn_id') = '${SAFE_SPAWN_ID}'
-        ORDER BY id DESC LIMIT 1;" \
-      2>/dev/null || true)
-    AR_EXISTING_ID=$(tmb_sql_int "$AR_EXISTING_ID")
-  fi
-
-  if [ -n "$AR_EXISTING_ID" ]; then
-    SAFE_AR_WRITE="UPDATE agent_runs SET tokens_in=${SAFE_TOKENS_IN}, tokens_out=${SAFE_TOKENS_OUT}, tokens_total=${SAFE_TOKENS_TOTAL}, cache_read_tokens=${SAFE_CACHE_READ_TOKENS}, cache_creation_tokens=${SAFE_CACHE_CREATION_TOKENS}, tool_uses=${SAFE_TOOL_USES}, duration_ms=${SAFE_DURATION_MS}, completed_at='${SAFE_AR_NOW}' WHERE id=${AR_EXISTING_ID};"
-  elif [ "$AR_HAS_BASELINE_COL" -ge 1 ] && [ -n "$SAFE_SPAWN_ID" ]; then
-    SAFE_AR_WRITE="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_baseline_json) VALUES (${SAFE_TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${SAFE_AGENT_TYPE}', ${SAFE_TOKENS_IN}, ${SAFE_TOKENS_OUT}, ${SAFE_TOKENS_TOTAL}, ${SAFE_CACHE_READ_TOKENS}, ${SAFE_CACHE_CREATION_TOKENS}, ${SAFE_TOOL_USES}, ${SAFE_DURATION_MS}, '${SAFE_AR_NOW}', json_object('spawn_id', '${SAFE_SPAWN_ID}'));"
-  else
-    SAFE_AR_WRITE="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (${SAFE_TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${SAFE_AGENT_TYPE}', ${SAFE_TOKENS_IN}, ${SAFE_TOKENS_OUT}, ${SAFE_TOKENS_TOTAL}, ${SAFE_CACHE_READ_TOKENS}, ${SAFE_CACHE_CREATION_TOKENS}, ${SAFE_TOOL_USES}, ${SAFE_DURATION_MS}, '${SAFE_AR_NOW}');"
-  fi
-  if ! tmb_db_write "$DB" "$SAFE_AR_WRITE"; then
-    jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
-      '{ts:$ts,kind:"agent-runs-capture-skipped",reason:"agent_runs write failed",task_id:$tid}' \
-      >> "$_LOG_FILE" 2>/dev/null || true
-  fi
 fi
 
 # Log the decision.

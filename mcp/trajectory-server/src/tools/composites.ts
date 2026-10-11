@@ -3,10 +3,11 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
-import { requireRoles } from '../middleware/agent-scope.js';
+import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
 import { insertDiscussion } from './discussions.js';
 import { insertAudit } from './audit.js';
+import { closeOpenRunsForTask, openSweRun, sweepRunsOfTerminalTasks } from './agent-runs.js';
 import {
   syncIssueCloseRemotes,
   resolveDefaultMilestone,
@@ -277,21 +278,8 @@ function closeTaskInTx(
     [commitSha, now, now, task.id],
   );
 
-  // 3. Bro-as-agent_run (#2886): finalize the bro row opened by
-  // task_create_batch. Only update the row that hasn't been completed yet
-  // (idempotent on re-close).
-  db.run(
-    `UPDATE agent_runs
-        SET completed_at = ?,
-            duration_ms = COALESCE(
-              (strftime('%s', ?) - strftime('%s', started_at)) * 1000,
-              0
-            )
-      WHERE task_id = ?
-        AND agent_type = 'bro'
-        AND completed_at IS NULL`,
-    [now, now, task.id],
-  );
+  // 3. close every open agent_runs row of the task (bro and swe).
+  closeOpenRunsForTask(db, task.id, now);
 
   // 4. optional issue_close — only when this was the last open/active task.
   let issueClosed = false;
@@ -497,7 +485,7 @@ export function compositeTools(
     {
       name: 'task_recover',
       description:
-        'Bro task-recovery composite — deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op.',
+        'Bro task-recovery composite — deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op. Every call also closes agent_runs rows still open on already-terminal tasks (runs_swept).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -587,7 +575,7 @@ export function compositeTools(
     {
       name: 'task_brief',
       description:
-        "Full context bundle for one task in a single call — swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch.",
+        "Full context bundle for one task in a single call — swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch. A swe call opens the task's swe agent_runs row when none is open.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -932,6 +920,10 @@ export function compositeTools(
           [taskId],
         );
         if (!task) return err(`No task with id=${taskId}`);
+
+        if (normalizeAgent(args['agent'] as string | undefined) === 'swe') {
+          openSweRun(db, task, nowISO());
+        }
 
         // Resolve repo: task.repo, else the single-repo fallback (path-keyed
         // resolution — empty in multi-repo projects, which scope by task.repo).
@@ -1674,6 +1666,8 @@ export function compositeTools(
         );
         if (!task) return err(`No task with id=${taskId}`);
 
+        const runs_swept = sweepRunsOfTerminalTasks(db, nowISO());
+
         // Idempotent: already-closed (or any non-recoverable status) → no-op
         // naming the status. Never throws on an already-recovered task.
         if (task.status !== 'pending' && task.status !== 'completed') {
@@ -1683,6 +1677,7 @@ export function compositeTools(
             task_id: task.id,
             status: task.status,
             reason: `task is "${task.status}" — not in a recoverable (pending/completed) state`,
+            runs_swept,
           });
         }
 
@@ -1693,6 +1688,7 @@ export function compositeTools(
             action: 're-dispatch',
             task_id: task.id,
             reason: 'no commit on a pending task — re-dispatch SWE',
+            runs_swept,
           });
         }
 
@@ -1729,6 +1725,7 @@ export function compositeTools(
           task_id: task.id,
           commit_sha: commitSha,
           issue_closed: result.issue_closed,
+          runs_swept,
         });
       }),
     ),

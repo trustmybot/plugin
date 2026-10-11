@@ -35,6 +35,11 @@ Lint: `naming-lint.sh`, `code-quality-lint.sh`, `debug-trajectory.sh`.
 ### Stop / SubagentStop / WorktreeCreate
 `bro-turn-usage.sh` (Stop), `swe-atomic-close.sh` + `consultant-persistence-gate.sh` (SubagentStop), `worktree-create.sh` (WorktreeCreate).
 
+#### Metering — `agent_runs` by time window
+Each `agent_runs` row covers `[started_at, completed_at)` of one agent's run on one task; the server opens and closes the rows (task creation / `task_brief` open them, `bro_atomic_close`, a terminal `task_update_status` and `task_recover` close them), the hooks only measure.
+- `bro-turn-usage.sh` reads `session_id` + `transcript_path` from the Stop payload. It claims open (or recently closed) bro rows with no `session_id` that started after the session's first transcript message, then, in one `tmb_db_write` transaction, sets each of its own rows (open, or closed within 24 h) to the sum of the transcript's main-loop assistant usage inside the row's window (window start widened by 2 s; newest `started_at` wins on overlap), with `duration_ms` = the window length and `usage_source='transcript'`. Content-block lines of one message are counted once. Recomputed absolutely on every Stop, so a re-run changes nothing and another session's rows are never touched. Bypass: `TMB_DISABLE_BRO_TURN_USAGE_HOOK=1`.
+- `swe-atomic-close.sh` binds the spawn to `task_id=<N>` from its spawn prompt (`tmb_task_id_from_transcript` in `lib/query-task.sh`, which `swe-brief-gate.sh` shares) for a task in any status; with no id or no such task it writes an `agent_runs_capture_skipped` audit row and stops. It writes the spawn transcript's totals (in/out summed per message, cache read/creation as the spawn's high-water mark) onto the swe row `task_brief` opened, keyed `(task_id, spawn_id)` with `spawn_id` = the payload's `agent_id`, or inserts a complete row; a re-fire updates in place. Only a `pending` task can be auto-completed; a SWE stopping while `running` or `failed` gets metrics only.
+
 ### Not wired in hooks.json
 `require-task-spec.sh`, `require-feature-branch-active.sh`, `pr-reviewer-after-atomic-close.sh`, `pr-reviewer-no-worktree.sh`, `pr-reviewer-spawn-prompt-shape.sh` — PreToolUse-on-Agent guards (spawn-shape / spec / branch checks) not currently referenced by `hooks.json`.
 

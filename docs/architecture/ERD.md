@@ -178,6 +178,8 @@ erDiagram
         INT  cache_creation_tokens "NULL = unmeasured"
         INT  tool_uses
         INT  duration_ms
+        TEXT started_at "window start"
+        TEXT completed_at "window end; NULL while open"
         TEXT spawn_id "UNIQUE (task_id, spawn_id) when non-NULL"
         TEXT session_id
         TEXT usage_source "CHECK transcript|subagent_stop|unmeasured"
@@ -270,7 +272,7 @@ erDiagram
 | _(world model)_ | Lives in the sibling kuzu graph DB at `<project>/.claude/tmb/world-model.kuzu/`, not in this SQLite file. Directory nodes + CONTAINS edges, populated by `scan_run` via `src/graph-db.ts`. See `docs/architecture/WORLD_MODEL.md`. |
 | `plugin_config` | KV for workspace-global plugin settings only: `issue_sync`, the issue label taxonomies, the `onboarded` marker, and `pr_review_bots`. The repo-scoped policy fields (`target_branch`, `branching_model`, `protected_branches`, `remotes`) are NOT here — they live on the `repos` row (#980, see `repos` above / [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md)). See `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the canonical key list. |
 | `plugin_meta` | Schema + plugin version. Current `schema_version=30`. `plugin_version` is seeded as `'0.0.0'` and synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — so the row always reflects the running plugin version without a migration. |
-| `agent_runs` | Per-spawn resource tracking (tokens, tool_uses, duration). Written by `swe-atomic-close.sh` SubagentStop hook. The four token columns are NULL until measured; `usage_source` records where measured values came from (`transcript`, `subagent_stop`) or `unmeasured`, and stays NULL while the run is open. `spawn_id` identifies the measured spawn (one row per task + spawn); `session_id` ties the run to the CC session that owns it. |
+| `agent_runs` | One row per metered run of an agent on a task, covering the time window `[started_at, completed_at)`. Bro rows open at task creation and are metered by the `bro-turn-usage.sh` Stop hook; swe rows open at the swe's `task_brief` and are metered by the `swe-atomic-close.sh` SubagentStop hook. The four token columns are NULL until measured; `usage_source` records where measured values came from (`transcript`, `subagent_stop`) or `unmeasured`. `spawn_id` identifies the measured spawn (one row per task + spawn); `session_id` ties the run to the CC session that owns it. The total is computed, not stored (`tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens`). `bro_atomic_close` and a terminal `task_update_status` (`failed`, `escalated`, `closed`) close every open row of the task; `task_recover` closes rows left open on already-terminal tasks. |
 | `pr_review_runs` | Per-PR monitor incremental-polling cursor (`last_fetched_at`, `last_comment_id`) — cursor-only since v29. Used by `/monitor` flow — `pr_monitor_comments_get` reads the cursor on entry and upserts it on exit so the next call only fetches new comments; no cursor is kept when no repo slug resolves. Table-level `UNIQUE (pr_number, repo)` with `CHECK (pr_number > 0)` and `CHECK (repo <> '')`. `task_id` links the PR to its task for `post-pr-comments-persist`. |
 | `debug_trajectory` | Deterministic-trajectory capture (only when `TMB_DEBUG_TRAJECTORY=1`). Used by L5 scoring. |
 | `eval_results` | Per-scorer results for L5/A-B prompt-eval runs. One row per (run_id, flow_name, scorer_name). |
@@ -332,7 +334,11 @@ The `cheatcodes` table is the unified capability catalog (#101): a **portable ca
 
 ### Bro as a first-class agent_run
 
-`agent_runs` captures **subagent spawns** (SWE, pr-reviewer, consultants) *and* bro itself — the main process — at **per-task granularity**: one row per bro-driven task, parallel to SWE's row. Lets you compute total task cost = bro planning + SWE execution. The bro row is recorded by composites (`task_provision` opens it, `bro_atomic_close` writes final tokens/duration) and a PostToolUse hook that accumulates bro's tokens from `transcript_path`.
+`agent_runs` captures **SWE spawns** *and* bro itself — the main process — at **per-task granularity**: one bro row per task, parallel to the task's swe rows. Lets you compute total task cost = bro planning + SWE execution.
+
+- **Bro rows** open at task creation (`task_create_batch`, `task_provision`, `task_retry`) with `started_at = now`. The `bro-turn-usage.sh` Stop hook claims open rows with no `session_id` that started after its session's first transcript message, then attributes each main-loop assistant message of the session transcript to the row whose window `[started_at − 2 s, completed_at)` contains it (newest `started_at` wins on overlap) and writes the sums absolutely on every Stop — idempotent, correct for several open rows, and parallel sessions never share a row. Rows of the session closed within the last 24 h are recomputed too, so the turn in which `bro_atomic_close` closed a row is still captured.
+- **Swe rows** open when the swe calls `task_brief` (one open row per task). The `swe-atomic-close.sh` SubagentStop hook binds the spawn to the task named by `task_id=<N>` in its spawn prompt, for any task status, and writes the spawn transcript's totals onto that row (`spawn_id` = the payload's `agent_id`), or inserts a complete row when none was opened. A spawn with no resolvable task id writes an `agent_runs_capture_skipped` audit row instead — the hook never guesses a task.
+- **Closing.** `bro_atomic_close` and a terminal `task_update_status` (`failed`, `escalated`, `closed`) close every open row of the task; `task_recover` sweeps rows left open on tasks that are already terminal.
 
 ### How this serves both runtimes
 
@@ -348,8 +354,10 @@ Same schema, two read paths. Designed so the enterprise runtime can adopt this w
 ```sql
 -- "Total task cost = bro planning + SWE execution"
 SELECT t.id, t.branch_id,
-       SUM(CASE WHEN ar.agent_type = 'bro' THEN ar.tokens_total ELSE 0 END) AS bro_tokens,
-       SUM(CASE WHEN ar.agent_type LIKE 'tmb:swe%' THEN ar.tokens_total ELSE 0 END) AS swe_tokens
+       SUM(CASE WHEN ar.agent_type = 'bro' THEN COALESCE(ar.tokens_in, 0) + COALESCE(ar.tokens_out, 0)
+                + COALESCE(ar.cache_read_tokens, 0) + COALESCE(ar.cache_creation_tokens, 0) ELSE 0 END) AS bro_tokens,
+       SUM(CASE WHEN ar.agent_type = 'swe' THEN COALESCE(ar.tokens_in, 0) + COALESCE(ar.tokens_out, 0)
+                + COALESCE(ar.cache_read_tokens, 0) + COALESCE(ar.cache_creation_tokens, 0) ELSE 0 END) AS swe_tokens
 FROM tasks t
 LEFT JOIN agent_runs ar ON ar.task_id = t.id
 GROUP BY t.id, t.branch_id;
@@ -357,4 +365,4 @@ GROUP BY t.id, t.branch_id;
 
 ### Implementation status
 
-The catalog is unified into `cheatcodes` (#101). The bundled tmb_* skill seed (`origin='builtin'` rows in `cheatcodes`) is in `schema.sql` and created on DB open via `CREATE TABLE IF NOT EXISTS`. Skill/plugin usage verification lives in the stream-json session log (#118), not a DB junction table. The bro `agent_run` composite (rows opened at `task_provision`, finalized at `bro_atomic_close`) tracks per-task token cost.
+The catalog is unified into `cheatcodes` (#101). The bundled tmb_* skill seed (`origin='builtin'` rows in `cheatcodes`) is in `schema.sql` and created on DB open via `CREATE TABLE IF NOT EXISTS`. Skill/plugin usage verification lives in the stream-json session log (#118), not a DB junction table. Bro and swe `agent_runs` rows (opened at task creation and `task_brief`, closed with their task) track per-task token cost.

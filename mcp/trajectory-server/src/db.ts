@@ -14,7 +14,7 @@ import {
   resolveClaudePluginVersion,
 } from './platform.js';
 
-const TARGET_SCHEMA_VERSION = 30;
+const TARGET_SCHEMA_VERSION = 31;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -593,6 +593,9 @@ function runMigrations(
   }
   if (fromVersion < 30 && toVersion >= 30) {
     migrateV29toV30(db);
+  }
+  if (fromVersion < 31 && toVersion >= 31) {
+    migrateV30toV31(db);
   }
 }
 
@@ -1705,6 +1708,80 @@ function migrateV29toV30(db: DatabaseSync): void {
     if (fkViolations.length > 0) {
       throw new Error(
         `migrateV29toV30: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v30 rebuilds`,
+      );
+    }
+
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // original error wins
+    }
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+// v30→v31: agent_runs drops tokens_total and usage_baseline_json. Tokens are
+// attributed by time window and recomputed absolutely, so no baseline is
+// stored, and the total is computed (in + out + cache_read + cache_creation)
+// rather than kept as a column that excluded cache.
+//
+// Same rebuild discipline as v30: foreign_keys OFF, one transaction,
+// foreign_key_check before COMMIT. Guarded on the old shape, so a re-run
+// against a v31 shape is a no-op.
+function migrateV30toV31(db: DatabaseSync): void {
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    if (
+      tableExists(db, 'agent_runs') &&
+      (hasColumn(db, 'agent_runs', 'tokens_total') || hasColumn(db, 'agent_runs', 'usage_baseline_json'))
+    ) {
+      rebuildTable(
+        db,
+        'agent_runs',
+        `
+          id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id               INTEGER REFERENCES tasks(id),
+          issue_id              INTEGER REFERENCES issues(id),
+          agent_type            TEXT    NOT NULL,
+          tokens_in             INTEGER,
+          tokens_out            INTEGER,
+          cache_read_tokens     INTEGER,
+          cache_creation_tokens INTEGER,
+          tool_uses             INTEGER NOT NULL DEFAULT 0,
+          duration_ms           INTEGER NOT NULL DEFAULT 0,
+          started_at            TEXT,
+          completed_at          TEXT,
+          repo                  TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          spawn_id              TEXT,
+          session_id            TEXT,
+          usage_source          TEXT CHECK (usage_source IN ('transcript','subagent_stop','unmeasured'))
+        `,
+        [
+          ['id', 'NULL'], ['task_id', 'NULL'], ['issue_id', 'NULL'], ['agent_type', "''"],
+          ['tokens_in', 'NULL'], ['tokens_out', 'NULL'], ['cache_read_tokens', 'NULL'],
+          ['cache_creation_tokens', 'NULL'], ['tool_uses', '0'], ['duration_ms', '0'], ['started_at', 'NULL'],
+          ['completed_at', 'NULL'], ['repo', 'NULL'], ['spawn_id', 'NULL'], ['session_id', 'NULL'],
+          ['usage_source', 'NULL'],
+        ],
+      );
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_open ON agent_runs(agent_type) WHERE completed_at IS NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id) WHERE session_id IS NOT NULL;
+      `);
+    }
+
+    const fkViolations = db.prepare('PRAGMA foreign_key_check').all() as unknown[];
+    if (fkViolations.length > 0) {
+      throw new Error(
+        `migrateV30toV31: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v31 rebuild`,
       );
     }
 

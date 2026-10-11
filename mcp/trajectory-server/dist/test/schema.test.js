@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
-import { assertTimestampsIso, assertV30Shape } from './fixtures/v30-shape.js';
+import { assertTimestampsIso } from './fixtures/v30-shape.js';
+import { assertV31Shape } from './fixtures/v31-shape.js';
 describe('schema — current table set, default values, constraints', () => {
     it('fresh prod-mode DB contains the current table set (skills folded into cheatcodes, #101; world model in kuzu)', () => {
         const db = tempDB();
@@ -98,9 +99,9 @@ describe('schema — current table set, default values, constraints', () => {
         }, /CHECK/i);
         db.close();
     });
-    it('fresh DB carries every v29 + v30 constraint, drop, column and index', () => {
+    it('fresh DB carries every v29 + v30 + v31 constraint, drop, column and index', () => {
         const db = tempDB();
-        assertV30Shape(db);
+        assertV31Shape(db);
         db.close();
     });
     it('fresh DB seeds and DEFAULTs write only 24-char ms-ISO timestamps (v30)', () => {
@@ -127,13 +128,12 @@ describe('schema — current table set, default values, constraints', () => {
     it('fresh DB: agent_runs token columns default to NULL and spawn_id is unique per task (v30)', () => {
         const db = tempDB();
         db.run(`INSERT INTO agent_runs (agent_type) VALUES ('bro')`);
-        const row = db.get('SELECT tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, tokens_total, usage_source FROM agent_runs');
+        const row = db.get('SELECT tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, usage_source FROM agent_runs');
         assert.deepEqual({ ...row }, {
             tokens_in: null,
             tokens_out: null,
             cache_read_tokens: null,
             cache_creation_tokens: null,
-            tokens_total: 0,
             usage_source: null,
         });
         const now = new Date().toISOString();
@@ -144,11 +144,11 @@ describe('schema — current table set, default values, constraints', () => {
         assert.throws(() => db.run(`INSERT INTO agent_runs (task_id, agent_type, spawn_id) VALUES (1, 'swe', 's-1')`), /UNIQUE/, 'one row per (task_id, spawn_id)');
         db.close();
     });
-    it('fresh DB has schema_version = 30 in plugin_meta', () => {
+    it('fresh DB has schema_version = 31 in plugin_meta', () => {
         const db = tempDB();
         const meta = db.get('SELECT schema_version, plugin_version FROM plugin_meta LIMIT 1');
         assert.ok(meta !== undefined, 'plugin_meta must have a seed row');
-        assert.equal(meta.schema_version, 30);
+        assert.equal(meta.schema_version, 31);
         assert.ok(typeof meta.plugin_version === 'string' && meta.plugin_version.length > 0, 'plugin_version must be a non-empty string');
         db.close();
     });
