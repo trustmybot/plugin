@@ -15,8 +15,9 @@
 #   any other status            → metrics only, status unchanged
 #   subagent_type != swe        → silent exit 0
 #
-# Metering: the spawn's totals from its transcript land on one agent_runs row
-# keyed (task_id, spawn_id), spawn_id = the payload's agent_id, else the
+# Metering: the spawn's totals and dominant model from its transcript land on
+# one agent_runs row (host claude, root_dir the task worktree when unset,
+# exit_reason from the task's state once the spawn ended), keyed (task_id, spawn_id), spawn_id = the payload's agent_id, else the
 # transcript path. The row task_brief opened for this spawn is UPDATEd
 # (started_at preserved); with none, a complete row is INSERTed with started_at =
 # the transcript's first timestamp. A re-fire for the same spawn updates in place.
@@ -37,18 +38,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/db-write.sh"
 
 # Parse a JSONL transcript file and print pipe-separated stats:
-#   tokens_in|tokens_out|tool_uses|duration_ms|cache_read_tokens|cache_creation_tokens|first_ts
-# On a missing or unreadable file, prints 0|0|0|0|0|0| (empty first_ts).
+#   tokens_in|tokens_out|tool_uses|duration_ms|cache_read_tokens|cache_creation_tokens|first_ts|model
+# On a missing or unreadable file, prints 0|0|0|0|0|0|| (empty first_ts and model).
 #
 # Lines are grouped by message id (CC writes one line per content block, each
 # repeating the message's usage; the last usage of a group wins; tool_uses
 # counts every tool_use block). Every token column is a per-message sum — usage
 # is billed per request, so these are the same units as bro rows. first_ts is
-# the earliest timestamp normalized to 24-char ms-ISO.
+# the earliest timestamp normalized to 24-char ms-ISO. model is the dominant
+# message.model (the one with the most tokens), restricted to
+# [A-Za-z0-9._:@/[]-]; CC's synthetic messages (<synthetic>) carry no model.
 tmb_parse_transcript_stats() {
   local transcript_path="$1"
   if [ -z "$transcript_path" ] || [ ! -f "$transcript_path" ]; then
-    echo "0|0|0|0|0|0|"
+    echo "0|0|0|0|0|0||"
     return 0
   fi
   local result
@@ -62,22 +65,28 @@ tmb_parse_transcript_stats() {
         | if . == null then null else .s + "." + (((.f // "") + "000")[0:3]) + "Z" end
       else null end;
     def n: if type == "number" and . >= 0 then floor else 0 end;
+    def model:
+      if type == "string" and (startswith("<") | not) then gsub("[^A-Za-z0-9._:@/\\[\\]-]"; "") else "" end;
     ([.[] | .timestamp | iso | select(. != null)]) as $stamps |
     ( [ to_entries[] | .key as $i | .value
         | select(.message.usage != null)
-        | {id: (.message.id // .uuid // ("line-" + ($i | tostring))), u: .message.usage} ]
+        | {id: (.message.id // .uuid // ("line-" + ($i | tostring))), u: .message.usage, m: (.message.model | model)} ]
       | group_by(.id)
-      | map({u: .[-1].u}) ) as $msgs |
+      | map({u: .[-1].u, m: .[-1].m}) ) as $msgs |
     ([.[] | .message.content // [] | arrays | .[] | select(.type == "tool_use")] | length) as $all_tu |
     ($msgs | map(.u.input_tokens | n) | add // 0) as $ti |
     ($msgs | map(.u.output_tokens | n) | add // 0) as $to |
     ($msgs | map(.u.cache_read_input_tokens | n) | add // 0) as $cr |
     ($msgs | map(.u.cache_creation_input_tokens | n) | add // 0) as $cc |
     ($stamps | map(ms) | if length < 2 then 0 else (max - min) end) as $dm |
-    [$ti, $to, $all_tu, $dm, $cr, $cc, ($stamps | min // "")] | map(tostring) | join("|")
+    ( $msgs | map(select(.m != "")
+              | {m, t: ([.u.input_tokens, .u.output_tokens, .u.cache_read_input_tokens, .u.cache_creation_input_tokens] | map(n) | add)})
+      | group_by(.m) | map({m: .[0].m, t: (map(.t) | add)})
+      | sort_by(-.t, .m) | .[0].m // "" ) as $model |
+    [$ti, $to, $all_tu, $dm, $cr, $cc, ($stamps | min // ""), $model] | map(tostring) | join("|")
   ' "$transcript_path" 2>/dev/null) || true
   if [ -z "$result" ]; then
-    echo "0|0|0|0|0|0|"
+    echo "0|0|0|0|0|0||"
   else
     echo "$result"
   fi
@@ -269,7 +278,7 @@ fi
 
 # Per-spawn metrics into agent_runs. A failed write is logged, never fatal.
 STATS=$(tmb_parse_transcript_stats "$TRANSCRIPT_PATH")
-IFS='|' read -r TOKENS_IN TOKENS_OUT TOOL_USES DURATION_MS CACHE_READ_TOKENS CACHE_CREATION_TOKENS FIRST_TS <<< "$STATS"
+IFS='|' read -r TOKENS_IN TOKENS_OUT TOOL_USES DURATION_MS CACHE_READ_TOKENS CACHE_CREATION_TOKENS FIRST_TS MODEL <<< "$STATS"
 jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" --arg tr "$TRANSCRIPT_PATH" --arg stats "$STATS" \
   '{ts:$ts,kind:"agent-runs-stats-parsed",task_id:$tid,stats:$stats,transcript:$tr}' \
   >> "$_LOG_FILE" 2>/dev/null || true
@@ -287,6 +296,16 @@ SAFE_NOW=$(tmb_sql_quote "$(tmb_now_iso)")
 SAFE_FIRST_TS=$(tmb_sql_quote "${FIRST_TS:-$(tmb_now_iso)}")
 SAFE_SESSION_SQL="NULL"
 [ -n "$SESSION_ID" ] && SAFE_SESSION_SQL="'$(tmb_sql_quote "$SESSION_ID")'"
+SAFE_MODEL_SQL="NULL"
+[ -n "${MODEL:-}" ] && SAFE_MODEL_SQL="'$(tmb_sql_quote "$MODEL")'"
+SAFE_ROOT_DIR=$(tmb_sql_quote "$WT_PATH")
+
+# exit_reason of the spawn's row: what the task looks like once the spawn ended.
+case "$DECISION:$TASK_STATUS" in
+  auto-completed:*|*:completed|*:closed|*:needs_validation) EXIT_REASON="completed" ;;
+  *:escalated) EXIT_REASON="escalated" ;;
+  *) EXIT_REASON="failed" ;;
+esac
 
 # One transaction: UPDATE this spawn's row — the one already keyed by spawn_id,
 # else the unkeyed swe row task_brief opened inside this spawn — and INSERT a
@@ -303,7 +322,11 @@ UPDATE agent_runs
        completed_at = '${SAFE_NOW}',
        spawn_id = '${SAFE_SPAWN_ID}',
        session_id = COALESCE(${SAFE_SESSION_SQL}, session_id),
-       usage_source = 'subagent_stop'
+       usage_source = 'subagent_stop',
+       model = COALESCE(${SAFE_MODEL_SQL}, model),
+       host = COALESCE(host, 'claude'),
+       root_dir = COALESCE(root_dir, '${SAFE_ROOT_DIR}'),
+       exit_reason = COALESCE(exit_reason, '${EXIT_REASON}')
  WHERE id = (
    SELECT id FROM agent_runs
     WHERE task_id = ${SAFE_TASK_ID}
@@ -315,10 +338,11 @@ UPDATE agent_runs
     LIMIT 1);
 INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, cache_read_tokens,
                         cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at,
-                        repo, spawn_id, session_id, usage_source)
+                        repo, spawn_id, session_id, usage_source, model, host, root_dir, exit_reason)
 SELECT ${SAFE_TASK_ID}, ${SAFE_ISSUE_ID}, 'swe', ${SAFE_TOKENS_IN}, ${SAFE_TOKENS_OUT}, ${SAFE_CACHE_READ_TOKENS},
        ${SAFE_CACHE_CREATION_TOKENS}, ${SAFE_TOOL_USES}, ${SAFE_DURATION_MS}, '${SAFE_FIRST_TS}', '${SAFE_NOW}',
-       (SELECT repo FROM tasks WHERE id = ${SAFE_TASK_ID}), '${SAFE_SPAWN_ID}', ${SAFE_SESSION_SQL}, 'subagent_stop'
+       (SELECT repo FROM tasks WHERE id = ${SAFE_TASK_ID}), '${SAFE_SPAWN_ID}', ${SAFE_SESSION_SQL}, 'subagent_stop',
+       ${SAFE_MODEL_SQL}, 'claude', '${SAFE_ROOT_DIR}', '${EXIT_REASON}'
  WHERE (SELECT changes()) = 0;"; then
   jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
     '{ts:$ts,kind:"agent-runs-write-failed",task_id:$tid}' \

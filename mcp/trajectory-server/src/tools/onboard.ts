@@ -30,6 +30,11 @@ import {
   removeProjectEnforcementShim,
   writeProjectEnforcementShim,
 } from './onboard-hooks-shim.js';
+import {
+  removeProjectSandbox,
+  writeProjectSandbox,
+  type SandboxRecord,
+} from './onboard-sandbox.js';
 
 // Resolve the installed plugin's source root: prefer CLAUDE_PLUGIN_ROOT (must
 // have .claude-plugin/plugin.json), else walk up from this module until that
@@ -472,6 +477,32 @@ function headlessQuestion(current: string | null, isReonboard: boolean, entries:
   };
 }
 
+function sandboxQuestion(current: string | null, isReonboard: boolean): BuiltQuestion {
+  const options: QuestionOption[] = [];
+  if (isReonboard && current !== null) {
+    options.push({ label: `Keep "${current}"`, description: 'No change.', wire: KEEP_SENTINEL });
+  }
+  options.push(
+    {
+      label: 'No',
+      description: "Bash writes follow Claude Code's defaults; the containment hook still guards.",
+      wire: 'no',
+    },
+    {
+      label: 'Yes',
+      description: "Bash may write only in this project and the model cache. Writes a sandbox block to this project's .claude/settings.local.json; Claude Code's sandbox network defaults then apply to Bash.",
+      wire: 'yes',
+    },
+  );
+  return {
+    question: "Confine Bash writes to this project with Claude Code's sandbox? Writes a sandbox block to this project's .claude/settings.local.json.",
+    header: 'Sandbox',
+    multiSelect: false,
+    options,
+    default_index: options.findIndex((o) => o.wire === 'no'),
+  };
+}
+
 // ---- Label → wire resolution -----------------------------------------------
 
 // Resolve a caller-supplied value against a set of options.
@@ -518,6 +549,8 @@ const HEADLESS_OPTIONS: QuestionOption[] = [
   { label: 'Yes', description: '', wire: 'yes' },
 ];
 
+const SANDBOX_OPTIONS = HEADLESS_OPTIONS;
+
 export interface OnboardShimEnv {
   pluginRoot?: string | null;
 }
@@ -549,9 +582,9 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           },
           round: {
             type: 'string',
-            enum: ['shape', 'main', 'sync', 'headless'],
+            enum: ['shape', 'main', 'sync', 'headless', 'sandbox'],
             description:
-              "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only — issue_sync). 'headless' = headless_enforcement (any shape; default No).",
+              "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only — issue_sync). 'headless' = headless_enforcement (any shape; default No). 'sandbox' = sandbox_enforcement (any shape; default No).",
           },
           repo: {
             type: 'string',
@@ -592,6 +625,12 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             description:
               "Optional. 'yes' writes TMB's PreToolUse gates into the project's .claude/settings.local.json so they also fire in headless `claude -p` runs; 'no' removes them. Omit to keep the stored answer (default 'no').",
           },
+          sandbox_enforcement: {
+            type: 'string',
+            enum: ['yes', 'no'],
+            description:
+              "Optional. 'yes' writes Claude Code's Bash sandbox block (sandbox.enabled + filesystem.allowWrite = the project and the model cache) into the project's .claude/settings.local.json; 'no' removes what TMB wrote. Omit to keep the stored answer (default 'no').",
+          },
           repo: {
             type: 'string',
             description:
@@ -624,6 +663,12 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
     if (fromDb && fromDb[1]) return fromDb[1];
     return process.env['CLAUDE_PROJECT_DIR'] || process.cwd();
   };
+  // The sandbox block is written only into a real project: one whose
+  // trajectory DB path names it (never the server's cwd).
+  const sandboxProjectRoot = (): string | null => {
+    const fromDb = dbPath.match(/^(.*)\/\.claude\/[^/]+\/trajectory\.db$/);
+    return fromDb && fromDb[1] ? fromDb[1] : null;
+  };
   const shimOptions = () => ({
     pluginRoot: shimEnv.pluginRoot !== undefined ? shimEnv.pluginRoot : resolvePluginRoot(),
     projectRoot: projectRoot(),
@@ -655,6 +700,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             remotes: policy.remotes,
             issue_sync: readConfig(db, 'issue_sync'),
             headless_enforcement: readConfig(db, 'headless_enforcement') ?? 'no',
+            sandbox_enforcement: readConfig(db, 'sandbox_enforcement') ?? 'no',
           },
           probe: {
             in_git: git.in_git,
@@ -674,7 +720,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
       ['bro'],
       wrapHandler(async (args) => {
         const shape = args['shape'] as 'local' | 'remote' | undefined;
-        const round = args['round'] as 'shape' | 'main' | 'sync' | 'headless';
+        const round = args['round'] as 'shape' | 'main' | 'sync' | 'headless' | 'sandbox';
         const repo = args['repo'] as string | undefined;
 
         const git = probeGit(probeDir());
@@ -683,6 +729,10 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           return ok({ questions: [shapeQuestion(git.origin_kind)] });
         }
 
+        if (round === 'sandbox') {
+          const current = readConfig(db, 'sandbox_enforcement') as string | null;
+          return ok({ questions: [sandboxQuestion(current, readOnboardedFlag(db))] });
+        }
         if (round === 'headless') {
           const current = readConfig(db, 'headless_enforcement') as string | null;
           const entries = countShimEntries(shimOptions().pluginRoot);
@@ -949,6 +999,16 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           throw new Error(`headless_enforcement must be 'yes' or 'no' (got '${headless_enforcement}')`);
         }
 
+        const rawSandbox = args['sandbox_enforcement'] as string | undefined;
+        let sandbox_enforcement = (readConfig(db, 'sandbox_enforcement') as string | null) ?? 'no';
+        if (rawSandbox !== undefined) {
+          const resolved = resolveOption(rawSandbox, SANDBOX_OPTIONS);
+          if (resolved !== KEEP_SENTINEL) sandbox_enforcement = resolved ?? rawSandbox;
+        }
+        if (sandbox_enforcement !== 'yes' && sandbox_enforcement !== 'no') {
+          throw new Error(`sandbox_enforcement must be 'yes' or 'no' (got '${sandbox_enforcement}')`);
+        }
+
         const protected_branches = deriveProtectedBranches(branching_model, pr_target);
 
         db.transaction(() => {
@@ -958,6 +1018,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
 
           writeConfig(db, 'issue_sync', issue_sync);
           writeConfig(db, 'headless_enforcement', headless_enforcement);
+          writeConfig(db, 'sandbox_enforcement', sandbox_enforcement);
 
           // The repos table is the sole source of truth for the four repo-scoped
           // keys (#980). Reconcile each repo against ITS OWN git tree rather than
@@ -1018,6 +1079,25 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           headless_shim = { reason: (e as Error).message };
         }
 
+        // Native sandbox (Tier 0): 'yes' merges the sandbox block into the
+        // project's settings.local.json; 'no' removes exactly what TMB added
+        // (plugin_config.sandbox_settings). Best-effort, like the shim.
+        let sandbox: Record<string, unknown>;
+        try {
+          const record = (readConfig(db, 'sandbox_settings') as SandboxRecord | null) ?? null;
+          if (sandbox_enforcement === 'yes') {
+            const result = writeProjectSandbox({ projectRoot: sandboxProjectRoot(), previous: record });
+            if (result.record) writeConfig(db, 'sandbox_settings', result.record);
+            sandbox = { written: result.written, ...(result.settings_path ? { settings_path: result.settings_path } : {}), ...(result.allow_write ? { allow_write: result.allow_write } : {}), ...(result.reason ? { reason: result.reason } : {}) };
+          } else {
+            const result = removeProjectSandbox({ projectRoot: sandboxProjectRoot(), record });
+            if (result.removed) writeConfig(db, 'sandbox_settings', null);
+            sandbox = { ...result };
+          }
+        } catch (e) {
+          sandbox = { reason: (e as Error).message };
+        }
+
         return ok({
           ok: true,
           ...(warning ? { warning } : {}),
@@ -1030,6 +1110,8 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             issue_sync,
             headless_enforcement,
             headless_shim,
+            sandbox_enforcement,
+            sandbox,
             ...(warning ? { warning } : {}),
           },
         });

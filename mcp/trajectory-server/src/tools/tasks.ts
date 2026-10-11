@@ -5,7 +5,14 @@ import type { Task, TaskInput } from '../types.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { serverLog } from '../logger.js';
 import { insertAudit } from './audit.js';
-import { closeOpenRunsForTask, TERMINAL_TASK_STATUSES } from './agent-runs.js';
+import {
+  claudeRunContext,
+  closeOpenRunsForTask,
+  exitReasonForStatus,
+  openBroRun,
+  TERMINAL_TASK_STATUSES,
+  type RunContext,
+} from './agent-runs.js';
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolve, dirname } from 'node:path';
@@ -224,7 +231,10 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
   };
 }
 
-export function taskTools(db: TrajectoryDB): {
+export function taskTools(
+  db: TrajectoryDB,
+  runContext: RunContext = claudeRunContext(db),
+): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
 } {
@@ -846,11 +856,7 @@ export function taskTools(db: TrajectoryDB): {
             // time. `completed_at` stays NULL until bro_atomic_close finalizes
             // the row with duration + (eventually) tokens. Makes bro's
             // skill/rule invocations attributable to a tracked agent_run.
-            db.run(
-              `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo)
-               VALUES (?, ?, 'bro', ?, ?)`,
-              [row.id, issueId, now, row.repo ?? null],
-            );
+            openBroRun(db, { id: row.id, issue_id: Number(issueId), repo: row.repo ?? null }, now, runContext);
           }
         }
 
@@ -1132,7 +1138,7 @@ export function taskTools(db: TrajectoryDB): {
           );
         }
         if (TERMINAL_TASK_STATUSES.has(status)) {
-          closeOpenRunsForTask(db, task.id, now);
+          closeOpenRunsForTask(db, task.id, now, exitReasonForStatus(status));
         }
       });
 

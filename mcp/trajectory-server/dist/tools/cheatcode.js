@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, sep } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
+import { outsideProject, projectRootFromDbPath } from './containment.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -328,24 +329,7 @@ function parseInstallCandidate(raw) {
 // a consultant) for everyone but bro, whose surface is CLAUDE.md. A non-bro
 // target materializes the agent md global→local + a skills: entry; bro
 // materializes a project-local CLAUDE.md reference.
-// Derive the PROJECT ROOT (the dir that owns .claude/) from the trajectory DB
-// path. The DB lives at <root>/.claude/<plugin>/trajectory.db, so the root is
-// the parent of the `.claude` adjacent to the DB — the INNERMOST `.claude`
-// (lastIndexOf). Using the first `.claude` mis-resolves the root to an ancestor
-// when the project itself is nested under a `.claude` ancestor (the L6 chain
-// layout: ~/.claude/<plugin>/l6-chain-runs/<run>/project/.claude/<plugin>/trajectory.db),
-// which leaks materialize/dematerialize writes outside the project. Returns null
-// for an in-memory DB or a path with no `.claude` segment (e.g. a bespoke
-// TRAJECTORY_DB_PATH).
-export function projectRootFromDbPath(dbPath) {
-    if (!dbPath || dbPath === ':memory:')
-        return null;
-    const segments = dbPath.split(sep);
-    const idx = segments.lastIndexOf('.claude');
-    if (idx <= 0)
-        return null;
-    return segments.slice(0, idx).join(sep) || sep;
-}
+export { projectRootFromDbPath };
 // Resolve the GLOBAL agent md the install copies from. The plugin ships its
 // agents at ${CLAUDE_PLUGIN_ROOT}/agents/<target>.md; fall back to the on-disk
 // layout four levels up from this compiled module (mirrors resolveScriptsFile).
@@ -717,7 +701,7 @@ export function cheatcodeTools(db) {
         },
         {
             name: 'cheatcode_install',
-            description: 'Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope by default — pass scope=global for a user-wide install. Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|pr-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target — without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).',
+            description: 'Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope; scope=global is refused with outside_project (TMB installs nothing outside the project). Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|pr-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target — without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -740,7 +724,7 @@ export function cheatcodeTools(db) {
                     scope: {
                         type: 'string',
                         enum: ['local', 'global'],
-                        description: 'Install scope. local (default) = project-scoped, so no global/local prompt; global = user-wide. Forwarded to the install script and persisted on the cheatcodes row.',
+                        description: 'Install scope. local (default) = project-scoped. global (user-wide) is refused with outside_project — TMB installs nothing outside the project.',
                     },
                     target: {
                         type: 'string',
@@ -867,7 +851,20 @@ export function cheatcodeTools(db) {
             const trustTier = args['trust_tier']?.trim() ?? null;
             // Default local so bro never hits a global/local AskUserQuestion.
             const rawScope = args['scope']?.trim();
-            const scope = rawScope === 'global' ? 'global' : 'local';
+            if (rawScope === 'global') {
+                return {
+                    content: [{
+                            type: 'text',
+                            text: JSON.stringify({
+                                error: 'outside_project',
+                                message: 'cheatcode_install: scope=global installs outside the project (user-wide); TMB installs nothing outside the project. Re-call with scope=local (the default) to install into this project.',
+                                scope: 'global',
+                            }),
+                        }],
+                    isError: true,
+                };
+            }
+            const scope = 'local';
             // Optional consuming agent to materialize the prompt surface for.
             const target = args['target']?.trim() || null;
             // Orphan guard: a skill must attach to ≥1 agent to be reachable. Without
@@ -903,6 +900,24 @@ export function cheatcodeTools(db) {
                 return err(`cheatcode install blocked: no approval on record for '${name}' (${sourceUrl}). ` +
                     `Run cheatcode_approve on this candidate first, then re-call cheatcode_install.`);
             }
+            const projectRoot = projectRootFromDbPath(db.dbPath);
+            const writesOutside = (targets) => {
+                if (projectRoot === null)
+                    return null;
+                const paths = [join(projectRoot, '.claude', 'skills', name, 'SKILL.md')];
+                for (const t of targets) {
+                    paths.push(t === 'bro' ? join(projectRoot, '.claude', 'CLAUDE.md') : join(projectRoot, '.claude', 'agents', `${t}.md`));
+                }
+                for (const path of paths) {
+                    const refusal = outsideProject('cheatcode_install', projectRoot, path);
+                    if (refusal)
+                        return { content: [{ type: 'text', text: JSON.stringify(refusal) }], isError: true };
+                }
+                return null;
+            };
+            const refusedBeforeInstall = writesOutside(target ? [target] : []);
+            if (refusedBeforeInstall)
+                return refusedBeforeInstall;
             const candidate = {
                 name,
                 kind,
@@ -921,9 +936,9 @@ export function cheatcodeTools(db) {
                 return err(`cheatcode install failed for '${name}' (${kind}): ${out.error}. No row recorded.`);
             }
             // The unified cheatcodes table (#101) carries the placement enum
-            // (global|template|project-local); the install scope's local maps to
-            // project-local. The script keeps its own local|global vocabulary.
-            const placementScope = scope === 'global' ? 'global' : 'project-local';
+            // (global|template|project-local); an install is always local, which
+            // maps to project-local.
+            const placementScope = 'project-local';
             // skill-kind installs land a SKILL.md under the project; the unified
             // CHECK requires every skill row to record its file_path (#101). The
             // canonical project-local skill location is the proposed-PR target.
@@ -958,6 +973,9 @@ export function cheatcodeTools(db) {
                 }
                 if (target)
                     targetSet.add(target);
+                const refusedTargets = writesOutside(targetSet);
+                if (refusedTargets)
+                    return refusedTargets;
                 for (const t of targetSet) {
                     const providedTools = kind === 'plugin' && t !== 'bro' ? detectProvidedTools(name) : [];
                     const result = materializeConsumingAgent(db.dbPath, t, name, providedTools);

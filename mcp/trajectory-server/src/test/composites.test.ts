@@ -1204,6 +1204,45 @@ describe('pr_monitor_worktree', () => {
   });
 });
 
+describe('pr_monitor_worktree — containment', () => {
+  it('refuses a repo_path outside the project with outside_project', async () => {
+    const db = tempDB();
+    const composites = compositeTools(db, '/tmp/proj/.claude/tmb/trajectory.db');
+    const r = await call(composites.handlers, 'pr_monitor_worktree', {
+      agent: 'pr-reviewer', commit_sha: 'abc1234', repo_path: '/var/elsewhere', command: 'echo ok',
+    });
+    assert.equal(r.isError, true);
+    const out = parse(r);
+    assert.equal(out['error'], 'outside_project');
+    assert.equal(out['path'], '/var/elsewhere');
+    assert.equal(out['project_root'], '/tmp/proj');
+  });
+
+  it('checks the commit out under the repo, never in /tmp', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'prmon-'));
+    try {
+      const git = (...a: string[]) => execFileSync('git', ['-C', ws, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+      git('init', '-q', '-b', 'main');
+      git('config', 'user.email', 't@t.t');
+      git('config', 'user.name', 't');
+      writeFileSync(join(ws, 'a.txt'), 'one\n');
+      git('add', '.');
+      git('commit', '-q', '-m', 'base');
+      const sha = git('rev-parse', 'HEAD');
+      const db = tempDB();
+      const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+      const r = await call(composites.handlers, 'pr_monitor_worktree', {
+        agent: 'pr-reviewer', commit_sha: sha, repo_path: ws, command: 'pwd',
+      });
+      assert.ok(!r.isError, JSON.stringify(parse(r)));
+      assert.equal(parse(r)['worktree'], `${ws}/.claude/worktrees/pr-review-${sha}`);
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('worktree_commits_fetch', () => {
   it('rejects non-bro caller', async () => {
     const db = tempDB();
@@ -1680,6 +1719,48 @@ describe('task_provision (#157)', () => {
     db.run(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
             VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
   }
+
+  it('refuses a repo outside the project with outside_project and writes nothing', async () => {
+    const { ws, repoRoot, git } = makeRepo();
+    try {
+      const db = tempDB();
+      seedIssue(db, repoRoot);
+      const composites = compositeTools(db, '', null, { host: 'claude', projectRoot: join(ws, 'elsewhere') });
+      mkdirSync(join(ws, 'elsewhere'));
+      const r = await call(composites.handlers, 'task_provision', {
+        agent: 'bro', issue_id: 1, branch_id: 'feat/outside', decision_body: 'Chosen approach: outside the project.',
+        task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+      });
+      assert.equal(r.isError, true);
+      assert.equal(parse(r)['error'], 'outside_project');
+      assert.equal(db.get<{ c: number }>('SELECT COUNT(*) AS c FROM tasks')!.c, 0, 'no task row');
+      assert.throws(() => git(repoRoot, 'rev-parse', '--verify', 'refs/heads/feat/outside'), 'no branch ref');
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('stamps the bro row with the project root and host', async () => {
+    const { ws, repoRoot } = makeRepo();
+    try {
+      const db = tempDB();
+      seedIssue(db, repoRoot);
+      const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+      const out = parse(await call(composites.handlers, 'task_provision', {
+        agent: 'bro', issue_id: 1, branch_id: 'feat/stamped', decision_body: 'Chosen approach: stamp the run.',
+        task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+      }));
+      const row = db.get<{ root_dir: string; host: string }>(
+        `SELECT root_dir, host FROM agent_runs WHERE task_id = ? AND agent_type = 'bro'`,
+        [out['task_id']],
+      );
+      assert.deepEqual({ ...row }, { root_dir: ws, host: 'claude' });
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
 
   it('happy path: writes decision + task + branch + worktree and returns the spawn-ready shape', async () => {
     const { ws, repoRoot, git } = makeRepo();
@@ -2421,6 +2502,119 @@ describe('agent_runs lifecycle — rows open with their run and close with their
 
     const again = parse((await tools.handlers['task_recover']!({ agent: 'bro', task_id: String(done) })) as RawResult);
     assert.equal(again['runs_swept'], 0, 'the sweep is idempotent');
+    db.close();
+  });
+
+  type Stamp = { agent_type: string; root_dir: string | null; host: string | null; exit_reason: string | null };
+  const stamps = (db: TrajectoryDB, taskId: number): Stamp[] =>
+    db
+      .all<Stamp>('SELECT agent_type, root_dir, host, exit_reason FROM agent_runs WHERE task_id = ? ORDER BY id', [taskId])
+      .map((r) => ({ ...r }));
+
+  it('task_brief stamps the swe row with the task worktree and host; bro rows carry the project root', async () => {
+    const db = tempDB();
+    const id = seed(db);
+    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null, { host: 'codex', projectRoot: '/tmp' });
+    await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
+    const branch = db.get<{ b: string }>('SELECT branch_id AS b FROM tasks WHERE id = ?', [id])!.b;
+    assert.deepEqual(stamps(db, id), [
+      { agent_type: 'swe', root_dir: `/tmp/app/.claude/worktrees/${branch.replace(/^[^/]+\//, '')}`, host: 'codex', exit_reason: null },
+    ]);
+    db.close();
+  });
+
+  it('task_create_batch and task_retry open bro rows stamped with the project root and host claude', async () => {
+    const db = tempDB();
+    db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at) VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+    const tasks = taskTools(db, { host: 'claude', projectRoot: '/work/proj' });
+    const created = parseBatch(
+      await call(tasks.handlers, 'task_create_batch', {
+        agent: 'bro', issue_id: '1', waive_intent_gate: true, waive_intent_gate_reason: 'unit test of run stamping',
+        waive_decision_gate: true, waive_decision_gate_reason: 'unit test of run stamping',
+        waive_branch_gate: true, waive_branch_gate_reason: 'unit test of run stamping',
+        waive_scope_gate: true, waive_scope_gate_reason: 'unit test of run stamping',
+        waive_spec_shape: true, waive_spec_shape_reason: 'unit test of run stamping',
+        tasks: [{ branch_id: 'fix/stamp-a', description: 'd', spec_body: SPEC, files: ['src/a.ts'], verification: ['true'] }],
+      }),
+    );
+    const taskId = created[0]!['id'] as number;
+    assert.deepEqual(stamps(db, taskId), [{ agent_type: 'bro', root_dir: '/work/proj', host: 'claude', exit_reason: null }]);
+
+    await call(tasks.handlers, 'task_update_status', { agent: 'bro', task_id: String(taskId), status: 'escalated' });
+    assert.equal(stamps(db, taskId)[0]!.exit_reason, 'escalated');
+
+    const composites = compositeTools(db, '', null, { host: 'claude', projectRoot: '/work/proj' });
+    const retried = parse(
+      (await composites.handlers['task_retry']!({
+        agent: 'bro', failed_task_id: String(taskId), new_branch_id: 'fix/stamp-b', corrected_spec_body: SPEC,
+        retry_rationale: 'retry for stamping', description: 'd',
+      })) as RawResult,
+    );
+    assert.deepEqual(stamps(db, retried['task_id'] as number), [
+      { agent_type: 'bro', root_dir: '/work/proj', host: 'claude', exit_reason: null },
+    ]);
+    db.close();
+  });
+
+  for (const status of ['failed', 'escalated'] as const) {
+    it(`task_update_status → ${status} stamps exit_reason ${status} on every row it closes`, async () => {
+      const db = tempDB();
+      const id = seed(db);
+      db.run(`UPDATE tasks SET status = 'running' WHERE id = ?`, [id]);
+      openBro(db, id);
+      const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+      await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
+      const agent = status === 'failed' ? 'swe' : 'bro';
+      await call(taskTools(db).handlers, 'task_update_status', { agent, task_id: String(id), status });
+      assert.deepEqual(stamps(db, id).map((r) => r.exit_reason), [status, status]);
+      db.close();
+    });
+  }
+
+  it('bro_atomic_close stamps exit_reason completed', async () => {
+    const db = tempDB();
+    const id = seed(db);
+    db.run(`UPDATE tasks SET status = 'completed' WHERE id = ?`, [id]);
+    openBro(db, id);
+    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+    await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
+    await tools.handlers['bro_atomic_close']!({
+      agent: 'bro', task_id: String(id), commit_sha: 'abc1234', verification_summary: 'ok', waive_scope_gate: true,
+    });
+    assert.deepEqual(stamps(db, id).map((r) => r.exit_reason), ['completed', 'completed']);
+    db.close();
+  });
+
+  it('task_recover sweeps an unmeasured row as swept_orphan and a measured one as swept_stale', async () => {
+    const db = tempDB();
+    const done = seed(db);
+    db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [done]);
+    openBro(db, done);
+    openBro(db, done);
+    db.run(`UPDATE agent_runs SET usage_source = 'transcript', tokens_in = 5 WHERE id = (SELECT MAX(id) FROM agent_runs WHERE task_id = ?)`, [done]);
+    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+    await tools.handlers['task_recover']!({ agent: 'bro', task_id: String(done) });
+    assert.deepEqual(stamps(db, done).map((r) => r.exit_reason), ['swept_orphan', 'swept_stale']);
+    db.close();
+  });
+
+  it('task_brief closes an earlier spawn\'s orphaned open swe row as swept_orphan and opens a fresh one', async () => {
+    const db = tempDB();
+    const id = seed(db);
+    db.run(
+      `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at) VALUES (?, 1, 'swe', strftime('%Y-%m-%dT%H:%M:%fZ','now','-11 minutes'))`,
+      [id],
+    );
+    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+    await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
+    const rows = db.all<{ exit_reason: string | null; completed_at: string | null }>(
+      'SELECT exit_reason, completed_at FROM agent_runs WHERE task_id = ? ORDER BY id',
+      [id],
+    );
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0]!.exit_reason, 'swept_orphan');
+    assert.notEqual(rows[0]!.completed_at, null);
+    assert.equal(rows[1]!.completed_at, null, 'the new spawn has an open row');
     db.close();
   });
 });

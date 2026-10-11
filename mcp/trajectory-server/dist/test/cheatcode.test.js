@@ -529,7 +529,7 @@ describe('cheatcode_install', () => {
             cleanup();
         }
     });
-    it('persists scope=global when requested', async () => {
+    it('refuses scope=global with outside_project and records nothing', async () => {
         const db = tempDB();
         const { path, cleanup } = withFixture(INSTALL_OK);
         process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
@@ -540,10 +540,11 @@ describe('cheatcode_install', () => {
                 candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
                 scope: 'global',
             });
-            assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
-            assert.equal(parse(r)['scope'], 'global');
-            const row = db.get(`SELECT scope FROM cheatcodes WHERE origin != 'builtin' LIMIT 1`);
-            assert.equal(row.scope, 'global', 'global install persists global placement');
+            assert.equal(r.isError, true);
+            const out = parse(r);
+            assert.equal(out['error'], 'outside_project');
+            assert.match(String(out['message']), /scope=local/);
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM cheatcodes WHERE origin != 'builtin'`).c, 0);
         }
         finally {
             delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
@@ -891,6 +892,38 @@ describe('cheatcode_install materializes the consuming agent (#115)', () => {
         assert.equal(after.prMd, before.prMd, 'plugin agents/pr-reviewer.md untouched');
         assert.equal(after.claudeMd, before.claudeMd, 'plugin CLAUDE.md untouched');
     }
+    it('refuses a target or name that would write outside the project with outside_project', async () => {
+        const prev = process.env['CLAUDE_PLUGIN_ROOT'];
+        process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;
+        const { root, db, cleanup } = tempProject();
+        const fx = withFixture(INSTALL_SKILL_OK);
+        process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = fx.path;
+        try {
+            const tools = cheatcodeTools(db);
+            for (const [name, target] of [['pdf-skill', '../../../escape'], ['../../../../escape', 'swe']]) {
+                const r = await callInstall(tools.handlers, {
+                    agent: 'bro',
+                    candidate: { name, kind: 'skill', source_url: `https://github.com/x/${name.replace(/[./]/g, '')}` },
+                    target,
+                });
+                assert.equal(r.isError, true, `${name}/${target} must be refused`);
+                const out = parse(r);
+                assert.equal(out['error'], 'outside_project');
+                assert.equal(out['project_root'], root);
+            }
+            assert.equal(db.get('SELECT COUNT(*) AS c FROM cheatcodes WHERE origin <> \'builtin\'').c, 0, 'no row recorded');
+        }
+        finally {
+            delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];
+            if (prev === undefined)
+                delete process.env['CLAUDE_PLUGIN_ROOT'];
+            else
+                process.env['CLAUDE_PLUGIN_ROOT'] = prev;
+            fx.cleanup();
+            db.close();
+            cleanup();
+        }
+    });
     it('target=swe copies global swe.md into project .claude/agents and adds the skill to its skills: frontmatter', async () => {
         const prev = process.env['CLAUDE_PLUGIN_ROOT'];
         process.env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT;

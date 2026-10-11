@@ -130,6 +130,8 @@ Returned in the created-issue payload, not stored.
 | `milestone_seed_skipped` | `scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`) |
 | `milestone_closed` | `milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed` |
 | `agent_runs_capture_skipped` | `swe-atomic-close` could not bind a SWE spawn to a task (no `task_id=<N>` in the spawn transcript, or no such task) and wrote no `agent_runs` row; filed under the system issue `-1`; `content_json` carries `reason`, `transcript`, `spawn_id`, `task_id` |
+| `task_escalated_repair` | The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` (GH 1212) and closed its open `agent_runs` rows as `issue_closed`; written by `system` on the task's issue; `content_json` carries `task_id`, `issue_id`, `from_status` |
+| `containment_denied` | `containment-guard` denied a write outside the run's root (from_node `hook:containment-guard`, on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `root`, `task_id` |
 | `scan_discovered_repair` | The v32 migration deleted `scan_discovered` rows whose `(name, kind)` has no `cheatcodes` row (phantom discoveries from a failed insert); filed under the system issue `-1` by `system`; `content_json` carries `deleted` |
 
 **TMB-specific** — these are TMB workflow events. New event types require a row here. Bro should not invent ad-hoc event types.
@@ -175,7 +177,7 @@ No `CHECK` constraint — runtime reconciliation to `active`/`broken` is the hea
 
 ### `plugin_meta.schema_version` — DB schema version (integer)
 
-Currently `32`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration step in `db.ts:runMigrations`.
+Currently `33`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration step in `db.ts:runMigrations`.
 
 ### `agent_runs.usage_source` — where a run's token values came from
 
@@ -184,12 +186,35 @@ Currently `32`. Bumped on any breaking schema change. **NOT free-form** — ever
 | `transcript` | Measured by the bro Stop hook from the session transcript (bro rows) |
 | `subagent_stop` | Measured by the SubagentStop hook from the spawn's transcript (swe rows) |
 | `unmeasured` | The run closed without a measurement; the four token columns are NULL |
+| `backfill` | Recreated after the fact from an archived transcript (a maintenance backfill, not a live hook) |
 
 `CHECK`-enforced. NULL until the run is first measured.
 
 **Time-window rule.** A bro row's tokens are the sum of its session transcript's usage over the main-loop assistant messages with `started_at − 2 s ≤ timestamp < COALESCE(completed_at, now)` (the 2 s absorbs clock skew; where windows overlap, the row with the newest `started_at` owns the message). The Stop hook recomputes these sums absolutely on every Stop for each row of its session that is open or closed within the last 24 h. A swe row carries the totals of its spawn's whole transcript.
 
 **Computed total.** The total token count is not a column: `task_stats` reports `tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens` (NULL counts as 0; a never-measured spawn reports NULL).
+
+### `agent_runs.host` — the agent host that ran the run
+
+| Value | Meaning |
+|---|---|
+| `claude` | Claude Code (every row written before v33 is backfilled to `claude`) |
+| `codex` | OpenAI Codex |
+
+`CHECK`-enforced; stamped when the row opens.
+
+### `agent_runs.exit_reason` — how a run ended
+
+| Value | Set by |
+|---|---|
+| `completed` | `bro_atomic_close`; a SubagentStop whose task is completed/closed |
+| `failed` | `task_update_status` → `failed`; a SubagentStop whose task is still pending/running |
+| `escalated` | `task_update_status` → `escalated` |
+| `swept_orphan` | `task_recover` sweeping a never-measured row; `task_brief` closing an earlier spawn's open swe row (older than 10 min); v33 backfill of an `unmeasured` row |
+| `swept_stale` | `task_recover` sweeping a measured row left open on a terminal task |
+| `issue_closed` | The row's issue was closed under it (the v33 GH 1212 repair; the issue-close cascade) |
+
+`CHECK`-enforced; NULL while the row is open (and on pre-v33 rows whose end is not derivable).
 
 ### Timestamp format
 

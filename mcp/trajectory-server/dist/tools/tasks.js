@@ -2,7 +2,7 @@ import { nowISO } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { serverLog } from '../logger.js';
 import { insertAudit } from './audit.js';
-import { closeOpenRunsForTask, TERMINAL_TASK_STATUSES } from './agent-runs.js';
+import { claudeRunContext, closeOpenRunsForTask, exitReasonForStatus, openBroRun, TERMINAL_TASK_STATUSES, } from './agent-runs.js';
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolve, dirname } from 'node:path';
@@ -181,7 +181,7 @@ function wrapHandler(fn) {
         }
     };
 }
-export function taskTools(db) {
+export function taskTools(db, runContext = claudeRunContext(db)) {
     const definitions = [
         {
             name: 'task_create_batch',
@@ -719,8 +719,7 @@ export function taskTools(db) {
                         // time. `completed_at` stays NULL until bro_atomic_close finalizes
                         // the row with duration + (eventually) tokens. Makes bro's
                         // skill/rule invocations attributable to a tracked agent_run.
-                        db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo)
-               VALUES (?, ?, 'bro', ?, ?)`, [row.id, issueId, now, row.repo ?? null]);
+                        openBroRun(db, { id: row.id, issue_id: Number(issueId), repo: row.repo ?? null }, now, runContext);
                     }
                 }
                 // Audit rows for any branches auto-created by ensureBranchInRepo (#529).
@@ -970,7 +969,7 @@ export function taskTools(db) {
                     db.run(`UPDATE tasks SET status = ?, updated_at = ?, completed_at = ? WHERE id = ?`, [status, now, completedAt, taskId]);
                 }
                 if (TERMINAL_TASK_STATUSES.has(status)) {
-                    closeOpenRunsForTask(db, task.id, now);
+                    closeOpenRunsForTask(db, task.id, now, exitReasonForStatus(status));
                 }
             });
             const updated = db.get('SELECT * FROM tasks WHERE id = ?', [taskId]);

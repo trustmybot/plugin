@@ -26,7 +26,7 @@ The MCP tool modules for the trajectory server — one TypeScript file per domai
 | Scan | `scan.ts` | `scan_run` (forks `scripts/scan.sh`), `repos_list` |
 | World model | `world_model.ts` | `world_model_get` (kuzu graph + an `unmerged_work` field: closed-task branches with a live local ref whose tip is not yet merged into the target), `world_model_search` |
 
-`onboard-hooks-shim.ts` is a non-tool helper: when the project opts in (`headless_enforcement: yes`), it writes the plugin's PreToolUse gates into the project's `.claude/settings.local.json` so they fire in non-interactive `claude -p` runs, where marketplace plugin hooks are absent; `no` removes them. It writes nothing outside the project.
+`onboard-hooks-shim.ts` is a non-tool helper: when the project opts in (`headless_enforcement: yes`), it writes the plugin's PreToolUse gates into the project's `.claude/settings.local.json` so they fire in non-interactive `claude -p` runs, where marketplace plugin hooks are absent; `no` removes them. It writes nothing outside the project. `onboard-sandbox.ts` writes or removes Claude Code's Bash sandbox block in the same file (`sandbox_enforcement`, default no). `agent-runs.ts` opens and closes `agent_runs` rows with their `root_dir`, `host` and `exit_reason`; `containment.ts` holds the `outside_project` check the path-taking tools share.
 
 ## How it fits
 
