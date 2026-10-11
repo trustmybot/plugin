@@ -10,6 +10,8 @@ import {
   closeOpenRunsForTask,
   exitReasonForStatus,
   openBroRun,
+  parseRunSessionId,
+  RUN_SESSION_ID_SCHEMA,
   TERMINAL_TASK_STATUSES,
   type RunContext,
 } from './agent-runs.js';
@@ -293,6 +295,7 @@ export function taskTools(
             description:
               "Bypass the scope-ambiguity gate (issue needs a kind='question' discussion). Only for trivial changes.",
           },
+          session_id: RUN_SESSION_ID_SCHEMA,
           emit_planning_complete: {
             type: 'boolean',
             description:
@@ -419,6 +422,7 @@ export function taskTools(
       requireArg(args, 'tasks');
 
       const taskInputs = args['tasks'] as TaskInput[];
+      const sessionId = parseRunSessionId(args['session_id']);
 
       if (!Array.isArray(taskInputs) || taskInputs.length === 0) {
         return ok([]);
@@ -856,7 +860,7 @@ export function taskTools(
             // time. `completed_at` stays NULL until bro_atomic_close finalizes
             // the row with duration + (eventually) tokens. Makes bro's
             // skill/rule invocations attributable to a tracked agent_run.
-            openBroRun(db, { id: row.id, issue_id: Number(issueId), repo: row.repo ?? null }, now, runContext);
+            openBroRun(db, { id: row.id, issue_id: Number(issueId), repo: row.repo ?? null }, now, runContext, sessionId);
           }
         }
 

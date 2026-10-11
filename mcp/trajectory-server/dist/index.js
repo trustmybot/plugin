@@ -26689,11 +26689,24 @@ function sweepRunsOfTerminalTasks(db2, now) {
     [now, now, ...TERMINAL_TASK_STATUSES]
   ).changes;
 }
-function openBroRun(db2, task, now, ctx) {
+var RUN_SESSION_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+var RUN_SESSION_ID_SCHEMA = {
+  type: "string",
+  pattern: "^[A-Za-z0-9_-]{8,64}$",
+  description: "Optional: your host session id (the session_id=<id> the activation routine injects each turn). Stamps the task's bro agent_runs row so its usage is attributed to this session."
+};
+function parseRunSessionId(value) {
+  if (value === void 0 || value === null) return null;
+  if (typeof value !== "string" || !RUN_SESSION_ID_RE.test(value)) {
+    throw new Error("session_id must be 8\u201364 characters of [A-Za-z0-9_-].");
+  }
+  return value;
+}
+function openBroRun(db2, task, now, ctx, sessionId = null) {
   db2.run(
-    `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host)
-     VALUES (?, ?, 'bro', ?, ?, ?, ?)`,
-    [task.id, task.issue_id, now, task.repo, ctx.projectRoot, ctx.host]
+    `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host, session_id)
+     VALUES (?, ?, 'bro', ?, ?, ?, ?, ?)`,
+    [task.id, task.issue_id, now, task.repo, ctx.projectRoot, ctx.host, sessionId]
   );
 }
 function openSweRun(db2, task, now, ctx, rootDir) {
@@ -26915,6 +26928,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
             type: "boolean",
             description: "Bypass the scope-ambiguity gate (issue needs a kind='question' discussion). Only for trivial changes."
           },
+          session_id: RUN_SESSION_ID_SCHEMA,
           emit_planning_complete: {
             type: "boolean",
             description: "Set true to emit a planning_complete audit event in the same transaction as the task INSERTs."
@@ -27026,6 +27040,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
       const issueId = requireArg4(args, "issue_id");
       requireArg4(args, "tasks");
       const taskInputs = args["tasks"];
+      const sessionId = parseRunSessionId(args["session_id"]);
       if (!Array.isArray(taskInputs) || taskInputs.length === 0) {
         return ok5([]);
       }
@@ -27331,7 +27346,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
           );
           if (row) {
             results.push(row);
-            openBroRun(db2, { id: row.id, issue_id: Number(issueId), repo: row.repo ?? null }, now, runContext);
+            openBroRun(db2, { id: row.id, issue_id: Number(issueId), repo: row.repo ?? null }, now, runContext, sessionId);
           }
         }
         for (const ac of autocreatedAudits) {
@@ -30122,7 +30137,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             description: 'Optional repo override \u2014 replaces the repo inherited from the failed task. Must not contain ".." or start with "/". Omit to inherit.'
           },
           title: { type: "string" },
-          description: { type: "string" }
+          description: { type: "string" },
+          session_id: RUN_SESSION_ID_SCHEMA
         },
         required: [
           "agent",
@@ -30276,6 +30292,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             type: "string",
             description: "Optional start-point for the branch ref. Defaults to the repo's target_branch || 'dev'."
           },
+          session_id: RUN_SESSION_ID_SCHEMA,
           waive_registry_gate: {
             type: "boolean",
             description: "Bypass the world-model-cold gate (needs a deep_scan_completed audit). Only when /scan can't run."
@@ -30342,6 +30359,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const branchId = args["branch_id"];
         const decisionBody = args["decision_body"];
         const task = args["task"];
+        const sessionId = parseRunSessionId(args["session_id"]);
         if (typeof issueId !== "number" || !Number.isFinite(issueId)) {
           return err15("issue_id must be a number");
         }
@@ -30496,7 +30514,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             "SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()"
           );
           if (!row) throw new Error("task_provision: task insert succeeded but row lookup failed");
-          openBroRun(db2, { id: row.id, issue_id: issueId, repo: row.repo }, now, runContext);
+          openBroRun(db2, { id: row.id, issue_id: issueId, repo: row.repo }, now, runContext, sessionId);
           insertAudit(db2, {
             issue_id: issueId,
             branch_id: branchId,
@@ -30676,6 +30694,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const description = args["description"];
         const title = args["title"] ?? "";
         const repoOverride = args["repo"] ?? null;
+        const sessionId = parseRunSessionId(args["session_id"]);
         if (!BRANCH_ID_RE.test(newBranchId)) {
           return err15(`Invalid new_branch_id "${newBranchId}" \u2014 does not match conventional format.`);
         }
@@ -30764,7 +30783,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             "SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()"
           );
           if (!newTask) throw new Error("insert succeeded but row lookup failed");
-          openBroRun(db2, { id: newTask.id, issue_id: failed.issue_id, repo: newTask.repo }, now, runContext);
+          openBroRun(db2, { id: newTask.id, issue_id: failed.issue_id, repo: newTask.repo }, now, runContext, sessionId);
           insertAudit(db2, {
             issue_id: failed.issue_id,
             branch_id: newBranchId,

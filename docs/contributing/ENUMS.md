@@ -132,6 +132,7 @@ Returned in the created-issue payload, not stored.
 | `agent_runs_capture_skipped` | `swe-atomic-close` could not bind a SWE spawn to a task (no `task_id=<N>` in the spawn transcript, or no such task) and wrote no `agent_runs` row; filed under the system issue `-1`; `content_json` carries `reason`, `transcript`, `spawn_id`, `task_id` |
 | `task_escalated_repair` | The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` (GH 1212) and closed its open `agent_runs` rows as `issue_closed`; written by `system` on the task's issue; `content_json` carries `task_id`, `issue_id`, `from_status` |
 | `containment_denied` | `containment-guard` denied a write outside the run's root (from_node `hook:containment-guard`, on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `root`, `task_id` |
+| `agent_runs_claimed` | `bro-turn-usage` claimed bro `agent_runs` rows opened without a `session_id` for its session (from_node `hook:bro-turn-usage`, one row per claim, on the rows' issue when they share one, else the system issue `-1`); `content_json` carries `run_ids`, `session_id` |
 | `scan_discovered_repair` | The v32 migration deleted `scan_discovered` rows whose `(name, kind)` has no `cheatcodes` row (phantom discoveries from a failed insert); filed under the system issue `-1` by `system`; `content_json` carries `deleted` |
 
 **TMB-specific** — these are TMB workflow events. New event types require a row here. Bro should not invent ad-hoc event types.

@@ -40,10 +40,30 @@ export function sweepRunsOfTerminalTasks(db, now) {
       WHERE completed_at IS NULL
         AND task_id IN (SELECT id FROM tasks WHERE status IN (${placeholders}))`, [now, now, ...TERMINAL_TASK_STATUSES]).changes;
 }
-// Opens the bro row of a task at planning time; root_dir is the project root.
-export function openBroRun(db, task, now, ctx) {
-    db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host)
-     VALUES (?, ?, 'bro', ?, ?, ?, ?)`, [task.id, task.issue_id, now, task.repo, ctx.projectRoot, ctx.host]);
+const RUN_SESSION_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+// JSON-Schema of the optional session_id arg the planning tools accept: the
+// caller's host session, stamped on the bro row at open.
+export const RUN_SESSION_ID_SCHEMA = {
+    type: 'string',
+    pattern: '^[A-Za-z0-9_-]{8,64}$',
+    description: "Optional: your host session id (the session_id=<id> the activation routine injects each turn). Stamps the task's bro agent_runs row so its usage is attributed to this session.",
+};
+// Validates the optional session_id arg. Returns null when omitted; throws on
+// a value that is not 8–64 chars of [A-Za-z0-9_-].
+export function parseRunSessionId(value) {
+    if (value === undefined || value === null)
+        return null;
+    if (typeof value !== 'string' || !RUN_SESSION_ID_RE.test(value)) {
+        throw new Error('session_id must be 8–64 characters of [A-Za-z0-9_-].');
+    }
+    return value;
+}
+// Opens the bro row of a task at planning time; root_dir is the project root
+// and session_id the caller's session (null leaves it for the Stop hook's
+// legacy claim).
+export function openBroRun(db, task, now, ctx, sessionId = null) {
+    db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host, session_id)
+     VALUES (?, ?, 'bro', ?, ?, ?, ?, ?)`, [task.id, task.issue_id, now, task.repo, ctx.projectRoot, ctx.host, sessionId]);
 }
 // Opens the swe row for a task unless one is already open; root_dir is the
 // task's worktree. An open swe row older than SWE_ORPHAN_AFTER_MS is an

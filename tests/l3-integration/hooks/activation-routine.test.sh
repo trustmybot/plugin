@@ -161,6 +161,19 @@ else
   _fail "stable onboarded= at byte $onboarded_pos_fc should be before volatile pending= at byte $pending_pos_fc"
 fi
 
+# ---- session id: bro quotes it on planning calls ----
+
+test_case "additionalContext carries session_id=<payload id>"
+out=$(run_hook "$(jq -n '{prompt:"@bro status", session_id:"3f2c9a10-7b4e-4d21-9c3a-0e5f6a7b8c9d"}')")
+ctx=$(echo "$out" | jq -r '.hookSpecificOutput.additionalContext')
+assert_contains "$ctx" "session_id=3f2c9a10-7b4e-4d21-9c3a-0e5f6a7b8c9d" "payload session id injected"
+
+test_case "a malformed or missing session_id is not injected"
+out=$(run_hook "$(jq -n '{prompt:"@bro status", session_id:"bad id; rm -rf"}')")
+assert_not_contains "$out" "session_id=" "malformed id dropped"
+out=$(run_hook "$(input '@bro status')")
+assert_not_contains "$out" "session_id=" "no id without one in the payload"
+
 # ---- MCP liveness: HALT only on evidence at UserPromptSubmit ----
 
 test_case "bro mode + server running: no HALT"
