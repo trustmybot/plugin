@@ -382,8 +382,9 @@ sqlite3 "$DB" "
   INSERT INTO tasks VALUES (60, 1, 'feat/lock-pass', 'plugin', 'pending', '', '[\"echo run >> $COUNT_FILE; sleep 2\"]');
   INSERT INTO tasks VALUES (61, 1, 'feat/lock-fail', 'plugin', 'pending', '', '[\"echo run >> $COUNT_FILE.fail; sleep 2; echo boom; exit 3\"]');
   INSERT INTO tasks VALUES (62, 1, 'feat/lock-stale', 'plugin', 'pending', '', '[\"echo run >> $COUNT_FILE.stale\"]');
+  INSERT INTO tasks VALUES (63, 1, 'feat/lock-unstamped', 'plugin', 'pending', '', '[\"echo run >> $COUNT_FILE.unstamped\"]');
 "
-mkdir -p "$WT_ROOT/lock-pass" "$WT_ROOT/lock-fail" "$WT_ROOT/lock-stale"
+mkdir -p "$WT_ROOT/lock-pass" "$WT_ROOT/lock-fail" "$WT_ROOT/lock-stale" "$WT_ROOT/lock-unstamped"
 
 test_case "run lock: concurrent passing invocations run verification[] once, both allow"
 (cd "$REPO_DIR" && run_hook "$(make_input swe completed 60)" > "$TMPDIR/lock-a.out") &
@@ -417,5 +418,13 @@ out=$(cd "$REPO_DIR" && TMB_VERIFICATION_TIMEOUT_S=5 run_hook "$(make_input swe 
 assert_not_contains "$out" '"permissionDecision":"deny"' "reclaimed lock lets the run proceed"
 assert_eq "1" "$(wc -l < "$COUNT_FILE.stale" | tr -d ' ')" "verification[] ran after reclaiming"
 assert_eq "no" "$([ -d "$LOCK_ROOT/verify-62-nohead" ] && echo yes || echo no)" "reclaimed lock removed"
+
+test_case "run lock: a stale lock without a started stamp is reclaimed by mtime"
+mkdir -p "$LOCK_ROOT/verify-63-nohead"
+touch -t 200001010000 "$LOCK_ROOT/verify-63-nohead"
+out=$(cd "$REPO_DIR" && TMB_VERIFICATION_TIMEOUT_S=5 run_hook "$(make_input swe completed 63)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "unstamped stale lock lets the run proceed"
+assert_eq "1" "$(wc -l < "$COUNT_FILE.unstamped" 2>/dev/null | tr -d ' ')" "verification[] ran after reclaiming the unstamped lock"
+assert_eq "no" "$([ -d "$LOCK_ROOT/verify-63-nohead" ] && echo yes || echo no)" "unstamped lock removed"
 
 summarize

@@ -33,7 +33,8 @@
 # concurrent second invocation (e.g. the same gate registered twice) waits for
 # the holder and reuses its verdict from verify-<task_id>-<sha>.result instead
 # of re-running verification[]. The lock is removed on exit; a lock older than
-# the total budget + 60s is reclaimed.
+# the total budget + 60s (by its `started` stamp, else the dir mtime) is
+# reclaimed.
 #
 # Environment:
 #   TMB_VERIFICATION_TIMEOUT_S — total seconds (default 900)
@@ -255,17 +256,27 @@ if ! mkdir -p "$LOCK_ROOT" 2>/dev/null; then
 fi
 find "$LOCK_ROOT" -maxdepth 1 -type f -name 'verify-*.result' -mmin +1440 -delete 2>/dev/null || true
 
+# lock_held_since — epoch seconds the lock was taken: the holder's `started`
+# stamp, else the lock dir's mtime (holder killed between mkdir and the stamp).
+lock_held_since() {
+  local since
+  since=$(cat "$LOCK/started" 2>/dev/null || true)
+  case "$since" in ''|*[!0-9]*)
+    since=$(stat -c %Y "$LOCK" 2>/dev/null || stat -f %m "$LOCK" 2>/dev/null || true) ;;
+  esac
+  case "$since" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s' "$since"
+}
+
 while ! mkdir "$LOCK" 2>/dev/null; do
-  held_since=$(cat "$LOCK/started" 2>/dev/null || true)
-  case "$held_since" in ''|*[!0-9]*) held_since=$(now_s) ;; esac
+  held_since=$(lock_held_since) || held_since=$(now_s)
   if [ $(( $(now_s) - held_since )) -gt "$STALE_S" ]; then
     rm -rf "$LOCK" 2>/dev/null || true
     continue
   fi
   while [ -d "$LOCK" ]; do
     sleep 0.5
-    held_since=$(cat "$LOCK/started" 2>/dev/null || true)
-    case "$held_since" in ''|*[!0-9]*) continue ;; esac
+    held_since=$(lock_held_since) || continue
     [ $(( $(now_s) - held_since )) -gt "$STALE_S" ] && break
   done
   [ -d "$LOCK" ] && continue
