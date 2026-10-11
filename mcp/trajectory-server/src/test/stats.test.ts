@@ -77,11 +77,11 @@ describe('statsTools — task_stats', () => {
     const taskId = (db.get<{ id: number }>('SELECT last_insert_rowid() AS id') as { id: number }).id;
 
     db.run(
-      "INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 100, 200, 300, 1000, 50, 5, 1000, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+      "INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 100, 200, 1000, 50, 5, 1000, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
       [taskId, issueId],
     );
     db.run(
-      "INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 150, 250, 400, 2000, 75, 8, 2000, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+      "INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 150, 250, 2000, 75, 8, 2000, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
       [taskId, issueId],
     );
 
@@ -93,7 +93,7 @@ describe('statsTools — task_stats', () => {
     assert.equal(payload.aggregate.spawn_count, 2);
     assert.equal(payload.aggregate.tokens_in, 250);
     assert.equal(payload.aggregate.tokens_out, 450);
-    assert.equal(payload.aggregate.tokens_total, 700);
+    assert.equal(payload.aggregate.tokens_total, 250 + 450 + 3000 + 125, 'tokens_total = in + out + cache_read + cache_creation');
     assert.equal(payload.aggregate.cache_read_tokens, 3000);
     assert.equal(payload.aggregate.cache_creation_tokens, 125);
     assert.equal(payload.aggregate.tool_uses, 13);
@@ -105,6 +105,7 @@ describe('statsTools — task_stats', () => {
     assert.equal(payload.spawns[0].tokens_in, 100);
     assert.equal(payload.spawns[0].cache_read_tokens, 1000);
     assert.equal(payload.spawns[1].tokens_in, 150);
+    assert.equal(payload.spawns[0].tokens_total, 100 + 200 + 1000 + 50, 'per-spawn tokens_total includes cache');
 
     db.close();
   });
@@ -129,7 +130,7 @@ describe('statsTools — task_stats', () => {
       [taskId, issueId, now],
     );
     db.run(
-      "INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, usage_source, completed_at) VALUES (?, ?, 'swe', 10, 20, 30, 40, 50, 'subagent_stop', ?)",
+      "INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, usage_source, completed_at) VALUES (?, ?, 'swe', 10, 20, 40, 50, 'subagent_stop', ?)",
       [taskId, issueId, now],
     );
 
@@ -140,6 +141,10 @@ describe('statsTools — task_stats', () => {
     assert.equal(payload.aggregate.cache_read_tokens, 40);
     assert.equal(payload.aggregate.cache_creation_tokens, 50);
     assert.equal(payload.spawns[0].tokens_in, null, 'an unmeasured spawn reports NULL, not 0');
+    assert.equal(payload.aggregate.tokens_total, 120, 'unmeasured runs add nothing to the computed total');
+    assert.equal(payload.spawns[0].tokens_total, null, 'an unmeasured spawn has no total');
+    assert.equal(payload.spawns[1].tokens_total, 120);
+    assert.deepEqual(payload.spawns.map((r: { usage_source: string }) => r.usage_source), ['unmeasured', 'subagent_stop'], 'each spawn exposes usage_source');
 
     const unmeasuredOnly = db.run(
       "INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'feat/only-nulls', 'title', 'desc', 'pending', ?, ?)",
@@ -204,7 +209,7 @@ describe('statsTools — task_stats', () => {
     // (tens of millions). With idempotency upstream there is exactly one row.
     const ownCacheRead = 200_000;
     db.run(
-      "INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 5000, 3000, 8000, ?, 12000, 106, 90000, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+      "INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (?, ?, 'swe', 5000, 3000, ?, 12000, 106, 90000, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
       [taskId, issueId, ownCacheRead],
     );
 

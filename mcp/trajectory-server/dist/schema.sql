@@ -203,7 +203,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 30, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 31, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -225,12 +225,20 @@ INSERT OR IGNORE INTO plugin_config (key, value_json) VALUES
 -- identity table was a single-row marker with no columns of meaning —
 -- folded into plugin_config('onboarded': true).
 
--- Per-spawn resource tracking (issue #131). Written by the SubagentStop hook
--- via swe-atomic-close.sh on every SWE completion, AND by composites for the
--- bro-as-agent_run row (#2886): bro's per-task tokens become a first-class
--- citizen. Bro rows
--- are inserted at task_create_batch (completed_at NULL until close) and
--- finalized at bro_atomic_close — hence completed_at is nullable.
+-- One row per metered run of an agent on a task. A row covers the time window
+-- [started_at, completed_at): started_at is server time when the run opens,
+-- completed_at stays NULL while it is open.
+--   bro rows — opened per task at task creation (task_create_batch,
+--     task_provision, task_retry). The bro Stop hook claims open rows for
+--     its CC session (session_id) and recomputes each row's tokens as the sum of
+--     the session transcript's usage inside the row's window (the newest
+--     started_at wins where windows overlap), absolutely, on every Stop.
+--   swe rows — opened by task_brief; the SubagentStop hook binds the spawn to
+--     the task_id in its spawn prompt and writes the spawn transcript's totals.
+-- bro_atomic_close and a terminal task_update_status close every open row of
+-- the task; task_recover sweeps rows whose task is already terminal.
+-- The total token count is not stored: it is computed as tokens_in +
+-- tokens_out + cache_read_tokens + cache_creation_tokens.
 CREATE TABLE IF NOT EXISTS agent_runs (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id              INTEGER REFERENCES tasks(id),
@@ -240,7 +248,6 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     -- run writes absolute values (usage_source says where they came from).
     tokens_in            INTEGER,
     tokens_out           INTEGER,
-    tokens_total         INTEGER NOT NULL DEFAULT 0,
     -- cache_read_tokens: tokens served from Anthropic's prompt cache (billed at ~0.1x input rate).
     -- cache_creation_tokens: tokens written into the prompt cache (billed at ~1.25x input rate).
     -- Both classes are excluded from tokens_in in CC's modelUsage; we track them separately
@@ -252,12 +259,11 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     duration_ms          INTEGER NOT NULL DEFAULT 0,
     started_at           TEXT,
     completed_at         TEXT,
-    usage_baseline_json  TEXT,
     -- repo (#155): FK to repos(name); backfilled from the parent task/issue repo.
     repo                 TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
     -- spawn_id: the Agent-tool spawn this run measures (one row per spawn per task).
     -- session_id: the CC session that owns the run, so a hook resolves its own row.
-    -- usage_source: where the token values came from; NULL while the run is open.
+    -- usage_source: where the token values came from; NULL until first measured.
     spawn_id             TEXT,
     session_id           TEXT,
     usage_source         TEXT CHECK (usage_source IN ('transcript','subagent_stop','unmeasured'))

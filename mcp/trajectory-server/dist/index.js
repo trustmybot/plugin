@@ -21142,7 +21142,7 @@ function sqlLog(entry) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 30;
+var TARGET_SCHEMA_VERSION = 31;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
 }
@@ -21531,6 +21531,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 30 && toVersion >= 30) {
     migrateV29toV30(db2);
+  }
+  if (fromVersion < 31 && toVersion >= 31) {
+    migrateV30toV31(db2);
   }
 }
 function hasColumn(db2, table, column) {
@@ -22457,6 +22460,76 @@ function migrateV29toV30(db2) {
     if (fkViolations.length > 0) {
       throw new Error(
         `migrateV29toV30: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v30 rebuilds`
+      );
+    }
+    db2.exec("COMMIT");
+  } catch (err19) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err19;
+  } finally {
+    db2.exec("PRAGMA foreign_keys = ON");
+  }
+}
+function migrateV30toV31(db2) {
+  db2.exec("PRAGMA foreign_keys = OFF");
+  db2.exec("BEGIN");
+  try {
+    if (tableExists(db2, "agent_runs") && (hasColumn(db2, "agent_runs", "tokens_total") || hasColumn(db2, "agent_runs", "usage_baseline_json"))) {
+      rebuildTable(
+        db2,
+        "agent_runs",
+        `
+          id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id               INTEGER REFERENCES tasks(id),
+          issue_id              INTEGER REFERENCES issues(id),
+          agent_type            TEXT    NOT NULL,
+          tokens_in             INTEGER,
+          tokens_out            INTEGER,
+          cache_read_tokens     INTEGER,
+          cache_creation_tokens INTEGER,
+          tool_uses             INTEGER NOT NULL DEFAULT 0,
+          duration_ms           INTEGER NOT NULL DEFAULT 0,
+          started_at            TEXT,
+          completed_at          TEXT,
+          repo                  TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
+          spawn_id              TEXT,
+          session_id            TEXT,
+          usage_source          TEXT CHECK (usage_source IN ('transcript','subagent_stop','unmeasured'))
+        `,
+        [
+          ["id", "NULL"],
+          ["task_id", "NULL"],
+          ["issue_id", "NULL"],
+          ["agent_type", "''"],
+          ["tokens_in", "NULL"],
+          ["tokens_out", "NULL"],
+          ["cache_read_tokens", "NULL"],
+          ["cache_creation_tokens", "NULL"],
+          ["tool_uses", "0"],
+          ["duration_ms", "0"],
+          ["started_at", "NULL"],
+          ["completed_at", "NULL"],
+          ["repo", "NULL"],
+          ["spawn_id", "NULL"],
+          ["session_id", "NULL"],
+          ["usage_source", "NULL"]
+        ]
+      );
+      db2.exec(`
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_issue ON agent_runs(issue_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_open ON agent_runs(agent_type) WHERE completed_at IS NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_spawn ON agent_runs(task_id, spawn_id) WHERE spawn_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id) WHERE session_id IS NOT NULL;
+      `);
+    }
+    const fkViolations = db2.prepare("PRAGMA foreign_key_check").all();
+    if (fkViolations.length > 0) {
+      throw new Error(
+        `migrateV30toV31: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v31 rebuild`
       );
     }
     db2.exec("COMMIT");
@@ -26268,6 +26341,44 @@ function milestoneTools(db2) {
   return { definitions, handlers };
 }
 
+// src/tools/agent-runs.ts
+var TERMINAL_TASK_STATUSES = /* @__PURE__ */ new Set(["closed", "failed", "escalated"]);
+var WINDOW_MS_SQL = "COALESCE(CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)";
+function closeOpenRunsForTask(db2, taskId, now) {
+  return db2.run(
+    `UPDATE agent_runs
+        SET completed_at = ?,
+            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END
+      WHERE task_id = ?
+        AND completed_at IS NULL`,
+    [now, now, taskId]
+  ).changes;
+}
+function sweepRunsOfTerminalTasks(db2, now) {
+  const placeholders = [...TERMINAL_TASK_STATUSES].map(() => "?").join(", ");
+  return db2.run(
+    `UPDATE agent_runs
+        SET completed_at = ?,
+            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END
+      WHERE completed_at IS NULL
+        AND task_id IN (SELECT id FROM tasks WHERE status IN (${placeholders}))`,
+    [now, now, ...TERMINAL_TASK_STATUSES]
+  ).changes;
+}
+function openSweRun(db2, task, now) {
+  const open = db2.get(
+    `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'swe' AND completed_at IS NULL LIMIT 1`,
+    [task.id]
+  );
+  if (open) return false;
+  db2.run(
+    `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo)
+     VALUES (?, ?, 'swe', ?, ?)`,
+    [task.id, task.issue_id, now, task.repo]
+  );
+  return true;
+}
+
 // src/tools/tasks.ts
 import { spawnSync as spawnSync4 } from "node:child_process";
 import { resolve, dirname as dirname3 } from "node:path";
@@ -27106,17 +27217,22 @@ function taskTools(db2) {
       }
       const now = nowISO();
       const completedAt = status === "completed" ? now : status === "closed" ? task.completed_at : null;
-      if (rawCommitSha !== void 0) {
-        db2.run(
-          `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, commit_sha = ? WHERE id = ?`,
-          [status, now, completedAt, rawCommitSha, taskId]
-        );
-      } else {
-        db2.run(
-          `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ? WHERE id = ?`,
-          [status, now, completedAt, taskId]
-        );
-      }
+      db2.transaction(() => {
+        if (rawCommitSha !== void 0) {
+          db2.run(
+            `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, commit_sha = ? WHERE id = ?`,
+            [status, now, completedAt, rawCommitSha, taskId]
+          );
+        } else {
+          db2.run(
+            `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ? WHERE id = ?`,
+            [status, now, completedAt, taskId]
+          );
+        }
+        if (TERMINAL_TASK_STATUSES.has(status)) {
+          closeOpenRunsForTask(db2, task.id, now);
+        }
+      });
       const updated = db2.get("SELECT * FROM tasks WHERE id = ?", [taskId]);
       return ok5(updated);
     })),
@@ -28308,11 +28424,12 @@ var RATE_CACHE_CREATION_PER_MTK = 18.75;
 function estimateCostUsd(tokensIn, tokensOut, cacheRead, cacheCreation) {
   return (tokensIn * RATE_INPUT_PER_MTK + tokensOut * RATE_OUTPUT_PER_MTK + cacheRead * RATE_CACHE_READ_PER_MTK + cacheCreation * RATE_CACHE_CREATION_PER_MTK) / 1e6;
 }
+var TOKENS_TOTAL_SQL = "CASE WHEN COALESCE(tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens) IS NULL THEN NULL ELSE COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0) + COALESCE(cache_read_tokens, 0) + COALESCE(cache_creation_tokens, 0) END";
 function statsTools(db2) {
   const definitions = [
     {
       name: "task_stats",
-      description: "Return token/duration aggregate + per-spawn breakdown for one task.",
+      description: "Return token/duration aggregate + per-spawn breakdown for one task. tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source.",
       inputSchema: {
         type: "object",
         properties: {
@@ -28335,7 +28452,7 @@ function statsTools(db2) {
           throw new Error("task_id must be a positive integer");
         }
         const aggRow = db2.get(
-          "SELECT COUNT(*) as spawn_count, SUM(tokens_in) as sum_tokens_in, SUM(tokens_out) as sum_tokens_out, SUM(tokens_total) as sum_tokens_total, SUM(cache_read_tokens) as sum_cache_read, SUM(cache_creation_tokens) as sum_cache_creation, SUM(tool_uses) as sum_tool_uses, SUM(duration_ms) as sum_duration_ms FROM agent_runs WHERE task_id = ?",
+          `SELECT COUNT(*) as spawn_count, SUM(tokens_in) as sum_tokens_in, SUM(tokens_out) as sum_tokens_out, SUM(${TOKENS_TOTAL_SQL}) as sum_tokens_total, SUM(cache_read_tokens) as sum_cache_read, SUM(cache_creation_tokens) as sum_cache_creation, SUM(tool_uses) as sum_tool_uses, SUM(duration_ms) as sum_duration_ms FROM agent_runs WHERE task_id = ?`,
           [taskId]
         );
         const sumIn = aggRow?.sum_tokens_in ?? 0;
@@ -28354,7 +28471,7 @@ function statsTools(db2) {
           estimated_cost_usd: estimateCostUsd(sumIn, sumOut, sumCacheRead, sumCacheCreation)
         };
         const spawns = db2.all(
-          "SELECT id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at FROM agent_runs WHERE task_id = ? ORDER BY id",
+          `SELECT id, agent_type, tokens_in, tokens_out, ${TOKENS_TOTAL_SQL} AS tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_source FROM agent_runs WHERE task_id = ? ORDER BY id`,
           [taskId]
         );
         return ok12({ task_id: taskId, aggregate, spawns });
@@ -29528,18 +29645,7 @@ function closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssu
       WHERE id=?`,
     [commitSha, now, now, task.id]
   );
-  db2.run(
-    `UPDATE agent_runs
-        SET completed_at = ?,
-            duration_ms = COALESCE(
-              (strftime('%s', ?) - strftime('%s', started_at)) * 1000,
-              0
-            )
-      WHERE task_id = ?
-        AND agent_type = 'bro'
-        AND completed_at IS NULL`,
-    [now, now, task.id]
-  );
+  closeOpenRunsForTask(db2, task.id, now);
   let issueClosed = false;
   if (closeIssueIfLast) {
     const remaining = db2.get(
@@ -29716,7 +29822,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
     },
     {
       name: "task_recover",
-      description: "Bro task-recovery composite \u2014 deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op.",
+      description: "Bro task-recovery composite \u2014 deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op. Every call also closes agent_runs rows still open on already-terminal tasks (runs_swept).",
       inputSchema: {
         type: "object",
         properties: {
@@ -29800,7 +29906,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
     },
     {
       name: "task_brief",
-      description: "Full context bundle for one task in a single call \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch.",
+      description: "Full context bundle for one task in a single call \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch. A swe call opens the task's swe agent_runs row when none is open.",
       inputSchema: {
         type: "object",
         properties: {
@@ -30051,6 +30157,9 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           [taskId]
         );
         if (!task) return err15(`No task with id=${taskId}`);
+        if (normalizeAgent(args["agent"]) === "swe") {
+          openSweRun(db2, task, nowISO());
+        }
         let repo = task.repo ?? "";
         if (!repo) {
           repo = resolveSoleRepo(db2)?.name ?? "";
@@ -30613,13 +30722,15 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           [taskId]
         );
         if (!task) return err15(`No task with id=${taskId}`);
+        const runs_swept = sweepRunsOfTerminalTasks(db2, nowISO());
         if (task.status !== "pending" && task.status !== "completed") {
           return ok15({
             recovered: false,
             action: "noop",
             task_id: task.id,
             status: task.status,
-            reason: `task is "${task.status}" \u2014 not in a recoverable (pending/completed) state`
+            reason: `task is "${task.status}" \u2014 not in a recoverable (pending/completed) state`,
+            runs_swept
           });
         }
         if (!commitSha) {
@@ -30627,7 +30738,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
             recovered: false,
             action: "re-dispatch",
             task_id: task.id,
-            reason: "no commit on a pending task \u2014 re-dispatch SWE"
+            reason: "no commit on a pending task \u2014 re-dispatch SWE",
+            runs_swept
           });
         }
         const now = nowISO();
@@ -30659,7 +30771,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null) {
           action: "closed",
           task_id: task.id,
           commit_sha: commitSha,
-          issue_closed: result.issue_closed
+          issue_closed: result.issue_closed,
+          runs_swept
         });
       })
     )

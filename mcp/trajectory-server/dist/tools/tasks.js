@@ -2,6 +2,7 @@ import { nowISO } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { serverLog } from '../logger.js';
 import { insertAudit } from './audit.js';
+import { closeOpenRunsForTask, TERMINAL_TASK_STATUSES } from './agent-runs.js';
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolve, dirname } from 'node:path';
@@ -961,12 +962,17 @@ export function taskTools(db) {
             // an active/failed/escalated state — a reopened task must not keep a
             // stale completion stamp that downstream gates would trust (#278).
             const completedAt = status === 'completed' ? now : status === 'closed' ? task.completed_at : null;
-            if (rawCommitSha !== undefined) {
-                db.run(`UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, commit_sha = ? WHERE id = ?`, [status, now, completedAt, rawCommitSha, taskId]);
-            }
-            else {
-                db.run(`UPDATE tasks SET status = ?, updated_at = ?, completed_at = ? WHERE id = ?`, [status, now, completedAt, taskId]);
-            }
+            db.transaction(() => {
+                if (rawCommitSha !== undefined) {
+                    db.run(`UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, commit_sha = ? WHERE id = ?`, [status, now, completedAt, rawCommitSha, taskId]);
+                }
+                else {
+                    db.run(`UPDATE tasks SET status = ?, updated_at = ?, completed_at = ? WHERE id = ?`, [status, now, completedAt, taskId]);
+                }
+                if (TERMINAL_TASK_STATUSES.has(status)) {
+                    closeOpenRunsForTask(db, task.id, now);
+                }
+            });
             const updated = db.get('SELECT * FROM tasks WHERE id = ?', [taskId]);
             return ok(updated);
         })),

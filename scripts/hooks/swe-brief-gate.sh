@@ -54,17 +54,8 @@ fi
 
 # Extract task_id from transcript (first human turn contains 'task_id=N') or
 # from tool_input fields (task_update_status, task_get, etc. pass task_id directly).
-TASK_ID=""
-
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.agent_transcript_path // ""' 2>/dev/null || true)
-if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
-  TASK_ID=$(jq -r '
-    .message.content // [] |
-    .[] | select(.type == "text") | .text // ""
-  ' "$TRANSCRIPT_PATH" 2>/dev/null \
-    | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
-  case "$TASK_ID" in ''|*[!0-9]*) TASK_ID="" ;; esac
-fi
+TASK_ID=$(tmb_task_id_from_transcript "$TRANSCRIPT_PATH")
 
 if [ -z "$TASK_ID" ]; then
   TASK_ID=$(echo "$INPUT" | jq -r '.tool_input.task_id // empty' 2>/dev/null || true)

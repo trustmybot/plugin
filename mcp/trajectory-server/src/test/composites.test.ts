@@ -2302,3 +2302,125 @@ describe('composite discussions route through insertDiscussion + embedAndStore (
     db.close();
   });
 });
+
+describe('agent_runs lifecycle — rows open with their run and close with their task', () => {
+  const SPEC = ['## Files', '- `src/a.ts` — edit', '', '## Success Criteria', '- works'].join('\n');
+  type Run = { agent_type: string; started_at: string | null; completed_at: string | null };
+  const runs = (db: TrajectoryDB, taskId: number): Run[] =>
+    db.all<Run>('SELECT agent_type, started_at, completed_at FROM agent_runs WHERE task_id = ? ORDER BY id', [taskId]);
+  let seq = 0;
+  const seed = (db: TrajectoryDB): number => {
+    const id = seedTask(db, { repo: 'app', spec: SPEC });
+    db.run('UPDATE tasks SET branch_id = ? WHERE id = ?', [`fix/runs-${++seq}`, id]);
+    return id;
+  };
+  const openBro = (db: TrajectoryDB, taskId: number): void => {
+    db.run(
+      `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at) VALUES (?, 1, 'bro', strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 minute'))`,
+      [taskId],
+    );
+  };
+
+  it('task_brief opens one swe row for a swe caller, never a second while it is open, and none for other roles', async () => {
+    const db = tempDB();
+    const id = seed(db);
+    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+
+    await tools.handlers['task_brief']!({ agent: 'pr-reviewer', task_id: id });
+    await tools.handlers['task_brief']!({ agent: 'bro', task_id: id });
+    assert.equal(runs(db, id).length, 0, 'bro / pr-reviewer briefs open no swe row');
+
+    await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
+    await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
+    const opened = db.all<{ agent_type: string; repo: string | null; started_at: string; completed_at: string | null }>(
+      'SELECT agent_type, repo, started_at, completed_at FROM agent_runs WHERE task_id = ?',
+      [id],
+    );
+    assert.equal(opened.length, 1, 'exactly one open swe row');
+    assert.equal(opened[0]!.agent_type, 'swe');
+    assert.equal(opened[0]!.repo, 'app');
+    assert.match(opened[0]!.started_at, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+    assert.equal(opened[0]!.completed_at, null);
+
+    db.run('UPDATE agent_runs SET completed_at = ? WHERE task_id = ?', [new Date().toISOString(), id]);
+    await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
+    assert.equal(runs(db, id).length, 2, 'a later spawn opens a fresh row once the first one closed');
+    db.close();
+  });
+
+  for (const status of ['failed', 'escalated'] as const) {
+    it(`task_update_status → ${status} closes every open row of the task (bro and swe)`, async () => {
+      const db = tempDB();
+      const id = seed(db);
+      db.run(`UPDATE tasks SET status = 'running' WHERE id = ?`, [id]);
+      const other = seed(db);
+      openBro(db, id);
+      openBro(db, other);
+      const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+      await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
+
+      const tasks = taskTools(db);
+      const agent = status === 'failed' ? 'swe' : 'bro';
+      const r = await call(tasks.handlers, 'task_update_status', { agent, task_id: String(id), status });
+      assert.ok(!r.isError, JSON.stringify(parse(r)));
+
+      const closed = runs(db, id);
+      assert.equal(closed.length, 2);
+      assert.ok(closed.every((x) => x.completed_at !== null), 'bro and swe rows are closed');
+      const ms = db.get<{ d: number }>(`SELECT duration_ms AS d FROM agent_runs WHERE task_id = ? AND agent_type = 'bro'`, [id])!.d;
+      assert.ok(ms >= 59_000, `an unmeasured row takes its window length (got ${ms})`);
+      assert.equal(runs(db, other)[0]!.completed_at, null, 'another task keeps its open row');
+      db.close();
+    });
+  }
+
+  it('a non-terminal task_update_status leaves rows open', async () => {
+    const db = tempDB();
+    const id = seed(db);
+    openBro(db, id);
+    const tasks = taskTools(db);
+    await call(tasks.handlers, 'task_update_status', { agent: 'swe', task_id: String(id), status: 'running' });
+    assert.equal(runs(db, id)[0]!.completed_at, null);
+    db.close();
+  });
+
+  it('bro_atomic_close closes the open bro and swe rows of the task', async () => {
+    const db = tempDB();
+    const id = seed(db);
+    db.run(`UPDATE tasks SET status = 'completed' WHERE id = ?`, [id]);
+    openBro(db, id);
+    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+    await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
+
+    const r = (await tools.handlers['bro_atomic_close']!({
+      agent: 'bro', task_id: String(id), commit_sha: 'abc1234', verification_summary: 'ok', waive_scope_gate: true,
+    })) as RawResult;
+    assert.ok(!r.isError, JSON.stringify(parse(r)));
+    const after = runs(db, id);
+    assert.deepEqual(after.map((x) => x.agent_type), ['bro', 'swe']);
+    assert.ok(after.every((x) => x.completed_at !== null), 'no row stays open once the task is closed');
+    db.close();
+  });
+
+  it('task_recover sweeps rows left open on tasks that are already terminal', async () => {
+    const db = tempDB();
+    const done = seed(db);
+    const failed = seed(db);
+    const live = seed(db);
+    db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [done]);
+    db.run(`UPDATE tasks SET status = 'failed' WHERE id = ?`, [failed]);
+    for (const t of [done, failed, live]) openBro(db, t);
+
+    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+    const out = parse((await tools.handlers['task_recover']!({ agent: 'bro', task_id: String(done) })) as RawResult);
+    assert.equal(out['action'], 'noop');
+    assert.equal(out['runs_swept'], 2);
+    assert.notEqual(runs(db, done)[0]!.completed_at, null);
+    assert.notEqual(runs(db, failed)[0]!.completed_at, null);
+    assert.equal(runs(db, live)[0]!.completed_at, null, 'a live task keeps its open row');
+
+    const again = parse((await tools.handlers['task_recover']!({ agent: 'bro', task_id: String(done) })) as RawResult);
+    assert.equal(again['runs_swept'], 0, 'the sweep is idempotent');
+    db.close();
+  });
+});

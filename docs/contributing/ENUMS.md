@@ -129,6 +129,7 @@ Returned in the created-issue payload, not stored.
 | `milestone_seeded` | `scan_run` seeded `v<next-patch>` for a repo with no milestones; `content_json` carries `name`, `repo`, `source`, `remote_created` |
 | `milestone_seed_skipped` | `scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`) |
 | `milestone_closed` | `milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed` |
+| `agent_runs_capture_skipped` | `swe-atomic-close` could not bind a SWE spawn to a task (no `task_id=<N>` in the spawn transcript, or no such task) and wrote no `agent_runs` row; filed under the system issue `-1`; `content_json` carries `reason`, `transcript`, `spawn_id`, `task_id` |
 
 **TMB-specific** — these are TMB workflow events. New event types require a row here. Bro should not invent ad-hoc event types.
 
@@ -173,17 +174,21 @@ No `CHECK` constraint — runtime reconciliation to `active`/`broken` is the hea
 
 ### `plugin_meta.schema_version` — DB schema version (integer)
 
-Currently `30`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration step in `db.ts:runMigrations`.
+Currently `31`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration step in `db.ts:runMigrations`.
 
 ### `agent_runs.usage_source` — where a run's token values came from
 
 | Value | Meaning |
 |---|---|
-| `transcript` | Measured from the session transcript (bro rows) |
-| `subagent_stop` | Measured by the SubagentStop hook at spawn close (swe, pr-reviewer, consultants) |
+| `transcript` | Measured by the bro Stop hook from the session transcript (bro rows) |
+| `subagent_stop` | Measured by the SubagentStop hook from the spawn's transcript (swe rows) |
 | `unmeasured` | The run closed without a measurement; the four token columns are NULL |
 
-`CHECK`-enforced. NULL while the run is still open (`completed_at IS NULL`).
+`CHECK`-enforced. NULL until the run is first measured.
+
+**Time-window rule.** A bro row's tokens are the sum of its session transcript's usage over the main-loop assistant messages with `started_at − 2 s ≤ timestamp < COALESCE(completed_at, now)` (the 2 s absorbs clock skew; where windows overlap, the row with the newest `started_at` owns the message). The Stop hook recomputes these sums absolutely on every Stop for each row of its session that is open or closed within the last 24 h. A swe row carries the totals of its spawn's whole transcript.
+
+**Computed total.** The total token count is not a column: `task_stats` reports `tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens` (NULL counts as 0; a never-measured spawn reports NULL).
 
 ### Timestamp format
 

@@ -434,14 +434,24 @@ tmb_resolve_task_id_for_target() {
   if [ -z "$task_id" ] && [ -n "$input" ]; then
     local transcript
     transcript=$(echo "$input" | jq -r '.agent_transcript_path // ""' 2>/dev/null || true)
-    if [ -n "$transcript" ] && [ -f "$transcript" ]; then
-      task_id=$(jq -r '.message.content // [] | tostring' "$transcript" 2>/dev/null \
-        | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
-      task_id=$(tmb_sql_int "$task_id")
-    fi
+    task_id=$(tmb_task_id_from_transcript "$transcript")
   fi
 
   echo "$task_id"
+}
+
+# tmb_task_id_from_transcript <transcript_path>
+# The spawn-prompt task binding: the first `task_id=<N>` in the transcript's
+# message content. Content may be a plain string or an array of blocks
+# (tostring covers both). Prints the decimal id, or empty when the file is
+# missing or carries no task_id. Never fails the caller.
+tmb_task_id_from_transcript() {
+  local transcript="${1:-}" task_id=""
+  if [ -n "$transcript" ] && [ -f "$transcript" ]; then
+    task_id=$(jq -r '.message.content // [] | tostring' "$transcript" 2>/dev/null \
+      | grep -oE 'task_id=[0-9]+' | head -1 | sed 's/task_id=//' || true)
+  fi
+  tmb_sql_int "$task_id"
 }
 
 # tmb_task_spec_status <task_id> [<db>]

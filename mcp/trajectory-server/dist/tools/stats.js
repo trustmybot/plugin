@@ -35,11 +35,13 @@ function estimateCostUsd(tokensIn, tokensOut, cacheRead, cacheCreation) {
         cacheCreation * RATE_CACHE_CREATION_PER_MTK) /
         1_000_000);
 }
+const TOKENS_TOTAL_SQL = 'CASE WHEN COALESCE(tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens) IS NULL THEN NULL' +
+    ' ELSE COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0) + COALESCE(cache_read_tokens, 0) + COALESCE(cache_creation_tokens, 0) END';
 export function statsTools(db) {
     const definitions = [
         {
             name: 'task_stats',
-            description: 'Return token/duration aggregate + per-spawn breakdown for one task.',
+            description: 'Return token/duration aggregate + per-spawn breakdown for one task. tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -61,7 +63,7 @@ export function statsTools(db) {
             const aggRow = db.get('SELECT COUNT(*) as spawn_count,' +
                 ' SUM(tokens_in) as sum_tokens_in,' +
                 ' SUM(tokens_out) as sum_tokens_out,' +
-                ' SUM(tokens_total) as sum_tokens_total,' +
+                ` SUM(${TOKENS_TOTAL_SQL}) as sum_tokens_total,` +
                 ' SUM(cache_read_tokens) as sum_cache_read,' +
                 ' SUM(cache_creation_tokens) as sum_cache_creation,' +
                 ' SUM(tool_uses) as sum_tool_uses,' +
@@ -82,8 +84,8 @@ export function statsTools(db) {
                 duration_ms: aggRow?.sum_duration_ms ?? 0,
                 estimated_cost_usd: estimateCostUsd(sumIn, sumOut, sumCacheRead, sumCacheCreation),
             };
-            const spawns = db.all('SELECT id, agent_type, tokens_in, tokens_out, tokens_total,' +
-                ' cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at' +
+            const spawns = db.all(`SELECT id, agent_type, tokens_in, tokens_out, ${TOKENS_TOTAL_SQL} AS tokens_total,` +
+                ' cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_source' +
                 ' FROM agent_runs WHERE task_id = ? ORDER BY id', [taskId]);
             return ok({ task_id: taskId, aggregate, spawns });
         })),

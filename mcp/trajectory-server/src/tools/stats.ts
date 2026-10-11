@@ -52,6 +52,9 @@ function estimateCostUsd(
   );
 }
 
+// tokens_total is computed, never stored: tokens_in + tokens_out +
+// cache_read_tokens + cache_creation_tokens (NULL counts as 0). It is NULL on a
+// spawn row that was never measured.
 interface AgentRunsAggregate {
   spawn_count: number;
   tokens_in: number;
@@ -69,13 +72,18 @@ interface AgentRunRow {
   agent_type: string;
   tokens_in: number | null;
   tokens_out: number | null;
-  tokens_total: number;
+  tokens_total: number | null;
   cache_read_tokens: number | null;
   cache_creation_tokens: number | null;
   tool_uses: number;
   duration_ms: number;
-  completed_at: string;
+  completed_at: string | null;
+  usage_source: string | null;
 }
+
+const TOKENS_TOTAL_SQL =
+  'CASE WHEN COALESCE(tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens) IS NULL THEN NULL' +
+  ' ELSE COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0) + COALESCE(cache_read_tokens, 0) + COALESCE(cache_creation_tokens, 0) END';
 
 export function statsTools(db: TrajectoryDB): {
   definitions: Tool[];
@@ -84,7 +92,8 @@ export function statsTools(db: TrajectoryDB): {
   const definitions: Tool[] = [
     {
       name: 'task_stats',
-      description: 'Return token/duration aggregate + per-spawn breakdown for one task.',
+      description:
+        'Return token/duration aggregate + per-spawn breakdown for one task. tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -122,7 +131,7 @@ export function statsTools(db: TrajectoryDB): {
           'SELECT COUNT(*) as spawn_count,' +
           ' SUM(tokens_in) as sum_tokens_in,' +
           ' SUM(tokens_out) as sum_tokens_out,' +
-          ' SUM(tokens_total) as sum_tokens_total,' +
+          ` SUM(${TOKENS_TOTAL_SQL}) as sum_tokens_total,` +
           ' SUM(cache_read_tokens) as sum_cache_read,' +
           ' SUM(cache_creation_tokens) as sum_cache_creation,' +
           ' SUM(tool_uses) as sum_tool_uses,' +
@@ -149,8 +158,8 @@ export function statsTools(db: TrajectoryDB): {
         };
 
         const spawns = db.all<AgentRunRow>(
-          'SELECT id, agent_type, tokens_in, tokens_out, tokens_total,' +
-          ' cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at' +
+          `SELECT id, agent_type, tokens_in, tokens_out, ${TOKENS_TOTAL_SQL} AS tokens_total,` +
+          ' cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_source' +
           ' FROM agent_runs WHERE task_id = ? ORDER BY id',
           [taskId],
         );
