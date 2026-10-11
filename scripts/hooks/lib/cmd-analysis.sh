@@ -67,11 +67,26 @@
 #   (global options such as -C <p>, -c <k=v>, --no-pager dropped); prints
 #   nothing for any other statement.
 #
+# tmb_gh_mutation <statement>
+#   For a `gh …` / `glab …` statement (argv0 found after sudo/env/command
+#   wrappers, their options and VAR=value assignments, by basename so
+#   /usr/bin/gh counts) prints what makes it a write to the forge: the HTTP
+#   verb of an `api` call (-X <V>, -X<V>, --method <V>, --method=<V> in any
+#   position, V in POST|PATCH|PUT|DELETE, case-insensitive), or the
+#   `<group> <action>` of a mutating subcommand (issue/pr/mr create, merge,
+#   close, edit, comment, …; release and repo writes). Prints nothing for
+#   read-only calls and other statements.
+#
 # tmb_stmt_repo_root <effective_dir> [<cwd>]
 #   Prints the main checkout root of the repo a statement runs in: for a path,
 #   the repo of its nearest existing ancestor (a dir a clone in the same
 #   command will create belongs to where it is created); for `?`, the repo of
 #   <cwd> (every linked worktree shares it). Empty for `-` or outside any repo.
+#
+# tmb_cwd_state <cwd>
+#   Prints `?` when <cwd> is in a repo with linked worktrees, `-` when it is
+#   not a directory, else <cwd> — the effective dir of a statement that names
+#   none.
 #
 # tmb_payload_cwd <hook-input-json>
 #   Prints the payload `.cwd`, else $PWD.
@@ -444,9 +459,7 @@ _tmb_cmd_statements_enc() {
   done
 }
 
-# _tmb_cwd_state <cwd> — `?` when <cwd> is in a repo with linked worktrees,
-# `-` when it is not a directory, else <cwd>.
-_tmb_cwd_state() {
+tmb_cwd_state() {
   local cwd="${1:-}" n
   [ -n "$cwd" ] && [ -d "$cwd" ] || { printf -- '-'; return 0; }
   if git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1; then
@@ -464,7 +477,7 @@ tmb_cmd_statements() {
         if [ -d "$cwd" ]; then dir="${cwd%/}${dir#@}"; else dir=-; fi
         ;;
       @)
-        [ -n "$state" ] || state=$(_tmb_cwd_state "$cwd")
+        [ -n "$state" ] || state=$(tmb_cwd_state "$cwd")
         dir="$state"
         ;;
     esac
@@ -486,6 +499,72 @@ tmb_git_subcommand() {
   done
   [ "$k" -lt "${#w[@]}" ] || return 0
   printf '%s\n' "${w[*]:$k}"
+}
+
+tmb_gh_mutation() {
+  local -a w
+  local k=0 n tool="" skipval=0 a verb="" group="" action="" writes=""
+  read -r -a w <<< "${1:-}"
+  n=${#w[@]}
+  while [ "$k" -lt "$n" ]; do
+    a="${w[$k]}"
+    k=$((k + 1))
+    if [ "$skipval" = 1 ]; then skipval=0; continue; fi
+    case "$a" in
+      sudo|*/sudo|env|*/env|command|nohup|exec|time) continue ;;
+      -u|-g|-U|-C|-D|-p|-r|-t|-T|-h|-S|--user|--group|--chdir|--unset|--split-string) skipval=1; continue ;;
+      -*) continue ;;
+      [A-Za-z_]*=*) continue ;;
+    esac
+    case "${a##*/}" in gh|glab) tool="${a##*/}" ;; esac
+    break
+  done
+  [ -n "$tool" ] || return 0
+  skipval=0
+  while [ "$k" -lt "$n" ]; do
+    a="${w[$k]}"
+    k=$((k + 1))
+    if [ "$skipval" = 1 ]; then skipval=0; continue; fi
+    case "$a" in
+      -R|--repo) skipval=1; continue ;;
+      -*) continue ;;
+    esac
+    if [ -z "$group" ]; then group="$a"; [ "$group" = "api" ] && break; continue; fi
+    action="$a"
+    break
+  done
+  if [ "$group" = "api" ]; then
+    while [ "$k" -lt "$n" ]; do
+      a="${w[$k]}"
+      k=$((k + 1))
+      case "$a" in
+        -X|--method) verb="${w[$k]:-}"; k=$((k + 1)) ;;
+        --method=*) verb="${a#--method=}" ;;
+        -X*) verb="${a#-X}" ;;
+        *) continue ;;
+      esac
+      verb=$(printf '%s' "$verb" | tr '[:lower:]' '[:upper:]')
+      case "$verb" in
+        POST|PATCH|PUT|DELETE) printf '%s\n' "$verb"; return 0 ;;
+      esac
+    done
+    return 0
+  fi
+  case "$tool $group" in
+    "gh issue") writes="create close edit delete comment reopen transfer lock unlock pin unpin develop" ;;
+    "gh pr") writes="create merge close edit comment reopen ready review lock unlock" ;;
+    "gh release") writes="create edit delete delete-asset upload" ;;
+    "gh repo") writes="create delete edit fork rename archive unarchive sync" ;;
+    "gh label") writes="create edit delete clone" ;;
+    "glab issue") writes="create close update edit delete note reopen" ;;
+    "glab mr") writes="create merge close update edit delete note reopen approve rebase" ;;
+    "glab release") writes="create update delete upload" ;;
+    "glab repo") writes="create delete archive fork transfer" ;;
+    *) return 0 ;;
+  esac
+  case " $writes " in *" $action "*) ;; *) return 0 ;; esac
+  [ -n "$action" ] || return 0
+  printf '%s %s\n' "$group" "$action"
 }
 
 tmb_cmd_write_paths() {

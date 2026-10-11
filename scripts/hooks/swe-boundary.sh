@@ -58,7 +58,8 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
   STMTS=$(tmb_cmd_statements "$CMD" "$(tmb_payload_cwd "$INPUT")")
 
   # (a) git push (force pushes are git-guards' job). (b) gh/glab mutating
-  # subcommands; read-only gh (view, list, status) stays allowed.
+  # subcommands and api calls with a write verb (tmb_gh_mutation); read-only
+  # gh (view, list, status, api GET) stays allowed.
   IS_PUSH=""
   GH_MUTATING=""
   while IFS="$(printf '\t')" read -r _dir stmt; do
@@ -71,14 +72,7 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
         esac
         ;;
     esac
-    case "$stmt" in
-      "gh issue create"*|"gh issue close"*|"gh issue edit"*|"gh issue delete"*) GH_MUTATING="yes" ;;
-      "gh pr create"*|"gh pr merge"*|"gh pr close"*|"gh pr edit"*) GH_MUTATING="yes" ;;
-      "gh api "*" -X POST"*|"gh api "*" -X PATCH"*|"gh api "*" -X PUT"*|"gh api "*" -X DELETE"*) GH_MUTATING="yes" ;;
-      "gh api "*" --method POST"*|"gh api "*" --method PATCH"*|"gh api "*" --method PUT"*|"gh api "*" --method DELETE"*) GH_MUTATING="yes" ;;
-      "glab issue create"*|"glab issue close"*|"glab issue edit"*) GH_MUTATING="yes" ;;
-      "glab mr create"*|"glab mr merge"*|"glab mr close"*|"glab mr edit"*) GH_MUTATING="yes" ;;
-    esac
+    if [ -n "$(tmb_gh_mutation "$stmt")" ]; then GH_MUTATING="yes"; fi
   done <<< "$STMTS"
 
   if [ "$IS_PUSH" = "yes" ]; then

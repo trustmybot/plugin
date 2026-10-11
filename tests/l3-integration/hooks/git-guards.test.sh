@@ -1044,4 +1044,30 @@ assert_contains "$out" "open a PR into dev" "the repo has a remote — the recov
 assert_not_contains "$out" "no remote" "never the false no-remote claim"
 cleanup_repo
 
+
+PUSH_HOOK="$PLUGIN_ROOT/scripts/hooks/git-push-guard.sh"
+
+test_case "GH 1196: 'cd \$D && git commit' with worktrees present → ambiguous_git_target, as git-push-guard"
+setup_dev_main_repo
+out=$(run_hook_payload "swe" "$REPO_PATH" 'cd $D && git commit -m x')
+assert_contains "$out" "ambiguous_git_target" "a dir behind a variable in a repo with worktrees is ambiguous"
+assert_contains "$out" "git -C <path> or cd <path>" "the deny carries the remedy"
+out=$(run_hook_payload "" "$REPO_PATH" 'cd $D && git checkout -b feat/y')
+assert_contains "$out" "ambiguous_git_target" "a branch create behind a variable dir is ambiguous too"
+push_out=$(cd "$REPO_PATH" && jq -cn --arg d "$REPO_PATH" --arg c 'cd $D && git push origin fix/thing' '{tool_name:"Bash",cwd:$d,tool_input:{command:$c}}' \
+  | TRAJECTORY_DB_PATH="$REPO_PATH/.claude/tmb/trajectory.db" bash "$PUSH_HOOK" 2>&1 || true)
+assert_contains "$push_out" "ambiguous_git_target" "git-push-guard gives the same verdict for the same unknown dir"
+cleanup_repo
+
+test_case "GH 1196: 'cd \$D && git commit' without worktrees → judged in the payload cwd"
+setup_dev_main_repo
+git -C "$REPO_PATH" worktree remove --force "$WT_PATH"
+out=$(run_hook_payload "swe" "$REPO_PATH" 'cd $D && git commit -m x')
+assert_not_contains "$out" "ambiguous_git_target" "one checkout is never ambiguous"
+assert_contains "$out" "dev is a shared workflow base" "judged on the payload cwd's branch (dev)"
+git -C "$REPO_PATH" checkout -q fix/thing
+out=$(run_hook_payload "swe" "$REPO_PATH" 'cd $D && git commit -m x')
+assert_not_contains "$out" '"permissionDecision":"deny"' "on a feature branch the commit is allowed"
+cleanup_repo
+
 summarize

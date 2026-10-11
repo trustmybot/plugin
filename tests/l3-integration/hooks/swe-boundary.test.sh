@@ -465,6 +465,31 @@ out=$(run_hook_swe "$(make_bash_input swe "$(printf '%s\n' "cat > notes.md <<'EO
 assert_contains "$out" "gh/glab mutating" "a real statement after the heredoc still fires"
 
 # ===========================================================================
+# Rule (b) word parsing — the HTTP verb of an api call is found in any flag
+# position and spelling; wrappers and absolute paths do not hide argv0.
+# ===========================================================================
+
+for gh_cmd in 'gh api -X POST x' 'gh api -XPOST x' 'gh api --method DELETE x' \
+  'gh api --method=PATCH x' 'gh api x -X PUT' '/usr/bin/gh api -X POST x' \
+  'sudo gh api -X POST x' 'glab api -X POST x' 'gh api -X post x' \
+  'gh issue comment 3 --body x' 'gh release create v1' 'gh repo delete o/r'; do
+  test_case "(b) SWE '$gh_cmd': DENIED"
+  out=$(run_hook_swe "$(make_bash_input swe "$gh_cmd")")
+  assert_contains "$out" "gh/glab mutating" "a forge write must be denied for SWE"
+done
+
+for gh_cmd in 'gh api repos/o/r' 'gh api -X GET x' 'gh release view v1' \
+  "cat > notes.md <<'EOF'
+gh api -X POST x
+gh api --method=PATCH x
+EOF" \
+  'echo "gh api -X POST x"' "grep -n 'gh api --method DELETE x' notes.md"; do
+  test_case "(b) SWE read-only or data '${gh_cmd%%$'\n'*}': NOT denied"
+  out=$(run_hook_swe "$(make_bash_input swe "$gh_cmd")")
+  assert_not_contains "$out" '"permissionDecision":"deny"' "a read or a quoted/heredoc mention is allowed"
+done
+
+# ===========================================================================
 # Layer 1 — schema-mismatch fail-safe (#596)
 # A stale legacy ~/.claude/tmb/trajectory.db (old schema, no prompt_bearing
 # column) up-tree from the hook's cwd must be treated as UNRESOLVED, not

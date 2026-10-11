@@ -11,7 +11,8 @@
 # its `git -C <path>`, else a preceding `cd <path>`, else the payload cwd when
 # that cwd belongs to a single checkout. A rule that needs the branch of a
 # statement whose dir is ambiguous (the repo has linked worktrees and the
-# statement names no dir) denies with ambiguous_git_target and its remedy.
+# statement names no dir, or names it through a variable) denies with
+# ambiguous_git_target and its remedy.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -206,7 +207,12 @@ while IFS="$(printf '\t')" read -r DIR STMT <&3; do
     *) [ -n "$FORGE" ] || continue ;;
   esac
 
-  # H8: no resolvable repo (the multi-repo workspace root, an unknown dir) →
+  # A dir behind a variable, `cd -` or popd is judged like a statement that
+  # names none: ambiguous when the payload cwd's repo has linked worktrees
+  # (as git-push-guard), else the payload cwd.
+  [ "$DIR" != - ] || DIR=$(tmb_cwd_state "$CWD")
+
+  # H8: no resolvable repo (the multi-repo workspace root, a dir outside any repo) →
   # no guessed policy. An ambiguous dir still names its repo.
   load_policy "$(tmb_stmt_repo_root "$DIR" "$CWD")" || continue
 
