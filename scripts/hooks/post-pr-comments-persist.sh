@@ -10,7 +10,7 @@
 # Output shape expected from pr_monitor_comments_get:
 #   { "comments": [ { "number": N, "author": "...", "body": "...", "pr_number": N, "is_resolved": bool } ] }
 #
-# This hook writes a discussion row per comment using sqlite3 directly (the
+# This hook writes a discussion row per comment through tmb_db_write (the
 # hook environment has no MCP access). If TRAJECTORY_DB_PATH is unset or
 # sqlite3 is unavailable, the hook exits silently — bro falls back to the
 # manual loop.
@@ -22,6 +22,8 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=scripts/hooks/lib/db-write.sh
+. "$SCRIPT_DIR/lib/db-write.sh"
 
 if [ "${TMB_SKIP_PR_COMMENTS_PERSIST:-0}" = "1" ]; then
   exit 0
@@ -57,7 +59,7 @@ esac
 REPO=$(echo "$INPUT" | jq -r '.tool_input.repo // empty' 2>/dev/null)
 REPO_ESC=$(printf '%s' "$REPO" | sed "s/'/''/g")
 
-NOW=$(date -u +%Y-%m-%dT%H:%M:%S.000Z 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
+NOW=$(tmb_now_iso)
 
 # Resolve the carrier issue from the PR (pr_number [+ repo]) — NOT the git branch
 # (#1024). `git rev-parse --abbrev-ref HEAD` from the main checkout returns the
@@ -78,6 +80,7 @@ ISSUE_ID=$(sqlite3 "$DB" \
       AND t.status NOT IN ('closed','failed')
     ORDER BY r.id DESC LIMIT 1" \
   2>/dev/null || true)
+ISSUE_ID=$(tmb_sql_int "$ISSUE_ID")
 [ -n "$ISSUE_ID" ] || exit 0
 
 echo "$COMMENTS" | while IFS= read -r comment; do
@@ -86,17 +89,13 @@ echo "$COMMENTS" | while IFS= read -r comment; do
   [ -n "$BODY" ] || continue
 
   NOTE_BODY="[PR #${PR_NUMBER} comment by ${AUTHOR}] ${BODY}"
-  # Escape single quotes for SQLite by doubling them (''). bash pattern
-  # substitution emits backslash-quote here, which SQLite does NOT treat as an
-  # escape — the literal stays open and the INSERT is silently dropped (#274).
-  # sed "s/'/''/g" is the correct, codebase-standard escape.
-  NOTE_BODY_ESC=$(printf '%s' "$NOTE_BODY" | sed "s/'/''/g")
-  AUTHOR_ESC=$(printf '%s' "$AUTHOR" | sed "s/'/''/g")
+  SAFE_NOTE_BODY=$(tmb_sql_quote "$NOTE_BODY")
+  SAFE_AUTHOR=$(tmb_sql_quote "$AUTHOR")
+  SAFE_NOW=$(tmb_sql_quote "$NOW")
 
-  sqlite3 "$DB" \
+  tmb_db_write "$DB" \
     "INSERT OR IGNORE INTO discussions (issue_id, author, kind, body, created_at)
-     VALUES (${ISSUE_ID}, '${AUTHOR_ESC}', 'note', '${NOTE_BODY_ESC}', '${NOW}')" \
-    2>/dev/null || true
+     VALUES (${ISSUE_ID}, '${SAFE_AUTHOR}', 'note', '${SAFE_NOTE_BODY}', '${SAFE_NOW}');"
 done
 
 exit 0

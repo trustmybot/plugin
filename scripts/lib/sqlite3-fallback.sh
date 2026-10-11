@@ -2,9 +2,10 @@
 # sqlite3 fallback for MCP write path (#100). Use when MCP unavailable.
 # Each wrapper:
 #   1. Validates the agent has the role required for the underlying MCP tool
-#   2. Performs the equivalent INSERT/UPDATE via sqlite3 directly
-#   3. Synthesizes an audit row (event_type=mcp_unavailable_fallback_invoked)
-#      capturing operation + agent + timestamp
+#   2. Performs the equivalent INSERT/UPDATE through tmb_db_write (FK on, busy
+#      timeout, one transaction), every value quoted via tmb_sql_quote/tmb_sql_int
+#   3. Synthesizes an audit row (event_type=mcp_unavailable_fallback_invoked,
+#      issue_id=-1, the system issue) in the same transaction
 # All wrappers fail-loud (echo error to stderr + return non-zero) when:
 #   - DB cannot be located
 #   - sqlite3 unavailable
@@ -15,6 +16,8 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../hooks/lib/query-task.sh
 . "$SCRIPT_DIR/../hooks/lib/query-task.sh"
+# shellcheck source=../hooks/lib/db-write.sh
+. "$SCRIPT_DIR/../hooks/lib/db-write.sh"
 
 # Allowed roles per MCP tool (mirrors mcp/trajectory-server/src/middleware/agent-scope.ts)
 # Update if the server's requireRoles for these tools changes.
@@ -45,14 +48,30 @@ _tmb_fallback_check_role() {
   esac
 }
 
-_tmb_fallback_audit_append() {
-  local db="$1" tool="$2" agent="$3" extra_json="$4"
-  local ts; ts=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
-  local extra_json_esc; extra_json_esc=$(printf '%s' "$extra_json" | sed "s/'/''/g")
-  sqlite3 "$db" <<SQL 2>/dev/null || true
-INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-VALUES (0, '', '$agent', 'mcp_unavailable_fallback_invoked', 'sqlite3 fallback used for $tool', '$extra_json_esc', '$ts');
-SQL
+_tmb_fallback_bad_int() {
+  echo "sqlite3-fallback: $1 must be a non-negative integer (got '$2')" >&2
+  return 1
+}
+
+# _tmb_fallback_audit_sql <issue_id> <branch_id> <from_node> <event_type> <summary> <content_json>
+# Prints one INSERT INTO audit with every value quoted.
+_tmb_fallback_audit_sql() {
+  local SAFE_ISSUE SAFE_BRANCH="NULL"
+  case "$1" in
+    -1) SAFE_ISSUE="-1" ;;
+    *) SAFE_ISSUE=$(tmb_sql_int "$1") ;;
+  esac
+  [ -n "$SAFE_ISSUE" ] || { _tmb_fallback_bad_int issue_id "$1"; return 1; }
+  [ -n "$2" ] && SAFE_BRANCH="'$(tmb_sql_quote "$2")'"
+  printf "INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at) VALUES (%s, %s, '%s', '%s', '%s', '%s', '%s');\n" \
+    "$SAFE_ISSUE" "$SAFE_BRANCH" "$(tmb_sql_quote "$3")" "$(tmb_sql_quote "$4")" \
+    "$(tmb_sql_quote "$5")" "$(tmb_sql_quote "$6")" "$(tmb_sql_quote "$(tmb_now_iso)")"
+}
+
+# _tmb_fallback_marker_sql <tool> <agent> <extra_json>
+# The mcp_unavailable_fallback_invoked row, filed under the system issue (-1).
+_tmb_fallback_marker_sql() {
+  _tmb_fallback_audit_sql -1 '' "$2" mcp_unavailable_fallback_invoked "sqlite3-fallback used for $1" "$3"
 }
 
 # tmb_fallback_validation_record <task_id> <attempt_n> <agent> <verdict> <feedback>
@@ -61,13 +80,18 @@ tmb_fallback_validation_record() {
   local db; db=$(_tmb_require_db) || return 1
   tmb_have_sqlite || { echo "sqlite3-fallback: sqlite3 unavailable" >&2; return 1; }
   _tmb_fallback_check_role validation_record "$agent" || return 1
-  local ts; ts=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
-  local feedback_esc; feedback_esc=$(printf '%s' "$feedback" | sed "s/'/''/g")
-  sqlite3 "$db" <<SQL
-INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at)
-VALUES ($task_id, $attempt_n, '$agent', '$verdict', '$feedback_esc', 0, '$ts');
-SQL
-  _tmb_fallback_audit_append "$db" validation_record "$agent" "{\"task_id\":$task_id,\"attempt_n\":$attempt_n,\"verdict\":\"$verdict\"}"
+  local SAFE_TID SAFE_N SAFE_AGENT SAFE_VERDICT SAFE_FEEDBACK SAFE_NOW SAFE_MARKER
+  SAFE_TID=$(tmb_sql_int "$task_id"); [ -n "$SAFE_TID" ] || { _tmb_fallback_bad_int task_id "$task_id"; return 1; }
+  SAFE_N=$(tmb_sql_int "$attempt_n"); [ -n "$SAFE_N" ] || { _tmb_fallback_bad_int attempt_n "$attempt_n"; return 1; }
+  SAFE_AGENT=$(tmb_sql_quote "$agent")
+  SAFE_VERDICT=$(tmb_sql_quote "$verdict")
+  SAFE_FEEDBACK=$(tmb_sql_quote "$feedback")
+  SAFE_NOW=$(tmb_sql_quote "$(tmb_now_iso)")
+  SAFE_MARKER=$(_tmb_fallback_marker_sql validation_record "$agent" \
+    "$(jq -nc --argjson t "$SAFE_TID" --argjson n "$SAFE_N" --arg v "$verdict" '{task_id: $t, attempt_n: $n, verdict: $v}')") || return 1
+  tmb_db_write "$db" "INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, created_at)
+VALUES (${SAFE_TID}, ${SAFE_N}, '${SAFE_AGENT}', '${SAFE_VERDICT}', '${SAFE_FEEDBACK}', 0, '${SAFE_NOW}');
+${SAFE_MARKER}"
 }
 
 # tmb_fallback_task_update_status <task_id> <status> <agent> [commit_sha]
@@ -76,18 +100,15 @@ tmb_fallback_task_update_status() {
   local db; db=$(_tmb_require_db) || return 1
   tmb_have_sqlite || { echo "sqlite3-fallback: sqlite3 unavailable" >&2; return 1; }
   _tmb_fallback_check_role task_update_status "$agent" || return 1
-  local ts; ts=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
-  if [ -n "$commit_sha" ]; then
-    local sha_esc; sha_esc=$(printf '%s' "$commit_sha" | sed "s/'/''/g")
-    sqlite3 "$db" <<SQL
-UPDATE tasks SET status = '$status', updated_at = '$ts', commit_sha = '$sha_esc' WHERE id = $task_id;
-SQL
-  else
-    sqlite3 "$db" <<SQL
-UPDATE tasks SET status = '$status', updated_at = '$ts' WHERE id = $task_id;
-SQL
-  fi
-  _tmb_fallback_audit_append "$db" task_update_status "$agent" "{\"task_id\":$task_id,\"status\":\"$status\"}"
+  local SAFE_TID SAFE_STATUS SAFE_NOW SAFE_SHA_SET="" SAFE_MARKER
+  SAFE_TID=$(tmb_sql_int "$task_id"); [ -n "$SAFE_TID" ] || { _tmb_fallback_bad_int task_id "$task_id"; return 1; }
+  SAFE_STATUS=$(tmb_sql_quote "$status")
+  SAFE_NOW=$(tmb_sql_quote "$(tmb_now_iso)")
+  [ -n "$commit_sha" ] && SAFE_SHA_SET=", commit_sha = '$(tmb_sql_quote "$commit_sha")'"
+  SAFE_MARKER=$(_tmb_fallback_marker_sql task_update_status "$agent" \
+    "$(jq -nc --argjson t "$SAFE_TID" --arg s "$status" '{task_id: $t, status: $s}')") || return 1
+  tmb_db_write "$db" "UPDATE tasks SET status = '${SAFE_STATUS}', updated_at = '${SAFE_NOW}'${SAFE_SHA_SET} WHERE id = ${SAFE_TID};
+${SAFE_MARKER}"
 }
 
 # tmb_fallback_discussion_append <issue_id> <author> <kind> <body> <agent>
@@ -96,14 +117,17 @@ tmb_fallback_discussion_append() {
   local db; db=$(_tmb_require_db) || return 1
   tmb_have_sqlite || { echo "sqlite3-fallback: sqlite3 unavailable" >&2; return 1; }
   _tmb_fallback_check_role discussion_append "$agent" || return 1
-  local ts; ts=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
-  local body_esc; body_esc=$(printf '%s' "$body" | sed "s/'/''/g")
-  local author_esc; author_esc=$(printf '%s' "$author" | sed "s/'/''/g")
-  sqlite3 "$db" <<SQL
-INSERT INTO discussions (issue_id, author, kind, body, created_at)
-VALUES ($issue_id, '$author_esc', '$kind', '$body_esc', '$ts');
-SQL
-  _tmb_fallback_audit_append "$db" discussion_append "$agent" "{\"issue_id\":$issue_id,\"kind\":\"$kind\"}"
+  local SAFE_IID SAFE_AUTHOR SAFE_KIND SAFE_BODY SAFE_NOW SAFE_MARKER
+  SAFE_IID=$(tmb_sql_int "$issue_id"); [ -n "$SAFE_IID" ] || { _tmb_fallback_bad_int issue_id "$issue_id"; return 1; }
+  SAFE_AUTHOR=$(tmb_sql_quote "$author")
+  SAFE_KIND=$(tmb_sql_quote "$kind")
+  SAFE_BODY=$(tmb_sql_quote "$body")
+  SAFE_NOW=$(tmb_sql_quote "$(tmb_now_iso)")
+  SAFE_MARKER=$(_tmb_fallback_marker_sql discussion_append "$agent" \
+    "$(jq -nc --argjson i "$SAFE_IID" --arg k "$kind" '{issue_id: $i, kind: $k}')") || return 1
+  tmb_db_write "$db" "INSERT INTO discussions (issue_id, author, kind, body, created_at)
+VALUES (${SAFE_IID}, '${SAFE_AUTHOR}', '${SAFE_KIND}', '${SAFE_BODY}', '${SAFE_NOW}');
+${SAFE_MARKER}"
 }
 
 # tmb_fallback_audit_append <issue_id> <branch_id> <from_node> <event_type> <summary> <content> <agent>
@@ -112,15 +136,13 @@ tmb_fallback_audit_append() {
   local db; db=$(_tmb_require_db) || return 1
   tmb_have_sqlite || { echo "sqlite3-fallback: sqlite3 unavailable" >&2; return 1; }
   _tmb_fallback_check_role audit_append "$agent" || return 1
-  local ts; ts=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
-  local summary_esc; summary_esc=$(printf '%s' "$summary" | sed "s/'/''/g")
-  local content_esc; content_esc=$(printf '%s' "$content" | sed "s/'/''/g")
-  local branch_esc; branch_esc=$(printf '%s' "$branch_id" | sed "s/'/''/g")
-  sqlite3 "$db" <<SQL
-INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-VALUES ($issue_id, '$branch_esc', '$from_node', '$event_type', '$summary_esc', '$content_esc', '$ts');
-SQL
-  _tmb_fallback_audit_append "$db" audit_append "$agent" "{\"issue_id\":$issue_id,\"event_type\":\"$event_type\"}"
+  local SAFE_IID SAFE_AUDIT SAFE_MARKER
+  SAFE_IID=$(tmb_sql_int "$issue_id"); [ -n "$SAFE_IID" ] || { _tmb_fallback_bad_int issue_id "$issue_id"; return 1; }
+  SAFE_AUDIT=$(_tmb_fallback_audit_sql "$SAFE_IID" "$branch_id" "$from_node" "$event_type" "$summary" "$content") || return 1
+  SAFE_MARKER=$(_tmb_fallback_marker_sql audit_append "$agent" \
+    "$(jq -nc --argjson i "$SAFE_IID" --arg e "$event_type" '{issue_id: $i, event_type: $e}')") || return 1
+  tmb_db_write "$db" "${SAFE_AUDIT}
+${SAFE_MARKER}"
 }
 
 # tmb_fallback_issue_close <issue_id> <agent>
@@ -129,12 +151,12 @@ tmb_fallback_issue_close() {
   local db; db=$(_tmb_require_db) || return 1
   tmb_have_sqlite || { echo "sqlite3-fallback: sqlite3 unavailable" >&2; return 1; }
   _tmb_fallback_check_role issue_close "$agent" || return 1
-  local ts; ts=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
-  sqlite3 "$db" <<SQL
-UPDATE issues
-SET status = 'closed', updated_at = '$ts', closed_at = COALESCE(closed_at, '$ts')
-WHERE id = $issue_id;
-SQL
-  _tmb_fallback_audit_append "$db" issue_close "$agent" "{\"issue_id\":$issue_id}"
+  local SAFE_IID SAFE_NOW SAFE_MARKER
+  SAFE_IID=$(tmb_sql_int "$issue_id"); [ -n "$SAFE_IID" ] || { _tmb_fallback_bad_int issue_id "$issue_id"; return 1; }
+  SAFE_NOW=$(tmb_sql_quote "$(tmb_now_iso)")
+  SAFE_MARKER=$(_tmb_fallback_marker_sql issue_close "$agent" "$(jq -nc --argjson i "$SAFE_IID" '{issue_id: $i}')") || return 1
+  tmb_db_write "$db" "UPDATE issues
+SET status = 'closed', updated_at = '${SAFE_NOW}', closed_at = COALESCE(closed_at, '${SAFE_NOW}')
+WHERE id = ${SAFE_IID};
+${SAFE_MARKER}"
 }
-

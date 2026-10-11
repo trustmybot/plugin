@@ -36,6 +36,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/query-task.sh"
 # shellcheck source=scripts/hooks/lib/normalize-role.sh
 . "$SCRIPT_DIR/lib/normalize-role.sh"
+# shellcheck source=scripts/hooks/lib/db-write.sh
+. "$SCRIPT_DIR/lib/db-write.sh"
 
 INPUT=$(cat)
 
@@ -122,16 +124,13 @@ if [ "$IS_TASK_BRIEF" = "yes" ]; then
     LIMIT 1;
   " 2>/dev/null || echo "0")
   if [ "${ALREADY:-0}" -eq 0 ]; then
-    CONTENT_JSON="{\"task_id\":${TASK_ID},\"agent_type\":\"swe\"}"
-    CONTENT_JSON_SQL=${CONTENT_JSON//\'/\'\'}
-    sqlite3 "$DB" "
-      INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-      SELECT COALESCE(t.issue_id, -1), t.branch_id, 'swe', 'swe_brief_fetched',
-             'SWE fetched task_brief for task_id=${TASK_ID}',
-             '${CONTENT_JSON_SQL}', datetime('now')
-        FROM tasks t WHERE t.id = ${TASK_ID}
-       LIMIT 1;
-    " 2>/dev/null || true
+    TASK_ROW=$(tmb_sqlite_ro "$DB" "SELECT COALESCE(issue_id, -1) || '|' || COALESCE(branch_id, '') FROM tasks WHERE id = ${TASK_ID} LIMIT 1;")
+    if [ -n "$TASK_ROW" ] && ! tmb_audit_append "$DB" "${TASK_ROW%%|*}" "${TASK_ROW#*|}" "hook:swe-brief-gate" "swe_brief_fetched" \
+        "SWE fetched task_brief for task_id=${TASK_ID}" \
+        "{\"task_id\":${TASK_ID},\"agent_type\":\"swe\"}"; then
+      jq -nc --arg ctx "TMB: the swe_brief_fetched sentinel for task_id=${TASK_ID} could not be recorded (trajectory DB write failed). If the next Edit/Write or trajectory-server call is denied, call task_brief(agent='swe', task_id=${TASK_ID}) again." \
+        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":$ctx}}'
+    fi
   fi
   exit 0
 fi

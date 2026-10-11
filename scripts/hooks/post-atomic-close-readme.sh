@@ -26,6 +26,8 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/query-task.sh disable=SC1091
 . "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=lib/db-write.sh disable=SC1091
+. "$SCRIPT_DIR/lib/db-write.sh"
 
 INPUT=$(cat 2>/dev/null) || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
@@ -155,20 +157,15 @@ STALE_DIRS="${STALE_DIRS%
 ISSUE_ID=$(tmb_sql_int "$ISSUE_ID")
 [ -n "$ISSUE_ID" ] || ISSUE_ID=-1
 
-NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 SUMMARY="task ${TASK_ID}: README may be stale in $(printf '%s\n' "$STALE_DIRS" | grep -c .) dir(s) after ${COMMIT_SHA:0:7}"
-SUMMARY_SQL=$(tmb_sql_quote "$SUMMARY")
-BRANCH_SQL=$(tmb_sql_quote "$BRANCH_ID")
 CONTENT_JSON=$(jq -nc \
   --argjson task_id "$TASK_ID" \
   --arg commit "$COMMIT_SHA" \
   --arg dirs "$STALE_DIRS" \
   '{task_id: $task_id, commit_sha: $commit, stale: ($dirs | split("\n"))}')
-CONTENT_SQL=$(tmb_sql_quote "$CONTENT_JSON")
 
-sqlite3 "$DB" \
-  "INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-   VALUES (${ISSUE_ID}, '${BRANCH_SQL}', 'bro', 'readme_staleness_surfaced', '${SUMMARY_SQL}', '${CONTENT_SQL}', '${NOW}');" 2>/dev/null || true
+tmb_audit_append "$DB" "$ISSUE_ID" "$BRANCH_ID" "hook:post-atomic-close-readme" "readme_staleness_surfaced" \
+  "$SUMMARY" "$CONTENT_JSON"
 
 REASON="📝 README-staleness check (task ${TASK_ID}, commit ${COMMIT_SHA:0:7}): the world model derives each directory's summary from that dir's README.md, so a stale README degrades world_model_get / world_model_search for that dir.
 

@@ -30,6 +30,8 @@ PLUGIN_NAME=$(tmb_resolve_plugin_name)
 . "$SCRIPT_DIR/lib/normalize-role.sh" 2>/dev/null || true
 # shellcheck source=scripts/hooks/lib/resolve-repo.sh disable=SC1091
 . "$SCRIPT_DIR/lib/resolve-repo.sh" 2>/dev/null || true
+# shellcheck source=scripts/hooks/lib/db-write.sh disable=SC1091
+. "$SCRIPT_DIR/lib/db-write.sh"
 
 mkdir -p "${HOME}/.claude/${PLUGIN_NAME}/logs" 2>/dev/null || true
 
@@ -347,9 +349,11 @@ if [ "$TASK_STATUS" = "pending" ]; then
     # Auto-close: write status='completed' + commit_sha via sqlite3.
     DECISION="auto-completed"
     SAFE_WT_HEAD=$(tmb_sql_quote "$WT_HEAD")
-    sqlite3 "$DB" \
-      "UPDATE tasks SET status='completed', commit_sha='${SAFE_WT_HEAD}', updated_at=datetime('now'), completed_at=datetime('now') WHERE id=${TASK_ID};" \
-      2>/dev/null || DECISION="auto-complete-failed"
+    SAFE_NOW=$(tmb_sql_quote "$(tmb_now_iso)")
+    SAFE_CLOSE_TASK_ID=$(tmb_sql_int "$TASK_ID")
+    tmb_db_write "$DB" \
+      "UPDATE tasks SET status='completed', commit_sha='${SAFE_WT_HEAD}', updated_at='${SAFE_NOW}', completed_at='${SAFE_NOW}' WHERE id=${SAFE_CLOSE_TASK_ID};" \
+      || DECISION="auto-complete-failed"
   else
     # No commits in worktree beyond the local branch ref.
     DECISION="warn-no-commits"
@@ -442,6 +446,8 @@ SAFE_CACHE_CREATION_TOKENS=$(tmb_sql_int "$CACHE_CREATION_TOKENS"); SAFE_CACHE_C
 SAFE_TOOL_USES=$(tmb_sql_int "$TOOL_USES"); SAFE_TOOL_USES=${SAFE_TOOL_USES:-0}
 SAFE_DURATION_MS=$(tmb_sql_int "$DURATION_MS"); SAFE_DURATION_MS=${SAFE_DURATION_MS:-0}
 
+SAFE_AR_NOW=$(tmb_sql_quote "$(tmb_now_iso)")
+
 if [ "$AR_ATTRIBUTION_SAFE" != "true" ]; then
   jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" --arg tr "$TRANSCRIPT_PATH" \
     '{ts:$ts,kind:"agent-runs-capture-skipped",reason:"task_id unresolved from transcript; refusing sibling-fallback attribution",task_id:$tid,transcript:$tr}' \
@@ -477,16 +483,17 @@ else
   fi
 
   if [ -n "$AR_EXISTING_ID" ]; then
-    SAFE_AR_WRITE="UPDATE agent_runs SET tokens_in=${SAFE_TOKENS_IN}, tokens_out=${SAFE_TOKENS_OUT}, tokens_total=${SAFE_TOKENS_TOTAL}, cache_read_tokens=${SAFE_CACHE_READ_TOKENS}, cache_creation_tokens=${SAFE_CACHE_CREATION_TOKENS}, tool_uses=${SAFE_TOOL_USES}, duration_ms=${SAFE_DURATION_MS}, completed_at=datetime('now') WHERE id=${AR_EXISTING_ID};"
+    SAFE_AR_WRITE="UPDATE agent_runs SET tokens_in=${SAFE_TOKENS_IN}, tokens_out=${SAFE_TOKENS_OUT}, tokens_total=${SAFE_TOKENS_TOTAL}, cache_read_tokens=${SAFE_CACHE_READ_TOKENS}, cache_creation_tokens=${SAFE_CACHE_CREATION_TOKENS}, tool_uses=${SAFE_TOOL_USES}, duration_ms=${SAFE_DURATION_MS}, completed_at='${SAFE_AR_NOW}' WHERE id=${AR_EXISTING_ID};"
   elif [ "$AR_HAS_BASELINE_COL" -ge 1 ] && [ -n "$SAFE_SPAWN_ID" ]; then
-    SAFE_AR_WRITE="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_baseline_json) VALUES (${SAFE_TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${SAFE_AGENT_TYPE}', ${SAFE_TOKENS_IN}, ${SAFE_TOKENS_OUT}, ${SAFE_TOKENS_TOTAL}, ${SAFE_CACHE_READ_TOKENS}, ${SAFE_CACHE_CREATION_TOKENS}, ${SAFE_TOOL_USES}, ${SAFE_DURATION_MS}, datetime('now'), json_object('spawn_id', '${SAFE_SPAWN_ID}'));"
+    SAFE_AR_WRITE="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_baseline_json) VALUES (${SAFE_TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${SAFE_AGENT_TYPE}', ${SAFE_TOKENS_IN}, ${SAFE_TOKENS_OUT}, ${SAFE_TOKENS_TOTAL}, ${SAFE_CACHE_READ_TOKENS}, ${SAFE_CACHE_CREATION_TOKENS}, ${SAFE_TOOL_USES}, ${SAFE_DURATION_MS}, '${SAFE_AR_NOW}', json_object('spawn_id', '${SAFE_SPAWN_ID}'));"
   else
-    SAFE_AR_WRITE="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (${SAFE_TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${SAFE_AGENT_TYPE}', ${SAFE_TOKENS_IN}, ${SAFE_TOKENS_OUT}, ${SAFE_TOKENS_TOTAL}, ${SAFE_CACHE_READ_TOKENS}, ${SAFE_CACHE_CREATION_TOKENS}, ${SAFE_TOOL_USES}, ${SAFE_DURATION_MS}, datetime('now'));"
+    SAFE_AR_WRITE="INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at) VALUES (${SAFE_TASK_ID}, ${AR_ISSUE_FRAGMENT}, '${SAFE_AGENT_TYPE}', ${SAFE_TOKENS_IN}, ${SAFE_TOKENS_OUT}, ${SAFE_TOKENS_TOTAL}, ${SAFE_CACHE_READ_TOKENS}, ${SAFE_CACHE_CREATION_TOKENS}, ${SAFE_TOOL_USES}, ${SAFE_DURATION_MS}, '${SAFE_AR_NOW}');"
   fi
-  sqlite3 "$DB" "$SAFE_AR_WRITE" 2>/dev/null || \
+  if ! tmb_db_write "$DB" "$SAFE_AR_WRITE"; then
     jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
       '{ts:$ts,kind:"agent-runs-capture-skipped",reason:"agent_runs write failed",task_id:$tid}' \
       >> "$_LOG_FILE" 2>/dev/null || true
+  fi
 fi
 
 # Log the decision.

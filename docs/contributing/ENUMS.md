@@ -108,8 +108,10 @@ Returned in the created-issue payload, not stored.
 | `ceo` | TMB consultant template | Project consultant |
 | `pm` | TMB consultant template | Project consultant |
 | `<custom>` | per-project | User-created agents (e.g. `legal-reviewer`, `security-reviewer`) |
+| `system` | TMB runtime | A machine event with no agent or hook author |
+| `hook:<name>` | TMB hook / script | A row written by a hook or script, `<name>` = its basename without `.sh` (e.g. `hook:swe-brief-gate`, `hook:scan`); matches `hook:[a-z0-9-]+` |
 
-**TMB-specific** — these are TMB's role names. Custom agents added to a project become valid `from_node` values for that project's DB only.
+**TMB-specific** — these are TMB's role names. Custom agents added to a project become valid `from_node` values for that project's DB only. A hook never writes an agent role: every audit row a hook writes goes through the write library (`tmb_audit_append` in `scripts/hooks/lib/db-write.sh`) as `hook:<name>`.
 
 ### `audit.event_type` — workflow events
 

@@ -24,7 +24,8 @@ sqlite3 "$DB" "
     description TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'open',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    repo TEXT
   );
   CREATE TABLE tasks (
     id INTEGER PRIMARY KEY,
@@ -41,9 +42,10 @@ sqlite3 "$DB" "
     event_type TEXT NOT NULL,
     summary TEXT NOT NULL DEFAULT '',
     content_json TEXT NOT NULL DEFAULT '{}',
+    repo TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
-  INSERT INTO issues VALUES (1, 'test', '', 'open', datetime('now'), datetime('now'));
+  INSERT INTO issues VALUES (1, 'test', '', 'open', datetime('now'), datetime('now'), NULL);
   INSERT INTO tasks VALUES (10, 1, 'feat/my-feature', 'pending', 'spec here');
 "
 

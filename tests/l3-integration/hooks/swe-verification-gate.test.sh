@@ -41,7 +41,8 @@ sqlite3 "$DB" "
     description TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'open',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    repo TEXT
   );
   CREATE TABLE repos (
     id INTEGER PRIMARY KEY,
@@ -65,9 +66,10 @@ sqlite3 "$DB" "
     event_type TEXT NOT NULL,
     summary TEXT NOT NULL DEFAULT '',
     content_json TEXT NOT NULL DEFAULT '{}',
+    repo TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
-  INSERT INTO issues VALUES (1, 'test', '', 'open', datetime('now'), datetime('now'));
+  INSERT INTO issues VALUES (1, 'test', '', 'open', datetime('now'), datetime('now'), NULL);
   INSERT INTO repos VALUES (1, 'plugin', '$REPO_DIR');
   INSERT INTO tasks VALUES (1, 1, 'feat/my-feature', 'plugin', 'pending', '', '[\"bash tests/run.sh\"]');
   INSERT INTO tasks VALUES (2, 1, 'feat/no-verify', 'plugin', 'pending', '', '[]');
@@ -357,5 +359,12 @@ assert_not_contains "$out" "verification gate skipped" "no-worktree gate must no
 assert_contains "$out" '"permissionDecision":"deny"' "unlocatable worktree must DENY (fail closed)"
 assert_contains "$out" "could not locate the task worktree" "deny reason should name the missing-worktree remediation"
 assert_contains "$out" ".claude/worktrees/no-worktree" "deny reason should name the expected repo-rooted worktree path"
+
+test_case "unreadable trajectory DB: verification gate fails closed (tmb_gate_read __ERR__)"
+BAD_DB="$TMPDIR/corrupt-trajectory.db"
+printf 'not a sqlite database %.0s' 1 2 3 4 5 6 7 8 > "$BAD_DB"
+out=$(cd "$REPO_DIR" && echo "$(make_input swe completed 1)" | TRAJECTORY_DB_PATH="$BAD_DB" bash "$HOOK" 2>&1 || true)
+assert_contains "$out" '"permissionDecision":"deny"' "DB read error must deny, not skip the gate"
+assert_contains "$out" "trajectory DB unavailable" "deny names the unavailable DB"
 
 summarize

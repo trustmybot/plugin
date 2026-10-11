@@ -37,7 +37,7 @@ assert_eq "1" "$COUNT" "one audit row must be inserted"
 
 test_case "audit row has correct columns (no kind column used)"
 ROW=$(sqlite3 -separator "|" "$DB" "SELECT from_node, event_type FROM audit WHERE event_type='roundtable_slash_invoked' LIMIT 1;")
-assert_eq "system|roundtable_slash_invoked" "$ROW" "from_node=system and event_type correct"
+assert_eq "hook:roundtable-slash-detect|roundtable_slash_invoked" "$ROW" "from_node=hook:roundtable-slash-detect and event_type correct"
 
 # ── non-/roundtable prompt is a no-op ─────────────────────────────────────────
 

@@ -68,7 +68,7 @@ assert_eq "1" "$(nudged_count)" "one audit row per nudge"
 
 test_case "audit row carries the enforcement from_node"
 ROW=$(sqlite3 -separator "|" "$DB" "SELECT from_node, event_type FROM audit WHERE event_type='consultant_spawn_nudged' LIMIT 1;")
-assert_eq "consultant-spawn-enforcement|consultant_spawn_nudged" "$ROW" "from_node + event_type correct"
+assert_eq "hook:prompt-intent-hints|consultant_spawn_nudged" "$ROW" "from_node + event_type correct"
 
 # ========================================================
 # Case 2: non-triggering prompt → no nudge, no audit row

@@ -18,6 +18,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/normalize-role.sh"
 # shellcheck source=scripts/hooks/lib/resolve-repo.sh
 . "$SCRIPT_DIR/lib/resolve-repo.sh"
+# shellcheck source=scripts/hooks/lib/db-write.sh
+. "$SCRIPT_DIR/lib/db-write.sh"
 
 INPUT=$(cat)
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
@@ -205,7 +207,7 @@ if [ -z "$SHA_LIST" ]; then
 fi
 
 # Find tasks whose commit_sha is in the push set AND lack a passing validation row.
-UNSIGNED=$(sqlite3 "$DB" "
+UNSIGNED=$(tmb_gate_read "$DB" "
   SELECT t.id || '|' || t.branch_id || '|' || substr(t.title, 1, 60)
     FROM tasks t
    WHERE t.commit_sha IN ($SHA_LIST)
@@ -214,7 +216,12 @@ UNSIGNED=$(sqlite3 "$DB" "
         WHERE v.task_id = t.id
           AND v.verdict = 'pass'
      );
-" 2>/dev/null || true)
+")
+
+if [ "$UNSIGNED" = "__ERR__" ]; then
+  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: trajectory DB unavailable — the push gate could not read task review state (sqlite3 error), so it refuses to fail open. Check the trajectory DB and retry the push."}}'
+  exit 0
+fi
 
 if [ -z "$UNSIGNED" ]; then
   # All commits in the push are either (a) reviewed or (b) untracked by TMB. Allow.

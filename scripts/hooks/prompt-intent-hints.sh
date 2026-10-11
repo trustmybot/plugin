@@ -27,6 +27,8 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh disable=SC1091
 . "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=scripts/hooks/lib/db-write.sh disable=SC1091
+. "$SCRIPT_DIR/lib/db-write.sh"
 
 INPUT=$(cat 2>/dev/null) || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
@@ -59,7 +61,8 @@ emit_context() {
 # Write a deterministic audit row recording that the consultant-spawn nudge
 # fired. Gates the 10-consultant L6 row on the enforcement mechanism (this row)
 # rather than bro's non-deterministic compliance with the advisory nudge.
-# Fail-open: DB/sqlite3 absent → silent skip; never blocks or crashes the hook.
+# Fail-open: DB/sqlite3 absent → silent skip; a failed write is reported on
+# stderr and never blocks the hook.
 audit_consultant_spawn_nudged() {
   local detail="$1"
   command -v sqlite3 >/dev/null 2>&1 || return 0
@@ -67,13 +70,9 @@ audit_consultant_spawn_nudged() {
   db=$(tmb_db_path 2>/dev/null || true)
   [ -n "$db" ] || return 0
   [ -f "$db" ] || return 0
-  local safe_detail
-  safe_detail=$(tmb_sql_quote "$(printf '%s' "$detail" | head -c 200)")
-  sqlite3 "$db" >/dev/null 2>&1 <<SQL || true
-INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-VALUES (-1, NULL, 'consultant-spawn-enforcement', 'consultant_spawn_nudged',
-        'Consultant-spawn nudge emitted: ${safe_detail}', '{}', datetime('now'));
-SQL
+  tmb_audit_append "$db" -1 '' "hook:prompt-intent-hints" "consultant_spawn_nudged" \
+    "Consultant-spawn nudge emitted: $(printf '%s' "$detail" | head -c 200)" '{}' \
+    || return 0
 }
 
 # ---------------------------------------------------------------------------

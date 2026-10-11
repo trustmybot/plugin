@@ -36,11 +36,18 @@ require() {
 }
 
 # --- roundtable-slash-detect: retry loop worst case -------------------------
-SD_SRC="scripts/hooks/roundtable-slash-detect.sh"
+# The hook writes through tmb_audit_append; the retry loop (attempts, busy
+# timeout, backoff) lives in the shared write library.
+SD_HOOK="scripts/hooks/roundtable-slash-detect.sh"
+SD_SRC="scripts/hooks/lib/db-write.sh"
 SD_WRAP=$(wrapper_timeout "roundtable-slash-detect.sh")
-SD_ATTEMPTS=$(grep -oE 'for attempt in [0-9 ]+' "$SD_SRC" | head -1 | sed -E 's/for attempt in //' | wc -w | tr -d ' ')
-SD_BUSY_MS=$(grep -oE '\.timeout[[:space:]]+[0-9]+' "$SD_SRC" | head -1 | grep -oE '[0-9]+' | head -1)
-SD_SLEEP=$(grep -oE 'sleep[[:space:]]+[0-9.]+' "$SD_SRC" | head -1 | grep -oE '[0-9.]+' | head -1)
+if ! grep -q 'tmb_audit_append' "$SD_HOOK"; then
+  printf "hook-timeout-budget: %s no longer writes via tmb_audit_append — re-derive its budget\n" "$SD_HOOK" >&2
+  FAIL=$((FAIL + 1))
+fi
+SD_ATTEMPTS=$(grep -oE '^_TMB_DB_WRITE_ATTEMPTS="[0-9 ]+"' "$SD_SRC" | head -1 | sed -E 's/^[^"]*"//; s/"$//' | wc -w | tr -d ' ')
+SD_BUSY_MS=$(grep -oE '^_TMB_DB_WRITE_BUSY_MS=[0-9]+' "$SD_SRC" | head -1 | grep -oE '[0-9]+$')
+SD_SLEEP=$(grep -oE '^_TMB_DB_WRITE_BACKOFF_S=[0-9.]+' "$SD_SRC" | head -1 | grep -oE '[0-9.]+$')
 
 if require "$SD_WRAP" "roundtable-slash-detect wrapper timeout" \
    && require "$SD_ATTEMPTS" "slash-detect attempts" \

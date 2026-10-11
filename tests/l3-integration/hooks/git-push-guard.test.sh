@@ -515,4 +515,15 @@ out=$(run_hook_as_swe 'bash -c "echo git push done"' "/nonexistent.db" "tmb:swe"
 assert_not_contains "$out" '"permissionDecision":"deny"' "echo of git push inside a wrapper must not fire"
 cleanup
 
+test_case "unreadable trajectory DB: push gate fails closed (tmb_gate_read __ERR__)"
+setup_repo
+db=$(setup_db "$REPO_PATH")
+insert_task "$db" 1 "$SHA1"
+chmod 000 "$db"
+out=$(run_hook "git push origin main" "$db")
+chmod 644 "$db"
+assert_contains "$out" '"permissionDecision":"deny"' "DB read error must deny, not allow"
+assert_contains "$out" "trajectory DB unavailable" "deny names the unavailable DB"
+cleanup
+
 summarize

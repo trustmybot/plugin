@@ -254,6 +254,8 @@ discover_resources() {
   [ -f "$lib" ] || return 0
   # shellcheck source=scripts/hooks/lib/query-task.sh
   . "$lib" 2>/dev/null || return 0
+  # shellcheck source=scripts/hooks/lib/db-write.sh
+  . "$SCRIPT_DIR/hooks/lib/db-write.sh" 2>/dev/null || return 0
 
   tmb_have_sqlite || return 0
   local db
@@ -277,7 +279,7 @@ discover_resources() {
   }
 
   local now
-  now=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
+  now=$(tmb_sql_quote "$(tmb_now_iso)")
 
   # A valid plugin/mcp/skill name is the marketplace identifier charset. Reject
   # anything else BEFORE the insert — this is the #150 guard that stops header
@@ -320,19 +322,14 @@ discover_resources() {
     if [ -n "$file_path" ]; then
       fp_sql="'$(tmb_sql_quote "$file_path")'"
     fi
-    local content_json
-    content_json=$(printf '{"name":"%s","kind":"%s","origin":"%s","source":"%s"}' \
-      "$safe_name" "$safe_kind" "$safe_origin" "$safe_url")
+    local content_json audit_sql
+    content_json=$(jq -nc --arg name "$name" --arg kind "$kind" --arg origin "$origin" --arg source "$source_url" \
+      '{name: $name, kind: $kind, origin: $origin, source: $source}')
+    audit_sql=$(tmb_audit_sql -1 '' "hook:scan" "scan_discovered" "$name ($kind): discovered" "$content_json") || return 0
 
-    sqlite3 "$db" <<SQL 2>/dev/null || true
-INSERT INTO cheatcodes (name, kind, origin, source_url, file_path, scope, status, installed_at, created_at, updated_at)
+    tmb_db_write "$db" "INSERT INTO cheatcodes (name, kind, origin, source_url, file_path, scope, status, installed_at, created_at, updated_at)
 VALUES ('$safe_name', '$safe_kind', '$safe_origin', '$safe_url', $fp_sql, 'project-local', '$safe_status', '$now', '$now', '$now');
-INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-VALUES (-1, '', 'scan',
-        'scan_discovered',
-        '$safe_name ($safe_kind): discovered',
-        '$content_json', '$now');
-SQL
+$audit_sql" >/dev/null || return 0
   }
 
   # skills — project-local .claude/skills/<name>/SKILL.md. Builtin-shipped, so

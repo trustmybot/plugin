@@ -24,6 +24,8 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh" 2>/dev/null || exit 0
+# shellcheck source=scripts/hooks/lib/db-write.sh
+. "$SCRIPT_DIR/lib/db-write.sh" 2>/dev/null || exit 0
 
 # Drain stdin (CC delivers a hook payload); we don't read it.
 cat >/dev/null 2>&1 || true
@@ -110,7 +112,7 @@ ROWS=$(tmb_sqlite_ro "$DB" "
 ")
 [ -n "$ROWS" ] || exit 0
 
-NOW=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
+NOW=$(tmb_now_iso)
 
 while IFS='|' read -r id kind old_status file_path name; do
   [ -n "$id" ] || continue
@@ -118,24 +120,18 @@ while IFS='|' read -r id kind old_status file_path name; do
   [ -n "$new_status" ] || continue
   [ "$new_status" = "$old_status" ] && continue
 
-  SAFE_NAME=$(tmb_sql_quote "$name")
-  SAFE_KIND=$(tmb_sql_quote "$kind")
-  SAFE_OLD=$(tmb_sql_quote "$old_status")
   SAFE_STATUS=$(tmb_sql_quote "$new_status")
   SAFE_NOW=$(tmb_sql_quote "$NOW")
   SAFE_ID=$(tmb_sql_int "$id")
   [ -n "$SAFE_ID" ] || continue
-  SAFE_JSON=$(tmb_sql_quote "$(printf '{"name":"%s","kind":"%s","from":"%s","to":"%s"}' \
-    "$name" "$kind" "$old_status" "$new_status")")
+  CONTENT_JSON=$(jq -nc --arg name "$name" --arg kind "$kind" --arg from "$old_status" --arg to "$new_status" \
+    '{name: $name, kind: $kind, from: $from, to: $to}' 2>/dev/null \
+    || printf '{"name":"%s","kind":"%s","from":"%s","to":"%s"}' "$name" "$kind" "$old_status" "$new_status")
+  AUDIT_SQL=$(tmb_audit_sql -1 '' "hook:cheatcode-healthcheck" "cheatcode_healthcheck" \
+    "$name ($kind): $old_status -> $new_status" "$CONTENT_JSON") || continue
 
-  sqlite3 "$DB" <<SQL 2>/dev/null || true
-UPDATE cheatcodes SET status = '$SAFE_STATUS', updated_at = '$SAFE_NOW' WHERE id = $SAFE_ID;
-INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
-VALUES (-1, '', 'cheatcode-healthcheck',
-        'cheatcode_healthcheck',
-        '$SAFE_NAME ($SAFE_KIND): $SAFE_OLD -> $SAFE_STATUS',
-        '$SAFE_JSON', '$SAFE_NOW');
-SQL
+  tmb_db_write "$DB" "UPDATE cheatcodes SET status = '$SAFE_STATUS', updated_at = '$SAFE_NOW' WHERE id = $SAFE_ID;
+$AUDIT_SQL"
 done <<< "$ROWS"
 
 exit 0

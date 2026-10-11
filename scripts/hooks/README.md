@@ -40,7 +40,7 @@ Lint: `naming-lint.sh`, `code-quality-lint.sh`, `debug-trajectory.sh`.
 
 ## Subdirectory
 
-- `lib/` — shared helpers sourced by the hook scripts (`normalize-role.sh`, `query-task.sh`, `resolve-repo.sh`, `resolve-toolchain-path.sh`, `resolve-workspace.sh`).
+- `lib/` — shared helpers sourced by the hook scripts (`db-write.sh`, `normalize-role.sh`, `query-task.sh`, `resolve-repo.sh`, `resolve-toolchain-path.sh`, `resolve-workspace.sh`). `db-write.sh` is the only trajectory-DB write path: `tmb_db_write` (foreign keys on, 5 s busy timeout with retry, one transaction, failure reported on stderr), `tmb_audit_append` (audit rows as `from_node` `hook:<name>`), `tmb_now_iso` (the one timestamp format), and `tmb_gate_read` (prints `__ERR__` on a DB error so deny-capable gates fail closed).
 
 ## How it fits
 
