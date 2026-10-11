@@ -10,7 +10,12 @@
 # 2. Warns when ~/.claude/settings.json (read only) still holds `_tmb_managed`
 #    hook groups — leftovers from older /onboard runs that wrote TMB gates
 #    user-wide. They fire in every project, so they are always foreign.
-# 3. Appends one forensic JSONL line to <project>/.claude/<plugin>/logs/
+# 3. Install-scope notice, once per session (marker
+#    <project>/.claude/<plugin>/sessions/<session_id>.install-notice when the
+#    project has a TMB state dir): a user-scope install beside this project's
+#    install is ignored; a user-scope install alone gets a `--scope project`
+#    recommendation. Read from installed_plugins.json via lib/resolve-install.sh.
+# 4. Appends one forensic JSONL line to <project>/.claude/<plugin>/logs/
 #    mcp-health.log when the project has a TMB state dir. Nothing is written
 #    under $HOME.
 
@@ -19,6 +24,8 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=scripts/hooks/lib/resolve-install.sh
+. "$SCRIPT_DIR/lib/resolve-install.sh"
 
 INPUT=$(cat)
 command -v jq >/dev/null 2>&1 || exit 0
@@ -68,6 +75,45 @@ if [ -f "$USER_SETTINGS" ]; then
     CONTEXT="${CONTEXT:+$CONTEXT
 
 }${LEGACY_TEXT}"
+  fi
+fi
+
+# --- Install-scope notice, once per session ---------------------------------
+install_version() {
+  local line="$1" v
+  v=$(printf '%s\n' "$line" | cut -f5)
+  [ -n "$v" ] && [ "$v" != "-" ] || v=$(basename "$(printf '%s\n' "$line" | cut -f3)")
+  printf '%s\n' "$v"
+}
+user_install=$(tmb_user_installs 2>/dev/null | sed -n 1p)
+if [ -n "$user_install" ]; then
+  project_install=$(tmb_project_installs 2>/dev/null | sed -n 1p)
+  if [ -n "$project_install" ]; then
+    NOTICE="TMB: user-scope TMB v$(install_version "$user_install") ignored — project install v$(install_version "$project_install") in use."
+  else
+    NOTICE="TMB installed at user scope; \`--scope project\` is recommended (see docs/reference/INSTALL.md)."
+  fi
+  case "$session_id" in
+    ''|*/*|.*) NOTICE_MARKER="" ;;
+    *)
+      NOTICE_MARKER=""
+      if STATE_DIR=$(tmb_state_dir 2>/dev/null); then
+        NOTICE_MARKER="$STATE_DIR/sessions/$session_id.install-notice"
+      fi
+      ;;
+  esac
+  if [ -n "$NOTICE_MARKER" ] && [ -e "$NOTICE_MARKER" ]; then
+    NOTICE=""
+  elif [ -n "$NOTICE_MARKER" ] && [ "$event" = "SessionStart" ]; then
+    if mkdir -p "$(dirname "$NOTICE_MARKER")" 2>/dev/null; then
+      find "$(dirname "$NOTICE_MARKER")" -maxdepth 1 -type f -name '*.install-notice' -mmin +1440 -delete 2>/dev/null || true
+      : > "$NOTICE_MARKER" 2>/dev/null
+    fi
+  fi
+  if [ -n "$NOTICE" ]; then
+    CONTEXT="${CONTEXT:+$CONTEXT
+
+}${NOTICE}"
   fi
 fi
 
