@@ -82,18 +82,17 @@ branch_is_protected() {
 
 # dir_branch <dir>
 # The branch checked out in <dir>. On a detached HEAD (SWE worktree pattern)
-# the branch comes from the DB: slug = basename of <dir> → tasks.branch_id LIKE
-# '%/<slug>'; empty when nothing matches.
+# the branch comes from the DB: the newest task whose branch_id ends in
+# /<basename of dir> (tmb_task_by_slug); empty when nothing matches.
 dir_branch() {
-  local wd="$1" result slug_sql
+  local wd="$1" result
   result=$(git -C "$wd" branch --show-current 2>/dev/null || true)
   if [ -n "$result" ]; then
     printf '%s' "$result"
     return 0
   fi
-  slug_sql=$(tmb_sql_quote "$(basename "$wd")")
-  if [ -n "$_DB" ] && [ -f "$_DB" ] && command -v sqlite3 >/dev/null 2>&1; then
-    sqlite3 "$_DB" "SELECT branch_id FROM tasks WHERE branch_id LIKE '%/${slug_sql}' LIMIT 1;" 2>/dev/null || true
+  if [ -n "$_DB" ] && [ -f "$_DB" ] && tmb_have_sqlite; then
+    tmb_task_by_slug "$_DB" "$(basename "$wd")" branch_id | tr -d '\n'
   fi
 }
 
