@@ -133,6 +133,9 @@ describe('logger', () => {
                 sqlEnabled: true,
                 trustedProjectRoot: canonicalProjectRoot,
             });
+            assert.equal(existsSync(logDir), false, 'logger creation must not create the log dir');
+            logger.serverLog({ kind: 'first-write' });
+            assert.equal(existsSync(join(logDir, 'mcp-server.log')), true);
             rmSync(join(canonicalProjectRoot, '.tmb'), { recursive: true });
             symlinkSync(outside, join(canonicalProjectRoot, '.tmb'), 'dir');
             assert.doesNotThrow(() => logger.serverLog({ kind: 'server-test' }));
@@ -243,6 +246,30 @@ describe('logger', () => {
             else {
                 process.env['HOME'] = savedHome;
             }
+        }
+    });
+    it('refuses a project log dir whose ancestor is a symlink before the first write', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'tmb-log-ancestor-lazy-'));
+        try {
+            const projectRoot = join(root, 'project');
+            const outside = join(root, 'outside');
+            mkdirSync(projectRoot);
+            mkdirSync(outside);
+            const canonicalProjectRoot = realpathSync(projectRoot);
+            const logDir = join(canonicalProjectRoot, '.tmb', 'tmb', 'logs');
+            const { createProjectLogger } = await import('../logger.js');
+            const logger = createProjectLogger({
+                logDir,
+                sqlEnabled: true,
+                trustedProjectRoot: canonicalProjectRoot,
+            });
+            symlinkSync(outside, join(canonicalProjectRoot, '.tmb'), 'dir');
+            assert.doesNotThrow(() => logger.serverLog({ kind: 'server-test' }));
+            assert.doesNotThrow(() => logger.sqlLog({ kind: 'sql-test' }));
+            assert.equal(existsSync(join(outside, 'tmb')), false);
+        }
+        finally {
+            rmSync(root, { recursive: true, force: true });
         }
     });
     it('makes both project loggers no-ops when log-dir creation fails', async () => {

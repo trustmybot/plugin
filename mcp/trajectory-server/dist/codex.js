@@ -21193,73 +21193,63 @@ function freezePaths(paths) {
 
 // src/logger.ts
 function createProjectLogger(opts) {
-  if (opts.trustedProjectRoot !== void 0) {
-    assertSafeProjectWritePath(
-      opts.trustedProjectRoot,
-      opts.logDir,
-      "Project log directory",
-      "directory"
+  const root = opts.trustedProjectRoot;
+  if (root === void 0) {
+    return createLogger(
+      opts,
+      () => mkdirSync(opts.logDir, { recursive: true }),
+      appendSecureLogLine
     );
+  }
+  assertSafeProjectWritePath(root, opts.logDir, "Project log directory", "directory");
+  for (const leaf of ["mcp-server.log", "sql.log"]) {
+    const path = join3(opts.logDir, leaf);
+    assertSafeProjectWritePath(root, path, "Project log file", "file");
     try {
-      mkdirSync(opts.logDir, { recursive: true });
+      if (!lstatSync2(path).isFile()) {
+        throw new UnsafeProjectWritePathError(
+          "Project log file must be a regular file"
+        );
+      }
     } catch (error2) {
-      throw new UnsafeProjectWritePathError(
-        `Project log directory could not be created safely: ${error2 instanceof Error ? error2.message : String(error2)}`
-      );
+      if (error2.code !== "ENOENT") throw error2;
     }
-    if (!lstatSync2(opts.logDir).isDirectory()) {
-      throw new UnsafeProjectWritePathError(
-        "Project log directory must be a directory"
-      );
+  }
+  return createLogger(
+    opts,
+    () => {
+      assertSafeProjectWritePath(root, opts.logDir, "Project log directory", "directory");
+      mkdirSync(opts.logDir, { recursive: true });
+      if (!lstatSync2(opts.logDir).isDirectory()) {
+        throw new UnsafeProjectWritePathError(
+          "Project log directory must be a directory"
+        );
+      }
+      assertSafeProjectWritePath(root, opts.logDir, "Project log directory", "directory");
+    },
+    (path, line) => {
+      assertSafeProjectWritePath(root, path, "Project log file", "file");
+      appendSecureLogLine(path, line);
     }
-    assertSafeProjectWritePath(
-      opts.trustedProjectRoot,
-      opts.logDir,
-      "Project log directory",
-      "directory"
-    );
-    for (const leaf of ["mcp-server.log", "sql.log"]) {
-      const path = join3(opts.logDir, leaf);
-      assertSafeProjectWritePath(
-        opts.trustedProjectRoot,
-        path,
-        "Project log file",
-        "file"
-      );
+  );
+}
+function createLogger(opts, ensureLogDir, appendLine) {
+  let logDirState = "pending";
+  const logDirReady = () => {
+    if (logDirState === "pending") {
       try {
-        if (!lstatSync2(path).isFile()) {
-          throw new UnsafeProjectWritePathError(
-            "Project log file must be a regular file"
-          );
-        }
-      } catch (error2) {
-        if (error2.code !== "ENOENT") throw error2;
+        ensureLogDir();
+        logDirState = "ready";
+      } catch {
+        logDirState = "failed";
       }
     }
-  }
-  return createLogger(opts, (path, line) => {
-    if (opts.trustedProjectRoot !== void 0) {
-      assertSafeProjectWritePath(
-        opts.trustedProjectRoot,
-        path,
-        "Project log file",
-        "file"
-      );
-    }
-    appendSecureLogLine(path, line);
-  });
-}
-function createLogger(opts, appendLine) {
-  let logDirReady = false;
-  try {
-    mkdirSync(opts.logDir, { recursive: true });
-    logDirReady = true;
-  } catch {
-  }
+    return logDirState === "ready";
+  };
   const serverLogPath = join3(opts.logDir, "mcp-server.log");
   const sqlLogPath = join3(opts.logDir, "sql.log");
   const serverLog2 = (entry) => {
-    if (!logDirReady) return;
+    if (!logDirReady()) return;
     try {
       const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
       appendLine(serverLogPath, line);
@@ -21267,7 +21257,7 @@ function createLogger(opts, appendLine) {
     }
   };
   const sqlLog2 = opts.sqlEnabled === true ? (entry) => {
-    if (!logDirReady) return;
+    if (!logDirReady()) return;
     try {
       const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
       appendLine(sqlLogPath, line);
@@ -21306,11 +21296,10 @@ function appendSecureLogLine(path, line) {
 var defaultLogger = null;
 function getDefaultLogger() {
   if (defaultLogger === null) {
+    const logDir = resolveClaudeLogDir();
     defaultLogger = createLogger(
-      {
-        logDir: resolveClaudeLogDir(),
-        sqlEnabled: process.env["TMB_DEBUG_SQL"] === "1"
-      },
+      { logDir, sqlEnabled: process.env["TMB_DEBUG_SQL"] === "1" },
+      () => mkdirSync(logDir, { recursive: true }),
       appendFileSync
     );
   }
@@ -26062,17 +26051,16 @@ function resolveLogDir() {
   if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
   return resolveClaudeLogDir();
 }
-var logDir = resolveLogDir();
-var syncLogPath = join7(logDir, "issue-sync.log");
-try {
-  mkdirSync5(logDir, { recursive: true });
-} catch {
-}
+var readyLogDirs = /* @__PURE__ */ new Set();
 function syncLog(entry) {
-  const currentLogPath = process.env.TMB_SYNC_LOG_DIR ? join7(process.env.TMB_SYNC_LOG_DIR, "issue-sync.log") : syncLogPath;
   try {
+    const logDir = resolveLogDir();
+    if (!readyLogDirs.has(logDir)) {
+      mkdirSync5(logDir, { recursive: true });
+      readyLogDirs.add(logDir);
+    }
     const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-    appendFileSync2(currentLogPath, line);
+    appendFileSync2(join7(logDir, "issue-sync.log"), line);
   } catch {
   }
 }

@@ -4,58 +4,60 @@ import { assertSafeProjectWritePath, resolveClaudeLogDir, UnsafeProjectWritePath
 /**
  * Create a logger bound to one runtime context's log directory.
  *
- * Directory creation belongs here, not in runtime-context resolution, so
- * resolving and validating paths remains side-effect free. Each append opens
- * the leaf with no-follow protection where the host supports it and refuses
- * any leaf already identified as a symlink or non-file.
+ * Construction only validates (read-only); the log directory is created on
+ * the first write, so building a logger never touches the filesystem. Each
+ * append opens the leaf with no-follow protection where the host supports it
+ * and refuses any leaf already identified as a symlink or non-file.
  */
 export function createProjectLogger(opts) {
-    if (opts.trustedProjectRoot !== undefined) {
-        assertSafeProjectWritePath(opts.trustedProjectRoot, opts.logDir, 'Project log directory', 'directory');
+    const root = opts.trustedProjectRoot;
+    if (root === undefined) {
+        return createLogger(opts, () => mkdirSync(opts.logDir, { recursive: true }), appendSecureLogLine);
+    }
+    assertSafeProjectWritePath(root, opts.logDir, 'Project log directory', 'directory');
+    for (const leaf of ['mcp-server.log', 'sql.log']) {
+        const path = join(opts.logDir, leaf);
+        assertSafeProjectWritePath(root, path, 'Project log file', 'file');
         try {
-            mkdirSync(opts.logDir, { recursive: true });
+            if (!lstatSync(path).isFile()) {
+                throw new UnsafeProjectWritePathError('Project log file must be a regular file');
+            }
         }
         catch (error) {
-            throw new UnsafeProjectWritePathError(`Project log directory could not be created safely: ${error instanceof Error ? error.message : String(error)}`);
+            if (error.code !== 'ENOENT')
+                throw error;
         }
+    }
+    return createLogger(opts, () => {
+        assertSafeProjectWritePath(root, opts.logDir, 'Project log directory', 'directory');
+        mkdirSync(opts.logDir, { recursive: true });
         if (!lstatSync(opts.logDir).isDirectory()) {
             throw new UnsafeProjectWritePathError('Project log directory must be a directory');
         }
-        assertSafeProjectWritePath(opts.trustedProjectRoot, opts.logDir, 'Project log directory', 'directory');
-        for (const leaf of ['mcp-server.log', 'sql.log']) {
-            const path = join(opts.logDir, leaf);
-            assertSafeProjectWritePath(opts.trustedProjectRoot, path, 'Project log file', 'file');
-            try {
-                if (!lstatSync(path).isFile()) {
-                    throw new UnsafeProjectWritePathError('Project log file must be a regular file');
-                }
-            }
-            catch (error) {
-                if (error.code !== 'ENOENT')
-                    throw error;
-            }
-        }
-    }
-    return createLogger(opts, (path, line) => {
-        if (opts.trustedProjectRoot !== undefined) {
-            assertSafeProjectWritePath(opts.trustedProjectRoot, path, 'Project log file', 'file');
-        }
+        assertSafeProjectWritePath(root, opts.logDir, 'Project log directory', 'directory');
+    }, (path, line) => {
+        assertSafeProjectWritePath(root, path, 'Project log file', 'file');
         appendSecureLogLine(path, line);
     });
 }
-function createLogger(opts, appendLine) {
-    let logDirReady = false;
-    try {
-        mkdirSync(opts.logDir, { recursive: true });
-        logDirReady = true;
-    }
-    catch {
-        // Log dir creation failed; both log functions become no-ops.
-    }
+function createLogger(opts, ensureLogDir, appendLine) {
+    let logDirState = 'pending';
+    const logDirReady = () => {
+        if (logDirState === 'pending') {
+            try {
+                ensureLogDir();
+                logDirState = 'ready';
+            }
+            catch {
+                logDirState = 'failed';
+            }
+        }
+        return logDirState === 'ready';
+    };
     const serverLogPath = join(opts.logDir, 'mcp-server.log');
     const sqlLogPath = join(opts.logDir, 'sql.log');
     const serverLog = (entry) => {
-        if (!logDirReady)
+        if (!logDirReady())
             return;
         try {
             const line = JSON.stringify({ ...entry, ts: new Date().toISOString() }) + '\n';
@@ -67,7 +69,7 @@ function createLogger(opts, appendLine) {
     };
     const sqlLog = opts.sqlEnabled === true
         ? (entry) => {
-            if (!logDirReady)
+            if (!logDirReady())
                 return;
             try {
                 const line = JSON.stringify({ ...entry, ts: new Date().toISOString() }) + '\n';
@@ -108,10 +110,8 @@ function appendSecureLogLine(path, line) {
 let defaultLogger = null;
 function getDefaultLogger() {
     if (defaultLogger === null) {
-        defaultLogger = createLogger({
-            logDir: resolveClaudeLogDir(),
-            sqlEnabled: process.env['TMB_DEBUG_SQL'] === '1',
-        }, appendFileSync);
+        const logDir = resolveClaudeLogDir();
+        defaultLogger = createLogger({ logDir, sqlEnabled: process.env['TMB_DEBUG_SQL'] === '1' }, () => mkdirSync(logDir, { recursive: true }), appendFileSync);
     }
     return defaultLogger;
 }

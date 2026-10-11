@@ -4,14 +4,12 @@
 //
 // Reads the same scan_run logic as the MCP tool, so pruning / summary
 // preservation behave identically. Silent on failure — the hook never
-// blocks bro's response.
+// blocks bro's response. The DB is resolved and checked before any tool
+// module is imported: with no trajectory DB it exits 2 and creates nothing.
 
 import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { homedir } from 'node:os';
-import { TrajectoryDB, resolveDbPath, resolvePluginName } from '../../mcp/trajectory-server/dist/db.js';
-import { GraphHolder, WorldModelGraph, resolveGraphDbPath, isKuzuLockError } from '../../mcp/trajectory-server/dist/graph-db.js';
-import { scanTools } from '../../mcp/trajectory-server/dist/tools/scan.js';
+import { dirname } from 'node:path';
+import { TrajectoryDB, resolveDbPath } from '../../mcp/trajectory-server/dist/db.js';
 
 // Derive the session_dir by walking up from cwd to find the directory that
 // holds the .claude/<plugin>/trajectory.db. This handles the workspace-pattern
@@ -26,6 +24,12 @@ function resolveSessionDir() {
 
 async function main() {
   const dbPath = resolveDbPath();
+  if (dbPath === ':memory:' || !existsSync(dbPath)) {
+    console.error(`[post-close-rescan] no trajectory DB at ${dbPath}; nothing scanned`);
+    process.exit(2);
+  }
+  const { GraphHolder, WorldModelGraph, resolveGraphDbPath, isKuzuLockError } = await import('../../mcp/trajectory-server/dist/graph-db.js');
+  const { scanTools } = await import('../../mcp/trajectory-server/dist/tools/scan.js');
   const db = new TrajectoryDB(dbPath);
 
   let graph = null;
