@@ -26,8 +26,8 @@ We deliberately match GH's two-state model. K8s pod phases (`Pending/Running/Suc
 | `pending` | TMB | Task spec exists; SWE has not started |
 | `running` | K8s pod phase | SWE is actively executing |
 | `needs_validation` | TMB | Work state awaiting verification before close |
-| `completed` | K8s pod phase | SWE returned with commit_sha; awaiting bro task-gate |
-| `closed` | TMB | Bro task-gate verified, task is done |
+| `completed` | K8s pod phase | SWE returned with commit_sha; awaiting bro task-gate (progress counters show it as awaiting close, not done) |
+| `closed` | TMB | Bro task-gate verified, task is done (the only status progress counters count as done) |
 | `failed` | K8s pod phase | SWE returned with error; awaiting bro decision |
 | `escalated` | TMB | Bro escalated to Human after max retries |
 
@@ -134,6 +134,13 @@ Returned in the created-issue payload, not stored.
 | `containment_denied` | `containment-guard` denied a write outside the run's root (from_node `hook:containment-guard`, on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `root`, `task_id` |
 | `agent_runs_claimed` | `bro-turn-usage` claimed bro `agent_runs` rows opened without a `session_id` for its session (from_node `hook:bro-turn-usage`, one row per claim, on the rows' issue when they share one, else the system issue `-1`); `content_json` carries `run_ids`, `session_id` |
 | `scan_discovered_repair` | The v32 migration deleted `scan_discovered` rows whose `(name, kind)` has no `cheatcodes` row (phantom discoveries from a failed insert); filed under the system issue `-1` by `system`; `content_json` carries `deleted` |
+| `task_escalated_by_issue_close` | `issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task, from_node `bro`; `content_json` carries `task_id`, `from_status`, `reason` |
+| `review_gate_waived` | `issue_close(waive_review: true)` closed an issue over a closed task with no passing pr-reviewer verdict for its current commit; one row per such task, from_node `bro`; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason` |
+| `review_gate_bypassed` | A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing pr-reviewer verdict for its current commit; the task still closes. from_node = the writer (`bro`, `hook:close-issue-on-merge`); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the newest `bro_verification_pass` row naming the task's current `commit_sha`, else after the task's `completed_at` |
+| `issue_auto_closed_on_merge` | `close-issue-on-merge` closed a local issue named by a merged PR's closing-ref (from_node `hook:close-issue-on-merge`); `content_json` carries `gh_iid` |
+| `issue_auto_close_deferred` | `close-issue-on-merge` left an issue named by a merged PR's closing-ref open because other tasks of it are still live; `content_json` carries `blocking_task_ids`, `gh_iid` |
+| `issue_auto_close_remote_skipped` | `close-issue-on-merge` closed an issue locally but not its GitHub twin because issue sync is off (`plugin_config.issue_sync` unset or `off`, or `TMB_DISABLE_REMOTE_SYNC` set); `content_json` carries `gh_iid`, `reason` |
+| `task_stale_swept` | `task_recover` moved a `running` task with no open swe `agent_runs` row and no update for `TMB_STALE_RUNNING_HOURS` (default 6) to `failed` and closed its open runs as `swept_stale`; from_node `bro`; `content_json` carries `task_id`, `from_status`, `last_updated_at`, `stale_after_hours` |
 
 **TMB-specific** — these are TMB workflow events. New event types require a row here. Bro should not invent ad-hoc event types.
 
@@ -208,12 +215,12 @@ Currently `33`. Bumped on any breaking schema change. **NOT free-form** — ever
 
 | Value | Set by |
 |---|---|
-| `completed` | `bro_atomic_close`; a SubagentStop whose task is completed/closed |
+| `completed` | `bro_atomic_close`; `close-issue-on-merge` closing a merged task; a SubagentStop whose task is completed/closed |
 | `failed` | `task_update_status` → `failed`; a SubagentStop whose task is still pending/running |
 | `escalated` | `task_update_status` → `escalated` |
 | `swept_orphan` | `task_recover` sweeping a never-measured row; `task_brief` closing an earlier spawn's open swe row (older than 10 min); v33 backfill of an `unmeasured` row |
-| `swept_stale` | `task_recover` sweeping a measured row left open on a terminal task |
-| `issue_closed` | The row's issue was closed under it (the v33 GH 1212 repair; the issue-close cascade) |
+| `swept_stale` | `task_recover` sweeping a measured row left open on a terminal task, or the open runs of a stale `running` task it swept to `failed` |
+| `issue_closed` | The row's issue was closed under it (the v33 GH 1212 repair; `issue_close(cascade: true)`) |
 
 `CHECK`-enforced; NULL while the row is open (and on pre-v33 rows whose end is not derivable).
 

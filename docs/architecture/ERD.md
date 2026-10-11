@@ -311,6 +311,17 @@ erDiagram
 - **pr-reviewer** (push gate, project-local subagent) — `task_get(task_id)` for spec + commit → `validation_record(task_id, attempt_n, verdict, feedback, subagent_session_id)` to sign off. Only role permitted to write `validation_attempts`. Never writes to `tasks`; the close flip stays bro's call.
 - **consultants** (architect, cto, ceo, pm, project-local domain agents) — read-only on workflow tables (`issue_get_with_discussions`, `task_get`, `validation_history`); may write `discussion_append(kind='analysis')` to record their position. Server-rejected on `task_provision`, `task_update_status`, `validation_record`, `issue_create` via `requireRoles`.
 
+## Issue and task lifecycle
+
+An issue never closes over live work, and a task never reaches `closed` without the trajectory saying whether it was reviewed:
+
+- **Live** tasks are `pending`, `running`, `needs_validation` and `completed`; `closed`, `failed` and `escalated` are terminal. Progress counters (`issue_get_phase`, `issue_report_md`, `branch_report_md`) count only `closed` as done and show `completed` as awaiting close.
+- **`issue_close`** refuses with `issue_has_open_tasks` (task ids + statuses) while a task is live. With `cascade: true` it escalates each live task (one `task_escalated_by_issue_close` audit row each, open `agent_runs` closed `issue_closed`) and closes the issue in the same transaction. It also refuses with `tasks_without_review` while a `closed` task has no passing verdict for its current commit and no recorded bypass/waiver, unless `waive_review: true` + `waive_review_reason` writes `review_gate_waived` per task. The remote twin closes after the local transaction commits.
+- **`bro_atomic_close`** closes a task before pr-reviewer runs (the push gate follows it), so its payload carries `review_pending: true`. `close_issue_if_last_task` closes the issue only when no other task is live; otherwise the payload names them in `issue_left_open`.
+- **Every other path to `closed`** — the `close-issue-on-merge` hook, `task_recover` with a commit, `task_update_status` — still closes, and writes `review_gate_bypassed` when no passing verdict exists. A verdict passes when `validation_attempts.verdict = 'pass'` and its `created_at` is at or after the newest `bro_verification_pass` audit row naming the task's current `commit_sha`, else after `tasks.completed_at`. `validation_attempts` carries no commit, so time is the link.
+- **`close-issue-on-merge`** closes the merged branch's live tasks (open runs closed `completed`), closes each issue named by a closing-ref when no other task of it is live (else `issue_auto_close_deferred`), and closes the remote twin only while issue sync is on (else `issue_auto_close_remote_skipped`) — local writes in one transaction.
+- **`task_recover`** sweeps on every call: a `running` task with no open swe run and no update for `TMB_STALE_RUNNING_HOURS` (default 6) becomes `failed` (`task_stale_swept`, open runs `swept_stale`); a `pending` task older than 7 days is only reported.
+
 The decision chain (Human → bro → SWE, with pr-reviewer as push gate) is structurally enforced by `requireRoles` middleware inside each `tools/*.ts` family (see `middleware/agent-scope.ts` for `requireRoles`, `AgentRole` type, and the role-by-tool matrix).
 
 ## Capture tables — `audit` vs `debug_trajectory`
