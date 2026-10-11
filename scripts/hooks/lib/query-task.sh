@@ -196,29 +196,6 @@ tmb_sqlite_ro() {
   sqlite3 -readonly -cmd '.timeout 500' "$db" "$sql" 2>/dev/null || true
 }
 
-# Print branch_ids of tasks that are closed and have a commit_sha but
-# lack a passing validation_attempts row. Under the bro-as-task-gate
-# doctrine, bro auto-flips tasks to 'closed' immediately after SWE
-# returns; pr-reviewer fires only at push time. Unsigned == closed
-# tasks whose commits haven't been reviewed yet.
-tmb_unsigned_tasks() {
-  local db
-  db=$(tmb_db_path) || true
-  [ -z "$db" ] && return 0
-  tmb_have_sqlite || return 0
-  tmb_sqlite_ro "$db" "
-    SELECT t.branch_id
-      FROM tasks t
-     WHERE t.status = 'closed'
-       AND t.commit_sha IS NOT NULL
-       AND NOT EXISTS (
-         SELECT 1 FROM validation_attempts v
-          WHERE v.task_id = CAST(t.id AS TEXT)
-            AND v.verdict = 'pass'
-       );
-  "
-}
-
 # tmb_config_get <key> [<db>]
 # Prints the scalar value stored in plugin_config for <key>, unquoted.
 # Prints empty string when: key missing, DB absent, sqlite3 unavailable, DB busy.
@@ -313,6 +290,39 @@ tmb_sql_quote() {
   printf '%s' "${1:-}" | sed "s/'/''/g"
 }
 
+# tmb_sql_like_escape <value>
+# Echoes <value> with \, % and _ backslash-escaped and single quotes doubled,
+# for a LIKE literal written with ESCAPE '\'. Never fails the caller.
+tmb_sql_like_escape() {
+  printf '%s' "${1:-}" | sed -e 's/[\\%_]/\\&/g' -e "s/'/''/g"
+}
+
+# tmb_task_by_slug <db> <slug> <column> [<status_list>]
+# Prints <column> (id or branch_id) of the newest task whose branch_id ends in
+# /<slug>. `_` and `%` in <slug> match literally. When several types share the
+# slug, prints a warning to stderr naming the matches and picks the newest.
+# <status_list> (e.g. 'pending','running') narrows by status. Exact
+# branch_id matches belong to the caller, before this fallback. Prints nothing
+# when no row matches. Never fails the caller.
+tmb_task_by_slug() {
+  local db="${1:-}" slug="${2:-}" col="${3:-id}" statuses="${4:-}" like where rows count
+  [ -n "$db" ] && [ -n "$slug" ] || return 0
+  case "$col" in id|branch_id) ;; *) return 0 ;; esac
+  case "$statuses" in *[!a-z_\',\ ]*) return 0 ;; esac
+  like=$(tmb_sql_like_escape "$slug")
+  where="branch_id LIKE '%/${like}' ESCAPE '\\'"
+  [ -n "$statuses" ] && where="${where} AND status IN (${statuses})"
+  rows=$(tmb_sqlite_ro "$db" "SELECT id || '|' || branch_id FROM tasks WHERE ${where} ORDER BY id DESC;")
+  [ -n "$rows" ] || return 0
+  count=$(printf '%s\n' "$rows" | grep -c .)
+  if [ "$count" -gt 1 ]; then
+    printf 'tmb: worktree slug "%s" matches %s tasks (%s); using the newest\n' \
+      "$slug" "$count" "$(printf '%s\n' "$rows" | cut -d'|' -f2 | paste -sd, -)" >&2
+  fi
+  rows=$(printf '%s\n' "$rows" | head -1)
+  if [ "$col" = "id" ]; then printf '%s\n' "${rows%%|*}"; else printf '%s\n' "${rows#*|}"; fi
+}
+
 # tmb_worktree_root_for_target <target_path>
 # Determine the worktree root for a prompt_bearing resolution.
 # Priority:
@@ -343,7 +353,7 @@ tmb_worktree_root_for_target() {
 #   1. Worktree's checked-out branch: derive WORKTREE_ROOT from the TARGET path
 #      (or $PWD), then `git -C <wt> rev-parse --abbrev-ref HEAD` → exact
 #      `branch_id = '<branch>'` (NO status filter).
-#   2. Slug fallback: `branch_id LIKE '%/<slug>'` from the worktree root (NO
+#   2. Slug fallback: tmb_task_by_slug on the worktree root's basename (NO
 #      status filter).
 #   3. Transcript fallback: parse `task_id=[0-9]+` from the WHOLE transcript
 #      message content (not only type:"text" blocks).
@@ -380,19 +390,7 @@ tmb_resolve_task_id_for_target() {
 
     # (2) Slug fallback — no status filter.
     if [ -z "$task_id" ]; then
-      local slug
-      slug=$(echo "$wt_root" | sed -E 's|.*/.claude/worktrees/([^/]+)$|\1|')
-      if [ -n "$slug" ]; then
-        local safe_slug
-        safe_slug=$(tmb_sql_quote "$slug")
-        task_id=$(tmb_sqlite_ro "$db" "
-          SELECT id FROM tasks
-           WHERE branch_id LIKE '%/${safe_slug}'
-           ORDER BY id DESC
-           LIMIT 1;
-        " 2>/dev/null || true)
-        task_id=$(tmb_sql_int "$task_id")
-      fi
+      task_id=$(tmb_sql_int "$(tmb_task_by_slug "$db" "$(basename "$wt_root")" id)")
     fi
   fi
 

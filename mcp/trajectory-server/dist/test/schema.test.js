@@ -406,5 +406,43 @@ describe('schema — current table set, default values, constraints', () => {
             rmSync(tmpDir, { recursive: true, force: true });
         }
     });
+    it('seeds leave the AUTOINCREMENT counter at the row count across repeated opens (GH 1227)', () => {
+        const tmpDir = mkdtempSync(join(tmpdir(), 'tmb-schema-test-'));
+        try {
+            const dbPath = join(tmpDir, 'trajectory.db');
+            for (let i = 0; i < 5; i++) {
+                const db = new TrajectoryDB(dbPath);
+                db.close();
+            }
+            const db = new TrajectoryDB(dbPath);
+            for (const table of ['agents', 'cheatcodes']) {
+                const count = db.get(`SELECT COUNT(*) AS n FROM ${table}`);
+                const seq = db.get('SELECT seq FROM sqlite_sequence WHERE name = ?', [table]);
+                assert.ok(count !== undefined && count.n > 0, `${table} must be seeded`);
+                assert.equal(seq?.seq, count.n, `${table} sqlite_sequence must equal its row count`);
+            }
+            db.close();
+        }
+        finally {
+            rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
+    it('eval-mode tables default created_at to the 24-char ms-ISO shape (GH 1227)', () => {
+        process.env['TMB_EVAL_MODE'] = '1';
+        try {
+            const db = tempDB();
+            db.run(`INSERT INTO debug_trajectory (session_id, step_n, kind, tool_or_mcp_name) VALUES ('s', 1, 'mcp_call', 'x')`);
+            db.run(`INSERT INTO eval_results (run_id, flow_name, scorer_name, pass) VALUES ('r', 'f', 'outcome', 1)`);
+            for (const table of ['debug_trajectory', 'eval_results']) {
+                const row = db.get(`SELECT created_at FROM ${table} LIMIT 1`);
+                assert.match(row?.created_at ?? '', /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, `${table}.created_at`);
+                assert.equal(row?.created_at.length, 24);
+            }
+            db.close();
+        }
+        finally {
+            delete process.env['TMB_EVAL_MODE'];
+        }
+    });
 });
 //# sourceMappingURL=schema.test.js.map

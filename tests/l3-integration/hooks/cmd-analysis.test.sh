@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Unit tests: scripts/hooks/lib/cmd-analysis.sh — tmb_cmd_strip_literals,
-# tmb_cmd_write_targets, tmb_path_canonical, tmb_cmd_statements and the
-# role / harness-turn / quoted-span helpers.
+# tmb_cmd_write_targets, tmb_path_canonical, tmb_cmd_statements,
+# tmb_gh_mutation and the role / harness-turn / quoted-span helpers.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -118,6 +118,16 @@ assert_eq "" "$(tmb_git_commit_message 'git commit -m "$(cat <<EOF
 feat: x
 EOF
 )"')" "a \$( ) message is not judged"
+
+test_case "tmb_gh_mutation: gh api implied POST shapes"
+ghm() { tmb_gh_mutation "$(tmb_cmd_strip_literals "$1")"; }
+assert_eq "POST" "$(ghm "gh api graphql -f query='mutation { addComment(input: {}) { clientMutationId } }'")" "graphql -f query is a POST"
+assert_eq "POST" "$(ghm "gh api graphql -f query='query { viewer { login } }'")" "a graphql read travels as a POST too"
+assert_eq "POST" "$(ghm 'gh api graphql -F query=@q.graphql -F owner=o')" "graphql -F query=@file"
+assert_eq "POST" "$(ghm 'gh api graphql --input body.json')" "graphql --input"
+assert_eq "POST" "$(ghm 'gh api graphql --raw-field=query=x')" "graphql --raw-field="
+assert_eq "" "$(ghm 'gh api graphql -X GET -f query=x')" "an explicit GET wins"
+assert_eq "" "$(ghm 'gh api repos/o/r/pulls')" "a bare api path is a GET"
 
 test_case "tmb_agent_role reads identity only"
 assert_eq "swe" "$(tmb_agent_role '{"agent_type":"tmb:swe","cwd":"/r"}')" "prefixed agent_type"

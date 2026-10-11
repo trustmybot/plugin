@@ -8,7 +8,7 @@ import {
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { toolDefinitions, toolHandlers, registerTools } from './tools/index.js';
-import { TrajectoryDB, resolveDbPath } from './db.js';
+import { TrajectoryDB, nowISO, resolveDbPath } from './db.js';
 import { serverLog, serverLogSync } from './logger.js';
 import { startBackfill } from './embeddings/backfill.js';
 import { embed } from './embeddings/model.js';
@@ -90,7 +90,7 @@ function maybeRecordTrajectory(
     db.run(
       `INSERT INTO debug_trajectory
        (session_id, step_n, kind, agent, tool_or_mcp_name, args_json, result_json, is_error, created_at)
-       VALUES (?, ?, 'mcp_call', ?, ?, ?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, 'mcp_call', ?, ?, ?, ?, ?, ?)`,
       [
         debugSessionId,
         ++debugStepCounter,
@@ -99,6 +99,7 @@ function maybeRecordTrajectory(
         argsJson,
         resultJson,
         result.isError ? 1 : 0,
+        nowISO(),
       ],
     );
   } catch {

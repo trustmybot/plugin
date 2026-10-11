@@ -15,7 +15,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 SERVER_DIST="$PLUGIN_ROOT/mcp/trajectory-server/dist/index.js"
 
-BUDGET_BYTES="${TMB_TOOL_DESC_BUDGET:-15000}"  # raised for v0.10.0 (issue label-config #903, cheatcode tools #883, milestone) — real trim tracked in #771
+BUDGET_BYTES="${TMB_TOOL_DESC_BUDGET:-20000}"  # raised for v1.0.3: repo_rename, task_reopen, task_update_spec, agent_runs_backfill — real trim tracked in #771
 
 if [ ! -f "$SERVER_DIST" ]; then
   echo "Building MCP server..."

@@ -35,6 +35,9 @@
 #    afresh. An unfinished lock older than the gate's timeout (holder killed)
 #    is reclaimed. Results older than TMB_DISPATCH_TTL_MIN (default 10 min)
 #    are pruned on every call.
+#    The lock directory and the shim's session marker are derived from the
+#    project's physical path (cd -P), so a symlinked project dir and its real
+#    path share one lock.
 #    A project without TMB state (no trajectory DB) still runs the gate but
 #    takes no lock: nothing is written in a non-TMB project.
 
@@ -83,9 +86,12 @@ if [ ! -f "$TARGET" ]; then
 fi
 export CLAUDE_PLUGIN_ROOT="$ROOT"
 
+PROJECT_REAL=""
+[ -n "${CLAUDE_PROJECT_DIR:-}" ] && PROJECT_REAL=$(_tmb_canonical_dir "$CLAUDE_PROJECT_DIR")
+
 LOCK_BASE=""
 if tmb_have_sqlite && STATE_DIR=$(tmb_state_dir 2>/dev/null); then
-  LOCK_BASE="$STATE_DIR/locks/events"
+  LOCK_BASE="$(_tmb_canonical_dir "$STATE_DIR")/locks/events"
 fi
 
 if [ "$SHIM" = "0" ] && [ -z "$LOCK_BASE" ]; then
@@ -100,11 +106,11 @@ run_gate() {
 
 if [ "$SHIM" = "1" ] && command -v jq >/dev/null 2>&1; then
   SHIM_PROJECT="${TMB_SHIM_PROJECT:-}"
-  if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -n "$SHIM_PROJECT" ] \
-     && [ "$(_tmb_canonical_dir "$CLAUDE_PROJECT_DIR")" != "$(_tmb_canonical_dir "$SHIM_PROJECT")" ]; then
+  [ -n "$SHIM_PROJECT" ] && SHIM_PROJECT=$(_tmb_canonical_dir "$SHIM_PROJECT")
+  if [ -n "$PROJECT_REAL" ] && [ -n "$SHIM_PROJECT" ] && [ "$PROJECT_REAL" != "$SHIM_PROJECT" ]; then
     exit 0
   fi
-  SESSION_ROOT="${CLAUDE_PROJECT_DIR:-$SHIM_PROJECT}"
+  SESSION_ROOT="${PROJECT_REAL:-$SHIM_PROJECT}"
   SESSION_ID=$(printf '%s' "$PAYLOAD" | jq -r '.session_id // empty' 2>/dev/null || true)
   case "$SESSION_ID" in
     ''|*/*|.*) ;;

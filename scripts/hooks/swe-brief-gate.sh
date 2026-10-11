@@ -62,28 +62,27 @@ if [ -z "$TASK_ID" ]; then
   case "$TASK_ID" in ''|*[!0-9]*) TASK_ID="" ;; esac
 fi
 
-# Slug fallback: when transcript and tool_input provide no task_id, derive it
-# from the worktree root slug (same pattern as swe-boundary.sh).
+# Worktree fallback: when transcript and tool_input provide no task_id, the
+# worktree's checked-out branch matches branch_id exactly; a detached worktree
+# falls back to its slug (tmb_task_by_slug).
 if [ -z "$TASK_ID" ]; then
-  WORKTREE_ROOT=""
-  case "$PWD" in
-    */.claude/worktrees/*)
-      WORKTREE_ROOT=$(echo "$PWD" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|')
-      ;;
-  esac
-  if [ -n "$WORKTREE_ROOT" ] && [ -n "$DB" ] && tmb_have_sqlite; then
-    WORKTREE_SLUG=$(echo "$WORKTREE_ROOT" | sed -E 's|.*/.claude/worktrees/([^/]+)$|\1|')
-    if [ -n "$WORKTREE_SLUG" ]; then
-      SAFE_SLUG=$(tmb_sql_quote "$WORKTREE_SLUG")
+  WORKTREE_ROOT=$(tmb_worktree_root_for_target "")
+  if [ -n "$WORKTREE_ROOT" ]; then
+    WORKTREE_BRANCH=$(git -C "$WORKTREE_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+    if [ -n "$WORKTREE_BRANCH" ] && [ "$WORKTREE_BRANCH" != "HEAD" ]; then
+      SAFE_BRANCH=$(tmb_sql_quote "$WORKTREE_BRANCH")
       TASK_ID=$(tmb_sqlite_ro "$DB" "
         SELECT id FROM tasks
-         WHERE branch_id LIKE '%/${SAFE_SLUG}'
+         WHERE branch_id = '${SAFE_BRANCH}'
            AND status IN ('pending','running','completed')
          ORDER BY id DESC
          LIMIT 1;
-      " 2>/dev/null || true)
-      case "$TASK_ID" in ''|*[!0-9]*) TASK_ID="" ;; esac
+      ")
     fi
+    if [ -z "$TASK_ID" ]; then
+      TASK_ID=$(tmb_task_by_slug "$DB" "$(basename "$WORKTREE_ROOT")" id "'pending','running','completed'")
+    fi
+    TASK_ID=$(tmb_sql_int "$TASK_ID")
   fi
 fi
 

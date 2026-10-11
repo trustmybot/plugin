@@ -20,6 +20,7 @@
 #   Missing gate: invalid name or gate script in no install → rc 1 + stderr;
 #     resolved install lacking the gate → dispatcher's own copy, logged
 #   Shim: marker for the session → yield; foreign project → yield
+#   Symlinked project dir and its real path → one lock, one shim project
 #   Parity: every PreToolUse gate in hooks.json gives the same stdout + exit
 #   code through the dispatcher as run directly.
 set -euo pipefail
@@ -327,6 +328,29 @@ test_case "--shim without a marker runs the gate"
 out=$(FX_SLEEP=0 TMB_SHIM_PROJECT="$PROJ" dispatch "$A" fx-deny "$(payload "ls s3" tu-s3)" --shim)
 assert_contains "$out" '"permissionDecision":"deny"' "gate decision forwarded"
 assert_eq "1" "$(runs)" "gate ran"
+
+# ===========================================================================
+test_case "symlinked and real project path share one lock: gate runs once"
+reset_runs
+LINK="$TMP/proj-link"
+ln -s "$PROJ" "$LINK"
+P=$(payload "git push link" tu-link)
+CLAUDE_PROJECT_DIR="$LINK" dispatch "$A" fx-deny "$P" > "$TMP/o1" &
+CLAUDE_PROJECT_DIR="$PROJ" dispatch "$A" fx-deny "$P" > "$TMP/o2" &
+wait
+assert_eq "1" "$(runs)" "gate executed once across the two spellings"
+assert_contains "$(cat "$TMP/o2")" '"permissionDecision":"deny"' "the real-path invocation replays the deny"
+assert_eq "1" "$(find "$EVENTS" -mindepth 1 -maxdepth 1 -type d | grep -c .)" "one lock directory"
+
+test_case "--shim: a symlinked TMB_SHIM_PROJECT is the same project as the real CLAUDE_PROJECT_DIR"
+reset_runs
+out=$(FX_SLEEP=0 TMB_SHIM_PROJECT="$LINK" dispatch "$A" fx-deny "$(payload "ls s4" tu-s4)" --shim)
+assert_contains "$out" '"permissionDecision":"deny"' "gate ran, not yielded as foreign"
+mkdir -p "$PROJ/.claude/tmb/sessions"
+: > "$PROJ/.claude/tmb/sessions/s-1.plugin-hooks"
+out=$(CLAUDE_PROJECT_DIR="$LINK" TMB_SHIM_PROJECT="$PROJ" dispatch "$A" fx-deny "$(payload "ls s5" tu-s5)" --shim)
+assert_eq "" "$out" "marker found through the symlinked project dir"
+rm -f "$PROJ/.claude/tmb/sessions/s-1.plugin-hooks" "$LINK"
 
 # ===========================================================================
 test_case "parity: every PreToolUse gate gives the same result through the dispatcher"

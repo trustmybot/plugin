@@ -12,7 +12,7 @@
 # The resolver discovers the ACTIVE tmb cache version at hook-fire time and
 # execs that version's dispatcher, `.../scripts/hooks/dispatch.sh <gate>
 # --shim`, forwarding stdin + any pass-through argv untouched, with
-# TMB_SHIM_PROJECT=<root>. The dispatcher picks the project's install, runs
+# TMB_SHIM_PROJECT=<root> (its physical path, cd -P). The dispatcher picks the project's install, runs
 # the gate once per event, and in --shim mode exits 0 without running it when:
 #   - CLAUDE_PROJECT_DIR is set and is not <root> (another project's session), or
 #   - the plugin's own hooks are active in this session: the plugin's
@@ -119,7 +119,8 @@ fi
 mode=()
 if [ "$shim" = "1" ]; then
   mode=(--shim)
-  export TMB_SHIM_PROJECT="$project"
+  TMB_SHIM_PROJECT=$( (cd "$project" 2>/dev/null && pwd -P) || printf '%s' "$project")
+  export TMB_SHIM_PROJECT
 fi
 
 # Forward stdin + pass-through argv untouched so the gate sees identical input

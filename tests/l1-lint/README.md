@@ -51,7 +51,7 @@ bash tests/l1-lint/link-check.sh
 | [`no-direct-sqlite-write.sh`](./no-direct-sqlite-write.sh) | A `sqlite3` write under `scripts/` that bypasses the write library (`scripts/hooks/lib/db-write.sh`) |
 | [`no-private-db-path.sh`](./no-private-db-path.sh) | A `trajectory.db` literal under `scripts/` outside `scripts/hooks/lib/query-task.sh` — a private copy of the DB-path rule (allowlist: `no-private-db-path.allowlist`) |
 | [`no-home-writes.sh`](./no-home-writes.sh) | A write under the home directory from `scripts/` or `mcp/trajectory-server/src/` — project state belongs in `<project>/.claude/<plugin>/`; only `TMB_MODEL_CACHE_DIR` lives outside (allowlist: `no-home-writes.allowlist`; `--self-test` runs `fixtures/no-home-writes/`) |
-| [`no-datetime-now-in-hooks.sh`](./no-datetime-now-in-hooks.sh) | `datetime('now')` timestamps under `scripts/` (use `tmb_now_iso`) |
+| [`no-datetime-now-in-hooks.sh`](./no-datetime-now-in-hooks.sh) | `datetime('now')` timestamps under `scripts/` and in `mcp/trajectory-server/src/` `*.ts` / `*.sql` (exempt: `migrateV*` bodies in `db.ts` and the `src/test/` fixtures) — use `tmb_now_iso`, `nowISO()` or `strftime('%Y-%m-%dT%H:%M:%fZ','now')` |
 | [`no-audit-log-kind.sh`](./no-audit-log-kind.sh) | Disallowed audit-log `kind` usage |
 | [`no-audit-log-without-from-node.sh`](./no-audit-log-without-from-node.sh) | Audit-log writes missing `from_node` |
 | [`no-directories-table-refs.sh`](./no-directories-table-refs.sh) | References to the retired directories table |

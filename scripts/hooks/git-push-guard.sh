@@ -82,10 +82,18 @@ while IFS="$(printf '\t')" read -r DIR STMT <&3; do
   PUSH_SHAS=$(git -C "$DIR" log '@{u}..HEAD' --pretty=%H 2>/dev/null || true)
   if [ -z "$PUSH_SHAS" ]; then
     # No upstream — first push of a new branch: commits unique to this branch
-    # vs the per-repo target_branch (repos table is the sole source).
+    # vs the target branch: this repo's repos row, else the sole registered
+    # repo's row, else the remote's default branch, else main.
     _PUSH_REPO_ROW=$(tmb_repo_resolve "$DB" "$(tmb_stmt_repo_root "$DIR")")
     PR_TARGET=$(printf '%s' "$_PUSH_REPO_ROW" | cut -d'|' -f1)
-    PR_TARGET="${PR_TARGET:-dev}"
+    if [ -z "$PR_TARGET" ]; then
+      _PUSH_SOLE_PATH=$(tmb_repo_single_path "$DB")
+      [ -n "$_PUSH_SOLE_PATH" ] && PR_TARGET=$(tmb_repo_resolve "$DB" "$_PUSH_SOLE_PATH" | cut -d'|' -f1)
+    fi
+    if [ -z "$PR_TARGET" ]; then
+      PR_TARGET=$(git -C "$DIR" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##' || true)
+    fi
+    PR_TARGET="${PR_TARGET:-main}"
     # H4: resolve a base ref that ACTUALLY EXISTS — origin/<target>, <target>,
     # then the remote's default; none → FAIL CLOSED by gating all of HEAD so
     # unsigned commits never bypass the gate on a main-only repo.
