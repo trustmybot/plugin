@@ -2237,6 +2237,46 @@ describe('task_reopen + task_update_spec', () => {
             }
         });
     }
+    it('task_reopen opens one bro agent_runs row for the rework and reuses it on a second reopen', async () => {
+        const { ws, db, handlers } = setup();
+        try {
+            const id = await provision(handlers, 'fix/metered');
+            db.run(`UPDATE agent_runs SET completed_at = datetime('now') WHERE task_id = ?`, [id]);
+            db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [id]);
+            const openBro = () => db.all(`SELECT root_dir, host, session_id, usage_source FROM agent_runs
+          WHERE task_id = ? AND agent_type = 'bro' AND completed_at IS NULL`, [id]);
+            const r = await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'review failed', session_id: 'sess-1234abcd' });
+            assert.ok(!r.isError, JSON.stringify(parse(r)));
+            assert.deepEqual(openBro().map((row) => ({ ...row })), [
+                { root_dir: ws, host: 'claude', session_id: 'sess-1234abcd', usage_source: null },
+            ]);
+            await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'second pass' });
+            assert.equal(openBro().length, 1, 'the open bro row is reused');
+            const bad = await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'x', session_id: 'short' });
+            assert.equal(bad.isError, true);
+            assert.match(String(parse(bad)['error']), /session_id must be 8–64 characters/);
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('task_reopen without session_id opens a bro row with NULL session_id', async () => {
+        const { ws, db, handlers } = setup();
+        try {
+            const id = await provision(handlers, 'fix/metered-legacy');
+            db.run(`UPDATE agent_runs SET completed_at = datetime('now') WHERE task_id = ?`, [id]);
+            db.run(`UPDATE tasks SET status = 'failed' WHERE id = ?`, [id]);
+            await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'retry the run' });
+            const rows = db.all(`SELECT session_id FROM agent_runs WHERE task_id = ? AND agent_type = 'bro' AND completed_at IS NULL`, [id]);
+            assert.equal(rows.length, 1);
+            assert.equal(rows[0].session_id, null);
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
     it('task_reopen recreates a missing worktree and leaves an existing one alone', async () => {
         const { ws, repoRoot, db, handlers, git } = setup();
         try {

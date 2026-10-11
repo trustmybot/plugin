@@ -773,7 +773,7 @@ export function compositeTools(
     {
       name: 'task_reopen',
       description:
-        "Rework a task in one call: moves a closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
+        "Rework a task in one call: moves a closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, opens a bro agent_runs row for the rework (reusing an open one; stamped with session_id when passed), and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -790,6 +790,7 @@ export function compositeTools(
             items: { type: 'string' },
             description: 'Commands appended to the task verification[] list (duplicates ignored).',
           },
+          session_id: RUN_SESSION_ID_SCHEMA,
         },
         required: ['agent', 'task_id', 'reason'],
       },
@@ -1174,6 +1175,7 @@ export function compositeTools(
         if (typeof reason !== 'string' || reason.trim().length === 0) {
           return err('reason must be a non-empty string');
         }
+        const sessionId = parseRunSessionId(args['session_id']);
         const filesAdd = validateFenceAdditions(args['files_add'], 'files_add');
         const verificationAdd = validateFenceAdditions(args['verification_add'], 'verification_add');
 
@@ -1244,6 +1246,11 @@ export function compositeTools(
             }),
             created_at: now,
           });
+          const openBro = db.get<{ id: number }>(
+            `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'bro' AND completed_at IS NULL LIMIT 1`,
+            [taskId],
+          );
+          if (!openBro) openBroRun(db, { id: taskId, issue_id: task.issue_id, repo: task.repo }, now, runContext, sessionId);
         });
 
         let worktreePath: string | null = null;
