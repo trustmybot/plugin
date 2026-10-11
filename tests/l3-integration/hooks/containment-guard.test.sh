@@ -36,7 +36,7 @@ run() {
     '{hook_event_name:"PreToolUse", session_id:"s-1", cwd:$cwd, tool_name:$tool, tool_input:$ti}
      + (if $at == "" then {} else {agent_type:$at} end)')
   (cd "$1" 2>/dev/null || cd "$SANDBOX" || exit 1
-   printf '%s' "$payload" | CLAUDE_PROJECT_DIR="${5:-$PROJECT}" TMB_MODEL_CACHE_DIR="$CACHE" TMPDIR="$HOST_TMP" bash "$HOOK" 2>&1)
+   printf '%s' "$payload" | CLAUDE_PROJECT_DIR="${5:-$PROJECT}" CLAUDE_CONFIG_DIR="" TMB_MODEL_CACHE_DIR="$CACHE" TMPDIR="$HOST_TMP" bash "$HOOK" 2>&1)
 }
 write() { jq -nc --arg p "$1" '{file_path:$p, content:"x"}'; }
 bash_cmd() { jq -nc --arg c "$1" '{command:$c}'; }
@@ -119,9 +119,36 @@ assert_eq '{"tool":"Write","path":"/tmp/x","root":"'"$PROJECT"'","task_id":null}
   "$(sqlite3 "$DB" "SELECT content_json, issue_id FROM audit WHERE event_type='containment_denied' ORDER BY id DESC LIMIT 1;")" \
   "bro denials audit on the system issue with task_id null"
 
+test_case "symlink then .. lands where the link points → deny"
+OUTSIDE="$SANDBOX/outside/deep"
+mkdir -p "$OUTSIDE"
+ln -s "$OUTSIDE" "$WT/link"
+OUT=$(run "$WT" "swe" Write "$(write "$WT/link/../x")")
+assert_eq "deny" "$(decision "$OUT")" "Write to <root>/link/../x"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "echo hi > $WT/link/../x")")")" "Bash echo hi > <root>/link/../x"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Write "$(write "$WT/src/../b.ts")")")" "Write to <root>/a/../b with no symlink"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "echo hi > $WT/src/../b.txt")")")" "Bash redirect to <root>/a/../b with no symlink"
+
+test_case "planting a link is a write → deny when either end is outside"
+for cmd in "ln -s /outside $WT/link2" 'link /etc/hosts h' 'cp -s /etc/hosts h' 'cp -l /etc/hosts h'; do
+  assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$cmd")")")" "$cmd"
+done
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd 'ln -s a.ts src/alias.ts')")")" "a relative link inside the root"
+
+test_case "Claude Code's own project and plans dirs: main session only"
+CC_SLUG=$(printf '%s' "$PROJECT" | sed 's/[^A-Za-z0-9]/-/g')
+CC_PROJECT="$HOME/.claude/projects/$CC_SLUG"
+assert_eq "allow" "$(decision "$(run "$PROJECT" "" Write "$(write "$CC_PROJECT/memory/MEMORY.md")")")" "bro Write to its auto-memory"
+assert_eq "allow" "$(decision "$(run "$PROJECT" "" Write "$(write "$HOME/.claude/plans/x.md")")")" "bro Write to a plan"
+assert_eq "allow" "$(decision "$(run "$PROJECT" "bro" Bash "$(bash_cmd 'echo x > ~/.claude/plans/p.md')")")" "bro Bash redirect into plans"
+assert_eq "deny" "$(decision "$(run "$PROJECT" "" Write "$(write "$HOME/.claude/settings.json")")")" "bro Write to ~/.claude/settings.json"
+assert_eq "deny" "$(decision "$(run "$PROJECT" "" Write "$(write "$HOME/.claude/projects/-Users-someone-else/memory/x.md")")")" "bro Write to another project's slug"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Write "$(write "$CC_PROJECT/memory/x.md")")")" "swe Write to the project's auto-memory"
+assert_eq "deny" "$(decision "$(run "$WT" "pr-reviewer" Write "$(write "$HOME/.claude/plans/x.md")")")" "pr-reviewer Write to a plan"
+
 test_case "every denial wrote an audit row"
 assert_eq "$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='containment_denied';")" "$(denials)" "all rows from hook:containment-guard"
-assert_eq "16" "$(denials)" "one row per denial above"
+assert_eq "26" "$(denials)" "one row per denial above"
 
 test_case "un-onboarded project → allow"
 BARE="$SANDBOX/bare"

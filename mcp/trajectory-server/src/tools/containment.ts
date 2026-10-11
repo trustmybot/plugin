@@ -1,5 +1,5 @@
-import { existsSync, realpathSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { lstatSync, readlinkSync, realpathSync } from 'node:fs';
+import { isAbsolute, join, parse, relative, sep } from 'node:path';
 
 // Derive the PROJECT ROOT (the dir that owns .claude/) from the trajectory DB
 // path. The DB lives at <root>/.claude/<plugin>/trajectory.db, so the root is
@@ -18,25 +18,54 @@ export function projectRootFromDbPath(dbPath: string): string | null {
   return segments.slice(0, idx).join(sep) || sep;
 }
 
-// Canonical form of a path that may not exist yet: the realpath of its longest
-// existing ancestor joined with the missing tail, so symlinks (macOS /tmp →
-// /private/tmp) resolve the same way for the root and the candidate.
+// The path the kernel would reach, for a path that may not exist yet
+// (realpath -m semantics): components are walked left to right, every existing
+// symlink is followed before a later `..` applies (so <root>/link/../x lands
+// where link points), and `..` collapses lexically only inside the missing tail.
+// macOS /tmp and /private/tmp compare equal.
 export function canonicalPath(path: string): string {
-  let head = resolve(path);
+  const absolute = isAbsolute(path) ? path : join(process.cwd(), path);
+  const root = parse(absolute).root;
+  const pending = absolute.slice(root.length).split(sep);
+  const real: string[] = [];
   const tail: string[] = [];
-  while (!existsSync(head)) {
-    const parent = dirname(head);
-    if (parent === head) break;
-    tail.unshift(basename(head));
-    head = parent;
+  let hops = 0;
+  while (pending.length > 0) {
+    const part = pending.shift() as string;
+    if (part === '' || part === '.') continue;
+    if (tail.length > 0) {
+      if (part === '..') tail.pop();
+      else tail.push(part);
+      continue;
+    }
+    if (part === '..') {
+      real.pop();
+      continue;
+    }
+    const candidate = join(root, ...real, part);
+    let stat;
+    try {
+      stat = lstatSync(candidate);
+    } catch {
+      tail.push(part);
+      continue;
+    }
+    if (stat.isSymbolicLink() && hops < 40) {
+      hops += 1;
+      const target = readlinkSync(candidate);
+      if (isAbsolute(target)) real.length = 0;
+      pending.unshift(...target.slice(isAbsolute(target) ? parse(target).root.length : 0).split(sep));
+      continue;
+    }
+    real.push(part);
   }
-  let real = head;
+  let head = join(root, ...real);
   try {
-    real = realpathSync(head);
+    head = realpathSync(head);
   } catch {
-    // An unreadable ancestor keeps its lexical form.
+    // An unreadable ancestor keeps its walked form.
   }
-  return tail.length > 0 ? join(real, ...tail) : real;
+  return tail.length > 0 ? join(head, ...tail) : head;
 }
 
 export function isWithinRoot(root: string, path: string): boolean {

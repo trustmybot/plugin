@@ -9,11 +9,12 @@
 # the project holding the trajectory DB).
 #
 #   Write/Edit/MultiEdit/NotebookEdit — deny when the canonical file_path
-#     (symlinks resolved, /tmp ≡ /private/tmp) is outside the root.
+#     (symlinks followed before `..` applies, as the kernel does; /tmp ≡
+#     /private/tmp) is outside the root.
 #   Bash — deny when the payload cwd is outside the root, or when a write
 #     position (redirect target, tee, cp/mv/rsync/install destination, mkdir,
-#     rm, touch, git worktree add, git clone; see lib/cmd-analysis.sh) names a
-#     path outside the root. Heredoc bodies and quoted text are data, not
+#     rm, touch, ln/link/cp -s/cp -l destination and source, git worktree add,
+#     git clone; see lib/cmd-analysis.sh) names a path outside the root. Heredoc bodies and quoted text are data, not
 #     syntax. ~, $HOME, ${HOME} and $TMB_MODEL_CACHE_DIR are expanded; a path
 #     behind any other variable is not judged. Reads are never judged.
 #   Always allowed, mirroring the Claude Code sandbox: the model cache
@@ -21,6 +22,11 @@
 #     host's own temp dir ($TMPDIR when the host sets it, e.g. /tmp/claude-501,
 #     and its realpath) and /dev/null, /dev/stdout, /dev/stderr, /dev/tty,
 #     /dev/fd/*.
+#   Main session only (bro: no agent_type, or bro, outside a swe worktree):
+#     Claude Code's own host-owned state — its per-project dir
+#     (${CLAUDE_CONFIG_DIR:-~/.claude}/projects/<slug of the root>, the slug
+#     being the path with every non-alphanumeric character turned into `-`)
+#     and its plans dir (.../plans). swe and pr-reviewer never get these.
 #
 # Every denial writes one containment_denied audit row (from_node
 # hook:containment-guard, content {tool, path, root, task_id}) and names the
@@ -89,6 +95,21 @@ case "${TMPDIR:-}" in
   /?*) HOST_TMP_C=$(tmb_path_canonical "$TMPDIR") ;;
 esac
 
+CC_PROJECT_C=""
+CC_PLANS_C=""
+case "$AGENT_TYPE" in
+  ''|bro)
+    if [ "$(tmb_swe_context "$AGENT_TYPE")" = "no" ]; then
+      CC_HOME="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+      CC_SLUG=$(printf '%s' "$ROOT" | sed 's/[^A-Za-z0-9]/-/g')
+      case "$CC_SLUG" in
+        *[A-Za-z0-9]*) CC_PROJECT_C=$(tmb_path_canonical "$CC_HOME/projects/$CC_SLUG") ;;
+      esac
+      CC_PLANS_C=$(tmb_path_canonical "$CC_HOME/plans")
+    fi
+    ;;
+esac
+
 # under <canonical-path> <canonical-dir>
 under() {
   [ "$1" = "$2" ] && return 0
@@ -97,15 +118,18 @@ under() {
 }
 
 # allowed <absolute-path> — inside the root, the model cache, the host temp
-# dir, or a device.
+# dir, a device, or (main session only) Claude Code's project and plans dirs.
 allowed() {
   local c
   case "$1" in
     /dev/null|/dev/stdout|/dev/stderr|/dev/tty|/dev/fd/*) return 0 ;;
   esac
   c=$(tmb_path_canonical "$1")
-  under "$c" "$ROOT_C" || under "$c" "$CACHE_C" && return 0
-  [ -n "$HOST_TMP_C" ] && [ "$HOST_TMP_C" != "/" ] && under "$c" "$HOST_TMP_C"
+  under "$c" "$ROOT_C" && return 0
+  under "$c" "$CACHE_C" && return 0
+  [ -n "$HOST_TMP_C" ] && [ "$HOST_TMP_C" != "/" ] && under "$c" "$HOST_TMP_C" && return 0
+  [ -n "$CC_PROJECT_C" ] && under "$c" "$CC_PROJECT_C" && return 0
+  [ -n "$CC_PLANS_C" ] && under "$c" "$CC_PLANS_C"
 }
 
 deny() {

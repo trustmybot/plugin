@@ -18,15 +18,19 @@
 #   passed through tmb_cmd_strip_literals: `>`, `>>`, `>|`, `&>`, `&>>`
 #   targets (fd duplications like 2>&1 are not paths), every non-option
 #   argument of tee, mkdir, rm, touch, the destination of cp, mv, install and
-#   rsync (last argument, or -t/--target-directory), the path of
+#   rsync (last argument, or -t/--target-directory), every path of a link
+#   (ln, ln -s, link, cp -s, cp -l: the destination and each source, a
+#   relative ln -s source also read against the link's directory), the path of
 #   `git worktree add` and the directory of `git clone`. Leading VAR=value
 #   assignments and sudo/env/command/nohup/time wrappers are skipped. Paths
 #   are printed as written (no expansion).
 #
 # tmb_path_canonical <absolute-path>
-#   Prints the path with `.`/`..` resolved and symlinks resolved through its
-#   longest existing ancestor (so /tmp and /private/tmp compare equal on
-#   macOS); the path need not exist.
+#   Prints the path the kernel would reach (realpath -m semantics): components
+#   are walked left to right, every existing symlink is followed before a
+#   later `..` applies (so <root>/link/../x lands where link points), and `..`
+#   collapses textually only inside the missing tail. /tmp and /private/tmp
+#   compare equal on macOS; the path need not exist.
 
 tmb_cmd_strip_literals() {
   printf '%s\n' "${1:-}" | awk -v sq="'" '
@@ -84,7 +88,7 @@ tmb_cmd_strip_literals() {
 
 tmb_cmd_write_targets() {
   printf '%s\n' "${1:-}" | awk '
-    function flush(   k, first, cmd, nonopt, nn, a, sub_i, pos, skipnext, val) {
+    function flush(   k, first, cmd, nonopt, nn, a, sub_i, pos, skipnext, val, sym, tdir, last, linkcopy, installdir) {
       first = 1
       while (first <= nw && (w[first] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || w[first] ~ /^(sudo|env|command|nohup|time)$/)) first++
       if (first > nw) { nw = 0; return }
@@ -92,17 +96,43 @@ tmb_cmd_write_targets() {
       nn = 0
       if (cmd == "tee" || cmd == "mkdir" || cmd == "rm" || cmd == "touch" || cmd == "rmdir") {
         for (k = first + 1; k <= nw; k++) if (w[k] !~ /^-/) print w[k]
+      } else if (cmd == "ln" || cmd == "link") {
+        sym = 0; tdir = ""
+        for (k = first + 1; k <= nw; k++) {
+          a = w[k]
+          if (a == "-t" || a == "--target-directory") { if (k < nw) tdir = w[k + 1]; k++; continue }
+          if (a ~ /^--target-directory=/) { tdir = a; sub(/^--target-directory=/, "", tdir); continue }
+          if (a == "--symbolic") { sym = 1; continue }
+          if (a ~ /^--/) continue
+          if (a ~ /^-/) { if (a ~ /s/) sym = 1; continue }
+          nonopt[++nn] = a
+        }
+        last = nn
+        if (tdir != "") print tdir
+        else if (nn >= 2) { print nonopt[nn]; last = nn - 1 }
+        for (k = 1; k <= last; k++) {
+          a = nonopt[k]
+          if (!sym || a ~ /^\//) { print a; continue }
+          if (tdir != "") { print tdir "/" a; continue }
+          if (nn < 2) { print a; continue }
+          val = nonopt[nn]
+          if (val ~ /\//) { sub(/\/[^\/]*\/?$/, "", val); if (val == "") val = "/" } else val = "."
+          print val "/" a
+          print nonopt[nn] "/" a
+        }
       } else if (cmd == "cp" || cmd == "mv" || cmd == "install" || cmd == "rsync") {
-        installdir = 0
+        installdir = 0; linkcopy = 0
         for (k = first + 1; k <= nw; k++) {
           a = w[k]
           if (a == "-t" || a == "--target-directory") { if (k < nw) print w[k + 1]; k++; continue }
           if (a ~ /^--target-directory=/) { val = a; sub(/^--target-directory=/, "", val); print val; continue }
           if (cmd == "install" && a == "-d") { installdir = 1; continue }
+          if (cmd == "cp" && (a == "--symbolic-link" || a == "--link" || a ~ /^-[A-Za-z]*[sl]/)) { linkcopy = 1; continue }
           if (a ~ /^-/) continue
           nonopt[++nn] = a
         }
         if (installdir) { for (k = 1; k <= nn; k++) print nonopt[k] }
+        else if (linkcopy) { for (k = 1; k <= nn; k++) print nonopt[k] }
         else if (nn >= 2 && nonopt[nn] !~ /^[^\/]*:/) print nonopt[nn]
       } else if (cmd == "git") {
         k = first + 1
@@ -171,28 +201,28 @@ tmb_cmd_write_targets() {
 }
 
 tmb_path_canonical() {
-  local path="${1:-}" part out="" head tail="" real
+  local path="${1:-}" cur="" tail="" rest part link hops=0
   case "$path" in /*) ;; *) printf '%s\n' "$path"; return 0 ;; esac
-  local IFS=/
-  for part in $path; do
-    case "$part" in
-      ''|.) ;;
-      ..) out="${out%/*}" ;;
-      *) out="$out/$part" ;;
-    esac
+  rest="$path"
+  while [ -n "$rest" ]; do
+    rest="${rest#/}"
+    part="${rest%%/*}"
+    if [ "$part" = "$rest" ]; then rest=""; else rest="${rest#*/}"; fi
+    case "$part" in ''|.) continue ;; esac
+    if [ -n "$tail" ]; then
+      if [ "$part" = ".." ]; then tail="${tail%/*}"; else tail="$tail/$part"; fi
+      continue
+    fi
+    if [ "$part" = ".." ]; then cur="${cur%/*}"; continue; fi
+    if [ -L "$cur/$part" ] && [ "$hops" -lt 40 ]; then
+      hops=$((hops + 1))
+      link=$(readlink "$cur/$part")
+      case "$link" in /*) cur="" ;; esac
+      rest="$link/$rest"
+      continue
+    fi
+    if [ -e "$cur/$part" ]; then cur="$cur/$part"; else tail="/$part"; fi
   done
-  [ -n "$out" ] || out=/
-  head="$out"
-  while [ "$head" != "/" ] && [ ! -e "$head" ]; do
-    tail="/${head##*/}$tail"
-    head="${head%/*}"
-    [ -n "$head" ] || head=/
-  done
-  if [ -d "$head" ]; then
-    real=$(cd -P "$head" 2>/dev/null && pwd -P) || real="$head"
-  else
-    real=$(cd -P "$(dirname "$head")" 2>/dev/null && pwd -P)/$(basename "$head") || real="$head"
-  fi
-  [ "$real" = "/" ] && [ -n "$tail" ] && real=""
-  printf '%s%s\n' "$real" "$tail"
+  [ -n "$cur$tail" ] || cur=/
+  printf '%s%s\n' "$cur" "$tail"
 }
