@@ -299,6 +299,22 @@ rem=$(remediation_after "$out" "FAIL  world-model")
 assert_contains "$rem" "run /scan" "missing-graph remediation prescribes /scan"
 
 # ============================================================================
+# Server log default — beside the trajectory DB, never under $HOME
+# ============================================================================
+test_case "server-log default: resolves to <db-dir>/logs/mcp-server.log"
+reset_scenario log-default
+F_LOG=""
+mkdir -p "$ROOT/.claude/tmb/logs"
+printf '{"kind":"graph_db_open_failed","error_message":"Could not set lock on file world-model.kuzu","path":"%s"}\n' \
+  "$ROOT/.claude/tmb/world-model.kuzu" > "$ROOT/.claude/tmb/logs/mcp-server.log"
+out=$(run_health)
+assert_contains "$out" "server-log:$ROOT/.claude/tmb/logs/mcp-server.log" "default server log sits beside the DB"
+assert_not_contains "$out" "$SANDBOX/home" "default server log is not under HOME"
+
+test_case "server-log default: graph_db_open_failed is read from the project log"
+assert_contains "$out" "FAIL  world-model: kuzu open FAILED — graph file is locked" "project log drives the kuzu diagnosis"
+
+# ============================================================================
 # Check 4 — custom DB names map one-to-one to <db>.world-model.kuzu
 # ============================================================================
 test_case "check4d world-model: custom DB uses its own graph path"

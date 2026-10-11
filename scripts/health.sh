@@ -99,13 +99,22 @@ if [ -z "$INTENDED_VERSION" ] || [ -z "$CACHE_DIR" ]; then
   fi
 fi
 
-# Server log: prefer override, else the canonical per-plugin logs dir.
-SERVER_LOG="${TMB_HEALTH_SERVER_LOG:-$HOME/.claude/${PLUGIN_NAME}/logs/mcp-server.log}"
+# Server log: prefer override, else the logs dir beside the trajectory DB
+# (mirrors platform.ts resolveLogDir).
+SERVER_LOG="${TMB_HEALTH_SERVER_LOG:-}"
+if [ -z "$SERVER_LOG" ]; then
+  if [ "$DB" = ":memory:" ]; then
+    _tmp="${TMPDIR:-/tmp}"
+    SERVER_LOG="${_tmp%/}/${PLUGIN_NAME}-memory-logs/mcp-server.log"
+  elif [ -n "$DB" ]; then
+    SERVER_LOG="$(dirname "$DB")/logs/mcp-server.log"
+  fi
+fi
 
 printf '== TMB health-check ==\n'
 printf 'db:        %s\n' "${DB:-<unresolved>}"
 printf 'cache:     %s\n' "${CACHE_DIR:-<unresolved>}"
-printf 'server-log:%s\n' "$SERVER_LOG"
+printf 'server-log:%s\n' "${SERVER_LOG:-<unresolved>}"
 printf '\n'
 
 # ===========================================================================
@@ -130,7 +139,7 @@ else
   remediate \
     "Fully quit Claude Code (Cmd-Q) and relaunch — a dead MCP server needs a full restart, NOT /reload-plugins." \
     "If it does not come back after relaunch, see skills/tmb_recovery (CC plugin MCP-config cache bug)." \
-    "Forensics: tail -n 50 $SERVER_LOG"
+    "Forensics: tail -n 50 ${SERVER_LOG:-<project>/.claude/${PLUGIN_NAME}/logs/mcp-server.log}"
 fi
 
 # ===========================================================================
@@ -255,7 +264,7 @@ else
       else
         fail "world-model: kuzu open FAILED — see server log"
         remediate \
-          "Inspect the error: grep graph_db_open_failed $SERVER_LOG | tail -1" \
+          "Inspect the error: grep graph_db_open_failed ${SERVER_LOG:-<project>/.claude/${PLUGIN_NAME}/logs/mcp-server.log} | tail -1" \
           "If the native binding is missing: cd ${KUZU_MODULE_DIR:-<cache>/mcp/trajectory-server/node_modules/kuzu} && node install.js, then full restart." \
           "The .kuzu data survives — only /scan if the graph file is gone."
       fi
