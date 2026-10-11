@@ -3,18 +3,29 @@
 # Sourced (not exec'd). Depends on query-task.sh for tmb_sql_quote / tmb_sql_int.
 # No set -e/-euo/-euo pipefail here — libs must not mutate caller shell options.
 #
-# Every write runs with foreign keys ON, a 5 s busy timeout, inside one
+# Every write runs with foreign keys ON, a bounded busy timeout, inside one
 # BEGIN IMMEDIATE transaction, and reports failure on stderr with a non-zero
 # exit code. Callers decide what a failed write means; this lib never hides it.
+#
+# Busy budget: each attempt waits up to TMB_DB_WRITE_TIMEOUT_MS (default 1500)
+# for a writer lock; worst case = attempts x timeout + backoff (~3.2 s at the
+# default, inside a 5 s hook wrapper). Hooks with a larger hooks.json timeout
+# export a larger TMB_DB_WRITE_TIMEOUT_MS before writing;
+# tests/l1-lint/hook-timeout-budget.sh checks every wrapper covers its budget.
 
 if ! command -v tmb_sql_quote >/dev/null 2>&1; then
   # shellcheck source=scripts/hooks/lib/query-task.sh disable=SC1091
   . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/query-task.sh"
 fi
 
-_TMB_DB_WRITE_ATTEMPTS="1 2 3"
-_TMB_DB_WRITE_BUSY_MS=5000
-_TMB_DB_WRITE_BACKOFF_S=0.5
+_TMB_DB_WRITE_ATTEMPTS="1 2"
+_TMB_DB_WRITE_BACKOFF_S=0.2
+
+_tmb_db_busy_ms() {
+  local ms="${TMB_DB_WRITE_TIMEOUT_MS:-1500}"
+  case "$ms" in ''|*[!0-9]*) ms=1500 ;; esac
+  printf '%s' "$ms"
+}
 
 # tmb_now_iso
 # The one hook timestamp format: 24-char UTC ISO-8601 with a millisecond field,
@@ -44,9 +55,10 @@ tmb_db_write() {
   fi
   local wrapped
   wrapped=$(printf 'PRAGMA foreign_keys = ON;\nBEGIN IMMEDIATE;\n%s\nCOMMIT;\n' "$sql")
-  local attempt rc err
+  local attempt rc err busy_ms
+  busy_ms=$(_tmb_db_busy_ms)
   for attempt in $_TMB_DB_WRITE_ATTEMPTS; do
-    { err=$(sqlite3 -bail -cmd ".timeout ${_TMB_DB_WRITE_BUSY_MS}" "$db" 2>&1 1>&3 <<<"$wrapped"); rc=$?; } 3>&1
+    { err=$(sqlite3 -bail -cmd ".timeout ${busy_ms}" "$db" 2>&1 1>&3 <<<"$wrapped"); rc=$?; } 3>&1
     [ "$rc" -eq 0 ] && return 0
     case "$err" in
       *"database is locked"*|*SQLITE_BUSY*|*"database is busy"*)
@@ -74,14 +86,16 @@ _tmb_from_node_valid() {
   return 1
 }
 
-# tmb_audit_sql <issue_id> <branch_id|''> <from_node> <event_type> <summary> <content_json>
+# tmb_audit_sql <issue_id> <branch_id|''> <from_node> <event_type> <summary> <content_json> [<guard_sql>]
 # Prints one validated INSERT INTO audit statement for composing with other
 # statements in a single tmb_db_write transaction. Every argument is quoted;
 # repo is taken from the parent issue; created_at is tmb_now_iso. An empty
-# branch_id is stored as NULL. Exit 2 + stderr on an invalid from_node or a
-# non-integer issue_id.
+# branch_id is stored as NULL. The optional <guard_sql> is a constant SQL
+# condition (never user data) the row is conditional on, e.g.
+# "(SELECT changes()) > 0" after an UPDATE in the same transaction.
+# Exit 2 + stderr on an invalid from_node or a non-integer issue_id.
 tmb_audit_sql() {
-  local issue_id="${1:-}" branch_id="${2:-}" from_node="${3:-}" event_type="${4:-}" summary="${5:-}" content_json="${6:-}"
+  local issue_id="${1:-}" branch_id="${2:-}" from_node="${3:-}" event_type="${4:-}" summary="${5:-}" content_json="${6:-}" guard_sql="${7:-}"
   local caller
   caller=$(_tmb_db_write_caller)
   if ! _tmb_from_node_valid "$from_node"; then
@@ -100,11 +114,13 @@ tmb_audit_sql() {
   local branch_sql="NULL"
   [ -n "$branch_id" ] && branch_sql="'$(tmb_sql_quote "$branch_id")'"
   [ -n "$content_json" ] || content_json='{}'
-  printf "INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at) VALUES (%s, %s, '%s', '%s', '%s', '%s', (SELECT repo FROM issues WHERE id = %s), '%s');\n" \
+  local where_sql=""
+  [ -n "$guard_sql" ] && where_sql=" WHERE ${guard_sql}"
+  printf "INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at) SELECT %s, %s, '%s', '%s', '%s', '%s', (SELECT repo FROM issues WHERE id = %s), '%s'%s;\n" \
     "$safe_issue" "$branch_sql" \
     "$(tmb_sql_quote "$from_node")" "$(tmb_sql_quote "$event_type")" \
     "$(tmb_sql_quote "$summary")" "$(tmb_sql_quote "$content_json")" \
-    "$safe_issue" "$(tmb_now_iso)"
+    "$safe_issue" "$(tmb_now_iso)" "$where_sql"
 }
 
 # tmb_audit_append <db> <issue_id> <branch_id|''> <from_node> <event_type> <summary> <content_json>
@@ -115,7 +131,7 @@ tmb_audit_append() {
   local db="${1:-}"
   shift
   local sql
-  sql=$(tmb_audit_sql "$@") || return 2
+  sql=$(tmb_audit_sql "${1:-}" "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}") || return 2
   tmb_db_write "$db" "$sql"
 }
 
@@ -129,7 +145,7 @@ tmb_gate_read() {
     printf '__ERR__\n'
     return 0
   fi
-  if out=$(sqlite3 -readonly -cmd ".timeout ${_TMB_DB_WRITE_BUSY_MS}" "$db" "$sql" 2>/dev/null); then
+  if out=$(sqlite3 -readonly -cmd ".timeout $(_tmb_db_busy_ms)" "$db" "$sql" 2>/dev/null); then
     [ -n "$out" ] && printf '%s\n' "$out"
   else
     printf '__ERR__\n'

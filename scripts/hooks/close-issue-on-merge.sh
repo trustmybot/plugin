@@ -174,7 +174,7 @@ _cim_close_one() {
   [ -n "$safe_id" ] || return 0
   safe_now=$(tmb_sql_quote "$(tmb_now_iso)")
   audit_sql=$(tmb_audit_sql "$safe_id" '' "hook:close-issue-on-merge" "issue_auto_closed_on_merge" \
-    "Auto-closed on PR merge" "{\"gh_iid\":${gh_iid:-null}}") || return 0
+    "Auto-closed on PR merge" "{\"gh_iid\":${gh_iid:-null}}" "(SELECT changes()) > 0") || return 0
   tmb_db_write "$db" "
     UPDATE issues
        SET status = 'closed', closed_at = '${safe_now}', updated_at = '${safe_now}'

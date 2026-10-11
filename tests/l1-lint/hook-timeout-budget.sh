@@ -35,32 +35,39 @@ require() {
   return 0
 }
 
-# --- roundtable-slash-detect: retry loop worst case -------------------------
-# The hook writes through tmb_audit_append; the retry loop (attempts, busy
-# timeout, backoff) lives in the shared write library.
-SD_HOOK="scripts/hooks/roundtable-slash-detect.sh"
-SD_SRC="scripts/hooks/lib/db-write.sh"
-SD_WRAP=$(wrapper_timeout "roundtable-slash-detect.sh")
-if ! grep -q 'tmb_audit_append' "$SD_HOOK"; then
-  printf "hook-timeout-budget: %s no longer writes via tmb_audit_append — re-derive its budget\n" "$SD_HOOK" >&2
-  FAIL=$((FAIL + 1))
-fi
-SD_ATTEMPTS=$(grep -oE '^_TMB_DB_WRITE_ATTEMPTS="[0-9 ]+"' "$SD_SRC" | head -1 | sed -E 's/^[^"]*"//; s/"$//' | wc -w | tr -d ' ')
-SD_BUSY_MS=$(grep -oE '^_TMB_DB_WRITE_BUSY_MS=[0-9]+' "$SD_SRC" | head -1 | grep -oE '[0-9]+$')
-SD_SLEEP=$(grep -oE '^_TMB_DB_WRITE_BACKOFF_S=[0-9.]+' "$SD_SRC" | head -1 | grep -oE '[0-9.]+$')
+# --- every hook sourcing db-write.sh: write-retry worst case ----------------
+# tmb_db_write waits up to the effective busy timeout per attempt, with a
+# backoff between attempts. The effective timeout is the hook's own
+# `export TMB_DB_WRITE_TIMEOUT_MS=<ms>` when present, else the library default.
+# floor = attempts x timeout + (attempts - 1) x backoff + 1 s margin.
+DBW_LIB="scripts/hooks/lib/db-write.sh"
+DBW_ATTEMPTS=$(grep -oE '^_TMB_DB_WRITE_ATTEMPTS="[0-9 ]+"' "$DBW_LIB" | head -1 | sed -E 's/^[^"]*"//; s/"$//' | wc -w | tr -d ' ')
+DBW_DEFAULT_MS=$(grep -oE 'TMB_DB_WRITE_TIMEOUT_MS:-[0-9]+' "$DBW_LIB" | head -1 | grep -oE '[0-9]+$')
+DBW_BACKOFF=$(grep -oE '^_TMB_DB_WRITE_BACKOFF_S=[0-9.]+' "$DBW_LIB" | head -1 | grep -oE '[0-9.]+$')
+DBW_CHECKED=0
+DBW_SUMMARY=""
 
-if require "$SD_WRAP" "roundtable-slash-detect wrapper timeout" \
-   && require "$SD_ATTEMPTS" "slash-detect attempts" \
-   && require "$SD_BUSY_MS" "slash-detect busy-timeout" \
-   && require "$SD_SLEEP" "slash-detect sleep"; then
-  # worst case = attempts * busy-timeout-seconds + attempts * sleep-seconds
-  SD_FLOOR=$(awk -v a="$SD_ATTEMPTS" -v ms="$SD_BUSY_MS" -v s="$SD_SLEEP" \
-    'BEGIN { w = a * (ms / 1000) + a * s; c = int(w); if (c < w) c++; print c + 2 }')
-  if [ "$SD_WRAP" -lt "$SD_FLOOR" ]; then
-    printf "hook-timeout-budget: FAIL roundtable-slash-detect wrapper %ss < floor %ss (internal budget %sx%ss busy + %sx%ss sleep)\n" \
-      "$SD_WRAP" "$SD_FLOOR" "$SD_ATTEMPTS" "$((SD_BUSY_MS / 1000))" "$SD_ATTEMPTS" "$SD_SLEEP" >&2
-    FAIL=$((FAIL + 1))
-  fi
+if require "$DBW_ATTEMPTS" "db-write attempts" \
+   && require "$DBW_DEFAULT_MS" "db-write default busy timeout" \
+   && require "$DBW_BACKOFF" "db-write backoff"; then
+  for hook in scripts/hooks/*.sh; do
+    grep -q 'lib/db-write\.sh' "$hook" || continue
+    base=$(basename "$hook")
+    wrap=$(wrapper_timeout "$base")
+    [ -n "$wrap" ] || continue
+    ms=$(grep -oE '^[[:space:]]*export TMB_DB_WRITE_TIMEOUT_MS=[0-9]+' "$hook" | head -1 | grep -oE '[0-9]+$' || true)
+    [ -n "$ms" ] || ms="$DBW_DEFAULT_MS"
+    floor=$(awk -v a="$DBW_ATTEMPTS" -v ms="$ms" -v b="$DBW_BACKOFF" \
+      'BEGIN { printf "%.1f", a * (ms / 1000) + (a - 1) * b + 1 }')
+    if awk -v w="$wrap" -v f="$floor" 'BEGIN { exit !(w < f) }'; then
+      printf "hook-timeout-budget: FAIL %s wrapper %ss < floor %ss (%s x %sms busy + backoff %ss + 1s margin)\n" \
+        "$base" "$wrap" "$floor" "$DBW_ATTEMPTS" "$ms" "$DBW_BACKOFF" >&2
+      FAIL=$((FAIL + 1))
+    fi
+    DBW_CHECKED=$((DBW_CHECKED + 1))
+    DBW_SUMMARY="${DBW_SUMMARY}  ${base}: wrapper ${wrap}s >= floor ${floor}s (busy ${ms}ms)
+"
+  done
 fi
 
 # --- swe-verification-gate: total budget default ----------------------------
@@ -82,5 +89,6 @@ if [ "$FAIL" -gt 0 ]; then
   printf "hook-timeout-budget: FAIL\n"
   exit 1
 fi
-printf "hook-timeout-budget: slash-detect %ss (floor %ss), verification-gate %ss (floor %ss) — wrappers cover budgets.\n" \
-  "$SD_WRAP" "$SD_FLOOR" "$VG_WRAP" "$VG_FLOOR"
+printf "%s" "$DBW_SUMMARY"
+printf "hook-timeout-budget: %s db-write hooks + verification-gate %ss (floor %ss) — wrappers cover budgets.\n" \
+  "$DBW_CHECKED" "$VG_WRAP" "$VG_FLOOR"

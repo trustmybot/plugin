@@ -56,9 +56,9 @@ ERR=$(tmb_db_write "$TMPDIR_FIXTURE/missing.db" "INSERT INTO plugin_config (key,
 assert_contains "$ERR" "database not found" "stderr names the missing DB"
 [ ! -e "$TMPDIR_FIXTURE/missing.db" ] && _pass || _fail "missing DB must not be created"
 
-test_case "tmb_db_write retries through a held write lock"
+test_case "tmb_db_write retries through a held write lock (default 1500 ms x 2 attempts)"
 ( printf 'BEGIN IMMEDIATE;\nINSERT INTO plugin_config (key, value_json) VALUES (%s, %s);\n' "'dbw_holder'" "'1'"
-  sleep 1
+  sleep 2
   printf 'COMMIT;\n' ) | sqlite3 "$DB" &
 HOLDER=$!
 sleep 0.2
@@ -67,6 +67,20 @@ wait "$HOLDER"
 assert_eq "0" "$RC" "write lands once the lock is released"
 assert_eq "1" "$(count "SELECT COUNT(*) FROM plugin_config WHERE key='dbw_busy';")" "busy-retried row present"
 assert_eq "1" "$(count "SELECT COUNT(*) FROM plugin_config WHERE key='dbw_holder';")" "lock holder's row present"
+
+test_case "tmb_db_write gives up within its bounded budget when the lock outlasts every attempt"
+( printf 'BEGIN IMMEDIATE;\n'; sleep 6; printf 'COMMIT;\n' ) | sqlite3 "$DB" &
+HOLDER=$!
+sleep 0.2
+START=$(date +%s)
+ERR=$(TMB_DB_WRITE_TIMEOUT_MS=500 tmb_db_write "$DB" "INSERT INTO plugin_config (key, value_json) VALUES ('dbw_gaveup', '1');" 2>&1 >/dev/null) && RC=0 || RC=$?
+ELAPSED=$(( $(date +%s) - START ))
+kill "$HOLDER" 2>/dev/null || true
+wait "$HOLDER" 2>/dev/null || true
+[ "$RC" -ne 0 ] && _pass || _fail "write under a permanent lock should fail"
+[ "$ELAPSED" -le 3 ] && _pass || _fail "TMB_DB_WRITE_TIMEOUT_MS=500 should bound the wait (took ${ELAPSED}s)"
+assert_contains "$ERR" "locked" "stderr names the lock"
+assert_eq "0" "$(count "SELECT COUNT(*) FROM plugin_config WHERE key='dbw_gaveup';")" "no row written"
 
 test_case "tmb_audit_append rejects an agent-impersonating from_node"
 ERR=$(tmb_audit_append "$DB" -1 '' bro probe_event "x" '{}' 2>&1 >/dev/null) && RC=0 || RC=$?
@@ -88,6 +102,15 @@ INSERT INTO issues (id, objective, description, status, repo, created_at, update
 VALUES (77, 'o', 'd', 'open', 'dbw-repo', '$(tmb_now_iso)', '$(tmb_now_iso)');" >/dev/null
 tmb_audit_append "$DB" 77 'feat/x' "hook:x" probe_repo "s" '{}' 2>/dev/null
 assert_eq "dbw-repo|feat/x" "$(count "SELECT repo || '|' || branch_id FROM audit WHERE event_type='probe_repo';")" "repo + branch_id"
+
+test_case "tmb_audit_sql guard: audit row only when the preceding UPDATE changed a row"
+SQL_HIT=$(tmb_audit_sql 77 '' "hook:x" probe_guard "hit" '{}' "(SELECT changes()) > 0")
+SQL_MISS=$(tmb_audit_sql 77 '' "hook:x" probe_guard "miss" '{}' "(SELECT changes()) > 0")
+tmb_db_write "$DB" "UPDATE issues SET status = 'closed' WHERE id = 77 AND status != 'closed';
+$SQL_HIT" 2>/dev/null
+tmb_db_write "$DB" "UPDATE issues SET status = 'closed' WHERE id = 77 AND status != 'closed';
+$SQL_MISS" 2>/dev/null
+assert_eq "hit" "$(count "SELECT group_concat(summary) FROM audit WHERE event_type='probe_guard';")" "guarded row written once"
 
 test_case "tmb_gate_read prints __ERR__ on a missing DB file"
 assert_eq "__ERR__" "$(tmb_gate_read "$TMPDIR_FIXTURE/nope.db" "SELECT 1;")" "missing DB"

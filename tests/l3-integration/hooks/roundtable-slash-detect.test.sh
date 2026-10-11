@@ -141,7 +141,7 @@ COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_s
 assert_eq "1" "$COUNT" "the retry must land the audit row once the lock releases"
 
 # ── bounded retry exhausted: lock outlasts every attempt ─────────────────────
-# The writer holds the lock longer than all three attempts (3 x 5s + sleeps).
+# The writer holds the lock longer than every attempt (2 x 5s + backoff).
 # The hook gives up, warns loudly on stderr, leaves no row, and still exits 0.
 
 test_case "/roundtable warns loudly and exits 0 when the lock outlasts all retries"
@@ -157,7 +157,7 @@ assert_eq "0" "$RC" "hook must exit 0 even when the INSERT never lands (fail-ope
 COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_slash_invoked';")
 assert_eq "0" "$COUNT" "no audit row when the lock outlasts every attempt"
 case "$OUT" in
-  *"FAILED to record roundtable_slash_invoked after 3 attempts"*) echo "  ✓ loud stderr warning emitted on final failure" ;;
+  *"FAILED to record roundtable_slash_invoked after retrying"*) echo "  ✓ loud stderr warning emitted on final failure" ;;
   *) echo "FAIL: expected FAILED warning on stderr, got: $OUT"; exit 1 ;;
 esac
 

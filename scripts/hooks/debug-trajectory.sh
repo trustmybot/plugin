@@ -19,6 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/query-task.sh" 2>/dev/null || true
 # shellcheck source=scripts/hooks/lib/db-write.sh
 . "$SCRIPT_DIR/lib/db-write.sh" 2>/dev/null || exit 0
+export TMB_DB_WRITE_TIMEOUT_MS=500
 
 # Resolve the trajectory DB path the same way the MCP server does.
 # Prefer env override, else <cwd>/.claude/<plugin-name>/trajectory.db.
