@@ -27,7 +27,7 @@ describe('runtime contexts', () => {
         assert.equal(context.cwd, '/invocation/cwd');
         assert.ok(!('projectRoot' in context));
         assert.equal(context.paths.trajectoryDb, join('/invocation/cwd', '.claude', 'tmb', 'trajectory.db'));
-        assert.equal(context.paths.logDir, join('/user/home', '.claude', 'tmb', 'logs'));
+        assert.equal(context.paths.logDir, join('/invocation/cwd', '.claude', 'tmb', 'logs'));
     });
     it('resolves Codex state side-effect free from explicit metadata only', () => {
         const { root, project, plugin } = fixture();

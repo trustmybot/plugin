@@ -54,7 +54,7 @@ describe('runtime contexts', () => {
     );
     assert.equal(
       context.paths.logDir,
-      join('/user/home', '.claude', 'tmb', 'logs'),
+      join('/invocation/cwd', '.claude', 'tmb', 'logs'),
     );
   });
 

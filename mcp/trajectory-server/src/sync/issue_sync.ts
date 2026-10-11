@@ -2,13 +2,12 @@ import { spawnSync, SpawnSyncOptions } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason, liveCliBlockedMessage } from '../utils/live-cli-guard.js';
 import { appendFileSync, mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { resolvePluginName } from '../db.js';
+import { resolveClaudeLogDir } from '../platform.js';
 
 function resolveLogDir(): string {
   if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
-  return join(homedir(), '.claude', resolvePluginName(process.env), 'logs');
+  return resolveClaudeLogDir();
 }
 
 const logDir = resolveLogDir();

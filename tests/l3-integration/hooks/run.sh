@@ -8,8 +8,18 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Hooks resolve the trajectory DB from CLAUDE_PROJECT_DIR first; a value
 # inherited from a Claude Code session would point tests at a live DB.
-unset CLAUDE_PROJECT_DIR
+unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT CLAUDE_CONFIG_DIR
 . "$HERE/../../l5-l6/lib/timeout-shim.sh"
+
+# Footprint: every test runs with HOME at one empty temp dir; after the suite it
+# must still be empty — no hook writes project state (or anything) under $HOME.
+# Tests that resolve the user's real toolchain (mise/homebrew) read it from
+# TMB_TEST_REAL_HOME; the embedding cache stays the shared user cache.
+FOOTPRINT_HOME="$(mktemp -d)"
+trap 'rm -rf "$FOOTPRINT_HOME"' EXIT
+export TMB_TEST_REAL_HOME="$HOME"
+export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
+export HOME="$FOOTPRINT_HOME"
 
 FAILED=0
 TOTAL=0
@@ -28,6 +38,14 @@ for t in "$HERE"/*.test.sh; do
     fi
   fi
 done
+
+LEAKED="$(find "$FOOTPRINT_HOME" -mindepth 1 -print 2>/dev/null | sed "s|^$FOOTPRINT_HOME|\$HOME|")"
+if [ -n "$LEAKED" ]; then
+  printf "\nFAIL footprint: hook tests wrote under HOME:\n%s\n" "$LEAKED"
+  FAILED=$((FAILED + 1))
+else
+  printf "\nfootprint: HOME untouched by the hook suite\n"
+fi
 
 printf "\n"
 if [ "$FAILED" -eq 0 ]; then

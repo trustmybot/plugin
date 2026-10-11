@@ -5,7 +5,7 @@ import {
   realpathSync,
   statSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import {
   basename,
@@ -171,13 +171,26 @@ function claudeDbLocation(root: string, pluginName: string): string {
   return join(root, CLAUDE_STATE_HOST_DIR, pluginName, 'trajectory.db');
 }
 
+/**
+ * Server logs live beside the trajectory DB, inside the project — never under
+ * the user's home. An in-memory DB has no project state dir, so its logs go to
+ * the OS temp dir.
+ */
+function claudeLogDirFor(trajectoryDb: string, pluginName: string): string {
+  if (trajectoryDb === ':memory:') return join(tmpdir(), `${pluginName}-memory-logs`);
+  return join(dirname(trajectoryDb), 'logs');
+}
+
 export function resolveClaudeLogDir(opts?: {
   env?: NodeJS.ProcessEnv;
+  cwd?: string;
   home?: string;
 }): string {
   const env = opts?.env ?? process.env;
+  const cwd = opts?.cwd ?? process.cwd();
   const home = opts?.home ?? homedir();
-  return join(home, '.claude', resolveClaudePluginName(env), 'logs');
+  const pluginName = resolveClaudePluginName(env);
+  return claudeLogDirFor(resolveClaudeDbPathForPlugin(pluginName, { env, cwd, home }), pluginName);
 }
 
 export function createClaudeRuntimeContext(opts?: {
@@ -195,7 +208,7 @@ export function createClaudeRuntimeContext(opts?: {
     stateDir,
     trajectoryDb,
     graphDb: resolveGraphDbPath(trajectoryDb),
-    logDir: join(home, '.claude', plugin.name, 'logs'),
+    logDir: claudeLogDirFor(trajectoryDb, plugin.name),
   });
 
   return Object.freeze({

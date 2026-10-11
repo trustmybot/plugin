@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { writeUserSettingsEnforcementShim } from '../tools/onboard-hooks-shim.js';
+import {
+  countShimEntries,
+  removeUserSettingsEnforcementShim,
+  writeUserSettingsEnforcementShim,
+} from '../tools/onboard-hooks-shim.js';
 
 // A hooks.json mirroring the real plugin's PreToolUse shape: each deny-capable
 // gate is preceded by advisory/allow-returning hooks that must be excluded so
@@ -60,6 +64,7 @@ interface HookCmd {
   command: string;
   timeout?: number;
   _tmb_managed?: boolean;
+  _tmb_project?: string;
 }
 interface HookGroup {
   matcher?: string;
@@ -73,11 +78,14 @@ describe('writeUserSettingsEnforcementShim', () => {
 
   const MARKETPLACE = 'trustmybot';
 
-  // A realistic install layout: .../plugins/cache/<marketplace>/tmb/<version>.
-  // The marketplace is derived from this path; the canonical resolver must exist
-  // under the plugin root so onboard can materialize it.
-  function makePluginRoot(base: string): string {
-    const root = join(base, 'cache', MARKETPLACE, 'tmb', '0.0.0');
+  const PROJECT = '/work/project-a';
+
+  // A realistic install layout under the temp home:
+  // <home>/.claude/plugins/cache/<marketplace>/tmb/<version>. The marketplace is
+  // derived from this path; the canonical resolver must exist under the plugin
+  // root so onboard can materialize it.
+  function makePluginRoot(home: string): string {
+    const root = join(home, '.claude', 'plugins', 'cache', MARKETPLACE, 'tmb', '0.0.0');
     mkdirSync(join(root, '.claude-plugin'), { recursive: true });
     writeFileSync(join(root, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'tmb' }));
     mkdirSync(join(root, 'hooks'), { recursive: true });
@@ -114,15 +122,19 @@ describe('writeUserSettingsEnforcementShim', () => {
   beforeEach(() => {
     base = mkdtempSync(join(tmpdir(), 'shim-test-'));
     homeDir = mkdtempSync(join(base, 'home-'));
-    pluginRoot = makePluginRoot(base);
+    pluginRoot = makePluginRoot(homeDir);
   });
+
+  function write(root: string | null = pluginRoot, projectRoot = PROJECT) {
+    return writeUserSettingsEnforcementShim({ pluginRoot: root, homeDir, projectRoot, headlessEnforcement: 'yes' });
+  }
 
   afterEach(() => {
     rmSync(base, { recursive: true, force: true });
   });
 
   it('fresh write: version-agnostic resolver commands, no version segment, resolver materialized', () => {
-    const res = writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
+    const res = write();
     assert.equal(res.written, true);
     assert.ok(existsSync(settingsPath()));
 
@@ -145,7 +157,7 @@ describe('writeUserSettingsEnforcementShim', () => {
   // Success Criterion 1 + Bug A: the Edit|Write group has no-source-edit-from-main
   // FIRST and excludes swe-brief-gate and the advisory lints.
   it('excludes advisory hooks; no-source-edit-from-main runs first in Edit|Write group', () => {
-    writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
+    write();
     const s = readSettings();
     const editGroup = groupFor(s, 'Edit|Write|MultiEdit|NotebookEdit');
     assert.ok(editGroup, 'Edit|Write group missing');
@@ -174,7 +186,7 @@ describe('writeUserSettingsEnforcementShim', () => {
 
   // Success Criterion 2 + Bug B: every TMB entry carries _tmb_managed:true.
   it('stamps _tmb_managed:true on every written TMB hook entry', () => {
-    writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
+    write();
     const s = readSettings();
     const entries = (s.hooks?.PreToolUse ?? []).flatMap((g) => g.hooks);
     assert.ok(entries.length > 0);
@@ -184,7 +196,7 @@ describe('writeUserSettingsEnforcementShim', () => {
   });
 
   it('excludes PostToolUse and SessionStart entries from hooks.json', () => {
-    writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
+    write();
     const s = readSettings();
     assert.equal(s.hooks?.PostToolUse, undefined);
     assert.equal(s.hooks?.SessionStart, undefined);
@@ -194,9 +206,9 @@ describe('writeUserSettingsEnforcementShim', () => {
   });
 
   it('idempotent re-write: running twice yields one TMB block, byte-identical, no version refs', () => {
-    writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
+    write();
     const first = readFileSync(settingsPath(), 'utf8');
-    writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
+    write();
     const second = readFileSync(settingsPath(), 'utf8');
     assert.equal(first, second);
     // Idempotent re-run never leaves a version-pinned path segment.
@@ -226,10 +238,10 @@ describe('writeUserSettingsEnforcementShim', () => {
     };
     writeFileSync(settingsPath(), JSON.stringify(stale, null, 2));
 
-    writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
+    write();
     const after1 = allPreCommands(readSettings()).length;
-    writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
-    writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
+    write();
+    write();
     const after3 = allPreCommands(readSettings());
 
     assert.equal(after3.length, after1, 'entries accumulated across writes');
@@ -253,7 +265,7 @@ describe('writeUserSettingsEnforcementShim', () => {
     };
     writeFileSync(settingsPath(), JSON.stringify(existing, null, 2));
 
-    const res = writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
+    const res = write();
     assert.equal(res.written, true);
 
     const s = readSettings();
@@ -264,7 +276,7 @@ describe('writeUserSettingsEnforcementShim', () => {
     assert.equal((s.hooks?.PostToolUse ?? []).length, 1);
 
     // Re-running purges only TMB entries; user hook survives, still no dup.
-    writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
+    write();
     const cmds2 = allPreCommands(readSettings());
     assert.equal(cmds2.length, cmds.length, 'entry count drifted on re-run');
     assert.ok(cmds2.includes('/usr/local/bin/my-user-hook.sh'));
@@ -324,7 +336,7 @@ describe('writeUserSettingsEnforcementShim', () => {
     };
     writeFileSync(settingsPath(), JSON.stringify(stale, null, 2));
 
-    const res = writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
+    const res = write();
     assert.equal(res.written, true);
 
     const s = readSettings();
@@ -340,7 +352,7 @@ describe('writeUserSettingsEnforcementShim', () => {
 
     // Re-running is idempotent (no accumulation).
     const before = readFileSync(settingsPath(), 'utf8');
-    writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
+    write();
     assert.equal(readFileSync(settingsPath(), 'utf8'), before, 'legacy re-run not idempotent');
   });
 
@@ -368,7 +380,7 @@ describe('writeUserSettingsEnforcementShim', () => {
     };
     writeFileSync(settingsPath(), JSON.stringify(existing, null, 2));
 
-    const res = writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
+    const res = write();
     assert.equal(res.written, true);
 
     const cmds = allPreCommands(readSettings());
@@ -397,9 +409,9 @@ describe('writeUserSettingsEnforcementShim', () => {
     mkdirSync(join(worktreeRoot, 'hooks'), { recursive: true });
     writeFileSync(join(worktreeRoot, 'hooks', 'hooks.json'), JSON.stringify(HOOKS_JSON));
 
-    const res = writeUserSettingsEnforcementShim({ pluginRoot: worktreeRoot, homeDir });
+    const res = write(worktreeRoot);
     assert.equal(res.written, false);
-    assert.equal(res.reason, 'plugin-root-in-worktree');
+    assert.equal(res.reason, 'plugin-root-not-installed');
 
     // settings.json untouched, byte-identical.
     assert.equal(readFileSync(settingsPath(), 'utf8'), before);
@@ -410,9 +422,9 @@ describe('writeUserSettingsEnforcementShim', () => {
     mkdirSync(join(worktreeRoot, 'hooks'), { recursive: true });
     writeFileSync(join(worktreeRoot, 'hooks', 'hooks.json'), JSON.stringify(HOOKS_JSON));
 
-    const res = writeUserSettingsEnforcementShim({ pluginRoot: worktreeRoot, homeDir });
+    const res = write(worktreeRoot);
     assert.equal(res.written, false);
-    assert.equal(res.reason, 'plugin-root-in-worktree');
+    assert.equal(res.reason, 'plugin-root-not-installed');
     assert.ok(!existsSync(settingsPath()));
   });
 
@@ -422,7 +434,7 @@ describe('writeUserSettingsEnforcementShim', () => {
     const existing = { model: 'opus', hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: '/usr/local/bin/keep.sh' }] }] } };
     writeFileSync(settingsPath(), JSON.stringify(existing, null, 2));
 
-    const res = writeUserSettingsEnforcementShim({ pluginRoot: null, homeDir });
+    const res = write(null);
     assert.equal(res.written, false);
     assert.ok(res.reason);
 
@@ -433,9 +445,110 @@ describe('writeUserSettingsEnforcementShim', () => {
 
   it('missing hooks.json: returns {written:false} reason and skips', () => {
     rmSync(join(pluginRoot, 'hooks', 'hooks.json'));
-    const res = writeUserSettingsEnforcementShim({ pluginRoot, homeDir });
+    const res = write();
     assert.equal(res.written, false);
     assert.ok(res.reason);
     assert.ok(!existsSync(settingsPath()));
+  });
+
+  it('headless_enforcement off: refuses to write, settings.json and resolver untouched', () => {
+    const res = writeUserSettingsEnforcementShim({ pluginRoot, homeDir, projectRoot: PROJECT, headlessEnforcement: 'no' });
+    assert.equal(res.written, false);
+    assert.equal(res.reason, 'headless_enforcement_off');
+    assert.ok(!existsSync(settingsPath()));
+    assert.ok(!existsSync(resolverPath()));
+    const unset = writeUserSettingsEnforcementShim({ pluginRoot, homeDir, projectRoot: PROJECT, headlessEnforcement: null });
+    assert.equal(unset.reason, 'headless_enforcement_off');
+  });
+
+  it('plugin installed under a different home: refuses to write this home', () => {
+    const otherHome = mkdtempSync(join(base, 'other-home-'));
+    const res = write(makePluginRoot(otherHome));
+    assert.equal(res.written, false);
+    assert.equal(res.reason, 'plugin-root-not-installed');
+    assert.ok(!existsSync(settingsPath()));
+  });
+
+  it('repo checkout / tmp copy plugin root: refuses to write', () => {
+    const checkout = join(base, 'tmp-review', 'plugin');
+    mkdirSync(join(checkout, 'hooks'), { recursive: true });
+    writeFileSync(join(checkout, 'hooks', 'hooks.json'), JSON.stringify(HOOKS_JSON));
+    const res = write(checkout);
+    assert.equal(res.written, false);
+    assert.equal(res.reason, 'plugin-root-not-installed');
+    assert.ok(!existsSync(settingsPath()));
+  });
+
+  it('every entry is tagged _tmb_project and invokes the resolver with --shim --project', () => {
+    const res = write();
+    assert.equal(res.written, true);
+    const entries = (readSettings().hooks?.PreToolUse ?? []).flatMap((g) => g.hooks);
+    assert.equal(res.entries, entries.length);
+    assert.equal(countShimEntries(pluginRoot), entries.length);
+    for (const h of entries) {
+      assert.equal(h._tmb_project, PROJECT);
+      assert.ok(h.command.endsWith(` --shim --project ${PROJECT}`), h.command);
+    }
+  });
+
+  it('project roots with spaces are shell-quoted', () => {
+    write(pluginRoot, '/work/my project');
+    const entries = (readSettings().hooks?.PreToolUse ?? []).flatMap((g) => g.hooks);
+    assert.ok(entries.every((h) => h.command.endsWith(`--project '/work/my project'`)));
+  });
+
+  it("another project's shim entries survive this project's write and removal", () => {
+    write(pluginRoot, '/work/project-b');
+    const bCount = allPreCommands(readSettings()).length;
+    write();
+    assert.equal(allPreCommands(readSettings()).length, bCount * 2);
+    const res = removeUserSettingsEnforcementShim({ pluginRoot, homeDir, projectRoot: PROJECT });
+    assert.equal(res.removed, bCount);
+    assert.equal(res.resolver_removed, false, 'resolver still referenced by project-b');
+    const left = (readSettings().hooks?.PreToolUse ?? []).flatMap((g) => g.hooks);
+    assert.equal(left.length, bCount);
+    assert.ok(left.every((h) => h._tmb_project === '/work/project-b'));
+    assert.ok(existsSync(resolverPath()));
+  });
+
+  it('yes → no removes exactly the managed groups and the unreferenced resolver', () => {
+    const existing = {
+      model: 'sonnet',
+      hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: '/usr/local/bin/my-user-hook.sh' }] }] },
+    };
+    writeFileSync(settingsPath(), JSON.stringify(existing, null, 2));
+    write();
+    const res = removeUserSettingsEnforcementShim({ pluginRoot, homeDir, projectRoot: PROJECT });
+    assert.ok(res.removed > 0);
+    assert.equal(res.resolver_removed, true);
+    assert.deepEqual(readSettings(), existing);
+    assert.ok(!existsSync(join(homeDir, '.claude', 'tmb-hooks')));
+  });
+
+  it('no with nothing to purge: settings.json byte-identical, never created', () => {
+    const res0 = removeUserSettingsEnforcementShim({ pluginRoot, homeDir, projectRoot: PROJECT });
+    assert.equal(res0.removed, 0);
+    assert.ok(!existsSync(settingsPath()));
+    writeFileSync(settingsPath(), '{ "model": "opus" }\n');
+    const res1 = removeUserSettingsEnforcementShim({ pluginRoot, homeDir, projectRoot: PROJECT });
+    assert.equal(res1.removed, 0);
+    assert.equal(readFileSync(settingsPath(), 'utf8'), '{ "model": "opus" }\n');
+  });
+
+  it('no purges legacy untagged TMB entries', () => {
+    const stale = {
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: 'Bash',
+            hooks: [{ type: 'command', command: `bash ${resolverPath()} --marketplace trustmybot --hook git-guards`, _tmb_managed: true }],
+          },
+        ],
+      },
+    };
+    writeFileSync(settingsPath(), JSON.stringify(stale, null, 2));
+    const res = removeUserSettingsEnforcementShim({ pluginRoot, homeDir, projectRoot: PROJECT });
+    assert.equal(res.removed, 1);
+    assert.equal(readSettings().hooks?.PreToolUse, undefined);
   });
 });

@@ -24,4 +24,25 @@ fi
 # the MCP server, which uses node:sqlite via its own --experimental-sqlite flag
 # on the spawned subprocess. The flag here is for any direct node:sqlite use
 # the test files might add later.
-exec node --experimental-sqlite --test --test-reporter spec "$HERE"/*.test.mjs
+#
+# Footprint: the suite runs against an empty temp HOME with no inherited
+# plugin root, so no server spawned here can reach the real ~/.claude, and the
+# HOME must still be empty afterwards.
+# The embedding model cache is a shared user cache, not TMB state: keep using
+# the real one so the suite never re-downloads the model.
+TOOL_PATH="$PATH"
+export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
+FOOTPRINT_HOME="$(mktemp -d)"
+trap 'rm -rf "$FOOTPRINT_HOME"' EXIT
+unset CLAUDE_PLUGIN_ROOT CLAUDE_PROJECT_DIR CLAUDE_CONFIG_DIR
+
+rc=0
+HOME="$FOOTPRINT_HOME" PATH="$TOOL_PATH" node --experimental-sqlite --test --test-reporter spec "$HERE"/*.test.mjs || rc=$?
+
+leaked="$(find "$FOOTPRINT_HOME" -mindepth 1 -print 2>/dev/null | sed "s|^$FOOTPRINT_HOME|\$HOME|")"
+if [ -n "$leaked" ]; then
+  printf 'FAIL footprint: the L3 MCP suite wrote under HOME:\n%s\n' "$leaked" >&2
+  exit 1
+fi
+printf 'footprint: HOME untouched by the L3 MCP suite\n'
+exit "$rc"

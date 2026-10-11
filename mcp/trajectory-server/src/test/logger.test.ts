@@ -197,7 +197,12 @@ describe('logger', () => {
         ],
         {
           encoding: 'utf8',
-          env: { ...process.env, HOME: tmpHome, CLAUDE_PLUGIN_ROOT: '' },
+          env: {
+            ...process.env,
+            HOME: tmpHome,
+            CLAUDE_PLUGIN_ROOT: '',
+            TRAJECTORY_DB_PATH: join(tmpHome, '.claude', 'tmb', 'trajectory.db'),
+          },
         },
       );
 
@@ -210,17 +215,21 @@ describe('logger', () => {
     }
   });
 
-  it('serverLog writes valid JSONL with payload and auto-ts', async () => {
+  it('serverLog writes valid JSONL beside the trajectory DB, never under HOME', async () => {
     const tmpHome = mkdtempSync(join(tmpdir(), 'tmb-logger-test-'));
+    const project = mkdtempSync(join(tmpdir(), 'tmb-logger-project-'));
     const savedHome = process.env['HOME'];
+    const savedDb = process.env['TRAJECTORY_DB_PATH'];
     try {
       process.env['HOME'] = tmpHome;
+      process.env['TRAJECTORY_DB_PATH'] = join(project, '.claude', 'tmb', 'trajectory.db');
 
       const { serverLog } = await import(`../logger.js?server-${Date.now()}`);
       serverLog({ kind: 'test', value: 42 });
 
-      const serverLogPath = join(tmpHome, '.claude', 'tmb', 'logs', 'mcp-server.log');
+      const serverLogPath = join(project, '.claude', 'tmb', 'logs', 'mcp-server.log');
       assert.ok(existsSync(serverLogPath), 'mcp-server.log must exist after serverLog call');
+      assert.ok(!existsSync(join(tmpHome, '.claude')), 'serverLog must not write under HOME');
 
       const raw = readFileSync(serverLogPath, 'utf8').trim();
       assert.ok(raw.length > 0, 'log file must not be empty');
@@ -231,6 +240,12 @@ describe('logger', () => {
       assert.ok(typeof parsed.ts === 'string', 'ts field must be present');
       assert.match(parsed.ts, /^\d{4}-\d{2}-\d{2}T/);
     } finally {
+      if (savedDb === undefined) {
+        delete process.env['TRAJECTORY_DB_PATH'];
+      } else {
+        process.env['TRAJECTORY_DB_PATH'] = savedDb;
+      }
+      rmSync(project, { recursive: true, force: true });
       if (savedHome === undefined) {
         delete process.env['HOME'];
       } else {
