@@ -529,7 +529,7 @@ describe('cheatcode_install', () => {
             cleanup();
         }
     });
-    it('persists scope=global when requested', async () => {
+    it('refuses scope=global with outside_project and records nothing', async () => {
         const db = tempDB();
         const { path, cleanup } = withFixture(INSTALL_OK);
         process.env['TMB_CHEATCODE_INSTALL_FIXTURE'] = path;
@@ -540,10 +540,11 @@ describe('cheatcode_install', () => {
                 candidate: { name: 'pdf-plugin', kind: 'plugin', source_url: 'https://github.com/x/pdf' },
                 scope: 'global',
             });
-            assert.notEqual(r.isError, true, `install errored: ${r.content[0]?.text}`);
-            assert.equal(parse(r)['scope'], 'global');
-            const row = db.get(`SELECT scope FROM cheatcodes WHERE origin != 'builtin' LIMIT 1`);
-            assert.equal(row.scope, 'global', 'global install persists global placement');
+            assert.equal(r.isError, true);
+            const out = parse(r);
+            assert.equal(out['error'], 'outside_project');
+            assert.match(String(out['message']), /scope=local/);
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM cheatcodes WHERE origin != 'builtin'`).c, 0);
         }
         finally {
             delete process.env['TMB_CHEATCODE_INSTALL_FIXTURE'];

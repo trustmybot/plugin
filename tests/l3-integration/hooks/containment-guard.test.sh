@@ -17,7 +17,8 @@ PROJECT="$SANDBOX/project"
 WT="$PROJECT/.claude/worktrees/cg-task"
 CACHE="$SANDBOX/model-cache"
 DB="$PROJECT/.claude/tmb/trajectory.db"
-mkdir -p "$WT/src" "$(dirname "$DB")" "$CACHE"
+HOST_TMP="$SANDBOX/host-tmp"
+mkdir -p "$WT/src" "$(dirname "$DB")" "$CACHE" "$HOST_TMP"
 sqlite3 "$DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
 NOW="2026-10-11T10:00:00.000Z"
 sqlite3 "$DB" "
@@ -35,7 +36,7 @@ run() {
     '{hook_event_name:"PreToolUse", session_id:"s-1", cwd:$cwd, tool_name:$tool, tool_input:$ti}
      + (if $at == "" then {} else {agent_type:$at} end)')
   (cd "$1" 2>/dev/null || cd "$SANDBOX" || exit 1
-   printf '%s' "$payload" | CLAUDE_PROJECT_DIR="${5:-$PROJECT}" TMB_MODEL_CACHE_DIR="$CACHE" bash "$HOOK" 2>&1)
+   printf '%s' "$payload" | CLAUDE_PROJECT_DIR="${5:-$PROJECT}" TMB_MODEL_CACHE_DIR="$CACHE" TMPDIR="$HOST_TMP" bash "$HOOK" 2>&1)
 }
 write() { jq -nc --arg p "$1" '{file_path:$p, content:"x"}'; }
 bash_cmd() { jq -nc --arg c "$1" '{command:$c}'; }
@@ -103,6 +104,13 @@ for cmd in 'cp a.txt b.txt' 'ls 2>/dev/null >> out.log' 'echo x 2>&1 | tee out' 
   assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$cmd")")")" "$cmd"
 done
 
+test_case "the host temp dir (\$TMPDIR) is allowed; /tmp outside it is not"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Write "$(write "$HOST_TMP/scratch.txt")")")" "Write under \$TMPDIR"
+REAL_HOST_TMP=$(cd -P "$HOST_TMP" && pwd -P)
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Write "$(write "$REAL_HOST_TMP/real.txt")")")" "Write under the realpath of \$TMPDIR"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "echo x > $HOST_TMP/out.txt")")")" "Bash redirect into \$TMPDIR"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Write "$(write /tmp/tmb-not-host-tmp/x)")")" "Write under /tmp outside \$TMPDIR"
+
 test_case "bro context: the root is the project"
 assert_eq "allow" "$(decision "$(run "$PROJECT" "" Write "$(write "$PROJECT/README.md")")")" "project file"
 OUT=$(run "$PROJECT" "" Write "$(write /tmp/x)")
@@ -113,7 +121,7 @@ assert_eq '{"tool":"Write","path":"/tmp/x","root":"'"$PROJECT"'","task_id":null}
 
 test_case "every denial wrote an audit row"
 assert_eq "$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='containment_denied';")" "$(denials)" "all rows from hook:containment-guard"
-assert_eq "15" "$(denials)" "one row per denial above"
+assert_eq "16" "$(denials)" "one row per denial above"
 
 test_case "un-onboarded project → allow"
 BARE="$SANDBOX/bare"

@@ -47,21 +47,31 @@ The invariant above covers what TMB itself writes. The agents it runs are held t
 
 | Tier | Layer | What it holds |
 |---|---|---|
-| 0 | Claude Code's Bash sandbox, written by `/onboard` (`sandbox_enforcement`, default **yes**) | OS-level: Bash, in the main loop and in every subagent, writes only to the working directory, the sandbox temp dir and `sandbox.filesystem.allowWrite` (the project and `TMB_MODEL_CACHE_DIR`). Does not cover the Write/Edit tools. |
-| 1 | Server tools (host-neutral) | `task_provision`, `pr_monitor_worktree` and `cheatcode_install` refuse a path outside the project with `{"error":"outside_project"}`. `pr_monitor_worktree` checks the commit out under `<repo>/.claude/worktrees/pr-review-<sha>`. |
-| 2 | [`scripts/hooks/containment-guard.sh`](../../scripts/hooks/containment-guard.sh) (PreToolUse Write/Edit/MultiEdit/NotebookEdit/Bash) | Denies a write outside the run's root: the open swe/pr-reviewer `root_dir` of the active task, else `CLAUDE_PROJECT_DIR`. File tools by the canonical `file_path`; Bash by its `cwd` and every write position [`lib/cmd-analysis.sh`](../../scripts/hooks/lib/cmd-analysis.sh) finds (redirects, `tee`, `cp`/`mv`/`rsync`/`install` destinations, `mkdir`, `rm`, `touch`, `git worktree add`, `git clone`) after heredoc bodies and quoted text are neutralized. The model cache and `/dev/null`-style devices are allowed; reads are not judged. Each denial writes a `containment_denied` audit row naming the tool, path, root and task. |
+| 0 | Claude Code's Bash sandbox, written by `/onboard` (`sandbox_enforcement`, default **no**) | OS-level: Bash, in the main loop and in every subagent, writes only to the working directory, the sandbox temp dir and `sandbox.filesystem.allowWrite` (the project and `TMB_MODEL_CACHE_DIR`). Does not cover the Write/Edit tools. |
+| 1 | Server tools (host-neutral) | `task_provision`, `pr_monitor_worktree` and `cheatcode_install` refuse a path outside the project with `{"error":"outside_project"}`; `cheatcode_install` refuses `scope=global` the same way (install project-local instead). `pr_monitor_worktree` checks the commit out under `<repo>/.claude/worktrees/pr-review-<sha>`. |
+| 2 | [`scripts/hooks/containment-guard.sh`](../../scripts/hooks/containment-guard.sh) (PreToolUse Write/Edit/MultiEdit/NotebookEdit/Bash) | Denies a write outside the run's root: the open swe/pr-reviewer `root_dir` of the active task, else `CLAUDE_PROJECT_DIR`. File tools by the canonical `file_path`; Bash by its `cwd` and every write position [`lib/cmd-analysis.sh`](../../scripts/hooks/lib/cmd-analysis.sh) finds (redirects, `tee`, `cp`/`mv`/`rsync`/`install` destinations, `mkdir`, `rm`, `touch`, `git worktree add`, `git clone`) after heredoc bodies and quoted text are neutralized. Writes are allowed under three roots — the run's root, the model cache (`TMB_MODEL_CACHE_DIR`) and the host's own temp dir (`$TMPDIR` when the host sets it, e.g. `/tmp/claude-501`, and its realpath) — mirroring what the sandbox leaves writable, plus `/dev/null`-style devices; reads are not judged. Each denial writes a `containment_denied` audit row naming the tool, path, root and task. |
+
+### Allowed write roots
+
+| Root | Why |
+|---|---|
+| The run's root — the swe's task worktree, else the project | The work itself |
+| `TMB_MODEL_CACHE_DIR` (default `HF_HOME`, else `~/.cache/huggingface`) | The shared embedding model cache, the one TMB path outside the project |
+| The host's temp dir, `$TMPDIR` when the host sets it, and its realpath | Host-owned ephemeral space the Claude Code sandbox itself leaves writable (`/tmp/claude-<uid>`). `/tmp` outside it is denied. TMB's own scripts and server never write there (`no-home-writes.sh`). |
 
 The hook is a parser, not a jail: a write behind an unresolvable variable (`> "$OUT"`), an interpreter (`python -c`), or a `cd` earlier in the same command is not judged. Tier 0 is the layer that cannot be talked around for Bash; the hook adds the file tools, the swe-worktree boundary (the sandbox allows the whole project) and the audit trail.
 
 ### Tier 0 settings block
 
-On **yes**, `onboard_apply` merges into `<project>/.claude/settings.local.json`:
+Only on an explicit **yes** does `onboard_apply` merge into `<project>/.claude/settings.local.json`:
 
 ```json
 { "sandbox": { "enabled": true, "filesystem": { "allowWrite": ["<project>", "<TMB_MODEL_CACHE_DIR>"] } } }
 ```
 
-Every other key, and every `allowWrite` path already present, is kept. What TMB added is recorded in `plugin_config.sandbox_settings`; **no** removes exactly that. Only a project named by the trajectory DB path is written. Network rules are not set, so Claude Code's sandbox defaults apply to network access.
+Every other key, and every `allowWrite` path already present, is kept. What TMB added is recorded in `plugin_config.sandbox_settings`; **no** removes exactly that. Only a project named by the trajectory DB path is written.
+
+**Network caveat — why the default is no.** The block sets no network rules, so with it Claude Code's sandbox network defaults apply to Bash. Phase-0 verified filesystem confinement only; whether those defaults block `gh`, `git push` or package installs (`bun install`) has not been tested. The default becomes **yes** only after a network Phase-0 confirms they keep working.
 
 ### Phase-0 finding (Claude Code 2.1.296, 2026-10-11)
 

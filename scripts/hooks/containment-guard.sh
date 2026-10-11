@@ -16,9 +16,11 @@
 #     path outside the root. Heredoc bodies and quoted text are data, not
 #     syntax. ~, $HOME, ${HOME} and $TMB_MODEL_CACHE_DIR are expanded; a path
 #     behind any other variable is not judged. Reads are never judged.
-#   Always allowed: the model cache (TMB_MODEL_CACHE_DIR, default
-#     ${HF_HOME:-~/.cache/huggingface}) and /dev/null, /dev/stdout,
-#     /dev/stderr, /dev/tty, /dev/fd/*.
+#   Always allowed, mirroring the Claude Code sandbox: the model cache
+#     (TMB_MODEL_CACHE_DIR, default ${HF_HOME:-~/.cache/huggingface}), the
+#     host's own temp dir ($TMPDIR when the host sets it, e.g. /tmp/claude-501,
+#     and its realpath) and /dev/null, /dev/stdout, /dev/stderr, /dev/tty,
+#     /dev/fd/*.
 #
 # Every denial writes one containment_denied audit row (from_node
 # hook:containment-guard, content {tool, path, root, task_id}) and names the
@@ -82,6 +84,10 @@ ROOT_C=$(tmb_path_canonical "$ROOT")
 CACHE_DIR="${TMB_MODEL_CACHE_DIR:-${HF_HOME:-}}"
 [ -n "$CACHE_DIR" ] || CACHE_DIR="$HOME/.cache/huggingface"
 CACHE_C=$(tmb_path_canonical "$CACHE_DIR")
+HOST_TMP_C=""
+case "${TMPDIR:-}" in
+  /?*) HOST_TMP_C=$(tmb_path_canonical "$TMPDIR") ;;
+esac
 
 # under <canonical-path> <canonical-dir>
 under() {
@@ -90,14 +96,16 @@ under() {
   return 1
 }
 
-# allowed <absolute-path> — inside the root, the model cache, or a device.
+# allowed <absolute-path> — inside the root, the model cache, the host temp
+# dir, or a device.
 allowed() {
   local c
   case "$1" in
     /dev/null|/dev/stdout|/dev/stderr|/dev/tty|/dev/fd/*) return 0 ;;
   esac
   c=$(tmb_path_canonical "$1")
-  under "$c" "$ROOT_C" || under "$c" "$CACHE_C"
+  under "$c" "$ROOT_C" || under "$c" "$CACHE_C" && return 0
+  [ -n "$HOST_TMP_C" ] && [ "$HOST_TMP_C" != "/" ] && under "$c" "$HOST_TMP_C"
 }
 
 deny() {

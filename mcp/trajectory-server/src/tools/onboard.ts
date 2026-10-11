@@ -484,14 +484,14 @@ function sandboxQuestion(current: string | null, isReonboard: boolean): BuiltQue
   }
   options.push(
     {
-      label: 'Yes',
-      description: "Bash may write only in this project and the model cache. Writes a sandbox block to this project's .claude/settings.local.json.",
-      wire: 'yes',
-    },
-    {
       label: 'No',
       description: "Bash writes follow Claude Code's defaults; the containment hook still guards.",
       wire: 'no',
+    },
+    {
+      label: 'Yes',
+      description: "Bash may write only in this project and the model cache. Writes a sandbox block to this project's .claude/settings.local.json; Claude Code's sandbox network defaults then apply to Bash.",
+      wire: 'yes',
     },
   );
   return {
@@ -499,7 +499,7 @@ function sandboxQuestion(current: string | null, isReonboard: boolean): BuiltQue
     header: 'Sandbox',
     multiSelect: false,
     options,
-    default_index: options.findIndex((o) => o.wire === 'yes'),
+    default_index: options.findIndex((o) => o.wire === 'no'),
   };
 }
 
@@ -584,7 +584,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             type: 'string',
             enum: ['shape', 'main', 'sync', 'headless', 'sandbox'],
             description:
-              "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only — issue_sync). 'headless' = headless_enforcement (any shape; default No). 'sandbox' = sandbox_enforcement (any shape; default Yes).",
+              "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only — issue_sync). 'headless' = headless_enforcement (any shape; default No). 'sandbox' = sandbox_enforcement (any shape; default No).",
           },
           repo: {
             type: 'string',
@@ -629,7 +629,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             type: 'string',
             enum: ['yes', 'no'],
             description:
-              "Optional. 'yes' writes Claude Code's Bash sandbox block (sandbox.enabled + filesystem.allowWrite = the project and the model cache) into the project's .claude/settings.local.json; 'no' removes what TMB wrote. Omit to keep the stored answer (default 'yes').",
+              "Optional. 'yes' writes Claude Code's Bash sandbox block (sandbox.enabled + filesystem.allowWrite = the project and the model cache) into the project's .claude/settings.local.json; 'no' removes what TMB wrote. Omit to keep the stored answer (default 'no').",
           },
           repo: {
             type: 'string',
@@ -700,7 +700,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             remotes: policy.remotes,
             issue_sync: readConfig(db, 'issue_sync'),
             headless_enforcement: readConfig(db, 'headless_enforcement') ?? 'no',
-            sandbox_enforcement: readConfig(db, 'sandbox_enforcement') ?? 'yes',
+            sandbox_enforcement: readConfig(db, 'sandbox_enforcement') ?? 'no',
           },
           probe: {
             in_git: git.in_git,
@@ -1000,7 +1000,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
         }
 
         const rawSandbox = args['sandbox_enforcement'] as string | undefined;
-        let sandbox_enforcement = (readConfig(db, 'sandbox_enforcement') as string | null) ?? 'yes';
+        let sandbox_enforcement = (readConfig(db, 'sandbox_enforcement') as string | null) ?? 'no';
         if (rawSandbox !== undefined) {
           const resolved = resolveOption(rawSandbox, SANDBOX_OPTIONS);
           if (resolved !== KEEP_SENTINEL) sandbox_enforcement = resolved ?? rawSandbox;

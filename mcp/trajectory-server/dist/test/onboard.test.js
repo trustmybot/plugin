@@ -904,23 +904,32 @@ describe('onboard tools', () => {
             mkdirSync(proj);
             return { base, proj, dbPath: join(proj, '.claude', 'tmb', 'trajectory.db'), settings: join(proj, '.claude', 'settings.local.json') };
         }
-        it('round=sandbox returns one question, default Yes', async () => {
+        it('round=sandbox returns one question, default No', async () => {
             const db = tempDB();
             const { base, dbPath } = project();
             const data = parse(await call(onboardTools(db, dbPath).handlers, 'onboard_get_questions', { round: 'sandbox' }));
             const q = data.questions[0];
             assert.equal(q.header, 'Sandbox');
-            assert.equal(q.options[q.default_index].wire, 'yes');
+            assert.equal(q.options[q.default_index].wire, 'no');
             rmSync(base, { recursive: true, force: true });
             db.close();
         });
-        it('default apply writes the sandbox block with the project and model cache; no removes only what TMB added', async () => {
+        it('default apply writes no sandbox block', async () => {
+            const db = tempDB();
+            const { base, dbPath, settings } = project();
+            const data = parse(await call(onboardTools(db, dbPath).handlers, 'onboard_apply', { shape: 'local' }));
+            assert.equal(data.applied.sandbox_enforcement, 'no');
+            assert.ok(!existsSync(settings));
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('yes writes the sandbox block with the project and model cache; no removes only what TMB added', async () => {
             const db = tempDB();
             const { base, proj, dbPath, settings } = project();
             mkdirSync(join(proj, '.claude'), { recursive: true });
             writeFileSync(settings, JSON.stringify({ model: 'x', sandbox: { filesystem: { allowWrite: ['/user/own'] } } }));
             const tools = onboardTools(db, dbPath);
-            const data = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local' }));
+            const data = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'yes' }));
             const applied = data.applied;
             assert.equal(applied.sandbox_enforcement, 'yes');
             const written = JSON.parse(readFileSync(settings, 'utf8'));
@@ -930,7 +939,7 @@ describe('onboard tools', () => {
             assert.ok(written.sandbox.filesystem.allowWrite.includes(proj), 'the project is writable');
             assert.equal(written.sandbox.filesystem.allowWrite.length, 3, 'project + model cache added');
             await call(tools.handlers, 'onboard_apply', { shape: 'local' });
-            assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), written, 're-apply is idempotent');
+            assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), written, 'a re-apply keeps the stored yes and is idempotent');
             await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'No' });
             assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), { model: 'x', sandbox: { filesystem: { allowWrite: ['/user/own'] } } }, 'purge leaves exactly the user settings');
             const state = parse(await call(tools.handlers, 'onboard_state_get', {}));
@@ -940,7 +949,7 @@ describe('onboard tools', () => {
         });
         it('writes nothing without a project derived from the DB path', async () => {
             const db = tempDB();
-            const data = parse(await call(onboardTools(db).handlers, 'onboard_apply', { shape: 'local' }));
+            const data = parse(await call(onboardTools(db).handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'yes' }));
             assert.equal(data.applied.sandbox.written, false);
             db.close();
         });
@@ -987,7 +996,7 @@ describe('onboard tools', () => {
             const data = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local' }));
             const applied = data.applied;
             assert.equal(applied.headless_enforcement, 'no');
-            assert.equal(JSON.parse(readFileSync(settings, 'utf8')).hooks, undefined, 'no shim hook entries');
+            assert.ok(!existsSync(settings), 'neither the shim nor a sandbox block is written by default');
             rmSync(base, { recursive: true, force: true });
             db.close();
         });
@@ -1006,7 +1015,7 @@ describe('onboard tools', () => {
             assert.ok(existsSync(join(project, '.claude', 'tmb', 'resolve-hook.sh')));
             const state = parse(await call(tools.handlers, 'onboard_state_get', {}));
             assert.equal(state.current.headless_enforcement, 'yes');
-            await call(tools.handlers, 'onboard_apply', { shape: 'local', headless_enforcement: 'no', sandbox_enforcement: 'no' });
+            await call(tools.handlers, 'onboard_apply', { shape: 'local', headless_enforcement: 'no' });
             assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), {});
             assert.ok(!existsSync(join(project, '.claude', 'tmb', 'resolve-hook.sh')));
             rmSync(base, { recursive: true, force: true });

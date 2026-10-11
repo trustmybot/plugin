@@ -31790,14 +31790,14 @@ function sandboxQuestion(current, isReonboard) {
   }
   options.push(
     {
-      label: "Yes",
-      description: "Bash may write only in this project and the model cache. Writes a sandbox block to this project's .claude/settings.local.json.",
-      wire: "yes"
-    },
-    {
       label: "No",
       description: "Bash writes follow Claude Code's defaults; the containment hook still guards.",
       wire: "no"
+    },
+    {
+      label: "Yes",
+      description: "Bash may write only in this project and the model cache. Writes a sandbox block to this project's .claude/settings.local.json; Claude Code's sandbox network defaults then apply to Bash.",
+      wire: "yes"
     }
   );
   return {
@@ -31805,7 +31805,7 @@ function sandboxQuestion(current, isReonboard) {
     header: "Sandbox",
     multiSelect: false,
     options,
-    default_index: options.findIndex((o) => o.wire === "yes")
+    default_index: options.findIndex((o) => o.wire === "no")
   };
 }
 function resolveOption(value, options) {
@@ -31861,7 +31861,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           round: {
             type: "string",
             enum: ["shape", "main", "sync", "headless", "sandbox"],
-            description: "'shape' = Round 1 (project shape \u2014 Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only \u2014 issue_sync). 'headless' = headless_enforcement (any shape; default No). 'sandbox' = sandbox_enforcement (any shape; default Yes)."
+            description: "'shape' = Round 1 (project shape \u2014 Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only \u2014 issue_sync). 'headless' = headless_enforcement (any shape; default No). 'sandbox' = sandbox_enforcement (any shape; default No)."
           },
           repo: {
             type: "string",
@@ -31902,7 +31902,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           sandbox_enforcement: {
             type: "string",
             enum: ["yes", "no"],
-            description: "Optional. 'yes' writes Claude Code's Bash sandbox block (sandbox.enabled + filesystem.allowWrite = the project and the model cache) into the project's .claude/settings.local.json; 'no' removes what TMB wrote. Omit to keep the stored answer (default 'yes')."
+            description: "Optional. 'yes' writes Claude Code's Bash sandbox block (sandbox.enabled + filesystem.allowWrite = the project and the model cache) into the project's .claude/settings.local.json; 'no' removes what TMB wrote. Omit to keep the stored answer (default 'no')."
           },
           repo: {
             type: "string",
@@ -31952,7 +31952,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             remotes: policy.remotes,
             issue_sync: readConfig(db2, "issue_sync"),
             headless_enforcement: readConfig(db2, "headless_enforcement") ?? "no",
-            sandbox_enforcement: readConfig(db2, "sandbox_enforcement") ?? "yes"
+            sandbox_enforcement: readConfig(db2, "sandbox_enforcement") ?? "no"
           },
           probe: {
             in_git: git.in_git,
@@ -32196,7 +32196,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           throw new Error(`headless_enforcement must be 'yes' or 'no' (got '${headless_enforcement}')`);
         }
         const rawSandbox = args["sandbox_enforcement"];
-        let sandbox_enforcement = readConfig(db2, "sandbox_enforcement") ?? "yes";
+        let sandbox_enforcement = readConfig(db2, "sandbox_enforcement") ?? "no";
         if (rawSandbox !== void 0) {
           const resolved = resolveOption(rawSandbox, SANDBOX_OPTIONS);
           if (resolved !== KEEP_SENTINEL) sandbox_enforcement = resolved ?? rawSandbox;
@@ -33620,7 +33620,7 @@ function cheatcodeTools(db2) {
     },
     {
       name: "cheatcode_install",
-      description: "Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope by default \u2014 pass scope=global for a user-wide install. Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|pr-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target \u2014 without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).",
+      description: "Install ONE approved cheatcode via the marketplace path (no seeding). Forks scripts/cheatcode-install.sh, records the cheatcodes + attachment row(s) in one transaction, emits cheatcode_install + cheatcode_installed audit rows. Installs in local (project) scope; scope=global is refused with outside_project (TMB installs nothing outside the project). Idempotent on (name, source_url). Blocked by a PreToolUse gate without a cheatcode_approve record. Pass target=<bro|swe|pr-reviewer|consultant> to materialize the consuming agent for a skill: it copies the global agent md into the PROJECT .claude/agents/<target>.md (if absent) and adds the skill to its skills: frontmatter (target=bro materializes the project .claude/CLAUDE.md instead). Materialization writes the user project, never the plugin repo. A skill install REQUIRES a target \u2014 without one it is hard-rejected (an unattached skill is an orphan no agent loads); mcp/plugin installs need no target (their registration is the binding).",
       inputSchema: {
         type: "object",
         properties: {
@@ -33643,7 +33643,7 @@ function cheatcodeTools(db2) {
           scope: {
             type: "string",
             enum: ["local", "global"],
-            description: "Install scope. local (default) = project-scoped, so no global/local prompt; global = user-wide. Forwarded to the install script and persisted on the cheatcodes row."
+            description: "Install scope. local (default) = project-scoped. global (user-wide) is refused with outside_project \u2014 TMB installs nothing outside the project."
           },
           target: {
             type: "string",
@@ -33788,7 +33788,20 @@ function cheatcodeTools(db2) {
         const { name, kind, sourceUrl, tier } = parsed;
         const trustTier = args["trust_tier"]?.trim() ?? null;
         const rawScope = args["scope"]?.trim();
-        const scope = rawScope === "global" ? "global" : "local";
+        if (rawScope === "global") {
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                error: "outside_project",
+                message: "cheatcode_install: scope=global installs outside the project (user-wide); TMB installs nothing outside the project. Re-call with scope=local (the default) to install into this project.",
+                scope: "global"
+              })
+            }],
+            isError: true
+          };
+        }
+        const scope = "local";
         const target = args["target"]?.trim() || null;
         if (kind === "skill" && !target) {
           return err17(
@@ -33855,7 +33868,7 @@ function cheatcodeTools(db2) {
             `cheatcode install failed for '${name}' (${kind}): ${out.error}. No row recorded.`
           );
         }
-        const placementScope = scope === "global" ? "global" : "project-local";
+        const placementScope = "project-local";
         const filePath = kind === "skill" ? `.claude/skills/${name}/SKILL.md` : null;
         const description = trustTier ? `${kind} cheatcode '${name}' (installed, vetted ${trustTier})` : `${kind} cheatcode '${name}' (installed)`;
         const materialized = [];

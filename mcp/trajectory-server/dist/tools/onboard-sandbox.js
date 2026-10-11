@@ -1,4 +1,4 @@
-// Native sandbox (containment Tier 0) — /onboard `sandbox_enforcement`, default yes.
+// Native sandbox (containment Tier 0) — /onboard `sandbox_enforcement`, default no.
 //
 // Claude Code's Bash sandbox confines Bash writes, the main loop's and every
 // subagent's, to the working directory plus `sandbox.filesystem.allowWrite`
@@ -9,8 +9,9 @@
 // into <project>/.claude/settings.local.json, keeping every other key and
 // every allowWrite entry already there. What it added is returned as a record
 // (stored in plugin_config.sandbox_settings) so answering no removes exactly
-// that — never a key or path the user set. The sandbox only restricts; it
-// grants nothing the session did not already have.
+// that — never a key or path the user set. The block is written only on an
+// explicit yes: Claude Code's sandbox network defaults then also apply to Bash,
+// which has not been verified against gh / git push / package installs.
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { TMB_MODEL_CACHE_DIR } from '../embeddings/model.js';

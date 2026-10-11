@@ -376,20 +376,20 @@ function sandboxQuestion(current, isReonboard) {
         options.push({ label: `Keep "${current}"`, description: 'No change.', wire: KEEP_SENTINEL });
     }
     options.push({
-        label: 'Yes',
-        description: "Bash may write only in this project and the model cache. Writes a sandbox block to this project's .claude/settings.local.json.",
-        wire: 'yes',
-    }, {
         label: 'No',
         description: "Bash writes follow Claude Code's defaults; the containment hook still guards.",
         wire: 'no',
+    }, {
+        label: 'Yes',
+        description: "Bash may write only in this project and the model cache. Writes a sandbox block to this project's .claude/settings.local.json; Claude Code's sandbox network defaults then apply to Bash.",
+        wire: 'yes',
     });
     return {
         question: "Confine Bash writes to this project with Claude Code's sandbox? Writes a sandbox block to this project's .claude/settings.local.json.",
         header: 'Sandbox',
         multiSelect: false,
         options,
-        default_index: options.findIndex((o) => o.wire === 'yes'),
+        default_index: options.findIndex((o) => o.wire === 'no'),
     };
 }
 // ---- Label → wire resolution -----------------------------------------------
@@ -457,7 +457,7 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     round: {
                         type: 'string',
                         enum: ['shape', 'main', 'sync', 'headless', 'sandbox'],
-                        description: "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only — issue_sync). 'headless' = headless_enforcement (any shape; default No). 'sandbox' = sandbox_enforcement (any shape; default Yes).",
+                        description: "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only — issue_sync). 'headless' = headless_enforcement (any shape; default No). 'sandbox' = sandbox_enforcement (any shape; default No).",
                     },
                     repo: {
                         type: 'string',
@@ -498,7 +498,7 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     sandbox_enforcement: {
                         type: 'string',
                         enum: ['yes', 'no'],
-                        description: "Optional. 'yes' writes Claude Code's Bash sandbox block (sandbox.enabled + filesystem.allowWrite = the project and the model cache) into the project's .claude/settings.local.json; 'no' removes what TMB wrote. Omit to keep the stored answer (default 'yes').",
+                        description: "Optional. 'yes' writes Claude Code's Bash sandbox block (sandbox.enabled + filesystem.allowWrite = the project and the model cache) into the project's .claude/settings.local.json; 'no' removes what TMB wrote. Omit to keep the stored answer (default 'no').",
                     },
                     repo: {
                         type: 'string',
@@ -562,7 +562,7 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     remotes: policy.remotes,
                     issue_sync: readConfig(db, 'issue_sync'),
                     headless_enforcement: readConfig(db, 'headless_enforcement') ?? 'no',
-                    sandbox_enforcement: readConfig(db, 'sandbox_enforcement') ?? 'yes',
+                    sandbox_enforcement: readConfig(db, 'sandbox_enforcement') ?? 'no',
                 },
                 probe: {
                     in_git: git.in_git,
@@ -840,7 +840,7 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                 throw new Error(`headless_enforcement must be 'yes' or 'no' (got '${headless_enforcement}')`);
             }
             const rawSandbox = args['sandbox_enforcement'];
-            let sandbox_enforcement = readConfig(db, 'sandbox_enforcement') ?? 'yes';
+            let sandbox_enforcement = readConfig(db, 'sandbox_enforcement') ?? 'no';
             if (rawSandbox !== undefined) {
                 const resolved = resolveOption(rawSandbox, SANDBOX_OPTIONS);
                 if (resolved !== KEEP_SENTINEL)
