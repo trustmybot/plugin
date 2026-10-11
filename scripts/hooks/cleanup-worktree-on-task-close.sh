@@ -77,6 +77,7 @@ command -v git >/dev/null 2>&1 || exit 0
 
 case "$TOOL_NAME" in
   *validation_record)
+    case "$_CWC_HAS_PASS" in "EXISTS (SELECT 1 FROM validation_attempts va"*) ;; *) exit 0 ;; esac
     PASSED=$(sqlite3 "$DB_PATH" "SELECT 1 FROM tasks t WHERE t.id=${SAFE_TASK_ID} AND t.status='closed' AND ${_CWC_HAS_PASS};" 2>/dev/null)
     [ "$PASSED" = "1" ] || exit 0
     ;;

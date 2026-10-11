@@ -28,6 +28,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/query-task.sh"
 # shellcheck source=lib/db-write.sh disable=SC1091
 . "$SCRIPT_DIR/lib/db-write.sh"
+# shellcheck source=lib/resolve-repo.sh disable=SC1091
+. "$SCRIPT_DIR/lib/resolve-repo.sh"
 
 INPUT=$(cat 2>/dev/null) || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
@@ -77,18 +79,16 @@ case "$COMMIT_SHA" in
   ''|*[!0-9a-fA-F]*) exit 0 ;;
 esac
 
-# Resolve the repo working tree. The DB lives three levels below
-# <workspace_root> (docs/reference/TRAJECTORY_DB_LOCATION.md), so
-# workspace_root is the grandparent's parent. The product repo is <workspace_root>/<repo>, falling
-# back to <workspace_root> itself (single-repo CC, empty repo column).
-WORKSPACE_ROOT="$(dirname "$(dirname "$(dirname "$DB")")")"
-REPO_PATH=""
-if [ -n "$REPO" ] && [ -d "$WORKSPACE_ROOT/$REPO/.git" ]; then
-  REPO_PATH="$WORKSPACE_ROOT/$REPO"
-elif [ -n "$REPO" ] && [ -d "$WORKSPACE_ROOT/$REPO" ] && git -C "$WORKSPACE_ROOT/$REPO" rev-parse --git-dir >/dev/null 2>&1; then
-  REPO_PATH="$WORKSPACE_ROOT/$REPO"
-elif git -C "$WORKSPACE_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
-  REPO_PATH="$WORKSPACE_ROOT"
+# Resolve the repo working tree from the repos table: the task's repo by name,
+# else the sole registered repo. A task with no repo in a project with no
+# registered repo uses the project root (the DB lives at
+# <project>/.claude/<plugin>/trajectory.db).
+REPO_PATH=$(tmb_repo_resolve_path "$DB" "$REPO")
+if [ -z "$REPO_PATH" ] && [ -z "$REPO" ]; then
+  REPO_PATH="$(dirname "$(dirname "$(dirname "$DB")")")"
+fi
+if [ -n "$REPO_PATH" ] && ! git -C "$REPO_PATH" rev-parse --git-dir >/dev/null 2>&1; then
+  REPO_PATH=""
 fi
 [ -n "$REPO_PATH" ] || exit 0
 
