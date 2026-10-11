@@ -184,6 +184,22 @@ assert_contains "$out" "not allowed for 'audit_append'" "role rejection"
 # tmb_fallback_issue_close
 # ---------------------------------------------------------------------------
 
+test_case "issue_close over a live task: refused with issue_has_open_tasks"
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, status, created_at, updated_at) VALUES (43, 1, 'completed', datetime('now'), datetime('now'));
+  INSERT INTO tasks (id, issue_id, status, created_at, updated_at) VALUES (44, 1, 'failed', datetime('now'), datetime('now'));"
+rc=0
+out=$(bash -c ". '$LIB'; tmb_fallback_issue_close 1 bro" 2>&1) || rc=$?
+assert_eq "1" "$rc" "non-zero exit over live tasks"
+assert_contains "$out" "issue_has_open_tasks: 42,43" "names the live task ids"
+
+test_case "issue_close over a live task: issue untouched, no audit row"
+status=$(sqlite3 "$DB" "SELECT status FROM issues WHERE id=1;")
+assert_eq "open" "$status" "issue stays open"
+count=$(audit_count_for "issue_close")
+assert_eq "0" "$count" "no audit row on refusal"
+
+sqlite3 "$DB" "UPDATE tasks SET status = 'escalated' WHERE id IN (42, 43);"
+
 test_case "issue_close happy path: status set to closed"
 call_lib "tmb_fallback_issue_close 1 bro" >/dev/null
 status=$(sqlite3 "$DB" "SELECT status FROM issues WHERE id=1;")

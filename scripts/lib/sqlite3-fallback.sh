@@ -150,13 +150,25 @@ ${SAFE_MARKER}"
 }
 
 # tmb_fallback_issue_close <issue_id> <agent>
+# Refuses (issue_has_open_tasks: <ids>) while any task of the issue is live
+# (pending/running/needs_validation/completed). No cascade on this MCP-down
+# path: bro escalates the tasks first.
 tmb_fallback_issue_close() {
   local issue_id="$1" agent="$2"
   local db; db=$(_tmb_require_db) || return 1
   tmb_have_sqlite || { echo "sqlite3-fallback: sqlite3 unavailable" >&2; return 1; }
   _tmb_fallback_check_role issue_close "$agent" || return 1
-  local SAFE_IID SAFE_NOW SAFE_MARKER
+  local SAFE_IID SAFE_NOW SAFE_MARKER live ids
   SAFE_IID=$(tmb_sql_int "$issue_id"); [ -n "$SAFE_IID" ] || { _tmb_fallback_bad_int issue_id "$issue_id"; return 1; }
+  live=$(tmb_gate_read "$db" "SELECT id FROM tasks WHERE issue_id = ${SAFE_IID}
+    AND status IN ('pending', 'running', 'needs_validation', 'completed') ORDER BY id;")
+  if [ "$live" = "__ERR__" ]; then
+    echo "sqlite3-fallback: cannot read the tasks of issue ${SAFE_IID}" >&2; return 1
+  fi
+  if [ -n "$live" ]; then
+    ids=$(printf '%s\n' "$live" | paste -sd, -)
+    echo "issue_has_open_tasks: ${ids}" >&2; return 1
+  fi
   SAFE_NOW=$(tmb_sql_quote "$(tmb_now_iso)")
   SAFE_MARKER=$(_tmb_fallback_marker_sql issue_close "$agent" "$(jq -nc --argjson i "$SAFE_IID" '{issue_id: $i}')") || return 1
   tmb_db_write "$db" "UPDATE issues
