@@ -30,11 +30,7 @@ DB=$(tmb_db_path) || exit 0
 tmb_have_sqlite || exit 0
 
 SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
-ROW=$(tmb_gate_read "$DB" "SELECT t.status, LENGTH(COALESCE(t.spec_body, '')),
-  COALESCE((SELECT r.id || ' (started ' || COALESCE(r.started_at, '?') || ')' FROM agent_runs r
-             WHERE r.task_id = t.id AND r.agent_type = 'swe' AND r.completed_at IS NULL
-             ORDER BY r.id DESC LIMIT 1), '')
-  FROM tasks t WHERE t.id = ${SAFE_TASK_ID};")
+ROW=$(tmb_gate_read "$DB" "SELECT status, LENGTH(COALESCE(spec_body, '')) FROM tasks WHERE id = ${SAFE_TASK_ID};")
 
 if [ "$ROW" = "__ERR__" ]; then
   tmb_deny_db_unavailable require-task-spec
@@ -49,9 +45,18 @@ fi
 ROW=$(printf '%s' "$ROW" | tr '|' '\n')
 STATUS=$(echo "$ROW" | awk 'NR==1')
 BODY_LEN=$(echo "$ROW" | awk 'NR==2')
-LIVE_RUN=$(echo "$ROW" | awk 'NR==3')
 
-if [ "$STATUS" = "running" ] && [ -n "$LIVE_RUN" ]; then
+LIVE_RUN=""
+if [ "$STATUS" = "running" ]; then
+  LIVE_RUN=$(tmb_gate_read "$DB" "SELECT id || ' (started ' || COALESCE(started_at, '?') || ')' FROM agent_runs
+    WHERE task_id = ${SAFE_TASK_ID} AND agent_type = 'swe' AND completed_at IS NULL ORDER BY id DESC LIMIT 1;")
+  if [ "$LIVE_RUN" = "__ERR__" ]; then
+    tmb_deny_db_unavailable require-task-spec
+    exit 0
+  fi
+fi
+
+if [ -n "$LIVE_RUN" ]; then
   jq -nc --arg id "$TASK_ID" --arg run "$LIVE_RUN" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: task_id="+$id+" is running with a live swe run: agent_runs "+$run+". Wait for that swe to return; if it is gone, move the task to failed (task_update_status) and task_reopen it.")}}'
   exit 0
 fi
