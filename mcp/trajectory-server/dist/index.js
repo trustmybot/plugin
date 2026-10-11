@@ -25147,6 +25147,279 @@ async function syncIssueClose(opts) {
   }
 }
 
+// src/tools/containment.ts
+import { lstatSync as lstatSync3, readlinkSync, realpathSync as realpathSync2 } from "node:fs";
+import { isAbsolute as isAbsolute2, join as join6, parse as parse3, relative as relative2, sep as sep2 } from "node:path";
+function projectRootFromDbPath(dbPath2) {
+  if (!dbPath2 || dbPath2 === ":memory:") return null;
+  const segments = dbPath2.split(sep2);
+  const idx = segments.lastIndexOf(".claude");
+  if (idx <= 0) return null;
+  return segments.slice(0, idx).join(sep2) || sep2;
+}
+function canonicalPath(path2) {
+  const absolute = isAbsolute2(path2) ? path2 : join6(process.cwd(), path2);
+  const root = parse3(absolute).root;
+  const pending = absolute.slice(root.length).split(sep2);
+  const real = [];
+  const tail = [];
+  let hops = 0;
+  while (pending.length > 0) {
+    const part = pending.shift();
+    if (part === "" || part === ".") continue;
+    if (tail.length > 0) {
+      if (part === "..") tail.pop();
+      else tail.push(part);
+      continue;
+    }
+    if (part === "..") {
+      real.pop();
+      continue;
+    }
+    const candidate = join6(root, ...real, part);
+    let stat;
+    try {
+      stat = lstatSync3(candidate);
+    } catch {
+      tail.push(part);
+      continue;
+    }
+    if (stat.isSymbolicLink() && hops < 40) {
+      hops += 1;
+      const target = readlinkSync(candidate);
+      if (isAbsolute2(target)) real.length = 0;
+      pending.unshift(...target.slice(isAbsolute2(target) ? parse3(target).root.length : 0).split(sep2));
+      continue;
+    }
+    real.push(part);
+  }
+  let head = join6(root, ...real);
+  try {
+    head = realpathSync2(head);
+  } catch {
+  }
+  return tail.length > 0 ? join6(head, ...tail) : head;
+}
+function isWithinRoot(root, path2) {
+  if (!isAbsolute2(path2)) return false;
+  const rel = relative2(canonicalPath(root), canonicalPath(path2));
+  return rel === "" || !rel.startsWith(`..${sep2}`) && rel !== ".." && !isAbsolute2(rel);
+}
+function outsideProject(tool, projectRoot, path2) {
+  if (projectRoot === null || isWithinRoot(projectRoot, path2)) return null;
+  return {
+    error: "outside_project",
+    message: `${tool}: ${path2} is outside the project ${projectRoot}; TMB writes only under the project.`,
+    path: path2,
+    project_root: projectRoot
+  };
+}
+
+// src/tools/agent-runs.ts
+var TERMINAL_TASK_STATUSES = /* @__PURE__ */ new Set(["closed", "failed", "escalated"]);
+function claudeRunContext(db2, dbPath2 = db2.dbPath) {
+  return { host: "claude", projectRoot: projectRootFromDbPath(dbPath2 || db2.dbPath) };
+}
+function exitReasonForStatus(status) {
+  if (status === "failed") return "failed";
+  if (status === "escalated") return "escalated";
+  return "completed";
+}
+var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
+var WINDOW_MS_SQL = "COALESCE(CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)";
+function closeOpenRunsForTask(db2, taskId, now, exitReason) {
+  return db2.run(
+    `UPDATE agent_runs
+        SET completed_at = ?,
+            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
+            exit_reason = ?
+      WHERE task_id = ?
+        AND completed_at IS NULL`,
+    [now, now, exitReason, taskId]
+  ).changes;
+}
+function sweepRunsOfTerminalTasks(db2, now) {
+  const placeholders = [...TERMINAL_TASK_STATUSES].map(() => "?").join(", ");
+  return db2.run(
+    `UPDATE agent_runs
+        SET completed_at = ?,
+            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
+            exit_reason = CASE WHEN usage_source IS NULL OR usage_source = 'unmeasured'
+                               THEN 'swept_orphan' ELSE 'swept_stale' END
+      WHERE completed_at IS NULL
+        AND task_id IN (SELECT id FROM tasks WHERE status IN (${placeholders}))`,
+    [now, now, ...TERMINAL_TASK_STATUSES]
+  ).changes;
+}
+var RUN_SESSION_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+var RUN_SESSION_ID_SCHEMA = {
+  type: "string",
+  pattern: "^[A-Za-z0-9_-]{8,64}$",
+  description: "Optional: your host session id (the session_id=<id> the activation routine injects each turn). Stamps the task's bro agent_runs row so its usage is attributed to this session."
+};
+function parseRunSessionId(value) {
+  if (value === void 0 || value === null) return null;
+  if (typeof value !== "string" || !RUN_SESSION_ID_RE.test(value)) {
+    throw new Error("session_id must be 8\u201364 characters of [A-Za-z0-9_-].");
+  }
+  return value;
+}
+function openBroRun(db2, task, now, ctx, sessionId = null) {
+  db2.run(
+    `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host, session_id)
+     VALUES (?, ?, 'bro', ?, ?, ?, ?, ?)`,
+    [task.id, task.issue_id, now, task.repo, ctx.projectRoot, ctx.host, sessionId]
+  );
+}
+function openSweRun(db2, task, now, ctx, rootDir) {
+  const orphanBefore = new Date(Date.parse(now) - SWE_ORPHAN_AFTER_MS).toISOString();
+  db2.run(
+    `UPDATE agent_runs
+        SET completed_at = ?,
+            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
+            exit_reason = 'swept_orphan'
+      WHERE task_id = ? AND agent_type = 'swe' AND completed_at IS NULL
+        AND started_at IS NOT NULL AND started_at < ?`,
+    [now, now, task.id, orphanBefore]
+  );
+  const open = db2.get(
+    `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'swe' AND completed_at IS NULL LIMIT 1`,
+    [task.id]
+  );
+  if (open) return false;
+  db2.run(
+    `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host)
+     VALUES (?, ?, 'swe', ?, ?, ?, ?)`,
+    [task.id, task.issue_id, now, task.repo, rootDir, ctx.host]
+  );
+  return true;
+}
+
+// src/tools/lifecycle.ts
+var LIVE_TASK_STATUSES = ["pending", "running", "needs_validation", "completed"];
+var LIVE_IN = LIVE_TASK_STATUSES.map((s) => `'${s}'`).join(", ");
+var WAIVE_REVIEW_REASON_MIN = 10;
+var REVIEW_ANCHOR_SQL = `COALESCE(
+  (SELECT MAX(a.created_at) FROM audit a
+    WHERE a.event_type = 'bro_verification_pass'
+      AND json_valid(a.content_json)
+      AND json_extract(a.content_json, '$.task_id') = t.id
+      AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha),
+  t.completed_at, '')`;
+var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
+  WHERE va.task_id = t.id AND va.verdict = 'pass' AND va.created_at >= ${REVIEW_ANCHOR_SQL})`;
+var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
+  WHERE g.event_type IN ('review_gate_bypassed', 'review_gate_waived')
+    AND json_valid(g.content_json)
+    AND json_extract(g.content_json, '$.task_id') = t.id
+    AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
+function liveTasksOfIssue(db2, issueId) {
+  return db2.all(
+    `SELECT id, issue_id, branch_id, status, commit_sha FROM tasks
+      WHERE issue_id = ? AND status IN (${LIVE_IN}) ORDER BY id`,
+    [issueId]
+  );
+}
+function taskHasPassingReview(db2, taskId) {
+  const row = db2.get(`SELECT ${HAS_PASS_SQL} AS ok FROM tasks t WHERE t.id = ?`, [taskId]);
+  return row?.ok === 1;
+}
+function closedTasksWithoutReview(db2, issueId) {
+  return db2.all(
+    `SELECT t.id, t.issue_id, t.branch_id, t.status, t.commit_sha FROM tasks t
+      WHERE t.issue_id = ? AND t.status = 'closed'
+        AND NOT ${HAS_PASS_SQL} AND NOT ${GATE_SKIP_RECORDED_SQL}
+      ORDER BY t.id`,
+    [issueId]
+  );
+}
+function recordReviewBypassIfUnreviewed(db2, task, closedBy, fromNode, now) {
+  if (taskHasPassingReview(db2, task.id)) return false;
+  insertAudit(db2, {
+    issue_id: task.issue_id,
+    branch_id: task.branch_id,
+    from_node: fromNode,
+    event_type: "review_gate_bypassed",
+    summary: `Task ${task.id} closed by ${closedBy} without a passing review`,
+    content_json: JSON.stringify({ task_id: task.id, commit_sha: task.commit_sha, closed_by: closedBy }),
+    created_at: now
+  });
+  return true;
+}
+function escalateLiveTasksForIssueClose(db2, tasks, reason, now) {
+  for (const task of tasks) {
+    db2.run(
+      `UPDATE tasks SET status = 'escalated', completed_at = NULL, updated_at = ? WHERE id = ?`,
+      [now, task.id]
+    );
+    insertAudit(db2, {
+      issue_id: task.issue_id,
+      branch_id: task.branch_id,
+      from_node: "bro",
+      event_type: "task_escalated_by_issue_close",
+      summary: `Task ${task.id} escalated from ${task.status} by issue_close cascade`,
+      content_json: JSON.stringify({ task_id: task.id, from_status: task.status, reason }),
+      created_at: now
+    });
+    closeOpenRunsForTask(db2, task.id, now, "issue_closed");
+  }
+}
+function markIssueClosed(db2, issueId, now) {
+  db2.run(
+    `UPDATE issues SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?) WHERE id = ?`,
+    [now, now, issueId]
+  );
+}
+var STALE_RUNNING_HOURS_DEFAULT = 6;
+var STALE_PENDING_DAYS = 7;
+function staleRunningHours(env = process.env) {
+  const raw = Number(env["TMB_STALE_RUNNING_HOURS"]);
+  return Number.isFinite(raw) && raw > 0 ? raw : STALE_RUNNING_HOURS_DEFAULT;
+}
+function sweepStaleTasks(db2, now) {
+  const nowMs = Date.parse(now);
+  const hours = staleRunningHours();
+  const runningCutoff = new Date(nowMs - hours * 36e5).toISOString();
+  const pendingCutoff = new Date(nowMs - STALE_PENDING_DAYS * 864e5).toISOString();
+  const stale = db2.all(
+    `SELECT t.id, t.issue_id, t.branch_id, t.status, t.commit_sha, t.updated_at FROM tasks t
+      WHERE t.status = 'running' AND t.updated_at < ?
+        AND NOT EXISTS (SELECT 1 FROM agent_runs r
+                         WHERE r.task_id = t.id AND r.agent_type = 'swe' AND r.completed_at IS NULL)
+      ORDER BY t.id`,
+    [runningCutoff]
+  );
+  let runsSwept = 0;
+  if (stale.length > 0) {
+    db2.transaction(() => {
+      for (const task of stale) {
+        db2.run(`UPDATE tasks SET status = 'failed', completed_at = NULL, updated_at = ? WHERE id = ?`, [now, task.id]);
+        insertAudit(db2, {
+          issue_id: task.issue_id,
+          branch_id: task.branch_id,
+          from_node: "bro",
+          event_type: "task_stale_swept",
+          summary: `Running task ${task.id} with no live swe since ${task.updated_at} swept to failed`,
+          content_json: JSON.stringify({
+            task_id: task.id,
+            from_status: "running",
+            last_updated_at: task.updated_at,
+            stale_after_hours: hours
+          }),
+          created_at: now
+        });
+        runsSwept += closeOpenRunsForTask(db2, task.id, now, "swept_stale");
+      }
+    });
+  }
+  const reported = db2.all(
+    `SELECT id AS task_id, issue_id, status, updated_at FROM tasks
+      WHERE status = 'pending' AND updated_at < ? ORDER BY id`,
+    [pendingCutoff]
+  );
+  return { tasks_swept: stale.map((t) => t.id), runs_swept: runsSwept, reported };
+}
+
 // src/tools/issues.ts
 var DEFAULT_CLASSIFICATION_LABELS = [
   "Bug",
@@ -25265,6 +25538,12 @@ function ok3(data) {
 function err3(message) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    isError: true
+  };
+}
+function refusal(code, detail) {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ error: code, ...detail }) }],
     isError: true
   };
 }
@@ -25414,19 +25693,35 @@ function issueTools(db2, dbPath2 = "", options = {}) {
     },
     {
       name: "issue_close",
-      description: "Close an issue by setting its status to closed.",
+      description: "Close an issue locally, then mirror the close to its linked remote. Refuses with issue_has_open_tasks (task ids + statuses) while any task is pending/running/needs_validation/completed, unless cascade=true escalates those tasks first (one task_escalated_by_issue_close audit row each, open agent_runs closed issue_closed). Refuses with tasks_without_review while a closed task has no passing pr-reviewer verdict for its current commit, unless waive_review=true + waive_review_reason records review_gate_waived per task.",
       inputSchema: {
         type: "object",
         properties: {
           agent: { type: "string" },
-          issue_id: { type: "string" }
+          issue_id: { type: "string" },
+          cascade: {
+            type: "boolean",
+            description: "When true, escalate every live task of the issue (pending/running/needs_validation/completed) and close their open agent_runs before closing the issue. Default false: refuse while tasks are live."
+          },
+          reason: {
+            type: "string",
+            description: "Optional reason stored on each task_escalated_by_issue_close audit row when cascade=true."
+          },
+          waive_review: {
+            type: "boolean",
+            description: "When true, close even though closed tasks lack a passing pr-reviewer verdict; writes one review_gate_waived audit row per such task. Requires waive_review_reason."
+          },
+          waive_review_reason: {
+            type: "string",
+            description: "Required when waive_review is true (min 10 chars): why the review is skipped."
+          }
         },
         required: ["agent", "issue_id"]
       }
     },
     {
       name: "issue_get_phase",
-      description: "Return the current workflow phase and task completion counts for an issue.",
+      description: "Return the current workflow phase and task counts for an issue. tasks_completed counts closed tasks only; tasks_awaiting_close counts tasks the SWE reported completed that bro has not closed yet. phase is ready_to_close once every task is closed.",
       inputSchema: {
         type: "object",
         properties: {
@@ -25865,15 +26160,56 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       if (!existing) {
         throw new Error(`Not found: ${issueId}`);
       }
-      db2.run(
-        `UPDATE issues
-         SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?)
-         WHERE id = ?`,
-        [now, now, issueId]
-      );
+      const cascade = args["cascade"] === true;
+      const waiveReview = args["waive_review"] === true;
+      const waiveReason = args["waive_review_reason"];
+      const cascadeReason = typeof args["reason"] === "string" && args["reason"].trim() !== "" ? args["reason"] : "issue closed with cascade";
+      if (waiveReview && (typeof waiveReason !== "string" || waiveReason.trim().length < WAIVE_REVIEW_REASON_MIN)) {
+        return err3(`waive_review_reason must be a string \u2265${WAIVE_REVIEW_REASON_MIN} chars.`);
+      }
+      const live = liveTasksOfIssue(db2, issueId);
+      if (live.length > 0 && !cascade) {
+        return refusal("issue_has_open_tasks", {
+          message: `Issue ${issueId} has tasks not in closed|failed|escalated. Finish them, or pass cascade=true to escalate them and close the issue.`,
+          tasks: live.map((t) => ({ task_id: t.id, status: t.status }))
+        });
+      }
+      const unreviewed = closedTasksWithoutReview(db2, issueId);
+      if (unreviewed.length > 0 && !waiveReview) {
+        return refusal("tasks_without_review", {
+          message: `Issue ${issueId} has closed tasks with no passing pr-reviewer verdict for their current commit. Run pr-reviewer, or pass waive_review=true with waive_review_reason="<why>".`,
+          tasks: unreviewed.map((t) => ({ task_id: t.id, commit_sha: t.commit_sha }))
+        });
+      }
+      db2.transaction(() => {
+        if (waiveReview) {
+          for (const t of unreviewed) {
+            insertAudit(db2, {
+              issue_id: t.issue_id,
+              branch_id: t.branch_id,
+              from_node: "bro",
+              event_type: "review_gate_waived",
+              summary: `issue_close review gate waived for task ${t.id}`,
+              content_json: JSON.stringify({
+                skill: "issue_close",
+                task_id: t.id,
+                commit_sha: t.commit_sha,
+                waive_review_reason: waiveReason
+              }),
+              created_at: now
+            });
+          }
+        }
+        escalateLiveTasksForIssueClose(db2, live, cascadeReason, now);
+        markIssueClosed(db2, issueId, now);
+      });
       await syncIssueCloseRemotes(db2, dbPath2, issueId, args["_spawnFn"]);
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      return ok3(decodeIssue(updated));
+      return ok3({
+        ...decodeIssue(updated),
+        tasks_escalated: live.map((t) => t.id),
+        review_waived_tasks: waiveReview ? unreviewed.map((t) => t.id) : []
+      });
     })),
     issue_get_phase: wrapHandler3(async (args) => {
       requireArg3(args, "agent");
@@ -25886,7 +26222,8 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       const rawCounts = db2.get(
         `SELECT
            COUNT(*) as tasks_total,
-           SUM(CASE WHEN status IN ('completed', 'closed') THEN 1 ELSE 0 END) as tasks_completed,
+           SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) as tasks_completed,
+           SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as tasks_awaiting_close,
            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as tasks_failed
          FROM tasks WHERE issue_id = ?`,
         [issueId]
@@ -25894,6 +26231,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       const counts = {
         tasks_total: rawCounts?.tasks_total ?? 0,
         tasks_completed: rawCounts?.tasks_completed ?? 0,
+        tasks_awaiting_close: rawCounts?.tasks_awaiting_close ?? 0,
         tasks_failed: rawCounts?.tasks_failed ?? 0
       };
       let phase;
@@ -26201,7 +26539,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
 // src/tools/milestones.ts
 import { spawnSync as spawnSync3 } from "node:child_process";
 import { existsSync as existsSync2, readFileSync as readFileSync3 } from "node:fs";
-import { join as join6 } from "node:path";
+import { join as join7 } from "node:path";
 
 // src/sync/milestone_sync.ts
 function splitSlug(slug) {
@@ -26454,10 +26792,10 @@ function highestVersionTag(repoPath) {
 }
 function readRepoVersion(repoPath) {
   const candidates = [
-    ["package.json", () => readJsonVersion(join6(repoPath, "package.json"))],
-    [".claude-plugin/plugin.json", () => readJsonVersion(join6(repoPath, ".claude-plugin", "plugin.json"))],
-    ["pyproject.toml", () => readTomlVersion(join6(repoPath, "pyproject.toml"), "project")],
-    ["Cargo.toml", () => readTomlVersion(join6(repoPath, "Cargo.toml"), "package")],
+    ["package.json", () => readJsonVersion(join7(repoPath, "package.json"))],
+    [".claude-plugin/plugin.json", () => readJsonVersion(join7(repoPath, ".claude-plugin", "plugin.json"))],
+    ["pyproject.toml", () => readTomlVersion(join7(repoPath, "pyproject.toml"), "project")],
+    ["Cargo.toml", () => readTomlVersion(join7(repoPath, "Cargo.toml"), "package")],
     ["git_tag", () => highestVersionTag(repoPath)]
   ];
   for (const [source, read] of candidates) {
@@ -26583,154 +26921,6 @@ function milestoneTools(db2) {
     }))
   };
   return { definitions, handlers };
-}
-
-// src/tools/containment.ts
-import { lstatSync as lstatSync3, readlinkSync, realpathSync as realpathSync2 } from "node:fs";
-import { isAbsolute as isAbsolute2, join as join7, parse as parse3, relative as relative2, sep as sep2 } from "node:path";
-function projectRootFromDbPath(dbPath2) {
-  if (!dbPath2 || dbPath2 === ":memory:") return null;
-  const segments = dbPath2.split(sep2);
-  const idx = segments.lastIndexOf(".claude");
-  if (idx <= 0) return null;
-  return segments.slice(0, idx).join(sep2) || sep2;
-}
-function canonicalPath(path2) {
-  const absolute = isAbsolute2(path2) ? path2 : join7(process.cwd(), path2);
-  const root = parse3(absolute).root;
-  const pending = absolute.slice(root.length).split(sep2);
-  const real = [];
-  const tail = [];
-  let hops = 0;
-  while (pending.length > 0) {
-    const part = pending.shift();
-    if (part === "" || part === ".") continue;
-    if (tail.length > 0) {
-      if (part === "..") tail.pop();
-      else tail.push(part);
-      continue;
-    }
-    if (part === "..") {
-      real.pop();
-      continue;
-    }
-    const candidate = join7(root, ...real, part);
-    let stat;
-    try {
-      stat = lstatSync3(candidate);
-    } catch {
-      tail.push(part);
-      continue;
-    }
-    if (stat.isSymbolicLink() && hops < 40) {
-      hops += 1;
-      const target = readlinkSync(candidate);
-      if (isAbsolute2(target)) real.length = 0;
-      pending.unshift(...target.slice(isAbsolute2(target) ? parse3(target).root.length : 0).split(sep2));
-      continue;
-    }
-    real.push(part);
-  }
-  let head = join7(root, ...real);
-  try {
-    head = realpathSync2(head);
-  } catch {
-  }
-  return tail.length > 0 ? join7(head, ...tail) : head;
-}
-function isWithinRoot(root, path2) {
-  if (!isAbsolute2(path2)) return false;
-  const rel = relative2(canonicalPath(root), canonicalPath(path2));
-  return rel === "" || !rel.startsWith(`..${sep2}`) && rel !== ".." && !isAbsolute2(rel);
-}
-function outsideProject(tool, projectRoot, path2) {
-  if (projectRoot === null || isWithinRoot(projectRoot, path2)) return null;
-  return {
-    error: "outside_project",
-    message: `${tool}: ${path2} is outside the project ${projectRoot}; TMB writes only under the project.`,
-    path: path2,
-    project_root: projectRoot
-  };
-}
-
-// src/tools/agent-runs.ts
-var TERMINAL_TASK_STATUSES = /* @__PURE__ */ new Set(["closed", "failed", "escalated"]);
-function claudeRunContext(db2, dbPath2 = db2.dbPath) {
-  return { host: "claude", projectRoot: projectRootFromDbPath(dbPath2 || db2.dbPath) };
-}
-function exitReasonForStatus(status) {
-  if (status === "failed") return "failed";
-  if (status === "escalated") return "escalated";
-  return "completed";
-}
-var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
-var WINDOW_MS_SQL = "COALESCE(CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)";
-function closeOpenRunsForTask(db2, taskId, now, exitReason) {
-  return db2.run(
-    `UPDATE agent_runs
-        SET completed_at = ?,
-            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
-            exit_reason = ?
-      WHERE task_id = ?
-        AND completed_at IS NULL`,
-    [now, now, exitReason, taskId]
-  ).changes;
-}
-function sweepRunsOfTerminalTasks(db2, now) {
-  const placeholders = [...TERMINAL_TASK_STATUSES].map(() => "?").join(", ");
-  return db2.run(
-    `UPDATE agent_runs
-        SET completed_at = ?,
-            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
-            exit_reason = CASE WHEN usage_source IS NULL OR usage_source = 'unmeasured'
-                               THEN 'swept_orphan' ELSE 'swept_stale' END
-      WHERE completed_at IS NULL
-        AND task_id IN (SELECT id FROM tasks WHERE status IN (${placeholders}))`,
-    [now, now, ...TERMINAL_TASK_STATUSES]
-  ).changes;
-}
-var RUN_SESSION_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
-var RUN_SESSION_ID_SCHEMA = {
-  type: "string",
-  pattern: "^[A-Za-z0-9_-]{8,64}$",
-  description: "Optional: your host session id (the session_id=<id> the activation routine injects each turn). Stamps the task's bro agent_runs row so its usage is attributed to this session."
-};
-function parseRunSessionId(value) {
-  if (value === void 0 || value === null) return null;
-  if (typeof value !== "string" || !RUN_SESSION_ID_RE.test(value)) {
-    throw new Error("session_id must be 8\u201364 characters of [A-Za-z0-9_-].");
-  }
-  return value;
-}
-function openBroRun(db2, task, now, ctx, sessionId = null) {
-  db2.run(
-    `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host, session_id)
-     VALUES (?, ?, 'bro', ?, ?, ?, ?, ?)`,
-    [task.id, task.issue_id, now, task.repo, ctx.projectRoot, ctx.host, sessionId]
-  );
-}
-function openSweRun(db2, task, now, ctx, rootDir) {
-  const orphanBefore = new Date(Date.parse(now) - SWE_ORPHAN_AFTER_MS).toISOString();
-  db2.run(
-    `UPDATE agent_runs
-        SET completed_at = ?,
-            duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
-            exit_reason = 'swept_orphan'
-      WHERE task_id = ? AND agent_type = 'swe' AND completed_at IS NULL
-        AND started_at IS NOT NULL AND started_at < ?`,
-    [now, now, task.id, orphanBefore]
-  );
-  const open = db2.get(
-    `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'swe' AND completed_at IS NULL LIMIT 1`,
-    [task.id]
-  );
-  if (open) return false;
-  db2.run(
-    `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host)
-     VALUES (?, ?, 'swe', ?, ?, ?, ?)`,
-    [task.id, task.issue_id, now, task.repo, rootDir, ctx.host]
-  );
-  return true;
 }
 
 // src/tools/tasks.ts
@@ -27003,7 +27193,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
     },
     {
       name: "task_update_status",
-      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically.",
+      description: "Update the status of a task. Optionally records a commit SHA in the same transaction, ensuring status and SHA are persisted atomically. A move to closed with no passing pr-reviewer verdict for the current commit still closes and writes a review_gate_bypassed audit row.",
       inputSchema: {
         type: "object",
         properties: {
@@ -27570,6 +27760,15 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
       const now = nowISO();
       const completedAt = status === "completed" ? now : status === "closed" ? task.completed_at : null;
       db2.transaction(() => {
+        if (status === "closed" && task.status !== "closed") {
+          recordReviewBypassIfUnreviewed(
+            db2,
+            { ...task, commit_sha: rawCommitSha ?? task.commit_sha ?? null },
+            "task_update_status",
+            agent,
+            now
+          );
+        }
         if (rawCommitSha !== void 0) {
           db2.run(
             `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, commit_sha = ? WHERE id = ?`,
@@ -28248,12 +28447,15 @@ function reportTools(db2) {
       if (mode === "summary") {
         const taskCounts = db2.get(
           `SELECT COUNT(*) AS total,
-                  SUM(CASE WHEN status IN ('completed','closed') THEN 1 ELSE 0 END) AS completed,
+                  SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) AS closed,
+                  SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS awaiting_close,
                   SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
            FROM tasks WHERE issue_id = ?`,
           [issueId]
         );
-        lines.push(`**Tasks:** ${taskCounts?.total ?? 0} total, ${taskCounts?.completed ?? 0} completed, ${taskCounts?.failed ?? 0} failed`);
+        lines.push(
+          `**Tasks:** ${taskCounts?.total ?? 0} total, ${taskCounts?.closed ?? 0} done (closed), ${taskCounts?.awaiting_close ?? 0} awaiting close, ${taskCounts?.failed ?? 0} failed`
+        );
         lines.push("");
         const auditCount = db2.get(`SELECT COUNT(*) AS n FROM audit WHERE issue_id = ?`, [issueId])?.n ?? 0;
         lines.push(`**Audit events:** ${auditCount}`);
@@ -28610,6 +28812,9 @@ function wrapHandler10(fn) {
     }
   };
 }
+function statusLabel(status) {
+  return status === "completed" ? "completed (awaiting close)" : status;
+}
 function branchReportMdTools(db2) {
   const definitions = [
     {
@@ -28664,6 +28869,10 @@ function branchReportMdTools(db2) {
         lines.push("");
         lines.push(`**Issue objective:** ${issue2.objective}`);
         lines.push("");
+        const doneCount = tasks.filter((t) => t.status === "closed").length;
+        const awaitingClose = tasks.filter((t) => t.status === "completed").length;
+        lines.push(`**Done:** ${doneCount} of ${tasks.length} closed, ${awaitingClose} awaiting close`);
+        lines.push("");
         if (mode === "summary") {
           lines.push("## Tasks on this branch");
           lines.push("");
@@ -28672,7 +28881,7 @@ function branchReportMdTools(db2) {
           for (const t of tasks) {
             const title = t.title || t.description.slice(0, 60);
             const commit = t.commit_sha || "\u2014";
-            lines.push(`| ${t.id} | ${title} | ${t.status} | ${commit} |`);
+            lines.push(`| ${t.id} | ${title} | ${statusLabel(t.status)} | ${commit} |`);
           }
           lines.push("");
           const auditCount = db2.get(
@@ -28715,8 +28924,8 @@ function branchReportMdTools(db2) {
         for (const t of tasks) {
           const title = t.title || t.description.slice(0, 60);
           const commit = t.commit_sha || "\u2014";
-          const closed = t.completed_at || "\u2014";
-          lines.push(`| ${t.id} | ${title} | ${t.status} | ${commit} | ${t.created_at} | ${closed} |`);
+          const closed = t.status === "closed" && t.completed_at ? t.completed_at : "\u2014";
+          lines.push(`| ${t.id} | ${title} | ${statusLabel(t.status)} | ${commit} | ${t.created_at} | ${closed} |`);
         }
         lines.push("");
         lines.push("## Audit events");
@@ -30053,7 +30262,17 @@ function insertIntentAndNote(db2, issueId, intentVerbatim, noteLine, now) {
   }
   return written;
 }
-function closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssueIfLast) {
+function closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssueIfLast, bypassClosedBy = null) {
+  let reviewGateBypassed = false;
+  if (bypassClosedBy !== null) {
+    reviewGateBypassed = recordReviewBypassIfUnreviewed(
+      db2,
+      { ...task, commit_sha: commitSha },
+      bypassClosedBy,
+      "bro",
+      now
+    );
+  }
   insertAudit(db2, {
     issue_id: task.issue_id,
     branch_id: task.branch_id,
@@ -30071,25 +30290,27 @@ function closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssu
   );
   closeOpenRunsForTask(db2, task.id, now, "completed");
   let issueClosed = false;
+  let openTasks = [];
   if (closeIssueIfLast) {
-    const remaining = db2.get(
-      `SELECT COUNT(*) AS c FROM tasks
-        WHERE issue_id = ?
-          AND status NOT IN ('closed', 'failed', 'escalated')`,
-      [task.issue_id]
-    );
-    if ((remaining?.c ?? 0) === 0) {
+    const live = liveTasksOfIssue(db2, task.issue_id);
+    if (live.length === 0) {
       db2.run(
         `UPDATE issues SET status='closed', closed_at=COALESCE(closed_at,?), updated_at=? WHERE id=? AND status != 'closed'`,
         [now, now, task.issue_id]
       );
       issueClosed = true;
+    } else {
+      openTasks = live.map((t) => ({ task_id: t.id, status: t.status }));
     }
   }
-  return { issue_closed: issueClosed };
+  return { issue_closed: issueClosed, issue_open_tasks: openTasks, review_gate_bypassed: reviewGateBypassed };
 }
-function outsideProjectResult(refusal) {
-  return { content: [{ type: "text", text: JSON.stringify(refusal) }], isError: true };
+function issueLeftOpen(requested, openTasks) {
+  if (!requested || openTasks.length === 0) return {};
+  return { issue_left_open: { reason: "issue_has_open_tasks", tasks: openTasks } };
+}
+function outsideProjectResult(refusal2) {
+  return { content: [{ type: "text", text: JSON.stringify(refusal2) }], isError: true };
 }
 function taskWorktreePath(repoPath, branchId) {
   return `${repoPath}/.claude/worktrees/${branchId.replace(/^[^/]+\//, "")}`;
@@ -30228,7 +30449,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "bro_atomic_close",
-      description: "Bro task-close composite \u2014 writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. PostToolUse hooks fire on bro_atomic_close (not task_update_status).",
+      description: "Bro task-close composite \u2014 writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. Runs before pr-reviewer: the payload carries review_pending=true (spawn pr-reviewer next). close_issue_if_last_task never closes the issue over a live sibling task; it leaves the issue open and returns issue_left_open {reason, tasks}. PostToolUse hooks fire on bro_atomic_close (not task_update_status).",
       inputSchema: {
         type: "object",
         properties: {
@@ -30241,7 +30462,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           },
           close_issue_if_last_task: {
             type: "boolean",
-            description: "When true and this is the issue's last open task, also close the issue in the same transaction."
+            description: "When true and no other task of the issue is pending/running/needs_validation/completed, also close the issue in the same transaction; otherwise the issue stays open and the payload names the live tasks (issue_left_open)."
           },
           waive_scope_gate: {
             type: "boolean",
@@ -30253,12 +30474,12 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_recover",
-      description: "Bro task-recovery composite \u2014 deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op. Every call also closes agent_runs rows still open on already-terminal tasks (runs_swept).",
+      description: "Bro task-recovery composite \u2014 deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue; a review_gate_bypassed audit row records a close with no passing pr-reviewer verdict), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op. Every call also runs the stale sweep: running tasks with no open swe agent_runs row and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) become failed (task_stale_swept audit row, open runs closed swept_stale); pending tasks older than 7 days are reported only; agent_runs rows still open on already-terminal tasks are closed. Returns {tasks_swept, runs_swept, reported} (plus the recovery result when task_id is given).",
       inputSchema: {
         type: "object",
         properties: {
           agent: { type: "string" },
-          task_id: { type: "string" },
+          task_id: { type: "string", description: "Optional. Omit to run only the stale sweep." },
           commit_sha: {
             type: "string",
             description: "Optional 7..40-char hex SHA of the recovered work. Required to advance to closed."
@@ -30272,7 +30493,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             description: "When true and this is the issue's last open task, also close the issue in the same transaction."
           }
         },
-        required: ["agent", "task_id"]
+        required: ["agent"]
       }
     },
     {
@@ -30456,8 +30677,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           );
         }
         for (const path2 of [repoPath, taskWorktreePath(repoPath, branchId)]) {
-          const refusal = outsideProject("task_provision", runContext.projectRoot, path2);
-          if (refusal) return outsideProjectResult(refusal);
+          const refusal2 = outsideProject("task_provision", runContext.projectRoot, path2);
+          if (refusal2) return outsideProjectResult(refusal2);
         }
         const base = args["base"] ?? (readRepoTargetBranch(db2, repoValue) ?? "dev");
         let branchReused = true;
@@ -31074,7 +31295,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const closeIssueIfLast = args["close_issue_if_last_task"] === true;
         const waiveScopeGate = args["waive_scope_gate"] === true;
         const task = db2.get(
-          "SELECT id, issue_id, branch_id, parent_branch_id, status, repo, files FROM tasks WHERE id = ? LIMIT 1",
+          "SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files FROM tasks WHERE id = ? LIMIT 1",
           [taskId]
         );
         if (!task) return err15(`No task with id=${taskId}`);
@@ -31116,15 +31337,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
               created_at: now
             });
           }
-          const { issue_closed } = closeTaskInTx(
-            db2,
-            task,
-            commitSha,
-            verificationSummary,
-            now,
-            closeIssueIfLast
-          );
-          return { task_id: task.id, issue_closed };
+          const closed = closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssueIfLast);
+          return {
+            task_id: task.id,
+            issue_closed: closed.issue_closed,
+            review_pending: true,
+            ...issueLeftOpen(closeIssueIfLast, closed.issue_open_tasks)
+          };
         });
         if (result.issue_closed) {
           await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args["_spawnFn"]);
@@ -31136,8 +31355,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
       "task_recover",
       ["bro"],
       wrap3(async (args) => {
-        const taskId = args["task_id"];
-        if (!taskId) return err15("Missing required arg: task_id");
+        const taskArg = args["task_id"];
+        const taskId = taskArg === void 0 || taskArg === null || taskArg === "" ? null : String(taskArg);
         const commitArg = args["commit_sha"];
         let commitSha = null;
         if (commitArg !== void 0 && commitArg !== null && commitArg !== "") {
@@ -31150,20 +31369,24 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         }
         const verificationSummary = typeof args["verification_summary"] === "string" ? args["verification_summary"] : `task_recover: stuck-pending recovery for task ${taskId}`;
         const closeIssueIfLast = args["close_issue_if_last_task"] === true;
-        const task = db2.get(
-          "SELECT id, issue_id, branch_id, status FROM tasks WHERE id = ? LIMIT 1",
-          [taskId]
-        );
-        if (!task) return err15(`No task with id=${taskId}`);
-        const runs_swept = sweepRunsOfTerminalTasks(db2, nowISO());
-        if (task.status !== "pending" && task.status !== "completed") {
+        const task = taskId === null ? null : db2.get("SELECT id, issue_id, branch_id, status, commit_sha FROM tasks WHERE id = ? LIMIT 1", [taskId]);
+        if (taskId !== null && !task) return err15(`No task with id=${taskId}`);
+        const sweep = sweepStaleTasks(db2, nowISO());
+        const sweepResult = {
+          tasks_swept: sweep.tasks_swept,
+          runs_swept: sweep.runs_swept + sweepRunsOfTerminalTasks(db2, nowISO()),
+          reported: sweep.reported
+        };
+        if (!task) return ok15(sweepResult);
+        const current = db2.get("SELECT status FROM tasks WHERE id = ?", [task.id]);
+        if (current.status !== "pending" && current.status !== "completed") {
           return ok15({
             recovered: false,
             action: "noop",
             task_id: task.id,
-            status: task.status,
-            reason: `task is "${task.status}" \u2014 not in a recoverable (pending/completed) state`,
-            runs_swept
+            status: current.status,
+            reason: `task is "${current.status}" \u2014 not in a recoverable (pending/completed) state`,
+            ...sweepResult
           });
         }
         if (!commitSha) {
@@ -31172,7 +31395,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             action: "re-dispatch",
             task_id: task.id,
             reason: "no commit on a pending task \u2014 re-dispatch SWE",
-            runs_swept
+            ...sweepResult
           });
         }
         const now = nowISO();
@@ -31182,19 +31405,11 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             branch_id: task.branch_id,
             from_node: "bro",
             event_type: "task_recovered",
-            summary: `Recovered stuck-${task.status} task ${task.id} at ${commitSha}`,
-            content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, prior_status: task.status }),
+            summary: `Recovered stuck-${current.status} task ${task.id} at ${commitSha}`,
+            content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, prior_status: current.status }),
             created_at: now
           });
-          const { issue_closed } = closeTaskInTx(
-            db2,
-            task,
-            commitSha,
-            verificationSummary,
-            now,
-            closeIssueIfLast
-          );
-          return { task_id: task.id, issue_closed };
+          return closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssueIfLast, "task_recover");
         });
         if (result.issue_closed) {
           await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args["_spawnFn"]);
@@ -31205,7 +31420,9 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           task_id: task.id,
           commit_sha: commitSha,
           issue_closed: result.issue_closed,
-          runs_swept
+          review_gate_bypassed: result.review_gate_bypassed,
+          ...issueLeftOpen(closeIssueIfLast, result.issue_open_tasks),
+          ...sweepResult
         });
       })
     )
@@ -33890,8 +34107,8 @@ function cheatcodeTools(db2) {
             paths.push(t === "bro" ? join13(projectRoot, ".claude", "CLAUDE.md") : join13(projectRoot, ".claude", "agents", `${t}.md`));
           }
           for (const path2 of paths) {
-            const refusal = outsideProject("cheatcode_install", projectRoot, path2);
-            if (refusal) return { content: [{ type: "text", text: JSON.stringify(refusal) }], isError: true };
+            const refusal2 = outsideProject("cheatcode_install", projectRoot, path2);
+            if (refusal2) return { content: [{ type: "text", text: JSON.stringify(refusal2) }], isError: true };
           }
           return null;
         };

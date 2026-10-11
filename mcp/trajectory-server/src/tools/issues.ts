@@ -11,6 +11,13 @@ import { syncIssueCreate, syncIssueClose, isSyncFailure, repoSlugFromRemoteUrl, 
 import type { SyncFailure } from '../sync/issue_sync.js';
 import { serverLog } from '../logger.js';
 import { insertAudit } from './audit.js';
+import {
+  WAIVE_REVIEW_REASON_MIN,
+  closedTasksWithoutReview,
+  escalateLiveTasksForIssueClose,
+  liveTasksOfIssue,
+  markIssueClosed,
+} from './lifecycle.js';
 
 type SpawnFn = (
   cmd: string,
@@ -237,6 +244,13 @@ function err(message: string): CallToolResult {
   };
 }
 
+function refusal(code: string, detail: Record<string, unknown>): CallToolResult {
+  return {
+    content: [{ type: 'text', text: JSON.stringify({ error: code, ...detail }) }],
+    isError: true,
+  };
+}
+
 function requireArg(args: Record<string, unknown>, name: string): unknown {
   if (args[name] === undefined || args[name] === null) {
     throw new Error(`Missing required arg: ${name}`);
@@ -436,19 +450,36 @@ export function issueTools(
     },
     {
       name: 'issue_close',
-      description: 'Close an issue by setting its status to closed.',
+      description:
+        'Close an issue locally, then mirror the close to its linked remote. Refuses with issue_has_open_tasks (task ids + statuses) while any task is pending/running/needs_validation/completed, unless cascade=true escalates those tasks first (one task_escalated_by_issue_close audit row each, open agent_runs closed issue_closed). Refuses with tasks_without_review while a closed task has no passing pr-reviewer verdict for its current commit, unless waive_review=true + waive_review_reason records review_gate_waived per task.',
       inputSchema: {
         type: 'object',
         properties: {
           agent: { type: 'string' },
           issue_id: { type: 'string' },
+          cascade: {
+            type: 'boolean',
+            description: 'When true, escalate every live task of the issue (pending/running/needs_validation/completed) and close their open agent_runs before closing the issue. Default false: refuse while tasks are live.',
+          },
+          reason: {
+            type: 'string',
+            description: 'Optional reason stored on each task_escalated_by_issue_close audit row when cascade=true.',
+          },
+          waive_review: {
+            type: 'boolean',
+            description: 'When true, close even though closed tasks lack a passing pr-reviewer verdict; writes one review_gate_waived audit row per such task. Requires waive_review_reason.',
+          },
+          waive_review_reason: {
+            type: 'string',
+            description: 'Required when waive_review is true (min 10 chars): why the review is skipped.',
+          },
         },
         required: ['agent', 'issue_id'],
       },
     },
     {
       name: 'issue_get_phase',
-      description: 'Return the current workflow phase and task completion counts for an issue.',
+      description: "Return the current workflow phase and task counts for an issue. tasks_completed counts closed tasks only; tasks_awaiting_close counts tasks the SWE reported completed that bro has not closed yet. phase is ready_to_close once every task is closed.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -959,17 +990,69 @@ export function issueTools(
         throw new Error(`Not found: ${issueId}`);
       }
 
-      db.run(
-        `UPDATE issues
-         SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?)
-         WHERE id = ?`,
-        [now, now, issueId],
-      );
+      const cascade = args['cascade'] === true;
+      const waiveReview = args['waive_review'] === true;
+      const waiveReason = args['waive_review_reason'];
+      const cascadeReason =
+        typeof args['reason'] === 'string' && args['reason'].trim() !== ''
+          ? (args['reason'] as string)
+          : 'issue closed with cascade';
+
+      if (waiveReview && (typeof waiveReason !== 'string' || waiveReason.trim().length < WAIVE_REVIEW_REASON_MIN)) {
+        return err(`waive_review_reason must be a string ≥${WAIVE_REVIEW_REASON_MIN} chars.`);
+      }
+
+      const live = liveTasksOfIssue(db, issueId);
+      if (live.length > 0 && !cascade) {
+        return refusal('issue_has_open_tasks', {
+          message:
+            `Issue ${issueId} has tasks not in closed|failed|escalated. Finish them, or pass cascade=true ` +
+            `to escalate them and close the issue.`,
+          tasks: live.map((t) => ({ task_id: t.id, status: t.status })),
+        });
+      }
+
+      const unreviewed = closedTasksWithoutReview(db, issueId);
+      if (unreviewed.length > 0 && !waiveReview) {
+        return refusal('tasks_without_review', {
+          message:
+            `Issue ${issueId} has closed tasks with no passing pr-reviewer verdict for their current commit. ` +
+            `Run pr-reviewer, or pass waive_review=true with waive_review_reason="<why>".`,
+          tasks: unreviewed.map((t) => ({ task_id: t.id, commit_sha: t.commit_sha })),
+        });
+      }
+
+      db.transaction(() => {
+        if (waiveReview) {
+          for (const t of unreviewed) {
+            insertAudit(db, {
+              issue_id: t.issue_id,
+              branch_id: t.branch_id,
+              from_node: 'bro',
+              event_type: 'review_gate_waived',
+              summary: `issue_close review gate waived for task ${t.id}`,
+              content_json: JSON.stringify({
+                skill: 'issue_close',
+                task_id: t.id,
+                commit_sha: t.commit_sha,
+                waive_review_reason: waiveReason,
+              }),
+              created_at: now,
+            });
+          }
+        }
+        escalateLiveTasksForIssueClose(db, live, cascadeReason, now);
+        markIssueClosed(db, issueId, now);
+      });
 
       await syncIssueCloseRemotes(db, dbPath, issueId, args['_spawnFn'] as SpawnFn | undefined);
 
       const updated = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
-      return ok(decodeIssue(updated!));
+      return ok({
+        ...decodeIssue(updated!),
+        tasks_escalated: live.map((t) => t.id),
+        review_waived_tasks: waiveReview ? unreviewed.map((t) => t.id) : [],
+      });
     })),
 
     issue_get_phase: wrapHandler(async (args) => {
@@ -985,11 +1068,13 @@ export function issueTools(
       const rawCounts = db.get<{
         tasks_total: number;
         tasks_completed: number | null;
+        tasks_awaiting_close: number | null;
         tasks_failed: number | null;
       }>(
         `SELECT
            COUNT(*) as tasks_total,
-           SUM(CASE WHEN status IN ('completed', 'closed') THEN 1 ELSE 0 END) as tasks_completed,
+           SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) as tasks_completed,
+           SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as tasks_awaiting_close,
            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as tasks_failed
          FROM tasks WHERE issue_id = ?`,
         [issueId],
@@ -997,6 +1082,7 @@ export function issueTools(
       const counts = {
         tasks_total: rawCounts?.tasks_total ?? 0,
         tasks_completed: rawCounts?.tasks_completed ?? 0,
+        tasks_awaiting_close: rawCounts?.tasks_awaiting_close ?? 0,
         tasks_failed: rawCounts?.tasks_failed ?? 0,
       };
 

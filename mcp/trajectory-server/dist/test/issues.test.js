@@ -467,7 +467,7 @@ describe('issueTools — remote sync', () => {
         assert.equal(data.skipped, true);
         db.close();
     });
-    it('issue_get_phase returns ready_to_close when all tasks completed and issue open', async () => {
+    it('issue_get_phase keeps a completed-but-unclosed task out of done (awaiting close)', async () => {
         const db = tempDB();
         const tools = issueTools(db);
         const createResult = await call(tools.handlers, 'issue_create', {
@@ -485,9 +485,10 @@ describe('issueTools — remote sync', () => {
         });
         const phaseData = parseResult(phaseResult);
         assert.ok(!phaseResult.isError, `Expected no error: ${JSON.stringify(phaseData)}`);
-        assert.equal(phaseData.phase, 'ready_to_close', `Expected ready_to_close, got ${phaseData.phase}`);
+        assert.equal(phaseData.phase, 'tasks', `Expected tasks, got ${phaseData.phase}`);
         assert.equal(phaseData.counts.tasks_total, 1);
-        assert.equal(phaseData.counts.tasks_completed, 1);
+        assert.equal(phaseData.counts.tasks_completed, 0, 'completed is not done until closed');
+        assert.equal(phaseData.counts.tasks_awaiting_close, 1);
         db.close();
     });
     it('issue_get_phase returns tasks when some tasks still pending', async () => {

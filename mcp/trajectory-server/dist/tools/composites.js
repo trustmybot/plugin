@@ -7,6 +7,7 @@ import { insertDiscussion } from './discussions.js';
 import { insertAudit } from './audit.js';
 import { claudeRunContext, closeOpenRunsForTask, openBroRun, openSweRun, parseRunSessionId, RUN_SESSION_ID_SCHEMA, sweepRunsOfTerminalTasks, } from './agent-runs.js';
 import { outsideProject } from './containment.js';
+import { liveTasksOfIssue, recordReviewBypassIfUnreviewed, sweepStaleTasks } from './lifecycle.js';
 import { syncIssueCloseRemotes, resolveDefaultMilestone, milestoneDefaultFields, validateIssueLabels, defaultSyncLabels, } from './issues.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolveSoleRepo } from '../utils/repo-paths.js';
@@ -211,9 +212,17 @@ function insertIntentAndNote(db, issueId, intentVerbatim, noteLine, now) {
 // Shared close path for bro_atomic_close + task_recover: in the caller's
 // transaction, advance a task to closed (writing bro_verification_pass +
 // finalizing the bro agent_run row) and optionally close the parent issue when
-// this was its last open task. Returns whether the issue was closed so the
-// caller can mirror the close to the remote after the transaction commits.
-function closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast) {
+// no other task of it is live. `bypassClosedBy` names a closer that is not
+// bro_atomic_close: when the task has no passing review for its current
+// commit, a review_gate_bypassed row records it before the close. Returns
+// whether the issue was closed (so the caller can mirror the close to the
+// remote after the transaction commits) and, when it was left open, the live
+// tasks that held it.
+function closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast, bypassClosedBy = null) {
+    let reviewGateBypassed = false;
+    if (bypassClosedBy !== null) {
+        reviewGateBypassed = recordReviewBypassIfUnreviewed(db, { ...task, commit_sha: commitSha }, bypassClosedBy, 'bro', now);
+    }
     // 1. bro_verification_pass audit row.
     insertAudit(db, {
         issue_id: task.issue_id,
@@ -230,18 +239,27 @@ function closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssue
       WHERE id=?`, [commitSha, now, now, task.id]);
     // 3. close every open agent_runs row of the task (bro and swe).
     closeOpenRunsForTask(db, task.id, now, 'completed');
-    // 4. optional issue_close — only when this was the last open/active task.
+    // 4. optional issue close — the issue_close rule: never over a live task.
     let issueClosed = false;
+    let openTasks = [];
     if (closeIssueIfLast) {
-        const remaining = db.get(`SELECT COUNT(*) AS c FROM tasks
-        WHERE issue_id = ?
-          AND status NOT IN ('closed', 'failed', 'escalated')`, [task.issue_id]);
-        if ((remaining?.c ?? 0) === 0) {
+        const live = liveTasksOfIssue(db, task.issue_id);
+        if (live.length === 0) {
             db.run(`UPDATE issues SET status='closed', closed_at=COALESCE(closed_at,?), updated_at=? WHERE id=? AND status != 'closed'`, [now, now, task.issue_id]);
             issueClosed = true;
         }
+        else {
+            openTasks = live.map((t) => ({ task_id: t.id, status: t.status }));
+        }
     }
-    return { issue_closed: issueClosed };
+    return { issue_closed: issueClosed, issue_open_tasks: openTasks, review_gate_bypassed: reviewGateBypassed };
+}
+// The payload field that tells the caller why close_issue_if_last_task left
+// the issue open.
+function issueLeftOpen(requested, openTasks) {
+    if (!requested || openTasks.length === 0)
+        return {};
+    return { issue_left_open: { reason: 'issue_has_open_tasks', tasks: openTasks } };
 }
 function outsideProjectResult(refusal) {
     return { content: [{ type: 'text', text: JSON.stringify(refusal) }], isError: true };
@@ -390,6 +408,8 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
         {
             name: 'bro_atomic_close',
             description: 'Bro task-close composite — writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. ' +
+                'Runs before pr-reviewer: the payload carries review_pending=true (spawn pr-reviewer next). ' +
+                'close_issue_if_last_task never closes the issue over a live sibling task; it leaves the issue open and returns issue_left_open {reason, tasks}. ' +
                 'PostToolUse hooks fire on bro_atomic_close (not task_update_status).',
             inputSchema: {
                 type: 'object',
@@ -403,8 +423,8 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                     },
                     close_issue_if_last_task: {
                         type: 'boolean',
-                        description: 'When true and this is the issue\'s last open task, also close the issue in the ' +
-                            'same transaction.',
+                        description: 'When true and no other task of the issue is pending/running/needs_validation/completed, also close the issue in the ' +
+                            'same transaction; otherwise the issue stays open and the payload names the live tasks (issue_left_open).',
                     },
                     waive_scope_gate: {
                         type: 'boolean',
@@ -419,12 +439,14 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
         },
         {
             name: 'task_recover',
-            description: 'Bro task-recovery composite — deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op. Every call also closes agent_runs rows still open on already-terminal tasks (runs_swept).',
+            description: 'Bro task-recovery composite — deterministically recovers a SWE task left stuck pending/completed after the executor died: with a commit_sha it closes the task (and optionally the issue; a review_gate_bypassed audit row records a close with no passing pr-reviewer verdict), without one it returns a re-dispatch directive, and a non-recoverable status is an idempotent no-op. ' +
+                'Every call also runs the stale sweep: running tasks with no open swe agent_runs row and updated_at older than TMB_STALE_RUNNING_HOURS (default 6) become failed (task_stale_swept audit row, open runs closed swept_stale); pending tasks older than 7 days are reported only; agent_runs rows still open on already-terminal tasks are closed. ' +
+                'Returns {tasks_swept, runs_swept, reported} (plus the recovery result when task_id is given).',
             inputSchema: {
                 type: 'object',
                 properties: {
                     agent: { type: 'string' },
-                    task_id: { type: 'string' },
+                    task_id: { type: 'string', description: 'Optional. Omit to run only the stale sweep.' },
                     commit_sha: {
                         type: 'string',
                         description: 'Optional 7..40-char hex SHA of the recovered work. Required to advance to closed.',
@@ -439,7 +461,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                             'same transaction.',
                     },
                 },
-                required: ['agent', 'task_id'],
+                required: ['agent'],
             },
         },
         {
@@ -1271,7 +1293,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             }
             const closeIssueIfLast = args['close_issue_if_last_task'] === true;
             const waiveScopeGate = args['waive_scope_gate'] === true;
-            const task = db.get('SELECT id, issue_id, branch_id, parent_branch_id, status, repo, files FROM tasks WHERE id = ? LIMIT 1', [taskId]);
+            const task = db.get('SELECT id, issue_id, branch_id, parent_branch_id, status, commit_sha, repo, files FROM tasks WHERE id = ? LIMIT 1', [taskId]);
             if (!task)
                 return err(`No task with id=${taskId}`);
             if (task.status !== 'completed' && task.status !== 'needs_validation') {
@@ -1324,8 +1346,13 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                         created_at: now,
                     });
                 }
-                const { issue_closed } = closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast);
-                return { task_id: task.id, issue_closed };
+                const closed = closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast);
+                return {
+                    task_id: task.id,
+                    issue_closed: closed.issue_closed,
+                    review_pending: true,
+                    ...issueLeftOpen(closeIssueIfLast, closed.issue_open_tasks),
+                };
             });
             // Mirror the close to the linked remote(s) — same path issue_close
             // uses — so closing the last task via the composite doesn't leave the
@@ -1338,9 +1365,8 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             return ok(result);
         })),
         task_recover: requireRoles('task_recover', ['bro'], wrap(async (args) => {
-            const taskId = args['task_id'];
-            if (!taskId)
-                return err('Missing required arg: task_id');
+            const taskArg = args['task_id'];
+            const taskId = taskArg === undefined || taskArg === null || taskArg === '' ? null : String(taskArg);
             const commitArg = args['commit_sha'];
             let commitSha = null;
             if (commitArg !== undefined && commitArg !== null && commitArg !== '') {
@@ -1356,20 +1382,30 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 ? args['verification_summary']
                 : `task_recover: stuck-pending recovery for task ${taskId}`;
             const closeIssueIfLast = args['close_issue_if_last_task'] === true;
-            const task = db.get('SELECT id, issue_id, branch_id, status FROM tasks WHERE id = ? LIMIT 1', [taskId]);
-            if (!task)
+            const task = taskId === null
+                ? null
+                : db.get('SELECT id, issue_id, branch_id, status, commit_sha FROM tasks WHERE id = ? LIMIT 1', [taskId]);
+            if (taskId !== null && !task)
                 return err(`No task with id=${taskId}`);
-            const runs_swept = sweepRunsOfTerminalTasks(db, nowISO());
+            const sweep = sweepStaleTasks(db, nowISO());
+            const sweepResult = {
+                tasks_swept: sweep.tasks_swept,
+                runs_swept: sweep.runs_swept + sweepRunsOfTerminalTasks(db, nowISO()),
+                reported: sweep.reported,
+            };
+            if (!task)
+                return ok(sweepResult);
+            const current = db.get('SELECT status FROM tasks WHERE id = ?', [task.id]);
             // Idempotent: already-closed (or any non-recoverable status) → no-op
             // naming the status. Never throws on an already-recovered task.
-            if (task.status !== 'pending' && task.status !== 'completed') {
+            if (current.status !== 'pending' && current.status !== 'completed') {
                 return ok({
                     recovered: false,
                     action: 'noop',
                     task_id: task.id,
-                    status: task.status,
-                    reason: `task is "${task.status}" — not in a recoverable (pending/completed) state`,
-                    runs_swept,
+                    status: current.status,
+                    reason: `task is "${current.status}" — not in a recoverable (pending/completed) state`,
+                    ...sweepResult,
                 });
             }
             // Pending with no commit: the work isn't there to recover — directive.
@@ -1379,7 +1415,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                     action: 're-dispatch',
                     task_id: task.id,
                     reason: 'no commit on a pending task — re-dispatch SWE',
-                    runs_swept,
+                    ...sweepResult,
                 });
             }
             const now = nowISO();
@@ -1390,12 +1426,11 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                     branch_id: task.branch_id,
                     from_node: 'bro',
                     event_type: 'task_recovered',
-                    summary: `Recovered stuck-${task.status} task ${task.id} at ${commitSha}`,
-                    content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, prior_status: task.status }),
+                    summary: `Recovered stuck-${current.status} task ${task.id} at ${commitSha}`,
+                    content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, prior_status: current.status }),
                     created_at: now,
                 });
-                const { issue_closed } = closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast);
-                return { task_id: task.id, issue_closed };
+                return closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast, 'task_recover');
             });
             if (result.issue_closed) {
                 await syncIssueCloseRemotes(db, dbPath, task.issue_id, args['_spawnFn']);
@@ -1406,7 +1441,9 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 task_id: task.id,
                 commit_sha: commitSha,
                 issue_closed: result.issue_closed,
-                runs_swept,
+                review_gate_bypassed: result.review_gate_bypassed,
+                ...issueLeftOpen(closeIssueIfLast, result.issue_open_tasks),
+                ...sweepResult,
             });
         })),
     };
