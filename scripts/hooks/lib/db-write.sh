@@ -8,10 +8,13 @@
 # exit code. Callers decide what a failed write means; this lib never hides it.
 #
 # Busy budget: each attempt waits up to TMB_DB_WRITE_TIMEOUT_MS (default 1500)
-# for a writer lock; worst case = attempts x timeout + backoff (~3.2 s at the
-# default, inside a 5 s hook wrapper). Hooks with a larger hooks.json timeout
-# export a larger TMB_DB_WRITE_TIMEOUT_MS before writing;
-# tests/l1-lint/hook-timeout-budget.sh checks every wrapper covers its budget.
+# for a writer lock. All tmb_db_write calls in one hook process also share a
+# run budget, TMB_DB_WRITE_RUN_BUDGET_MS (default 3500): the time spent inside
+# tmb_db_write is summed across calls, each attempt waits at most what is left,
+# and once it is spent further writes fail fast. A hook that writes many rows
+# under a held lock therefore spends at most the run budget writing;
+# tests/l1-lint/hook-timeout-budget.sh floors every hooks.json wrapper at
+# run budget + 1 s.
 
 if ! command -v tmb_sql_quote >/dev/null 2>&1; then
   # shellcheck source=scripts/hooks/lib/query-task.sh disable=SC1091
@@ -20,11 +23,32 @@ fi
 
 _TMB_DB_WRITE_ATTEMPTS="1 2"
 _TMB_DB_WRITE_BACKOFF_S=0.2
+_TMB_DB_WRITE_BACKOFF_MS=200
+_TMB_DB_WRITE_SPENT_MS=0
 
 _tmb_db_busy_ms() {
   local ms="${TMB_DB_WRITE_TIMEOUT_MS:-1500}"
   case "$ms" in ''|*[!0-9]*) ms=1500 ;; esac
   printf '%s' "$ms"
+}
+
+_tmb_db_run_budget_ms() {
+  local ms="${TMB_DB_WRITE_RUN_BUDGET_MS:-3500}"
+  case "$ms" in ''|*[!0-9]*) ms=3500 ;; esac
+  printf '%s' "$ms"
+}
+
+# _tmb_now_ms: wall clock in milliseconds (bash 5 EPOCHREALTIME, else perl,
+# else whole seconds).
+_tmb_now_ms() {
+  if [ -n "${EPOCHREALTIME:-}" ]; then
+    local s="${EPOCHREALTIME%[.,]*}" f="${EPOCHREALTIME#*[.,]}"
+    printf '%s' "$(( s * 1000 + 10#${f:0:3} ))"
+  elif command -v perl >/dev/null 2>&1; then
+    perl -MTime::HiRes=time -e 'printf("%d", time() * 1000)'
+  else
+    printf '%s' "$(( $(date +%s) * 1000 ))"
+  fi
 }
 
 # tmb_now_iso
@@ -42,8 +66,11 @@ _tmb_db_write_caller() {
 # tmb_db_write <db> <sql>
 # Runs <sql> as one transaction: PRAGMA foreign_keys = ON; BEGIN IMMEDIATE;
 # <sql> COMMIT;  -bail aborts on the first failing statement, which rolls the
-# whole transaction back. Retries on SQLITE_BUSY / "database is locked".
-# Returns sqlite3's exit code; on failure prints one stderr line:
+# whole transaction back. Retries on SQLITE_BUSY / "database is locked", each
+# attempt bounded by what is left of the run budget. Call it in the hook's own
+# shell (not inside $(...)) so the time it spends counts against the budget.
+# Returns sqlite3's exit code (5 once the run budget is spent); on failure
+# prints one stderr line:
 #   tmb_db_write: <hook>: <first error line>
 tmb_db_write() {
   local db="${1:-}" sql="${2:-}"
@@ -55,19 +82,34 @@ tmb_db_write() {
   fi
   local wrapped
   wrapped=$(printf 'PRAGMA foreign_keys = ON;\nBEGIN IMMEDIATE;\n%s\nCOMMIT;\n' "$sql")
-  local attempt rc err busy_ms
+  local attempt rc=5 err="" busy_ms budget_ms start_ms left wait_ms
   busy_ms=$(_tmb_db_busy_ms)
+  budget_ms=$(_tmb_db_run_budget_ms)
+  start_ms=$(_tmb_now_ms)
   for attempt in $_TMB_DB_WRITE_ATTEMPTS; do
-    { err=$(sqlite3 -bail -cmd ".timeout ${busy_ms}" "$db" 2>&1 1>&3 <<<"$wrapped"); rc=$?; } 3>&1
-    [ "$rc" -eq 0 ] && return 0
+    left=$(( budget_ms - _TMB_DB_WRITE_SPENT_MS - ($(_tmb_now_ms) - start_ms) ))
+    if [ "$left" -le 0 ]; then
+      err="run budget spent (TMB_DB_WRITE_RUN_BUDGET_MS=${budget_ms})${err:+; last error: $err}"
+      rc=5
+      break
+    fi
+    wait_ms="$busy_ms"
+    [ "$left" -lt "$wait_ms" ] && wait_ms="$left"
+    { err=$(sqlite3 -bail -cmd ".timeout ${wait_ms}" "$db" 2>&1 1>&3 <<<"$wrapped"); rc=$?; } 3>&1
+    [ "$rc" -eq 0 ] && break
     case "$err" in
       *"database is locked"*|*SQLITE_BUSY*|*"database is busy"*)
-        [ "$attempt" != "${_TMB_DB_WRITE_ATTEMPTS##* }" ] && sleep "$_TMB_DB_WRITE_BACKOFF_S"
+        if [ "$attempt" != "${_TMB_DB_WRITE_ATTEMPTS##* }" ]; then
+          left=$(( budget_ms - _TMB_DB_WRITE_SPENT_MS - ($(_tmb_now_ms) - start_ms) ))
+          [ "$left" -gt "$_TMB_DB_WRITE_BACKOFF_MS" ] && sleep "$_TMB_DB_WRITE_BACKOFF_S"
+        fi
         continue
         ;;
     esac
     break
   done
+  _TMB_DB_WRITE_SPENT_MS=$(( _TMB_DB_WRITE_SPENT_MS + $(_tmb_now_ms) - start_ms ))
+  [ "$rc" -eq 0 ] && return 0
   [ -n "$err" ] || err="sqlite3 exited ${rc}"
   printf 'tmb_db_write: %s: %s\n' "$caller" "$(printf '%s\n' "$err" | head -1)" >&2
   return "$rc"
@@ -133,22 +175,4 @@ tmb_audit_append() {
   local sql
   sql=$(tmb_audit_sql "${1:-}" "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}") || return 2
   tmb_db_write "$db" "$sql"
-}
-
-# tmb_gate_read <db> <sql>
-# Read helper for deny-capable gates. Prints the query output, or the literal
-# __ERR__ when sqlite3 fails (missing/corrupt/locked DB) so the caller can tell
-# "no rows" from "DB unavailable" and fail closed. Always returns 0.
-tmb_gate_read() {
-  local db="${1:-}" sql="${2:-}" out
-  if [ -z "$db" ] || [ ! -f "$db" ]; then
-    printf '__ERR__\n'
-    return 0
-  fi
-  if out=$(sqlite3 -readonly -cmd ".timeout $(_tmb_db_busy_ms)" "$db" "$sql" 2>/dev/null); then
-    [ -n "$out" ] && printf '%s\n' "$out"
-  else
-    printf '__ERR__\n'
-  fi
-  return 0
 }

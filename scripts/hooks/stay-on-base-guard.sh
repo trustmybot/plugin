@@ -20,8 +20,8 @@
 #   - Any command run from inside a worktree (.claude/worktrees/*).
 #   - Commands that switch to a branch not referenced by any open task.
 #
-# Pattern follows #428 hardening: numeric task_id validation, RO sqlite
-# wrapper from lib/query-task.sh, early-exit for non-checkout commands.
+# Pattern follows #428 hardening: numeric task_id validation, fail-closed
+# tmb_gate_read from lib/query-task.sh, early-exit for non-checkout commands.
 
 set -uo pipefail
 
@@ -97,13 +97,18 @@ tmb_have_sqlite || exit 0
 DB=$(tmb_db_path 2>/dev/null || true)
 [ -n "$DB" ] && [ -f "$DB" ] || exit 0
 
-OPEN_TASK_ID=$(tmb_sqlite_ro "$DB" "
+SAFE_BRANCH=$(tmb_sql_quote "$TARGET_BRANCH")
+OPEN_TASK_ID=$(tmb_gate_read "$DB" "
   SELECT id FROM tasks
-   WHERE branch_id = '${TARGET_BRANCH}'
+   WHERE branch_id = '${SAFE_BRANCH}'
      AND status IN ('pending','running','needs_validation')
    LIMIT 1;
 ")
 
+if [ "$OPEN_TASK_ID" = "__ERR__" ]; then
+  tmb_deny_db_unavailable stay-on-base-guard
+  exit 0
+fi
 [ -n "$OPEN_TASK_ID" ] || exit 0
 
 # Safety: numeric guard — task ids are always integers.

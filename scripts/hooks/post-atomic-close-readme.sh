@@ -77,9 +77,9 @@ case "$COMMIT_SHA" in
   ''|*[!0-9a-fA-F]*) exit 0 ;;
 esac
 
-# Resolve the repo working tree. The DB lives at
-# <workspace_root>/.claude/<plugin>/trajectory.db, so workspace_root is the
-# grandparent's parent. The product repo is <workspace_root>/<repo>, falling
+# Resolve the repo working tree. The DB lives three levels below
+# <workspace_root> (docs/reference/TRAJECTORY_DB_LOCATION.md), so
+# workspace_root is the grandparent's parent. The product repo is <workspace_root>/<repo>, falling
 # back to <workspace_root> itself (single-repo CC, empty repo column).
 WORKSPACE_ROOT="$(dirname "$(dirname "$(dirname "$DB")")")"
 REPO_PATH=""

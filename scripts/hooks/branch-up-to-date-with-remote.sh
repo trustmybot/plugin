@@ -26,11 +26,10 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib/resolve-plugin-name.sh
-. "$SCRIPT_DIR/../lib/resolve-plugin-name.sh"
+# shellcheck source=scripts/hooks/lib/query-task.sh
+. "$SCRIPT_DIR/lib/query-task.sh"
 # shellcheck source=scripts/hooks/lib/resolve-repo.sh
 . "$SCRIPT_DIR/lib/resolve-repo.sh"
-PLUGIN_NAME=$(tmb_resolve_plugin_name)
 
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
@@ -65,19 +64,22 @@ BRANCH=$(echo "$CMD" | awk '{print $NF}')
 _CMD_CWD=$(tmb_cmd_cwd "$CMD" "$INPUT")
 REPO_ROOT=$(tmb_repo_git_root "$_CMD_CWD")
 [ -n "$REPO_ROOT" ] || exit 0
-DB_PATH="${TRAJECTORY_DB_PATH:-$REPO_ROOT/.claude/${PLUGIN_NAME}/trajectory.db}"
-[ -f "$DB_PATH" ] || exit 0
-command -v sqlite3 >/dev/null 2>&1 || exit 0
+DB_PATH=$(tmb_db_path) || exit 0
+tmb_have_sqlite || exit 0
 
-# If REPO_ROOT is not a registered TMB repo, no-op — don't impose policy on
-# unregistered/sibling repos (#549).
-if ! tmb_repo_is_registered "$DB_PATH" "$REPO_ROOT"; then
+# One read: the repos row for REPO_ROOT. No row = unregistered/sibling repo —
+# don't impose policy on it (#549). A read error fails closed.
+SAFE_REPO_ROOT=$(tmb_sql_quote "$REPO_ROOT")
+_REPO_ROW=$(tmb_gate_read "$DB_PATH" \
+  "SELECT 'repo|' || COALESCE(target_branch, '') FROM repos WHERE path = '${SAFE_REPO_ROOT}' LIMIT 1;")
+if [ "$_REPO_ROW" = "__ERR__" ]; then
+  tmb_deny_db_unavailable branch-up-to-date-with-remote
   exit 0
 fi
+[ -n "$_REPO_ROW" ] || exit 0
 
-# Resolve per-repo target_branch from the repos table (the sole source).
-_REPO_ROW=$(tmb_repo_resolve "$DB_PATH" "$REPO_ROOT")
-PR_TARGET=$(printf '%s' "$_REPO_ROW" | cut -d'|' -f1)
+# Per-repo target_branch from the repos table (the sole source).
+PR_TARGET="${_REPO_ROW#repo|}"
 [ -n "$PR_TARGET" ] || PR_TARGET="main"
 
 if ! git -C "$REPO_ROOT" rev-parse --verify "$BRANCH" >/dev/null 2>&1; then

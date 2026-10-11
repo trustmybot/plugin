@@ -40,7 +40,7 @@ PROJECT_DIR="$TMPDIR_BASE/project"
 SCAN_HOME="$TMPDIR_BASE/home"
 mkdir -p "$PROJECT_DIR/.claude/tmb" "$SCAN_HOME/.claude"
 LIVE_DB="$PROJECT_DIR/.claude/tmb/trajectory.db"
-printf 'live' > "$LIVE_DB"   # non-empty so the [ -s "$LIVE_DB" ] gate is true
+sqlite3 "$LIVE_DB" 'CREATE TABLE plugin_meta (id INTEGER PRIMARY KEY, schema_version INTEGER);'   # non-empty so the [ -s "$LIVE_DB" ] gate is true
 
 SRV_ARGV="node /x/mcp/trajectory-server/dist/index.js"
 

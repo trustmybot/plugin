@@ -5,10 +5,9 @@
 # no-op when the rule is already present.
 #
 # Why: the plugin writes runtime state under <project>/.claude/<plugin>/
-# (trajectory.db, worktrees, etc.). If those files get committed because
-# .gitignore doesn't exclude them, `git worktree add` checks them out
-# inside every worktree — a stale DB copy at <worktree>/.claude/<plugin>/
-# trajectory.db then poisons every hook that resolves DB path via $(pwd).
+# (the trajectory DB, worktrees, etc.). If those files get committed because
+# .gitignore doesn't exclude them, `git worktree add` checks them out inside
+# every worktree as a stale DB copy.
 #
 # Silent no-op when:
 #   - not in a git repo

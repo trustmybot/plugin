@@ -49,6 +49,7 @@ bash tests/l1-lint/link-check.sh
 | [`no-raw-sql-interpolation.sh`](./no-raw-sql-interpolation.sh) | Raw SQL string interpolation (allowlist: `no-raw-sql-interpolation.allowlist`) |
 | [`no-destructive-sql.sh`](./no-destructive-sql.sh) | Destructive SQL statements |
 | [`no-direct-sqlite-write.sh`](./no-direct-sqlite-write.sh) | A `sqlite3` write under `scripts/` that bypasses the write library (`scripts/hooks/lib/db-write.sh`) |
+| [`no-private-db-path.sh`](./no-private-db-path.sh) | A `trajectory.db` literal under `scripts/` outside `scripts/hooks/lib/query-task.sh` — a private copy of the DB-path rule (allowlist: `no-private-db-path.allowlist`) |
 | [`no-datetime-now-in-hooks.sh`](./no-datetime-now-in-hooks.sh) | `datetime('now')` timestamps under `scripts/` (use `tmb_now_iso`) |
 | [`no-audit-log-kind.sh`](./no-audit-log-kind.sh) | Disallowed audit-log `kind` usage |
 | [`no-audit-log-without-from-node.sh`](./no-audit-log-without-from-node.sh) | Audit-log writes missing `from_node` |

@@ -137,7 +137,11 @@ tmb_fallback_audit_append() {
   tmb_have_sqlite || { echo "sqlite3-fallback: sqlite3 unavailable" >&2; return 1; }
   _tmb_fallback_check_role audit_append "$agent" || return 1
   local SAFE_IID SAFE_AUDIT SAFE_MARKER
-  SAFE_IID=$(tmb_sql_int "$issue_id"); [ -n "$SAFE_IID" ] || { _tmb_fallback_bad_int issue_id "$issue_id"; return 1; }
+  case "$issue_id" in
+    -1) SAFE_IID="-1" ;;
+    *) SAFE_IID=$(tmb_sql_int "$issue_id") ;;
+  esac
+  [ -n "$SAFE_IID" ] || { _tmb_fallback_bad_int issue_id "$issue_id"; return 1; }
   SAFE_AUDIT=$(_tmb_fallback_audit_sql "$SAFE_IID" "$branch_id" "$from_node" "$event_type" "$summary" "$content") || return 1
   SAFE_MARKER=$(_tmb_fallback_marker_sql audit_append "$agent" \
     "$(jq -nc --argjson i "$SAFE_IID" --arg e "$event_type" '{issue_id: $i, event_type: $e}')") || return 1

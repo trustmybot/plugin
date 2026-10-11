@@ -62,7 +62,7 @@ Runtime location: `plugin/commands/<name>.md`.
 ## Env vars
 
 - `TMB_DISABLE_REMOTE_SYNC=1` — overrides `issue_sync` config to off (defense-in-depth)
-- `TRAJECTORY_DB_PATH` — pin DB path for tests/CI (overrides walk-up resolution)
+- `TRAJECTORY_DB_PATH` — pin DB path for tests/CI (step 1 of [the DB location rule](./TRAJECTORY_DB_LOCATION.md))
 - `CLAUDE_PLUGIN_ROOT` — set by CC; resolves plugin name for path calculations
 
 ## Hooks (SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / Stop / SubagentStop / WorktreeCreate)

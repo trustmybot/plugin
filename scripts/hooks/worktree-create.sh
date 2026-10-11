@@ -30,8 +30,8 @@
 # closers, so a repo nested under the launch workspace (e.g. TMB/plugin under
 # TMB) resolves to one canonical path everywhere.
 #
-# Resolves <repo> relative to the workspace root (dir containing
-# .claude/<plugin>/trajectory.db), found via tmb_db_path walk-up.
+# Resolves <repo> relative to the workspace root (the dir holding the
+# trajectory DB), found via tmb_db_path.
 #
 # Exits non-zero when:
 #   - no branch in input (nothing to create)

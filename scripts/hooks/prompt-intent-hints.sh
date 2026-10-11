@@ -45,6 +45,8 @@ case "$PROMPT_RAW" in
   *"<task-notification>"*|*"[SYSTEM NOTIFICATION"*) exit 0 ;;
 esac
 
+tmb_db_path_advisory prompt-intent-hints >/dev/null || true
+
 LOWER=$(printf '%s' "$PROMPT_RAW" | tr '[:upper:]' '[:lower:]')
 
 emit_context() {

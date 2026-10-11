@@ -6,6 +6,7 @@ import {
   statSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import {
   basename,
   dirname,
@@ -41,7 +42,8 @@ export interface ClaudeRuntimeContext {
   readonly host: 'claude';
   /**
    * Claude's invocation cwd. It is deliberately not described as a trusted
-   * project root: existing Claude behavior discovers state by walking upward.
+   * project root: Claude's root is `CLAUDE_PROJECT_DIR`, and cwd only seeds
+   * the fallback walk of findExistingClaudeDbUp.
    */
   readonly cwd: string;
   readonly home: string;
@@ -117,8 +119,20 @@ export function resolveClaudePluginVersion(
 }
 
 /**
- * Preserve the shipped Claude DB rules exactly: explicit override, bounded
- * upward discovery, then invocation-cwd fallback.
+ * Claude's trusted project root: `CLAUDE_PROJECT_DIR`, when the host sets it.
+ * Null otherwise (a subagent inheriting `cwd=~`, a bare `node dist/index.js`).
+ */
+export function resolveClaudeProjectRoot(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const root = env['CLAUDE_PROJECT_DIR'];
+  return root && root.trim().length > 0 ? root : null;
+}
+
+/**
+ * The trajectory DB path for Claude: the found DB (findExistingClaudeDbUp),
+ * else a fresh-init path under the project root (or the invocation cwd when
+ * there is none). `TRAJECTORY_DB_PATH` is returned verbatim either way.
  */
 export function resolveClaudeDbPath(opts?: {
   env?: NodeJS.ProcessEnv;
@@ -144,9 +158,17 @@ function resolveClaudeDbPathForPlugin(
   const override = env['TRAJECTORY_DB_PATH'];
   if (override && override.trim().length > 0) return override;
 
-  const found = findExistingClaudeDbUp(cwd, pluginName, { home });
+  const projectRoot = resolveClaudeProjectRoot(env);
+  const found = findExistingClaudeDbUp(cwd, pluginName, { home, env, projectRoot });
   if (found) return found;
-  return join(cwd, '.claude', pluginName, 'trajectory.db');
+  return claudeDbLocation(projectRoot ?? cwd, pluginName);
+}
+
+/** Host state directory for Claude; Codex keeps its own (`.tmb`). */
+const CLAUDE_STATE_HOST_DIR = '.claude';
+
+function claudeDbLocation(root: string, pluginName: string): string {
+  return join(root, CLAUDE_STATE_HOST_DIR, pluginName, 'trajectory.db');
 }
 
 export function resolveClaudeLogDir(opts?: {
@@ -347,23 +369,97 @@ export function assertSafeProjectWritePath(
   );
 }
 
-function findExistingClaudeDbUp(
+export type ClaudeDbProbe = 'current' | 'stale' | 'error';
+
+/**
+ * Classify a candidate DB: `current` when `tasks.prompt_bearing` exists,
+ * `stale` for a legacy schema (no such column, or no tasks table), `error`
+ * when the read itself fails (busy, corrupt, unreadable).
+ */
+export function probeClaudeDb(path: string): ClaudeDbProbe {
+  let db: DatabaseSync | null = null;
+  try {
+    db = new DatabaseSync(path, { readOnly: true });
+    const cols = db
+      .prepare("SELECT name FROM pragma_table_info('tasks')")
+      .all() as Array<{ name: string }>;
+    return cols.some((c) => c.name === 'prompt_bearing') ? 'current' : 'stale';
+  } catch {
+    return 'error';
+  } finally {
+    try {
+      db?.close();
+    } catch {
+      // closing a failed handle is best-effort
+    }
+  }
+}
+
+/**
+ * The one trajectory-DB location rule, shared with the hooks' `tmb_db_path`
+ * (scripts/hooks/lib/query-task.sh) and documented in
+ * docs/reference/TRAJECTORY_DB_LOCATION.md. Returns the existing DB, or null
+ * when unresolved:
+ *
+ * 1. `TRAJECTORY_DB_PATH`, if set (must exist).
+ * 2. The project root's `.claude/<plugin>/trajectory.db` (`CLAUDE_PROJECT_DIR`
+ *    for Claude). No walking.
+ * 3. Only without a project root: walk up from `startDir` collecting every
+ *    ancestor `.claude/<plugin>/trajectory.db` that is not a stale schema,
+ *    never entering `home` unless started there, with no `.git` stop; the
+ *    outermost wins (a workspace root beats a nested repo). Then the
+ *    `~/.claude/<plugin>-active-workspace` sentinel.
+ * 4. Otherwise unresolved.
+ *
+ * Unresolved means the project is not onboarded and every hook gate allows.
+ * A DB that resolves but cannot be read is an error: deny-capable gates deny.
+ */
+export function findExistingClaudeDbUp(
   startDir: string,
   pluginName: string,
-  opts?: { home?: string },
+  opts?: {
+    home?: string;
+    env?: NodeJS.ProcessEnv;
+    projectRoot?: string | null;
+    probe?: (path: string) => ClaudeDbProbe;
+  },
 ): string | null {
   const home = opts?.home ?? homedir();
-  let dir = startDir;
-  for (let i = 0; i < 8; i++) {
-    if (dir === home && startDir !== home) return null;
-    const candidate = join(dir, '.claude', pluginName, 'trajectory.db');
-    if (existsSync(candidate)) return candidate;
-    if (existsSync(join(dir, '.git'))) break;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
+  const env = opts?.env ?? process.env;
+  const probe = opts?.probe ?? probeClaudeDb;
+
+  const override = env['TRAJECTORY_DB_PATH'];
+  if (override && override.trim().length > 0) {
+    return existsSync(override) ? override : null;
   }
-  return null;
+
+  const projectRoot =
+    opts?.projectRoot !== undefined ? opts.projectRoot : resolveClaudeProjectRoot(env);
+  if (projectRoot) {
+    const atRoot = claudeDbLocation(projectRoot, pluginName);
+    return existsSync(atRoot) ? atRoot : null;
+  }
+
+  let outermost: string | null = null;
+  for (let dir = startDir; dirname(dir) !== dir; dir = dirname(dir)) {
+    if (dir === home && startDir !== home) break;
+    const candidate = claudeDbLocation(dir, pluginName);
+    if (existsSync(candidate) && probe(candidate) !== 'stale') outermost = candidate;
+  }
+  if (outermost) return outermost;
+
+  const sentinel = join(home, CLAUDE_STATE_HOST_DIR, `${pluginName}-active-workspace`);
+  if (!existsSync(sentinel)) return null;
+  let workspace = '';
+  try {
+    workspace = (readFileSync(sentinel, 'utf8').split('\n')[0] ?? '').trim();
+  } catch {
+    return null;
+  }
+  if (!workspace) return null;
+  const fromSentinel = claudeDbLocation(workspace, pluginName);
+  if (!existsSync(fromSentinel) || probe(fromSentinel) === 'stale') return null;
+  return fromSentinel;
 }
 
 function canonicalDirectory(

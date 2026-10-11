@@ -30,16 +30,17 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib/resolve-plugin-name.sh
-. "$SCRIPT_DIR/../lib/resolve-plugin-name.sh"
-PLUGIN_NAME=$(tmb_resolve_plugin_name)
+# shellcheck source=scripts/hooks/lib/query-task.sh
+. "$SCRIPT_DIR/lib/query-task.sh"
+PLUGIN_NAME=$(tmb_plugin_name)
 
 LOG_DIR="${HOME}/.claude/${PLUGIN_NAME}/logs"
 LOG_FILE="${LOG_DIR}/mcp-health.log"
 STATE_FILE="${LOG_DIR}/mcp-health.state"
 mkdir -p "$LOG_DIR" 2>/dev/null || true
 
-db_path="${CLAUDE_PROJECT_DIR:-$PWD}/.claude/${PLUGIN_NAME}/trajectory.db"
+db_path=$(tmb_db_path) || db_path=$(tmb_db_location "${CLAUDE_PROJECT_DIR:-$PWD}")
+TMB_DB_WRITE_TIMEOUT_MS=300 tmb_db_path_advisory mcp-health-check >/dev/null || true
 
 INPUT=$(cat)
 # CC sends snake_case `hook_event_name` on stdin (per

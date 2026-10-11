@@ -92,9 +92,14 @@ test_case "when prompt has multiple task_id tokens, first wins"
 out=$(run_hook "$(swe_input 'task_id=1 and also task_id=4')")
 assert_eq "" "$out" "first token is valid -> passes"
 
-test_case "missing trajectory.db is blocked with clear reason"
+test_case "unresolved trajectory DB (project not onboarded) allows the spawn"
 out=$(run_hook_env "$(swe_input 'task_id=1')" "TRAJECTORY_DB_PATH" "$TMPDIR/nonexistent.db")
+assert_eq "" "$out" "unresolved DB → silent allow"
+
+test_case "unreadable trajectory DB denies with the unavailable reason"
+printf 'not a sqlite database' > "$TMPDIR/corrupt.db"
+out=$(run_hook_env "$(swe_input 'task_id=1')" "TRAJECTORY_DB_PATH" "$TMPDIR/corrupt.db")
 assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
-assert_contains "$out" "trajectory.db not found" "reason cites missing DB"
+assert_contains "$out" "trajectory DB unavailable" "reason cites the unavailable DB"
 
 summarize

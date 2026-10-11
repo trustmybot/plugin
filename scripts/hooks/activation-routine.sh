@@ -48,42 +48,12 @@ if ! contains_bro_word "$PROMPT" && ! is_sticky_bro; then
   exit 0
 fi
 
-DB_PATH="${TRAJECTORY_DB_PATH:-}"
-if [ -z "$DB_PATH" ]; then
-  PLUGIN_NAME="tmb"
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
-    PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
-  fi
-  # #2872: walk up from PWD to find the live DB. Workspace-pattern projects
-  # keep .claude/<plugin>/trajectory.db at the workspace root above the
-  # inner repos; without walk-up the hook (PWD = inner repo) reads a stale
-  # empty seed and the MCP server reads the workspace one — false 'first
-  # contact' on every turn.
-  #
-  # P0 guard: never traverse INTO the user's HOME from a descendant cwd.
-  # A stale ~/.claude/<plugin>/trajectory.db (from a prior buggy session or
-  # a test artifact) used to be silently adopted as the live DB on every
-  # launch from any project below HOME — project state escaped into the
-  # profile. Mirrors the corresponding fix in db.ts's findExistingDbUp.
-  dir="$PWD"
-  for _ in 1 2 3 4 5 6 7 8; do
-    if [ "$dir" = "$HOME" ] && [ "$PWD" != "$HOME" ]; then
-      break
-    fi
-    candidate="$dir/.claude/$PLUGIN_NAME/trajectory.db"
-    if [ -f "$candidate" ]; then
-      DB_PATH="$candidate"
-      break
-    fi
-    parent=$(dirname "$dir")
-    [ "$parent" = "$dir" ] && break
-    dir="$parent"
-  done
-  [ -z "$DB_PATH" ] && DB_PATH="$PWD/.claude/$PLUGIN_NAME/trajectory.db"
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/hooks/lib/query-task.sh
+. "$SCRIPT_DIR/lib/query-task.sh"
 
-[ -f "$DB_PATH" ] || exit 0
-command -v sqlite3 >/dev/null 2>&1 || exit 0
+DB_PATH=$(tmb_db_path_advisory activation-routine) || exit 0
+tmb_have_sqlite || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
 ONBOARDED_ROW_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM plugin_config WHERE key='onboarded' AND value_json='true';" 2>/dev/null)

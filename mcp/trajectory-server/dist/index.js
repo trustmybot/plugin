@@ -20842,7 +20842,7 @@ import { copyFileSync, readFileSync as readFileSync2, readdirSync } from "node:f
 import { basename as basename2, join as join3, dirname as dirname2 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { performance } from "node:perf_hooks";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
 
 // src/logger.ts
 import {
@@ -20864,6 +20864,7 @@ import {
   statSync
 } from "node:fs";
 import { homedir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import {
   basename,
   dirname,
@@ -20900,6 +20901,10 @@ function resolveClaudePluginName(env = process.env) {
 function resolveClaudePluginVersion(env = process.env) {
   return readClaudePluginMetadata(env).version;
 }
+function resolveClaudeProjectRoot(env = process.env) {
+  const root = env["CLAUDE_PROJECT_DIR"];
+  return root && root.trim().length > 0 ? root : null;
+}
 function resolveClaudeDbPath(opts) {
   const env = opts?.env ?? process.env;
   const cwd = opts?.cwd ?? process.cwd();
@@ -20911,9 +20916,14 @@ function resolveClaudeDbPathForPlugin(pluginName, opts) {
   const { env, cwd, home } = opts;
   const override = env["TRAJECTORY_DB_PATH"];
   if (override && override.trim().length > 0) return override;
-  const found = findExistingClaudeDbUp(cwd, pluginName, { home });
+  const projectRoot = resolveClaudeProjectRoot(env);
+  const found = findExistingClaudeDbUp(cwd, pluginName, { home, env, projectRoot });
   if (found) return found;
-  return join(cwd, ".claude", pluginName, "trajectory.db");
+  return claudeDbLocation(projectRoot ?? cwd, pluginName);
+}
+var CLAUDE_STATE_HOST_DIR = ".claude";
+function claudeDbLocation(root, pluginName) {
+  return join(root, CLAUDE_STATE_HOST_DIR, pluginName, "trajectory.db");
 }
 function resolveClaudeLogDir(opts) {
   const env = opts?.env ?? process.env;
@@ -20968,19 +20978,53 @@ function assertSafeProjectWritePath(projectRoot, path2, label = "Codex writable 
     expectedKind
   );
 }
+function probeClaudeDb(path2) {
+  let db2 = null;
+  try {
+    db2 = new DatabaseSync(path2, { readOnly: true });
+    const cols = db2.prepare("SELECT name FROM pragma_table_info('tasks')").all();
+    return cols.some((c) => c.name === "prompt_bearing") ? "current" : "stale";
+  } catch {
+    return "error";
+  } finally {
+    try {
+      db2?.close();
+    } catch {
+    }
+  }
+}
 function findExistingClaudeDbUp(startDir, pluginName, opts) {
   const home = opts?.home ?? homedir();
-  let dir = startDir;
-  for (let i = 0; i < 8; i++) {
-    if (dir === home && startDir !== home) return null;
-    const candidate = join(dir, ".claude", pluginName, "trajectory.db");
-    if (existsSync(candidate)) return candidate;
-    if (existsSync(join(dir, ".git"))) break;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
+  const env = opts?.env ?? process.env;
+  const probe = opts?.probe ?? probeClaudeDb;
+  const override = env["TRAJECTORY_DB_PATH"];
+  if (override && override.trim().length > 0) {
+    return existsSync(override) ? override : null;
   }
-  return null;
+  const projectRoot = opts?.projectRoot !== void 0 ? opts.projectRoot : resolveClaudeProjectRoot(env);
+  if (projectRoot) {
+    const atRoot = claudeDbLocation(projectRoot, pluginName);
+    return existsSync(atRoot) ? atRoot : null;
+  }
+  let outermost = null;
+  for (let dir = startDir; dirname(dir) !== dir; dir = dirname(dir)) {
+    if (dir === home && startDir !== home) break;
+    const candidate = claudeDbLocation(dir, pluginName);
+    if (existsSync(candidate) && probe(candidate) !== "stale") outermost = candidate;
+  }
+  if (outermost) return outermost;
+  const sentinel = join(home, CLAUDE_STATE_HOST_DIR, `${pluginName}-active-workspace`);
+  if (!existsSync(sentinel)) return null;
+  let workspace = "";
+  try {
+    workspace = (readFileSync(sentinel, "utf8").split("\n")[0] ?? "").trim();
+  } catch {
+    return null;
+  }
+  if (!workspace) return null;
+  const fromSentinel = claudeDbLocation(workspace, pluginName);
+  if (!existsSync(fromSentinel) || probe(fromSentinel) === "stale") return null;
+  return fromSentinel;
 }
 function assertPathContained(root, path2, label) {
   const rel = relative(root, path2);
@@ -21136,7 +21180,7 @@ var TrajectoryDB = class {
         "file"
       );
     }
-    this.db = new DatabaseSync(dbPath2);
+    this.db = new DatabaseSync2(dbPath2);
     try {
       this.db.exec("PRAGMA journal_mode = WAL");
       this.db.exec("PRAGMA foreign_keys = ON");

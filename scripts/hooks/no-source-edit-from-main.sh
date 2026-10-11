@@ -32,6 +32,8 @@
 set -uo pipefail
 
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=scripts/hooks/lib/query-task.sh
+. "$PLUGIN_ROOT/scripts/hooks/lib/query-task.sh"
 # shellcheck source=scripts/hooks/lib/normalize-role.sh
 . "$PLUGIN_ROOT/scripts/hooks/lib/normalize-role.sh"
 # shellcheck source=scripts/hooks/lib/resolve-repo.sh
@@ -196,16 +198,7 @@ if [ "$TOOL_NAME" = "Bash" ]; then
   exit 0
 fi
 
-DB_PATH="${TRAJECTORY_DB_PATH:-}"
-if [ -z "$DB_PATH" ]; then
-  PLUGIN_NAME="tmb"
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
-    PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
-  fi
-  DB_PATH="$PWD/.claude/$PLUGIN_NAME/trajectory.db"
-fi
-
-[ -f "$DB_PATH" ] || exit 0
+DB_PATH=$(tmb_db_path) || exit 0
 
 TARGET=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_path // ""' 2>/dev/null)
 [ -n "$TARGET" ] || exit 0
@@ -220,6 +213,11 @@ case "$TARGET" in
   */.claude/worktrees/*|.claude/worktrees/*) exit 0 ;;
 esac
 
+if [ "$(tmb_db_state)" = "error" ]; then
+  tmb_deny_db_unavailable no-source-edit-from-main
+  exit 0
+fi
+
 # Managed-repo scope by REGISTRATION (#693, ADR: path-keyed repo resolution):
 # in a multi-repo workspace Rule 1 must only guard a REGISTERED product repo,
 # not its siblings. Resolve the target's git-root and enforce iff that root is a
@@ -233,10 +231,17 @@ case "$TARGET" in
     # Only consult registration when the target's directory actually exists —
     # otherwise tmb_repo_git_root falls back to $PWD (the hook's cwd) and would
     # mis-scope. A target whose parent dir is absent fails closed (guarded).
-    if command -v sqlite3 >/dev/null 2>&1 && [ -d "$TARGET_DIR" ]; then
+    if tmb_have_sqlite && [ -d "$TARGET_DIR" ]; then
       TARGET_GIT_ROOT=$(tmb_repo_git_root "$TARGET_DIR")
-      if [ -n "$TARGET_GIT_ROOT" ] && ! tmb_repo_is_registered "$DB_PATH" "$TARGET_GIT_ROOT"; then
-        exit 0                          # unregistered sibling repo — outside Rule 1 scope
+      if [ -n "$TARGET_GIT_ROOT" ]; then
+        SAFE_GIT_ROOT=$(tmb_sql_quote "$TARGET_GIT_ROOT")
+        REGISTERED=$(tmb_gate_read "$DB_PATH" \
+          "SELECT COUNT(*) FROM repos WHERE path = '${SAFE_GIT_ROOT}';")
+        if [ "$REGISTERED" = "__ERR__" ]; then
+          tmb_deny_db_unavailable no-source-edit-from-main
+          exit 0
+        fi
+        [ "${REGISTERED:-0}" -gt 0 ] || exit 0   # unregistered sibling repo — outside Rule 1 scope
       fi
     fi
     ;;

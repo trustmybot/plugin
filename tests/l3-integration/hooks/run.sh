@@ -5,6 +5,10 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Hooks resolve the trajectory DB from CLAUDE_PROJECT_DIR first; a value
+# inherited from a Claude Code session would point tests at a live DB.
+unset CLAUDE_PROJECT_DIR
 . "$HERE/../../l5-l6/lib/timeout-shim.sh"
 
 FAILED=0

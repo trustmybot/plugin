@@ -12,16 +12,11 @@ set -uo pipefail
 # Bypass for tests: TMB_SKIP_AUTO_PRESCAN=1 suppresses the auto-fire.
 SKIP_AUTO_PRESCAN="${TMB_SKIP_AUTO_PRESCAN:-0}"
 
-DB_PATH="${TRAJECTORY_DB_PATH:-}"
-if [ -z "$DB_PATH" ]; then
-  PLUGIN_NAME="tmb"
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
-    PLUGIN_NAME=$(jq -r '.name // "tmb"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo "tmb")
-  fi
-  DB_PATH="$PWD/.claude/$PLUGIN_NAME/trajectory.db"
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/hooks/lib/query-task.sh
+. "$SCRIPT_DIR/lib/query-task.sh"
 
-[ -f "$DB_PATH" ] || exit 0
+DB_PATH=$(tmb_db_path_advisory session-start-prescan) || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0
 command -v git >/dev/null 2>&1 || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
@@ -105,7 +100,6 @@ COLD_NOTE=""
 if [ "$WORLD_MODEL_SCANNED" = "0" ] && [ "$SOURCE_FILE_COUNT" != "0" ]; then
   WORLD_MODEL_STATE="cold"
 
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   SCAN_SH="$SCRIPT_DIR/../scan.sh"
   INVOKER="$SCRIPT_DIR/../maintenance/run-scan-initial.mjs"
 

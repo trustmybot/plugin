@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Hook: Block SWE agent spawn unless prompt references a valid tasks row.
-# Reads task_id=<N> from the spawn prompt, queries trajectory.db via SQLite.
+# Reads task_id=<N> from the spawn prompt, queries the trajectory DB via SQLite.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,27 +23,23 @@ if [ -z "$TASK_ID" ]; then
   exit 0
 fi
 
-DB=$(tmb_db_path || true)
-if [ -z "$DB" ] || ! tmb_have_sqlite; then
-  jq -nc '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:"BLOCKED: trajectory.db not found or sqlite3 unavailable. Cannot verify task authorization."}}'
+DB=$(tmb_db_path) || exit 0
+tmb_have_sqlite || exit 0
+
+SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
+ROW=$(tmb_gate_read "$DB" "SELECT status, LENGTH(COALESCE(spec_body, '')) FROM tasks WHERE id = ${SAFE_TASK_ID};")
+
+if [ "$ROW" = "__ERR__" ]; then
+  tmb_deny_db_unavailable require-task-spec
   exit 0
 fi
-
-ROW=$(tmb_task_spec_status "$TASK_ID" "$DB")
 
 if [ -z "$ROW" ]; then
-  # Empty row can mean DB busy (SQLITE_BUSY) or row genuinely missing.
-  # Re-query without -readonly to check whether it's a locking issue.
-  SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
-  PROBE=$(sqlite3 "$DB" "SELECT COUNT(*) FROM tasks WHERE id=${SAFE_TASK_ID};" 2>/dev/null || echo "query_failed")
-  if [ "$PROBE" = "query_failed" ]; then
-    jq -nc --arg id "$TASK_ID" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: DB query failed for task_id="+$id+" (DB busy?). Retry the spawn once the DB lock clears.")}}'
-  else
-    jq -nc --arg id "$TASK_ID" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: task_id="+$id+" does not exist in the tasks table.")}}'
-  fi
+  jq -nc --arg id "$TASK_ID" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: task_id="+$id+" does not exist in the tasks table.")}}'
   exit 0
 fi
 
+ROW=$(printf '%s' "$ROW" | tr '|' '\n')
 STATUS=$(echo "$ROW" | awk 'NR==1')
 BODY_LEN=$(echo "$ROW" | awk 'NR==2')
 

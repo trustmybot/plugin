@@ -5,7 +5,7 @@
 
 # tmb_workspace_root <db_path>
 # Prints the workspace root: dirname of dirname of dirname of the DB path.
-# DB lives at <workspace_root>/.claude/<plugin>/trajectory.db, so three
+# DB lives at <workspace_root>/<host-dir>/<plugin>/<db-file>, so three
 # dirname calls resolve back to the workspace root.
 #
 # Sentinel fallback: if the DB-derived workspace does not have the expected
@@ -14,7 +14,7 @@
 # (first line = workspace root). That fallback belongs to the caller because
 # it requires a slug to verify — this function only does the DB-path math.
 #
-# Single-repo installs: DB at <repo>/.claude/<plugin>/trajectory.db →
+# Single-repo installs: DB at <repo>/<host-dir>/<plugin>/<db-file> →
 # dirname×3 == repo root == workspace root. Unaffected.
 tmb_workspace_root() {
   local db_path="${1:-}"

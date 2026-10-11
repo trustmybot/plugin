@@ -31,15 +31,9 @@ export function resolvePluginVersion(env = process.env) {
     return resolveClaudePluginVersion(env);
 }
 /**
- * Resolve the trajectory DB path.
- *
- * 1. Explicit `TRAJECTORY_DB_PATH` env override wins. Power-user / CI use.
- * 2. Walk up from cwd to find an existing `.claude/<plugin>/trajectory.db`.
- *    Workspace-pattern projects keep the live DB at the workspace root above
- *    the inner repos; without this walk-up, the hook (PWD = inner repo) and
- *    the MCP server (PWD = workspace root) would resolve different DBs and
- *    bro would see false 'first contact' on every turn (#2872).
- * 3. Fallback: `<cwd>/.claude/<plugin-name>/trajectory.db` — fresh-init.
+ * Resolve the trajectory DB path: the DB found by `findExistingClaudeDbUp`
+ * (platform.ts), else a fresh-init path under the project root. The rule is
+ * documented in docs/reference/TRAJECTORY_DB_LOCATION.md.
  */
 export function resolveDbPath(opts) {
     return resolveClaudeDbPath(opts);
