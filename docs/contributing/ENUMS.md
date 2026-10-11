@@ -140,6 +140,8 @@ Returned in the created-issue payload, not stored.
 | `issue_auto_closed_on_merge` | `close-issue-on-merge` closed a local issue named by a merged PR's closing-ref (from_node `hook:close-issue-on-merge`); `content_json` carries `gh_iid` |
 | `issue_auto_close_deferred` | `close-issue-on-merge` left an issue named by a merged PR's closing-ref open because other tasks of it are still live; `content_json` carries `blocking_task_ids`, `gh_iid` |
 | `issue_auto_close_remote_skipped` | `close-issue-on-merge` closed an issue locally but not its GitHub twin because issue sync is off (`plugin_config.issue_sync` unset or `off`, or `TMB_DISABLE_REMOTE_SYNC` set); `content_json` carries `gh_iid`, `reason` |
+| `task_reopened` | `task_reopen` moved a `closed` / `failed` / `escalated` / `running` task back to `running` for rework; from_node `bro`; `content_json` carries `task_id`, `from_status`, `reason`, `files_add`, `verification_add` |
+| `task_spec_amended` | `task_update_spec` replaced a live task's `files` / `verification` / `spec_body`; from_node `bro`; `content_json` carries `task_id`, `status`, `reason`, `changes` (per field: `added` / `removed` for the lists, `old_length` / `new_length` for `spec_body`) |
 | `task_stale_swept` | `task_recover` moved a `running` task with no open swe `agent_runs` row and no update for `TMB_STALE_RUNNING_HOURS` (default 6) to `failed` and closed its open runs as `swept_stale`; from_node `bro`; `content_json` carries `task_id`, `from_status`, `last_updated_at`, `stale_after_hours` |
 
 **TMB-specific** — these are TMB workflow events. New event types require a row here. Bro should not invent ad-hoc event types.

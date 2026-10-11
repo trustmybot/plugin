@@ -121,7 +121,7 @@ plugin/
 ├── agents/swe.md                                      # atomic close: task_update_status(needs_validation)
 ├── scripts/hooks/
 │   ├── swe-atomic-close.sh                           # SubagentStop safety net if SWE skips close
-│   └── cleanup-worktree-on-task-close.sh             # removes worktree after bro closes task
+│   └── cleanup-worktree-on-task-close.sh             # removes worktree once pr-reviewer passes the closed task
 └── mcp/trajectory-server/src/tools/
     └── tasks.ts                                      # task_update_status(completed, commit_sha)
 ```
@@ -159,7 +159,7 @@ plugin/
 ```text
 plugin/
 ├── CLAUDE.md                                          # bro post-merge cleanup chain
-├── scripts/hooks/cleanup-worktree-on-task-close.sh   # removes SWE worktree (already done at close)
+├── scripts/hooks/cleanup-worktree-on-task-close.sh   # removes SWE worktree (already done at a passing review)
 ├── scripts/maintenance/cleanup-stale-worktrees.sh    # periodic stale worktree GC
 └── mcp/trajectory-server/src/tools/
     ├── audit.ts                                      # audit_append(post-merge state)

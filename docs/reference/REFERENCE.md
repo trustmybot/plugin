@@ -37,7 +37,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **cheatcodes** (unified skill/agent registry): `cheatcode_list`, `cheatcode_search`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_approve`, `cheatcode_vet`, `cheatcode_uninstall`
 - **skills** (builtin rows in the `cheatcodes` registry): `skill_register`, `skill_promote`
 - **agents**: `agent_list`, `agent_register`, `agent_resolve`
-- **composites**: `intent_start`, `branch_id_propose`, `task_provision`, `task_brief`, `task_retry`, `task_recover`, `bro_atomic_close`, `bro_verification_fail_record`, `pr_monitor_worktree`, `worktree_commits_fetch`
+- **composites**: `intent_start`, `branch_id_propose`, `task_provision`, `task_brief`, `task_retry`, `task_recover`, `task_reopen`, `task_update_spec`, `bro_atomic_close`, `bro_verification_fail_record`, `pr_monitor_worktree`, `worktree_commits_fetch`
 - **audit**: `audit_append`, `audit_list`, `audit_search`
 
 ## Slash commands
@@ -105,7 +105,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `naming-lint.sh` | PreToolUse Edit/Write | Enforce kebab/snake/Pascal naming conventions per language |
 | `code-quality-lint.sh` | PreToolUse Edit/Write | Catch mechanical quality patterns (bare except, mutable defaults, etc.) |
 | `debug-trajectory.sh` | PreToolUse (all, debug-mode) | Persist trajectory rows when TMB_DEBUG_TRAJECTORY=1 |
-| `cleanup-worktree-on-task-close.sh` | PostToolUse task_update_status + bro_atomic_close | Remove worktree on close |
+| `cleanup-worktree-on-task-close.sh` | PostToolUse task_update_status + validation_record | Remove worktree on a `task_update_status` close or a passing review of the closed task |
 | `roundtable-cleanup-postcheck.sh` | PostToolUse roundtable_close | Verify capture surface on close |
 | `post-task-close-rescan.sh` | PostToolUse bro_atomic_close | Background /scan to refresh the world model after close |
 | `post-atomic-close-readme.sh` | PostToolUse bro_atomic_close | Refresh directory README summaries after close |

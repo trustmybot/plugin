@@ -50,6 +50,7 @@ Tools are registered in `src/tools/index.ts`, grouped by domain:
 | Issues | `tools/issues.ts` | `issue_create`, `issue_get`, `issue_resume`, `issue_close`, `issue_snapshot_md` |
 | Milestones | `tools/milestones.ts` | `milestone_close` (reconcile + seed run inside `scan_run`) |
 | Tasks | `tools/tasks.ts` | `task_get`, `task_update_status`, `task_first_actionable` |
+| Task composites | `tools/composites.ts` | `task_provision`, `task_brief`, `task_retry`, `task_recover`, `task_reopen` (bro: closed/failed/escalated/running → running, widen fences, recreate the worktree), `task_update_spec` (bro: replace files/verification/spec_body of a live task), `bro_atomic_close` |
 | Discussions | `tools/discussions.ts` | `discussion_append`, `discussion_list` |
 | Audit | `tools/audit.ts` | `audit_append`, `audit_list` |
 | Validation | `tools/validation.ts` | `validation_record`, `validation_history` |
