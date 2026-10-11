@@ -19,8 +19,8 @@ cp "$PLUGIN_ROOT/templates/agents/cto.md" "$PROJECT/.claude/agents/cto.md"
 cp "$HERE/data-engineer.md" "$PROJECT/.claude/agents/data-engineer.md"
 
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<'SQL'
-INSERT OR REPLACE INTO agents (name, kind, scope, file_path, created_at)
+INSERT OR REPLACE INTO agents (name, kind, file_path, created_at)
 VALUES
-  ('cto',           'consultant', 'project-local', '.claude/agents/cto.md',           datetime('now')),
-  ('data-engineer', 'consultant', 'project-local', '.claude/agents/data-engineer.md', datetime('now'));
+  ('cto',           'consultant', 'project:.claude/agents/cto.md',           datetime('now')),
+  ('data-engineer', 'consultant', 'project:.claude/agents/data-engineer.md', datetime('now'));
 SQL

@@ -9,8 +9,8 @@
 `onboarding-named` fixture. `setup-l5.sh` pre-seeds:
 
 - `src/cli.py` (TODO CLI with JSON storage) — the substrate the deliberation references
-- `cto` (templated) registered as `scope='project-local'` (in L6 chain: comes from step 10's `/tmb:agent-create cto` ceremony)
-- `data-engineer` (from-scratch consultant) registered as `scope='project-local'` with a minimal storage-architecture-focused body
+- `cto` (templated) registered with a `project:` file_path (in L6 chain: comes from step 10's `/tmb:agent-create cto` ceremony)
+- `data-engineer` (from-scratch consultant) registered with a `project:` file_path with a minimal storage-architecture-focused body
 - An open "TODO CLI storage choice" issue for the roundtable to cite
 
 ## Turns
