@@ -5,52 +5,52 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { countShimEntries, removeProjectEnforcementShim, writeProjectEnforcementShim, } from '../tools/onboard-hooks-shim.js';
 // A hooks.json mirroring the real plugin's PreToolUse shape (every command is
-// `dispatch.sh <gate>`): each deny-capable
+// `"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" <gate>`): each deny-capable
 // gate is preceded by advisory/allow-returning hooks that must be excluded so
 // the deny gate runs first. Plus a PostToolUse + SessionStart that must NOT be
 // copied into settings.json.
 const HOOKS_JSON = {
     hooks: {
         SessionStart: [
-            { matcher: '', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh session-start-prescan', timeout: 5 }] },
+            { matcher: '', hooks: [{ type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" session-start-prescan', timeout: 5 }] },
         ],
         PreToolUse: [
             {
                 matcher: 'Bash',
                 hooks: [
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh git-guards', timeout: 10 },
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh git-push-guard', timeout: 10 },
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-boundary', timeout: 5 },
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh branch-up-to-date-with-remote', timeout: 10 },
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh commit-msg-lint', timeout: 5 },
+                    { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" git-guards', timeout: 10 },
+                    { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" git-push-guard', timeout: 10 },
+                    { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" swe-boundary', timeout: 5 },
+                    { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" branch-up-to-date-with-remote', timeout: 10 },
+                    { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" commit-msg-lint', timeout: 5 },
                 ],
             },
             {
                 matcher: 'Edit|Write|MultiEdit|NotebookEdit',
                 hooks: [
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-brief-gate', timeout: 5 },
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh no-source-edit-from-main', timeout: 5 },
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-boundary', timeout: 5 },
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-scope-fence', timeout: 5 },
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh naming-lint', timeout: 5 },
-                    { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh code-quality-lint', timeout: 5 },
+                    { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" swe-brief-gate', timeout: 5 },
+                    { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" no-source-edit-from-main', timeout: 5 },
+                    { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" swe-boundary', timeout: 5 },
+                    { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" swe-scope-fence', timeout: 5 },
+                    { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" naming-lint', timeout: 5 },
+                    { type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" code-quality-lint', timeout: 5 },
                 ],
             },
             {
                 matcher: 'mcp__.*trajectory-server__.*',
-                hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-brief-gate', timeout: 5 }],
+                hooks: [{ type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" swe-brief-gate', timeout: 5 }],
             },
             {
                 matcher: 'mcp__.*trajectory-server__task_update_status',
-                hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-verification-gate', timeout: 260 }],
+                hooks: [{ type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" swe-verification-gate', timeout: 260 }],
             },
             {
                 matcher: 'Bash|Read|Write|Edit|MultiEdit|Agent|Skill',
-                hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh debug-trajectory', timeout: 5 }],
+                hooks: [{ type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" debug-trajectory', timeout: 5 }],
             },
         ],
         PostToolUse: [
-            { matcher: 'Bash', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh attribution-footer', timeout: 15 }] },
+            { matcher: 'Bash', hooks: [{ type: 'command', command: '"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" attribution-footer', timeout: 15 }] },
         ],
     },
 };
@@ -156,6 +156,16 @@ describe('project enforcement shim', () => {
         assert.equal(groupFor(s, 'mcp__.*trajectory-server__.*'), undefined);
         assert.equal(s.hooks?.PostToolUse, undefined);
         assert.equal(s.hooks?.SessionStart, undefined);
+    });
+    it('quoted and unquoted placeholder commands yield the same shim', () => {
+        write();
+        const quoted = readFileSync(settingsPath(), 'utf8');
+        rmSync(join(project, '.claude'), { recursive: true, force: true });
+        const unquoted = JSON.stringify(HOOKS_JSON).replace(/\\"(\$\{CLAUDE_PLUGIN_ROOT\}[^\\]*)\\"/g, '$1');
+        assert.ok(!unquoted.includes('dispatch.sh\\"'), 'fixture rewrite left a quoted command');
+        writeFileSync(join(pluginRoot, 'hooks', 'hooks.json'), unquoted);
+        write();
+        assert.equal(readFileSync(settingsPath(), 'utf8'), quoted);
     });
     it('idempotent: repeated writes are byte-identical', () => {
         write();

@@ -32631,7 +32631,7 @@ var ADVISORY_HOOK_DENYLIST = /* @__PURE__ */ new Set([
   "debug-trajectory"
 ]);
 function gateName(command) {
-  const dispatched = command.match(/\/dispatch\.sh\s+([a-z0-9-]+)\s*$/);
+  const dispatched = command.match(/\/dispatch\.sh"?\s+([a-z0-9-]+)\s*$/);
   if (dispatched?.[1]) return dispatched[1];
   const parts = command.trim().split("/");
   return (parts[parts.length - 1] ?? command).replace(/\.sh$/, "");

@@ -82,7 +82,7 @@ bash tests/run-all.sh
 
 Runs L1 lint → L2 unit → L3 integration → L3 hooks → L4 workflow-sim. Exit non-zero if any suite fails. Run before every push to `dev`.
 
-L1, L2 and L4 run behind `gh`, `glab` and `claude` stubs that record every call; a recorded call fails the step. L2 and L4 also run with `TMB_FORBID_LIVE_SYNC=1` and `TMB_SCAN_PLUGIN_JSON` pointing at an empty plugin list, so `scripts/scan.sh` reads its plugin inventory from that file instead of spawning `claude plugin list --json`. Each L4 flow runs with `bun test --timeout 30000`.
+L1, L2 and L4 run behind `gh`, `glab` and `claude` stubs that record every call; a recorded call fails the step. L2 and L4 also run with `TMB_FORBID_LIVE_SYNC=1` and `TMB_SCAN_PLUGIN_JSON` pointing at an empty plugin list, so `scripts/scan.sh` reads its plugin inventory from that file instead of spawning `claude plugin list --json`. L1 runs with `TMB_L1_OFFLINE=1`, so `l1-lint/manifest-shape.sh` skips its `claude plugin validate --strict` step there; run the lint directly on a host with the `claude` CLI to include it. Each L4 flow runs with `bun test --timeout 30000`.
 
 Scope 4 also has a host-dependent L0 smoke that invokes the installed Codex CLI
 inside a fresh temporary `CODEX_HOME`. Run it separately against the checkout or

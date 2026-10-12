@@ -15,7 +15,7 @@ REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 # registered <root> — every gate script hooks.json runs, chains expanded.
 registered() {
   local name members
-  for name in $(grep -oE 'dispatch\.sh [a-z0-9-]+"' "$1/hooks/hooks.json" | sed -E 's/dispatch\.sh (.*)"/\1/' | sort -u); do
+  for name in $(grep -oE 'dispatch\.sh(\\")? [a-z0-9-]+"' "$1/hooks/hooks.json" | sed -E 's/dispatch\.sh(\\")? (.*)"/\2/' | sort -u); do
     members=$(tmb_chain_table "$name" | cut -d' ' -f1)
     printf '%s\n' ${members:-$name}
   done | sort -u

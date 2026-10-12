@@ -93,10 +93,11 @@ const ADVISORY_HOOK_DENYLIST = new Set([
 ]);
 
 // The gate a hooks.json command runs — the value passed to the resolver's
-// --hook arg. hooks.json registers `.../scripts/hooks/dispatch.sh <gate>`; a
-// direct `.../scripts/hooks/<gate>.sh` command maps to the same gate.
+// --hook arg. hooks.json registers `"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" <gate>`
+// (the unquoted form maps alike); a direct `.../scripts/hooks/<gate>.sh`
+// command maps to the same gate.
 function gateName(command: string): string {
-  const dispatched = command.match(/\/dispatch\.sh\s+([a-z0-9-]+)\s*$/);
+  const dispatched = command.match(/\/dispatch\.sh"?\s+([a-z0-9-]+)\s*$/);
   if (dispatched?.[1]) return dispatched[1];
   const parts = command.trim().split('/');
   return (parts[parts.length - 1] ?? command).replace(/\.sh$/, '');

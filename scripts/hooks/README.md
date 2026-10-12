@@ -4,7 +4,7 @@ The Claude Code lifecycle hook engine — the deterministic enforcement layer th
 
 ## `dispatch.sh` — the one entry point
 
-Every `hooks/hooks.json` command is `${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh <gate>` (timeout = the gate's budget + 1 s), and the opt-in headless shim execs `dispatch.sh <gate> --shim`. The dispatcher:
+Every `hooks/hooks.json` command is `"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" <gate>` — the placeholder quoted, so a plugin root containing a space stays one word (timeout = the gate's budget + 1 s), and the opt-in headless shim execs `dispatch.sh <gate> --shim`. The dispatcher:
 
 1. runs the gate of the install this project uses — `lib/resolve-install.sh` picks it from `installed_plugins.json` (project/local beats user, newest of two project installs, no entry → the invoking plugin root) — with `CLAUDE_PLUGIN_ROOT` pointing at that install;
 2. with `--shim`, exits 0 without running the gate for another project's session or a session the plugin's own hooks already cover (the `plugin-hooks-marker.sh` marker);

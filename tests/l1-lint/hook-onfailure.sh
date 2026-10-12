@@ -138,7 +138,7 @@ check() {
     printf '%-18s %-34s %-12s %-10s %s\n' "$event" "$gate" "$capable" "$on_failure" "$status"
   done < <(jq -r '
     .hooks | to_entries[] | .key as $e | .value[]?.hooks[]?
-    | [$e, ((.command // "") | capture("/dispatch\\.sh (?<g>[a-z0-9-]+)").g // ""), (.onFailure // "-")]
+    | [$e, ((.command // "") | capture("/dispatch\\.sh\"? (?<g>[a-z0-9-]+)").g // ""), (.onFailure // "-")]
     | @tsv' "$hooks_json" | expand_chains)
   if [ "$n" -eq 0 ]; then
     printf "hook-onfailure: parsed 0 registrations from %s — jq path wrong?\n" "$hooks_json" >&2

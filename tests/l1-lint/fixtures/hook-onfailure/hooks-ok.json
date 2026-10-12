@@ -6,31 +6,31 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-gate",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-gate",
             "timeout": 6,
             "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-helper-gate",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-helper-gate",
             "timeout": 6,
             "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-exit2-gate",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-exit2-gate",
             "timeout": 6,
             "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-delegator",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-delegator",
             "timeout": 6,
             "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-observe",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-observe",
             "timeout": 6
           }
         ]

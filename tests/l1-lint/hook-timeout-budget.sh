@@ -25,7 +25,7 @@ FAIL=0
 # shellcheck source=scripts/hooks/lib/registrations.sh
 . scripts/hooks/lib/registrations.sh
 
-REGISTERED=$(jq -r '.hooks[][]?.hooks[]?.command // "" | capture("/dispatch\\.sh (?<g>[a-z0-9-]+)$").g' "$HOOKS_JSON" | sort -u)
+REGISTERED=$(jq -r '.hooks[][]?.hooks[]?.command // "" | capture("/dispatch\\.sh\"? (?<g>[a-z0-9-]+)$").g' "$HOOKS_JSON" | sort -u)
 
 # Wrapper timeout for a gate script basename: the smallest of its
 # `dispatch.sh <gate>` registrations and its chain-table entries.
@@ -33,7 +33,7 @@ wrapper_timeout() {
   local g="${1%.sh}" chain
   {
     jq -r --arg g "$g" '
-      .hooks[][]?.hooks[]? | select((.command // "") | endswith("/dispatch.sh " + $g)) | .timeout // empty
+      .hooks[][]?.hooks[]? | select((.command // "") | test("/dispatch\\.sh\"? " + $g + "$")) | .timeout // empty
     ' "$HOOKS_JSON"
     for chain in $REGISTERED; do
       tmb_chain_table "$chain" | awk -v g="$g" '$1 == g { print $2 }'
