@@ -352,7 +352,7 @@ The schema says what a row may hold; the data contracts say what the rows TMB wr
 | `fk_check_empty` | error | `PRAGMA foreign_key_check` returns no row |
 | `event_type_documented` | error | every `audit.event_type` is in `AUDIT_EVENT_TYPES` (`mcp/trajectory-server/src/audit-events.ts`) |
 | `swe_runs_metered` | error | no swe/pr-reviewer `agent_runs` row completed in the last 7 days, not `unmeasured`, has all four token columns 0 or NULL |
-| `closed_tasks_reviewed` | error | every task closed in the last 30 days and more than `TMB_REVIEW_GRACE_HOURS` (default 24) ago has a passing `validation_attempts` row or a `review_gate_bypassed` / `review_gate_waived` audit row — `bro_atomic_close` closes before pr-reviewer runs, so the grace window covers the normal close → review gap (the close time is `tasks.updated_at`) |
+| `closed_tasks_reviewed` | error | every task closed in the last 30 days and more than `TMB_REVIEW_GRACE_HOURS` (default 24) ago has a passing `validation_attempts` row, a `review_gate_waived` audit row written by `bro`, or a `review_gate_bypassed` row written by `bro` or `hook:close-issue-on-merge` (the authors `GATE_SKIP_RECORDED_SQL` trusts) — `bro_atomic_close` closes before pr-reviewer runs, so the grace window covers the normal close → review gap (the close time is `tasks.updated_at`) |
 | `issues_closed_no_live_tasks` | error | no closed issue has a `pending` / `running` / `needs_validation` / `completed` task |
 | `no_stale_running` | warn | no `running` task has gone `TMB_STALE_RUNNING_HOURS` (default 6) without an update and without an open swe `agent_runs` row |
 | `scan_fresh` | warn | some `repos.last_scanned_at` is within 7 days (passes with no repo row) |

@@ -10,7 +10,7 @@
  * numeric default.
  */
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
-import { STALE_RUNNING_HOURS_DEFAULT } from './tools/lifecycle.js';
+import { STALE_RUNNING_HOURS_DEFAULT, reviewSkipAuthoredSql } from './tools/lifecycle.js';
 
 export type ContractSeverity = 'error' | 'warn';
 export type ContractOp = '=' | '<=' | '>=';
@@ -147,19 +147,19 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
     {
       id: 'closed_tasks_reviewed',
       severity: 'error',
-      description: 'tasks closed in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago have a passing pr-reviewer verdict or a review_gate_bypassed/review_gate_waived row (bro_atomic_close closes before pr-reviewer runs; tasks has no closed_at, so the close time is updated_at)',
+      description: 'tasks closed in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago have a passing pr-reviewer verdict, a bro-written review_gate_waived row, or a review_gate_bypassed row from bro or hook:close-issue-on-merge (bro_atomic_close closes before pr-reviewer runs; tasks has no closed_at, so the close time is updated_at)',
       sql: `SELECT COUNT(*) FROM tasks t
              WHERE t.status = 'closed' AND ${ts('t.updated_at')} >= ${daysAgo(30)}
                AND ${ts('t.updated_at')} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')
                AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass')
-               AND NOT EXISTS (SELECT 1 FROM audit a WHERE a.event_type IN ('review_gate_bypassed','review_gate_waived')
+               AND NOT EXISTS (SELECT 1 FROM audit a WHERE ${reviewSkipAuthoredSql('a')}
                                 AND ${auditTaskId('a')} = t.id)`,
       expect: { op: '=', value: 0 },
       sample_sql: `SELECT t.id, t.issue_id, t.branch_id, t.updated_at FROM tasks t
              WHERE t.status = 'closed' AND ${ts('t.updated_at')} >= ${daysAgo(30)}
                AND ${ts('t.updated_at')} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')
                AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass')
-               AND NOT EXISTS (SELECT 1 FROM audit a WHERE a.event_type IN ('review_gate_bypassed','review_gate_waived')
+               AND NOT EXISTS (SELECT 1 FROM audit a WHERE ${reviewSkipAuthoredSql('a')}
                                 AND ${auditTaskId('a')} = t.id)
              ORDER BY t.id DESC LIMIT 5`,
       params: [{ name: 'grace_hours', env: 'TMB_REVIEW_GRACE_HOURS', default: REVIEW_GRACE_HOURS_DEFAULT }],

@@ -26656,9 +26656,10 @@ var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
       WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
         AND json_extract(a.content_json, '$.task_id') = t.id
         AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
+var reviewSkipAuthoredSql = (alias) => `((${alias}.event_type = 'review_gate_waived' AND ${alias}.from_node = 'bro')
+      OR (${alias}.event_type = 'review_gate_bypassed' AND ${alias}.from_node IN ('bro', 'hook:close-issue-on-merge')))`;
 var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
-  WHERE ((g.event_type = 'review_gate_waived' AND g.from_node = 'bro')
-      OR (g.event_type = 'review_gate_bypassed' AND g.from_node IN ('bro', 'hook:close-issue-on-merge')))
+  WHERE ${reviewSkipAuthoredSql("g")}
     AND json_valid(g.content_json)
     AND json_extract(g.content_json, '$.task_id') = t.id
     AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;

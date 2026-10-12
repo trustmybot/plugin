@@ -23,10 +23,12 @@ export const HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
 // trajectory already says the review gate was skipped. Only bro authors a
 // waiver; a bypass is bro's (a server close path) or close-issue-on-merge's.
 // Rows from any other author do not count. close-issue-on-merge.sh holds a
-// byte-identical copy (_CIM_SKIP_RECORDED).
+// byte-identical copy (_CIM_SKIP_RECORDED). trajectory_doctor's
+// closed_tasks_reviewed contract trusts the same authors.
+export const reviewSkipAuthoredSql = (alias) => `((${alias}.event_type = 'review_gate_waived' AND ${alias}.from_node = 'bro')
+      OR (${alias}.event_type = 'review_gate_bypassed' AND ${alias}.from_node IN ('bro', 'hook:close-issue-on-merge')))`;
 export const GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
-  WHERE ((g.event_type = 'review_gate_waived' AND g.from_node = 'bro')
-      OR (g.event_type = 'review_gate_bypassed' AND g.from_node IN ('bro', 'hook:close-issue-on-merge')))
+  WHERE ${reviewSkipAuthoredSql('g')}
     AND json_valid(g.content_json)
     AND json_extract(g.content_json, '$.task_id') = t.id
     AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
