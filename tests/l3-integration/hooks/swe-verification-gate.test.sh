@@ -15,6 +15,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/swe-verification-gate.sh"
+. "$HERE/fixtures/wal-no-holder.sh"
 
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -459,6 +460,14 @@ printf 'not a sqlite database %.0s' 1 2 3 4 5 6 7 8 > "$BAD_DB"
 out=$(cd "$REPO_DIR" && echo "$(make_input swe completed 1)" | TRAJECTORY_DB_PATH="$BAD_DB" bash "$HOOK" 2>&1 || true)
 assert_contains "$out" '"permissionDecision":"deny"' "DB read error must deny, not skip the gate"
 assert_contains "$out" "trajectory DB unavailable" "deny names the unavailable DB"
+
+WAL_WS="$TMPDIR/wal-ws"
+mkdir -p "$WAL_WS/.claude/tmb"
+sqlite3 "$DB" ".backup '$WAL_WS/.claude/tmb/trajectory.db'"
+# Task 3's verification[] fails: an empty verification[] read would print the
+# "no typed verification" skip instead of the deny.
+wal_gate_cases "swe-verification-gate" "$HOOK" "$WAL_WS/.claude/tmb/trajectory.db" "$WAL_WS" \
+  "$(make_input swe completed 3)" "verification failed" "no typed verification" "$REPO_DIR"
 
 # ---- Run lock: one verification run per (task, worktree HEAD) ---------------
 # Two concurrent invocations (the gate registered twice) serialize on the lock;

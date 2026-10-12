@@ -15,6 +15,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/git-push-guard.sh"
+. "$HERE/fixtures/wal-no-holder.sh"
 
 # ----- helpers ----------------------------------------------------------
 
@@ -524,6 +525,28 @@ out=$(run_hook "git push origin main" "$db")
 chmod 644 "$db"
 assert_contains "$out" '"permissionDecision":"deny"' "DB read error must deny, not allow"
 assert_contains "$out" "trajectory DB unavailable" "deny names the unavailable DB"
+cleanup
+
+# First push of a feature branch cut from dev: the repos row's target_branch
+# (dev, read by tmb_repo_resolve) bounds the range to the signed feature
+# commit. An empty read falls back to main and pulls in dev's unsigned commit.
+setup_repo
+db=$(setup_db "$REPO_PATH")
+git -C "$REPO_PATH" checkout -q -b dev
+git -C "$REPO_PATH" push -q origin dev
+git -C "$REPO_PATH" checkout -q -b feat/wal
+echo "feat C" > "$REPO_PATH/c.txt"
+git -C "$REPO_PATH" add c.txt
+git -C "$REPO_PATH" commit -qm "feat: C"
+SHA3=$(git -C "$REPO_PATH" rev-parse HEAD)
+insert_task "$db" 1 "$SHA2"
+insert_task "$db" 3 "$SHA3"
+sign_task   "$db" 3
+sqlite3 "$db" "INSERT INTO repos (name, path, target_branch) VALUES ('wal', '$REPO_PATH', 'dev');"
+out=$(run_hook "git push origin feat/wal" "$db")
+assert_not_contains "$out" '"permissionDecision":"deny"' "WAL fixture precondition: the push of the signed feature commit is allowed"
+wal_gate_cases "git-push-guard" "$HOOK" "$db" "$REPO_PATH" \
+  "$(jq -cn '{tool_input:{command:"git push origin feat/wal"}}')" "" '"permissionDecision":"deny"' "$REPO_PATH"
 cleanup
 
 # ----- GH 1196: role from identity, dir from the command ----------------

@@ -36,18 +36,51 @@ tmb_db_location() {
   printf '%s/%s/%s/%s\n' "${1:-}" "$TMB_STATE_HOST_DIR" "$(tmb_plugin_name)" "$TMB_DB_FILENAME"
 }
 
+# _tmb_db_wal_cold <db>
+# 0 when <db> is a WAL database (header bytes 18-19 = 2) with no -shm file
+# beside it: the state of a healthy DB nobody holds open (MCP server down or
+# restarting). sqlite3 -readonly cannot open it ("unable to open database
+# file", SQLITE_CANTOPEN = exit 14). Costs nothing while -shm exists.
+_tmb_db_wal_cold() {
+  [ ! -e "${1:-}-shm" ] || return 1
+  [ "$(od -An -tu1 -j18 -N2 "${1:-}" 2>/dev/null | tr -d ' \n')" = "22" ]
+}
+
+# _tmb_sqlite_once <readonly:1|0> <timeout_ms> <db> <sql>
+# One sqlite3 read; prints its stdout, returns its exit code.
+_tmb_sqlite_once() {
+  if [ "$1" = 1 ]; then
+    sqlite3 -readonly -cmd ".timeout ${2}" "$3" "$4" 2>/dev/null
+  else
+    sqlite3 -cmd ".timeout ${2}" "$3" "$4" 2>/dev/null
+  fi
+}
+
 # tmb_gate_read <db> <sql>
 # Read helper for deny-capable gates. Prints the query output, or the literal
 # __ERR__ when sqlite3 fails (missing/corrupt/locked DB) so the caller can tell
 # "no rows" from "DB unavailable" and fail closed. Always returns 0.
+# Reads run with -readonly (the fast path while the MCP server holds the DB
+# open), except on a WAL DB with no -shm (_tmb_db_wal_cold), which -readonly
+# cannot open: that read, and a -readonly read failing with SQLITE_CANTOPEN
+# (14), run without -readonly. Such a read may create -shm/-wal beside the DB,
+# inside the project; the SQL is read-only (tests/l1-lint/gate-read-sql-readonly.sh),
+# so no page is written. Busy, SQL and corruption errors are never retried.
+# immutable=1 is not used: it reads stale pages while a writer is active.
 tmb_gate_read() {
-  local db="${1:-}" sql="${2:-}" out ms="${TMB_DB_WRITE_TIMEOUT_MS:-1500}"
+  local db="${1:-}" sql="${2:-}" out rc=0 ro=1 ms="${TMB_DB_WRITE_TIMEOUT_MS:-1500}"
   case "$ms" in ''|*[!0-9]*) ms=1500 ;; esac
   if [ -z "$db" ] || [ ! -f "$db" ]; then
     printf '__ERR__\n'
     return 0
   fi
-  if out=$(sqlite3 -readonly -cmd ".timeout ${ms}" "$db" "$sql" 2>/dev/null); then
+  _tmb_db_wal_cold "$db" && ro=0
+  out=$(_tmb_sqlite_once "$ro" "$ms" "$db" "$sql") || rc=$?
+  if [ "$rc" -eq 14 ] && [ "$ro" = 1 ]; then
+    rc=0
+    out=$(_tmb_sqlite_once 0 "$ms" "$db" "$sql") || rc=$?
+  fi
+  if [ "$rc" -eq 0 ]; then
     [ -n "$out" ] && printf '%s\n' "$out"
   else
     printf '__ERR__\n'
@@ -57,12 +90,38 @@ tmb_gate_read() {
 
 # tmb_db_read_budget <db> <budget_ms>
 # Read helper with a hard wall-clock budget: runs the SQL script on stdin
-# through sqlite3 -readonly (busy timeout = the budget) and kills it once the
-# budget is spent. Prints whatever the script printed. Returns 0 when sqlite3
+# through sqlite3 (busy timeout = the budget) and kills it once the budget is
+# spent. -readonly unless the DB is WAL with no -shm (as tmb_gate_read); a
+# -readonly run that fails while the DB is in that state runs once more
+# without it. Prints whatever the script printed. Returns 0 when sqlite3
 # succeeded, 124 on timeout, else non-zero (missing DB, read or SQL error —
 # output already printed is kept, so a caller can tell which statements ran).
 tmb_db_read_budget() {
-  local db="${1:-}" ms="${2:-}"
+  local db="${1:-}" ms="${2:-}" script out rc=0
+  if [ -z "$db" ] || [ ! -f "$db" ]; then
+    cat >/dev/null
+    return 1
+  fi
+  case "$ms" in ''|*[!0-9]*) ms=1500 ;; esac
+  [ "$ms" -gt 0 ] || ms=1
+  script="$(printf '.timeout %s\n' "$ms"; cat)"
+  if _tmb_db_wal_cold "$db"; then
+    out=$(printf '%s\n' "$script" | _tmb_budget_run 0 "$ms" "$db") || rc=$?
+  else
+    out=$(printf '%s\n' "$script" | _tmb_budget_run 1 "$ms" "$db") || rc=$?
+    if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ] && _tmb_db_wal_cold "$db"; then
+      rc=0
+      out=$(printf '%s\n' "$script" | _tmb_budget_run 0 "$ms" "$db") || rc=$?
+    fi
+  fi
+  [ -n "$out" ] && printf '%s\n' "$out"
+  return "$rc"
+}
+
+# _tmb_budget_run <readonly:1|0> <budget_ms> <db>
+# Runs the SQL script on stdin through sqlite3 and kills it once the budget
+# is spent (exit 124).
+_tmb_budget_run() {
   local kill_after_pl='
     my $ms = shift @ARGV;
     my $pid = fork();
@@ -73,14 +132,12 @@ tmb_db_read_budget() {
     waitpid($pid, 0);
     alarm 0;
     exit(($? >> 8) & 0xff);'
-  if [ -z "$db" ] || [ ! -f "$db" ]; then
-    cat >/dev/null
-    return 1
+  if [ "$1" = 1 ]; then
+    set -- "$2" sqlite3 -readonly "$3"
+  else
+    set -- "$2" sqlite3 "$3"
   fi
-  case "$ms" in ''|*[!0-9]*) ms=1500 ;; esac
-  [ "$ms" -gt 0 ] || ms=1
-  { printf '.timeout %s\n' "$ms"; cat; } | perl -MTime::HiRes=alarm -e "$kill_after_pl" "$ms" \
-    sqlite3 -readonly "$db" 2>/dev/null
+  perl -MTime::HiRes=alarm -e "$kill_after_pl" "$@" 2>/dev/null
 }
 
 # _tmb_db_probe <db>
@@ -215,13 +272,14 @@ tmb_db_path_advisory() {
 }
 
 # tmb_sqlite_ro <db> <sql>
-# Read-only sqlite3 with a 500ms busy timeout.
-# Returns the query output, or empty string on error.
-# Never fails the caller.
+# tmb_gate_read with a 500ms busy timeout, for reads that treat an error as
+# "no rows": prints the query output, or nothing on error. Never fails the
+# caller.
 tmb_sqlite_ro() {
-  local db="$1"
-  local sql="$2"
-  sqlite3 -readonly -cmd '.timeout 500' "$db" "$sql" 2>/dev/null || true
+  local out
+  out=$(TMB_DB_WRITE_TIMEOUT_MS=500 tmb_gate_read "${1:-}" "${2:-}")
+  [ -n "$out" ] && [ "$out" != "__ERR__" ] && printf '%s\n' "$out"
+  return 0
 }
 
 # tmb_config_get <key> [<db>]

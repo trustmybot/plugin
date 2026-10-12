@@ -13,6 +13,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/require-task-spec.sh"
+. "$HERE/fixtures/wal-no-holder.sh"
 
 # Fixture: isolated TRAJECTORY_DB_PATH + a tasks table with known rows
 TMPDIR=$(mktemp -d)
@@ -175,6 +176,12 @@ out=$(run_hook_env "$(swe_input 'task_id=1')" "TRAJECTORY_DB_PATH" "$TMPDIR/corr
 assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
 assert_contains "$out" "trajectory DB unavailable" "reason cites the unavailable DB"
 
+WAL_PROJ="$TMPDIR/wal-project"
+mkdir -p "$WAL_PROJ/.claude/tmb"
+sqlite3 "$DB" ".backup '$WAL_PROJ/.claude/tmb/trajectory.db'"
+wal_gate_cases "require-task-spec" "$HOOK" "$WAL_PROJ/.claude/tmb/trajectory.db" "$WAL_PROJ" \
+  "$(swe_input 'task_id=2 please do the thing')" "has empty spec_body" "does not exist in the tasks table"
+
 test_case "schema-touching task without Writer:/Populated: is blocked, naming both lines"
 out=$(run_hook "$(swe_input 'task_id=20 please do the thing')")
 assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
@@ -296,9 +303,8 @@ console.log([...waived, plain, manual].join(" "));
 process.exit(0);
 ')
 read -r WAIVED_A WAIVED_B PLAIN_ID MANUAL_ID <<< "$SERVER_IDS"
-# No server holds the closed DB open, so leave WAL mode: a -readonly open of a
-# WAL database without its -shm file cannot read.
-sqlite3 "$SERVER_DB" "PRAGMA journal_mode=DELETE;" >/dev/null
+# The server closed the DB: WAL mode, no -shm/-wal, nothing holds it open.
+wal_detach "$SERVER_DB"
 
 test_case "task_create_batch(waive_spec_shape) opens the gate for every task it created with no second write"
 for id in "$WAIVED_A" "$WAIVED_B"; do

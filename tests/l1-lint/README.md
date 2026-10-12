@@ -51,6 +51,7 @@ bash tests/l1-lint/link-check.sh
 | Script | Catches |
 |---|---|
 | [`no-bare-role-compare.sh`](./no-bare-role-compare.sh) | Bare role-string comparisons instead of requireRoles |
+| [`gate-read-sql-readonly.sh`](./gate-read-sql-readonly.sh) | SQL handed to `tmb_gate_read` / `tmb_sqlite_ro`, or a data-contract `sql`, that is not read-only (`SELECT`, `WITH`, or a read of `journal_mode` / `user_version` / `table_info`), and a hook calling `sqlite3 -readonly` outside `lib/query-task.sh`; every run self-tests `fixtures/gate-read-sql-readonly/` |
 | [`no-raw-sql-interpolation.sh`](./no-raw-sql-interpolation.sh) | Raw SQL string interpolation (allowlist: `no-raw-sql-interpolation.allowlist`, entries `<file>@<function>`, `<file>:<line>` or `<file>`; a missing function fails; every run self-tests `fixtures/no-raw-sql-interpolation/`) |
 | [`no-destructive-sql.sh`](./no-destructive-sql.sh) | Destructive SQL statements |
 | [`no-direct-sqlite-write.sh`](./no-direct-sqlite-write.sh) | A `sqlite3` write under `scripts/` that bypasses the write library (`scripts/hooks/lib/db-write.sh`) |
