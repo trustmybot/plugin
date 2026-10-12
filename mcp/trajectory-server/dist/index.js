@@ -30129,18 +30129,21 @@ function resolveCarrierIssueId(db2, prNumber, repo, headBranch) {
        FROM pr_review_runs r
        JOIN tasks t ON t.id = r.task_id
       WHERE r.pr_number = ? ${repo !== "" ? "AND r.repo = ?" : ""}
-        AND t.status NOT IN ('closed','failed')
-      ORDER BY r.id DESC LIMIT 1`,
+        AND t.status NOT IN ('failed','escalated')
+      ORDER BY t.updated_at DESC, t.id DESC LIMIT 1`,
     repo !== "" ? [prNumber, repo] : [prNumber]
   );
   if (linked) return linked.issue_id;
-  const taskId = resolveMonitorTaskId(db2, headBranch, repo);
-  if (taskId === null) return null;
-  const task = db2.get(
-    `SELECT issue_id FROM tasks WHERE id = ? AND status NOT IN ('closed','failed')`,
-    [taskId]
+  if (!headBranch) return null;
+  const byBranch = (repoName2) => db2.get(
+    `SELECT issue_id FROM tasks
+        WHERE branch_id = ? ${repoName2 ? "AND repo = ?" : ""}
+          AND status NOT IN ('failed','escalated')
+        ORDER BY updated_at DESC, id DESC LIMIT 1`,
+    repoName2 ? [headBranch, repoName2] : [headBranch]
   );
-  return task?.issue_id ?? null;
+  const repoName = repoNameForSlug(db2, repo);
+  return ((repoName ? byBranch(repoName) : void 0) ?? byBranch(null))?.issue_id ?? null;
 }
 function remoteCommentId(remoteKind, prNumber, commentId) {
   return `${remoteKind}:${prNumber}:${commentId}`;

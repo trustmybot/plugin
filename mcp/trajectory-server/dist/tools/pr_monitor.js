@@ -87,21 +87,26 @@ function resolveMonitorTaskId(db, branch, repoSlug) {
 }
 // The issue that carries a PR's comments: the PR's linked task (pr_review_runs,
 // repo-scoped when a slug resolved, else the task owning the head branch) → its
-// issue. Closed/failed tasks carry nothing. Null when the PR maps to no live task.
+// issue. A task is closed at bro_atomic_close before its PR opens, so closed
+// tasks carry comments; failed and escalated tasks do not. The most recently
+// updated match wins. Null when the PR maps to no carrying task.
 function resolveCarrierIssueId(db, prNumber, repo, headBranch) {
     const linked = db.get(`SELECT t.issue_id
        FROM pr_review_runs r
        JOIN tasks t ON t.id = r.task_id
       WHERE r.pr_number = ? ${repo !== '' ? 'AND r.repo = ?' : ''}
-        AND t.status NOT IN ('closed','failed')
-      ORDER BY r.id DESC LIMIT 1`, repo !== '' ? [prNumber, repo] : [prNumber]);
+        AND t.status NOT IN ('failed','escalated')
+      ORDER BY t.updated_at DESC, t.id DESC LIMIT 1`, repo !== '' ? [prNumber, repo] : [prNumber]);
     if (linked)
         return linked.issue_id;
-    const taskId = resolveMonitorTaskId(db, headBranch, repo);
-    if (taskId === null)
+    if (!headBranch)
         return null;
-    const task = db.get(`SELECT issue_id FROM tasks WHERE id = ? AND status NOT IN ('closed','failed')`, [taskId]);
-    return task?.issue_id ?? null;
+    const byBranch = (repoName) => db.get(`SELECT issue_id FROM tasks
+        WHERE branch_id = ? ${repoName ? 'AND repo = ?' : ''}
+          AND status NOT IN ('failed','escalated')
+        ORDER BY updated_at DESC, id DESC LIMIT 1`, repoName ? [headBranch, repoName] : [headBranch]);
+    const repoName = repoNameForSlug(db, repo);
+    return ((repoName ? byBranch(repoName) : undefined) ?? byBranch(null))?.issue_id ?? null;
 }
 export function remoteCommentId(remoteKind, prNumber, commentId) {
     return `${remoteKind}:${prNumber}:${commentId}`;

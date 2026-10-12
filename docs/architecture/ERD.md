@@ -299,7 +299,7 @@ erDiagram
 - `idx_issues_status` — `(status)`. Open-issue scans.
 - `idx_issues_gh_iid` — `(gh_iid)`. GitHub issue number → local issue lookups.
 - `idx_discussions_issue_created` — `(issue_id, created_at)`. Feeds the chronological discussion view.
-- `idx_discussions_remote_comment` — `UNIQUE(remote_comment_id) WHERE remote_comment_id IS NOT NULL`. One discussion per persisted PR/MR comment: `pr_monitor_comments_get` writes each fetched comment through `insertDiscussion` as a `note` on the issue of the task that owns the PR (`pr_review_runs.task_id`, else the task on the PR head branch), keyed `<provider>:<pr_number>:<comment_id>` (`github:12:IC_kwDO…`, `gitlab:7:4410`), so a re-fetch of the same comment inserts nothing.
+- `idx_discussions_remote_comment` — `UNIQUE(remote_comment_id) WHERE remote_comment_id IS NOT NULL`. One discussion per persisted PR/MR comment: `pr_monitor_comments_get` writes each fetched comment through `insertDiscussion` as a `note` on the issue of the task that owns the PR (`pr_review_runs.task_id`, else the most recently updated task on the PR head branch; failed and escalated tasks are skipped, closed ones are not), keyed `<provider>:<pr_number>:<comment_id>` (`github:12:IC_kwDO…`, `gitlab:7:4410`), so a re-fetch of the same comment inserts nothing.
 - `validation_attempts` — `UNIQUE(task_id, attempt_n)`. One row per (task, attempt).
 - `idx_agent_runs_task` — `(task_id)`. Fast per-task resource lookup.
 - `idx_agent_runs_issue` — `(issue_id)`. Fast per-issue resource rollup.

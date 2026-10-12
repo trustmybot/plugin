@@ -410,14 +410,14 @@ describe('pr_monitor_comments_get — pr_review_runs.task_id population (#1024)'
 });
 describe('pr_monitor_comments_get — server-side comment persistence (GH 1208)', () => {
     const REPO_URL = 'https://github.com/owner/repo.git';
-    function seedTask(db, branch, status = 'pending') {
-        db.run(`INSERT INTO repos (name, path, remotes) VALUES ('app', '/tmp/app', ?)`, [
+    function seedTask(db, branch, status = 'pending', updatedAt = '2024-01-01T00:00:00.000Z') {
+        db.run(`INSERT OR IGNORE INTO repos (name, path, remotes) VALUES ('app', '/tmp/app', ?)`, [
             JSON.stringify([{ name: 'origin', provider: 'github', url: REPO_URL }]),
         ]);
         db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES ('carrier', '', 'open', datetime('now'), datetime('now'))`);
         const issueId = db.get('SELECT id FROM issues ORDER BY id DESC LIMIT 1').id;
         db.run(`INSERT INTO tasks (issue_id, branch_id, description, repo, status, created_at, updated_at)
-       VALUES (?, ?, 'task', 'app', ?, datetime('now'), datetime('now'))`, [issueId, branch, status]);
+       VALUES (?, ?, 'task', 'app', ?, ?, ?)`, [issueId, branch, status, updatedAt, updatedAt]);
         const taskId = db.get('SELECT id FROM tasks ORDER BY id DESC LIMIT 1').id;
         return { taskId, issueId };
     }
@@ -494,16 +494,41 @@ describe('pr_monitor_comments_get — server-side comment persistence (GH 1208)'
         assert.equal(rows[0].issue_id, issueId, 'the linked task\'s issue carries the comment');
         db.close();
     });
-    it('persists nothing when the PR maps to no live task', async () => {
+    it('persists nothing when only failed/escalated tasks match', async () => {
         const db = tempDB();
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
-        seedTask(db, 'fix/closed', 'closed');
-        const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: payload('fix/closed', [C1]), stderr: '' }]));
+        seedTask(db, 'fix/dead', 'failed');
+        seedTask(db, 'fix/dead', 'escalated');
+        const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: payload('fix/dead', [C1]), stderr: '' }]));
         const result = parseResult((await tools.handlers['pr_monitor_comments_get']({ agent: 'bro', pr_number: 53 })));
         assert.equal(result.persisted, 0);
         assert.equal(result.duplicates, 0);
         assert.equal(result.comments.length, 1, 'comments still returned');
         assert.equal(prDiscussions(db).length, 0);
+        db.close();
+    });
+    it('a closed task\'s issue receives the comment (tasks close at bro_atomic_close, before the PR opens)', async () => {
+        const db = tempDB();
+        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+        const { issueId } = seedTask(db, 'fix/shipped', 'closed');
+        const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: payload('fix/shipped', [C1]), stderr: '' }]));
+        const result = parseResult((await tools.handlers['pr_monitor_comments_get']({ agent: 'bro', pr_number: 54 })));
+        assert.equal(result.persisted, 1);
+        const rows = prDiscussions(db);
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].issue_id, issueId, 'the closed task\'s issue carries the comment');
+        db.close();
+    });
+    it('prefers the most recently updated task when several share the head branch', async () => {
+        const db = tempDB();
+        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+        seedTask(db, 'fix/reworked', 'closed', '2024-01-01T00:00:00.000Z');
+        const { issueId: newer } = seedTask(db, 'fix/reworked', 'closed', '2024-06-01T00:00:00.000Z');
+        seedTask(db, 'fix/reworked', 'failed', '2024-09-01T00:00:00.000Z');
+        const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: payload('fix/reworked', [C1]), stderr: '' }]));
+        const result = parseResult((await tools.handlers['pr_monitor_comments_get']({ agent: 'bro', pr_number: 55 })));
+        assert.equal(result.persisted, 1);
+        assert.equal(prDiscussions(db)[0].issue_id, newer, 'most recently updated carrying task wins; failed is skipped');
         db.close();
     });
     it('keys GitLab notes with the gitlab provider', async () => {
