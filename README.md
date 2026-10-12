@@ -20,6 +20,8 @@ That structure earns its keep on **long-horizon, multi-task work** — a codebas
 
 ## Install
 
+Requires **Claude Code 2.1.295 or later** (`claude --version`): TMB registers its gates with `"onFailure": "block"`, which earlier versions ignore: there a gate that times out lets the action through.
+
 ```bash
 /plugin marketplace add trustmybot/marketplace
 /plugin install tmb@trustmybot

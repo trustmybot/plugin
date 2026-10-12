@@ -71,6 +71,7 @@ run_step "L1 lint: symlink targets all resolve"       bash "$HERE/l1-lint/symlin
 run_step "L1 lint: hooks.json commands executable"     bash "$HERE/l1-lint/hooks-executable.sh"
 run_step "L1 lint: hooks.json routes through dispatch.sh" bash "$HERE/l1-lint/hooks-via-dispatcher.sh"
 run_step "L1 lint: hook wrapper timeouts cover budgets" bash "$HERE/l1-lint/hook-timeout-budget.sh"
+run_step "L1 lint: deny-capable hooks register onFailure: block" bash "$HERE/l1-lint/hook-onfailure.sh"
 run_step "L1 lint: valid permissionDecision values"    bash "$HERE/l1-lint/valid-permission-decisions.sh"
 run_step "L1 lint: no directories-table refs"         bash "$HERE/l1-lint/no-directories-table-refs.sh"
 run_step "L1 lint: RAG schema invariants"             bash "$HERE/l1-lint/rag-schema-invariants.sh"

@@ -13,7 +13,8 @@
 #    with CLAUDE_PLUGIN_ROOT pointing at it. When that install lacks the gate,
 #    the dispatcher's own copy runs, with a stderr notice. An invalid gate name
 #    or a gate found in neither exits 1 with a stderr line: a visible hook
-#    error, never a silent allow.
+#    error, never a silent allow (a fail-closed gate found in neither denies,
+#    see 4).
 # 2. --shim keeps the headless shim's yield: exit 0 without running the gate
 #    when CLAUDE_PROJECT_DIR is another project than TMB_SHIM_PROJECT, or when
 #    the plugin's own hooks marked this session
@@ -40,6 +41,12 @@
 #    path share one lock.
 #    A project without TMB state (no trajectory DB) still runs the gate but
 #    takes no lock: nothing is written in a non-TMB project.
+# 4. Fail closed. A gate whose hooks.json registration carries
+#    "onFailure": "block" never ends without a decision: when its script is
+#    missing, exits non-zero (other than 2) without a deny, or the dispatcher
+#    itself errors, the dispatcher prints a blocking decision shaped for the
+#    event (PreToolUse deny, else decision block) and exits 0, with a stderr
+#    line naming the cause. Other hooks keep their exit code and output.
 
 set -uo pipefail
 
@@ -65,6 +72,60 @@ esac
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SELF_ROOT="$(cd "$SELF_DIR/../.." && pwd)"
 export CLAUDE_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$SELF_ROOT}"
+
+REGISTRATION=$(jq -r --arg g "$GATE" '
+  [.hooks[][]?.hooks[]? | select((.command // "") | test("/dispatch\\.sh " + $g + "( |$)"))]
+  | "\([.[].timeout // empty] | max // "") \(if any(.[]; .onFailure == "block") then 1 else 0 end)"
+  ' "$SELF_ROOT/hooks/hooks.json" 2>/dev/null || true)
+GATE_TIMEOUT="${REGISTRATION% *}"
+FAIL_CLOSED="${REGISTRATION##* }"
+[ "$FAIL_CLOSED" = "1" ] || FAIL_CLOSED=0
+PAYLOAD=""
+PAYLOAD_READ=0
+DENY_PATTERN='"permissionDecision"[[:space:]]*:[[:space:]]*"deny"|"decision"[[:space:]]*:[[:space:]]*"block"'
+
+read_payload() {
+  [ "$PAYLOAD_READ" = "1" ] && return 0
+  PAYLOAD_READ=1
+  PAYLOAD=$(cat)
+}
+
+# fail_closed_decision <cause> — the blocking decision for this gate's event.
+fail_closed_decision() {
+  local reason="BLOCKED: TMB gate $GATE $1 without a decision, so the action is denied (fail-closed). The hook's stderr names the cause; fix the gate, then retry."
+  printf 'TMB dispatch: gate %s %s — failing closed\n' "$GATE" "$1" >&2
+  if printf '%s' "$PAYLOAD" | grep -qE '"hook_event_name"[[:space:]]*:[[:space:]]*"PreToolUse"'; then
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$reason"
+  else
+    printf '{"decision":"block","reason":"%s"}\n' "$reason"
+  fi
+}
+
+on_exit() {
+  local rc=$?
+  [ "$FAIL_CLOSED" = "1" ] || return 0
+  case "$rc" in 0|2) return 0 ;; esac
+  read_payload
+  fail_closed_decision "dispatch failed (exit $rc)"
+  exit 0
+}
+trap on_exit EXIT
+
+# settle <rc> <stdout> — a fail-closed gate's non-zero exit other than 2 keeps
+# its own deny, or becomes one; every other result passes through unchanged.
+settle() {
+  local rc="$1" out="$2"
+  if [ "$FAIL_CLOSED" = "0" ] || [ "$rc" = "0" ] || [ "$rc" = "2" ]; then
+    [ -n "$out" ] && printf '%s\n' "$out"
+    return "$rc"
+  fi
+  if printf '%s' "$out" | grep -qE "$DENY_PATTERN"; then
+    printf '%s\n' "$out"
+  else
+    fail_closed_decision "exited $rc"
+  fi
+  return 0
+}
 
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SELF_DIR/lib/query-task.sh"
@@ -94,14 +155,21 @@ if tmb_have_sqlite && STATE_DIR=$(tmb_state_dir 2>/dev/null); then
   LOCK_BASE="$(_tmb_canonical_dir "$STATE_DIR")/locks/events"
 fi
 
-if [ "$SHIM" = "0" ] && [ -z "$LOCK_BASE" ]; then
+if [ "$SHIM" = "0" ] && [ -z "$LOCK_BASE" ] && [ "$FAIL_CLOSED" = "0" ]; then
   exec bash "$TARGET" ${PASS[@]+"${PASS[@]}"}
 fi
 
-PAYLOAD=$(cat)
+read_payload
 
 run_gate() {
-  printf '%s' "$PAYLOAD" | bash "$TARGET" ${PASS[@]+"${PASS[@]}"}
+  local out rc
+  if [ "$FAIL_CLOSED" = "0" ]; then
+    printf '%s' "$PAYLOAD" | bash "$TARGET" ${PASS[@]+"${PASS[@]}"}
+    return "${PIPESTATUS[1]}"
+  fi
+  out=$(printf '%s' "$PAYLOAD" | bash "$TARGET" ${PASS[@]+"${PASS[@]}"}; exit "${PIPESTATUS[1]}")
+  rc=$?
+  settle "$rc" "$out"
 }
 
 if [ "$SHIM" = "1" ] && command -v jq >/dev/null 2>&1; then
@@ -159,9 +227,6 @@ while IFS= read -r old; do
   fi
 done < <(find "$LOCK_BASE" -mindepth 1 -maxdepth 1 -type d -mmin "+$TTL_MIN" 2>/dev/null)
 
-GATE_TIMEOUT=$(jq -r --arg g "$GATE" '
-  [.hooks[][]?.hooks[]? | select((.command // "") | test("/dispatch\\.sh " + $g + "( |$)")) | .timeout // empty]
-  | max // empty' "$SELF_ROOT/hooks/hooks.json" 2>/dev/null || true)
 case "$GATE_TIMEOUT" in ''|*[!0-9]*) GATE_TIMEOUT=6 ;; esac
 WAIT_S=$((GATE_TIMEOUT - 1))
 [ "$WAIT_S" -ge 1 ] || WAIT_S=1
@@ -198,6 +263,11 @@ _expired() {
 hold() {
   printf '%s' "$PAYLOAD" | bash "$TARGET" ${PASS[@]+"${PASS[@]}"} >"$LOCK/result" 2>"$LOCK/stderr"
   local rc=${PIPESTATUS[1]}
+  if [ "$FAIL_CLOSED" = "1" ] && [ "$rc" != "0" ] && [ "$rc" != "2" ]; then
+    grep -qE "$DENY_PATTERN" "$LOCK/result" 2>/dev/null \
+      || fail_closed_decision "exited $rc" >"$LOCK/result" 2>>"$LOCK/stderr"
+    rc=0
+  fi
   printf '%s\n' "$rc" > "$LOCK/rc.tmp" 2>/dev/null && mv -f "$LOCK/rc.tmp" "$LOCK/rc" 2>/dev/null
   cat "$LOCK/stderr" >&2 2>/dev/null
   cat "$LOCK/result" 2>/dev/null

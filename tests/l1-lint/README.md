@@ -67,6 +67,7 @@ bash tests/l1-lint/link-check.sh
 | Script | Catches |
 |---|---|
 | [`hooks-executable.sh`](./hooks-executable.sh) | Hook scripts missing the executable bit |
+| [`hook-onfailure.sh`](./hook-onfailure.sh) | A deny-capable `hooks/hooks.json` registration (its script prints a deny, exits 2, calls a deny helper from a sourced library, or runs a deny-capable script) without `"onFailure": "block"`; warns when an observe-only one carries it. Prints the derived table; `--self-test` checks the fixtures in `fixtures/hook-onfailure/` |
 | [`shellcheck-hooks.sh`](./shellcheck-hooks.sh) | Shellcheck violations in hook scripts |
 | [`dir-toolchain.sh`](./dir-toolchain.sh) | Per-directory toolchain expectations |
 | [`kuzu-trusted-dep.sh`](./kuzu-trusted-dep.sh) | kuzu trusted-dependency declaration |
