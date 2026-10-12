@@ -142,9 +142,9 @@ erDiagram
         TEXT verdict "CHECK pass|fail|escalate"
         TEXT feedback
         INT  mcp_available "NOT NULL, no default; 0 = MCP-down fallback"
-        TEXT subagent_session_id "the pr-reviewer's Claude Code session"
+        TEXT subagent_session_id "the Claude Code session of the pr-reviewer call, stamped from the hook-observed row"
         TEXT repo "FK → repos.name; task repo, else issue repo, at write time"
-        TEXT reviewer_agent_id "the pr-reviewer subagent's Claude Code agent_id; NULL until validation_record writes it (GH 1226) and for honor-system rows"
+        TEXT reviewer_agent_id "the pr-reviewer subagent's Claude Code agent_id, stamped by validation_record from the hook-observed row; NULL for honor-system and pre-GH-1226 rows"
     }
 
     audit {
@@ -258,7 +258,7 @@ erDiagram
 
 | From | Column | → To | Semantics |
 |---|---|---|---|
-| `tasks` | `issue_id` | `issues.id` | every task belongs to one issue |
+| `tasks` | `issue_id` | `issues.id` | every task belongs to one issue; never the system issue `-1`, which carries audit rows only (`task_provision` / `task_create_batch` refuse it with `system_issue_reserved`) |
 | `audit` | `issue_id` | `issues.id` | every event row scoped to an issue (use system issue id=-1 for project-level events) |
 | `discussions` | `issue_id` | `issues.id` | bro ↔ human ↔ consultants conversation per issue, plus the PR/MR comments `pr_monitor_comments_get` persists |
 | `roundtables` | `issue_id` | `issues.id` | a multi-agent debate belongs to an issue |
@@ -328,7 +328,7 @@ erDiagram
 
 - **bro** (planner + task gate, CLAUDE.md persona on main Claude) — full write access for the workflow side: `onboard_state_get`/`onboard_apply` (which write `plugin_config('onboarded')`), `config_get`/`set`/`list`, `issue_create`/`get`/`resume`/`close`, `discussion_append` (kind='intent'/'note'/'question'/'answer'/'decision'), `task_provision`, `task_update_status` (closes tasks after verifying SWE's return), `audit_append`, `scan_run` (writes `repos` SQLite + Directory nodes / CONTAINS edges in kuzu, `deep_scan_completed` audit), `repo_rename` (renames a repo across SQLite and kuzu). Reads the world model via `world_model_get` / `world_model_search` (kuzu queries) as the cold-start navigation surface. Also reads `validation_history` to drive the retry loop (flow 8).
 - **swe** (executor, project-local subagent in worktree) — `task_get(id)` for spec → `audit_append` during work → `task_update_status('completed', commit_sha)` on success. Cannot write to `issues`, `validation_attempts`, or close tasks. Reads the world model when scoping unfamiliar parts of the codebase.
-- **pr-reviewer** (push gate, project-local subagent) — `task_get(task_id)` for spec + commit → `validation_record(task_id, attempt_n, verdict, feedback, subagent_session_id)` to sign off. Only role permitted to write `validation_attempts`. Never writes to `tasks`; the close flip stays bro's call.
+- **pr-reviewer** (push gate, project-local subagent) — `task_get(task_id)` for spec + commit → `validation_record(task_id, attempt_n, verdict, feedback, mcp_available)` to sign off. Only role permitted to write `validation_attempts`. Never writes to `tasks`; the close flip stays bro's call. The server decides who the reviewer was: the `reviewer-identity-observe` hook records the calling subagent's `session_id` and `agent_id` (`reviewer_identity_observed`), and `validation_record` stamps `subagent_session_id` and `reviewer_agent_id` from the latest unconsumed row for `(task_id, attempt_n)`, ignoring caller values. Independence rule: the verdict is refused (`reviewer_not_independent`) when no `agent_id` was observed (the main loop, i.e. bro) or the `agent_id` is a swe `agent_runs.spawn_id` of the same task; with no observed row it is refused (`subagent_session_unavailable`) unless `mcp_available: false` (honor-system), which keeps the caller's session id, leaves `reviewer_agent_id` NULL and audits `validation_session_unverified`.
 - **consultants** (architect, cto, ceo, pm, project-local domain agents) — read-only on workflow tables (`issue_get_with_discussions`, `task_get`, `validation_history`); may write `discussion_append(kind='analysis')` to record their position. Server-rejected on `task_provision`, `task_update_status`, `validation_record`, `issue_create` via `requireRoles`.
 
 ## Issue and task lifecycle

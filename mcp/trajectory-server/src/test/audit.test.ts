@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
-import { tempDB } from './helpers.js';
+import { seedReviewerObservation, tempDB } from './helpers.js';
 import { auditTools, insertAudit } from '../tools/audit.js';
 import { discussionTools, insertDiscussion } from '../tools/discussions.js';
 import { issueTools } from '../tools/issues.js';
@@ -414,6 +414,7 @@ describe('validation_record — validation_attempts.repo', () => {
       tasks: [{ branch_id: 'fix/va-repo', description: 'd', spec_body: 's', repo: 'app' }],
     }));
     const taskId = String(created[0]!.id);
+    seedReviewerObservation(db, taskId, 1);
     const r = await call(validationTools(db).handlers, 'validation_record', {
       agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', feedback: 'ok',
       subagent_session_id: 'sess-1', mcp_available: true,
@@ -433,6 +434,7 @@ describe('validation_record — validation_attempts.repo', () => {
       [issueId],
     );
     const taskId = db.get<{ id: number }>(`SELECT id FROM tasks WHERE branch_id = 'fix/no-task-repo'`)!.id;
+    seedReviewerObservation(db, taskId, 1);
     const r = await call(validationTools(db).handlers, 'validation_record', {
       agent: 'pr-reviewer', task_id: String(taskId), attempt_n: 1, verdict: 'pass', feedback: 'ok',
       subagent_session_id: 'sess-2', mcp_available: true,

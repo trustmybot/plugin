@@ -41,6 +41,7 @@ repo_rename_detected	bro
 repo_renamed	bro
 review_gate_bypassed	bro,hook
 review_gate_waived	bro
+reviewer_identity_observed	hook
 roundtable_slash_invoked	hook
 roundtable_summary	bro
 scan_discovered	server,hook
@@ -61,4 +62,5 @@ tmb_agent_created	server,bro
 tmb_branch_autocreated	bro
 tmb_skill_created	bro
 trajectory_doctor_run	bro
+validation_session_unverified	server
 verification_gate_waived	hook

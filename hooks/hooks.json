@@ -183,6 +183,17 @@
         ]
       },
       {
+        "matcher": "mcp__.*trajectory-server__validation_record",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh reviewer-identity-observe",
+            "timeout": 6,
+            "onFailure": "block"
+          }
+        ]
+      },
+      {
         "matcher": "mcp__.*trajectory-server__cheatcode_install",
         "hooks": [
           {

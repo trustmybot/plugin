@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { tempDB } from './helpers.js';
+import { seedReviewerObservation, tempDB } from './helpers.js';
 import { discussionTools } from '../tools/discussions.js';
 import { auditTools } from '../tools/audit.js';
 import { validationTools } from '../tools/validation.js';
@@ -355,6 +355,7 @@ describe('fields projection — validation_history (#210)', () => {
     const taskId = await createTask(db, issueId);
     const validation = validationTools(db);
 
+    seedReviewerObservation(db, taskId, 1);
     await call(validation.handlers, 'validation_record', {
       agent: 'pr-reviewer',
       task_id: taskId,
@@ -390,6 +391,7 @@ describe('fields projection — validation_history (#210)', () => {
     const taskId = await createTask(db, issueId);
     const validation = validationTools(db);
 
+    seedReviewerObservation(db, taskId, 1);
     await call(validation.handlers, 'validation_record', {
       agent: 'pr-reviewer',
       task_id: taskId,

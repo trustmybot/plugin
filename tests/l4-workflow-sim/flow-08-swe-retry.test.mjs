@@ -9,7 +9,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startClient, call } from '../l3-integration/mcp/harness.mjs';
+import { startClient, call, seedReviewerObservation } from '../l3-integration/mcp/harness.mjs';
 
 async function setupClosedTask(client, branch, sha) {
   const issue = await call(client, 'issue_create', { agent: 'bro', objective: 'X', description: 'd', labels: ['Feature', 'Priority: Medium'] });
@@ -39,12 +39,13 @@ async function setupClosedTask(client, branch, sha) {
 }
 
 test('Flow 8 — retry loop: 2 fails then a pass, history preserves all attempts', async (t) => {
-  const { client, close } = await startClient();
+  const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
   const { taskId, issueId } = await setupClosedTask(client, 'fix/retry', 'ddd4444444444444444444444444444444444444');
 
   for (let n = 1; n <= 2; n++) {
+    seedReviewerObservation(dbPath, taskId, n);
     const r = await call(client, 'validation_record', {
       agent: 'pr-reviewer', task_id: taskId, attempt_n: n, verdict: 'fail', mcp_available: true,
       feedback: `Attempt ${n}: still has the bug.`,
@@ -54,6 +55,7 @@ test('Flow 8 — retry loop: 2 fails then a pass, history preserves all attempts
   }
 
   // attempt 3: pass
+  seedReviewerObservation(dbPath, taskId, 3);
   const pass = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskId, attempt_n: 3, verdict: 'pass', mcp_available: true,
     feedback: 'Fixed; LGTM.',
@@ -71,12 +73,13 @@ test('Flow 8 — retry loop: 2 fails then a pass, history preserves all attempts
 });
 
 test('Flow 8 — UNIQUE(task_id, attempt_n) yields upsert semantics: latest verdict wins', async (t) => {
-  const { client, close } = await startClient();
+  const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
   const { taskId, issueId } = await setupClosedTask(client, 'fix/dup', 'eee5555555555555555555555555555555555555');
 
   // attempt 1: pass
+  seedReviewerObservation(dbPath, taskId, 1);
   await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, feedback: 'first',
     subagent_session_id: 'flow08-upsert-session-1',
@@ -85,6 +88,7 @@ test('Flow 8 — UNIQUE(task_id, attempt_n) yields upsert semantics: latest verd
   // attempt 1 again with different verdict — upsert overwrites the row in place
   // (intentional: pr-reviewer can revise its own verdict on the same attempt
   // before the push happens). UNIQUE(task_id, attempt_n) is enforced via ON CONFLICT.
+  seedReviewerObservation(dbPath, taskId, 1);
   const overwrite = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'fail', mcp_available: true, feedback: 'second',
     subagent_session_id: 'flow08-upsert-session-1-revised',
@@ -98,12 +102,13 @@ test('Flow 8 — UNIQUE(task_id, attempt_n) yields upsert semantics: latest verd
 });
 
 test('Flow 8 — bro escalates after 3 fails by flipping status to escalated', async (t) => {
-  const { client, close } = await startClient();
+  const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
   const { taskId, issueId } = await setupClosedTask(client, 'fix/esc', 'fff6666666666666666666666666666666666666');
 
   for (let n = 1; n <= 3; n++) {
+    seedReviewerObservation(dbPath, taskId, n);
     const r = await call(client, 'validation_record', {
       agent: 'pr-reviewer', task_id: taskId, attempt_n: n, verdict: 'fail', mcp_available: true,
       feedback: `Attempt ${n} still broken.`,

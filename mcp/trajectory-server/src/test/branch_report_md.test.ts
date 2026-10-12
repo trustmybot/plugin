@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { tempDB } from './helpers.js';
+import { seedReviewerObservation, tempDB } from './helpers.js';
 import { branchReportMdTools } from '../tools/branch_report_md.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
@@ -102,6 +102,7 @@ describe('branchReportMdTools', () => {
       summary: 'SWE began work on feature',
     });
 
+    seedReviewerObservation(db, taskId, 1);
     const validation = validationTools(db);
     await call(validation.handlers, 'validation_record', {
       agent: 'pr-reviewer',

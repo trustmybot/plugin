@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startClient, call } from './harness.mjs';
+import { startClient, call, seedReviewerObservation } from './harness.mjs';
 
 async function seedCompletedTask(client) {
   const issue = await call(client, 'issue_create', {
@@ -39,7 +39,7 @@ async function seedCompletedTask(client) {
 }
 
 test('pr-reviewer — happy path: read task → record pass → history reflects it', async (t) => {
-  const { client, close } = await startClient();
+  const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
   const taskId = await seedCompletedTask(client);
@@ -49,6 +49,7 @@ test('pr-reviewer — happy path: read task → record pass → history reflects
   assert.equal(task.ok, true, `task_get: ${JSON.stringify(task)}`);
   assert.equal(task.data.status, 'completed', 'task must be completed before review');
 
+  seedReviewerObservation(dbPath, taskId, 1);
   // Record pass.
   const record = await call(client, 'validation_record', {
     agent: 'pr-reviewer',
@@ -72,11 +73,12 @@ test('pr-reviewer — happy path: read task → record pass → history reflects
 });
 
 test('pr-reviewer — fail path: record fail → bro sees it in history', async (t) => {
-  const { client, close } = await startClient();
+  const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
   const taskId = await seedCompletedTask(client);
 
+  seedReviewerObservation(dbPath, taskId, 1);
   const fail = await call(client, 'validation_record', {
     agent: 'pr-reviewer',
     task_id: taskId,
@@ -99,13 +101,14 @@ test('pr-reviewer — fail path: record fail → bro sees it in history', async 
 });
 
 test('pr-reviewer — multiple attempts accumulate in history (retry loop)', async (t) => {
-  const { client, close } = await startClient();
+  const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
   const taskId = await seedCompletedTask(client);
 
   // Three attempts: fail, fail, pass — typical retry sequence.
   for (let n = 1; n <= 2; n++) {
+    seedReviewerObservation(dbPath, taskId, n);
     const fail = await call(client, 'validation_record', {
       agent: 'pr-reviewer',
       task_id: taskId,
@@ -117,6 +120,7 @@ test('pr-reviewer — multiple attempts accumulate in history (retry loop)', asy
     });
     assert.equal(fail.ok, true);
   }
+  seedReviewerObservation(dbPath, taskId, 3);
   const pass = await call(client, 'validation_record', {
     agent: 'pr-reviewer',
     task_id: taskId,

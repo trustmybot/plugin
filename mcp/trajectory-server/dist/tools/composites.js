@@ -735,6 +735,9 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             if (typeof issueId !== 'number' || !Number.isFinite(issueId)) {
                 return err('issue_id must be a number');
             }
+            if (issueId === -1) {
+                return err('system_issue_reserved: issue -1 is the system issue and carries audit rows only; provision the task under a real issue.');
+            }
             if (!branchId || typeof branchId !== 'string') {
                 return err('branch_id must be a non-empty string');
             }

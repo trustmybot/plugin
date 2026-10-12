@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startClient, call } from './harness.mjs';
+import { startClient, call, seedReviewerObservation } from './harness.mjs';
 
 // Role matrix coverage for tools that currently wrap handlers with `requireRoles`.
 // Tools without requireRoles (task_*, validation_*, issue_*, audit_*, audit_*,
@@ -211,7 +211,7 @@ test('task_update_status — bro and swe allowed; architect/pr-reviewer forbidde
 });
 
 test('validation_record — pr-reviewer only; architect/bro/swe all forbidden', async (t) => {
-  const { client, close } = await startClient();
+  const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
   const seed = await call(client, 'issue_create', { agent: 'bro', objective: 'plan', description: 'd', labels: ['Feature', 'Priority: Medium'] });
@@ -235,11 +235,21 @@ test('validation_record — pr-reviewer only; architect/bro/swe all forbidden', 
     assert.equal(res.error?.error, 'forbidden');
   }
 
+  const unobserved = await call(client, 'validation_record', {
+    agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, feedback: 'lgtm',
+    subagent_session_id: 'role-matrix-test-session',
+  });
+  assert.equal(unobserved.ok, false, 'pr-reviewer without an observed identity must be refused');
+  assert.match(String(unobserved.error?.error), /^subagent_session_unavailable/);
+
+  seedReviewerObservation(dbPath, taskId, 1, { agentId: 'role-matrix-reviewer', sessionId: 'role-matrix-main' });
   const ok = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', mcp_available: true, feedback: 'lgtm',
     subagent_session_id: 'role-matrix-test-session',
   });
-  assert.equal(ok.ok, true, `pr-reviewer should record; got ${JSON.stringify(ok)}`);
+  assert.equal(ok.ok, true, `pr-reviewer should record after an observed row; got ${JSON.stringify(ok)}`);
+  assert.equal(ok.data?.reviewer_agent_id, 'role-matrix-reviewer');
+  assert.equal(ok.data?.subagent_session_id, 'role-matrix-main', 'caller value ignored');
 });
 
 // pr_monitor_runs_list — read-side companion to pr_monitor_comments_get's cursor
