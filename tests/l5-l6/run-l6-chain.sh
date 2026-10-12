@@ -10,14 +10,18 @@
 #   bash tests/l5-l6/run-l6-chain.sh --fresh                 # force fresh full chain from row 1
 #   bash tests/l5-l6/run-l6-chain.sh --from 7                # explicit resume from row 7
 #   bash tests/l5-l6/run-l6-chain.sh --halt-on-fail 0        # don't halt on first fail
+#   bash tests/l5-l6/run-l6-chain.sh --self-test             # check run-dir + HOME isolation, no model calls
 #
 # Auto-resume: with no flag, the runner scans the most recent prior run's
 # _results.jsonl for the first non-passing step and resumes from there,
 # restoring its per-row immutable checkpoint (step-NN/checkpoint.db).
 # Pass `--fresh` to override.
 #
-# Per-step logs land under ~/.claude/tmb/l6-chain-runs/<run-id>/
-# (or $L6C_RUNS_DIR if set). Each step writes:
+# Per-step logs land under $L6C_RUNS_DIR/<run-id>/ when set, else
+# <project>/.claude/<plugin>/l6-chain-runs/<run-id>/ (<project> =
+# CLAUDE_PROJECT_DIR, else this repo's root). The chain runs with
+# HOME=<run-id>/home and fails at exit if that HOME holds anything but
+# .cache/huggingface. Each step writes:
 #   step-NN-name/
 #     pre-state.sql      — DB snapshot before this row fired
 #     user-input.txt     — the user prompt sent
@@ -40,14 +44,100 @@ MANIFEST="$HERE/l6-chain/chain-manifest.json"
 START_FROM=""
 HALT_ON_FAIL=1
 FRESH=0
+SELF_TEST=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --from)         START_FROM="$2"; shift 2 ;;
     --halt-on-fail) HALT_ON_FAIL="$2"; shift 2 ;;
     --fresh)        FRESH=1; shift ;;
+    --self-test)    SELF_TEST=1; shift ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
+
+# shellcheck source=tests/l5-l6/lib/smoke-helpers.sh
+. "$HERE/lib/smoke-helpers.sh"
+
+# shellcheck source=tests/l5-l6/lib/l6-chain-helpers.sh
+. "$HERE/lib/l6-chain-helpers.sh"
+
+# shellcheck source=tests/l5-l6/lib/sandbox.sh
+. "$HERE/lib/sandbox.sh"
+
+# --self-test: exercise run-dir resolution, the isolated HOME and the
+# end-of-run HOME assertion with a stub step runner — no model calls.
+l6c_self_test() {
+  local fails=0 got out repo st
+  _st_check() {
+    if [ "$2" = "$3" ]; then
+      printf '  ok   %s\n' "$1"
+    else
+      printf '  FAIL %s\n       want: %s\n       got:  %s\n' "$1" "$3" "$2"
+      fails=$((fails + 1))
+    fi
+  }
+  printf '=== run-l6-chain.sh --self-test ===\n'
+
+  repo=$(git -C "$HERE" rev-parse --show-toplevel)
+  got=$(env -u L6C_RUNS_DIR CLAUDE_PROJECT_DIR=/proj/x bash -c '. "$1/lib/l6-chain-helpers.sh"; l6c_resolve_runs_root "$2"' _ "$HERE" "$PLUGIN_ROOT")
+  _st_check "runs root under CLAUDE_PROJECT_DIR" "$got" "/proj/x/.claude/tmb/l6-chain-runs"
+  got=$(env -u L6C_RUNS_DIR -u CLAUDE_PROJECT_DIR bash -c '. "$1/lib/l6-chain-helpers.sh"; l6c_resolve_runs_root "$2"' _ "$HERE" "$PLUGIN_ROOT")
+  _st_check "runs root under the repo root" "$got" "$repo/.claude/tmb/l6-chain-runs"
+  got=$(L6C_RUNS_DIR=/override/runs CLAUDE_PROJECT_DIR=/proj/x bash -c '. "$1/lib/l6-chain-helpers.sh"; l6c_resolve_runs_root "$2"' _ "$HERE" "$PLUGIN_ROOT")
+  _st_check "L6C_RUNS_DIR overrides" "$got" "/override/runs"
+
+  st="$repo/.claude/tmb/l6-chain-runs/self-test-$$"
+  rm -rf "$st"
+  mkdir -p "$st/real-home/.cache/huggingface" "$st/row"
+  # The stub stands in for l6c_run_step: it records the HOME the step's
+  # sandbox sees and the chain HOME the sandbox restores afterwards.
+  _st_stub_step() {
+    printf '%s\n%s\n' "$HOME" "${TMB_SANDBOX_ORIG_HOME:-}" > "$3"
+  }
+  got=$(
+    unset TMB_MODEL_CACHE_DIR HF_HOME TRANSFORMERS_CACHE
+    HOME="$st/real-home"
+    l6c_isolate_home "$st/run"
+    mkdir -p "$st/run/project"
+    l6c_launch_step _st_stub_step "$st/run/project" "$st/row" "$st/run/turn.jsonl"
+    printf '%s|%s|%s|%s\n' "$HOME" "$HF_HOME" "$(sed -n 1p "$st/run/turn.jsonl")" "$(sed -n 2p "$st/run/turn.jsonl")"
+  )
+  _st_check "chain HOME is <run-dir>/home, HF cache routed, step sandboxed under the run dir" \
+    "$got" "$st/run/home|$st/real-home/.cache/huggingface|$st/run/project/_home|$st/run/home"
+  got=$(stat -f '%Lp' "$st/run/home" 2>/dev/null || stat -c '%a' "$st/run/home")
+  _st_check "isolated HOME mode is 0700" "$got" "700"
+
+  l6c_assert_home_clean "$st/run/home" 2>/dev/null && got=pass || got=fail
+  _st_check "empty isolated HOME passes" "$got" "pass"
+  mkdir -p "$st/run/home/.cache/huggingface/models"
+  : > "$st/run/home/.cache/huggingface/models/weights.bin"
+  l6c_assert_home_clean "$st/run/home" 2>/dev/null && got=pass || got=fail
+  _st_check ".cache/huggingface alone passes" "$got" "pass"
+  : > "$st/run/home/.claude.json"
+  if out=$(l6c_assert_home_clean "$st/run/home" 2>&1); then
+    got=pass
+  else
+    got=$(printf '%s\n' "$out" | grep -cF '$HOME/.claude.json')
+  fi
+  _st_check "a stray file fails the run, listing it" "$got" "1"
+  rm -f "$st/run/home/.claude.json"
+  mkdir -p "$st/run/home/.cache/pip"
+  l6c_assert_home_clean "$st/run/home" 2>/dev/null && got=pass || got=fail
+  _st_check "another .cache entry fails" "$got" "fail"
+
+  rm -rf "$st"
+  if [ "$fails" -eq 0 ]; then
+    printf 'run-l6-chain self-test: PASS\n'
+    return 0
+  fi
+  printf 'run-l6-chain self-test: FAIL (%d)\n' "$fails"
+  return 1
+}
+
+if [ "$SELF_TEST" = "1" ]; then
+  l6c_self_test
+  exit $?
+fi
 
 if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
   printf "❌ CLAUDE_CODE_OAUTH_TOKEN not set.\n" >&2
@@ -61,26 +151,44 @@ for cmd in claude sqlite3 jq git diff; do
 done
 [ -f "$MANIFEST" ] || { printf "❌ manifest not found: %s\n" "$MANIFEST" >&2; exit 1; }
 
-# shellcheck source=tests/l5-l6/lib/smoke-helpers.sh
-. "$HERE/lib/smoke-helpers.sh"
-l5_pre_flight_or_abort "$PLUGIN_ROOT"
-
-# shellcheck source=tests/l5-l6/lib/l6-chain-helpers.sh
-. "$HERE/lib/l6-chain-helpers.sh"
-
-# shellcheck source=tests/l5-l6/lib/sandbox.sh
-. "$HERE/lib/sandbox.sh"
-
 RUN_ID="${RUN_ID:-$(date +%Y%m%d-%H%M%S)-$$}"
-RUNS_ROOT="${L6C_RUNS_DIR:-$HOME/.claude/tmb/l6-chain-runs}"
+RUNS_ROOT=$(l6c_resolve_runs_root "$PLUGIN_ROOT") || exit 1
+mkdir -p "$RUNS_ROOT"
+chmod 0700 "$RUNS_ROOT"
 RUN_DIR="$RUNS_ROOT/$RUN_ID"
 mkdir -p "$RUN_DIR"
-RESULTS_JSONL="$RUN_DIR/_results.jsonl"
-: > "$RESULTS_JSONL"
 
 printf '=== L6 chain run %s ===\n' "$RUN_ID"
+printf '  runs:     %s\n' "$RUNS_ROOT"
 printf '  manifest: %s\n' "$MANIFEST"
 printf '  logs:     %s\n' "$RUN_DIR"
+
+# Pre-flight runs its own `claude -p` calls under a HOME of its own, so their
+# Claude Code state stays inside the run dir and out of the asserted HOME. A
+# failed pre-flight removes the run dir so auto-resume never picks it up.
+if ! ( export HOME="$RUN_DIR/preflight-home"; mkdir -p "$RUN_DIR/preflight-home"; l5_pre_flight_or_abort "$PLUGIN_ROOT" ); then
+  rm -rf "$RUN_DIR"
+  exit 1
+fi
+
+l6c_isolate_home "$RUN_DIR"
+CHAIN_HOME="$HOME"
+printf '  HOME:     %s (must end holding only .cache/huggingface)\n' "$CHAIN_HOME"
+
+_l6c_exit_check() {
+  local rc=$?
+  printf '\n=== isolated HOME ===\n'
+  if l6c_assert_home_clean "$CHAIN_HOME"; then
+    printf '  ✓ %s holds nothing but .cache/huggingface\n' "$CHAIN_HOME"
+  else
+    rc=1
+  fi
+  exit "$rc"
+}
+trap _l6c_exit_check EXIT
+
+RESULTS_JSONL="$RUN_DIR/_results.jsonl"
+: > "$RESULTS_JSONL"
 
 # Scratch project lives INSIDE the run dir so subsequent invocations can
 # reuse the prior run's cumulative trajectory DB natively (the trajectory
@@ -356,9 +464,7 @@ for idx in $(seq 0 $((STEP_COUNT - 1))); do
   # otherwise move on before the answer arrives.
   TURN_JSONL="$STEP_DIR/turn.jsonl"
   printf "  step: fresh session, multi-turn within step (DB-driven across steps)\n"
-  tmb_test_sandbox_init "$PROJECT"
-  l6c_run_step "$PROJECT" "$ROW_DIR" "$TURN_JSONL"
-  tmb_test_sandbox_teardown
+  l6c_launch_step l6c_run_step "$PROJECT" "$ROW_DIR" "$TURN_JSONL"
 
   cat "$TURN_JSONL" >> "$CHAIN_TRAJECTORY"
   # Per-step scoring reads $PROJECT/trajectory.jsonl. Required/forbidden

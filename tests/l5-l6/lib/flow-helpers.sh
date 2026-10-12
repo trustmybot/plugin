@@ -5,6 +5,23 @@ set -uo pipefail
 
 # shellcheck source=tests/l5-l6/lib/timeout-shim.sh
 source "$(dirname "${BASH_SOURCE[0]}")/timeout-shim.sh"
+# shellcheck source=scripts/hooks/lib/resolve-install.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../../scripts/hooks/lib/resolve-install.sh"
+
+# tmb_test_state_dir <plugin_root>: <project>/.claude/<plugin>, where test
+# harness artifacts live. <project> is CLAUDE_PROJECT_DIR, else the repo
+# holding <plugin_root>; <plugin> is the manifest name at <plugin_root>.
+tmb_test_state_dir() {
+  local plugin_root="$1" project plugin
+  project="${CLAUDE_PROJECT_DIR:-}"
+  [ -n "$project" ] || project=$(git -C "$plugin_root" rev-parse --show-toplevel 2>/dev/null)
+  if [ -z "$project" ]; then
+    printf 'tmb_test_state_dir: CLAUDE_PROJECT_DIR is unset and %s is not inside a git repo\n' "$plugin_root" >&2
+    return 1
+  fi
+  plugin=$(CLAUDE_PLUGIN_ROOT="$plugin_root" _tmb_install_plugin_name)
+  printf '%s/.claude/%s\n' "$project" "$plugin"
+}
 
 # l5_setup_scratch_project: creates a fresh Docker-isolated scratch dir,
 # initializes git, sets test identity. Returns the absolute path on stdout.
@@ -39,11 +56,14 @@ l5_seed_db() {
 }
 
 # l5_preserve_trajectory <project_dir> <flow_name> <run_id>: copies
-# trajectory.jsonl and trajectory.db to ~/.claude/tmb/l5-trajectories/<flow>/<run_id>/
-# before the scratch dir is removed. Always returns 0 (best-effort).
+# trajectory.jsonl and trajectory.db to
+# <project>/.claude/<plugin>/l5-trajectories/<flow>/<run_id>/ (see
+# tmb_test_state_dir) before the scratch dir is removed. Always returns 0
+# (best-effort).
 l5_preserve_trajectory() {
-  local project="$1" flow="$2" run_id="$3"
-  local dest="${HOME}/.claude/tmb/l5-trajectories/${flow}/${run_id}"
+  local project="$1" flow="$2" run_id="$3" state dest
+  state=$(tmb_test_state_dir "$PLUGIN_ROOT") || return 0
+  dest="$state/l5-trajectories/${flow}/${run_id}"
   mkdir -p "$dest" 2>/dev/null || return 0
   [ -f "$project/trajectory.jsonl" ] && cp "$project/trajectory.jsonl" "$dest/trajectory.jsonl" 2>/dev/null || true
   [ -f "$project/.claude/tmb/trajectory.db" ] && cp "$project/.claude/tmb/trajectory.db" "$dest/trajectory.db" 2>/dev/null || true

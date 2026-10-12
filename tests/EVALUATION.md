@@ -244,7 +244,7 @@ When to use L5: debugging one row, regression-tracing after a fix, pre-flight be
 4. Run claude per the row's `script.json`: turn 1 with `prompt.txt`, then turn N from `user_after_bro[N-1]`. **Each turn is a fresh `claude -p`** with a new session-id (no `--resume`); continuity within the row is DB-driven, matching real cross-session behaviour. Capture `trajectory.jsonl` per turn, concat into `trajectory.jsonl`.
 5. Run every present scorer against the captured artifacts. The row passes only when every required scorer passes.
 
-The trajectory is preserved at `~/.claude/tmb/l5-trajectories/<row>/<run_id>/` regardless of pass/fail.
+The trajectory is preserved at `<project>/.claude/tmb/l5-trajectories/<row>/<run_id>/` (`<project>` = `CLAUDE_PROJECT_DIR`, else the repo root) regardless of pass/fail.
 
 ### FILTER argument
 

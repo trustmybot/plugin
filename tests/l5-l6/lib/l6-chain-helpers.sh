@@ -17,6 +17,73 @@ L6C_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=tests/l5-l6/lib/timeout-shim.sh
 . "$L6C_LIB_DIR/timeout-shim.sh"
 
+# l6c_resolve_runs_root <plugin_root>: where chain runs land — L6C_RUNS_DIR
+# when set, else <project>/.claude/<plugin>/l6-chain-runs (tmb_test_state_dir).
+l6c_resolve_runs_root() {
+  local state
+  if [ -n "${L6C_RUNS_DIR:-}" ]; then
+    printf '%s\n' "$L6C_RUNS_DIR"
+    return 0
+  fi
+  state=$(tmb_test_state_dir "$1") || return 1
+  printf '%s/l6-chain-runs\n' "$state"
+}
+
+# l6c_isolate_home <run_dir>: point HOME at <run_dir>/home (mode 0700) for the
+# rest of the chain. What the steps used to find under the real HOME stays
+# reachable through env: the embedding model cache (TMB_MODEL_CACHE_DIR,
+# HF_HOME, TRANSFORMERS_CACHE) when one exists, and mise's installs and config
+# when mise is in use. bun and mise caches/state go to <run_dir>/tool-state.
+# CLAUDE_CODE_OAUTH_TOKEN is already env.
+l6c_isolate_home() {
+  local run_dir="$1"
+  local real_home="$HOME"
+  local tools="$run_dir/tool-state"
+  local cache="${TMB_MODEL_CACHE_DIR:-${HF_HOME:-}}"
+  if [ -z "$cache" ] && [ -d "$real_home/.cache/huggingface" ]; then
+    cache="$real_home/.cache/huggingface"
+  fi
+  if [ -n "$cache" ]; then
+    export TMB_MODEL_CACHE_DIR="$cache"
+    export HF_HOME="${HF_HOME:-$cache}" TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$cache}"
+  fi
+  export BUN_INSTALL_CACHE_DIR="${BUN_INSTALL_CACHE_DIR:-$tools/bun-install-cache}"
+  export BUN_RUNTIME_TRANSPILER_CACHE_PATH="${BUN_RUNTIME_TRANSPILER_CACHE_PATH:-$tools/bun-transpiler-cache}"
+  export MISE_STATE_DIR="${MISE_STATE_DIR:-$tools/mise-state}" MISE_CACHE_DIR="${MISE_CACHE_DIR:-$tools/mise-cache}"
+  if [ -z "${MISE_DATA_DIR:-}" ] && [ -d "$real_home/.local/share/mise" ]; then
+    export MISE_DATA_DIR="$real_home/.local/share/mise"
+  fi
+  if [ -z "${MISE_CONFIG_DIR:-}" ] && [ -d "$real_home/.config/mise" ]; then
+    export MISE_CONFIG_DIR="$real_home/.config/mise"
+  fi
+  mkdir -p "$run_dir"
+  mkdir -m 0700 "$run_dir/home" 2>/dev/null || chmod 0700 "$run_dir/home"
+  export HOME="$run_dir/home"
+}
+
+# l6c_assert_home_clean <home>: 0 when <home> holds nothing but
+# .cache/huggingface; otherwise prints every other entry and returns 1.
+l6c_assert_home_clean() {
+  local home="$1" leaks
+  [ -d "$home" ] || return 0
+  leaks=$(find "$home" -mindepth 1 \( -path "$home/.cache/huggingface" -prune \) -o \( -path "$home/.cache" \) -o -print 2>/dev/null)
+  [ -z "$leaks" ] && return 0
+  printf '❌ the chain wrote under its isolated HOME %s — only .cache/huggingface may appear there:\n' "$home" >&2
+  printf '%s\n' "$leaks" | awk -v h="$home" '{ if (index($0, h) == 1) $0 = "  $HOME" substr($0, length(h) + 1); print }' >&2
+  return 1
+}
+
+# l6c_launch_step <runner> <project> <row_dir> <out_jsonl>: run one step
+# through <runner> (l6c_run_step, or a stub in --self-test) inside the
+# per-step sandbox.
+l6c_launch_step() {
+  local runner="$1"
+  shift
+  tmb_test_sandbox_init "$1"
+  "$runner" "$@"
+  tmb_test_sandbox_teardown
+}
+
 # l6c_trajectory_doctor <db> <report_file>
 # Checks the run's trajectory DB against its data contracts
 # (scripts/maintenance/trajectory-doctor.sh) and writes the JSON report to

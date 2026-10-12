@@ -25,12 +25,19 @@ bash tests/l5-l6/run-l6-chain.sh --from 7
 
 # Keep going past failures (instead of halting at first fail)
 bash tests/l5-l6/run-l6-chain.sh --halt-on-fail 0
+
+# Check run-dir resolution and HOME isolation without calling the model
+bash tests/l5-l6/run-l6-chain.sh --self-test
 ```
 
-Per-step logs land under `~/.claude/tmb/l6-chain-runs/<run-id>/`:
+Per-step logs land under `<project>/.claude/tmb/l6-chain-runs/<run-id>/`, where `<project>` is `CLAUDE_PROJECT_DIR` when set, else the repo root; set `L6C_RUNS_DIR` to put runs elsewhere. The directory is gitignored.
+
+The chain runs with `HOME=<run-id>/home`. The model cache stays reachable through `TMB_MODEL_CACHE_DIR`/`HF_HOME`/`TRANSFORMERS_CACHE` (pointed at the real cache when one exists), mise through `MISE_DATA_DIR`/`MISE_CONFIG_DIR`, and auth through `CLAUDE_CODE_OAUTH_TOKEN`. At exit the chain fails, listing the entries, if that HOME holds anything but `.cache/huggingface`. Pre-flight `claude -p` calls use `<run-id>/preflight-home`, each step's `claude -p` uses its sandbox HOME `<run-id>/project/_home`.
+
 
 ```
 <run-id>/
+├── home/                     # the chain's isolated HOME (asserted clean at exit)
 ├── chain-summary.md          # row-by-row pass/fail + cost + duration
 ├── chain-trajectory.jsonl    # cumulative claude stream across all turns
 └── step-NN-name/

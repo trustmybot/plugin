@@ -144,13 +144,17 @@ The 15 chain steps live in `tests/l5-l6/rows/` — the SAME directory L5 runs ag
 ```bash
 # Chained run — walks all 15 chain rows against a cumulative trajectory DB.
 # Each row fires a fresh `claude -p`; DB continuity drives the chain.
-# Per-step logs land at $L6C_RUNS_DIR/<run-id>/ (default ~/.claude/tmb/l6-chain-runs/<run-id>/);
-# the chain runs in the project <run-dir>/project/ (run-l6-chain.sh RUNS_ROOT).
+# Per-step logs land at $L6C_RUNS_DIR/<run-id>/ when set, else
+# <project>/.claude/tmb/l6-chain-runs/<run-id>/ (<project> = CLAUDE_PROJECT_DIR,
+# else the repo root); the chain runs in the project <run-dir>/project/.
 # See tests/l5-l6/l6-chain/README.md.
 bash tests/l5-l6/run-l6-chain.sh                  # full chain
 bash tests/l5-l6/run-l6-chain.sh --from 7         # resume from row 7
 bash tests/l5-l6/run-l6-chain.sh --halt-on-fail 0 # don't stop at first fail
+bash tests/l5-l6/run-l6-chain.sh --self-test      # run-dir + HOME isolation check, no model calls
 ```
+
+The chain runs with `HOME=<run-dir>/home`; the model cache, mise installs and the OAuth token stay reachable through env (`TMB_MODEL_CACHE_DIR`/`HF_HOME`/`TRANSFORMERS_CACHE`, `MISE_DATA_DIR`/`MISE_CONFIG_DIR`, `CLAUDE_CODE_OAUTH_TOKEN`). The run fails at exit, listing the entries, if that HOME holds anything but `.cache/huggingface`.
 
 Run L6 locally before tagging a release candidate; rc tag policy gates on 15/15 chain pass.
 
