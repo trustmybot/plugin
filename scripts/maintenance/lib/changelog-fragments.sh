@@ -39,13 +39,13 @@ tmb_fragment_body() {
 tmb_fragment_validate() {
   local f="$1" name issue first body bad=0
   name="$(basename "$f")"
-  if ! printf '%s' "$name" | grep -Eq '^[1-9][0-9]*-[a-z0-9]+(-[a-z0-9]+)*\.md$'; then
+  if ! printf '%s' "$name" | grep -E '^[1-9][0-9]*-[a-z0-9]+(-[a-z0-9]+)*\.md$' >/dev/null; then
     printf '%s: filename must be <gh-issue>-<slug>.md (lowercase slug, hyphens)\n' "$f"
     return 1
   fi
   issue="$(tmb_fragment_issue "$f")"
   first="$(head -n 1 "$f")"
-  if ! printf '%s' "$first" | grep -Eq "^### ($(printf '%s' "$TMB_FRAGMENT_SECTIONS" | tr ' ' '|'))$"; then
+  if ! printf '%s' "$first" | grep -E "^### ($(printf '%s' "$TMB_FRAGMENT_SECTIONS" | tr ' ' '|'))$" >/dev/null; then
     printf '%s: first line must be one of: ### %s (got "%s")\n' "$f" "$(printf '%s' "$TMB_FRAGMENT_SECTIONS" | sed 's/ /, ### /g')" "$first"
     bad=1
   fi
@@ -54,15 +54,15 @@ tmb_fragment_validate() {
     printf '%s: no entry text after the section line\n' "$f"
     return 1
   fi
-  if ! printf '%s\n' "$body" | head -n 1 | grep -q '^- '; then
+  if ! printf '%s\n' "$body" | head -n 1 | grep '^- ' >/dev/null; then
     printf '%s: the entry must start with "- " (one bullet)\n' "$f"
     bad=1
   fi
-  if ! printf '%s\n' "$body" | grep -Eq "GH ${issue}([^0-9]|$)"; then
+  if ! printf '%s\n' "$body" | grep -E "GH ${issue}([^0-9]|$)" >/dev/null; then
     printf '%s: the entry must cite GH %s\n' "$f" "$issue"
     bad=1
   fi
-  if printf '%s\n' "$body" | grep -Eq '(^|[^&A-Za-z0-9])#[0-9]+'; then
+  if printf '%s\n' "$body" | grep -E '(^|[^&A-Za-z0-9])#[0-9]+' >/dev/null; then
     printf '%s: cite issues as "GH <n>", not "#<n>"\n' "$f"
     bad=1
   fi

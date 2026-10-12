@@ -1,0 +1,5 @@
+{
+  "steps": [
+    { "chain_setup_command": "git ls-tree -r --name-only HEAD | grep -qx 'src/cli.py' && echo found" }
+  ]
+}
