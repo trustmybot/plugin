@@ -172,6 +172,17 @@
         ]
       },
       {
+        "matcher": "mcp__.*trajectory-server__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh agent-arg-matches-caller",
+            "timeout": 6,
+            "onFailure": "block"
+          }
+        ]
+      },
+      {
         "matcher": "mcp__.*trajectory-server__task_update_status",
         "hooks": [
           {

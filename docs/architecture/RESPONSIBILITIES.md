@@ -201,6 +201,8 @@ Bro spawns consultants for second opinions; consultants return analysis as a `di
 
 Source of truth: `mcp/trajectory-server/src/middleware/agent-scope.ts` `requireRoles` declarations.
 
+`requireRoles` reads the role from the `agent` argument the caller passes; the server never sees who is calling. The `agent-arg-matches-caller.sh` PreToolUse hook closes that gap on every trajectory-server call: it compares `agent` with the hook payload's `agent_type` (the subagent's real type, after `tmb_normalize_role`), or with `bro` when the payload has none (the main session), and denies a mismatch with an `agent_arg_mismatch` audit row. A subagent therefore cannot unlock bro's column by passing `agent='bro'`, and the main session cannot act as a subagent; a call without `agent` is left to the server, which treats it as `unknown`.
+
 | Tool | bro | swe | pr-reviewer | consultants |
 |---|:---:|:---:|:---:|:---:|
 | `issue_create` / `issue_close` | ✓ | | | |
