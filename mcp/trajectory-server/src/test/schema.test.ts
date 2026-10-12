@@ -78,6 +78,7 @@ describe('schema — current table set, default values, constraints', () => {
     assert.deepEqual(
       names,
       [
+        'tmb_audit',
         'tmb_cheatcode',
         'tmb_comment-triage',
         'tmb_concerns-protocol',
@@ -89,7 +90,7 @@ describe('schema — current table set, default values, constraints', () => {
         'tmb_skill-creator',
         'tmb_swe-checklist',
       ],
-      'builtin-skill seed must equal the 10 shipped skills (tmb_push-triage split into tmb_push-gate + tmb_comment-triage)',
+      'builtin-skill seed must equal the 11 shipped skills (tmb_push-triage split into tmb_push-gate + tmb_comment-triage)',
     );
     for (const b of builtins) {
       assert.equal(b.kind, 'skill', `${b.name} must be kind=skill`);

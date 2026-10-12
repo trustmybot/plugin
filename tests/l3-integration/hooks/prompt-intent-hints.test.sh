@@ -2,7 +2,7 @@
 # Tests for scripts/hooks/prompt-intent-hints.sh
 # Covers positive (fires) and negative (false-positive guard) cases for
 # every pattern class: consultant-spawn, search-grounding, concerns-protocol,
-# push-intent, reonboard-intent, resume-intent, adr-required.
+# push-intent, reonboard-intent, resume-intent, adr-required, audit-intent.
 #
 # DB-backed classes (push-intent, reonboard-intent, resume-intent,
 # consultant-spawn named-role) are tested without a live DB — the hook must
@@ -31,6 +31,7 @@ run_hook() {
       TMB_DISABLE_REONBOARD_HINT=0 \
       TMB_DISABLE_RESUME_HINT=0 \
       TMB_DISABLE_ADR_HINT=0 \
+      TMB_DISABLE_AUDIT_HINT=0 \
       TRAJECTORY_DB_PATH=/nonexistent.db \
       bash "$HOOK" 2>&1 || true
   )
@@ -433,5 +434,43 @@ out=$(run_hook 'the log line "skip validation: off" confused me')
 assert_not_contains "$out" "concerns-protocol hint" "quoted text is not a doubt-class request"
 out=$(run_hook "skip validation for this one")
 assert_contains "$out" "concerns-protocol hint" "unquoted doubt-class request fires"
+
+# ---------------------------------------------------------------------------
+# audit-intent: whole-word audit / verify / check / double-check / architecture
+# ---------------------------------------------------------------------------
+
+for prompt in \
+  "audit the trajectory DB writes" \
+  "verify that the scraper output is right" \
+  "check the job-post extractor" \
+  "double-check the importer for me" \
+  "walk me through the architecture of the scanner"; do
+  test_case "audit-intent: '$prompt' fires"
+  out=$(run_hook "$prompt")
+  assert_contains "$out" "audit-intent hint" "audit keyword fires"
+  assert_contains "$out" "tmb_audit" "hint names tmb_audit"
+  assert_contains "$out" "outputs-first" "hint asks for outputs-first work"
+done
+
+test_case "audit-intent: 'verification' alone does NOT fire (whole word)"
+out=$(run_hook "the verification step looks slow today")
+assert_not_contains "$out" "audit-intent hint" "verification is not verify"
+
+test_case "audit-intent: quoted 'audit' does NOT fire"
+out=$(run_hook 'the log line "audit row written" confused me')
+assert_not_contains "$out" "audit-intent hint" "quoted text is not audit intent"
+
+test_case "adr-required: 'report back to me' does NOT fire"
+out=$(run_hook "report back to me when it is done")
+assert_not_contains "$out" "architectural-change hint" "report … to is not port … to"
+
+test_case "TMB_DISABLE_AUDIT_HINT=1 suppresses audit-intent"
+out=$(
+  payload=$(jq -cn '{prompt:"audit the importer"}')
+  cd "$PLUGIN_ROOT" || exit 1
+  printf '%s' "$payload" \
+  | TMB_DISABLE_AUDIT_HINT=1 TRAJECTORY_DB_PATH=/nonexistent.db bash "$HOOK" 2>&1 || true
+)
+assert_not_contains "$out" "audit-intent hint" "TMB_DISABLE_AUDIT_HINT=1 must suppress"
 
 summarize

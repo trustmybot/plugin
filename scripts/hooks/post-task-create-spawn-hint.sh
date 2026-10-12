@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PostToolUse hook on task_create_batch. After bro creates tasks, injects
-# `additionalContext` reminding bro to spawn SWE via the Agent tool for
-# each new task — the next required step in the planning chain.
+# `additionalContext` reminding bro to spawn every new task's SWE in one
+# turn, one Agent call each — the next required step in the planning chain.
 #
 # Captures L6 scenario 14: production showed tasks stuck at `pending`
 # because bro called task_create_batch then stopped without dispatching
@@ -66,14 +66,14 @@ TASK_LIST_WITH_PATHS=$(echo "$RESPONSE_TEXT" | jq -r --arg ws "$WORKSPACE_ROOT" 
 ' 2>/dev/null)
 [ -n "$TASK_LIST_WITH_PATHS" ] || TASK_LIST_WITH_PATHS="$TASK_LIST"
 
-REASON="🚀 SWE-spawn hint: ${TOOL_NAME##*__} created the following tasks. Per tmb_planning Step 4, the next step is to spawn SWE via the Agent tool for each task — production sessions where this step was skipped left tasks stuck at status='pending' forever.
+REASON="🚀 SWE-spawn hint: ${TOOL_NAME##*__} created the following tasks. Per tmb_planning Step 4, the next step is to spawn every created task's SWE in one turn — one Agent call each, all in the same message, so independent tasks run concurrently. Production sessions where this step was skipped left tasks stuck at status='pending' forever.
 
 Tasks created:
 ${TASK_LIST_WITH_PATHS}
 
 For each task, run the two-step proven flow:
 1. Pre-create the worktree: \`printf '{\"branch\":\"<branch_id>\"}' | bash \${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-create.sh\` — capture the printed path.
-2. Spawn SWE: \`Agent(subagent_type='swe', prompt='task_id=<N> worktree=<absolute-worktree-path>')\` — no isolation= parameter.
+2. Spawn SWE (all tasks' Agent calls together in one message): \`Agent(subagent_type='swe', prompt='task_id=<N> worktree=<absolute-worktree-path>')\` — no isolation= parameter.
 
 If you intentionally want to halt before SWE (e.g. user requested review), surface that reason explicitly so future sessions don't see this as a stuck-task bug."
 
