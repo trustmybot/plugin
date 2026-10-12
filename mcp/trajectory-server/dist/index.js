@@ -24417,10 +24417,12 @@ function insertDiscussion(db2, entry) {
   const createdAt = entry.created_at ?? nowISO();
   const repo = entry.repo ?? resolveIssueRepo(db2, entry.issue_id);
   const res = db2.run(
-    `INSERT INTO discussions (issue_id, author, kind, body, created_at, repo)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt, repo]
+    `INSERT INTO discussions (issue_id, author, kind, body, created_at, repo, remote_comment_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (remote_comment_id) WHERE remote_comment_id IS NOT NULL DO NOTHING`,
+    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt, repo, entry.remote_comment_id ?? null]
   );
+  if (Number(res.changes) === 0) return null;
   const id = Number(res.lastInsertRowid);
   void embedAndStore(db2, "discussions", id, entry.body).catch(
     (e) => console.error("[embeddings] insertDiscussion embed failed:", e)
@@ -30108,18 +30110,60 @@ function repoNameForSlug(db2, slug) {
 function resolveMonitorTaskId(db2, branch, repoSlug) {
   if (!branch) return null;
   const repoName = repoNameForSlug(db2, repoSlug);
-  if (repoName) {
-    const scoped = db2.all(
-      `SELECT id FROM tasks WHERE branch_id = ? AND repo = ?`,
-      [branch, repoName]
-    );
-    if (scoped.length === 1) return scoped[0].id;
-  }
-  const rows = db2.all(
-    `SELECT id FROM tasks WHERE branch_id = ?`,
-    [branch]
-  );
+  const rows = repoName ? db2.all(
+    `SELECT id FROM tasks WHERE branch_id = ? AND (repo = ? OR repo IS NULL)`,
+    [branch, repoName]
+  ) : db2.all(`SELECT id FROM tasks WHERE branch_id = ?`, [branch]);
   return rows.length === 1 ? rows[0].id : null;
+}
+function resolveCarrierIssueId(db2, prNumber, repo, headBranch) {
+  const repoName = repoNameForSlug(db2, repo);
+  const linkedParams = [prNumber];
+  if (repo !== "") linkedParams.push(repo);
+  if (repoName) linkedParams.push(repoName);
+  const linked = db2.get(
+    `SELECT t.issue_id
+       FROM pr_review_runs r
+       JOIN tasks t ON t.id = r.task_id
+      WHERE r.pr_number = ? ${repo !== "" ? "AND r.repo = ?" : ""}
+        ${repoName ? "AND (t.repo = ? OR t.repo IS NULL)" : ""}
+        AND t.status NOT IN ('failed','escalated')
+      ORDER BY t.updated_at DESC, t.id DESC LIMIT 1`,
+    linkedParams
+  );
+  if (linked) return linked.issue_id;
+  if (!headBranch) return null;
+  const byBranch = db2.get(
+    `SELECT issue_id FROM tasks
+      WHERE branch_id = ? ${repoName ? "AND (repo = ? OR repo IS NULL)" : ""}
+        AND status NOT IN ('failed','escalated')
+      ORDER BY updated_at DESC, id DESC LIMIT 1`,
+    repoName ? [headBranch, repoName] : [headBranch]
+  );
+  return byBranch?.issue_id ?? null;
+}
+function remoteCommentId(remoteKind, prNumber, commentId) {
+  return `${remoteKind}:${prNumber}:${commentId}`;
+}
+function persistComments(db2, prNumber, repo, fetchResult) {
+  const counts = { persisted: 0, duplicates: 0 };
+  const issueId = resolveCarrierIssueId(db2, prNumber, repo, fetchResult.head_branch);
+  if (issueId === null) return counts;
+  db2.transaction(() => {
+    for (const c of fetchResult.comments) {
+      if (!c.id || !c.body) continue;
+      const id = insertDiscussion(db2, {
+        issue_id: issueId,
+        author: c.author,
+        kind: "note",
+        body: `[PR #${prNumber} comment by ${c.author}] ${c.body}`,
+        remote_comment_id: remoteCommentId(fetchResult.remote_kind, prNumber, c.id)
+      });
+      if (id === null) counts.duplicates++;
+      else counts.persisted++;
+    }
+  });
+  return counts;
 }
 function normalizePrState(raw) {
   const lower = raw.toLowerCase();
@@ -30226,7 +30270,7 @@ function prMonitorTools(db2, _spawnFn) {
   const definitions = [
     {
       name: "pr_monitor_comments_get",
-      description: "Fetch PR/MR comments from GitHub or GitLab. Returns structured comment list with bot/human classification, file/line metadata, and PR state.",
+      description: "Fetch PR/MR comments from GitHub or GitLab. Returns structured comment list with bot/human classification, file/line metadata, and PR state. Persists each comment as a discussion on the issue of the task that owns the PR, deduped by remote comment id; `persisted` and `duplicates` count the new and already-stored comments.",
       inputSchema: {
         type: "object",
         properties: {
@@ -30348,7 +30392,8 @@ function prMonitorTools(db2, _spawnFn) {
           );
         }
       }
-      return ok14(fetchResult);
+      const { persisted, duplicates } = persistComments(db2, prNumber, repo, fetchResult);
+      return ok14({ ...fetchResult, persisted, duplicates });
     })),
     pr_monitor_runs_list: requireRoles("pr_monitor_runs_list", ["bro"], async (args) => {
       const prFilter = args["pr_number"];

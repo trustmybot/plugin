@@ -303,8 +303,9 @@ CREATE INDEX IF NOT EXISTS idx_audit_issue_branch ON audit(issue_id, branch_id);
 -- (pr_number, repo). `last_fetched_at` is the wall-clock cursor for the next
 -- `since` query; `last_comment_id` is the comment-id cursor when the backend
 -- supports id-based deltas (gh REST does; glab uses created_at). task_id links
--- the PR to the task it ships, so post-pr-comments-persist resolves
--- pr_number → task → issue. Pr-reviewer verdicts live in validation_attempts.
+-- the PR to the task it ships, so pr_monitor_comments_get resolves
+-- pr_number → task → issue when it persists the PR's comments. Pr-reviewer
+-- verdicts live in validation_attempts.
 CREATE TABLE IF NOT EXISTS pr_review_runs (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   pr_number       INTEGER NOT NULL CHECK (pr_number > 0),

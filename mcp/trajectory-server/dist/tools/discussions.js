@@ -34,26 +34,14 @@ export function resolveDefaultIssueId(db) {
     const latest = db.get(`SELECT id FROM issues WHERE status = 'open' AND id != -1 ORDER BY created_at DESC LIMIT 1`);
     return latest?.id ?? -1;
 }
-/**
- * The single insert+embed path for discussions. Synchronously INSERTs the row
- * (`repo` defaults to the parent issue's repo) and returns its id, then fires
- * `embedAndStore` for semantic discussion_search. `insertAudit` shares this
- * contract.
- *
- * The embed is intentionally NOT awaited: `embed()` yields to the event loop, so
- * the embedding-table write runs in a later turn — after a surrounding
- * synchronous `db.transaction()` callback has returned and COMMIT has executed,
- * making the row visible. The `.catch` keeps an embed failure non-fatal, so it
- * can never roll back a caller's transaction (a failed embed degrades to
- * FTS-only search). Callers inside a transaction therefore get the row id
- * immediately while the embed lands post-commit; callers outside one (e.g.
- * discussion_append) behave identically.
- */
 export function insertDiscussion(db, entry) {
     const createdAt = entry.created_at ?? nowISO();
     const repo = entry.repo ?? resolveIssueRepo(db, entry.issue_id);
-    const res = db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at, repo)
-     VALUES (?, ?, ?, ?, ?, ?)`, [entry.issue_id, entry.author, entry.kind, entry.body, createdAt, repo]);
+    const res = db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at, repo, remote_comment_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (remote_comment_id) WHERE remote_comment_id IS NOT NULL DO NOTHING`, [entry.issue_id, entry.author, entry.kind, entry.body, createdAt, repo, entry.remote_comment_id ?? null]);
+    if (Number(res.changes) === 0)
+        return null;
     const id = Number(res.lastInsertRowid);
     void embedAndStore(db, 'discussions', id, entry.body).catch((e) => console.error('[embeddings] insertDiscussion embed failed:', e));
     return id;

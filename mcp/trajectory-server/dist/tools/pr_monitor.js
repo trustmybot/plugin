@@ -8,6 +8,7 @@ import { liveCliBlockReason, liveCliBlockedMessage } from '../utils/live-cli-gua
 import { resolveRepoForSync } from '../utils/repo-paths.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { repoSlugFromRemoteUrl } from '../sync/issue_sync.js';
+import { insertDiscussion } from './discussions.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -69,21 +70,76 @@ function repoNameForSlug(db, slug) {
     return null;
 }
 // Resolve the task that owns a PR from its head branch (+ repo). Populates
-// pr_review_runs.task_id on the monitor path (#1024) so the post-pr-comments
-// carrier resolution (pr_number → pr_review_runs → tasks → issue) resolves in
-// production. Best-effort: returns null when the branch is empty, unknown, or
-// ambiguous — the carrier hook then exits cleanly.
+// pr_review_runs.task_id on the monitor path (#1024) so comment persistence can
+// resolve its carrier issue (pr_number → pr_review_runs → tasks → issue).
+// Best-effort: returns null when the branch is empty, unknown, or ambiguous.
 function resolveMonitorTaskId(db, branch, repoSlug) {
     if (!branch)
         return null;
     const repoName = repoNameForSlug(db, repoSlug);
-    if (repoName) {
-        const scoped = db.all(`SELECT id FROM tasks WHERE branch_id = ? AND repo = ?`, [branch, repoName]);
-        if (scoped.length === 1)
-            return scoped[0].id;
-    }
-    const rows = db.all(`SELECT id FROM tasks WHERE branch_id = ?`, [branch]);
+    const rows = repoName
+        ? db.all(`SELECT id FROM tasks WHERE branch_id = ? AND (repo = ? OR repo IS NULL)`, [branch, repoName])
+        : db.all(`SELECT id FROM tasks WHERE branch_id = ?`, [branch]);
     return rows.length === 1 ? rows[0].id : null;
+}
+// The issue that carries a PR's comments: the PR's linked task (pr_review_runs),
+// else the task on the head branch → its issue. When the slug maps to a
+// registered repo only that repo's tasks (or legacy rows with no repo) qualify;
+// otherwise any repo's task does. A task is closed at bro_atomic_close before
+// its PR opens, so closed tasks carry comments; failed and escalated tasks do
+// not. The most recently updated match wins. Null when no task carries the PR.
+function resolveCarrierIssueId(db, prNumber, repo, headBranch) {
+    const repoName = repoNameForSlug(db, repo);
+    const linkedParams = [prNumber];
+    if (repo !== '')
+        linkedParams.push(repo);
+    if (repoName)
+        linkedParams.push(repoName);
+    const linked = db.get(`SELECT t.issue_id
+       FROM pr_review_runs r
+       JOIN tasks t ON t.id = r.task_id
+      WHERE r.pr_number = ? ${repo !== '' ? 'AND r.repo = ?' : ''}
+        ${repoName ? 'AND (t.repo = ? OR t.repo IS NULL)' : ''}
+        AND t.status NOT IN ('failed','escalated')
+      ORDER BY t.updated_at DESC, t.id DESC LIMIT 1`, linkedParams);
+    if (linked)
+        return linked.issue_id;
+    if (!headBranch)
+        return null;
+    const byBranch = db.get(`SELECT issue_id FROM tasks
+      WHERE branch_id = ? ${repoName ? 'AND (repo = ? OR repo IS NULL)' : ''}
+        AND status NOT IN ('failed','escalated')
+      ORDER BY updated_at DESC, id DESC LIMIT 1`, repoName ? [headBranch, repoName] : [headBranch]);
+    return byBranch?.issue_id ?? null;
+}
+export function remoteCommentId(remoteKind, prNumber, commentId) {
+    return `${remoteKind}:${prNumber}:${commentId}`;
+}
+// Persist each fetched comment as a discussion on the carrier issue, keyed by
+// remote_comment_id so a re-fetch of the same comment inserts nothing.
+function persistComments(db, prNumber, repo, fetchResult) {
+    const counts = { persisted: 0, duplicates: 0 };
+    const issueId = resolveCarrierIssueId(db, prNumber, repo, fetchResult.head_branch);
+    if (issueId === null)
+        return counts;
+    db.transaction(() => {
+        for (const c of fetchResult.comments) {
+            if (!c.id || !c.body)
+                continue;
+            const id = insertDiscussion(db, {
+                issue_id: issueId,
+                author: c.author,
+                kind: 'note',
+                body: `[PR #${prNumber} comment by ${c.author}] ${c.body}`,
+                remote_comment_id: remoteCommentId(fetchResult.remote_kind, prNumber, c.id),
+            });
+            if (id === null)
+                counts.duplicates++;
+            else
+                counts.persisted++;
+        }
+    });
+    return counts;
 }
 function normalizePrState(raw) {
     const lower = raw.toLowerCase();
@@ -207,7 +263,7 @@ export function prMonitorTools(db, _spawnFn) {
     const definitions = [
         {
             name: 'pr_monitor_comments_get',
-            description: 'Fetch PR/MR comments from GitHub or GitLab. Returns structured comment list with bot/human classification, file/line metadata, and PR state.',
+            description: 'Fetch PR/MR comments from GitHub or GitLab. Returns structured comment list with bot/human classification, file/line metadata, and PR state. Persists each comment as a discussion on the issue of the task that owns the PR, deduped by remote comment id; `persisted` and `duplicates` count the new and already-stored comments.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -351,7 +407,8 @@ export function prMonitorTools(db, _spawnFn) {
              VALUES (?, ?, ?, ?, ?)`, [prNumber, repo, now, lastCommentId, taskId]);
                 }
             }
-            return ok(fetchResult);
+            const { persisted, duplicates } = persistComments(db, prNumber, repo, fetchResult);
+            return ok({ ...fetchResult, persisted, duplicates });
         })),
         pr_monitor_runs_list: requireRoles('pr_monitor_runs_list', ['bro'], async (args) => {
             const prFilter = args['pr_number'];

@@ -7,11 +7,11 @@ import path from 'node:path';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIST = path.resolve(HERE, '../../../mcp/trajectory-server/dist/index.js');
 
-export async function startClient() {
+export async function startClient({ env } = {}) {
   const transport = new StdioClientTransport({
-    command: 'node',
+    command: env ? process.execPath : 'node',
     args: [SERVER_DIST],
-    env: { ...process.env, TRAJECTORY_DB_PATH: ':memory:' },
+    env: { ...(env ?? process.env), TRAJECTORY_DB_PATH: ':memory:' },
   });
 
   const client = new Client({ name: 'tmb-integration-test', version: '1.0' }, { capabilities: {} });

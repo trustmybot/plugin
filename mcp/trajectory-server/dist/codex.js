@@ -25548,10 +25548,12 @@ function insertDiscussion(db, entry) {
   const createdAt = entry.created_at ?? nowISO();
   const repo = entry.repo ?? resolveIssueRepo(db, entry.issue_id);
   const res = db.run(
-    `INSERT INTO discussions (issue_id, author, kind, body, created_at, repo)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt, repo]
+    `INSERT INTO discussions (issue_id, author, kind, body, created_at, repo, remote_comment_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (remote_comment_id) WHERE remote_comment_id IS NOT NULL DO NOTHING`,
+    [entry.issue_id, entry.author, entry.kind, entry.body, createdAt, repo, entry.remote_comment_id ?? null]
   );
+  if (Number(res.changes) === 0) return null;
   const id = Number(res.lastInsertRowid);
   void embedAndStore(db, "discussions", id, entry.body).catch(
     (e) => console.error("[embeddings] insertDiscussion embed failed:", e)
