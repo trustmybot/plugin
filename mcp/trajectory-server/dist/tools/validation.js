@@ -29,11 +29,13 @@ function wrapHandler(fn) {
     };
 }
 export const REVIEWER_OBSERVE_FROM_NODE = 'hook:reviewer-identity-observe';
+export const REVIEWER_OBSERVATION_TTL_S = 600;
 const AGENT_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 function latestObservation(db, taskId, attemptN) {
     return db.get(`SELECT id,
             json_extract(content_json, '$.session_id') AS session_id,
-            json_extract(content_json, '$.agent_id') AS agent_id
+            json_extract(content_json, '$.agent_id') AS agent_id,
+            COALESCE(json_extract(content_json, '$.observed_at'), created_at) AS observed_at
        FROM audit
       WHERE event_type = 'reviewer_identity_observed'
         AND from_node = ?
@@ -43,6 +45,10 @@ function latestObservation(db, taskId, attemptN) {
         AND COALESCE(json_extract(content_json, '$.consumed'), 0) = 0
       ORDER BY id DESC
       LIMIT 1`, [REVIEWER_OBSERVE_FROM_NODE, taskId, attemptN]);
+}
+function observationAgeS(observation, nowMs) {
+    const observedMs = Date.parse(String(observation.observed_at ?? ''));
+    return Number.isFinite(observedMs) ? Math.floor((nowMs - observedMs) / 1000) : Number.POSITIVE_INFINITY;
 }
 function coerceTaskId(raw) {
     const n = Number(raw);
@@ -55,7 +61,7 @@ export function validationTools(db) {
     const definitions = [
         {
             name: 'validation_record',
-            description: 'Record a validation attempt for a task. subagent_session_id and reviewer_agent_id are derived server-side from the reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored.',
+            description: 'Record a validation attempt for a task. subagent_session_id and reviewer_agent_id come from the fresh (<=600 s) reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -118,7 +124,17 @@ export function validationTools(db) {
             const now = nowISO();
             const callerSessionId = typeof args['subagent_session_id'] === 'string' ? args['subagent_session_id'] : null;
             db.transaction(() => {
-                const observed = latestObservation(db, taskId, attemptN);
+                if (mcpAvailable === 0) {
+                    const verified = db.get(`SELECT verdict, reviewer_agent_id, created_at FROM validation_attempts
+              WHERE task_id = ? AND attempt_n = ? AND mcp_available = 1`, [taskId, attemptN]);
+                    if (verified) {
+                        throw new Error(`verified_verdict_exists: task ${taskId} attempt ${attemptN} already holds a verified ${verified.verdict} verdict (reviewer_agent_id ${verified.reviewer_agent_id ?? 'null'}, recorded ${verified.created_at}); an honor-system call (mcp_available:false) cannot overwrite it.`);
+                    }
+                }
+                const latest = latestObservation(db, taskId, attemptN);
+                const ageS = latest ? observationAgeS(latest, Date.now()) : 0;
+                const staleRow = latest !== undefined && ageS > REVIEWER_OBSERVATION_TTL_S ? latest : undefined;
+                const observed = staleRow ? undefined : latest;
                 let subagentSessionId;
                 let reviewerAgentId;
                 if (observed) {
@@ -148,6 +164,10 @@ export function validationTools(db) {
                         content_json: JSON.stringify({ task_id: taskId, attempt_n: attemptN, subagent_session_id: callerSessionId }),
                         created_at: now,
                     });
+                }
+                else if (staleRow) {
+                    const age = Number.isFinite(ageS) ? `${ageS}s old` : 'of unknown age';
+                    throw new Error(`subagent_session_unavailable: the newest unconsumed reviewer_identity_observed row for task ${taskId} attempt ${attemptN} (audit id ${staleRow.id}) is ${age}, past the ${REVIEWER_OBSERVATION_TTL_S}s freshness window; call validation_record again so the reviewer-identity-observe hook records a fresh row.`);
                 }
                 else {
                     throw new Error(`subagent_session_unavailable: no reviewer_identity_observed row for task ${taskId} attempt ${attemptN}. validation_record must be called by a spawned pr-reviewer subagent (the reviewer-identity-observe hook records its identity); pass mcp_available:false only on the honor-system path.`);

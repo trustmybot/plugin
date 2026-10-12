@@ -22,7 +22,7 @@ export function seedReviewerObservation(
   db: TrajectoryDB,
   taskId: number | string,
   attemptN: number,
-  opts: { agentId?: string; sessionId?: string } = {},
+  opts: { agentId?: string; sessionId?: string; toolUseId?: string | null; observedAt?: string } = {},
 ): number {
   const issueId = db.get<{ issue_id: number }>('SELECT issue_id FROM tasks WHERE id = ?', [Number(taskId)])?.issue_id ?? -1;
   const content = JSON.stringify({
@@ -30,6 +30,8 @@ export function seedReviewerObservation(
     attempt_n: attemptN,
     session_id: opts.sessionId ?? 'main-session',
     agent_id: opts.agentId ?? 'reviewer0agent01',
+    tool_use_id: opts.toolUseId === undefined ? 'toolu_test0000000001' : opts.toolUseId,
+    observed_at: opts.observedAt ?? new Date().toISOString(),
     consumed: 0,
   });
   const res = db.run(

@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { seedReviewerObservation, tempDB } from './helpers.js';
-import { validationTools } from '../tools/validation.js';
+import { REVIEWER_OBSERVATION_TTL_S, validationTools } from '../tools/validation.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
 import { auditTools } from '../tools/audit.js';
@@ -107,6 +107,49 @@ describe('validation_record reviewer identity', () => {
         const result = await record(4);
         assert.ok(!result.isError, JSON.stringify(parseResult(result)));
         assert.equal(parseResult(result).reviewer_agent_id, 'newer-reviewer-01');
+    });
+    it('consumes a fresh row only: a row observed past the TTL is refused with its age and left unconsumed', async () => {
+        const staleAt = new Date(Date.now() - (REVIEWER_OBSERVATION_TTL_S + 60) * 1000).toISOString();
+        const auditId = seedReviewerObservation(db, taskId, 11, { agentId: 'stale-reviewer-01', observedAt: staleAt });
+        const result = await record(11);
+        assert.ok(result.isError);
+        const error = parseResult(result).error;
+        assert.match(error, /^subagent_session_unavailable/);
+        assert.match(error, new RegExp(`audit id ${auditId}\\) is (6[6-9]\\d|7\\d\\d)s old`));
+        assert.equal(consumed(auditId), 0, 'a stale row is never consumed');
+        assert.equal(db.get('SELECT COUNT(*) AS n FROM validation_attempts WHERE task_id = ? AND attempt_n = 11', [taskId]).n, 0);
+    });
+    it('two rows: the newest fresh one is consumed, the other is untouched', async () => {
+        const older = seedReviewerObservation(db, taskId, 12, { agentId: 'older-reviewer-02', toolUseId: 'toolu_older' });
+        const newer = seedReviewerObservation(db, taskId, 12, { agentId: 'newer-reviewer-02', toolUseId: 'toolu_newer' });
+        const result = await record(12);
+        assert.ok(!result.isError, JSON.stringify(parseResult(result)));
+        assert.equal(parseResult(result).reviewer_agent_id, 'newer-reviewer-02');
+        assert.equal(consumed(newer), 1);
+        assert.equal(consumed(older), 0);
+    });
+    it('a verified pass is never overwritten by an honor-system call (verified_verdict_exists)', async () => {
+        seedReviewerObservation(db, taskId, 13, { agentId: 'reviewer-agent-0013' });
+        const verified = await record(13);
+        assert.ok(!verified.isError, JSON.stringify(parseResult(verified)));
+        const before = db.get('SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = 13', [taskId]);
+        const honor = await record(13, { mcp_available: false, verdict: 'fail', subagent_session_id: 'sess-honor' });
+        assert.ok(honor.isError);
+        const error = parseResult(honor).error;
+        assert.match(error, /^verified_verdict_exists/);
+        assert.match(error, /verified pass verdict/);
+        assert.deepEqual({ ...db.get('SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = 13', [taskId]) }, { ...before }, 'the verified row is unchanged');
+    });
+    it('a verified verdict replaces a verified verdict', async () => {
+        seedReviewerObservation(db, taskId, 14, { agentId: 'reviewer-agent-0014' });
+        assert.ok(!(await record(14)).isError);
+        seedReviewerObservation(db, taskId, 14, { agentId: 'reviewer-agent-0014' });
+        const replaced = await record(14, { verdict: 'fail', feedback: '# re-recorded' });
+        assert.ok(!replaced.isError, JSON.stringify(parseResult(replaced)));
+        const row = parseResult(replaced);
+        assert.equal(row.verdict, 'fail');
+        assert.equal(row.mcp_available, 1);
+        assert.equal(row.reviewer_agent_id, 'reviewer-agent-0014');
     });
     it('honor-system path (mcp_available:false, no row) records caller values and audits validation_session_unverified', async () => {
         const result = await record(5, { mcp_available: false, subagent_session_id: 'sess-honor' });
