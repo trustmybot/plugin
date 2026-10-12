@@ -830,6 +830,101 @@ out=$(run_hook_bro "$(make_bash_input bro 'cat > "$UNKNOWN/f" < /dev/null')")
 assert_not_contains "$out" "cannot resolve" "bro is not judged by swe-boundary"
 
 # ===========================================================================
+# GH 1324 — a loop variable fed by an in-root glob or path lister is judged
+# where its files lie; $OLDPWD is the dir before the command's last cd.
+# ===========================================================================
+
+mkdir -p "$WT_PLAIN/tests" "$WT_PLAIN/src/a"
+
+test_case "GH 1324 swe bulk loops over in-worktree files: ALLOWED"
+out=$(run_event "$WT_PLAIN" "for f in $WT_PLAIN/tests/*.sh; do sed -i 's/a/b/' \"\$f\"; done")
+assert_not_contains "$out" '"permissionDecision":"deny"' "for f in <root>/tests/*.sh; sed -i"
+out=$(run_event "$WT_PLAIN" "for f in \$(find $WT_PLAIN -name '*.md'); do printf x >> \"\$f\"; done")
+assert_not_contains "$out" '"permissionDecision":"deny"' "for f in \$(find <root> -name '*.md'); printf >>"
+out=$(run_event "$WT_PLAIN" "while read -r f; do sed -i 's/a/b/' \"\$f\"; done < <(git ls-files src)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "while read … done < <(git ls-files src)"
+out=$(run_event "$WT_PLAIN" "find src -name '*.ts' | while read -r f; do cp \"\$f\" \"\${f%.ts}.bak\"; done")
+assert_not_contains "$out" '"permissionDecision":"deny"' "find src | while read; the \${f%.ts}.bak suffix"
+
+test_case "GH 1324 swe loops over a source outside the worktree: DENIED"
+out=$(run_in "$WT_PLAIN" "for f in \$(find / -name x); do rm \"\$f\"; done")
+assert_contains "$out" 'write target \"$f\" depends on a variable the guard cannot resolve' "for f in \$(find / …); rm"
+out=$(run_in "$WT_PLAIN" "for f in \$(cat list.txt); do rm \"\$f\"; done")
+assert_contains "$out" '"permissionDecision":"deny"' "\$(cat list.txt)"
+out=$(run_in "$WT_PLAIN" "for f in skills/*/SKILL.md; do sed -i 's/a/b/' \"\$f\"; done")
+assert_contains "$out" "prompt-surface" "an in-worktree glob still reaches the prompt-surface rule"
+
+test_case "GH 1324 swe loops over prompt-surface dirs: DENIED (non-prompt-bearing)"
+mkdir -p "$WT_PLAIN/agents" "$WT_PLAIN/skills/tmb_audit" "$WT_PB/agents"
+out=$(run_in "$WT_PLAIN" "for f in \$(find $WT_PLAIN/agents -name '*.md'); do sed -i s/a/b/ \"\$f\"; done")
+assert_contains "$out" "prompt-surface" "find <wt>/agents -name '*.md'"
+out=$(run_in "$WT_PLAIN" "for f in \$(find agents -name '*.md'); do sed -i s/a/b/ \"\$f\"; done")
+assert_contains "$out" "prompt-surface" "relative find agents"
+out=$(run_in "$WT_PLAIN" "find $WT_PLAIN/agents -name '*.md' | while read f; do printf x >> \"\$f\"; done")
+assert_contains "$out" "prompt-surface" "find <wt>/agents | while read"
+out=$(run_in "$WT_PLAIN" "for f in \$(git ls-files skills); do sed -i s/a/b/ \"\$f\"; done")
+assert_contains "$out" "prompt-surface" "git ls-files skills"
+out=$(run_in "$WT_PLAIN" "for f in \$(find . -name CLAUDE.md); do sed -i s/a/b/ \"\$f\"; done")
+assert_contains "$out" "Human-owned" "a -name CLAUDE.md source reaches the root CLAUDE.md rule"
+out=$(run_in "$WT_PB" "for f in \$(find agents -name '*.md'); do sed -i s/a/b/ \"\$f\"; done")
+assert_not_contains "$out" '"permissionDecision":"deny"' "a prompt-bearing task may"
+
+test_case "GH 1324 swe loops over the worktree above its prompt-surface dirs"
+out=$(run_in "$WT_PLAIN" "for f in \$(find $WT_PLAIN -name '*.md'); do sed -i s/a/b/ \"\$f\"; done")
+assert_contains "$out" "reaches prompt-surface paths" "find <wt> -name '*.md': DENIED"
+assert_contains "$out" "scope the listing below agents/" "the reason names the remedy"
+out=$(run_in "$WT_PLAIN" "for f in \$(find $WT_PLAIN/tests -name '*.md'); do sed -i s/a/b/ \"\$f\"; done")
+assert_not_contains "$out" '"permissionDecision":"deny"' "find <wt>/tests -name '*.md': ALLOWED"
+out=$(run_in "$WT_PLAIN" "for f in \$(find $WT_PLAIN -name '*.md' -not -path '*/agents/*' -not -path '*/skills/*' -not -path '*/commands/*' -not -path '*/templates/*'); do sed -i s/a/b/ \"\$f\"; done")
+assert_not_contains "$out" '"permissionDecision":"deny"' "find <wt> with -not -path exclusions: ALLOWED"
+out=$(run_in "$WT_PLAIN" "for f in \$(git ls-files); do sed -i s/a/b/ \"\$f\"; done")
+assert_contains "$out" "reaches prompt-surface paths" "git ls-files at the worktree root: DENIED"
+out=$(run_in "$WT_PLAIN" "for f in \$(git ls-files tests); do sed -i s/a/b/ \"\$f\"; done")
+assert_not_contains "$out" '"permissionDecision":"deny"' "git ls-files tests: ALLOWED"
+out=$(run_in "$WT_PB" "for f in \$(find $WT_PB -name '*.md'); do sed -i s/a/b/ \"\$f\"; done")
+assert_not_contains "$out" '"permissionDecision":"deny"' "a prompt-bearing task: ALLOWED"
+
+test_case "GH 1324 swe: case-insensitive patterns and partial exclusions DENIED, whole-subtree exclusions ALLOWED"
+mkdir -p "$WT_PLAIN/commands"
+for src in "find $WT_PLAIN -iname '*.MD'" "find $WT_PLAIN -iname 'skill.md'" "rg --files $WT_PLAIN --iglob '*.MD'" \
+  "find $WT_PLAIN -name '*.md' ! -path '*/agents'" "find $WT_PLAIN -name '*.md' -not -path '*/agents/zzz/*'" \
+  "find $WT_PLAIN -path '*/agents/zzz' -prune -o -name '*.md' -print" "git ls-files ':!agents/zzz'" "fd -E agents/zzz md $WT_PLAIN"; do
+  out=$(run_in "$WT_PLAIN" "for f in \$($src); do sed -i s/a/b/ \"\$f\"; done")
+  assert_contains "$out" "reaches prompt-surface paths" "$src: DENIED"
+done
+for src in "find $WT_PLAIN -name '*.md' -not -path '*/agents/*' -not -path '*/skills/**' -not -path '*/commands/*'" \
+  "find $WT_PLAIN -path '*/agents' -prune -o -path '*/skills' -prune -o -path '*/commands' -prune -o -name '*.md' -print" \
+  "git ls-files ':!agents' ':!skills' ':!commands'" "fd -E agents -E skills -E commands md $WT_PLAIN" \
+  "rg --files $WT_PLAIN --glob '!agents/**' --glob '!skills/**' --glob '!commands'"; do
+  out=$(run_in "$WT_PLAIN" "for f in \$($src); do sed -i s/a/b/ \"\$f\"; done")
+  assert_not_contains "$out" '"permissionDecision":"deny"' "$src: ALLOWED"
+done
+
+test_case "GH 1324 swe loop shapes that leave the worktree: DENIED"
+out=$(run_event "$WT_PLAIN" "for f in \$(find -- /etc -name x); do rm \"\$f\"; done")
+assert_contains "$out" 'write target \"$f\" depends on a variable the guard cannot resolve' "find -- /etc"
+out=$(run_event "$WT_PLAIN" "for d in \$(find $WT_PLAIN -type d); do echo x > \"\$d/../f\"; done")
+assert_contains "$out" '"permissionDecision":"deny"' "\$d/../f: find lists the worktree itself"
+out=$(run_event "$WT_PLAIN" "echo x > $WT_PLAIN/*/../../../etc/f")
+assert_contains "$out" "climbs with .. after a glob" "a glob followed by .."
+
+test_case "GH 1324 swe \$OLDPWD after a cd"
+out=$(run_event "$WT_PLAIN" "cd $WT_PLAIN/src/a && echo x > \"\$OLDPWD/$IN_FENCE\"")
+assert_not_contains "$out" '"permissionDecision":"deny"' "cd <root>/src/a from the worktree root"
+out=$(run_event "$WT_PLAIN" "cd /tmp/tmb-1324 && cd $WT_PLAIN/src && echo x > \"\$OLDPWD/f\"")
+assert_contains "$out" "/tmp/tmb-1324/f is outside this run's root" "denied as the real path"
+out=$(run_in "$WT_PLAIN" 'echo x > "$OLDPWD/f"')
+assert_contains "$out" 'write target \"$OLDPWD/f\"' "no cd: unresolvable"
+
+test_case "GH 1324 the GH 1279 denies hold"
+out=$(run_in "$WT_PLAIN" 'cat > "$UNKNOWN/f" < /dev/null')
+assert_contains "$out" '"permissionDecision":"deny"' "cat > \$UNKNOWN/f"
+out=$(run_in "$WT_PLAIN" 'cat > "$(mktemp)" < /dev/null')
+assert_contains "$out" '"permissionDecision":"deny"' "cat > \$(mktemp)"
+out=$(run_event "$WT_PLAIN" 'OUT=/etc/tmb-1324; cat > "$OUT" < /dev/null')
+assert_contains "$out" "/etc/tmb-1324 is outside this run's root" "OUT=/etc/x; cat > \$OUT"
+
+# ===========================================================================
 # Layer 1 — schema-mismatch fail-safe (#596)
 # A stale legacy ~/.claude/tmb/trajectory.db (old schema, no prompt_bearing
 # column) up-tree from the hook's cwd must be treated as UNRESOLVED, not

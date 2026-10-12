@@ -151,6 +151,95 @@ assert_eq 'UNRESOLVED:$():$(mktemp)' "$(wpaths 'cat > "$(mktemp)"' /w)" "a \$( )
 assert_eq 'UNRESOLVED:f:$f' "$(wpaths 'while read -r f; do touch "$f"; done < list' /w)" "read"
 assert_eq "/w/out" "$(wpaths 'echo $(date) > out' /w)" "a \$( ) outside the target is not a target"
 
+test_case "tmb_cmd_write_paths: \$OLDPWD is the dir before the command's last cd (GH 1324)"
+assert_eq "/w/f" "$(wpaths 'cd x && echo y > "$OLDPWD/f"' /w)" "after cd x, \$OLDPWD is the cwd"
+assert_eq "/w/x/f" "$(wpaths 'cd x; cd /r && echo y > "${OLDPWD}/f"' /w)" "the dir before the most recent cd"
+assert_eq "/w/f" "$(wpaths 'cd x && D="$OLDPWD/f" && cd / && echo y > "$D"' /w)" "in an assignment, that statement's \$OLDPWD"
+assert_eq 'UNRESOLVED:OLDPWD:$OLDPWD/f' "$(wpaths 'echo y > "$OLDPWD/f"' /w)" "without a cd it is unknown"
+assert_eq "/w/x/a,/r/b" "$(wpaths 'cd x && cd /r && cd - && echo y > "$PWD/a" && echo z > "$OLDPWD/b"' /w)" "cd - swaps \$PWD and \$OLDPWD"
+assert_eq 'UNRESOLVED:OLDPWD:$OLDPWD/f' "$(wpaths 'cd x; echo y > "$OLDPWD/f"' /w)" "a cd not chained with && may have failed"
+assert_eq 'UNRESOLVED:OLDPWD:$OLDPWD/f' "$(wpaths 'cd x && true; echo y > "$OLDPWD/f"' /w)" "outside the cd's && chain"
+assert_eq "/w/f" "$(wpaths '(cd x; cd y); cd z && echo y > "$OLDPWD/f"' /w)" "a subshell's cd does not leak"
+
+LR=$(cd "$(mktemp -d)" && pwd -P)
+mkdir -p "$LR/tests" "$LR/a"
+lpaths() { tmb_cmd_write_paths "$1" "${2:-$LR}" "" "$LR" | sed "s|$LR|@|g" | paste -sd',' - ; }
+
+test_case "tmb_cmd_write_paths: loop variables bounded by an in-root source (GH 1324)"
+assert_eq "@/tests/*.sh" "$(lpaths "for f in $LR/tests/*.sh; do sed -i 's/a/b/' \"\$f\"; done")" "an in-root glob"
+assert_eq "@/tests/*.sh" "$(lpaths "for f in tests/*.sh; do sed -i 's/a/b/' \"\$f\"; done")" "a relative glob"
+assert_eq "@,@/*" "$(lpaths "for f in \$(find $LR -name '*.sh'); do sed -i 's/a/b/' \"\$f\"; done")" "\$(find <root> -name …): the start point and everything under it"
+assert_eq "@/*" "$(lpaths "for f in \$(git -C $LR ls-files); do sed -i 's/a/b/' \"\$f\"; done")" "\$(git -C <root> ls-files)"
+assert_eq "@/*" "$(lpaths "for f in \$(git diff --name-only HEAD~1); do sed -i s/a/b/ \"\$f\"; done")" "\$(git diff --name-only)"
+assert_eq "@/tests,@/tests/*" "$(lpaths "for f in \$(rg --files $LR/tests); do printf x >> \"\$f\"; done")" "\$(rg --files <root>/tests)"
+assert_eq "@/a,@/a/*" "$(lpaths "for f in \$(fd -e sh . a); do printf x >> \"\$f\"; done")" "\$(fd <pattern> <path>)"
+assert_eq "@,@/*,@/*.md" "$(lpaths "while read f; do sed -i s/a/b/ \"\$f\"; done < <(find $LR -name '*.md')")" "while read … done < <(find <root> …)"
+assert_eq "@/..bak,@/*.bak,@/*.md.bak" "$(lpaths "find . -name '*.md' | while IFS= read -r f; do cp \"\$f\" \"\$f.bak\"; done")" "find … | while read; the \$f.bak suffix form"
+assert_eq "@/tests.out,@/tests/*.out" "$(lpaths "for f in \$(find tests -name '*.sh'); do echo > \"\${f%.sh}.out\"; done")" "the \${f%.sh}.out suffix form"
+assert_eq "@/a/x,@/a/*/x" "$(lpaths "for f in \$(find a -type d 2>/dev/null); do echo > \"\$f/x\"; done" | tr ',' '\n' | grep -v /dev/null | paste -sd',' -)" "a \$f/… suffix; 2>/dev/null on the source"
+assert_eq "@/tests/*,@/tests/*/*" "$(lpaths "for d in $LR/tests/*; do for f in \$(find \"\$d\" -name x); do rm \"\$f\"; done; done")" "nested loops compose"
+assert_eq "/etc,/etc/*" "$(lpaths "for f in \$(find . -name x); do (cd /etc && rm \"\$f\"); done")" "relative names are judged where they are used"
+
+test_case "tmb_cmd_write_paths: a listed path itself is bound, so .. and suffixes leave the root (GH 1324)"
+assert_eq "$(dirname "$LR")/f,@/f" "$(lpaths "for d in \$(find $LR -type d); do echo x > \"\$d/../f\"; done")" "\$d/../f from find <root>"
+assert_eq "@.bak,@/*.bak" "$(lpaths "for f in \$(find $LR -maxdepth 0); do cp x \"\$f.bak\"; done")" "\$f.bak of the start point"
+assert_eq "$(dirname "$LR"),@" "$(lpaths "for f in \$(find $LR -name '*'); do rm -rf \"\$f/..\"; done")" "\$f/.. of the start point"
+
+test_case "tmb_cmd_write_paths: a bound source under a prompt-surface dir reaches the surface rule (GH 1324)"
+mkdir -p "$LR/agents" "$LR/skills"
+assert_contains "$(lpaths "for f in \$(find $LR/agents -name '*.md'); do sed -i s/a/b/ \"\$f\"; done")" "@/agents/*.md" "find <root>/agents"
+assert_contains "$(lpaths "for f in \$(find agents -name '*.md'); do sed -i s/a/b/ \"\$f\"; done")" "@/agents/*.md" "relative find agents"
+assert_contains "$(lpaths "find $LR/agents -name '*.md' | while read f; do printf x >> \"\$f\"; done")" "@/agents/*.md" "find <root>/agents | while read"
+assert_contains "$(lpaths "for f in \$(git ls-files skills); do sed -i s/a/b/ \"\$f\"; done")" "@/skills/*.md" "git ls-files skills"
+assert_contains "$(lpaths "for f in \$(find . -name CLAUDE.md); do sed -i s/a/b/ \"\$f\"; done")" "@/CLAUDE.md" "a -name pattern naming CLAUDE.md"
+
+test_case "tmb_cmd_write_paths: a recursive listing above the root's prompt-surface dirs reaches them (GH 1324)"
+touch "$LR/CLAUDE.md"
+assert_eq "@/agents/*.md,@/skills/*.md,@/CLAUDE.md,@,@/*,@/*.md" "$(lpaths "for f in \$(find $LR -name '*.md'); do sed -i s/a/b/ \"\$f\"; done")" "find <root> -name '*.md'"
+assert_eq "@,@/*" "$(lpaths "for f in \$(find $LR -name '*.sh'); do sed -i s/a/b/ \"\$f\"; done")" "a pattern that cannot match a surface file"
+assert_eq "@/tests,@/tests/*,@/tests/*.md" "$(lpaths "for f in \$(find $LR/tests -name '*.md'); do sed -i s/a/b/ \"\$f\"; done")" "a listing below the surface dirs"
+assert_eq "@,@/*,@/*.md" "$(lpaths "for f in \$(find $LR -name '*.md' -not -path '*/agents/*' -not -path '*/skills/*' -not -path '*/commands/*' -not -path '*/templates/*' -not -name CLAUDE.md); do sed -i s/a/b/ \"\$f\"; done")" "-not -path exclusions"
+assert_eq "@,@/*,@/*.md" "$(lpaths "for f in \$(find . -path ./agents -prune -o -path ./skills -prune -o -path ./CLAUDE.md -prune -o -name '*.md' -print); do sed -i s/a/b/ \"\$f\"; done")" "-path … -prune exclusions"
+assert_contains "$(lpaths "for f in \$(find $LR -name '*.md' -o -not -path '*/agents/*'); do sed -i s/a/b/ \"\$f\"; done")" "@/agents/*.md" "a -not -path in an -o branch excludes nothing"
+assert_eq "@/*,@/agents/*.md,@/skills/*.md,@/CLAUDE.md" "$(lpaths "for f in \$(git ls-files); do sed -i s/a/b/ \"\$f\"; done")" "git ls-files at the root"
+assert_eq "@/*" "$(lpaths "for f in \$(git ls-files tests); do sed -i s/a/b/ \"\$f\"; done")" "git ls-files tests"
+assert_eq "@/*" "$(lpaths "for f in \$(git ls-files ':!agents' ':!skills' ':!CLAUDE.md'); do sed -i s/a/b/ \"\$f\"; done")" ":! pathspec exclusions"
+assert_eq "@,@/*" "$(lpaths "for f in \$(rg --files --glob '!agents/**' --glob '!skills/**' -g '!CLAUDE.md'); do sed -i s/a/b/ \"\$f\"; done")" "--glob '!…' exclusions"
+rm -f "$LR/CLAUDE.md"
+
+test_case "tmb_cmd_write_paths: case-insensitive patterns and partial exclusions still reach the surface (GH 1324)"
+mkdir -p "$LR/commands"
+for src in "find $LR -iname '*.MD'" "find $LR -iname 'skill.md'" "rg --files $LR --iglob '*.MD'" "rg --files $LR -g '*.MD' --glob-case-insensitive" \
+  "find $LR -name '*.md' ! -path '*/agents'" "find $LR -name '*.md' -not -name 'agents*'" "find $LR -name '*.md' -not -path '*/agents/zzz/*'" \
+  "find $LR -path '*/agents/zzz' -prune -o -name '*.md' -print" "git ls-files ':!agents/zzz'" "fd -E agents/zzz md $LR"; do
+  out=$(lpaths "for f in \$($src); do sed -i s/a/b/ \"\$f\"; done")
+  case "$src" in *skill.md*) want="@/skills/*.md" ;; *) want="@/agents/*.md" ;; esac
+  assert_contains "$out" "$want" "$src"
+done
+for src in "find $LR -name '*.md' -not -path '*/agents/*' -not -path '*/skills/**' -not -path '*/commands/*'" \
+  "find $LR -path '*/agents' -prune -o -path $LR/skills -prune -o -path '*/commands' -prune -o -name '*.md' -print" \
+  "git ls-files ':!agents' ':^skills' ':(exclude)commands'" "fd -E agents -E skills -E commands md $LR" \
+  "rg --files $LR --glob '!agents/**' --glob '!skills' --glob '!commands/**'"; do
+  out=$(lpaths "for f in \$($src); do sed -i s/a/b/ \"\$f\"; done")
+  for d in agents skills commands; do assert_not_contains "$out" "@/$d/*.md" "$src leaves out $d"; done
+done
+
+test_case "tmb_cmd_write_paths: loop variables from any other source stay unresolvable (GH 1324)"
+assert_eq 'UNRESOLVED:f:$f' "$(lpaths "for f in \$(find /etc -name x); do rm \"\$f\"; done")" "\$(find /etc …)"
+assert_eq 'UNRESOLVED:f:$f' "$(lpaths "for f in \$(find -- /etc -name x); do rm \"\$f\"; done")" "\$(find -- /etc …): -- ends the options"
+assert_eq 'UNRESOLVED:f:$f' "$(lpaths "for f in \$(find .. -name x); do rm \"\$f\"; done")" "\$(find ..) climbs out of the root"
+assert_eq 'UNRESOLVED:f:$f' "$(lpaths "for f in \$(cat list.txt); do rm \"\$f\"; done")" "\$(cat list.txt)"
+assert_eq 'UNRESOLVED:f:$f' "$(lpaths "for f in \$(curl -s https://x); do rm \"\$f\"; done")" "\$(curl …)"
+assert_eq 'UNRESOLVED:f:$f' "$(lpaths "for f in \$(find . -printf '/etc/%f'); do rm \"\$f\"; done")" "find -printf writes its own text"
+assert_eq 'UNRESOLVED:f:$f' "$(lpaths "for f in \$(find . | grep x); do rm \"\$f\"; done")" "a pipeline source"
+assert_eq 'UNRESOLVED:f:$f' "$(lpaths "for f in \$(find .) /etc/x; do rm \"\$f\"; done")" "more words after the \$( )"
+assert_eq 'UNRESOLVED:f:$f' "$(lpaths "for f in \$(git -C /etc ls-files); do rm \"\$f\"; done")" "git -C outside the root"
+assert_eq 'UNRESOLVED:f:$f' "$(lpaths "for f in \$(find \$SRC); do rm \"\$f\"; done")" "a variable source"
+assert_eq 'UNRESOLVED:f:$f' "$(lpaths 'while read -r f; do touch "$f"; done < list')" "read from a file"
+assert_eq 'UNRESOLVED:f:$f' "$(lpaths "cat list | while read f; do rm \"\$f\"; done")" "cat list | while read"
+assert_eq 'UNRESOLVED:f:$f' "$(lpaths "find /etc | while read f; do rm \"\$f\"; done")" "find /etc | while read"
+assert_eq 'UNRESOLVED:f:$f' "$(tmb_cmd_write_paths "for f in \$(find $LR); do rm \"\$f\"; done" "$LR")" "no root given"
+
 test_case "tmb_cmd_write_shapes lists the shapes once"
 assert_contains "$(tmb_cmd_write_shapes)" "sed -i" "sed -i"
 assert_contains "$(tmb_cmd_write_shapes)" "dd of=" "dd of="

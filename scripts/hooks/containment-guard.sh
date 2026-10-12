@@ -18,7 +18,11 @@
 #     an interpreter through a heredoc, each in its statement's own cd dir) is
 #     outside the root. Data heredocs and quoted text are data, not syntax.
 #     Variables set earlier in the same command are resolved; ~, $HOME,
-#     $TMPDIR and $TMB_MODEL_CACHE_DIR are expanded. A target behind a
+#     $TMPDIR and $TMB_MODEL_CACHE_DIR are expanded; $OLDPWD is the dir before
+#     the command's last cd. A for / while-read loop variable fed by a glob or
+#     by find / ls / git ls-files / git diff --name-only / rg --files / fd
+#     listing only paths inside the root is judged where its files lie; a
+#     target with .. after a glob component is denied. A target behind a
 #     variable the command does not set is allowed only when the literal
 #     directory before the variable is inside the root; otherwise denied with
 #     the variable named. Reads are never judged.
@@ -204,8 +208,24 @@ unresolved() {
   deny "$raw" "BLOCKED: write target \"$raw\" depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command."
 }
 
+# glob_climbs <target> — a `..` after a glob component: the glob may match a
+# symlink, so where the `..` lands is unknown.
+glob_climbs() {
+  local tail
+  case "$1" in *'*'*|*'?'*|*'['*) ;; *) return 1 ;; esac
+  tail="${1#*[*?[]}"
+  case "/$tail/" in */../*) return 0 ;; esac
+  return 1
+}
+
+SEEN=$'\n'
 while IFS= read -r word; do
   [ -n "$word" ] || continue
+  case "$SEEN" in *$'\n'"$word"$'\n'*) continue ;; esac
+  SEEN="$SEEN$word"$'\n'
+  if glob_climbs "${word#UNRESOLVED:*:}"; then
+    deny "${word#UNRESOLVED:*:}" "BLOCKED: containment — write target \"${word#UNRESOLVED:*:}\" climbs with .. after a glob; the guard cannot tell where that lands. Name the directory without .. after a glob."
+  fi
   case "$word" in
     UNRESOLVED:*)
       word="${word#UNRESOLVED:*:}"
@@ -215,6 +235,6 @@ while IFS= read -r word; do
   esac
   path=$(expand "$word") || continue
   allowed "$path" || deny "$path"
-done < <(tmb_cmd_write_paths "$COMMAND" "$CWD" raw)
+done < <(tmb_cmd_write_paths "$COMMAND" "$CWD" raw "$ROOT")
 
 exit 0
