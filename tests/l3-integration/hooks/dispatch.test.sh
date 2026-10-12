@@ -23,6 +23,18 @@
 #     → deny (PreToolUse) or decision block (other events), exit 0; an
 #     observe-only hook keeps its exit code and output
 #   Shim: marker for the session → yield; foreign project → yield
+#   Chain trajectory-gates: fixed order, first deny ends it (a later gate's
+#     marker is never written), allows pass through, routing by tool name,
+#     context joined into one output, one lock per gate, a dying gate denies,
+#     a gate past its chain-table timeout is killed and denies (also without
+#     pgrep, leaving no process behind), two trivial gates stay within a
+#     latency budget of one, a duplicate
+#     chain whose waiter gives up ends without running later gates, and a
+#     chain stays fail-closed without hooks.json or lib/registrations.sh;
+#     real gates: agent-arg deny keeps swe-brief-gate's sentinel unwritten
+#   No jq: a fail-closed gate or chain denies naming jq, an observe-only
+#     registration still runs; registration resolution without jq equals the
+#     jq reading for every hooks.json entry, whatever the key order
 #   Symlinked project dir and its real path → one lock, one shim project
 #   Parity: every PreToolUse gate in hooks.json gives the same stdout + exit
 #   code through the dispatcher as run directly.
@@ -429,21 +441,283 @@ is_deny "$out" && _pass || _fail "duplicate did not replay the deny: $out"
 assert_eq "1" "$(runs)" "gate ran once"
 
 # ===========================================================================
+# Chain: an install whose trajectory-gates members are fixture gates that log
+# their name, deny when named in FX_DENY, add context when named in FX_CTX and
+# exit 1 when named in FX_DIE.
+C="$TMP/chain-install"
+make_install "$C" C
+cat > "$C/hooks/hooks.json" <<'EOF'
+{"hooks":{"PreToolUse":[{"matcher":"mcp__.*trajectory-server__.*","hooks":[
+  {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh trajectory-gates","timeout":1842,"onFailure":"block"}]},
+  {"matcher":"Bash","hooks":[
+  {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-allow","timeout":6}]}]}}
+EOF
+for g in agent-arg-matches-caller swe-brief-gate swe-verification-gate reviewer-identity-observe cheatcode-install-approval; do
+  cat > "$C/scripts/hooks/$g.sh" <<EOF
+#!/usr/bin/env bash
+cat >/dev/null
+echo "$g" >> "$RUNS"
+case " \${FX_SLOW:-} " in *" $g "*) sleep "\${FX_SLOW_S:-8}"; echo "$g" >> "$TMP/slow-done" ;; esac
+case " \${FX_DIE:-} " in *" $g "*) exit 1 ;; esac
+case " \${FX_DENY:-} " in *" $g "*)
+  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"denied by $g"}}'; exit 0 ;;
+esac
+case " \${FX_CTX:-} " in *" $g "*)
+  echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"ctx $g"}}' ;;
+esac
+exit 0
+EOF
+  chmod +x "$C/scripts/hooks/$g.sh"
+done
+
+tpayload() {
+  jq -nc --arg t "$1" --arg id "${2:-tu-c}" \
+    '{hook_event_name:"PreToolUse",session_id:"s-c",tool_name:("mcp__plugin_tmb_trajectory-server__" + $t),tool_input:{agent:"bro"},tool_use_id:$id}'
+}
+chain() { dispatch "$C" trajectory-gates "$(tpayload "$1" "${2:-tu-$1}")"; }
+ran() { [ -f "$RUNS" ] && paste -sd, - < "$RUNS" || true; }
+
+test_case "chain: an early deny ends the chain; later gates never run"
+reset_runs
+rc=0
+out=$(FX_DENY=agent-arg-matches-caller chain task_update_status tu-c1) || rc=$?
+assert_eq "0" "$rc" "exit 0"
+assert_contains "$out" "denied by agent-arg-matches-caller" "the first gate's deny returned"
+assert_eq "agent-arg-matches-caller" "$(ran)" "swe-brief-gate and swe-verification-gate never ran"
+
+test_case "chain: the first deny wins"
+reset_runs
+out=$(FX_DENY="swe-brief-gate swe-verification-gate" chain task_update_status tu-c2)
+assert_contains "$out" "denied by swe-brief-gate" "swe-brief-gate's deny"
+assert_not_contains "$out" "denied by swe-verification-gate" "no later deny"
+assert_eq "agent-arg-matches-caller,swe-brief-gate" "$(ran)" "stopped at swe-brief-gate"
+
+test_case "chain: allows pass through every gate in order"
+reset_runs
+rc=0
+out=$(chain task_update_status tu-c3) || rc=$?
+assert_eq "0" "$rc" "exit 0"
+assert_eq "" "$out" "no output"
+assert_eq "agent-arg-matches-caller,swe-brief-gate,swe-verification-gate" "$(ran)" "fixed order"
+
+test_case "chain: routing by tool name"
+reset_runs
+chain validation_record tu-c4 >/dev/null
+assert_eq "agent-arg-matches-caller,swe-brief-gate,reviewer-identity-observe" "$(ran)" "validation_record → reviewer-identity-observe"
+reset_runs
+chain cheatcode_install tu-c5 >/dev/null
+assert_eq "agent-arg-matches-caller,swe-brief-gate,cheatcode-install-approval" "$(ran)" "cheatcode_install → cheatcode-install-approval"
+reset_runs
+chain issue_get tu-c6 >/dev/null
+assert_eq "agent-arg-matches-caller,swe-brief-gate" "$(ran)" "issue_get → neither tool-specific gate"
+
+test_case "chain: context outputs are joined into one output"
+reset_runs
+out=$(FX_CTX="agent-arg-matches-caller swe-verification-gate" chain task_update_status tu-c7)
+assert_eq "1" "$(printf '%s\n' "$out" | grep -c .)" "one line"
+assert_eq "$(printf 'ctx agent-arg-matches-caller\n\nctx swe-verification-gate')" "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext')" "both contexts, in order"
+out=$(FX_CTX="swe-brief-gate" chain task_update_status tu-c8)
+assert_eq "ctx swe-brief-gate" "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext')" "a single context passes through"
+
+test_case "chain: one dedupe key per gate"
+reset_runs
+chain task_update_status tu-c9 >/dev/null
+assert_eq "3" "$(find "$EVENTS" -mindepth 1 -maxdepth 1 -type d | grep -c .)" "three lock directories for three gates"
+reset_runs
+P=$(tpayload task_update_status tu-c10)
+FX_SLEEP=0 dispatch "$C" trajectory-gates "$P" > "$TMP/o1" &
+FX_SLEEP=0 dispatch "$C" trajectory-gates "$P" > "$TMP/o2" &
+wait
+assert_eq "3" "$(runs)" "two concurrent chains run each gate once"
+
+test_case "chain: a dying gate denies and ends the chain"
+reset_runs
+out=$(FX_DIE=swe-brief-gate chain task_update_status tu-c11 2>/dev/null)
+is_deny "$out" && _pass || _fail "no deny: $out"
+assert_contains "$out" "swe-brief-gate exited 1" "reason names the gate"
+assert_eq "agent-arg-matches-caller,swe-brief-gate" "$(ran)" "swe-verification-gate never ran"
+
+test_case "chain: a gate past its chain-table timeout is killed and denies; later gates never run"
+reset_runs
+rm -f "$TMP/slow-done"
+started=$SECONDS
+out=$(FX_SLOW=swe-brief-gate FX_SLOW_S=9 chain task_update_status tu-c13 2>/dev/null)
+elapsed=$((SECONDS - started))
+is_deny "$out" && _pass || _fail "no deny: $out"
+assert_contains "$out" "swe-brief-gate ran past its 6 s budget" "reason names the gate and its budget"
+[ "$elapsed" -lt 9 ] && _pass || _fail "the chain waited ${elapsed}s for the slow gate"
+assert_eq "agent-arg-matches-caller,swe-brief-gate" "$(ran)" "swe-verification-gate never ran"
+sleep 4
+[ ! -e "$TMP/slow-done" ] && _pass || _fail "the slow gate kept running after the deny"
+
+test_case "chain without pgrep: an overrunning gate leaves no survivor, an allow leaves no watchdog"
+. "$HERE/fixtures/no-jq-path.sh"
+NOPG=$(no_cmd_path "$TMP/nopgrep" pgrep)
+survivors() { ps -A -o args= 2>/dev/null | grep -cE "^sleep $1\$" || true; }
+reset_runs
+out=$(tpayload task_update_status tu-c17 | PATH="$NOPG" FX_SLOW=agent-arg-matches-caller FX_SLOW_S=12.37 CLAUDE_PLUGIN_ROOT="$C" bash "$C/scripts/hooks/dispatch.sh" trajectory-gates 2>/dev/null)
+assert_contains "$out" "agent-arg-matches-caller ran past its 6 s budget" "overrun denies"
+assert_eq "0" "$(survivors 12.37)" "the gate's sleep was killed with it"
+reset_runs
+out=$(tpayload task_update_status tu-c18 | PATH="$NOPG" CLAUDE_PLUGIN_ROOT="$C" bash "$C/scripts/hooks/dispatch.sh" trajectory-gates 2>/dev/null)
+assert_eq "agent-arg-matches-caller,swe-brief-gate,swe-verification-gate" "$(ran)" "the allow ran every gate"
+assert_eq "0" "$(survivors 1830)" "no watchdog sleep left behind"
+
+test_case "chain latency: two trivial gates stay within twice one gate + 100 ms"
+ms() { perl -MTime::HiRes=time -e 'printf "%.0f\n", time * 1000'; }
+median() { sort -n | awk '{ a[NR] = $1 } END { print a[int((NR + 1) / 2)] }'; }
+single=$(for i in 1 2 3 4 5 6 7; do
+  a=$(ms); tpayload issue_get "tu-lat-s$i" | CLAUDE_PLUGIN_ROOT="$C" bash "$C/scripts/hooks/dispatch.sh" agent-arg-matches-caller --chain trajectory-gates >/dev/null 2>&1; b=$(ms)
+  echo $((b - a)); done | median)
+chained=$(for i in 1 2 3 4 5 6 7; do
+  a=$(ms); tpayload issue_get "tu-lat-c$i" | CLAUDE_PLUGIN_ROOT="$C" bash "$C/scripts/hooks/dispatch.sh" trajectory-gates >/dev/null 2>&1; b=$(ms)
+  echo $((b - a)); done | median)
+[ "$chained" -le $((single * 2 + 100)) ] && _pass || _fail "chain ${chained} ms > 2 x ${single} ms + 100 ms"
+
+test_case "chain: a duplicate chain whose waiter gives up ends without running later gates"
+reset_runs
+P=$(tpayload task_update_status tu-c14)
+FX_DENY=agent-arg-matches-caller FX_SLOW=agent-arg-matches-caller FX_SLOW_S=5.5 dispatch "$C" trajectory-gates "$P" > "$TMP/o1" 2>/dev/null &
+FX_DENY=agent-arg-matches-caller FX_SLOW=agent-arg-matches-caller FX_SLOW_S=5.5 dispatch "$C" trajectory-gates "$P" > "$TMP/o2" 2>/dev/null &
+wait
+assert_contains "$(cat "$TMP/o1" "$TMP/o2")" "denied by agent-arg-matches-caller" "the holder's chain denies"
+assert_eq "agent-arg-matches-caller" "$(ran)" "agent-arg ran once; swe-brief-gate never ran"
+
+test_case "chain: fail-closed without hooks.json or lib/registrations.sh"
+reset_runs
+mv "$C/hooks/hooks.json" "$C/hooks/hooks.json.off"
+out=$(FX_DIE=agent-arg-matches-caller chain task_update_status tu-c15 2>/dev/null)
+is_deny "$out" && _pass || _fail "no hooks.json: no deny: $out"
+assert_eq "agent-arg-matches-caller" "$(ran)" "no hooks.json: a failed gate ends the chain"
+mv "$C/hooks/hooks.json.off" "$C/hooks/hooks.json"
+reset_runs
+mv "$C/scripts/hooks/lib/registrations.sh" "$C/scripts/hooks/lib/registrations.sh.off"
+rc=0
+out=$(chain task_update_status tu-c16 2>"$TMP/err") || rc=$?
+assert_eq "0" "$rc" "no registrations.sh: exit 0"
+is_deny "$out" && _pass || _fail "no registrations.sh: no deny: $out"
+assert_contains "$(cat "$TMP/err")" "could not load lib/registrations.sh" "stderr names the library"
+assert_eq "" "$(ran)" "no gate ran"
+mv "$C/scripts/hooks/lib/registrations.sh.off" "$C/scripts/hooks/lib/registrations.sh"
+
+test_case "chain: --shim yields when the plugin hooks marked this session"
+reset_runs
+mkdir -p "$PROJ/.claude/tmb/sessions"
+: > "$PROJ/.claude/tmb/sessions/s-c.plugin-hooks"
+out=$(TMB_SHIM_PROJECT="$PROJ" dispatch "$C" trajectory-gates "$(tpayload issue_get tu-c12)" --shim)
+assert_eq "" "$out" "no decision"
+assert_eq "" "$(ran)" "no gate ran"
+rm -f "$PROJ/.claude/tmb/sessions/s-c.plugin-hooks"
+
+# ===========================================================================
+test_case "chain (real gates): agent-arg denial keeps swe-brief-gate from writing its sentinel"
+RP="$TMP/real-proj"
+mkdir -p "$RP/.claude/tmb"
+RDB="$RP/.claude/tmb/trajectory.db"
+sqlite3 "$RDB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+sqlite3 "$RDB" "
+  INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (7, 'o', 'open', 'x', 'x');
+  INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at)
+    VALUES (42, 7, 'fix/x', 'dev', 'd', 'running', 'x', 'x');"
+brief() {
+  jq -nc --arg a "$1" --arg id "$2" '{hook_event_name:"PreToolUse",session_id:"s-r",agent_type:"swe",agent_id:"ag1",
+    tool_name:"mcp__plugin_tmb_trajectory-server__task_brief",tool_input:{agent:$a,task_id:42},tool_use_id:$id}'
+}
+sentinels() { sqlite3 "$RDB" "SELECT COUNT(*) FROM audit WHERE event_type = 'swe_brief_fetched';"; }
+out=$(cd "$RP" && brief bro tu-r1 | CLAUDE_PROJECT_DIR="$RP" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" trajectory-gates 2>/dev/null)
+assert_contains "$out" "pass agent='swe'" "agent-arg-matches-caller denied"
+assert_eq "0" "$(sentinels)" "no swe_brief_fetched sentinel"
+out=$(cd "$RP" && brief swe tu-r2 | CLAUDE_PROJECT_DIR="$RP" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" trajectory-gates 2>/dev/null)
+is_deny "$out" && _fail "matching agent denied: $out" || _pass
+assert_eq "1" "$(sentinels)" "the matching call reaches swe-brief-gate, which writes the sentinel"
+
+# ===========================================================================
+. "$HERE/fixtures/no-jq-path.sh"
+NOJQ=$(no_jq_path "$TMP/nojq")
+
+test_case "no jq: a fail-closed chain denies naming jq, no gate runs"
+reset_runs
+rc=0
+out=$(tpayload task_update_status tu-n1 | PATH="$NOJQ" CLAUDE_PLUGIN_ROOT="$C" bash "$C/scripts/hooks/dispatch.sh" trajectory-gates 2>"$TMP/err") || rc=$?
+assert_eq "0" "$rc" "exit 0"
+is_deny "$out" && _pass || _fail "no deny: $out"
+assert_contains "$out" "jq not found" "reason names jq"
+assert_contains "$(cat "$TMP/err")" "jq not found — failing closed" "stderr line"
+assert_eq "" "$(ran)" "no gate ran"
+
+test_case "no jq: a fail-closed gate denies; an observe-only registration still runs"
+reset_runs
+out=$(payload "ls n2" tu-n2 | PATH="$NOJQ" CLAUDE_PLUGIN_ROOT="$A" bash "$A/scripts/hooks/dispatch.sh" fx-gate-dies 2>/dev/null)
+assert_contains "$out" "jq not found" "fail-closed gate denies naming jq"
+assert_eq "" "$(ran)" "the gate never ran"
+rc=0
+out=$(payload "ls n3" tu-n3 | FX_SLEEP=0 PATH="$NOJQ" CLAUDE_PLUGIN_ROOT="$A" bash "$A/scripts/hooks/dispatch.sh" fx-allow 2>/dev/null) || rc=$?
+assert_eq "0" "$rc" "observe-only: exit 0"
+assert_contains "$out" "fx banner" "observe-only: ran and allowed"
+
+test_case "no jq (real gates): the chain denies; deny-capable gates exit non-zero, the observe-only gate allows"
+NP=$(jq -nc '{hook_event_name:"PreToolUse",session_id:"s-n",agent_type:"pr-reviewer",agent_id:"ag1",
+  tool_name:"mcp__plugin_tmb_trajectory-server__validation_record",tool_input:{agent:"pr-reviewer",task_id:42,attempt_n:1},tool_use_id:"tu-n4"}')
+out=$(cd "$RP" && printf '%s' "$NP" | PATH="$NOJQ" CLAUDE_PROJECT_DIR="$RP" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" trajectory-gates 2>/dev/null)
+assert_contains "$out" '"permissionDecision":"deny"' "chain denies"
+assert_contains "$out" "jq not found" "reason names jq"
+for g in agent-arg-matches-caller containment-guard; do
+  rc=0
+  err=$(cd "$RP" && printf '%s' "$NP" | PATH="$NOJQ" CLAUDE_PROJECT_DIR="$RP" bash "$PLUGIN_ROOT/scripts/hooks/$g.sh" 2>&1 >/dev/null) || rc=$?
+  assert_eq "1" "$rc" "$g exits 1"
+  assert_contains "$err" "jq not found" "$g names jq on stderr"
+done
+rc=0
+err=$(cd "$RP" && printf '%s' "$NP" | PATH="$NOJQ" CLAUDE_PROJECT_DIR="$RP" bash "$PLUGIN_ROOT/scripts/hooks/reviewer-identity-observe.sh" 2>&1 >/dev/null) || rc=$?
+assert_eq "0" "$rc" "reviewer-identity-observe exits 0"
+assert_contains "$err" "jq not found" "reviewer-identity-observe notes it on stderr"
+
+test_case "registration without jq equals the jq reading for every hooks.json entry"
+# shellcheck disable=SC1091
+. "$PLUGIN_ROOT/scripts/hooks/lib/registrations.sh"
+jq_registration() {
+  jq -r --arg g "$2" '
+    [.hooks[][]?.hooks[]? | select((.command // "") | test("/dispatch\\.sh " + $g + "( |$)"))]
+    | "\([.[].timeout // empty] | max // "") \(if any(.[]; .onFailure == "block") then 1 else 0 end)"' "$1"
+}
+diffs=""
+n=0
+while IFS= read -r name; do
+  n=$((n + 1))
+  want=$(jq_registration "$PLUGIN_ROOT/hooks/hooks.json" "$name")
+  got=$(PATH="$NOJQ" tmb_registration "$PLUGIN_ROOT/hooks/hooks.json" "$name")
+  [ "$want" = "$got" ] || diffs="$diffs $name(jq=<$want> awk=<$got>)"
+done < <(jq -r '.hooks[][]?.hooks[]?.command | capture("/dispatch\\.sh (?<g>[a-z0-9-]+)").g' "$PLUGIN_ROOT/hooks/hooks.json" | sort -u)
+assert_eq "" "$diffs" "every registration reads the same"
+[ "$n" -gt 30 ] && _pass || _fail "only $n registrations compared"
+assert_eq "1842 1" "$(tmb_registration "$PLUGIN_ROOT/hooks/hooks.json" trajectory-gates)" "the chain: timeout and fail-closed"
+assert_eq " 0" "$(tmb_registration "$PLUGIN_ROOT/hooks/hooks.json" not-registered)" "an unregistered name"
+printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"x{2}","hooks":[{"onFailure":"block","timeout":9,"command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-a"},{"timeout":3,"command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-ab"}]}]}}' > "$TMP/order.json"
+assert_eq "$(jq_registration "$TMP/order.json" fx-a)" "$(tmb_registration "$TMP/order.json" fx-a)" "keys before the command, one line"
+assert_eq "$(jq_registration "$TMP/order.json" fx-ab)" "$(tmb_registration "$TMP/order.json" fx-ab)" "a name that extends another"
+
+# ===========================================================================
 test_case "parity: every PreToolUse gate gives the same result through the dispatcher"
 PARITY="$TMP/parity"
 mkdir -p "$PARITY"
 PP=$(jq -nc --arg cwd "$PARITY" '{hook_event_name:"PreToolUse",session_id:"par",tool_name:"Bash",tool_input:{command:"echo hi"},tool_use_id:"tu-par",cwd:$cwd}')
 mismatch=""
 checked=0
-while IFS= read -r gate; do
-  checked=$((checked + 1))
-  d_rc=0; x_rc=0
-  d_out=$(cd "$PARITY" && printf '%s' "$PP" | CLAUDE_PROJECT_DIR="$PARITY" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$PLUGIN_ROOT/scripts/hooks/$gate.sh" 2>/dev/null) || d_rc=$?
-  x_rc=0
-  x_out=$(cd "$PARITY" && printf '%s' "$PP" | CLAUDE_PROJECT_DIR="$PARITY" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" "$gate" 2>/dev/null) || x_rc=$?
-  if [ "$d_out" != "$x_out" ] || [ "$d_rc" != "$x_rc" ]; then
-    mismatch="$mismatch $gate"
-  fi
+# shellcheck disable=SC1091
+. "$PLUGIN_ROOT/scripts/hooks/lib/registrations.sh"
+while IFS= read -r reg; do
+  members=$(tmb_chain_table "$reg" | cut -d' ' -f1)
+  for gate in ${members:-$reg}; do
+    via=()
+    [ -n "$members" ] && via=(--chain "$reg")
+    checked=$((checked + 1))
+    d_rc=0; x_rc=0
+    d_out=$(cd "$PARITY" && printf '%s' "$PP" | CLAUDE_PROJECT_DIR="$PARITY" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$PLUGIN_ROOT/scripts/hooks/$gate.sh" 2>/dev/null) || d_rc=$?
+    x_out=$(cd "$PARITY" && printf '%s' "$PP" | CLAUDE_PROJECT_DIR="$PARITY" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" "$gate" ${via[@]+"${via[@]}"} 2>/dev/null) || x_rc=$?
+    if [ "$d_out" != "$x_out" ] || [ "$d_rc" != "$x_rc" ]; then
+      mismatch="$mismatch $gate"
+    fi
+  done
 done < <(jq -r '.hooks.PreToolUse[].hooks[].command | capture("/dispatch\\.sh (?<g>[a-z0-9-]+)$").g' "$PLUGIN_ROOT/hooks/hooks.json" | sort -u)
 assert_eq "" "$mismatch" "no gate differs through the dispatcher"
 [ "$checked" -gt 10 ] && _pass || _fail "parity checked only $checked gates"

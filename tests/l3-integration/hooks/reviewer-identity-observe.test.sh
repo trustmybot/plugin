@@ -9,6 +9,7 @@
 #   2. swe subagent and bro main-loop (no agent_id) payloads write nothing
 #   3. every observed call is allowed
 #   4. an unreadable DB denies with the db-unavailable reason
+#   5. without jq it allows with a stderr note and writes nothing
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -103,5 +104,14 @@ test_case "project without a trajectory DB is allowed"
 mkdir -p "$TMPDIR/bare"
 OUT=$(run "$TMPDIR/bare" "$(payload pr-reviewer a1b2c3d4e5f6a7b8c)")
 assert_eq "allow" "$(decision "$OUT")" "unresolved DB: allowed"
+
+test_case "no jq: allowed with a stderr note, nothing written"
+. "$HERE/fixtures/no-jq-path.sh"
+NOJQ=$(no_jq_path "$TMPDIR/nojq")
+rc=0
+ERR=$(cd "$PROJ" && payload pr-reviewer e1b2c3d4e5f6a7b8c | PATH="$NOJQ" CLAUDE_PROJECT_DIR="$PROJ" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$HOOK" 2>&1 >/dev/null) || rc=$?
+assert_eq "0" "$rc" "exit 0"
+assert_contains "$ERR" "jq not found" "stderr names jq"
+assert_eq "3" "$(rows)" "no row"
 
 summarize

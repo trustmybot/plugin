@@ -7,7 +7,8 @@
 #      agent_arg_mismatch row on the task's issue, else the system issue -1
 #   3. a missing agent arg is allowed; plugin-prefixed roles compare equal
 #   4. without a usable DB a mismatch still denies and a match still allows
-#   5. the dispatcher registration denies a mismatch end to end
+#   5. the trajectory-gates chain denies a mismatch end to end, and a denied
+#      validation_record leaves no reviewer_identity_observed row
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -141,10 +142,27 @@ P=$(payload task_get pr-reviewer bro | jq -c '.tool_name = "mcp__github__get_iss
 OUT=$(run "$PROJ" "$P")
 assert_eq "allow" "$(decision "$OUT")" "non-trajectory tool allowed"
 
-test_case "dispatcher registration denies a mismatch"
-OUT=$(cd "$PROJ" && payload audit_append pr-reviewer bro 42 \
-  | CLAUDE_PROJECT_DIR="$PROJ" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" agent-arg-matches-caller 2>/dev/null || true)
+# chain <payload> — the payload through the trajectory-gates registration.
+chain() {
+  (cd "$PROJ" && printf '%s' "$1" \
+    | CLAUDE_PROJECT_DIR="$PROJ" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" trajectory-gates 2>/dev/null || true)
+}
+
+test_case "the trajectory-gates chain denies a mismatch"
+OUT=$(chain "$(payload audit_append pr-reviewer bro 42)")
 assert_eq "deny" "$(decision "$OUT")" "denied through dispatch.sh"
 assert_eq "6" "$(rows)" "row written through dispatch.sh"
+
+test_case "a pr-reviewer validation_record with agent='bro' through the chain leaves no reviewer_identity_observed row"
+observed() { sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type = 'reviewer_identity_observed';"; }
+VR=$(payload validation_record pr-reviewer bro 42 | jq -c '.tool_input.attempt_n = 1 | .tool_use_id = "tu-vr1"')
+OUT=$(chain "$VR")
+assert_eq "deny" "$(decision "$OUT")" "denied"
+assert_contains "$OUT" "pass agent='pr-reviewer'" "agent-arg-matches-caller's reason"
+assert_eq "0" "$(observed)" "no observation row"
+VR=$(payload validation_record pr-reviewer pr-reviewer 42 | jq -c '.tool_input.attempt_n = 1 | .tool_use_id = "tu-vr2"')
+OUT=$(chain "$VR")
+assert_eq "allow" "$(decision "$OUT")" "the matching call is allowed"
+assert_eq "1" "$(observed)" "and reaches reviewer-identity-observe"
 
 summarize

@@ -7,6 +7,9 @@
 # FAILs when the wrapper doesn't cover it, so a future budget bump can't
 # re-neuter a hook without also reddening L1. Every registration runs through
 # scripts/hooks/dispatch.sh, which adds DISPATCH_OVERHEAD_S to each floor.
+# A gate in a chain (scripts/hooks/lib/registrations.sh) is held to its
+# chain-table timeout, and the chain's registration must cover its gates run
+# one after another: every `*` gate plus the largest tool-specific one.
 
 set -euo pipefail
 
@@ -19,12 +22,23 @@ HOOKS_JSON="hooks/hooks.json"
 DISPATCH_OVERHEAD_S=1
 FAIL=0
 
-# Wrapper timeout for a gate script basename, matched on `dispatch.sh <gate>`.
+# shellcheck source=scripts/hooks/lib/registrations.sh
+. scripts/hooks/lib/registrations.sh
+
+REGISTERED=$(jq -r '.hooks[][]?.hooks[]?.command // "" | capture("/dispatch\\.sh (?<g>[a-z0-9-]+)$").g' "$HOOKS_JSON" | sort -u)
+
+# Wrapper timeout for a gate script basename: the smallest of its
+# `dispatch.sh <gate>` registrations and its chain-table entries.
 wrapper_timeout() {
-  jq -r --arg g "${1%.sh}" '
-    [.hooks[][]?.hooks[]? | select((.command // "") | endswith("/dispatch.sh " + $g)) | .timeout]
-    | first // empty
-  ' "$HOOKS_JSON"
+  local g="${1%.sh}" chain
+  {
+    jq -r --arg g "$g" '
+      .hooks[][]?.hooks[]? | select((.command // "") | endswith("/dispatch.sh " + $g)) | .timeout // empty
+    ' "$HOOKS_JSON"
+    for chain in $REGISTERED; do
+      tmb_chain_table "$chain" | awk -v g="$g" '$1 == g { print $2 }'
+    done
+  } | sort -n | head -1
 }
 
 require() {
@@ -113,10 +127,29 @@ if require "$VG_WRAP" "swe-verification-gate wrapper timeout" \
   fi
 fi
 
+# --- chains: the registration covers the gates run in sequence ---------------
+CHAIN_SUMMARY=""
+for chain in $REGISTERED; do
+  table=$(tmb_chain_table "$chain")
+  [ -n "$table" ] || continue
+  need=$(printf '%s\n' "$table" | awk '$3 == "*" { s += $2; next } $2 > m { m = $2 } END { print s + m }')
+  wrap=$(wrapper_timeout "$chain")
+  if ! require "$wrap" "$chain registration timeout"; then
+    continue
+  fi
+  if [ "$wrap" -lt "$need" ]; then
+    printf "hook-timeout-budget: FAIL chain %s wrapper %ss < %ss (every * gate + the largest tool-specific gate)\n" "$chain" "$wrap" "$need" >&2
+    FAIL=$((FAIL + 1))
+  fi
+  CHAIN_SUMMARY="${CHAIN_SUMMARY}  chain ${chain}: wrapper ${wrap}s >= gates in sequence ${need}s
+"
+done
+
 if [ "$FAIL" -gt 0 ]; then
   printf "hook-timeout-budget: FAIL\n"
   exit 1
 fi
 printf "%s" "$DBW_SUMMARY"
+printf "%s" "$CHAIN_SUMMARY"
 printf "hook-timeout-budget: %s db-write hooks + verification-gate %ss (floor %ss = cap %ss + record writes %ss + %ss dispatcher + %ss overhead) — wrappers cover budgets.\n" \
   "$DBW_CHECKED" "$VG_WRAP" "$VG_FLOOR" "$VG_MAX" "$VG_RECORD_S" "$DISPATCH_OVERHEAD_S" "$VG_OVERHEAD_S"

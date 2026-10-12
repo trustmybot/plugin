@@ -2,7 +2,8 @@
 # Tests for scripts/hooks/session-start-prescan.sh.
 # Covers: output is valid JSON, additionalContext is emitted, cache-friendly
 # ordering, cold-session auto-scan launch, bypass env, and the warm / stale /
-# cold world-model banner, and the duplicate-plugin line.
+# cold world-model banner, the duplicate-plugin line, and the Tooling line
+# naming a missing jq.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -385,5 +386,16 @@ assert_eq "" "$(dup_line)" "unreadable installed_plugins.json: no Plugin line"
 assert_eq "" "$(cat "$TMPDIR/dup.err")" "unreadable installed_plugins.json: no stderr"
 chmod 600 "$TMB_INSTALLED_JSON"
 rm -f "$TMB_INSTALLED_JSON" "$LOCAL_SETTINGS"
+
+test_case "jq present: no Tooling line"
+assert_not_contains "$OUT" "Tooling:" "no Tooling line with jq on PATH"
+
+test_case "jq off PATH: the Tooling line, as valid JSON"
+. "$HERE/fixtures/no-jq-path.sh"
+NOJQ=$(no_jq_path "$TMPDIR/nojq")
+NOJQ_OUT=$( (cd "$FIXTURE_WS" && env PATH="$NOJQ" TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>/dev/null) || true)
+assert_eq "Tooling: jq not found — every TMB gate will deny until it is installed" \
+  "$(printf '%s' "$NOJQ_OUT" | jq -r '.hookSpecificOutput.additionalContext')" "the one Tooling line"
+assert_eq "SessionStart" "$(printf '%s' "$NOJQ_OUT" | jq -r '.hookSpecificOutput.hookEventName')" "a SessionStart output"
 
 summarize

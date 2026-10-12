@@ -165,52 +165,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-brief-gate",
-            "timeout": 6,
-            "onFailure": "block"
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__.*trajectory-server__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh agent-arg-matches-caller",
-            "timeout": 6,
-            "onFailure": "block"
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__.*trajectory-server__task_update_status",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-verification-gate",
-            "timeout": 1830,
-            "onFailure": "block"
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__.*trajectory-server__validation_record",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh reviewer-identity-observe",
-            "timeout": 6,
-            "onFailure": "block"
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__.*trajectory-server__cheatcode_install",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh cheatcode-install-approval",
-            "timeout": 6,
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh trajectory-gates",
+            "timeout": 1842,
             "onFailure": "block"
           }
         ]
