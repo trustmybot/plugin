@@ -7,9 +7,12 @@ description: SWE's self-review heuristics — load only when about to atomic-clo
 
 Before `task_update_status(completed)`, confirm these by reading the diff. Mechanical patterns (bare except, mutable defaults, etc.) are caught by `scripts/hooks/code-quality-lint.sh` on every Edit/Write. You check the things only a human reader would see.
 
-- **Spec fidelity.** Every path in the typed `files[]`, every bullet under `## Success Criteria`, and every error/edge case named in `## Description` has a concrete change in the diff. Quote the item, point to the diff line.
-- **Scope discipline.** Nothing changed outside the typed `files[]` except trivial imports. No "while I was there" cleanups. No new TODOs.
-- **Verification output.** Your close report lists each `verification[]` command with its pass/fail and the tail of its output. A dry run or smoke test reports as its command's pass/fail.
+- **Spec fidelity.** Every bullet under `## Success Criteria` and every error/edge case named in `## Description` has a concrete change in the diff. Quote the item, point to the diff line.
+- **Scope discipline.** Your close report lists every path you edited outside the typed `files[]`, each with the reason it had to change. No "while I was there" cleanups. No new TODOs.
+- **Tests for what you touched.** Run the tests and lints covering the files you changed and paste their pass/fail with the tail of their output. The gate runs `verification[]` once when you close and records the run for your commit. A dry run or smoke test reports as its command's pass/fail.
+- **Changelog fragment.** Where the repo keeps `changelog.d/`, add `changelog.d/<gh>-<slug>.md` and leave `CHANGELOG.md` as it is.
+- **After a rebase.** Run `scripts/maintenance/regen-generated.sh` where the repo has it, and commit what it regenerated.
+- **Hook blocks.** A PreToolUse block is a hard stop — surface its exact output and wait.
 
 Escalate (not guess) when:
 

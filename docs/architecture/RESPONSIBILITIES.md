@@ -23,7 +23,7 @@ Three roles split by what each can be trusted to do without making its own homew
 - **bro** — persona on main Claude. Holds most permissions and the full picture (system design + alignment with Human). Bro does everything except coding. Only agent that talks to the Human; only one with the full `requireRoles` matrix unlocked.
 - **swe** — codes. Three reasons coding splits out:
   1. **Token-heavy** — letting bro do it pollutes bro's strategic memory with diff noise.
-  2. **No self-homework** — bro re-runs verification on SWE's output. Same agent can't write + sign off.
+  2. **No self-homework** — the verification gate runs the spec's `verification[]` on SWE's commit and bro judges the recorded run. Same agent can't write + sign off.
   3. **Subagents are fragile** — SWE runs as a CC subagent with narrowed `tools:` allowlist, frontmatter `disallowedTools`, fresh context. Hook denies / MCP errors mid-task can abort it. Critical state writes (workflow status, summaries, audit) stay with bro — the most permissioned + most resilient layer.
 - **pr-reviewer** — independent 3rd party at push gate. Read-only on files (no Edit/Write tool). The only agent allowed to call `validation_record` — the formal sign-off the push gate consumes.
 
@@ -102,7 +102,8 @@ Frontmatter: `model: opus`, `maxTurns: 150`, `tools: Read, Glob, Grep, Bash, Wri
 ### Work loop
 
 - Work in the worktree per the spec's `## Files`, `## Success Criteria`, `## Verification`. `files[]` is guidance at directory granularity: a write outside it is allowed, and the first write to each such path brings a note asking the swe to list it, and why, in its report.
-- Run verification commands **verbatim** from the spec.
+- Run the tests and lints for the files it touched; the verification gate runs the spec's `verification[]` once when the swe closes and records the run for the commit (`task_brief.verification_run`).
+- Report every path edited outside `files[]` with its reason; add a `changelog.d/<gh>-<slug>.md` fragment; after a rebase, run `scripts/maintenance/regen-generated.sh`.
 - Optionally invoke `tmb_swe-checklist` skill when the spec's `## Verification` needs interpretation.
 
 ### Atomic close
@@ -150,16 +151,16 @@ Frontmatter: `model: opus`, `tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tm
 
 - Fires at **push time** over a batch of unsigned tasks (NOT per individual task close).
 - Bro spawns one pr-reviewer per unsigned `task_id=<N>` (parallel siblings when the push contains multiple).
-- First action: `task_get(agent='pr-reviewer', task_id=N)`. Reject spawn if `task_id` missing.
+- First action: `task_brief(agent='pr-reviewer', task_id=N)`. Reject spawn if `task_id` missing.
 - **MCP availability self-test** — pass the typed `mcp_available` boolean to `validation_record` (`true` = MCP up, `false` = honor-system fallback). It lands in the `validation_attempts.mcp_available` column; the push-gate reads the typed field from the row.
 
 ### Review work
 
-For each task, diff against the spec's `## Files`, `## Success Criteria`, `## Verification`; paths outside `files[]` that bro accepted at close are in `task_brief`'s `scope.extras_accepted`. Apply mechanical checks (delegate to `pr-review-toolkit:review-pr` if installed) + task-alignment checks (scope, success criteria met by diff, atomic-close discipline).
+For each task, trust the swe's checklist of what changed and read the records: test results from `task_brief.verification_run` (the gate's run for the exact `commit_sha`; none, failed, timed out or a different sha is a FAIL) and scope from `task_brief.scope` (`files`, `extras_accepted` — the paths outside `files[]` bro accepted at close — and `base_moved`). Re-run only commands whose record looks suspicious; spend the rest on complementary probes (adversarial inputs, dry runs on data copies, cross-file semantics, doc/code agreement, the spec's `Populated:` commands). Apply mechanical checks (delegate to `pr-review-toolkit:review-pr` if installed) + task-alignment checks (scope, success criteria met by diff, atomic-close discipline).
 
 ### Sign off
 
-`validation_record(agent='pr-reviewer', task_id, attempt_n, verdict='pass'|'fail', feedback, subagent_session_id)`. Server enforces pr-reviewer-only.
+`validation_record(agent='pr-reviewer', task_id, attempt_n, verdict='pass'|'fail', feedback, mcp_available)`. Server enforces pr-reviewer-only and derives the reviewer's `subagent_session_id` and `reviewer_agent_id` from the `reviewer-identity-observe` hook row.
 
 ### Server-enforced privileges (Layer 1)
 

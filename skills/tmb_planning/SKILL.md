@@ -49,8 +49,8 @@ Pick conservative defaults; name them in `## Description` Assumptions bullets. T
 
 Pass the typed machine contract on each swe-executed task:
 
-- `files: string[]` — the paths the task touches.
-- `verification: string[]` — runnable bash commands, one per entry, commands only. Each entry holds a command and nothing else — reasoning about what the command proves lives in `## Description`.
+- `files: string[]` — the surfaces the task is expected to touch, at directory granularity (`mcp/trajectory-server/src/`, `scripts/hooks/`, `tests/`, `docs/`, `changelog.d/`). The swe may edit other paths inside its worktree and reports each one with a reason; you judge them at close.
+- `verification: string[]` — the gate's list: runnable bash commands, one per entry, commands only. Each entry holds a command and nothing else — reasoning about what the command proves lives in `## Description`.
 
 The `spec_body` markdown carries the prose bro and swe reason from. Its sections are `## Description, ## Success Criteria, ## Out of Scope, ## Commit` — when the scope outgrows one spec, split into multiple tasks linked by `parent_branch_id`:
 
@@ -81,7 +81,7 @@ Blast-radius (external side effects only): default config is the safe state (opt
 
 Call `task_provision(issue_id, branch_id, decision_body, task, base?)` — it atomically writes the `kind='decision'` discussion, creates the task (with the typed `files[]` + `verification[]` and the planning-complete event), creates the git branch, and creates the worktree. It returns the spawn-ready shape `{task_id, branch_id, worktree_path, ...}` — branch and worktree already exist.
 
-Then spawn SWE with the `task_id` it returned. Independent tasks run concurrently: provision every one of them, then spawn one swe per task in the same turn — one Agent call each, all in one message. A task waits only when it needs another task's merged output, and its `decision_body` names that dependency. Each spec names the sibling tasks running alongside it and their `files[]`, and tells swe to fetch and rebase onto the base branch inside its worktree, keep every CHANGELOG entry, rebuild generated artefacts and re-run `verification[]` before closing.
+Then spawn SWE with the `task_id` it returned. The swe runs the tests for what it touched while it works; the gate runs `verification[]` once, when the swe closes, and records the run for that commit. Independent tasks run concurrently: provision every one of them, then spawn one swe per task in the same turn — one Agent call each, all in one message. A task waits only when it needs another task's merged output, and its `decision_body` names that dependency. Each spec names the sibling tasks running alongside it and their `files[]`, and tells swe to fetch and rebase onto the base branch inside its worktree, rebuild generated artefacts after the rebase (`scripts/maintenance/regen-generated.sh` where the repo has it), and re-run the tests for what it touched before closing.
 
 ### Spawning SWE
 
@@ -95,11 +95,11 @@ The Agent PreToolUse gates enforce a spawn contract:
 
 Verify, close and review each task as it returns; a task's close waits on nothing but its own review.
 
-After SWE returns `status=completed`, pull the work (`task_get` plus a `git diff` of the commit) and judge it against the spec on four counts:
+After SWE returns `status=completed`, pull the work (`task_brief` plus a `git diff` of the commit) and judge it against the spec on four counts:
 
-1. Changed files match the typed `files[]` — nothing surprising outside scope.
-2. The typed `verification[]` commands pass when re-run verbatim inside the SWE worktree.
-3. Each `## Success Criteria` bullet is visibly met by the diff.
+1. Every changed path outside `files[]` is one the swe reported with a reason you accept. `bro_atomic_close` refuses the close and lists the extras grouped by surface; it closes on a retry with `waive_scope_gate: true` and a `scope_waiver_reason` of at least 10 characters, and afterwards `task_brief.scope` carries `extras_accepted` and `base_moved`.
+2. `task_brief.verification_run` holds the gate's recorded run for this `commit_sha` with `exit_code` 0 and `timed_out` false. The gate reuses a passing run for the same task and commit, so a reused run is normal.
+3. Each `## Success Criteria` bullet is visibly met by the diff, and the changelog entry lands as the task's own fragment under `changelog.d/` where the repo keeps one.
 4. `world_model_get` on the changed directory confirms the change landed where expected.
 
 All four pass → close with the `bro_atomic_close` composite (`close_issue_if_last_task=true` when it's the last task); the post-close hook re-scans so the world model refreshes. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself right after `bro_atomic_close` so the world model reflects the new structure within this session; the background post-close rescan stays the safety net for ordinary changes. Then spawn pr-reviewer for the push gate — the spawn-shape hook enforces the anchors. On a reviewer FAIL: surface it, hold the push, and rework the task (below).
