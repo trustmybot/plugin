@@ -100,6 +100,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `no-remote-auth-guard.sh` | PreToolUse Bash | Block interactive remote-auth flows (gh/glab login) |
 | `remote-id-guard.sh` | PreToolUse Bash | Guard remote-identity / repo-creation operations |
 | `agent-spawn-dispatch.sh` | PreToolUse Agent | Dispatcher for the spawn gates: `require-task-spec.sh`, `require-feature-branch-active.sh`, `pr-reviewer-no-worktree.sh`, `pr-reviewer-spawn-prompt-shape.sh`, `pr-reviewer-after-atomic-close.sh`, then prepares the worktree via `ensure-swe-worktree.sh` |
+| `agent-arg-matches-caller.sh` | PreToolUse trajectory-server | Deny a call whose `agent` argument names another role than the caller (the payload's `agent_type`, or bro for the main session) and audit `agent_arg_mismatch`; a missing `agent` is allowed and the decision never depends on the trajectory DB |
 | `swe-brief-gate.sh` | PreToolUse trajectory-server + Edit/Write | SWE must have fetched its task brief before touching state or files |
 | `swe-verification-gate.sh` | PreToolUse task_update_status | Gate the SWE close transition on verification |
 | `reviewer-identity-observe.sh` | PreToolUse validation_record | Record the calling pr-reviewer's `session_id` and `agent_id` (`reviewer_identity_observed`) so `validation_record` stamps the reviewer's identity; observe-only, fails closed only when the trajectory DB is unavailable |

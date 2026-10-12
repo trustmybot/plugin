@@ -1,3 +1,4 @@
+agent_arg_mismatch	hook
 agent_runs_capture_skipped	hook
 agent_runs_backfilled	bro
 agent_runs_claimed	hook
