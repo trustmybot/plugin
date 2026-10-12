@@ -68,7 +68,7 @@ Mirrors `repos.remotes[].provider` (see [`repos.remotes[].provider`](#reposremot
 | Value | Source | Meaning |
 |---|---|---|
 | `intent` | TMB | The Human's original ask, captured verbatim |
-| `note` | TMB | Bro's running narrative (planning, triage, status) |
+| `note` | TMB | Bro's running narrative (planning, triage, status), and each PR/MR comment `pr_monitor_comments_get` persists |
 | `question` | TMB | Open question raised by an agent or the Human |
 | `answer` | TMB | Resolution to a `question` |
 | `analysis` | TMB | Consultant's structured analysis on a topic |

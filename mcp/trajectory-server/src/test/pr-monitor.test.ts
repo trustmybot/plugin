@@ -2,7 +2,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { SpawnSyncOptions } from 'node:child_process';
 import { tempDB } from './helpers.js';
-import { prMonitorTools } from '../tools/pr_monitor.js';
+import { prMonitorTools, remoteCommentId } from '../tools/pr_monitor.js';
 
 type SpawnFn = (
   cmd: string,
@@ -572,6 +572,160 @@ describe('pr_monitor_comments_get — pr_review_runs.task_id population (#1024)'
       'SELECT task_id FROM pr_review_runs WHERE pr_number = 33',
     );
     assert.equal(row?.task_id, taskId, 'COALESCE keeps the earlier task_id');
+
+    db.close();
+  });
+});
+
+describe('pr_monitor_comments_get — server-side comment persistence (GH 1208)', () => {
+  const REPO_URL = 'https://github.com/owner/repo.git';
+
+  function seedTask(db: ReturnType<typeof tempDB>, branch: string, status = 'pending'): { taskId: number; issueId: number } {
+    db.run(`INSERT INTO repos (name, path, remotes) VALUES ('app', '/tmp/app', ?)`, [
+      JSON.stringify([{ name: 'origin', provider: 'github', url: REPO_URL }]),
+    ]);
+    db.run(
+      `INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES ('carrier', '', 'open', datetime('now'), datetime('now'))`,
+    );
+    const issueId = db.get<{ id: number }>('SELECT id FROM issues ORDER BY id DESC LIMIT 1')!.id;
+    db.run(
+      `INSERT INTO tasks (issue_id, branch_id, description, repo, status, created_at, updated_at)
+       VALUES (?, ?, 'task', 'app', ?, datetime('now'), datetime('now'))`,
+      [issueId, branch, status],
+    );
+    const taskId = db.get<{ id: number }>('SELECT id FROM tasks ORDER BY id DESC LIMIT 1')!.id;
+    return { taskId, issueId };
+  }
+
+  const comment = (id: string, login: string, body: string, createdAt: string) => ({
+    id,
+    author: { login },
+    body,
+    createdAt,
+  });
+  const C1 = comment('IC_1', 'alice', 'Handle null input.', '2024-01-15T10:00:00Z');
+  const C2 = comment('IC_2', 'bob', 'Extract a helper.', '2024-01-15T11:00:00Z');
+  const C3 = comment('IC_3', 'carol', 'Typo in the docstring.', '2024-01-15T12:00:00Z');
+  const payload = (branch: string, comments: unknown[]) =>
+    JSON.stringify({ state: 'OPEN', headRefName: branch, comments, reviews: [] });
+
+  function prDiscussions(db: ReturnType<typeof tempDB>) {
+    return db.all<{ issue_id: number; author: string; kind: string; body: string; remote_comment_id: string | null }>(
+      `SELECT issue_id, author, kind, body, remote_comment_id FROM discussions
+        WHERE remote_comment_id IS NOT NULL ORDER BY id`,
+    );
+  }
+
+  it('formats remote_comment_id as <provider>:<pr_number>:<comment_id>', () => {
+    assert.equal(remoteCommentId('github', 12, 'IC_kwDO'), 'github:12:IC_kwDO');
+    assert.equal(remoteCommentId('gitlab', 7, '4410'), 'gitlab:7:4410');
+  });
+
+  it('two fetches of the same comment set insert once', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    const { issueId } = seedTask(db, 'fix/dedupe');
+    const tools = prMonitorTools(
+      db,
+      makeSpawnFn([
+        { status: 0, stdout: payload('fix/dedupe', [C1, C2]), stderr: '' },
+        { status: 0, stdout: payload('fix/dedupe', [C1, C2]), stderr: '' },
+      ]),
+    );
+
+    const first = parseResult((await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 50, since: '2000-01-01T00:00:00Z' })) as RawResult);
+    assert.equal(first.persisted, 2);
+    assert.equal(first.duplicates, 0);
+    const second = parseResult((await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 50, since: '2000-01-01T00:00:00Z' })) as RawResult);
+    assert.equal(second.persisted, 0, 'second fetch inserts nothing');
+    assert.equal(second.duplicates, 2);
+
+    const rows = prDiscussions(db);
+    assert.equal(rows.length, 2, 'one discussion per remote comment');
+    assert.deepEqual(rows.map((r) => r.remote_comment_id), ['github:50:IC_1', 'github:50:IC_2']);
+    for (const r of rows) {
+      assert.equal(r.issue_id, issueId, 'persisted on the carrier issue');
+      assert.equal(r.kind, 'note');
+    }
+    assert.equal(rows[0]!.author, 'alice');
+    assert.ok(rows[0]!.body.startsWith('[PR #50 comment by alice] '), rows[0]!.body);
+    assert.ok(rows[0]!.body.includes('Handle null input.'), 'comment text preserved');
+
+    db.close();
+  });
+
+  it('a new comment on the second fetch inserts exactly one row', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    seedTask(db, 'fix/new-comment');
+    const tools = prMonitorTools(
+      db,
+      makeSpawnFn([
+        { status: 0, stdout: payload('fix/new-comment', [C1, C2]), stderr: '' },
+        { status: 0, stdout: payload('fix/new-comment', [C1, C2, C3]), stderr: '' },
+      ]),
+    );
+
+    await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 51, since: '2000-01-01T00:00:00Z' });
+    const second = parseResult((await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 51, since: '2000-01-01T00:00:00Z' })) as RawResult);
+    assert.equal(second.persisted, 1);
+    assert.equal(second.duplicates, 2);
+    assert.deepEqual(prDiscussions(db).map((r) => r.remote_comment_id), ['github:51:IC_1', 'github:51:IC_2', 'github:51:IC_3']);
+
+    db.close();
+  });
+
+  it('resolves the issue through pr_review_runs.task_id when the PR maps to a task', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    const { taskId, issueId } = seedTask(db, 'fix/linked');
+    db.run(
+      `INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES ('decoy', '', 'open', datetime('now'), datetime('now'))`,
+    );
+    db.run(
+      `INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, task_id) VALUES (52, 'github.com/owner/repo', '2000-01-01T00:00:00Z', ?)`,
+      [taskId],
+    );
+    const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: payload('', [C1]), stderr: '' }]));
+
+    const result = parseResult((await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 52 })) as RawResult);
+    assert.equal(result.persisted, 1);
+    const rows = prDiscussions(db);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.issue_id, issueId, 'the linked task\'s issue carries the comment');
+
+    db.close();
+  });
+
+  it('persists nothing when the PR maps to no live task', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    seedTask(db, 'fix/closed', 'closed');
+    const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: payload('fix/closed', [C1]), stderr: '' }]));
+
+    const result = parseResult((await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 53 })) as RawResult);
+    assert.equal(result.persisted, 0);
+    assert.equal(result.duplicates, 0);
+    assert.equal(result.comments.length, 1, 'comments still returned');
+    assert.equal(prDiscussions(db).length, 0);
+
+    db.close();
+  });
+
+  it('keys GitLab notes with the gitlab provider', async () => {
+    const db = tempDB();
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"glab"')`);
+    seedTask(db, 'fix/gitlab');
+    const glab = JSON.stringify({
+      state: 'opened',
+      source_branch: 'fix/gitlab',
+      notes: [{ id: 4410, author: { username: 'dave' }, body: 'Looks off.', created_at: '2024-01-20T09:00:00Z' }],
+    });
+    const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: glab, stderr: '' }]));
+
+    const result = parseResult((await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 7 })) as RawResult);
+    assert.equal(result.persisted, 1);
+    assert.deepEqual(prDiscussions(db).map((r) => r.remote_comment_id), ['gitlab:7:4410']);
 
     db.close();
   });
