@@ -233,12 +233,18 @@ gate no-source-edit-from-main.sh \
 gate branch-up-to-date-with-remote.sh \
   "$(jq -nc --arg c "cd $GATE_REPO && git worktree add .claude/worktrees/y main" '{tool_name:"Bash",tool_input:{command:$c}}')" \
   ""
-gate swe-scope-fence.sh \
-  "$(jq -nc --arg t "$WT/src/x.ts" '{tool_name:"Edit",agent_type:"swe",tool_input:{file_path:$t}}')" \
-  "outside this task's files[] dirs"
 gate consultant-persistence-gate.sh \
   '{"agent_type":"security","stop_hook_active":false}' \
   "Consultant persistence gate"
+
+# swe-scope-fence only notes a write outside files[]: a DB error leaves it
+# silent, never a deny.
+SF_PAYLOAD=$(jq -nc --arg t "$WT/src/x.ts" '{tool_name:"Edit",agent_type:"swe",tool_input:{file_path:$t}}')
+test_case "swe-scope-fence.sh: corrupt or unreadable DB stays silent"
+assert_eq "" "$(run_gate swe-scope-fence.sh "$SF_PAYLOAD" "$CORRUPT_DB" "$WT")" "corrupt DB: no output"
+assert_eq "" "$(run_gate swe-scope-fence.sh "$SF_PAYLOAD" "$LOCKED_DB" "$WT")" "unreadable DB: no output"
+test_case "swe-scope-fence.sh: normal path notes the out-of-fence write"
+assert_contains "$(run_gate swe-scope-fence.sh "$SF_PAYLOAD" "$GOOD_DB" "$WT")" "src/x.ts is outside this task's files[]" "the note"
 
 # swe-boundary keeps its prompt-surface deny for un-onboarded projects (its rule
 # needs no DB); the DB only grants prompt_bearing. So (a) asserts the reason is

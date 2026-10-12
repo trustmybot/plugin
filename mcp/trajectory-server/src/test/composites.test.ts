@@ -531,7 +531,7 @@ describe('bro_atomic_close', () => {
         commit_sha: 'abc1234',
         verification_summary: 'ok',
         close_issue_if_last_task: true,
-        waive_scope_gate: true,
+        waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
       });
       assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
       assert.equal(parse(r)['issue_closed'], true);
@@ -607,7 +607,7 @@ describe('bro_atomic_close', () => {
 
       const r = await call(composites.handlers, 'bro_atomic_close', {
         agent: 'bro', task_id: taskId, commit_sha: 'abc1234', verification_summary: 'ok',
-        close_issue_if_last_task: true, waive_scope_gate: true, _spawnFn: spawnFn,
+        close_issue_if_last_task: true, waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test', _spawnFn: spawnFn,
       });
       assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
       assert.equal(parse(r)['issue_closed'], true);
@@ -642,7 +642,7 @@ function seedReviewedCommit(db: TrajectoryDB, issueId: string, taskId: string, s
 }
 
 describe('scopeCheckCommit (#157)', () => {
-  it('covers exact paths and dir-prefix entries; flags the rest', () => {
+  it('covers listed dirs (a file entry covers its directory, a trailing slash the directory itself); flags the rest', () => {
     const ws = mkdtempSync(join(tmpdir(), 'scopecheck-'));
     const git = (cwd: string, ...a: string[]) =>
       execFileSync('git', ['-C', cwd, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
@@ -664,9 +664,10 @@ describe('scopeCheckCommit (#157)', () => {
       git(ws, 'commit', '-q', '-m', 'work');
       const sha = git(ws, 'rev-parse', 'HEAD');
 
-      const res = scopeCheckCommit(ws, 'origin/dev', sha, ['src/a.ts', 'dist/']);
+      const res = scopeCheckCommit(ws, 'origin/dev', sha, ['src/b.ts', 'dist/']);
       assert.equal(res.checked, true);
-      assert.deepEqual(res.outOfScope, ['rogue.ts'], 'dist/ covers dist/index.js; rogue.ts is out');
+      assert.deepEqual(res.outOfScope, ['rogue.ts'], 'dist/ covers dist/index.js; src/b.ts covers src/; rogue.ts is out');
+      assert.equal(res.baseMoved, false);
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }
@@ -688,12 +689,18 @@ describe('bro_atomic_close — scope gate (#157)', () => {
   // Build a real repo with an origin/dev ref, a base commit, and a work commit
   // that changes `changedFiles`. Returns the work commit SHA + a DB seeded with
   // a completed task whose typed files[] is `taskFiles`.
-  async function setup(taskFiles: string[], changedFiles: string[], opts: { withRemote?: boolean } = {}): Promise<{
+  async function setup(
+    taskFiles: string[],
+    changedFiles: string[],
+    opts: { withRemote?: boolean; devAdvance?: string[]; sibling?: string[] } = {},
+  ): Promise<{
     db: TrajectoryDB;
     composites: ReturnType<typeof compositeTools>;
     taskId: string;
     issueId: string;
     sha: string;
+    baseSha: string;
+    siblingSha: string | null;
     cleanup: () => void;
   }> {
     const withRemote = opts.withRemote !== false;
@@ -715,20 +722,41 @@ describe('bro_atomic_close — scope gate (#157)', () => {
     // the scope gate must diff against the local parent ref, not origin/dev.
     if (withRemote) git(repoRoot, 'update-ref', 'refs/remotes/origin/dev', git(repoRoot, 'rev-parse', 'HEAD'));
 
+    const baseSha = git(repoRoot, 'rev-parse', 'HEAD');
+    const commitFiles = (paths: string[], message: string): string => {
+      for (const rel of paths) {
+        const abs = join(repoRoot, rel);
+        mkdirSync(join(abs, '..'), { recursive: true });
+        writeFileSync(abs, `${rel} ${message}\n`);
+      }
+      git(repoRoot, 'add', '.');
+      git(repoRoot, 'commit', '-q', '-m', message);
+      return git(repoRoot, 'rev-parse', 'HEAD');
+    };
+
+    // A sibling branch the task is stacked on (its recorded base).
+    let siblingSha: string | null = null;
+    if (opts.sibling) {
+      git(repoRoot, 'checkout', '-q', '-b', 'feat/sibling');
+      siblingSha = commitFiles(opts.sibling, 'sibling');
+      if (withRemote) git(repoRoot, 'update-ref', 'refs/remotes/origin/feat/sibling', siblingSha);
+    }
+
     // Put the work commit on a feature branch so the local `dev` ref stays at
     // the base — the remoteless fallback then diffs a real parent...work range.
     git(repoRoot, 'checkout', '-q', '-b', 'feat/work');
-    for (const rel of changedFiles) {
-      const abs = join(repoRoot, rel);
-      mkdirSync(join(abs, '..'), { recursive: true });
-      writeFileSync(abs, `${rel}\n`);
+    const sha = commitFiles(changedFiles, 'work');
+
+    // dev advances with unrelated files after the task branched.
+    if (opts.devAdvance) {
+      git(repoRoot, 'checkout', '-q', 'dev');
+      const devTip = commitFiles(opts.devAdvance, 'dev advance');
+      if (withRemote) git(repoRoot, 'update-ref', 'refs/remotes/origin/dev', devTip);
+      git(repoRoot, 'checkout', '-q', 'feat/work');
     }
-    git(repoRoot, 'add', '.');
-    git(repoRoot, 'commit', '-q', '-m', 'work');
-    const sha = git(repoRoot, 'rev-parse', 'HEAD');
 
     const db = tempDB();
-    db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [repoRoot]);
+    db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('app', ?, 'dev')`, [repoRoot]);
     const issues = issueTools(db, dbPath);
     const tasks = taskTools(db);
     const composites = compositeTools(db, dbPath);
@@ -754,13 +782,17 @@ describe('bro_atomic_close — scope gate (#157)', () => {
       tasks: [{ branch_id: 'feat/scope', description: 'd', spec_body: 's', repo: 'app' }],
     }));
     const taskId = String(created[0]!.id);
-    db.run(`UPDATE tasks SET parent_branch_id='dev', files=? WHERE id=?`, [JSON.stringify(taskFiles), taskId]);
+    db.run(`UPDATE tasks SET parent_branch_id=?, files=? WHERE id=?`, [
+      opts.sibling ? 'feat/sibling' : 'dev',
+      JSON.stringify(taskFiles),
+      taskId,
+    ]);
     await call(tasks.handlers, 'task_update_status', {
       agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha.slice(0, 12),
     });
 
     return {
-      db, composites, taskId, issueId, sha,
+      db, composites, taskId, issueId, sha, baseSha, siblingSha,
       cleanup: () => { db.close(); rmSync(ws, { recursive: true, force: true }); },
     };
   }
@@ -814,7 +846,7 @@ describe('bro_atomic_close — scope gate (#157)', () => {
     try {
       const r = await call(composites.handlers, 'bro_atomic_close', {
         agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
-        waive_scope_gate: true,
+        waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
       });
       assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
       const row = db.get<{ status: string }>(`SELECT status FROM tasks WHERE id = ?`, [taskId]);
@@ -824,6 +856,117 @@ describe('bro_atomic_close — scope gate (#157)', () => {
         [issueId],
       );
       assert.equal(waive!.c, 1, 'waive audit note recorded');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('dev advancing with unrelated files after the task base does not count: close passes', async () => {
+    const { db, composites, taskId, sha, cleanup } = await setup(['src/a.ts'], ['src/a.ts'], {
+      devAdvance: ['docs/elsewhere.md', 'scripts/hooks/other.sh'],
+    });
+    try {
+      const r = await call(composites.handlers, 'bro_atomic_close', {
+        agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+      });
+      assert.ok(!r.isError, `dev's own commits must not be extras, got: ${JSON.stringify(parse(r))}`);
+      assert.equal(parse(r)['base_moved'], false);
+      const row = db.get<{ status: string }>(`SELECT status FROM tasks WHERE id = ?`, [taskId]);
+      assert.equal(row!.status, 'closed');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refusal names only the task commit path outside files[], grouped by surface', async () => {
+    const { composites, taskId, sha, cleanup } = await setup(
+      ['src/a.ts'],
+      ['src/a.ts', 'scripts/hooks/rogue.sh'],
+      { devAdvance: ['docs/elsewhere.md'] },
+    );
+    try {
+      const r = await call(composites.handlers, 'bro_atomic_close', {
+        agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+      });
+      assert.equal(r.isError, true);
+      const out = parse(r);
+      assert.deepEqual(out['extras_by_surface'], { 'scripts/hooks': { count: 1, paths: ['scripts/hooks/rogue.sh'] } });
+      assert.match(out['error'] as string, /scripts\/hooks \(1\): scripts\/hooks\/rogue\.sh/);
+      assert.doesNotMatch(out['error'] as string, /elsewhere/);
+      assert.match(out['error'] as string, /scope_waiver_reason/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('waive_scope_gate without a scope_waiver_reason of 10+ chars is refused', async () => {
+    const { db, composites, taskId, sha, cleanup } = await setup(['src/a.ts'], ['src/a.ts', 'rogue.ts']);
+    try {
+      for (const reason of [undefined, 'short']) {
+        const r = await call(composites.handlers, 'bro_atomic_close', {
+          agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+          waive_scope_gate: true, ...(reason ? { scope_waiver_reason: reason } : {}),
+        });
+        assert.equal(r.isError, true);
+        assert.match(parse(r)['error'] as string, /scope_waiver_reason/);
+      }
+      const row = db.get<{ status: string }>(`SELECT status FROM tasks WHERE id = ?`, [taskId]);
+      assert.equal(row!.status, 'completed');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('a waiver records the accepted paths, reason, base_moved, recorded_base and merge_base; task_brief exposes scope', async () => {
+    const { db, composites, taskId, issueId, sha, baseSha, siblingSha, cleanup } = await setup(
+      ['src/a.ts'],
+      ['src/a.ts', 'tests/rogue.test.ts'],
+      { sibling: ['docs/sibling.md'] },
+    );
+    try {
+      const r = await call(composites.handlers, 'bro_atomic_close', {
+        agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+        waive_scope_gate: true, scope_waiver_reason: 'sibling docs land with the stack; test needed',
+      });
+      assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+      const out = parse(r);
+      assert.equal(out['base_moved'], true);
+      assert.equal(out['recorded_base'], siblingSha);
+      assert.equal(out['merge_base'], baseSha);
+      assert.deepEqual(out['extras_accepted'], ['docs/sibling.md', 'tests/rogue.test.ts']);
+
+      const waive = db.get<{ summary: string; content_json: string }>(
+        `SELECT summary, content_json FROM audit WHERE issue_id = ? AND event_type = 'scope_gate_waived'`,
+        [issueId],
+      );
+      const payload = JSON.parse(waive!.content_json) as Record<string, unknown>;
+      assert.deepEqual(payload['accepted_paths'], ['docs/sibling.md', 'tests/rogue.test.ts']);
+      assert.equal(payload['reason'], 'sibling docs land with the stack; test needed');
+      assert.equal(payload['base_moved'], true);
+      assert.equal(payload['recorded_base'], siblingSha);
+      assert.equal(payload['merge_base'], baseSha);
+
+      const brief = parse(await call(composites.handlers, 'task_brief', { agent: 'pr-reviewer', task_id: Number(taskId) }));
+      assert.deepEqual(brief['scope'], {
+        files: ['src/a.ts'],
+        extras_accepted: ['docs/sibling.md', 'tests/rogue.test.ts'],
+        base_moved: true,
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('base_moved is reported without extras when the recorded base differs from the merge-base', async () => {
+    const { composites, taskId, sha, cleanup } = await setup(['src/', 'docs/'], ['src/a.ts'], { sibling: ['docs/sibling.md'] });
+    try {
+      const r = await call(composites.handlers, 'bro_atomic_close', {
+        agent: 'bro', task_id: taskId, commit_sha: sha.slice(0, 12), verification_summary: 'ok',
+      });
+      assert.ok(!r.isError, `expected ok, got: ${JSON.stringify(parse(r))}`);
+      assert.equal(parse(r)['base_moved'], true);
+      const brief = parse(await call(composites.handlers, 'task_brief', { agent: 'bro', task_id: Number(taskId) }));
+      assert.deepEqual(brief['scope'], { files: ['src/', 'docs/'], extras_accepted: [], base_moved: true });
     } finally {
       cleanup();
     }
@@ -2984,7 +3127,7 @@ describe('agent_runs lifecycle — rows open with their run and close with their
     await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
 
     const r = (await tools.handlers['bro_atomic_close']!({
-      agent: 'bro', task_id: String(id), commit_sha: 'abc1234', verification_summary: 'ok', waive_scope_gate: true,
+      agent: 'bro', task_id: String(id), commit_sha: 'abc1234', verification_summary: 'ok', waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
     })) as RawResult;
     assert.ok(!r.isError, JSON.stringify(parse(r)));
     const after = runs(db, id);
@@ -3134,7 +3277,7 @@ describe('agent_runs lifecycle — rows open with their run and close with their
     const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
     await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
     await tools.handlers['bro_atomic_close']!({
-      agent: 'bro', task_id: String(id), commit_sha: 'abc1234', verification_summary: 'ok', waive_scope_gate: true,
+      agent: 'bro', task_id: String(id), commit_sha: 'abc1234', verification_summary: 'ok', waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
     });
     assert.deepEqual(stamps(db, id).map((r) => r.exit_reason), ['completed', 'completed']);
     db.close();

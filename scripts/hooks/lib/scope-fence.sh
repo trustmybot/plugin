@@ -1,27 +1,30 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034 # TMB_FENCE_STATE / TMB_FENCE_DIRS are read by the sourcing hook
-# Library: the SWE scope fence — a task's typed files[] as a dir allowlist.
+# Library: the SWE scope classifier — a task's typed files[] as a dir list.
 # Sourced (not exec'd) after query-task.sh. No set -e here — libs must not
 # mutate caller shell options. Used by swe-scope-fence.sh (Edit/Write) and
-# swe-boundary.sh (every path a Bash command writes), so both reach the same
-# decision with the same reason text.
+# swe-boundary.sh (every path a Bash command writes) to note, never deny, a
+# write outside files[]; scope is judged at close by bro_atomic_close on the
+# task's own diff.
 #
 # tmb_scope_fence_load <db> <task_id>
 #   Reads the task's typed `files` column (JSON array) into TMB_FENCE_DIRS and
 #   sets TMB_FENCE_STATE:
-#     ok    — at least one allowed dir
-#     empty — files[] empty or unparseable: enforcement is skipped
-#     none  — no task row (or no usable task id): enforcement is skipped
-#     error — the DB read failed: deny-capable callers deny
+#     ok    — at least one listed dir
+#     empty — files[] empty or unparseable: no notes
+#     none  — no task row (or no usable task id): no notes
+#     error — the DB read failed: no notes
 #   Dir granularity: each listed path contributes its containing directory; a
 #   root-level path (no slash) contributes itself; a trailing slash marks the
-#   directory itself. Any tests/ entry also opens all of tests/.
+#   directory itself. Any tests/ entry also covers all of tests/.
 #
 # tmb_scope_fence_allows <repo-relative-path>
-#   Exit 0 when the path is inside an allowed dir (path boundary).
+#   Exit 0 when the path is inside a listed dir (path boundary).
 #
-# tmb_scope_fence_reason <repo-relative-path>
-#   Prints the deny reason for an out-of-scope path.
+# tmb_scope_fence_note <task_id> <repo-relative-path>
+#   Prints the note for a path outside files[] the first time this task writes
+#   it; prints nothing on later writes. The marker lives under
+#   <state>/locks/scope-notes/<task_id>/ (tmb_state_dir), never under $HOME.
 
 TMB_FENCE_DIRS=()
 TMB_FENCE_STATE="none"
@@ -39,12 +42,12 @@ tmb_scope_fence_load() {
   [ -n "$files_json" ] || return 0
   file_paths=$(printf '%s' "$files_json" | jq -r '.[]?' 2>/dev/null || true)
   while IFS= read -r path_token; do
-    path_token="${path_token%/}"
-    [ -n "$path_token" ] || continue
     case "$path_token" in
+      */) dir="${path_token%/}" ;;
       */*) dir=$(dirname "$path_token") ;;
       *)   dir="$path_token" ;;
     esac
+    [ -n "$dir" ] || continue
     TMB_FENCE_DIRS+=("$dir")
     case "$dir" in tests/*|tests) _TMB_FENCE_TESTS="yes" ;; esac
   done <<< "$file_paths"
@@ -63,8 +66,14 @@ tmb_scope_fence_allows() {
   return 1
 }
 
-tmb_scope_fence_reason() {
-  local dirs
-  dirs=$(printf '%s\n' "${TMB_FENCE_DIRS[@]}" | sort -u | tr '\n' ' ')
-  printf "BLOCKED (scope fence): '%s' is outside this task's files[] dirs. Allowed: %s. To edit files outside scope, ask bro to extend the task's typed files[] field (or file a follow-up task) — do not edit out of scope." "${1:-}" "${dirs%. }"
+tmb_scope_fence_note() {
+  local task_id rel="${2:-}" state marker dirs
+  task_id=$(tmb_sql_int "${1:-}")
+  [ -n "$task_id" ] && [ -n "$rel" ] || return 0
+  state=$(tmb_state_dir 2>/dev/null) || return 0
+  marker="$state/locks/scope-notes/$task_id/$(printf '%s' "$rel" | cksum | cut -d' ' -f1)"
+  mkdir -p "$(dirname "$marker")" 2>/dev/null || return 0
+  mkdir "$marker" 2>/dev/null || return 0
+  dirs=$(printf '%s\n' "${TMB_FENCE_DIRS[@]}" | sort -u | paste -sd, - | sed 's/,/, /g')
+  printf "%s is outside this task's files[] (%s); list it and why in your report" "$rel" "$dirs"
 }

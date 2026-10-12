@@ -96,7 +96,7 @@ function validateTypedRailsFields(t: TaskInput): { files: string[]; verification
     }
     if (value.length === 0) {
       throw new Error(
-        `typed_field_violation: task branch_id='${t.branch_id}' — '${field}' must be a non-empty array when provided (omit the field entirely to disable the ${field === 'files' ? 'scope fence' : 'verification gate'}).`,
+        `typed_field_violation: task branch_id='${t.branch_id}' — '${field}' must be a non-empty array when provided (omit the field entirely ${field === 'files' ? 'to declare no expected scope: no edit-time notes, and every changed path is an extra at close' : 'to disable the verification gate'}).`,
       );
     }
     for (const el of value) {
@@ -279,7 +279,7 @@ export function taskTools(
                   type: 'array',
                   items: { type: 'string' },
                   description:
-                    'Authoritative allowlist of paths SWE may edit for this task, read by the swe-scope-fence hook; an empty/omitted array disables scope enforcement.',
+                    "The task's expected scope at directory granularity (e.g. 'scripts/hooks/', 'CHANGELOG.md'). Writes outside it are allowed with a note to the swe; bro_atomic_close refuses on changed paths outside it until bro accepts them.",
                 },
                 verification: {
                   type: 'array',

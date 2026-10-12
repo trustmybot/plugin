@@ -520,7 +520,7 @@ describe('bro_atomic_close', () => {
     const issue = seedIssue(db);
     const t = seedTask(db, issue, 'completed', { commit: 'abc1234', completedAt: iso(-HOUR) });
     const out = parse(await call(compositeTools(db, DB_PATH, null).handlers, 'bro_atomic_close', {
-      agent: 'bro', task_id: String(t), commit_sha: 'abc1234', verification_summary: 'ok', waive_scope_gate: true,
+      agent: 'bro', task_id: String(t), commit_sha: 'abc1234', verification_summary: 'ok', waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
     }));
     assert.equal(out['review_pending'], true);
     assert.equal(taskStatus(db, t), 'closed');
@@ -535,7 +535,7 @@ describe('bro_atomic_close', () => {
     const sibling = seedTask(db, issue, 'running');
     const out = parse(await call(compositeTools(db, DB_PATH, null).handlers, 'bro_atomic_close', {
       agent: 'bro', task_id: String(t), commit_sha: 'abc1234', verification_summary: 'ok',
-      waive_scope_gate: true, close_issue_if_last_task: true,
+      waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test', close_issue_if_last_task: true,
     }));
     assert.equal(out['issue_closed'], false);
     assert.deepEqual(out['issue_left_open'], {
@@ -557,7 +557,7 @@ describe('bro_atomic_close', () => {
     let spawned = 0;
     const out = parse(await call(compositeTools(db, DB_PATH, null).handlers, 'bro_atomic_close', {
       agent: 'bro', task_id: String(t), commit_sha: 'abc1234', verification_summary: 'ok',
-      waive_scope_gate: true, close_issue_if_last_task: true,
+      waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test', close_issue_if_last_task: true,
       _spawnFn: () => { spawned++; return { status: 0, stdout: '', stderr: '' }; },
     }));
     assert.equal(out['issue_closed'], false);
@@ -586,7 +586,7 @@ describe('bro_atomic_close', () => {
     recordVerdict(db, t, 'pass', iso(-HOUR));
     const out = parse(await call(compositeTools(db, DB_PATH, null).handlers, 'bro_atomic_close', {
       agent: 'bro', task_id: String(t), commit_sha: 'abc1234', verification_summary: 'ok',
-      waive_scope_gate: true, close_issue_if_last_task: true,
+      waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test', close_issue_if_last_task: true,
       _spawnFn: () => ({ status: 0, stdout: '', stderr: '' }),
     }));
     assert.equal(out['issue_closed'], true);

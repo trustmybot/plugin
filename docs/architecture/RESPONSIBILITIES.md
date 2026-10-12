@@ -101,7 +101,7 @@ Frontmatter: `model: opus`, `maxTurns: 150`, `tools: Read, Glob, Grep, Bash, Wri
 
 ### Work loop
 
-- Work in the worktree per the spec's `## Files`, `## Success Criteria`, `## Verification`.
+- Work in the worktree per the spec's `## Files`, `## Success Criteria`, `## Verification`. `files[]` is guidance at directory granularity: a write outside it is allowed, and the first write to each such path brings a note asking the swe to list it, and why, in its report.
 - Run verification commands **verbatim** from the spec.
 - Optionally invoke `tmb_swe-checklist` skill when the spec's `## Verification` needs interpretation.
 
@@ -126,11 +126,17 @@ Batch in one response:
 | `git-guards.sh`, `git-push-guard.sh` | PreToolUse Bash | PR/MR must target `pr_target` (git/gh/glab); local merge/rebase/cherry-pick denied in the main checkout (integration via PRs only); no force-push to protected branches. Push blocked without a signed `validation_attempts` row (`git-push-guard.sh`). |
 | `no-worktree-branch-create.sh` | PreToolUse Bash | Deny `git worktree add -b/-B/--detach` |
 | `branch-up-to-date-with-remote.sh` | PreToolUse Bash | Deny SWE attaching worktree to a stale branch |
+| `swe-boundary.sh` | PreToolUse Bash + Edit/Write | Deny push, gh/glab mutations, edits outside the worktree, the repo-root `CLAUDE.md` (always) and prompt-surface writes on a task without `prompt_bearing`; a Bash write outside `files[]` gets a once-per-path note |
+| `swe-scope-fence.sh` | PreToolUse Edit/Write | Never denies: an Edit/Write outside `files[]` gets a once-per-path note (`<state>/locks/scope-notes/`) |
+
+### Scope is judged at close
+
+`bro_atomic_close` diffs the task's own commits — `git diff --name-only $(git merge-base <commit> origin/<pr_target>) <commit>`, `pr_target` from the repo row, else the task's `parent_branch_id`, else `dev` — against `files[]`. Commits the PR target gained after the task branched never count. Extra paths refuse the close, listed by surface (`mcp/trajectory-server/src`, `scripts/hooks`, `tests`, `docs`, `skills`, other) with counts; bro reverts them through the swe or accepts them with `waive_scope_gate: true` + `scope_waiver_reason`, which writes `scope_gate_waived` with `accepted_paths`, `reason`, `base_moved`, `recorded_base`, `merge_base`. The close result carries `base_moved` (true when the merge-base with the task's `parent_branch_id` differs from the merge-base with the target). `task_brief` returns `scope: {files, extras_accepted, base_moved}` from the latest close, so pr-reviewer reads bro's acceptance instead of recomputing the diff.
 
 ### Forbidden
 
 - Push (any `git push`)
-- Edit outside the worktree
+- Edit outside the worktree, the repo-root `CLAUDE.md`, or the prompt surface on a task without `prompt_bearing`
 - Author the spec body (server enforces — bro-only on `task_provision`)
 - Bypass any PreToolUse hook block — STOP and surface the hook output to bro instead
 
@@ -149,7 +155,7 @@ Frontmatter: `model: opus`, `tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tm
 
 ### Review work
 
-For each task, diff against the spec's `## Files`, `## Success Criteria`, `## Verification`. Apply mechanical checks (delegate to `pr-review-toolkit:review-pr` if installed) + task-alignment checks (scope, success criteria met by diff, atomic-close discipline).
+For each task, diff against the spec's `## Files`, `## Success Criteria`, `## Verification`; paths outside `files[]` that bro accepted at close are in `task_brief`'s `scope.extras_accepted`. Apply mechanical checks (delegate to `pr-review-toolkit:review-pr` if installed) + task-alignment checks (scope, success criteria met by diff, atomic-close discipline).
 
 ### Sign off
 

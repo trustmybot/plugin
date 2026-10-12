@@ -79,7 +79,7 @@ const SETTINGS_REL = ['.claude', 'settings.local.json'];
 // would swallow the deny. We exclude these advisory hooks by gate name so
 // the deny-capable enforcement gates run first (no-source-edit-from-main becomes
 // first in its group). Keep all genuine deny gates: no-source-edit-from-main,
-// swe-boundary, swe-scope-fence, git-guards, git-push-guard,
+// swe-boundary, git-guards, git-push-guard,
 // no-worktree-branch-create, stay-on-base-guard, no-remote-auth-guard,
 // agent-spawn-dispatch, swe-verification-gate, roundtable-auq-shape.
 const ADVISORY_HOOK_DENYLIST = new Set([

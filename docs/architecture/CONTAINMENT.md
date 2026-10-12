@@ -25,6 +25,7 @@ Paths are relative to the project root; `<state>` is `.claude/<plugin>/` (Claude
 | `<state>/sessions/<session_id>.plugin-hooks` | `plugin-hooks-marker.sh` (SessionStart) | 0-byte marker: this session runs the plugin's own hooks; pruned after 24 h |
 | `<state>/sessions/<session_id>.install-notice` | `mcp-health-check.sh` (SessionStart) | 0-byte marker: the install-scope notice was shown this session; pruned after 24 h |
 | `<state>/locks/events/<key>/` | `scripts/hooks/dispatch.sh` | One gate execution per event: the holder's `result`, `stderr` and `rc`; pruned after 10 min |
+| `<state>/locks/scope-notes/<task>/<cksum>/` | `swe-scope-fence.sh`, `swe-boundary.sh` | Empty marker: the swe was told this path is outside its task's `files[]`, so the note shows once per path per task. Scope itself is judged at close by `bro_atomic_close` |
 | `<state>/locks/verify-<task>-<sha>/` | `swe-verification-gate.sh` | One verification run per (task, worktree HEAD); the verdict is kept beside the lock |
 | `.claude/settings.local.json` (PreToolUse entries only) | `/onboard`, on Yes to headless enforcement | The opt-in headless shim, each entry stamped `_tmb_managed` + `_tmb_project` |
 | `<state>/resolve-hook.sh` | `/onboard`, on Yes to headless enforcement | The resolver the shim entries call |

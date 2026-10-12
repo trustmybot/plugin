@@ -205,9 +205,15 @@ test('task_update_status — bro and swe allowed; architect/pr-reviewer forbidde
   const broClose = await call(client, 'bro_atomic_close', {
     agent: 'bro', task_id: taskId, commit_sha: 'abc1234',
     verification_summary: 'role-matrix: verified, closing via composite',
-    waive_scope_gate: true,
+    waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
   });
   assert.equal(broClose.ok, true, `bro should close verified work via bro_atomic_close; got ${JSON.stringify(broClose)}`);
+  assert.equal(broClose.data.base_moved, false, `the close result carries base_moved; got ${JSON.stringify(broClose)}`);
+
+  // task_brief carries the latest close's scope record for pr-reviewer.
+  const brief = await call(client, 'task_brief', { agent: 'pr-reviewer', task_id: taskId });
+  assert.equal(brief.ok, true, `pr-reviewer reads task_brief; got ${JSON.stringify(brief)}`);
+  assert.deepEqual(brief.data.scope, { files: [], extras_accepted: [], base_moved: false });
 });
 
 test('validation_record — pr-reviewer only; architect/bro/swe all forbidden', async (t) => {

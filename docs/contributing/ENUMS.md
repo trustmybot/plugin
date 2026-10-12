@@ -128,7 +128,7 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `branch_gate_waived` | `bro` | `task_create_batch` ran with `waive_branch_gate`; `content_json` carries the waiver reason |
 | `branch_id_proposed` | `bro` | `intent_start` proposed the issue's feature branch; `content_json` carries `branch_id`, `objective`; the scope and branch gates read it |
 | `bro_verification_fail` | `bro` | Bro task-gate found a V1/V2/V3 check that failed |
-| `bro_verification_pass` | `bro` | Bro task-gate V1/V2/V3 all passed; `content_json` carries `task_id`, `commit_sha` |
+| `bro_verification_pass` | `bro` | Bro task-gate V1/V2/V3 all passed; `content_json` carries `task_id`, `commit_sha`, and from `bro_atomic_close` a `scope` record (`extras_accepted`, `base_moved`, `recorded_base`, `merge_base`) that `task_brief` reads |
 | `cheatcode_activate` | `bro` | `cheatcode_activate` confirmed or failed a cheatcode's load; `content_json` carries the resulting status |
 | `cheatcode_approved` | `bro` | `cheatcode_approve` recorded the Human's install approval; the `cheatcode-install-approval` hook reads it |
 | `cheatcode_healthcheck` | `hook` | `cheatcode-healthcheck` moved a cheatcode's status (e.g. `active` → `broken`); filed under the system issue `-1` |
@@ -170,7 +170,7 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `roundtable_summary` | `bro` | reserved — Bro recorded a roundtable's outcome summary via `audit_append`; `roundtable-cleanup-postcheck` requires it |
 | `scan_discovered` | `server`, `hook` | A scan registered a newly discovered cheatcode (`scan_run`, or `scan.sh` as `hook:scan`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `origin`, `source` |
 | `scan_discovered_repair` | `server` | The v32 migration deleted `scan_discovered` rows whose `(name, kind)` has no `cheatcodes` row; filed under the system issue `-1` by `system`; `content_json` carries `deleted` |
-| `scope_gate_waived` | `bro` | Bro waived the scope gate with an explicit reason |
+| `scope_gate_waived` | `bro` | `bro_atomic_close(waive_scope_gate: true)` accepted the task's changed paths outside its `files[]` with a `scope_waiver_reason`; `content_json` carries `skill`, `task_id`, `commit_sha`, `accepted_paths`, `reason`, `base_moved`, `recorded_base`, `merge_base`. `task_create_batch(waive_scope_gate: true)` writes one when it skips its question gate, `content_json` carrying `waive_scope_gate_reason`, `tasks_created` |
 | `skill_creator_blocked` | `bro` | reserved — `tmb_skill-creator` halted before writing the skill (no Human approval); written by bro via `audit_append` |
 | `spec_shape_gate_waived` | `bro` | `task_create_batch` ran with `waive_spec_shape`; `require-task-spec` reads a bro-written row as the spawn waiver; `content_json` carries the waiver reason |
 | `swe_brief_fetched` | `hook` | `swe-brief-gate` recorded that a SWE fetched its `task_brief`; the brief gate and `bro-turn-usage` read it |

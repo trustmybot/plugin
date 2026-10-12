@@ -63,9 +63,9 @@ export interface Task {
    */
   prompt_bearing: number;
   /**
-   * Typed Rails (#673): JSON array of path-like strings. The scope-fence hook
-   * (swe-scope-fence.sh) reads this directly to build its dir allowlist. An
-   * empty array means the hook skips enforcement with a warning.
+   * Typed Rails (#673): JSON array of path-like strings — the task's expected
+   * scope at directory granularity. swe-scope-fence.sh / swe-boundary.sh note
+   * writes outside it; bro_atomic_close judges the task's diff against it.
    */
   files: string;
   /**
@@ -136,8 +136,8 @@ export interface TaskInput {
    */
   prompt_bearing?: number;
   /**
-   * Typed Rails (#673): scope-fence allowlist for this task. Non-empty array of
-   * path-like strings; the swe-scope-fence hook reads it to bound SWE's edits.
+   * Typed Rails (#673): the task's expected scope, directories (trailing slash)
+   * or files; bro_atomic_close judges the task's diff against it.
    * Persisted as a JSON array in tasks.files.
    */
   files?: string[];

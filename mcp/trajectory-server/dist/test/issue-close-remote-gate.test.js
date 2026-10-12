@@ -192,7 +192,7 @@ describe('bro_atomic_close and task_recover consult the gate', () => {
         const { spawned, _spawnFn } = makeSpawnFn();
         const r = await call(compositeTools(db, DB_PATH).handlers, 'bro_atomic_close', {
             agent: 'bro', task_id: String(taskId), commit_sha: 'abc1234', verification_summary: 'ok',
-            close_issue_if_last_task: true, waive_scope_gate: true, _spawnFn,
+            close_issue_if_last_task: true, waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test', _spawnFn,
         });
         assert.ok(!r.isError, JSON.stringify(parse(r)));
         assert.equal(parse(r)['issue_closed'], true);

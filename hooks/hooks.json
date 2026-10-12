@@ -243,8 +243,7 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-scope-fence",
-            "timeout": 6,
-            "onFailure": "block"
+            "timeout": 6
           },
           {
             "type": "command",
