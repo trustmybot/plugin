@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
 import { onboardTools } from '../tools/onboard.js';
 import { tempDB } from './helpers.js';
+import { repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
 
 // No onboard test may reach the real ~/.claude: HOME is a fresh temp dir and no
 // inherited plugin root survives, so os.homedir() and resolvePluginRoot() land
@@ -49,8 +50,8 @@ describe('onboard tools', () => {
     it('reports repo-scoped policy from the repos table (#980)', async () => {
       const db = tempDB();
       db.run(
-        `INSERT INTO repos (path, name, target_branch, branching_model, protected_branches, remotes)
-         VALUES ('/repo/x', 'x', 'dev', 'gitflow', '["main","dev"]', '[]')`,
+        `INSERT INTO repos (path, name, target_branch, branching_model, protected_branches)
+         VALUES ('/repo/x', 'x', 'dev', 'gitflow', '["main","dev"]')`,
       );
       const tools = onboardTools(db);
       const result = await call(tools.handlers, 'onboard_state_get', {});
@@ -58,6 +59,23 @@ describe('onboard tools', () => {
       assert.equal(current.branching_model, 'gitflow');
       assert.equal(current.pr_target, 'dev');
       assert.deepEqual(current.protected_branches, ['main', 'dev']);
+      assert.deepEqual(current.remotes, []);
+      db.close();
+    });
+
+    it('reports the repo\'s remotes from repo_remotes as {name, provider, url}, primary first', async () => {
+      const db = tempDB();
+      db.run(`INSERT INTO repos (path, name) VALUES ('/repo/x', 'x')`);
+      upsertRepoRemotes(db, 'x', [
+        { name: 'upstream', provider: 'github', url: 'https://github.com/up/x.git' },
+        { name: 'origin', provider: 'gitlab', url: 'git@gitlab.com:me/x.git' },
+      ]);
+      const tools = onboardTools(db);
+      const current = parse(await call(tools.handlers, 'onboard_state_get', {})).current as Record<string, unknown>;
+      assert.deepEqual(current.remotes, [
+        { name: 'origin', provider: 'gitlab', url: 'git@gitlab.com:me/x.git' },
+        { name: 'upstream', provider: 'github', url: 'https://github.com/up/x.git' },
+      ]);
       db.close();
     });
 
@@ -869,10 +887,8 @@ describe('onboard tools', () => {
           issue_sync: 'auto',
         });
 
-        const a = db.get<{ remotes: string }>(`SELECT remotes FROM repos WHERE name='alpha'`);
-        const b = db.get<{ remotes: string }>(`SELECT remotes FROM repos WHERE name='beta'`);
-        const aRemotes = JSON.parse(a!.remotes) as Array<{ url: string }>;
-        const bRemotes = JSON.parse(b!.remotes) as Array<{ url: string }>;
+        const aRemotes = repoRemotes(db, 'alpha');
+        const bRemotes = repoRemotes(db, 'beta');
         assert.equal(aRemotes[0].url, 'https://github.com/acme/alpha.git');
         assert.equal(bRemotes[0].url, 'https://github.com/acme/beta.git');
         db.close();
@@ -900,13 +916,12 @@ describe('onboard tools', () => {
         assert.equal(applied.branching_model, 'gitflow');
         assert.equal(applied.pr_target, 'dev');
 
-        const row = db.get<{ target_branch: string; branching_model: string; remotes: string }>(
-          `SELECT target_branch, branching_model, remotes FROM repos WHERE name='solo'`,
+        const row = db.get<{ target_branch: string; branching_model: string }>(
+          `SELECT target_branch, branching_model FROM repos WHERE name='solo'`,
         );
         assert.equal(row!.branching_model, 'gitflow');
         assert.equal(row!.target_branch, 'dev');
-        const remotes = JSON.parse(row!.remotes) as Array<{ url: string }>;
-        assert.equal(remotes[0].url, 'https://github.com/acme/solo.git');
+        assert.equal(repoRemotes(db, 'solo')[0]!.url, 'https://github.com/acme/solo.git');
         db.close();
       } finally {
         rmSync(repo, { recursive: true, force: true });

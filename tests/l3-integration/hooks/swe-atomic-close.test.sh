@@ -39,7 +39,7 @@ CREATE TABLE tasks (
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   completed_at TEXT
 );
-CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, target_branch TEXT, branching_model TEXT, protected_branches TEXT, remotes TEXT, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT '');
+CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, target_branch TEXT, branching_model TEXT, protected_branches TEXT, file_count INTEGER NOT NULL DEFAULT 0, last_scanned_at TEXT NOT NULL DEFAULT '');
 CREATE TABLE issues (id INTEGER PRIMARY KEY, repo TEXT);
 INSERT INTO issues (id) VALUES (-1), (1);
 CREATE TABLE audit (id INTEGER PRIMARY KEY AUTOINCREMENT, issue_id INTEGER NOT NULL, branch_id TEXT, from_node TEXT NOT NULL, event_type TEXT NOT NULL, summary TEXT NOT NULL, content_json TEXT NOT NULL DEFAULT '{}', repo TEXT, created_at TEXT NOT NULL);

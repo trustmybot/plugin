@@ -8,6 +8,7 @@ import { tempDB } from './helpers.js';
 import { repoTools, renameRepo } from '../tools/repos.js';
 import { WorldModelGraph, GraphHolder } from '../graph-db.js';
 import type { TrajectoryDB } from '../db.js';
+import { primaryRemote, upsertRepoRemotes } from '../repos/remotes.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -24,10 +25,8 @@ const NOW = '2026-10-11T00:00:00.000Z';
 
 // One row of every repo FK child plus a pr_review_runs host slug, all on `old`.
 function seed(db: TrajectoryDB, opts: { taskStatus?: string; repoPath?: string } = {}): void {
-  db.run(`INSERT INTO repos (name, path, file_count, remotes, target_branch) VALUES ('old', ?, 7, ?, 'dev')`, [
-    opts.repoPath ?? '/work/old',
-    JSON.stringify([{ name: 'origin', provider: 'github', url: 'git@github.com:acme/old.git' }]),
-  ]);
+  db.run(`INSERT INTO repos (name, path, file_count, target_branch) VALUES ('old', ?, 7, 'dev')`, [opts.repoPath ?? '/work/old']);
+  upsertRepoRemotes(db, 'old', [{ name: 'origin', provider: 'github', url: 'git@github.com:acme/old.git' }]);
   db.run(`INSERT INTO milestones (name, repo) VALUES ('v1.0.0', 'old')`);
   db.run(
     `INSERT INTO issues (objective, description, status, created_at, updated_at, repo, milestone)
@@ -63,11 +62,12 @@ function countOn(db: TrajectoryDB, table: string, repo: string): number {
     validation_attempts: 'SELECT COUNT(*) AS n FROM validation_attempts WHERE repo = ?',
     discussions: 'SELECT COUNT(*) AS n FROM discussions WHERE repo = ?',
     agent_runs: 'SELECT COUNT(*) AS n FROM agent_runs WHERE repo = ?',
+    repo_remotes: 'SELECT COUNT(*) AS n FROM repo_remotes WHERE repo = ?',
   };
   return Number(db.get<{ n: number }>(sql[table]!, [repo])!.n);
 }
 
-const CHILDREN = ['milestones', 'issues', 'tasks', 'audit', 'validation_attempts', 'discussions', 'agent_runs'];
+const CHILDREN = ['milestones', 'repo_remotes', 'issues', 'tasks', 'audit', 'validation_attempts', 'discussions', 'agent_runs'];
 
 describe('repo_rename — transactional move', () => {
   it('moves every FK child + the pr_review_runs slug, drops the old row, audits per-table counts', async () => {
@@ -106,6 +106,7 @@ describe('repo_rename — transactional move', () => {
     assert.equal(content['graph'], 'deferred');
     assert.deepEqual(content['rows_by_table'], {
       milestones: 1,
+      repo_remotes: 1,
       issues: 1,
       tasks: 1,
       audit: 1,
@@ -117,12 +118,30 @@ describe('repo_rename — transactional move', () => {
     db.close();
   });
 
+  it('moves the repo_remotes rows with their provider, url, primary flag and created_at', async () => {
+    const db = tempDB();
+    seed(db);
+    upsertRepoRemotes(db, 'old', [
+      { name: 'origin', provider: 'github', url: 'git@github.com:acme/old.git' },
+      { name: 'mirror', provider: 'gitlab', url: 'https://gitlab.com/acme/old.git' },
+    ]);
+    const before = db.all<Record<string, unknown>>(`SELECT name, provider, url, is_primary, created_at FROM repo_remotes WHERE repo = 'old' ORDER BY name`);
+    const r = await rename(db, { old: 'old', new: 'renamed' });
+    assert.ok(!r.isError, JSON.stringify(r));
+    assert.equal((parse(r)['rows_by_table'] as Record<string, number>)['repo_remotes'], 2);
+    assert.equal(countOn(db, 'repo_remotes', 'old'), 0);
+    assert.deepEqual(
+      db.all<Record<string, unknown>>(`SELECT name, provider, url, is_primary, created_at FROM repo_remotes WHERE repo = 'renamed' ORDER BY name`).map((x) => ({ ...x })),
+      before.map((x) => ({ ...x })),
+    );
+    assert.equal(primaryRemote(db, 'renamed')!.name, 'origin');
+    db.close();
+  });
+
   it('rewrites the slug when the remote already names the new repo', async () => {
     const db = tempDB();
     seed(db);
-    db.run(`UPDATE repos SET remotes = ? WHERE name = 'old'`, [
-      JSON.stringify([{ name: 'origin', provider: 'github', url: 'https://github.com/acme/renamed.git' }]),
-    ]);
+    upsertRepoRemotes(db, 'old', [{ name: 'origin', provider: 'github', url: 'https://github.com/acme/renamed.git' }]);
     const r = await rename(db, { old: 'old', new: 'renamed' });
     assert.ok(!r.isError, JSON.stringify(r));
     assert.deepEqual(db.all<{ repo: string }>(`SELECT repo FROM pr_review_runs`).map((x) => x.repo), ['github.com/acme/renamed']);

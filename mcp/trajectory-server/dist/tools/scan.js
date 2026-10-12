@@ -10,6 +10,7 @@ import { classifyUrl } from '../utils/classify-url.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { serverLog } from '../logger.js';
 import { syncRepoMilestones } from './milestones.js';
+import { primaryIndex, repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -336,13 +337,13 @@ function normalizeRemoteUrl(url) {
     return url.trim().replace(/\/+$/, '').replace(/\.git$/, '');
 }
 function primaryRemoteUrl(remotes) {
-    const primary = remotes.find((r) => r.name === 'origin') ?? remotes[0];
+    const primary = remotes[primaryIndex(remotes)];
     return primary ? normalizeRemoteUrl(primary.url) : null;
 }
 // A discovered repo with no row of its own whose canonical path or primary
 // remote URL matches an existing row that this scan did not rediscover is a
 // rename, not a new repo. It is surfaced for repo_rename, never applied here.
-function detectRenames(existing, discovered, remotesByRepo) {
+function detectRenames(existing, discovered, remotesByRepo, storedRemotes) {
     const scannedNames = new Set(discovered.map((r) => r.name));
     const existingNames = new Set(existing.map((r) => r.name));
     const orphaned = existing.filter((r) => !scannedNames.has(r.name));
@@ -366,16 +367,7 @@ function detectRenames(existing, discovered, remotesByRepo) {
             for (const row of orphaned) {
                 if (claimed.has(row.name))
                     continue;
-                let rowRemotes = [];
-                try {
-                    const parsed = JSON.parse(row.remotes ?? '[]');
-                    if (Array.isArray(parsed))
-                        rowRemotes = parsed;
-                }
-                catch {
-                    continue;
-                }
-                if (primaryRemoteUrl(rowRemotes) === remote) {
+                if (primaryRemoteUrl(storedRemotes(row.name)) === remote) {
                     match = { name: row.name, by: 'remote' };
                     break;
                 }
@@ -397,11 +389,11 @@ function detectRenames(existing, discovered, remotesByRepo) {
 function persistScan(db, graph, out, sessionDir) {
     const now = nowISO();
     const normSession = sessionDir.replace(/\/+$/, '');
-    const existing = db.all(`SELECT name, path, remotes FROM repos`);
+    const existing = db.all(`SELECT name, path FROM repos`);
     const remotesByRepo = new Map();
     for (const r of out.repos)
         remotesByRepo.set(r.name, readRepoRemotes(r.path));
-    const rename_candidates = detectRenames(existing, out.repos, remotesByRepo);
+    const rename_candidates = detectRenames(existing, out.repos, remotesByRepo, (repo) => repoRemotes(db, repo));
     const renamedTo = new Set(rename_candidates.map((c) => c.new));
     const renamedFrom = new Set(rename_candidates.map((c) => c.old));
     const persisted = {
@@ -423,14 +415,13 @@ function persistScan(db, graph, out, sessionDir) {
     const retired = [];
     db.transaction(() => {
         for (const r of persisted.repos) {
-            const remotesJson = JSON.stringify(remotesByRepo.get(r.name) ?? []);
-            db.run(`INSERT INTO repos (name, path, file_count, last_scanned_at, remotes)
-         VALUES (?, ?, ?, ?, ?)
+            db.run(`INSERT INTO repos (name, path, file_count, last_scanned_at)
+         VALUES (?, ?, ?, ?)
          ON CONFLICT(name) DO UPDATE SET
            path = excluded.path,
            file_count = excluded.file_count,
-           last_scanned_at = excluded.last_scanned_at,
-           remotes = excluded.remotes`, [r.name, r.path, r.file_count, now, remotesJson]);
+           last_scanned_at = excluded.last_scanned_at`, [r.name, r.path, r.file_count, now]);
+            upsertRepoRemotes(db, r.name, remotesByRepo.get(r.name) ?? []);
             repos_upserted++;
         }
         for (const r of toRetire) {

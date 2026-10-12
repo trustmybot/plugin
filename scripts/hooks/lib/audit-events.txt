@@ -36,6 +36,7 @@ milestones_reconciled	bro
 planning_complete	bro
 readme_staleness_surfaced	hook
 registry_gate_waived	bro
+repo_remotes_migration_skipped	server
 repo_rename_detected	bro
 repo_renamed	bro
 review_gate_bypassed	bro,hook

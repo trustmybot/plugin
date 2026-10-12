@@ -12,6 +12,7 @@ import { taskTools } from '../tools/tasks.js';
 import { discussionTools } from '../tools/discussions.js';
 import { auditTools } from '../tools/audit.js';
 import { embed } from '../embeddings/model.js';
+import { upsertRepoRemotes } from '../repos/remotes.js';
 function parse(r) {
     return JSON.parse(r.content[0].text);
 }
@@ -475,10 +476,8 @@ describe('bro_atomic_close', () => {
         mkdirSync(join(ws, '.claude', 'tmb'), { recursive: true });
         const dbPath = join(ws, '.claude', 'tmb', 'trajectory.db');
         const db = tempDB();
-        db.run(`INSERT INTO repos (name, path, remotes) VALUES ('app', ?, ?)`, [
-            repoRoot,
-            JSON.stringify([{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }]),
-        ]);
+        db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [repoRoot]);
+        upsertRepoRemotes(db, 'app', [{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }]);
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"auto"')`);
         const savedEnv = process.env.TMB_DISABLE_REMOTE_SYNC;
         delete process.env.TMB_DISABLE_REMOTE_SYNC;
@@ -1999,9 +1998,7 @@ describe('task_provision (#157)', () => {
                 divergedBranch(repoRoot, git, 'feat/has-pr');
                 const db = tempDB();
                 seedIssue(db, repoRoot);
-                db.run(`UPDATE repos SET remotes = ? WHERE name = 'app'`, [
-                    JSON.stringify([{ name: 'origin', url: 'https://github.com/acme/app.git', provider: 'github' }]),
-                ]);
+                upsertRepoRemotes(db, 'app', [{ name: 'origin', url: 'https://github.com/acme/app.git', provider: 'github' }]);
                 db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
                 const calls = [];
                 const spawnFn = (cmd, a) => {
@@ -2027,9 +2024,7 @@ describe('task_provision (#157)', () => {
                 divergedBranch(repoRoot, git, 'feat/gate-off');
                 const db = tempDB();
                 seedIssue(db, repoRoot);
-                db.run(`UPDATE repos SET remotes = ? WHERE name = 'app'`, [
-                    JSON.stringify([{ name: 'origin', url: 'https://github.com/acme/app.git', provider: 'github' }]),
-                ]);
+                upsertRepoRemotes(db, 'app', [{ name: 'origin', url: 'https://github.com/acme/app.git', provider: 'github' }]);
                 let called = 0;
                 const spawnFn = () => { called++; return { status: 0, stdout: '[]', stderr: '' }; };
                 const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));

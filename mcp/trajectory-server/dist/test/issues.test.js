@@ -4,6 +4,7 @@ import { tempDB } from './helpers.js';
 import { issueTools, objectiveSimilarity } from '../tools/issues.js';
 import { configTools } from '../tools/config.js';
 import { makeSpawnFn } from './sync-issue.test.js';
+import { upsertRepoRemotes } from '../repos/remotes.js';
 // Mandatory tagging (#93/#777): a valid issue_create must carry one
 // classification + one priority label. Shared so existing cases stay valid.
 const VALID_LABELS = ['Bug', 'Priority: High'];
@@ -16,14 +17,15 @@ function parseResult(result) {
     return JSON.parse(result.content[0].text);
 }
 // Issue-scoped sync (#155/#146) resolves the issue's repo to a `repos` row and
-// reads that row's `remotes` to pick the explicit gh --repo / glab -R target.
+// reads its repo_remotes rows to pick the explicit gh --repo / glab -R target.
 // Register a single repo so the sole-repo fallback resolves and the remotes are
 // available; with exactly one repos row the issue inherits it at create time.
 function registerSoleRepo(db, remotes = [
     { name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' },
-    { name: 'origin', provider: 'gitlab', url: 'https://gitlab.com/owner/repo.git' },
+    { name: 'gitlab', provider: 'gitlab', url: 'https://gitlab.com/owner/repo.git' },
 ]) {
-    db.run(`INSERT INTO repos (name, path, remotes) VALUES ('app', '/tmp/app', ?)`, [JSON.stringify(remotes)]);
+    db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
+    upsertRepoRemotes(db, 'app', remotes);
 }
 describe('issueTools', () => {
     it('create then get returns the created issue', async () => {

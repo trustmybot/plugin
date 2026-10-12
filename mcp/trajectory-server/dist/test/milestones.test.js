@@ -10,6 +10,7 @@ import { configTools } from '../tools/config.js';
 import { issueTools } from '../tools/issues.js';
 import { compositeTools } from '../tools/composites.js';
 import { milestoneTools, nextPatchMilestone, syncRepoMilestones } from '../tools/milestones.js';
+import { upsertRepoRemotes } from '../repos/remotes.js';
 const VALID_LABELS = ['Bug', 'Priority: High'];
 const GH_REMOTE = 'https://github.com/acme/app.git';
 function parse(r) {
@@ -51,7 +52,8 @@ function mkRepo(parent, name, files, remote) {
     return root;
 }
 function registerRepo(db, path, remotes = [{ name: 'origin', provider: 'github', url: GH_REMOTE }]) {
-    db.run(`INSERT INTO repos (name, path, remotes) VALUES ('app', ?, ?)`, [path, JSON.stringify(remotes)]);
+    db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [path]);
+    upsertRepoRemotes(db, 'app', remotes);
 }
 function milestoneRows(db) {
     return db

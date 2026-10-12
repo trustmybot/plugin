@@ -14,13 +14,25 @@ CREATE TABLE IF NOT EXISTS repos (
     last_scanned_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     target_branch     TEXT,
     branching_model   TEXT,
-    protected_branches TEXT,
-    -- remotes (#155, #980): per-repo remote list, the sole source of truth.
-    -- Populated by scan_run from each repo's git remotes (#979). JSON array of
-    -- {name, provider, url}. The issue-scoped sync path reads this to pick the
-    -- explicit gh --repo / glab -R for the issue's repo rather than process.cwd().
-    remotes           TEXT
+    protected_branches TEXT
 );
+
+-- repo_remotes: a repo's git remotes, the sole source of truth for them.
+-- scan_run and onboard_apply write it from each repo's own git remotes;
+-- issue sync, milestone sync, pr_monitor and repo_rename read it to pick the
+-- explicit gh --repo / glab -R target. provider comes from the URL host
+-- (bitbucket and other hosts are 'other'); is_primary marks `origin`, else the
+-- first remote. Rows follow their repo on delete and on a name change.
+CREATE TABLE IF NOT EXISTS repo_remotes (
+    repo        TEXT    NOT NULL REFERENCES repos(name) ON DELETE CASCADE ON UPDATE CASCADE,
+    name        TEXT    NOT NULL,
+    provider    TEXT    NOT NULL CHECK (provider IN ('github','gitlab','other')),
+    url         TEXT    NOT NULL,
+    is_primary  INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0,1)),
+    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    PRIMARY KEY (repo, name)
+);
+CREATE INDEX IF NOT EXISTS idx_repo_remotes_primary ON repo_remotes(repo, is_primary);
 
 -- milestones table (#155): GitHub-style per-repo milestones. issues.milestone
 -- is an FK into this table. PK is (name, repo) so the same milestone name can
@@ -123,6 +135,10 @@ CREATE TABLE IF NOT EXISTS validation_attempts (
     -- repo (#155): FK to repos(name); backfilled from the parent task's repo.
     repo                TEXT    REFERENCES repos(name) ON DELETE RESTRICT,
     created_at          TEXT    NOT NULL,
+    -- reviewer_agent_id: the pr-reviewer subagent's Claude Code agent_id
+    -- (subagent_session_id stays the Claude Code session). NULL until
+    -- validation_record writes it, and for honor-system rows.
+    reviewer_agent_id   TEXT,
     UNIQUE(task_id, attempt_n)
 );
 
@@ -210,7 +226,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 34, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 35, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,

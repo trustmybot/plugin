@@ -10,6 +10,7 @@ import { configTools } from '../tools/config.js';
 import { issueTools } from '../tools/issues.js';
 import { compositeTools } from '../tools/composites.js';
 import { milestoneTools, nextPatchMilestone, syncRepoMilestones } from '../tools/milestones.js';
+import { upsertRepoRemotes } from '../repos/remotes.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Call = { cmd: string; args: string[] };
@@ -66,7 +67,8 @@ function mkRepo(parent: string, name: string, files: Record<string, string>, rem
 }
 
 function registerRepo(db: DB, path: string, remotes = [{ name: 'origin', provider: 'github', url: GH_REMOTE }]): void {
-  db.run(`INSERT INTO repos (name, path, remotes) VALUES ('app', ?, ?)`, [path, JSON.stringify(remotes)]);
+  db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [path]);
+  upsertRepoRemotes(db, 'app', remotes);
 }
 
 function milestoneRows(db: DB): Array<{ name: string; state: string }> {

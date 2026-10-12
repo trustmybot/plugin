@@ -109,7 +109,7 @@ describe('Codex runtime manager', () => {
             assert.equal(created.project_root, realpathSync(project));
             assert.equal(created.plugin_name, plugin.name);
             assert.equal(created.plugin_version, plugin.version);
-            assert.equal(created.schema_version, 34);
+            assert.equal(created.schema_version, 35);
             assert.equal(created.graph_available, true);
             assert.equal(created.graph_status, 'deferred');
             assert.ok(existsSync(created.trajectory_db));

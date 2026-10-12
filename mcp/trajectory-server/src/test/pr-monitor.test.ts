@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { SpawnSyncOptions } from 'node:child_process';
 import { tempDB } from './helpers.js';
 import { prMonitorTools, remoteCommentId } from '../tools/pr_monitor.js';
+import { upsertRepoRemotes } from '../repos/remotes.js';
 
 type SpawnFn = (
   cmd: string,
@@ -485,10 +486,8 @@ describe('pr_review_runs table state capture', () => {
 
 describe('pr_monitor_comments_get — pr_review_runs.task_id population (#1024)', () => {
   function seedTask(db: ReturnType<typeof tempDB>, branch: string, repo: string): number {
-    db.run(
-      `INSERT INTO repos (name, path, remotes) VALUES (?, '/tmp/app', ?)`,
-      [repo, JSON.stringify([{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }])],
-    );
+    db.run(`INSERT INTO repos (name, path) VALUES (?, '/tmp/app')`, [repo]);
+    upsertRepoRemotes(db, repo, [{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }]);
     db.run(
       `INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES ('t', '', 'open', datetime('now'), datetime('now'))`,
     );
@@ -586,9 +585,8 @@ describe('pr_monitor_comments_get — server-side comment persistence (GH 1208)'
     status = 'pending',
     updatedAt = '2024-01-01T00:00:00.000Z',
   ): { taskId: number; issueId: number } {
-    db.run(`INSERT OR IGNORE INTO repos (name, path, remotes) VALUES ('app', '/tmp/app', ?)`, [
-      JSON.stringify([{ name: 'origin', provider: 'github', url: REPO_URL }]),
-    ]);
+    db.run(`INSERT OR IGNORE INTO repos (name, path) VALUES ('app', '/tmp/app')`);
+    upsertRepoRemotes(db, 'app', [{ name: 'origin', provider: 'github', url: REPO_URL }]);
     db.run(
       `INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES ('carrier', '', 'open', datetime('now'), datetime('now'))`,
     );
@@ -752,9 +750,8 @@ describe('pr_monitor_comments_get — server-side comment persistence (GH 1208)'
     const db = tempDB();
     db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
     seedTask(db, 'fix/shared', 'closed');
-    db.run(`INSERT INTO repos (name, path, remotes) VALUES ('b', '/tmp/b', ?)`, [
-      JSON.stringify([{ name: 'origin', provider: 'github', url: 'https://github.com/owner/b.git' }]),
-    ]);
+    db.run(`INSERT INTO repos (name, path) VALUES ('b', '/tmp/b')`);
+    upsertRepoRemotes(db, 'b', [{ name: 'origin', provider: 'github', url: 'https://github.com/owner/b.git' }]);
     const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: payload('fix/shared', [C1]), stderr: '' }]));
 
     const result = parseResult((await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 56, repo: 'owner/b' })) as RawResult);
@@ -962,10 +959,8 @@ describe('pr_monitor_comments_get — repo resolution (#15)', () => {
   it('resolves the sole repo\'s remote slug and threads it into gh -R + the cursor key', async () => {
     const db = tempDB();
     db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
-    db.run(
-      `INSERT INTO repos (name, path, remotes) VALUES ('app', '/tmp/app', ?)`,
-      [JSON.stringify([{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }])],
-    );
+    db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
+    upsertRepoRemotes(db, 'app', [{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }]);
     const { spawnFn, calls } = makeCapturingSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]);
     const tools = prMonitorTools(db, spawnFn);
 
