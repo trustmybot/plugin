@@ -5,7 +5,7 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logger.js';
 import { assertSafeProjectWritePath, resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
-export const TARGET_SCHEMA_VERSION = 33;
+export const TARGET_SCHEMA_VERSION = 34;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -480,6 +480,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 33 && toVersion >= 33) {
         migrateV32toV33(db);
+    }
+    if (fromVersion < 34 && toVersion >= 34) {
+        migrateV33toV34(db);
     }
 }
 function hasColumn(db, table, column) {
@@ -1781,6 +1784,61 @@ function migrateV32toV33(db) {
         const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
         if (fkViolations.length > 0) {
             throw new Error(`migrateV32toV33: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v33 rebuild`);
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // original error wins
+        }
+        throw err;
+    }
+    finally {
+        db.exec('PRAGMA foreign_keys = ON');
+    }
+}
+// v33→v34: agents.file_path names the root its prompt file ships from (GH 1267).
+//
+//   1. A file_path without a root marker gains one from the legacy scope:
+//      global/template → 'plugin:', project-local → 'project:'. A row that
+//      already carries 'plugin:' or 'project:' keeps its path.
+//   2. Rebuild agents without the scope column; file_path gains
+//      CHECK (file_path LIKE 'plugin:%' OR file_path LIKE 'project:%').
+//
+// Guarded on the old shape; a re-run against a v34 shape is a no-op.
+function migrateV33toV34(db) {
+    if (!tableExists(db, 'agents'))
+        return;
+    if (!hasColumn(db, 'agents', 'scope') && /file_path\s+LIKE\s+'plugin:%'/.test(readTableSql(db, 'agents')))
+        return;
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('BEGIN');
+    try {
+        const root = hasColumn(db, 'agents', 'scope')
+            ? "CASE WHEN scope = 'project-local' THEN 'project:' ELSE 'plugin:' END"
+            : "'plugin:'";
+        db.exec(`
+      UPDATE agents
+         SET file_path = ${root} || file_path
+       WHERE file_path NOT LIKE 'plugin:%' AND file_path NOT LIKE 'project:%'
+    `);
+        rebuildTable(db, 'agents', `
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT    NOT NULL UNIQUE,
+        kind        TEXT    NOT NULL CHECK (kind IN ('backbone','consultant')),
+        file_path   TEXT    NOT NULL CHECK (file_path LIKE 'plugin:%' OR file_path LIKE 'project:%'),
+        created_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+        updated_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT}
+      `, [
+            ['id', 'NULL'], ['name', 'NULL'], ['kind', 'NULL'], ['file_path', "''"],
+            ['created_at', ISO_NOW_DEFAULT], ['updated_at', ISO_NOW_DEFAULT],
+        ]);
+        const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
+        if (fkViolations.length > 0) {
+            throw new Error(`migrateV33toV34: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v34 rebuild`);
         }
         db.exec('COMMIT');
     }

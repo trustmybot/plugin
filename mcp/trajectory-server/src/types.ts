@@ -184,5 +184,5 @@ export interface ValidationAttempt {
   repo?: string | null;
 }
 
-/** Capability scope — mirrors the agents.scope CHECK. */
+/** Capability scope — mirrors the cheatcodes.scope CHECK. */
 export type CapabilityScope = 'global' | 'template' | 'project-local';

@@ -24,8 +24,7 @@ sqlite3 "$DB" "
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
     kind TEXT NOT NULL CHECK (kind IN ('backbone','consultant')),
-    scope TEXT NOT NULL CHECK (scope IN ('global','template','project-local')),
-    file_path TEXT NOT NULL,
+    file_path TEXT NOT NULL CHECK (file_path LIKE 'plugin:%' OR file_path LIKE 'project:%'),
     status TEXT NOT NULL DEFAULT 'active',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -50,11 +49,11 @@ sqlite3 "$DB" "
     body TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
-  INSERT INTO agents (name, kind, scope, file_path) VALUES
-    ('swe',          'backbone',   'global',   'agents/swe.md'),
-    ('pr-reviewer',  'backbone',   'global',   'agents/pr-reviewer.md'),
-    ('architect',    'consultant', 'template', 'templates/agents/architect.md'),
-    ('cto',          'consultant', 'template', 'templates/agents/cto.md');
+  INSERT INTO agents (name, kind, file_path) VALUES
+    ('swe',          'backbone',   'plugin:agents/swe.md'),
+    ('pr-reviewer',  'backbone',   'plugin:agents/pr-reviewer.md'),
+    ('architect',    'consultant', 'plugin:templates/agents/architect.md'),
+    ('cto',          'consultant', 'plugin:templates/agents/cto.md');
   INSERT INTO issues (id, objective, status, created_at, updated_at)
     VALUES (1, 'test issue', 'open', datetime('now'), datetime('now'));
 "

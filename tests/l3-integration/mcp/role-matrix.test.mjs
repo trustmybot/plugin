@@ -315,3 +315,55 @@ test('trajectory_doctor — bro only; read-only unless record:true', async (t) =
   assert.equal(recorded.ok, true, `record:true should succeed; got ${JSON.stringify(recorded)}`);
   assert.equal(typeof recorded.data?.audit_id, 'number');
 });
+
+// agent_resolve is bro only; agent_register / agent_list take a root-marked
+// file_path and every returned agent row carries resolved_path, never scope.
+test('agent_resolve — bro only; agent_register/agent_list speak plugin:/project: file_path with resolved_path', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  for (const wrongRole of ['architect', 'swe', 'pr-reviewer']) {
+    const res = await call(client, 'agent_resolve', { agent: wrongRole, name: 'legal-reviewer' });
+    assert.equal(res.ok, false, `${wrongRole} must be forbidden from agent_resolve`);
+    assert.equal(res.error?.error, 'forbidden');
+  }
+  const resolved = await call(client, 'agent_resolve', { agent: 'bro', name: 'legal-reviewer' });
+  assert.equal(resolved.ok, true, `bro should be allowed; got ${JSON.stringify(resolved)}`);
+  assert.equal(resolved.data.file_path, 'project:.claude/agents/legal-reviewer.md');
+  assert.ok('resolved_path' in resolved.data);
+
+  const unmarked = await call(client, 'agent_register', {
+    agent: 'bro', name: 'legal-reviewer', kind: 'consultant', file_path: '.claude/agents/legal-reviewer.md',
+  });
+  assert.equal(unmarked.ok, false);
+  assert.match(unmarked.error?.error ?? '', /^invalid_file_path:/);
+
+  const shadow = await call(client, 'agent_register', {
+    agent: 'bro', name: 'swe', kind: 'backbone', file_path: 'project:.claude/agents/swe.md',
+  });
+  assert.equal(shadow.ok, false);
+  assert.match(shadow.error?.error ?? '', /backbone agent whose file_path must be plugin:/);
+
+  const registered = await call(client, 'agent_register', {
+    agent: 'bro', name: 'legal-reviewer', kind: 'consultant', file_path: 'project:.claude/agents/legal-reviewer.md',
+  });
+  assert.equal(registered.ok, true, `agent_register: ${JSON.stringify(registered)}`);
+  assert.equal(registered.data.file_path, 'project:.claude/agents/legal-reviewer.md');
+  assert.ok(!('scope' in registered.data), 'agent_register row carries no scope key');
+
+  const listed = await call(client, 'agent_list', { agent: 'bro' });
+  assert.equal(listed.ok, true, `agent_list: ${JSON.stringify(listed)}`);
+  assert.equal(listed.data.agents.length, 7);
+  for (const row of listed.data.agents) {
+    assert.ok(!('scope' in row), `${row.name} carries no scope key`);
+    assert.ok('resolved_path' in row, `${row.name} carries resolved_path`);
+    assert.match(row.file_path, /^(plugin|project):/);
+  }
+  const swe = listed.data.agents.find((a) => a.name === 'swe');
+  assert.match(swe.resolved_path, /\/agents\/swe\.md$/);
+
+  const plugin = await call(client, 'agent_list', { agent: 'bro', root: 'plugin' });
+  assert.equal(plugin.data.agents.length, 6);
+  const project = await call(client, 'agent_list', { agent: 'bro', root: 'project' });
+  assert.deepEqual(project.data.agents.map((a) => a.name), ['legal-reviewer']);
+});

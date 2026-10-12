@@ -65,7 +65,6 @@ export function assertV30Shape(db) {
     }
     const agentsDdl = tableDdl(db, 'agents');
     assert.ok(agentsDdl.includes("kind IN ('backbone','consultant')"), 'agents DDL must CHECK kind');
-    assert.ok(agentsDdl.includes("scope IN ('global','template','project-local')"), 'agents DDL must CHECK scope');
     const fk = db
         .all('PRAGMA foreign_key_list(cheatcode_attachments)')
         .map((r) => ({ table: r.table, on_delete: r.on_delete }));

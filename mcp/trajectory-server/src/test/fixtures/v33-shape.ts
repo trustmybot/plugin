@@ -5,11 +5,11 @@ import { assertV32Shape } from './v32-shape.js';
 
 const V33_AGENT_RUNS_COLUMNS = ['root_dir', 'model', 'host', 'exit_reason'];
 
-/** Every v33 DDL item (plus all of v29–v32), asserted identically on fresh and migrated DBs. */
+/**
+ * Every v33 DDL item (plus all of v29–v32), asserted identically on fresh and
+ * migrated DBs. The schema_version stamp is asserted by v34-shape.ts.
+ */
 export function assertV33Shape(db: TrajectoryDB): void {
-  const meta = db.get<{ schema_version: number }>('SELECT schema_version FROM plugin_meta LIMIT 1');
-  assert.equal(meta!.schema_version, 33, 'schema_version must be 33');
-
   assertV32Shape(db);
 
   const cols = db.all<{ name: string; type: string; notnull: number; dflt_value: unknown }>('PRAGMA table_info(agent_runs)');
