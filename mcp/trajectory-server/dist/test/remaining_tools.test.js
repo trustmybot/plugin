@@ -198,6 +198,34 @@ describe('validationTools', () => {
         assert.ok(data.error.includes('not found in tasks table'), `Error should cite missing task row: ${data.error}`);
         db.close();
     });
+    it('validation_history rows carry the latest verification run started by each attempt', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const taskId = await createTask(db, issueId);
+        const tools = validationTools(db);
+        db.run(`INSERT INTO verification_runs (id, task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out)
+       VALUES (1, ?, 'aaa1111', 'gate', '2000-01-01T00:00:00.000Z', '2000-01-01T00:10:00.000Z', 0, 900, 0)`, [taskId]);
+        db.run(`INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s) VALUES (1, 1, 'npm test', 0, 600)`);
+        seedReviewerObservation(db, taskId, 1);
+        await call(tools.handlers, 'validation_record', {
+            agent: 'pr-reviewer',
+            task_id: taskId,
+            attempt_n: 1,
+            verdict: 'pass',
+            feedback: '# ok',
+            mcp_available: true,
+            subagent_session_id: 'session-1',
+        });
+        db.run(`INSERT INTO verification_runs (id, task_id, commit_sha, source, started_at, budget_s) VALUES (2, ?, 'bbb2222', 'gate', '2999-01-01T00:00:00.000Z', 900)`, [taskId]);
+        const rows = parseResult(await call(tools.handlers, 'validation_history', { agent: 'bro', task_id: taskId }));
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].verification_run.run_id, 1, 'a run started after the attempt is not its run');
+        assert.equal(rows[0].verification_run.commit_sha, 'aaa1111');
+        assert.deepEqual(rows[0].verification_run.commands, [{ ordinal: 1, command: 'npm test', exit_code: 0, elapsed_s: 600 }]);
+        const projected = parseResult(await call(tools.handlers, 'validation_history', { agent: 'bro', task_id: taskId, fields: ['attempt_n', 'verification_run'] }));
+        assert.deepEqual(Object.keys(projected[0]), ['attempt_n', 'verification_run']);
+        db.close();
+    });
     it('validation_history returns attempts in ascending order', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);

@@ -1810,6 +1810,45 @@ describe('task_brief (#300)', () => {
     db2.close();
   });
 
+  it('verification_run is null without a recorded run, else the latest run with its commands in order', async () => {
+    const db = tempDB();
+    const id = seedTask(db, { repo: 'app', spec: SPEC, verification: ['npm test', 'bash lint.sh'] });
+    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+    const brief = async (): Promise<Record<string, unknown>> =>
+      parse((await tools.handlers['task_brief']!({ agent: 'pr-reviewer', task_id: id })) as RawResult) as Record<string, unknown>;
+
+    assert.equal((await brief())['verification_run'], null, 'no run recorded yet');
+
+    db.run(
+      `INSERT INTO verification_runs (id, task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s, timed_out)
+       VALUES (7, ?, 'old0000', 'gate', '2026-10-01T00:00:00.000Z', '2026-10-01T00:01:00.000Z', 1, 900, 0),
+              (8, ?, 'abc123def', 'gate', '2026-10-02T00:00:00.000Z', '2026-10-02T00:03:00.000Z', 0, 1200, 0)`,
+      [id, id],
+    );
+    db.run(
+      `INSERT INTO verification_run_commands (run_id, ordinal, command, exit_code, elapsed_s, output_tail)
+       VALUES (8, 2, 'bash lint.sh', 0, 0.5, 'ok'), (8, 1, 'npm test', 0, 170.25, 'pass'), (7, 1, 'npm test', 1, 3, 'fail')`,
+    );
+
+    const out = await brief();
+    assert.deepEqual(out['verification'], ['npm test', 'bash lint.sh'], 'verification[] commands are unchanged');
+    assert.deepEqual(out['verification_run'], {
+      run_id: 8,
+      commit_sha: 'abc123def',
+      source: 'gate',
+      started_at: '2026-10-02T00:00:00.000Z',
+      finished_at: '2026-10-02T00:03:00.000Z',
+      exit_code: 0,
+      timed_out: false,
+      budget_s: 1200,
+      commands: [
+        { ordinal: 1, command: 'npm test', exit_code: 0, elapsed_s: 170.25 },
+        { ordinal: 2, command: 'bash lint.sh', exit_code: 0, elapsed_s: 0.5 },
+      ],
+    });
+    db.close();
+  });
+
   it('errors on a missing task', async () => {
     const db = tempDB();
     const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);

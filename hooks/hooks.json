@@ -177,7 +177,7 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-verification-gate",
-            "timeout": 961,
+            "timeout": 1830,
             "onFailure": "block"
           }
         ]

@@ -13,6 +13,7 @@ import { defaultSpawnFn } from '../sync/issue_sync.js';
 import { resolveMilestoneTargets } from './milestones.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolveSoleRepo } from '../utils/repo-paths.js';
+import { latestVerificationRun } from './verification-runs.js';
 import { resolve, dirname } from 'node:path';
 const WORKTREE_TIMEOUT_MS = 60_000;
 // Extract the unique directories implied by a task's typed `files[]` array. Each
@@ -752,7 +753,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
         },
         {
             name: 'task_brief',
-            description: "Full context bundle for one task in a single call — swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one). A swe call opens the task's swe agent_runs row when none is open.",
+            description: "Full context bundle for one task in a single call — swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none). A swe call opens the task's swe agent_runs row when none is open.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -1350,6 +1351,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 files: parseTaskFiles(task.files),
                 verification: parseTaskFiles(task.verification),
                 scope,
+                verification_run: latestVerificationRun(db, task.id),
                 scope_world_model,
                 ...(world_model_warning ? { world_model_warning } : {}),
                 task_discussions,

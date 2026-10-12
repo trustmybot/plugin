@@ -80,6 +80,13 @@ export const KEYS = [
     setBy: 'bro via `config_set`',
     effect: '`pr_monitor_comments_get` adds these to its built-in patterns when filtering bot comments.',
   },
+  {
+    name: 'verification_timeout_s',
+    type: 'integer (seconds)',
+    defaultText: 'unset (900)',
+    setBy: 'bro via `config_set`',
+    effect: '`swe-verification-gate.sh` gives one run of a task\'s `verification[]` this many seconds on the swe close, capped at 1800 (the gate\'s hooks.json timeout of 1830 s minus 30 s); `TMB_VERIFICATION_TIMEOUT_S` overrides it (tests).',
+  },
 ];
 
 function stripSqlComments(sql) {

@@ -68,17 +68,28 @@ if require "$DBW_DEFAULT_RUN_MS" "db-write default run budget"; then
   done
 fi
 
-# --- swe-verification-gate: total budget default ----------------------------
+# --- swe-verification-gate: verification budget cap ------------------------
+# The gate reads its budget from plugin_config.verification_timeout_s (or
+# TMB_VERIFICATION_TIMEOUT_S) and caps it at VERIFICATION_MAX_S; the wrapper
+# must cover the cap plus a 30 s margin (dispatcher, run-record writes, the
+# deny). The default must sit under the cap.
 VG_SRC="scripts/hooks/swe-verification-gate.sh"
 VG_WRAP=$(wrapper_timeout "swe-verification-gate.sh")
-VG_BUDGET=$(grep -oE 'TMB_VERIFICATION_TIMEOUT_S:-[0-9]+' "$VG_SRC" | head -1 | grep -oE '[0-9]+$')
+VG_DEFAULT=$(grep -oE '^VERIFICATION_DEFAULT_S=[0-9]+' "$VG_SRC" | head -1 | grep -oE '[0-9]+$' || true)
+VG_MAX=$(grep -oE '^VERIFICATION_MAX_S=[0-9]+' "$VG_SRC" | head -1 | grep -oE '[0-9]+$' || true)
+VG_FLOOR=""
 
 if require "$VG_WRAP" "swe-verification-gate wrapper timeout" \
-   && require "$VG_BUDGET" "verification-gate default budget"; then
-  VG_FLOOR=$((VG_BUDGET + 30 + DISPATCH_OVERHEAD_S))
+   && require "$VG_DEFAULT" "verification-gate default budget (VERIFICATION_DEFAULT_S)" \
+   && require "$VG_MAX" "verification-gate budget cap (VERIFICATION_MAX_S)"; then
+  VG_FLOOR=$((VG_MAX + 30))
   if [ "$VG_WRAP" -lt "$VG_FLOOR" ]; then
-    printf "hook-timeout-budget: FAIL swe-verification-gate wrapper %ss < floor %ss (default budget %ss + 30s margin + %ss dispatcher)\n" \
-      "$VG_WRAP" "$VG_FLOOR" "$VG_BUDGET" "$DISPATCH_OVERHEAD_S" >&2
+    printf "hook-timeout-budget: FAIL swe-verification-gate wrapper %ss < floor %ss (budget cap %ss + 30s margin)\n" \
+      "$VG_WRAP" "$VG_FLOOR" "$VG_MAX" >&2
+    FAIL=$((FAIL + 1))
+  fi
+  if [ "$VG_DEFAULT" -gt "$VG_MAX" ]; then
+    printf "hook-timeout-budget: FAIL swe-verification-gate default budget %ss exceeds its cap %ss\n" "$VG_DEFAULT" "$VG_MAX" >&2
     FAIL=$((FAIL + 1))
   fi
 fi
@@ -88,5 +99,5 @@ if [ "$FAIL" -gt 0 ]; then
   exit 1
 fi
 printf "%s" "$DBW_SUMMARY"
-printf "hook-timeout-budget: %s db-write hooks + verification-gate %ss (floor %ss) — wrappers cover budgets.\n" \
-  "$DBW_CHECKED" "$VG_WRAP" "$VG_FLOOR"
+printf "hook-timeout-budget: %s db-write hooks + verification-gate %ss (floor %ss, cap %ss) — wrappers cover budgets.\n" \
+  "$DBW_CHECKED" "$VG_WRAP" "$VG_FLOOR" "$VG_MAX"

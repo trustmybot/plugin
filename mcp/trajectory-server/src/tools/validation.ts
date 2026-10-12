@@ -4,6 +4,7 @@ import { nowISO } from '../db.js';
 import { normalizeAgent, redactValidationRow, requireRoles } from '../middleware/agent-scope.js';
 import type { ValidationAttempt } from '../types.js';
 import { insertAudit } from './audit.js';
+import { latestVerificationRun } from './verification-runs.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -98,7 +99,7 @@ export function validationTools(db: TrajectoryDB): {
     },
     {
       name: 'validation_history',
-      description: 'Return all validation attempts for a task ordered by attempt_n ascending. Without limit, returns a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=[\'attempt_n\',\'verdict\'] to return only those columns (unknown fields return a named error).',
+      description: 'Return all validation attempts for a task ordered by attempt_n ascending; each row carries verification_run, the latest gate-recorded run started by the attempt (null when none). Without limit, returns a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=[\'attempt_n\',\'verdict\'] to return only those columns (unknown fields return a named error).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -110,7 +111,7 @@ export function validationTools(db: TrajectoryDB): {
           fields: {
             type: 'array',
             items: { type: 'string' },
-            description: 'Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at. Unknown fields return a named error. Default: all columns.',
+            description: 'Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, verification_run. Unknown fields return a named error. Default: all columns.',
           },
         },
         required: ['agent', 'task_id'],
@@ -243,7 +244,7 @@ export function validationTools(db: TrajectoryDB): {
       const cursorArg = args['cursor'] as string | undefined;
       const fieldsArg = args['fields'] as string[] | undefined;
 
-      const ALLOWED_VALIDATION_FIELDS = new Set(['id', 'task_id', 'attempt_n', 'agent', 'verdict', 'feedback', 'mcp_available', 'subagent_session_id', 'reviewer_agent_id', 'created_at']);
+      const ALLOWED_VALIDATION_FIELDS = new Set(['id', 'task_id', 'attempt_n', 'agent', 'verdict', 'feedback', 'mcp_available', 'subagent_session_id', 'reviewer_agent_id', 'created_at', 'verification_run']);
 
       if (fieldsArg !== undefined) {
         const unknown = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));
@@ -252,7 +253,8 @@ export function validationTools(db: TrajectoryDB): {
         }
       }
 
-      function projectRow(row: Record<string, unknown>): Record<string, unknown> {
+      function projectRow(redacted: Record<string, unknown>): Record<string, unknown> {
+        const row: Record<string, unknown> = { ...redacted, verification_run: latestVerificationRun(db, taskId, String(redacted['created_at'])) };
         if (!fieldsArg) return row;
         const out: Record<string, unknown> = {};
         for (const f of fieldsArg) out[f] = row[f];

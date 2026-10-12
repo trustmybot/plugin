@@ -41,7 +41,7 @@ Write-time validation (`task_create_batch`, before any side effect):
 Enforcement semantics:
 
 - `files[]` names directories: a trailing slash names the directory itself, a nested path contributes its containing directory, a root-level file covers itself, and any `tests/` entry covers all of `tests/`. `lib/scope-fence.sh` and `bro_atomic_close` apply the same rule. An edit outside it is allowed; `swe-scope-fence.sh` (Edit/Write) and `swe-boundary.sh` (Bash) add a once-per-path note asking the swe to report it. `bro_atomic_close` diffs the task's own commits (from the merge-base with `origin/<pr_target>`) against `files[]` and refuses on extras, listed by surface, until bro reverts them or accepts them with `waive_scope_gate` + `scope_waiver_reason`.
-- `swe-verification-gate.sh` runs each `verification[]` entry verbatim as a shell command in the task's worktree, bounded by `TMB_VERIFICATION_TIMEOUT_S` (default 240s total). A non-zero exit denies the completion; a timeout denies with a timeout message. A `>=10` char `waive_verification_gate_reason` bypasses with an audit row.
+- `swe-verification-gate.sh` runs each `verification[]` entry verbatim as a shell command in the task's worktree, bounded by `plugin_config.verification_timeout_s` (default 900 s total, capped at 1800 s; `TMB_VERIFICATION_TIMEOUT_S` overrides it for tests), and records the run in `verification_runs` / `verification_run_commands`. A non-zero exit denies the completion naming the command and its timing; a spent budget denies naming the command that was running. A passing run for the same task and worktree HEAD recorded within the hour is reused instead of re-run. A `>=10` char `waive_verification_gate_reason` bypasses with an audit row.
 
 ## Clean break — no markdown fallback
 

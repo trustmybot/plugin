@@ -328,7 +328,7 @@ assert_eq "Trajectory DB:     unchecked (timeout)" "$(doctor_line TMB_DOCTOR_BUD
 test_case "doctor banner: an older schema names the version gap, never healthy"
 schema_db
 sqlite3 "$SCHEMA_DB" "UPDATE plugin_meta SET schema_version = 29 WHERE id = 1; ALTER TABLE agent_runs RENAME COLUMN session_id TO session_id_v29;"
-assert_eq "Trajectory DB:     unchecked (schema v29 < v33 — start the trajectory server to migrate)" "$(doctor_line)" "schema banner"
+assert_eq "Trajectory DB:     unchecked (schema v29 < v$(jq -r .schema_version "$PLUGIN_ROOT/scripts/hooks/lib/data-contracts.json") — start the trajectory server to migrate)" "$(doctor_line)" "schema banner"
 
 test_case "doctor banner: an older schema with every contract column present still names the gap, never healthy"
 schema_db

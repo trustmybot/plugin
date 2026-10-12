@@ -317,6 +317,19 @@ Schema enforces via `CHECK (provider IN ('github','gitlab','other'))`. The write
 
 `onboard_state_get`'s `probe.detected_remotes[].provider` still reports the finer host classification (`bitbucket`, `codeberg`, `azuredev`) — it is a probe result, not a stored value.
 
+### `verification_runs.source` — who ran the verification
+
+| Value | Meaning |
+|---|---|
+| `gate` | `swe-verification-gate.sh` ran `verification[]` on the swe close |
+| `manual` | reserved for a run recorded outside the gate; no writer yet |
+
+Schema enforces via `CHECK (source IN ('gate','manual'))`.
+
+### `verification_runs.timed_out`
+
+`1` when the run's budget ran out (its `exit_code` is then `124`, as is the command row of the command that was running); `0` otherwise. `CHECK (timed_out IN (0,1))`.
+
 ### `repo_remotes.is_primary`
 
 `1` on the remote named `origin`, else on the first remote recorded; `0` on the rest. `CHECK (is_primary IN (0,1))`.

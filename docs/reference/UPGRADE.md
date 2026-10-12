@@ -90,6 +90,7 @@ Migrations are chained one version at a time — `migrateV1toV2`, `migrateV2toV3
 - Drop the `skill_invocations` table; skill/cheatcode usage is tracked in the stream-json session log instead of the trajectory DB.
 - Rebuild `tasks`, `roundtables`, `roundtable_votes` whenever a breaking column change lands — the rebuild copies surviving rows into a fresh table.
 - Add columns as features land (e.g. `agent_runs.started_at` with nullable `completed_at`, `issues.milestone`).
+- Add tables as features land (schema v36 adds `verification_runs` + `verification_run_commands`, where the close gate records each verification run; existing rows are untouched).
 
 Row data on every workflow table is preserved.
 

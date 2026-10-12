@@ -3,7 +3,8 @@
 # Covers: transaction rollback, FK enforcement, busy-retry through a held write
 # lock, the per-run write budget, from_node validation in tmb_audit_append,
 # tmb_gate_read's __ERR__ sentinel, the tmb_now_iso shape, the sqlite3
-# fallback's system-issue audit, and the verification-gate waiver on a DB error.
+# fallback's system-issue audit, the verification-gate waiver on a DB error, and
+# the verification-run helpers (lib/verification-runs.sh).
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -204,5 +205,56 @@ WAIVE='{"tool_name":"mcp__plugin_tmb_trajectory-server__task_update_status","too
 OUT=$(printf '%s' "$WAIVE" | TRAJECTORY_DB_PATH="$TMPDIR_FIXTURE/corrupt.db" bash "$PLUGIN_ROOT/scripts/hooks/swe-verification-gate.sh" 2>/dev/null || true)
 assert_contains "$OUT" '"permissionDecision":"deny"' "waiver denied"
 assert_contains "$OUT" "trajectory DB unavailable" "unavailable reason"
+
+test_case "verification runs: start prints the id, command and finish rows land, reusable finds the pass"
+. "$PLUGIN_ROOT/scripts/hooks/lib/verification-runs.sh"
+sqlite3 "$DB" "INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (4242, 'vr', 'open', '$(tmb_now_iso)', '$(tmb_now_iso)');
+  INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, updated_at) VALUES (4242, 4242, 'feat/vr', 'd', 'running', '$(tmb_now_iso)', '$(tmb_now_iso)');"
+SHA=0123456789abcdef0123456789abcdef01234567
+RUN=$(tmb_verification_run_start "$DB" 4242 "$SHA" gate 900 2>&1) && RC=0 || RC=$?
+assert_eq "0" "$RC" "start succeeds"
+case "$RUN" in ''|*[!0-9]*) _fail "start prints a numeric run id, got <$RUN>" ;; *) _pass ;; esac
+assert_eq "|" "$(count "SELECT COALESCE(finished_at, '') || '|' || COALESCE(exit_code, '') FROM verification_runs WHERE id = $RUN;")" "finished_at and exit_code NULL while in progress"
+assert_eq "" "$(tmb_verification_run_reusable "$DB" 4242 "$SHA")" "an unfinished run is not reusable"
+tmb_verification_run_command "$DB" "$RUN" 1 "echo it's ok" 0 1.25 "line one
+line two" && _pass || _fail "command row write"
+tmb_verification_run_command "$DB" "$RUN" 2 "true" "" "" "" && _pass || _fail "command row with NULL exit/elapsed"
+assert_eq "echo it's ok|0|1.25|line one
+line two" "$(count "SELECT command || '|' || exit_code || '|' || elapsed_s || '|' || output_tail FROM verification_run_commands WHERE run_id = $RUN AND ordinal = 1;")" "command row round-trips quotes and newlines"
+assert_eq "1" "$(count "SELECT exit_code IS NULL AND elapsed_s IS NULL FROM verification_run_commands WHERE run_id = $RUN AND ordinal = 2;")" "empty exit/elapsed stored as NULL"
+tmb_verification_run_finish "$DB" "$RUN" 0 0 && _pass || _fail "finish write"
+assert_eq "0|0|1" "$(count "SELECT exit_code || '|' || timed_out || '|' || (finished_at IS NOT NULL) FROM verification_runs WHERE id = $RUN;")" "finish stamps the row"
+assert_eq "$RUN|" "$(tmb_verification_run_reusable "$DB" 4242 "$SHA" | cut -d'|' -f1)|" "a finished pass is reusable"
+assert_eq "" "$(tmb_verification_run_reusable "$DB" 4242 "ffff")" "another sha is not"
+
+test_case "verification runs: the output tail is capped; a timed-out or failed run is not reusable"
+RUN2=$(tmb_verification_run_start "$DB" 4242 "$SHA" gate 5)
+TMB_VERIFICATION_TAIL_CHARS=10 tmb_verification_run_command "$DB" "$RUN2" 1 "sleep 9" 124 5.0 "0123456789abcdefghij"
+assert_eq "abcdefghij" "$(count "SELECT output_tail FROM verification_run_commands WHERE run_id = $RUN2;")" "last 10 characters kept"
+tmb_verification_run_finish "$DB" "$RUN2" 124 1
+tmb_db_write "$DB" "DELETE FROM verification_runs WHERE id = $RUN;"
+assert_eq "" "$(tmb_verification_run_reusable "$DB" 4242 "$SHA")" "a timed-out run is not reusable"
+assert_eq "0" "$(count "SELECT COUNT(*) FROM verification_run_commands WHERE run_id = $RUN;")" "deleting a run cascades to its commands"
+
+test_case "verification runs: invalid input is refused with exit 2 and nothing written"
+BEFORE=$(count "SELECT COUNT(*) FROM verification_runs;")
+for args in "4242|$SHA|bot|900" "x|$SHA|gate|900" "4242||gate|900" "4242|$SHA|gate|abc"; do
+  IFS='|' read -r a1 a2 a3 a4 <<< "$args"
+  ERR=$(tmb_verification_run_start "$DB" "$a1" "$a2" "$a3" "$a4" 2>&1 >/dev/null) && RC=0 || RC=$?
+  assert_eq "2" "$RC" "start refuses <$args>"
+  assert_contains "$ERR" "tmb_verification_run" "stderr names the helper"
+done
+assert_eq "$BEFORE" "$(count "SELECT COUNT(*) FROM verification_runs;")" "no run row written"
+tmb_verification_run_command "$DB" "$RUN2" 2 "x" "1; DROP TABLE tasks" "" "" 2>/dev/null && RC=0 || RC=$?
+assert_eq "2" "$RC" "a non-integer exit_code is refused"
+tmb_verification_run_command "$DB" "$RUN2" 2 "x" 0 "1.5; --" "" 2>/dev/null && RC=0 || RC=$?
+assert_eq "2" "$RC" "a non-numeric elapsed_s is refused"
+tmb_verification_run_finish "$DB" "$RUN2" 0 2 2>/dev/null && RC=0 || RC=$?
+assert_eq "2" "$RC" "timed_out outside 0|1 is refused"
+tmb_verification_run_finish "$DB" "$RUN2" "" 0 2>/dev/null && RC=0 || RC=$?
+assert_eq "2" "$RC" "finish without an exit_code is refused"
+ERR=$(tmb_verification_run_start "$DB" 999 "$SHA" gate 900 2>&1 >/dev/null) && RC=0 || RC=$?
+[ "$RC" -ne 0 ] && _pass || _fail "a run for a missing task fails the FK"
+assert_contains "$ERR" "FOREIGN KEY" "stderr names the FK failure"
 
 summarize

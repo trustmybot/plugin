@@ -3,11 +3,11 @@ import type { TrajectoryDB } from '../../db.js';
 import { tableDdl } from './v29-shape.js';
 import { assertV34Shape } from './v34-shape.js';
 
-/** Every v35 DDL item (plus all of v29–v34), asserted identically on fresh and migrated DBs. */
+/**
+ * Every v35 DDL item (plus all of v29–v34), asserted identically on fresh and
+ * migrated DBs. The schema_version stamp is asserted by v36-shape.ts.
+ */
 export function assertV35Shape(db: TrajectoryDB): void {
-  const meta = db.get<{ schema_version: number }>('SELECT schema_version FROM plugin_meta LIMIT 1');
-  assert.equal(meta!.schema_version, 35, 'schema_version must be 35');
-
   assertV34Shape(db);
 
   const repoCols = db.all<{ name: string }>('PRAGMA table_info(repos)').map((c) => c.name);

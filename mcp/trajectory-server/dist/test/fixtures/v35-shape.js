@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { tableDdl } from './v29-shape.js';
 import { assertV34Shape } from './v34-shape.js';
-/** Every v35 DDL item (plus all of v29–v34), asserted identically on fresh and migrated DBs. */
+/**
+ * Every v35 DDL item (plus all of v29–v34), asserted identically on fresh and
+ * migrated DBs. The schema_version stamp is asserted by v36-shape.ts.
+ */
 export function assertV35Shape(db) {
-    const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
-    assert.equal(meta.schema_version, 35, 'schema_version must be 35');
     assertV34Shape(db);
     const repoCols = db.all('PRAGMA table_info(repos)').map((c) => c.name);
     assert.deepEqual(repoCols, ['name', 'path', 'file_count', 'last_scanned_at', 'target_branch', 'branching_model', 'protected_branches'], 'repos has no remotes column at v35');

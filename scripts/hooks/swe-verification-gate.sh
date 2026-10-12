@@ -26,20 +26,32 @@
 #   - waive_verification_gate_reason (>=10 chars) → allow + one audit row per
 #     (task, commit_sha): the commit is tool_input.commit_sha, else the task's
 #     commit_sha; a repeat invocation for the same pair writes nothing
+#   - A passing recorded run for (task, worktree HEAD) finished within the last
+#     hour, and tool_input.commit_sha (when given) names that HEAD → allow
+#     without running, additionalContext "verification reused run #N"
 #   - Verification passes          → allow
-#   - Verification fails           → DENY with failing command + output tail
-#   - Total timeout (default 900s) → DENY with timeout message
+#   - Verification fails           → DENY naming the failing command, its
+#     elapsed and the cumulative time, the FAIL lines and the output tail
+#   - Budget spent                 → DENY naming the command that was running
+#     and the cumulative time
+#
+# Record (schema v36): every run is written to verification_runs (source
+# 'gate', commit_sha = the worktree HEAD) through lib/verification-runs.sh —
+# the row when the run starts, a verification_run_commands row after each
+# command (exit code, elapsed seconds, output tail), then finished_at,
+# exit_code and timed_out. task_brief.verification_run reads it back.
+#
+# Budget: plugin_config.verification_timeout_s (integer seconds, default 900),
+# overridden by TMB_VERIFICATION_TIMEOUT_S, capped at VERIFICATION_MAX_S —
+# the hooks.json timeout of this registration minus 30 s
+# (tests/l1-lint/hook-timeout-budget.sh keeps the two consistent).
 #
 # Run lock: one verification run per (task, worktree HEAD). The gate takes a
 # mkdir lock <project>/.claude/<plugin>/locks/verify-<task_id>-<sha>/; a
-# concurrent second invocation (e.g. the same gate registered twice) waits for
-# the holder and reuses its verdict from verify-<task_id>-<sha>.result instead
-# of re-running verification[]. The lock is removed on exit; a lock older than
-# the total budget + 60s (by its `started` stamp, else the dir mtime) is
-# reclaimed.
-#
-# Environment:
-#   TMB_VERIFICATION_TIMEOUT_S — total seconds (default 900)
+# concurrent second invocation waits for the holder, then reuses its run when
+# it passed and runs verification[] itself otherwise. The lock is removed on
+# exit; a lock older than the budget + 60s (by its `started` stamp, else the
+# dir mtime) is reclaimed.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -55,6 +67,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/resolve-toolchain-path.sh"
 # shellcheck source=scripts/hooks/lib/db-write.sh disable=SC1091
 . "$SCRIPT_DIR/lib/db-write.sh"
+# shellcheck source=scripts/hooks/lib/verification-runs.sh disable=SC1091
+. "$SCRIPT_DIR/lib/verification-runs.sh"
 export TMB_DB_WRITE_TIMEOUT_MS=5000
 export TMB_DB_WRITE_RUN_BUDGET_MS=10200
 
@@ -194,80 +208,121 @@ fi
 # hook-process PATH. See lib/resolve-toolchain-path.sh.
 TOOLCHAIN_PATH=$(tmb_resolve_toolchain_path "$PATH" 2>/dev/null || printf '%s' "$PATH")
 
-TIMEOUT_S="${TMB_VERIFICATION_TIMEOUT_S:-900}"
+VERIFICATION_DEFAULT_S=900
+VERIFICATION_MAX_S=1800
 
-# Prints the gate's decision (deny JSON, or nothing for allow).
-run_verification() {
-  START_TS=$(date +%s 2>/dev/null || echo 0)
+TIMEOUT_S="${TMB_VERIFICATION_TIMEOUT_S:-}"
+case "$TIMEOUT_S" in ''|*[!0-9]*) TIMEOUT_S=$(tmb_config_get verification_timeout_s "$DB" 2>/dev/null || true) ;; esac
+case "$TIMEOUT_S" in ''|*[!0-9]*) TIMEOUT_S="$VERIFICATION_DEFAULT_S" ;; esac
+TIMEOUT_S=$(( 10#$TIMEOUT_S ))
+if [ "$TIMEOUT_S" -gt "$VERIFICATION_MAX_S" ]; then
+  TIMEOUT_S="$VERIFICATION_MAX_S"
+fi
 
-  FAILED_CMD=""
-  FAILED_OUTPUT=""
-  FAILED_MATCHES=""
-
-  # Each entry of the typed verification[] array is a clean shell command string
-  # (Typed Rails #673) — no markdown bullets/backticks/blockquotes to strip. Run
-  # each non-empty line as a command in the worktree.
-  while IFS= read -r line; do
-    [ -z "$line" ] && continue
-    CMD="$line"
-
-    # Check total timeout before each command.
-    NOW_TS=$(date +%s 2>/dev/null || echo 0)
-    ELAPSED=$(( NOW_TS - START_TS ))
-    REMAINING=$(( TIMEOUT_S - ELAPSED ))
-    if [ "$REMAINING" -le 0 ]; then
-      jq -nc --arg t "$TIMEOUT_S" \
-        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: verification timed out after " + $t + "s total. Increase TMB_VERIFICATION_TIMEOUT_S or fix slow verification commands. (current budget: " + $t + "s via TMB_VERIFICATION_TIMEOUT_S, default 900).")}}'
-      exit 0
-    fi
-
-    # Run command in worktree with the resolved toolchain PATH, bounded by the
-    # remaining time budget.
-    CMD_OUTPUT=$( (cd "$WT_PATH" && PATH="$TOOLCHAIN_PATH" tmb_run_with_timeout "$REMAINING" bash -c "$CMD") 2>&1 ) || {
-      CMD_RC=$?
-      if [ "$CMD_RC" -eq 124 ]; then
-        jq -nc --arg cmd "$CMD" --arg t "$TIMEOUT_S" \
-          '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: verification timed out after " + $t + "s total budget while running: " + $cmd + ". Increase TMB_VERIFICATION_TIMEOUT_S or fix slow verification commands. (current budget: " + $t + "s via TMB_VERIFICATION_TIMEOUT_S, default 900).")}}'
-        exit 0
-      fi
-      FAILED_CMD="$CMD"
-      # No pipelines here: under pipefail a writer killed by SIGPIPE or a grep
-      # with no match would end the hook without its deny.
-      FAILED_MATCHES=$(grep -m 15 -E 'FAIL|failed|Error|❌' <<< "$CMD_OUTPUT" || true)
-      FAILED_OUTPUT=$(tail -20 <<< "$CMD_OUTPUT" || true)
-      break
-    }
-
-  done <<< "$VERIFICATION_BLOCK"
-
-  if [ -n "$FAILED_CMD" ]; then
-    jq -nc --arg cmd "$FAILED_CMD" --arg out "$FAILED_OUTPUT" --arg hits "$FAILED_MATCHES" '
-      {"hookSpecificOutput":{
-        "hookEventName":"PreToolUse",
-        "permissionDecision":"deny",
-        "permissionDecisionReason":("BLOCKED: verification failed.\nFailing command: " + $cmd
-          + (if $hits == "" then "" else "\n\nFailure lines (max 15):\n" + $hits end)
-          + "\n\nOutput (last 20 lines):\n" + $out)
-      }}
-    '
-    exit 0
-  fi
-}
+WT_SHA=$(git -C "$WT_PATH" rev-parse HEAD 2>/dev/null || echo nohead)
+EXPECTED_SHA=$(echo "$INPUT" | jq -r '.tool_input.commit_sha // empty' 2>/dev/null || true)
+CMD_TOTAL=$(grep -c . <<< "$VERIFICATION_BLOCK" || true)
 
 now_s() { date +%s 2>/dev/null || echo 0; }
+ms_to_s() { awk -v ms="$1" 'BEGIN { printf "%.1f", ms / 1000 }'; }
+
+# reuse_passing_run — prints the allow-with-context decision and succeeds when
+# a passing run recorded for (task, worktree HEAD) finished within the hour.
+reuse_passing_run() {
+  [ "$WT_SHA" != nohead ] || return 1
+  if [ -n "$EXPECTED_SHA" ]; then
+    case "$WT_SHA" in "$EXPECTED_SHA"*) ;; *) return 1 ;; esac
+  fi
+  local row
+  row=$(tmb_verification_run_reusable "$DB" "$TASK_ID" "$WT_SHA")
+  [ -n "$row" ] || return 1
+  jq -nc --arg id "${row%%|*}" --arg at "${row#*|}" --arg sha "$WT_SHA" \
+    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":("TMB: verification reused run #" + $id + " (" + $at + ") — verification[] passed on commit " + $sha + " within the last hour, so it was not run again.")}}'
+}
+
+RUN_ID=""
+record_command() {
+  [ -n "$RUN_ID" ] || return 0
+  tmb_verification_run_command "$DB" "$RUN_ID" "$@" || true
+}
+record_finish() {
+  [ -n "$RUN_ID" ] || return 0
+  tmb_verification_run_finish "$DB" "$RUN_ID" "$1" "$2" || true
+}
+
+deny() {
+  jq -nc --arg r "$1" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
+}
+
+timeout_reason() {
+  # timeout_reason <ordinal> <command> <command-elapsed|''> <cumulative>
+  local ran=""
+  [ -n "$3" ] && ran=" after ${3}s"
+  printf 'BLOCKED: verification timed out — the %ss budget ran out %ss in, while running command %s/%s%s:\n%s\n\nRaise plugin_config.verification_timeout_s (config_set; capped at %ss) or speed up the command.%s' \
+    "$TIMEOUT_S" "$4" "$1" "$CMD_TOTAL" "$ran" "$2" "$VERIFICATION_MAX_S" "${RUN_ID:+ Recorded as verification run #$RUN_ID.}"
+}
+
+# run_verification — runs verification[] once in the worktree, recording the
+# run as it goes; prints the deny decision, or nothing when every command passed.
+run_verification() {
+  local run_start_ms cmd_start_ms remaining cmd_out cmd_rc cmd_elapsed total ordinal=0 hits tail_out
+  run_start_ms=$(_tmb_now_ms)
+  RUN_ID=$(tmb_verification_run_start "$DB" "$TASK_ID" "$WT_SHA" gate "$TIMEOUT_S") || RUN_ID=""
+
+  # Each entry of the typed verification[] array is a clean shell command string
+  # (Typed Rails #673); each non-empty line runs as a command in the worktree.
+  while IFS= read -r CMD; do
+    [ -z "$CMD" ] && continue
+    ordinal=$(( ordinal + 1 ))
+
+    remaining=$(( TIMEOUT_S - ($(_tmb_now_ms) - run_start_ms) / 1000 ))
+    if [ "$remaining" -le 0 ]; then
+      record_finish 124 1
+      deny "$(timeout_reason "$ordinal" "$CMD" "" "$(ms_to_s $(( $(_tmb_now_ms) - run_start_ms )))")"
+      return 0
+    fi
+
+    # Run the command in the worktree with the resolved toolchain PATH, bounded
+    # by the remaining budget.
+    cmd_start_ms=$(_tmb_now_ms)
+    cmd_rc=0
+    cmd_out=$( (cd "$WT_PATH" && PATH="$TOOLCHAIN_PATH" tmb_run_with_timeout "$remaining" bash -c "$CMD" </dev/null) 2>&1 ) || cmd_rc=$?
+    cmd_elapsed=$(ms_to_s $(( $(_tmb_now_ms) - cmd_start_ms )))
+    total=$(ms_to_s $(( $(_tmb_now_ms) - run_start_ms )))
+    # No pipelines here: under pipefail a writer killed by SIGPIPE or a grep
+    # with no match would end the hook without its deny.
+    tail_out=$(tail -20 <<< "$cmd_out" || true)
+    record_command "$ordinal" "$CMD" "$cmd_rc" "$cmd_elapsed" "$tail_out"
+
+    if [ "$cmd_rc" -eq 124 ]; then
+      record_finish 124 1
+      deny "$(timeout_reason "$ordinal" "$CMD" "$cmd_elapsed" "$total")"
+      return 0
+    fi
+    if [ "$cmd_rc" -ne 0 ]; then
+      record_finish "$cmd_rc" 0
+      hits=$(grep -m 15 -E 'FAIL|failed|Error|❌' <<< "$cmd_out" || true)
+      [ -z "$hits" ] || hits=$(printf '\n\nFailure lines (max 15):\n%s' "$hits")
+      deny "$(printf 'BLOCKED: verification failed.\nFailing command (%s/%s): %s\nExit %s after %ss; %ss cumulative.%s%s\n\nOutput (last 20 lines):\n%s' \
+        "$ordinal" "$CMD_TOTAL" "$CMD" "$cmd_rc" "$cmd_elapsed" "$total" "${RUN_ID:+ Recorded as verification run #$RUN_ID.}" \
+        "$hits" "$tail_out")"
+      return 0
+    fi
+  done <<< "$VERIFICATION_BLOCK"
+
+  record_finish 0 0
+}
+
+reuse_passing_run && exit 0
 
 LOCK_ROOT="$(dirname "$DB")/locks"
-WT_SHA=$(git -C "$WT_PATH" rev-parse HEAD 2>/dev/null || echo nohead)
 LOCK="$LOCK_ROOT/verify-${TASK_ID}-${WT_SHA}"
-RESULT="$LOCK.result"
 STALE_S=$(( TIMEOUT_S + 60 ))
-ARRIVED=$(now_s)
 
 if ! mkdir -p "$LOCK_ROOT" 2>/dev/null; then
   run_verification
   exit 0
 fi
-find "$LOCK_ROOT" -maxdepth 1 -type f -name 'verify-*.result' -mmin +1440 -delete 2>/dev/null || true
 
 # lock_held_since — epoch seconds the lock was taken: the holder's `started`
 # stamp, else the lock dir's mtime (holder killed between mkdir and the stamp).
@@ -292,26 +347,10 @@ while ! mkdir "$LOCK" 2>/dev/null; do
     held_since=$(lock_held_since) || continue
     [ $(( $(now_s) - held_since )) -gt "$STALE_S" ] && break
   done
-  [ -d "$LOCK" ] && continue
-  started=$(jq -r '.started_at // empty' "$RESULT" 2>/dev/null || true)
-  case "$started" in ''|*[!0-9]*) continue ;; esac
-  if [ "$started" -le "$ARRIVED" ]; then
-    jq -j '.output' "$RESULT" 2>/dev/null || true
-    exit 0
-  fi
 done
 
 trap 'rm -rf "$LOCK" 2>/dev/null || true' EXIT
-STARTED=$(now_s)
-printf '%s\n' "$STARTED" > "$LOCK/started"
-DECISION=$(run_verification)
-if jq -nc --argjson s "$STARTED" --argjson f "$(now_s)" --arg o "${DECISION:+$DECISION
-}" \
-    '{started_at: $s, finished_at: $f, verdict: (if ($o | test("\"permissionDecision\":\"deny\"")) then "deny" else "allow" end), output: $o}' \
-    > "$RESULT.tmp.$$" 2>/dev/null; then
-  mv -f "$RESULT.tmp.$$" "$RESULT" 2>/dev/null || rm -f "$RESULT.tmp.$$"
-else
-  rm -f "$RESULT.tmp.$$" 2>/dev/null || true
-fi
-[ -n "$DECISION" ] && printf '%s\n' "$DECISION"
+now_s > "$LOCK/started"
+reuse_passing_run && exit 0
+run_verification
 exit 0
