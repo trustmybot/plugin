@@ -26,7 +26,8 @@ setup_db() {
       issue_id INTEGER NOT NULL DEFAULT 1,
       branch_id TEXT NOT NULL DEFAULT 'fix/test',
       status TEXT NOT NULL,
-      spec_body TEXT NOT NULL DEFAULT ''
+      spec_body TEXT NOT NULL DEFAULT '',
+      files TEXT
     );
     CREATE TABLE issues (
       id INTEGER PRIMARY KEY,
@@ -144,7 +145,8 @@ sqlite3 "$db" "
     status TEXT NOT NULL,
     spec_body TEXT NOT NULL DEFAULT '',
     repo TEXT,
-    parent_branch_id TEXT
+    parent_branch_id TEXT,
+    files TEXT
   );
   CREATE TABLE issues (
     id INTEGER PRIMARY KEY,

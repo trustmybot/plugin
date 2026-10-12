@@ -9,7 +9,7 @@ Before `task_update_status(completed)`, confirm these by reading the diff. Mecha
 
 - **Spec fidelity.** Every path in the typed `files[]`, every bullet under `## Success Criteria`, and every error/edge case named in `## Description` has a concrete change in the diff. Quote the item, point to the diff line.
 - **Scope discipline.** Nothing changed outside the typed `files[]` except trivial imports. No "while I was there" cleanups. No new TODOs.
-- **Verification output.** Paste the verification output in your close report.
+- **Verification output.** Your close report lists each `verification[]` command with its pass/fail and the tail of its output. A dry run or smoke test reports as its command's pass/fail.
 
 Escalate (not guess) when:
 

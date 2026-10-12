@@ -24,6 +24,7 @@ Diff the commit against its parent and judge the diff itself — cite line numbe
 - Is each `## Success Criteria` bullet visible in the diff (not just claimed)?
 - Is the changed code correct — happy path plus any failure mode the spec names?
 - Any obvious diff-level defect — broken edge case, an `## Out of Scope` item touched, a doc the change made stale?
+- For each new column or output the spec declares, re-run its `Populated:` command and cite the non-null sample or count it returns, or cite its `Nullable:` reason. A declared item with neither is a FAIL.
 
 ## Writing the validation_attempts row — YOU write it yourself
 
