@@ -15,10 +15,10 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startClient, call } from '../l3-integration/mcp/harness.mjs';
+import { startClient, call, seedReviewerObservation } from '../l3-integration/mcp/harness.mjs';
 
 test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer signs → push unblocked', async (t) => {
-  const { client, close } = await startClient();
+  const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
   // Setup: 2 closed tasks ready to push (simulating Flow 2 already ran twice)
@@ -78,6 +78,7 @@ test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer sign
   assert.match(JSON.stringify(recordWrongRole.error), /forbidden/);
 
   // 3. pr-reviewer signs off task A
+  seedReviewerObservation(dbPath, taskA, 1);
   const recordA = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskA, attempt_n: 1, verdict: 'pass', mcp_available: true,
     feedback: 'Gate 2 review: tests pass; diff matches spec; LGTM.',
@@ -86,6 +87,7 @@ test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer sign
   assert.equal(recordA.ok, true, `pr-reviewer→A: ${JSON.stringify(recordA)}`);
 
   // 4. pr-reviewer signs off task B
+  seedReviewerObservation(dbPath, taskB, 1);
   const recordB = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskB, attempt_n: 1, verdict: 'pass', mcp_available: true,
     feedback: 'Gate 2 review: clean.',
@@ -106,7 +108,7 @@ test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer sign
 });
 
 test('Flow 6 fail-path — pr-reviewer FAIL verdict triggers retry signal in next attempt_n', async (t) => {
-  const { client, close } = await startClient();
+  const { client, close, dbPath } = await startClient({ fileDb: true });
   t.after(async () => { await close(); });
 
   const issue = await call(client, 'issue_create', { agent: 'bro', objective: 'X', description: 'd', labels: ['Feature', 'Priority: Medium'] });
@@ -137,6 +139,7 @@ test('Flow 6 fail-path — pr-reviewer FAIL verdict triggers retry signal in nex
   });
 
   // attempt 1: FAIL
+  seedReviewerObservation(dbPath, taskId, 1);
   const fail1 = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'fail', mcp_available: true,
     feedback: 'Tests reference removed module; please fix.',
@@ -145,6 +148,7 @@ test('Flow 6 fail-path — pr-reviewer FAIL verdict triggers retry signal in nex
   assert.equal(fail1.ok, true);
 
   // attempt 2: pass after fix
+  seedReviewerObservation(dbPath, taskId, 2);
   const pass2 = await call(client, 'validation_record', {
     agent: 'pr-reviewer', task_id: taskId, attempt_n: 2, verdict: 'pass', mcp_available: true,
     feedback: 'Fixed; LGTM.',
