@@ -7,6 +7,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/pr-reviewer-no-worktree.sh"
 
+# Pin the project so the hook never resolves one by walking up from the cwd.
+PROJECT="$(mktemp -d)"
+trap 'rm -rf "$PROJECT"' EXIT
+export CLAUDE_PROJECT_DIR="$PROJECT"
+
 # pr-reviewer with isolation=worktree → deny.
 test_case "pr-reviewer with isolation=worktree is denied"
 out=$(echo '{"tool_name":"Agent","tool_input":{"subagent_type":"pr-reviewer","isolation":"worktree"}}' | bash "$HOOK" 2>&1 || true)

@@ -79,11 +79,10 @@ out=$(echo "$(input 'git worktree add .claude/worktrees/y stale-branch')" \
 assert_eq "" "$out" "env bypass works"
 
 test_case "no DB (not a TMB project): pass"
-unset TRAJECTORY_DB_PATH
 mv "$DB" "$DB.bak"
-out=$(run_hook "$(input 'git worktree add .claude/worktrees/y stale-branch')")
+out=$(input 'git worktree add .claude/worktrees/y stale-branch' \
+  | env -u TRAJECTORY_DB_PATH CLAUDE_PROJECT_DIR="$WORK" bash "$HOOK" 2>&1 || true)
 mv "$DB.bak" "$DB"
-export TRAJECTORY_DB_PATH="$DB"
 assert_eq "" "$out" "no DB allow"
 
 test_case "branch doesn't exist locally: pass (let git's own error fire)"

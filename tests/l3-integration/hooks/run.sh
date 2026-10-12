@@ -38,6 +38,7 @@ file_timeout() {
 unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT CLAUDE_CONFIG_DIR
 . "$HERE/../../l5-l6/lib/timeout-shim.sh"
 . "$HERE/../../lib/tmp-footprint.sh"
+. "$HERE/../../lib/live-db-shim.sh"
 
 # Footprint: every test runs with HOME at one empty temp dir and TMPDIR at a
 # fresh dir under it; after the suite HOME must hold nothing but that TMPDIR,
@@ -62,6 +63,11 @@ export MISE_STATE_DIR="$TOOL_STATE/mise-state" MISE_CACHE_DIR="$TOOL_STATE/mise-
 export TMB_MODEL_CACHE_DIR="${TMB_MODEL_CACHE_DIR:-${HF_HOME:-$HOME/.cache/huggingface}}"
 export HOME="$FOOTPRINT_HOME"
 export TMPDIR="$RUN_TMPDIR"
+
+# Live DB: a sqlite3 shim first on PATH refuses (and records) any argument
+# under the real project's .claude/tmb/ (tests/lib/live-db-shim.sh); one
+# refusal fails the suite.
+live_db_shim_start "$HERE/../../.." "$RUNNER_LOGS/live-db-shim"
 
 FAILED=0
 TOTAL=0
@@ -105,6 +111,7 @@ else
 fi
 
 tmp_footprint_check "the hook suite" "$FOOTPRINT_HOME" "$TOOL_STATE" || FAILED=$((FAILED + 1))
+live_db_shim_check "the hook suite" || FAILED=$((FAILED + 1))
 
 if [ "${#FAILED_FILES[@]}" -gt 0 ]; then
   printf "\nFailing test files:\n"

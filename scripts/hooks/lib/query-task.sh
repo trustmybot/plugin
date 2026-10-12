@@ -162,6 +162,20 @@ tmb_db_schema_current() {
   _tmb_db_probe "${1:-}"
 }
 
+# tmb_test_flag
+# Prints the active test flag (TMB_FORBID_LIVE_SYNC=1, else TMB_TEST_RUN_ID)
+# and returns 0; returns 1 when neither is set. Under a test flag nothing
+# discovers a live resource: no DB walk-up, no live `claude` CLI.
+tmb_test_flag() {
+  if [ "${TMB_FORBID_LIVE_SYNC:-}" = "1" ]; then
+    echo TMB_FORBID_LIVE_SYNC
+  elif [ -n "${TMB_TEST_RUN_ID:-}" ]; then
+    echo TMB_TEST_RUN_ID
+  else
+    return 1
+  fi
+}
+
 # _tmb_db_resolve
 # Steps 1-3 of the rule (docs/reference/TRAJECTORY_DB_LOCATION.md):
 #   1. TRAJECTORY_DB_PATH, if set (must exist; no further steps).
@@ -169,11 +183,12 @@ tmb_db_schema_current() {
 #      is set (must exist; no walking).
 #   3. Only without CLAUDE_PROJECT_DIR: walk up from cwd, never entering $HOME
 #      unless started there, no .git stop; every ancestor DB that is not a
-#      stale schema is a candidate; the outermost wins.
+#      stale schema is a candidate; the outermost wins. Under a test flag
+#      (tmb_test_flag) step 3 never runs: unresolved, one stderr line.
 # A candidate whose probe read fails is kept: it is resolved, and the read
 # error surfaces through tmb_db_state instead of silently resolving elsewhere.
 _tmb_db_resolve() {
-  local candidate
+  local candidate flag
   if [ -n "${TRAJECTORY_DB_PATH:-}" ]; then
     [ -f "$TRAJECTORY_DB_PATH" ] || return 1
     printf '%s\n' "$TRAJECTORY_DB_PATH"
@@ -184,6 +199,10 @@ _tmb_db_resolve() {
     [ -f "$candidate" ] || return 1
     printf '%s\n' "$candidate"
     return 0
+  fi
+  if flag=$(tmb_test_flag); then
+    printf 'tmb: trajectory DB unresolved: %s is set and neither TRAJECTORY_DB_PATH nor CLAUDE_PROJECT_DIR is (walk-up discovery disabled)\n' "$flag" >&2
+    return 1
   fi
   local start dir outermost=""
   start="$(pwd)"

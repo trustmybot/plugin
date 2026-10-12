@@ -15,6 +15,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/attribution-footer.sh"
 
+# Pin the project so the hook never resolves one by walking up from the cwd.
+PROJECT="$(mktemp -d)"
+trap 'rm -rf "$PROJECT"' EXIT
+export CLAUDE_PROJECT_DIR="$PROJECT"
+
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq unavailable"; exit 0; }
 
 TMB_FOOTER='🤖 Generated with [Claude Code](https://claude.com/claude-code), powered by [Bro](https://github.com/trustmybot/plugin)'
@@ -49,7 +54,7 @@ assert_contains "$PLAIN" "Just a description." "original body text preserved"
 # ── full hook end-to-end with stubbed gh/glab ────────────────────────────────
 STUB_DIR=$(mktemp -d)
 EDIT_LOG="$STUB_DIR/edit.log"
-trap 'rm -rf "$STUB_DIR"' EXIT
+trap 'rm -rf "$STUB_DIR" "$PROJECT"' EXIT
 
 # gh stub: `gh pr view N --json body -q .body` prints a bare-CC body;
 # `gh pr edit N --body X` records the body to EDIT_LOG.

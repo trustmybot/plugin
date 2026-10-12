@@ -17,10 +17,13 @@
 #   - a legacy 'mcp:<server>' row → rewritten to 'mcp:<plugin>/<server>', blank
 #     plugin version filled, no audit; a new bundled server inherits the
 #     parent plugin's trust_tier
-#   - test flags (TMB_FORBID_LIVE_SYNC=1 / TMB_TEST_RUN_ID): no or a missing
-#     TRAJECTORY_DB_PATH → exit 2 (no walk-up); MCP servers come from
-#     TMB_SCAN_MCP_JSON, never ~/.claude.json; absent → mcp_inventory
-#     unavailable. Unflagged, ~/.claude.json is still read (mcp_inventory home).
+#   - test flags (TMB_FORBID_LIVE_SYNC=1 / TMB_TEST_RUN_ID), each: no or a
+#     missing TRAJECTORY_DB_PATH → exit 2 with the shared resolver's line (no
+#     walk-up); CLAUDE_PROJECT_DIR naming the fixture project resolves; the
+#     live `claude` is never spawned (plugins from TMB_SCAN_PLUGIN_JSON, else
+#     unavailable); MCP servers come from TMB_SCAN_MCP_JSON, never
+#     ~/.claude.json; absent → mcp_inventory unavailable. Unflagged,
+#     ~/.claude.json is still read (mcp_inventory home).
 #
 # All state lives under a mktemp sandbox (per #810); TRAJECTORY_DB_PATH pins
 # the DB so the real plugin DB is never touched. assert_not_in_plugin_repo
@@ -244,7 +247,7 @@ assert_eq "1" "$(audit_count 'helper')" "helper audit count"
 # ---------------------------------------------------------------------------
 printf '{"mcpServers": {"home-server": {"command": "x"}}}' > "$TMPDIR/home/.claude.json"
 printf '{"fixture-server": {"command": "node"}}' > "$TMPDIR/mcp-servers.json"
-REQUIRED_MSG='scan: TRAJECTORY_DB_PATH is required under TMB_FORBID_LIVE_SYNC/TMB_TEST_RUN_ID (walk-up discovery disabled)'
+REQUIRED_MSG='scan: TRAJECTORY_DB_PATH is required under TMB_FORBID_LIVE_SYNC/TMB_TEST_RUN_ID (walk-up discovery disabled) unless CLAUDE_PROJECT_DIR names a project with a DB'
 
 # run_flagged <env assignments...> — runs scan.sh from inside the workspace
 # (whose .claude/tmb/trajectory.db a walk-up would find); prints
@@ -256,12 +259,48 @@ run_flagged() {
   printf '%s|%s\n%s' "$rc" "$(cat "$err")" "$out"
 }
 
+# A spy `claude` that records every call; under a test flag it must stay unused.
+SPY_BIN="$TMPDIR/spy_bin"
+SPY_LOG="$TMPDIR/claude-calls"
+mkdir -p "$SPY_BIN"
+cat > "$SPY_BIN/claude" <<SPY
+#!/usr/bin/env bash
+echo "claude \$*" >> "$SPY_LOG"
+exit 97
+SPY
+chmod +x "$SPY_BIN/claude"
+sed "s#INSTALL_ROOT#$TMPDIR/install#" "$FIXTURES/plugin-list-bundled.json" > "$TMPDIR/flag-plugins.json"
+
 for flag in TMB_FORBID_LIVE_SYNC=1 TMB_TEST_RUN_ID=tmb-l3-scan; do
   test_case "$flag, TRAJECTORY_DB_PATH unset: exit 2, no walk-up"
-  assert_eq "2|$REQUIRED_MSG" "$(run_flagged "$flag" | head -1)" "unset path ($flag)"
+  OUT=$(run_flagged "$flag")
+  assert_eq "2" "${OUT%%|*}" "unset path exit ($flag)"
+  assert_contains "$OUT" "$REQUIRED_MSG" "unset path message ($flag)"
+  assert_contains "$OUT" "tmb: trajectory DB unresolved: ${flag%%=*} is set" "shared resolver names the flag ($flag)"
 
   test_case "$flag, TRAJECTORY_DB_PATH missing: exit 2"
-  assert_eq "2|$REQUIRED_MSG" "$(run_flagged "$flag" TRAJECTORY_DB_PATH="$TMPDIR/nope/trajectory.db" | head -1)" "missing path ($flag)"
+  OUT=$(run_flagged "$flag" TRAJECTORY_DB_PATH="$TMPDIR/nope/trajectory.db")
+  assert_eq "2" "${OUT%%|*}" "missing path exit ($flag)"
+  assert_contains "$OUT" "$REQUIRED_MSG" "missing path message ($flag)"
+
+  seed_db
+  test_case "$flag, CLAUDE_PROJECT_DIR names the fixture project: resolves"
+  assert_eq "0|" "$(run_flagged "$flag" CLAUDE_PROJECT_DIR="$WS" | head -1)" "project dir pins the DB ($flag)"
+
+  seed_db
+  rm -f "$SPY_LOG"
+  test_case "$flag, claude on PATH: never spawned, plugins unavailable"
+  OUT=$(run_flagged "$flag" TRAJECTORY_DB_PATH="$DB" PATH="$SPY_BIN:$NOCLAUDE_BIN")
+  assert_eq "unavailable" "$(printf '%s' "$OUT" | tail -n +2 | jq -r '.plugin_inventory.status')" "plugin_inventory unavailable ($flag)"
+  assert_contains "$(printf '%s' "$OUT" | tail -n +2 | jq -r '.plugin_inventory.note')" "claude plugin list skipped" "plugin_inventory note ($flag)"
+  assert_eq "no" "$([ -e "$SPY_LOG" ] && echo yes || echo no)" "claude not spawned ($flag)"
+
+  seed_db
+  test_case "$flag, TMB_SCAN_PLUGIN_JSON: plugins from the fixture, claude never spawned"
+  OUT=$(run_flagged "$flag" TRAJECTORY_DB_PATH="$DB" PATH="$SPY_BIN:$NOCLAUDE_BIN" TMB_SCAN_PLUGIN_JSON="$TMPDIR/flag-plugins.json")
+  assert_eq "fixture" "$(printf '%s' "$OUT" | tail -n +2 | jq -r '.plugin_inventory.status')" "plugin_inventory fixture ($flag)"
+  assert_eq "1" "$(cc_count linear plugin)" "fixture plugin registered ($flag)"
+  assert_eq "no" "$([ -e "$SPY_LOG" ] && echo yes || echo no)" "claude not spawned with a fixture ($flag)"
 done
 
 seed_db

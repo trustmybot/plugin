@@ -17,6 +17,7 @@ trap 'rm -rf "$TMP"' EXIT
 TMP=$(cd "$TMP" && pwd -P)
 REPO="$TMP/repo"
 DB="$REPO/.claude/tmb/trajectory.db"
+export TRAJECTORY_DB_PATH="$DB"
 
 git init -q -b main "$REPO"
 git -C "$REPO" config user.email t@t.t

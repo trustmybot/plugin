@@ -46,7 +46,7 @@ assert_eq "$before" "$(find "$SESSIONS" -type f | wc -l | tr -d ' ')" "no new ma
 assert_eq "no" "$([ -e "$PROJECT/.claude/escape.plugin-hooks" ] && echo yes || echo no)" "no path escape"
 
 test_case "without CLAUDE_PROJECT_DIR the marker follows the resolved DB"
-(cd "$PROJECT" && printf '%s' '{"session_id":"walk-1"}' | env -u CLAUDE_PROJECT_DIR bash "$HOOK")
+(cd "$PROJECT" && printf '%s' '{"session_id":"walk-1"}' | env -u CLAUDE_PROJECT_DIR -u TMB_TEST_RUN_ID -u TMB_FORBID_LIVE_SYNC bash "$HOOK")
 assert_eq "yes" "$([ -f "$SESSIONS/walk-1.plugin-hooks" ] && echo yes || echo no)" "marker written via walk-up"
 
 summarize

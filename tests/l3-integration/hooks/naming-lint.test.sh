@@ -11,6 +11,8 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/naming-lint.sh"
 
 TMPDIR_NL=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_NL"' EXIT
+# Pin the project so the hook never resolves one by walking up from the cwd.
+export CLAUDE_PROJECT_DIR="$TMPDIR_NL"
 
 run_hook() {
   echo "$1" | bash "$HOOK" 2>&1 || true
