@@ -186,6 +186,15 @@ const FIXTURES: Record<string, { violate?: (db: TrajectoryDB) => void; pass: (db
       seedAudit(db, 'verification_gate_waived', { task_id: 8 });
     },
   },
+  no_unconsumed_reviewer_observations: {
+    violate: (db) => {
+      seedAudit(db, 'reviewer_identity_observed', { task_id: 7, attempt_n: 1, agent_id: 'reviewer0agent01', consumed: 0 }, iso(-2 * HOUR), 'hook:reviewer-identity-observe');
+    },
+    pass: (db) => {
+      seedAudit(db, 'reviewer_identity_observed', { task_id: 7, attempt_n: 1, agent_id: 'reviewer0agent01', consumed: 1 }, iso(-2 * HOUR), 'hook:reviewer-identity-observe');
+      seedAudit(db, 'reviewer_identity_observed', { task_id: 7, attempt_n: 2, agent_id: 'reviewer0agent01', consumed: 0 }, iso(-10 * 60_000), 'hook:reviewer-identity-observe');
+    },
+  },
   verification_recorded_for_closed_tasks: {
     violate: (db) => {
       seedVerifiedClose(db, 'abc1234');
@@ -313,6 +322,11 @@ describe('data contracts', () => {
     const task = seedTask(db, seedIssue(db), 'closed', iso(-25 * HOUR));
     seedAudit(db, 'review_gate_bypassed', { task_id: task }, iso(), 'hook:other-hook');
     assert.equal(violated(db, 'closed_tasks_reviewed'), true);
+  });
+
+  it('no_unconsumed_reviewer_observations holds on an empty audit table', () => {
+    const db = tempDB({ seedScan: false });
+    assert.equal(violated(db, 'no_unconsumed_reviewer_observations'), false);
   });
 
   it('no_stale_running reads TMB_STALE_RUNNING_HOURS', () => {

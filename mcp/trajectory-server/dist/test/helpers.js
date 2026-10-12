@@ -21,6 +21,8 @@ export function seedReviewerObservation(db, taskId, attemptN, opts = {}) {
         attempt_n: attemptN,
         session_id: opts.sessionId ?? 'main-session',
         agent_id: opts.agentId ?? 'reviewer0agent01',
+        tool_use_id: opts.toolUseId === undefined ? 'toolu_test0000000001' : opts.toolUseId,
+        observed_at: opts.observedAt ?? new Date().toISOString(),
         consumed: 0,
     });
     const res = db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)

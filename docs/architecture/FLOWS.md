@@ -182,7 +182,7 @@ sequenceDiagram
     end
 ```
 
-`validation_record` carries a typed `mcp_available` boolean (required for pr-reviewer; written to the `validation_attempts.mcp_available` column). The push-gate reads it from the row — `1` = MCP-backed review, `0` = honor-system fallback (a subagent that lacks MCP access reviews via the sqlite3 fallback path and records `mcp_available: false`). `feedback` is free-prose rationale.
+`validation_record` carries a typed `mcp_available` boolean (required for pr-reviewer; written to the `validation_attempts.mcp_available` column). The push-gate reads it from the row — `1` = MCP-backed review, `0` = honor-system fallback (a subagent that lacks MCP access reviews via the sqlite3 fallback path and records `mcp_available: false`). `feedback` is free-prose rationale. The reviewer's identity comes from the newest unconsumed `reviewer_identity_observed` row for `(task_id, attempt_n)` (written by the `reviewer-identity-observe` hook with the call's `tool_use_id` and `observed_at`) observed within the last 600 s; an older row is never consumed — the call fails `subagent_session_unavailable` naming the row's age, and the reviewer calls again so the hook writes a fresh row. An honor-system call (`mcp_available: false`) may only fill an attempt with no verified row: it never overwrites an `mcp_available = 1` verdict (`verified_verdict_exists`), while a verified call may still replace a verified row.
 
 ---
 

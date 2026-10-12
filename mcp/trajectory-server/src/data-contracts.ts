@@ -106,6 +106,10 @@ const VERIFIED_CLOSE_SCOPE = `t.status = 'closed' AND ${ts('t.updated_at')} >= $
                AND COALESCE(t.commit_sha, '') <> '' AND COALESCE(t.verification, '[]') NOT IN ('', '[]')
                AND NOT EXISTS (SELECT 1 FROM audit w WHERE w.event_type = 'verification_gate_waived' AND ${auditTaskId('w')} = t.id)`;
 
+const UNCONSUMED_STALE_OBSERVATION = (alias: string): string =>
+  `${alias}.event_type = 'reviewer_identity_observed' AND ${ts(`${alias}.created_at`)} < strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 hours')
+               AND COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.consumed') END, 0) = 0`;
+
 const LIVE_TASK_STATUSES = "'pending','running','needs_validation','completed'";
 
 /** Columns added in v29–v33 that stay NULL by design; they get no contract. */
@@ -237,6 +241,17 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
       sample_sql: `SELECT ${auditTaskId('a')} AS task_id, ${auditCommitSha('a')} AS commit_sha, COUNT(*) AS n FROM audit a
              WHERE a.event_type = 'verification_gate_waived'
              GROUP BY ${auditTaskId('a')}, COALESCE(${auditCommitSha('a')}, '') HAVING COUNT(*) > 1 ORDER BY n DESC LIMIT 5`,
+    },
+    {
+      id: 'no_unconsumed_reviewer_observations',
+      severity: 'warn',
+      description: 'no reviewer_identity_observed row older than 1 hour is still unconsumed (a pr-reviewer validation_record call that never recorded a verdict)',
+      sql: `SELECT COUNT(*) FROM audit o
+             WHERE ${UNCONSUMED_STALE_OBSERVATION('o')}`,
+      expect: { op: '=', value: 0 },
+      sample_sql: `SELECT o.id, o.issue_id, o.created_at, o.content_json FROM audit o
+             WHERE ${UNCONSUMED_STALE_OBSERVATION('o')}
+             ORDER BY o.id DESC LIMIT 5`,
     },
     {
       id: 'embeddings_not_degraded',

@@ -66,8 +66,8 @@ export async function startClient({ env, dbPath: requestedDbPath = ':memory:', f
 // validation_record (the server refuses a verdict without one). Needs a
 // startClient({ fileDb: true }) dbPath; uses the sqlite3 CLI so it runs under
 // node and bun alike.
-export function seedReviewerObservation(dbPath, taskId, attemptN, { agentId = 'l3-reviewer-agent', sessionId = 'l3-main-session' } = {}) {
-  const content = JSON.stringify({ task_id: Number(taskId), attempt_n: attemptN, session_id: sessionId, agent_id: agentId, consumed: 0 }).replace(/'/g, "''");
+export function seedReviewerObservation(dbPath, taskId, attemptN, { agentId = 'l3-reviewer-agent', sessionId = 'l3-main-session', toolUseId = 'toolu_l3_fixture', observedAt = new Date().toISOString() } = {}) {
+  const content = JSON.stringify({ task_id: Number(taskId), attempt_n: attemptN, session_id: sessionId, agent_id: agentId, tool_use_id: toolUseId, observed_at: observedAt, consumed: 0 }).replace(/'/g, "''");
   const id = Number(taskId);
   execFileSync('sqlite3', ['-cmd', '.timeout 5000', dbPath,
     `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at, repo)

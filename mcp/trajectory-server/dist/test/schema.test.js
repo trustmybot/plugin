@@ -7,6 +7,10 @@ import { tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
 import { assertTimestampsIso } from './fixtures/v30-shape.js';
 import { assertV36Shape } from './fixtures/v36-shape.js';
+function seedFixtureIssue(db, now) {
+    const res = db.run(`INSERT INTO issues (objective, status, created_at, updated_at) VALUES ('schema fixture', 'open', ?, ?)`, [now, now]);
+    return Number(res.lastInsertRowid);
+}
 describe('schema — current table set, default values, constraints', () => {
     it('fresh prod-mode DB contains the current table set (skills folded into cheatcodes, #101; world model in kuzu)', () => {
         const db = tempDB();
@@ -121,8 +125,9 @@ describe('schema — current table set, default values, constraints', () => {
     it('fresh DB: discussions.remote_comment_id is unique only when non-NULL (v30)', () => {
         const db = tempDB();
         const now = new Date().toISOString();
+        const issueId = seedFixtureIssue(db, now);
         const insert = (remote) => {
-            db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at, remote_comment_id) VALUES (-1, 'bro', 'note', 'b', ?, ?)`, [now, remote]);
+            db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at, remote_comment_id) VALUES (?, 'bro', 'note', 'b', ?, ?)`, [issueId, now, remote]);
         };
         insert(null);
         insert(null);
@@ -142,7 +147,7 @@ describe('schema — current table set, default values, constraints', () => {
             usage_source: null,
         });
         const now = new Date().toISOString();
-        db.run(`INSERT INTO tasks (id, issue_id, branch_id, description, created_at, updated_at) VALUES (1, -1, 'fix/a', 'd', ?, ?)`, [now, now]);
+        db.run(`INSERT INTO tasks (id, issue_id, branch_id, description, created_at, updated_at) VALUES (1, ?, 'fix/a', 'd', ?, ?)`, [seedFixtureIssue(db, now), now, now]);
         db.run(`INSERT INTO agent_runs (task_id, agent_type, spawn_id) VALUES (1, 'swe', 's-1')`);
         db.run(`INSERT INTO agent_runs (task_id, agent_type, spawn_id) VALUES (1, 'swe', NULL)`);
         db.run(`INSERT INTO agent_runs (task_id, agent_type, spawn_id) VALUES (1, 'swe', NULL)`);

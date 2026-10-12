@@ -103,7 +103,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `agent-arg-matches-caller.sh` | PreToolUse trajectory-server | Deny a call whose `agent` argument names another role than the caller (the payload's `agent_type`, or bro for the main session) and audit `agent_arg_mismatch`; a missing `agent` is allowed and the decision never depends on the trajectory DB |
 | `swe-brief-gate.sh` | PreToolUse trajectory-server + Edit/Write | SWE must have fetched its task brief before touching state or files |
 | `swe-verification-gate.sh` | PreToolUse task_update_status | Gate the SWE close transition on verification |
-| `reviewer-identity-observe.sh` | PreToolUse validation_record | Record the calling pr-reviewer's `session_id` and `agent_id` (`reviewer_identity_observed`) so `validation_record` stamps the reviewer's identity; observe-only, fails closed only when the trajectory DB is unavailable |
+| `reviewer-identity-observe.sh` | PreToolUse validation_record | Record the calling pr-reviewer's `session_id`, `agent_id` and `tool_use_id` with `observed_at` (`reviewer_identity_observed`) so `validation_record` stamps the reviewer's identity; observe-only, fails closed only when the trajectory DB is unavailable |
 | `cheatcode-install-approval.sh` | PreToolUse cheatcode_install | Require Human approval before installing a cheatcode |
 | `askuserquestion-length-lint.sh` | PreToolUse AskUserQuestion | Cap label/description lengths |
 | `roundtable-auq-shape.sh` | PreToolUse AskUserQuestion | Validate AUQ shape during roundtable awaiting_human |
