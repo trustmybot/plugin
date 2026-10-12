@@ -3,6 +3,7 @@ import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, redactValidationRow, requireRoles } from '../middleware/agent-scope.js';
 import type { ValidationAttempt } from '../types.js';
+import { insertAudit } from './audit.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -36,6 +37,33 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
   };
 }
 
+export const REVIEWER_OBSERVE_FROM_NODE = 'hook:reviewer-identity-observe';
+const AGENT_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+
+interface ReviewerObservation {
+  id: number;
+  session_id: string | null;
+  agent_id: string | null;
+}
+
+function latestObservation(db: TrajectoryDB, taskId: number, attemptN: number): ReviewerObservation | undefined {
+  return db.get<ReviewerObservation>(
+    `SELECT id,
+            json_extract(content_json, '$.session_id') AS session_id,
+            json_extract(content_json, '$.agent_id') AS agent_id
+       FROM audit
+      WHERE event_type = 'reviewer_identity_observed'
+        AND from_node = ?
+        AND json_valid(content_json)
+        AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ?
+        AND CAST(json_extract(content_json, '$.attempt_n') AS INTEGER) = ?
+        AND COALESCE(json_extract(content_json, '$.consumed'), 0) = 0
+      ORDER BY id DESC
+      LIMIT 1`,
+    [REVIEWER_OBSERVE_FROM_NODE, taskId, attemptN],
+  );
+}
+
 function coerceTaskId(raw: unknown): number {
   const n = Number(raw);
   if (!Number.isInteger(n) || n <= 0) {
@@ -53,7 +81,7 @@ export function validationTools(db: TrajectoryDB): {
   const definitions: Tool[] = [
     {
       name: 'validation_record',
-      description: 'Record a validation attempt for a task.',
+      description: 'Record a validation attempt for a task. subagent_session_id and reviewer_agent_id are derived server-side from the reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -63,7 +91,7 @@ export function validationTools(db: TrajectoryDB): {
           verdict: { type: 'string', enum: ['pass', 'fail', 'escalate'] },
           feedback: { type: 'string' },
           mcp_available: { type: 'boolean', description: 'Required when agent="pr-reviewer": true if the review ran with the trajectory MCP up, false for the honor-system fallback. The typed push-gate signal bro reads from the validation row.' },
-          subagent_session_id: { type: 'string', description: 'Required when agent="pr-reviewer": the spawned pr-reviewer subagent\'s session ID.' },
+          subagent_session_id: { type: 'string', description: 'Ignored: derived from the hook observation. Recorded only on the mcp_available:false honor-system path when no observation exists.' },
         },
         required: ['agent', 'task_id', 'attempt_n', 'verdict', 'feedback'],
       },
@@ -82,7 +110,7 @@ export function validationTools(db: TrajectoryDB): {
           fields: {
             type: 'array',
             items: { type: 'string' },
-            description: 'Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at. Unknown fields return a named error. Default: all columns.',
+            description: 'Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at. Unknown fields return a named error. Default: all columns.',
           },
         },
         required: ['agent', 'task_id'],
@@ -99,13 +127,6 @@ export function validationTools(db: TrajectoryDB): {
       requireArg(args, 'feedback');
 
       const role = normalizeAgent(agent);
-      const subagentSessionId = (args['subagent_session_id'] ?? null) as string | null;
-
-      if (role === 'pr-reviewer' && !subagentSessionId) {
-        throw new Error(
-          'precondition_failed: validation_record with agent="pr-reviewer" requires subagent_session_id (the spawned pr-reviewer subagent\'s session ID). This prevents bro from self-authoring pr-reviewer verdicts.',
-        );
-      }
 
       const mcpAvailableArg = args['mcp_available'];
       if (role === 'pr-reviewer' && typeof mcpAvailableArg !== 'boolean') {
@@ -121,8 +142,8 @@ export function validationTools(db: TrajectoryDB): {
         );
       }
 
-      const taskExists = db.get<{ id: number; repo: string | null }>(
-        `SELECT t.id, COALESCE(t.repo, i.repo) AS repo
+      const taskExists = db.get<{ id: number; issue_id: number; repo: string | null }>(
+        `SELECT t.id, t.issue_id, COALESCE(t.repo, i.repo) AS repo
            FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
           WHERE t.id = ?`,
         [taskId],
@@ -134,21 +155,73 @@ export function validationTools(db: TrajectoryDB): {
       const attemptN = args['attempt_n'] as number;
       const feedback = args['feedback'] as string;
       const now = nowISO();
+      const callerSessionId = typeof args['subagent_session_id'] === 'string' ? (args['subagent_session_id'] as string) : null;
 
-      db.run(
-        `INSERT INTO validation_attempts
-           (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at, repo)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(task_id, attempt_n) DO UPDATE SET
-           agent = excluded.agent,
-           verdict = excluded.verdict,
-           feedback = excluded.feedback,
-           mcp_available = excluded.mcp_available,
-           subagent_session_id = excluded.subagent_session_id,
-           created_at = excluded.created_at,
-           repo = excluded.repo`,
-        [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, now, taskExists.repo],
-      );
+      db.transaction(() => {
+        const observed = latestObservation(db, taskId, attemptN);
+        let subagentSessionId: string | null;
+        let reviewerAgentId: string | null;
+
+        if (observed) {
+          const observedAgentId = typeof observed.agent_id === 'string' ? observed.agent_id : '';
+          if (observedAgentId === '') {
+            throw new Error(
+              `reviewer_not_independent: the observed validation_record call for task ${taskId} attempt ${attemptN} carried no agent_id — it came from the main loop, not a pr-reviewer subagent.`,
+            );
+          }
+          if (!AGENT_ID_RE.test(observedAgentId)) {
+            throw new Error(
+              `reviewer_agent_id_malformed: observed agent_id ${JSON.stringify(observedAgentId)} does not match [A-Za-z0-9_-]{8,64}.`,
+            );
+          }
+          const sweRun = db.get<{ id: number }>(
+            `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'swe' AND spawn_id = ? LIMIT 1`,
+            [taskId, observedAgentId],
+          );
+          if (sweRun) {
+            throw new Error(
+              `reviewer_not_independent: reviewer agent_id ${observedAgentId} is the swe that ran task ${taskId}; spawn a separate pr-reviewer.`,
+            );
+          }
+          subagentSessionId = typeof observed.session_id === 'string' && observed.session_id !== '' ? observed.session_id : null;
+          reviewerAgentId = observedAgentId;
+          db.run(
+            `UPDATE audit SET content_json = json_set(content_json, '$.consumed', 1) WHERE id = ?`,
+            [observed.id],
+          );
+        } else if (mcpAvailable === 0) {
+          subagentSessionId = callerSessionId;
+          reviewerAgentId = null;
+          insertAudit(db, {
+            issue_id: taskExists.issue_id,
+            from_node: 'trajectory-server',
+            event_type: 'validation_session_unverified',
+            summary: `validation_record for task ${taskId} attempt ${attemptN} recorded on the honor-system path without a hook-observed reviewer identity`,
+            content_json: JSON.stringify({ task_id: taskId, attempt_n: attemptN, subagent_session_id: callerSessionId }),
+            created_at: now,
+          });
+        } else {
+          throw new Error(
+            `subagent_session_unavailable: no reviewer_identity_observed row for task ${taskId} attempt ${attemptN}. validation_record must be called by a spawned pr-reviewer subagent (the reviewer-identity-observe hook records its identity); pass mcp_available:false only on the honor-system path.`,
+          );
+        }
+
+        db.run(
+          `INSERT INTO validation_attempts
+             (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, repo)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(task_id, attempt_n) DO UPDATE SET
+             agent = excluded.agent,
+             verdict = excluded.verdict,
+             feedback = excluded.feedback,
+             mcp_available = excluded.mcp_available,
+             subagent_session_id = excluded.subagent_session_id,
+             reviewer_agent_id = excluded.reviewer_agent_id,
+             created_at = excluded.created_at,
+             repo = excluded.repo`,
+          [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, reviewerAgentId, now, taskExists.repo],
+        );
+      });
 
       const row = db.get<ValidationAttempt>(
         `SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = ?`,
@@ -170,7 +243,7 @@ export function validationTools(db: TrajectoryDB): {
       const cursorArg = args['cursor'] as string | undefined;
       const fieldsArg = args['fields'] as string[] | undefined;
 
-      const ALLOWED_VALIDATION_FIELDS = new Set(['id', 'task_id', 'attempt_n', 'agent', 'verdict', 'feedback', 'mcp_available', 'subagent_session_id', 'created_at']);
+      const ALLOWED_VALIDATION_FIELDS = new Set(['id', 'task_id', 'attempt_n', 'agent', 'verdict', 'feedback', 'mcp_available', 'subagent_session_id', 'reviewer_agent_id', 'created_at']);
 
       if (fieldsArg !== undefined) {
         const unknown = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));

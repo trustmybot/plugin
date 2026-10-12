@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { tempDB } from './helpers.js';
+import { seedReviewerObservation, tempDB } from './helpers.js';
 import { auditTools } from '../tools/audit.js';
 import { validationTools } from '../tools/validation.js';
 import { skillTools } from '../tools/skills.js';
@@ -263,6 +263,7 @@ describe('validationTools', () => {
     const taskId = await createTask(db, issueId);
     const tools = validationTools(db);
 
+    seedReviewerObservation(db, taskId, 3);
     await call(tools.handlers, 'validation_record', {
       agent: 'pr-reviewer',
       task_id: taskId,
@@ -273,6 +274,7 @@ describe('validationTools', () => {
       subagent_session_id: 'session-3',
     });
 
+    seedReviewerObservation(db, taskId, 1);
     await call(tools.handlers, 'validation_record', {
       agent: 'pr-reviewer',
       task_id: taskId,
@@ -283,6 +285,7 @@ describe('validationTools', () => {
       subagent_session_id: 'session-1',
     });
 
+    seedReviewerObservation(db, taskId, 2);
     await call(tools.handlers, 'validation_record', {
       agent: 'pr-reviewer',
       task_id: taskId,

@@ -342,6 +342,9 @@ export function taskTools(db, runContext = claudeRunContext(db)) {
             requireArg(args, 'agent');
             const issueId = requireArg(args, 'issue_id');
             requireArg(args, 'tasks');
+            if (Number(issueId) === -1) {
+                return err('system_issue_reserved: issue -1 is the system issue and carries audit rows only; create the task under a real issue.');
+            }
             const taskInputs = args['tasks'];
             const sessionId = parseRunSessionId(args['session_id']);
             if (!Array.isArray(taskInputs) || taskInputs.length === 0) {

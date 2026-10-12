@@ -24210,6 +24210,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "repo_renamed", writers: ["bro"], description: "`repo_rename` moved a repo to a new name: the `repos` row, its FK children, `pr_review_runs` host slugs and the world-model nodes; filed under the system issue `-1` by `bro` with `repo` = the new name; `content_json` carries `old`, `new`, `reason`, `rows_by_table`, `graph` (`rekeyed`, or `deferred` when kuzu was unavailable or failed \u2014 the next `scan_run` rebuilds), `graph_nodes`, and `graph_error` when the re-key failed" },
   { type: "review_gate_bypassed", writers: ["bro", "hook"], description: "A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing pr-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`" },
   { type: "review_gate_waived", writers: ["bro"], description: "`issue_close(waive_review: true)` closed an issue over a closed task with no passing pr-reviewer verdict for its current commit; one row per such task; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason`" },
+  { type: "reviewer_identity_observed", writers: ["hook"], description: "`reviewer-identity-observe` saw a pr-reviewer subagent call `validation_record` (the payload carried `agent_id` and an `agent_type` that normalises to `pr-reviewer`); one row per call on the task's issue, from_node `hook:reviewer-identity-observe`; `content_json` carries `task_id`, `attempt_n`, `session_id`, `agent_id`, `consumed` (0 until `validation_record` stamps `subagent_session_id` and `reviewer_agent_id` from it and sets 1). `audit_append` refuses this event" },
   { type: "roundtable_slash_invoked", writers: ["hook"], description: "`roundtable-slash-detect` saw the Human type `/roundtable`; `roundtable_create` consumes the row" },
   { type: "roundtable_summary", writers: ["bro"], description: "Bro recorded a roundtable's outcome summary via `audit_append`; `roundtable-cleanup-postcheck` requires it", reserved: true },
   { type: "scan_discovered", writers: ["server", "hook"], description: "A scan registered a newly discovered cheatcode (`scan_run`, or `scan.sh` as `hook:scan`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `origin`, `source`" },
@@ -24230,6 +24231,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "tmb_branch_autocreated", writers: ["bro"], description: "`task_create_batch` created the task's feature branch ref" },
   { type: "tmb_skill_created", writers: ["bro"], description: "`tmb_skill-creator` landed a new skill; written by bro via `audit_append`", reserved: true },
   { type: "trajectory_doctor_run", writers: ["bro"], description: "`trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`), `embeddings` (the server's `embeddingStatus()`: `state`, `since`, `reason`, `consecutive_failures`, `next_retry_at`)" },
+  { type: "validation_session_unverified", writers: ["server"], description: "`validation_record` recorded an honor-system verdict (`mcp_available: false`) with no `reviewer_identity_observed` row, so `subagent_session_id` is the caller's unverified value and `reviewer_agent_id` is NULL; on the task's issue, from_node `trajectory-server`; `content_json` carries `task_id`, `attempt_n`, `subagent_session_id`" },
   { type: "verification_gate_waived", writers: ["hook"], description: "`swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason`" }
 ];
 var KNOWN = new Set(AUDIT_EVENT_TYPES.map((e) => e.type));
@@ -27722,6 +27724,9 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
       requireArg4(args, "agent");
       const issueId = requireArg4(args, "issue_id");
       requireArg4(args, "tasks");
+      if (Number(issueId) === -1) {
+        return err5("system_issue_reserved: issue -1 is the system issue and carries audit rows only; create the task under a real issue.");
+      }
       const taskInputs = args["tasks"];
       const sessionId = parseRunSessionId(args["session_id"]);
       if (!Array.isArray(taskInputs) || taskInputs.length === 0) {
@@ -28322,6 +28327,25 @@ function wrapHandler5(fn) {
     }
   };
 }
+var REVIEWER_OBSERVE_FROM_NODE = "hook:reviewer-identity-observe";
+var AGENT_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+function latestObservation(db2, taskId, attemptN) {
+  return db2.get(
+    `SELECT id,
+            json_extract(content_json, '$.session_id') AS session_id,
+            json_extract(content_json, '$.agent_id') AS agent_id
+       FROM audit
+      WHERE event_type = 'reviewer_identity_observed'
+        AND from_node = ?
+        AND json_valid(content_json)
+        AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ?
+        AND CAST(json_extract(content_json, '$.attempt_n') AS INTEGER) = ?
+        AND COALESCE(json_extract(content_json, '$.consumed'), 0) = 0
+      ORDER BY id DESC
+      LIMIT 1`,
+    [REVIEWER_OBSERVE_FROM_NODE, taskId, attemptN]
+  );
+}
 function coerceTaskId(raw) {
   const n = Number(raw);
   if (!Number.isInteger(n) || n <= 0) {
@@ -28335,7 +28359,7 @@ function validationTools(db2) {
   const definitions = [
     {
       name: "validation_record",
-      description: "Record a validation attempt for a task.",
+      description: "Record a validation attempt for a task. subagent_session_id and reviewer_agent_id are derived server-side from the reviewer-identity-observe hook row for (task_id, attempt_n); caller values are ignored.",
       inputSchema: {
         type: "object",
         properties: {
@@ -28345,7 +28369,7 @@ function validationTools(db2) {
           verdict: { type: "string", enum: ["pass", "fail", "escalate"] },
           feedback: { type: "string" },
           mcp_available: { type: "boolean", description: 'Required when agent="pr-reviewer": true if the review ran with the trajectory MCP up, false for the honor-system fallback. The typed push-gate signal bro reads from the validation row.' },
-          subagent_session_id: { type: "string", description: `Required when agent="pr-reviewer": the spawned pr-reviewer subagent's session ID.` }
+          subagent_session_id: { type: "string", description: "Ignored: derived from the hook observation. Recorded only on the mcp_available:false honor-system path when no observation exists." }
         },
         required: ["agent", "task_id", "attempt_n", "verdict", "feedback"]
       }
@@ -28364,7 +28388,7 @@ function validationTools(db2) {
           fields: {
             type: "array",
             items: { type: "string" },
-            description: "Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at. Unknown fields return a named error. Default: all columns."
+            description: "Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at. Unknown fields return a named error. Default: all columns."
           }
         },
         required: ["agent", "task_id"]
@@ -28379,12 +28403,6 @@ function validationTools(db2) {
       const verdict = requireArg5(args, "verdict");
       requireArg5(args, "feedback");
       const role = normalizeAgent(agent);
-      const subagentSessionId = args["subagent_session_id"] ?? null;
-      if (role === "pr-reviewer" && !subagentSessionId) {
-        throw new Error(
-          `precondition_failed: validation_record with agent="pr-reviewer" requires subagent_session_id (the spawned pr-reviewer subagent's session ID). This prevents bro from self-authoring pr-reviewer verdicts.`
-        );
-      }
       const mcpAvailableArg = args["mcp_available"];
       if (role === "pr-reviewer" && typeof mcpAvailableArg !== "boolean") {
         throw new Error(
@@ -28398,7 +28416,7 @@ function validationTools(db2) {
         );
       }
       const taskExists = db2.get(
-        `SELECT t.id, COALESCE(t.repo, i.repo) AS repo
+        `SELECT t.id, t.issue_id, COALESCE(t.repo, i.repo) AS repo
            FROM tasks t LEFT JOIN issues i ON i.id = t.issue_id
           WHERE t.id = ?`,
         [taskId]
@@ -28409,20 +28427,70 @@ function validationTools(db2) {
       const attemptN = args["attempt_n"];
       const feedback = args["feedback"];
       const now = nowISO();
-      db2.run(
-        `INSERT INTO validation_attempts
-           (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at, repo)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(task_id, attempt_n) DO UPDATE SET
-           agent = excluded.agent,
-           verdict = excluded.verdict,
-           feedback = excluded.feedback,
-           mcp_available = excluded.mcp_available,
-           subagent_session_id = excluded.subagent_session_id,
-           created_at = excluded.created_at,
-           repo = excluded.repo`,
-        [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, now, taskExists.repo]
-      );
+      const callerSessionId = typeof args["subagent_session_id"] === "string" ? args["subagent_session_id"] : null;
+      db2.transaction(() => {
+        const observed = latestObservation(db2, taskId, attemptN);
+        let subagentSessionId;
+        let reviewerAgentId;
+        if (observed) {
+          const observedAgentId = typeof observed.agent_id === "string" ? observed.agent_id : "";
+          if (observedAgentId === "") {
+            throw new Error(
+              `reviewer_not_independent: the observed validation_record call for task ${taskId} attempt ${attemptN} carried no agent_id \u2014 it came from the main loop, not a pr-reviewer subagent.`
+            );
+          }
+          if (!AGENT_ID_RE.test(observedAgentId)) {
+            throw new Error(
+              `reviewer_agent_id_malformed: observed agent_id ${JSON.stringify(observedAgentId)} does not match [A-Za-z0-9_-]{8,64}.`
+            );
+          }
+          const sweRun = db2.get(
+            `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'swe' AND spawn_id = ? LIMIT 1`,
+            [taskId, observedAgentId]
+          );
+          if (sweRun) {
+            throw new Error(
+              `reviewer_not_independent: reviewer agent_id ${observedAgentId} is the swe that ran task ${taskId}; spawn a separate pr-reviewer.`
+            );
+          }
+          subagentSessionId = typeof observed.session_id === "string" && observed.session_id !== "" ? observed.session_id : null;
+          reviewerAgentId = observedAgentId;
+          db2.run(
+            `UPDATE audit SET content_json = json_set(content_json, '$.consumed', 1) WHERE id = ?`,
+            [observed.id]
+          );
+        } else if (mcpAvailable === 0) {
+          subagentSessionId = callerSessionId;
+          reviewerAgentId = null;
+          insertAudit(db2, {
+            issue_id: taskExists.issue_id,
+            from_node: "trajectory-server",
+            event_type: "validation_session_unverified",
+            summary: `validation_record for task ${taskId} attempt ${attemptN} recorded on the honor-system path without a hook-observed reviewer identity`,
+            content_json: JSON.stringify({ task_id: taskId, attempt_n: attemptN, subagent_session_id: callerSessionId }),
+            created_at: now
+          });
+        } else {
+          throw new Error(
+            `subagent_session_unavailable: no reviewer_identity_observed row for task ${taskId} attempt ${attemptN}. validation_record must be called by a spawned pr-reviewer subagent (the reviewer-identity-observe hook records its identity); pass mcp_available:false only on the honor-system path.`
+          );
+        }
+        db2.run(
+          `INSERT INTO validation_attempts
+             (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, repo)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(task_id, attempt_n) DO UPDATE SET
+             agent = excluded.agent,
+             verdict = excluded.verdict,
+             feedback = excluded.feedback,
+             mcp_available = excluded.mcp_available,
+             subagent_session_id = excluded.subagent_session_id,
+             reviewer_agent_id = excluded.reviewer_agent_id,
+             created_at = excluded.created_at,
+             repo = excluded.repo`,
+          [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, reviewerAgentId, now, taskExists.repo]
+        );
+      });
       const row = db2.get(
         `SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = ?`,
         [taskId, attemptN]
@@ -28437,7 +28505,7 @@ function validationTools(db2) {
       const limitArg = args["limit"];
       const cursorArg = args["cursor"];
       const fieldsArg = args["fields"];
-      const ALLOWED_VALIDATION_FIELDS = /* @__PURE__ */ new Set(["id", "task_id", "attempt_n", "agent", "verdict", "feedback", "mcp_available", "subagent_session_id", "created_at"]);
+      const ALLOWED_VALIDATION_FIELDS = /* @__PURE__ */ new Set(["id", "task_id", "attempt_n", "agent", "verdict", "feedback", "mcp_available", "subagent_session_id", "reviewer_agent_id", "created_at"]);
       if (fieldsArg !== void 0) {
         const unknown2 = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));
         if (unknown2.length > 0) {
@@ -31268,6 +31336,9 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const sessionId = parseRunSessionId(args["session_id"]);
         if (typeof issueId !== "number" || !Number.isFinite(issueId)) {
           return err15("issue_id must be a number");
+        }
+        if (issueId === -1) {
+          return err15("system_issue_reserved: issue -1 is the system issue and carries audit rows only; provision the task under a real issue.");
         }
         if (!branchId || typeof branchId !== "string") {
           return err15("branch_id must be a non-empty string");

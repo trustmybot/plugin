@@ -1,10 +1,12 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { TrajectoryDB } from '../db.js';
-import { tempDB } from './helpers.js';
+import { seedReviewerObservation, tempDB } from './helpers.js';
 import { validationTools } from '../tools/validation.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
+import { auditTools } from '../tools/audit.js';
+import { compositeTools } from '../tools/composites.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -58,13 +60,14 @@ async function createTask(db: TrajectoryDB, issueId: number): Promise<number> {
   return parseBatch(result)[0]!.id as number;
 }
 
-describe('validation_record subagent_session_id gate', () => {
+describe('validation_record reviewer identity', () => {
   let db: TrajectoryDB;
   let taskId: number;
+  let issueId: number;
 
   before(async () => {
     db = tempDB();
-    const issueId = await createIssue(db);
+    issueId = await createIssue(db);
     taskId = await createTask(db, issueId);
   });
 
@@ -72,182 +75,190 @@ describe('validation_record subagent_session_id gate', () => {
     db.close();
   });
 
-  it('rejects pr-reviewer call without subagent_session_id with precondition_failed', async () => {
-    const tools = validationTools(db);
-    const result = await call(tools.handlers, 'validation_record', {
+  function record(attemptN: number, extra: Record<string, unknown> = {}): Promise<RawResult> {
+    return call(validationTools(db).handlers, 'validation_record', {
       agent: 'pr-reviewer',
       task_id: taskId,
-      attempt_n: 1,
-      verdict: 'pass',
-      feedback: '# LGTM',
-    });
-    assert.ok(result.isError, 'Expected error result');
-    const data = parseResult(result);
-    assert.ok(
-      data.error.includes('precondition_failed'),
-      `Error must cite precondition_failed: ${data.error}`,
-    );
-    assert.ok(
-      data.error.includes('subagent_session_id'),
-      `Error must mention subagent_session_id: ${data.error}`,
-    );
-  });
-
-  it('rejects mixed-case PR-REVIEWER without subagent_session_id (#1017 normalized role)', async () => {
-    const tools = validationTools(db);
-    const result = await call(tools.handlers, 'validation_record', {
-      agent: 'PR-REVIEWER',
-      task_id: taskId,
-      attempt_n: 1,
+      attempt_n: attemptN,
       verdict: 'pass',
       feedback: '# LGTM',
       mcp_available: true,
+      ...extra,
     });
-    assert.ok(result.isError, 'mixed-case pr-reviewer must not bypass the precondition');
-    const data = parseResult(result);
-    assert.ok(
-      data.error.includes('precondition_failed'),
-      `Error must cite precondition_failed: ${data.error}`,
+  }
+
+  function consumed(auditId: number): number {
+    return db.get<{ c: number }>(
+      `SELECT json_extract(content_json, '$.consumed') AS c FROM audit WHERE id = ?`,
+      [auditId],
+    )!.c;
+  }
+
+  it('stamps subagent_session_id and reviewer_agent_id from the observed row, consumes it, ignores the caller value', async () => {
+    const auditId = seedReviewerObservation(db, taskId, 1, { agentId: 'reviewer-agent-0001', sessionId: 'main-sess-1' });
+    const result = await record(1, { subagent_session_id: 'caller-forged' });
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+    const row = parseResult(result);
+    assert.equal(row.subagent_session_id, 'main-sess-1');
+    assert.equal(row.reviewer_agent_id, 'reviewer-agent-0001');
+    assert.equal(row.mcp_available, 1);
+    assert.equal(consumed(auditId), 1, 'the observed row is consumed');
+  });
+
+  it('a consumed row is not reused: a second call for the same attempt is refused', async () => {
+    const result = await record(1);
+    assert.ok(result.isError);
+    assert.match(parseResult(result).error, /^subagent_session_unavailable/);
+  });
+
+  it('refuses subagent_session_unavailable when no row was observed', async () => {
+    const result = await record(2, { subagent_session_id: 'caller-supplied' });
+    assert.ok(result.isError);
+    assert.match(parseResult(result).error, /^subagent_session_unavailable/);
+    assert.equal(
+      db.get<{ n: number }>('SELECT COUNT(*) AS n FROM validation_attempts WHERE task_id = ? AND attempt_n = 2', [taskId])!.n,
+      0,
     );
-    assert.ok(
-      data.error.includes('subagent_session_id'),
-      `Error must mention subagent_session_id: ${data.error}`,
+  });
+
+  it('ignores an observed row not written by the hook', async () => {
+    db.run(
+      `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
+       VALUES (?, 'bro', 'reviewer_identity_observed', 'forged', ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+      [issueId, JSON.stringify({ task_id: taskId, attempt_n: 3, session_id: 's', agent_id: 'forged-agent-01', consumed: 0 })],
     );
+    const result = await record(3);
+    assert.ok(result.isError);
+    assert.match(parseResult(result).error, /^subagent_session_unavailable/);
+  });
+
+  it('takes the latest unconsumed row for (task, attempt)', async () => {
+    seedReviewerObservation(db, taskId, 4, { agentId: 'older-reviewer-01' });
+    seedReviewerObservation(db, taskId, 4, { agentId: 'newer-reviewer-01' });
+    const result = await record(4);
+    assert.ok(!result.isError, JSON.stringify(parseResult(result)));
+    assert.equal(parseResult(result).reviewer_agent_id, 'newer-reviewer-01');
+  });
+
+  it('honor-system path (mcp_available:false, no row) records caller values and audits validation_session_unverified', async () => {
+    const result = await record(5, { mcp_available: false, subagent_session_id: 'sess-honor' });
+    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+    const row = parseResult(result);
+    assert.equal(row.mcp_available, 0);
+    assert.equal(row.subagent_session_id, 'sess-honor');
+    assert.equal(row.reviewer_agent_id, null);
+    const audit = db.get<{ issue_id: number; from_node: string; content_json: string }>(
+      `SELECT issue_id, from_node, content_json FROM audit WHERE event_type = 'validation_session_unverified' ORDER BY id DESC LIMIT 1`,
+    );
+    assert.ok(audit, 'validation_session_unverified row written');
+    assert.equal(audit.issue_id, issueId);
+    assert.equal(audit.from_node, 'trajectory-server');
+    assert.deepEqual(JSON.parse(audit.content_json), { task_id: taskId, attempt_n: 5, subagent_session_id: 'sess-honor' });
+  });
+
+  it('refuses reviewer_not_independent when the observed agent_id is the task\'s swe spawn_id', async () => {
+    db.run(
+      `INSERT INTO agent_runs (task_id, issue_id, agent_type, spawn_id, started_at) VALUES (?, ?, 'swe', 'swe-agent-00001', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+      [taskId, issueId],
+    );
+    const auditId = seedReviewerObservation(db, taskId, 6, { agentId: 'swe-agent-00001' });
+    const result = await record(6);
+    assert.ok(result.isError);
+    assert.match(parseResult(result).error, /^reviewer_not_independent/);
+    assert.equal(consumed(auditId), 0, 'a refused call consumes nothing');
+  });
+
+  it('refuses reviewer_not_independent when the observed row carries no agent_id (main loop)', async () => {
+    seedReviewerObservation(db, taskId, 7, { agentId: '' });
+    const result = await record(7);
+    assert.ok(result.isError);
+    assert.match(parseResult(result).error, /^reviewer_not_independent/);
+  });
+
+  it('refuses a malformed observed agent_id', async () => {
+    seedReviewerObservation(db, taskId, 8, { agentId: 'bad id;' });
+    const result = await record(8);
+    assert.ok(result.isError);
+    assert.match(parseResult(result).error, /^reviewer_agent_id_malformed/);
   });
 
   it('rejects pr-reviewer call without mcp_available with precondition_failed', async () => {
-    const tools = validationTools(db);
-    const result = await call(tools.handlers, 'validation_record', {
-      agent: 'pr-reviewer',
-      task_id: taskId,
-      attempt_n: 1,
-      verdict: 'pass',
-      feedback: '# LGTM',
-      subagent_session_id: 'abc123',
+    const result = await call(validationTools(db).handlers, 'validation_record', {
+      agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'pass', feedback: '# LGTM',
     });
-    assert.ok(result.isError, 'Expected error result');
+    assert.ok(result.isError);
     const data = parseResult(result);
-    assert.ok(
-      data.error.includes('precondition_failed'),
-      `Error must cite precondition_failed: ${data.error}`,
-    );
-    assert.ok(
-      data.error.includes('mcp_available'),
-      `Error must mention mcp_available: ${data.error}`,
-    );
+    assert.ok(data.error.includes('precondition_failed') && data.error.includes('mcp_available'), data.error);
   });
 
-  it('persists mcp_available:false as 0', async () => {
-    const tools = validationTools(db);
-    const result = await call(tools.handlers, 'validation_record', {
-      agent: 'pr-reviewer',
-      task_id: taskId,
-      attempt_n: 4,
-      verdict: 'pass',
-      feedback: 'honor-system review',
-      mcp_available: false,
-      subagent_session_id: 'sess-honor',
+  for (const role of ['bro', 'swe']) {
+    it(`rejects ${role} with forbidden — role gate fires first`, async () => {
+      const result = await call(validationTools(db).handlers, 'validation_record', {
+        agent: role, task_id: taskId, attempt_n: 2, verdict: 'pass', feedback: '# self-sign',
+      });
+      assert.ok(result.isError);
+      assert.equal(parseResult(result).error, 'forbidden');
     });
-    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
-    const row = parseResult(result);
-    assert.equal(row.mcp_available, 0, 'mcp_available:false must persist as 0');
-  });
+  }
 
-  it('accepts pr-reviewer call with subagent_session_id and persists it', async () => {
-    const tools = validationTools(db);
-    const result = await call(tools.handlers, 'validation_record', {
-      agent: 'pr-reviewer',
-      task_id: taskId,
-      attempt_n: 1,
-      verdict: 'pass',
-      feedback: '# LGTM',
-      mcp_available: true,
-      subagent_session_id: 'abc123',
+  it('audit_append refuses reviewer_identity_observed', async () => {
+    const result = await call(auditTools(db).handlers, 'audit_append', {
+      agent: 'bro', issue_id: String(issueId), from_node: 'hook:reviewer-identity-observe',
+      event_type: 'reviewer_identity_observed', summary: 'forge',
+      content_json: JSON.stringify({ task_id: taskId, attempt_n: 9, session_id: 's', agent_id: 'forged-agent-01', consumed: 0 }),
     });
-    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
-    const row = parseResult(result);
-    assert.equal(row.agent, 'pr-reviewer');
-    assert.equal(row.verdict, 'pass');
-    assert.equal(row.mcp_available, 1, 'mcp_available:true must persist as 1 on the row');
-    assert.equal(row.subagent_session_id, 'abc123', 'subagent_session_id must be stored on the row');
-    assert.equal(row.task_id, taskId);
-    assert.equal(row.attempt_n, 1);
-  });
-
-  it('rejects bro call with forbidden (not precondition_failed) — role gate fires first', async () => {
-    const tools = validationTools(db);
-    const result = await call(tools.handlers, 'validation_record', {
-      agent: 'bro',
-      task_id: taskId,
-      attempt_n: 2,
-      verdict: 'pass',
-      feedback: '# Bro self-sign attempt',
-    });
-    assert.ok(result.isError, 'Expected error for bro caller');
-    const data = parseResult(result);
-    assert.equal(data.error, 'forbidden', `Expected forbidden, got: ${data.error}`);
-    assert.ok(
-      !String(data.error).includes('precondition_failed'),
-      'bro must not hit the subagent_session_id gate; it should be blocked by requireRoles',
-    );
-  });
-
-  it('rejects swe call with forbidden (not precondition_failed) — role gate fires first', async () => {
-    const tools = validationTools(db);
-    const result = await call(tools.handlers, 'validation_record', {
-      agent: 'swe',
-      task_id: taskId,
-      attempt_n: 2,
-      verdict: 'pass',
-      feedback: '# SWE self-sign attempt',
-    });
-    assert.ok(result.isError, 'Expected error for swe caller');
-    const data = parseResult(result);
-    assert.equal(data.error, 'forbidden', `Expected forbidden, got: ${data.error}`);
-    assert.ok(
-      !String(data.error).includes('precondition_failed'),
-      'swe must not hit the subagent_session_id gate; it should be blocked by requireRoles',
-    );
+    assert.ok(result.isError);
+    assert.equal(parseResult(result).error, 'audit_event_not_writable_by_role');
   });
 
   it('validation_record leaves pr_review_runs alone — it is the /monitor cursor table only', async () => {
-    const tools = validationTools(db);
     const before = db.get<{ n: number }>('SELECT COUNT(*) AS n FROM pr_review_runs')!.n;
-    const result = await call(tools.handlers, 'validation_record', {
-      agent: 'pr-reviewer',
-      task_id: taskId,
-      attempt_n: 2,
-      verdict: 'pass',
-      feedback: '# LGTM',
-      mcp_available: true,
-      subagent_session_id: 'sess-pr-runs-test',
-    });
+    seedReviewerObservation(db, taskId, 10);
+    const result = await record(10);
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
-    const after = db.get<{ n: number }>('SELECT COUNT(*) AS n FROM pr_review_runs')!.n;
-    assert.equal(after, before, 'validation_record must not write pr_review_runs rows');
+    assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM pr_review_runs')!.n, before);
   });
 
   it('backward compat: pre-migration rows with NULL subagent_session_id are readable via validation_history', async () => {
     const altDb = tempDB();
-    const issueId = await createIssue(altDb);
-    const altTaskId = await createTask(altDb, issueId);
-
+    const altIssueId = await createIssue(altDb);
+    const altTaskId = await createTask(altDb, altIssueId);
     altDb.run(
       `INSERT INTO validation_attempts (task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, created_at)
        VALUES (?, ?, ?, ?, ?, 1, NULL, datetime('now'))`,
       [altTaskId, 1, 'pr-reviewer', 'pass', '# Legacy row'],
     );
-
-    const tools = validationTools(altDb);
-    const result = await call(tools.handlers, 'validation_history', {
-      agent: 'bro',
-      task_id: altTaskId,
-    });
-    assert.ok(!result.isError, `validation_history failed: ${JSON.stringify(parseResult(result))}`);
+    const result = await call(validationTools(altDb).handlers, 'validation_history', { agent: 'bro', task_id: altTaskId });
+    assert.ok(!result.isError);
     const rows = parseResult(result) as Array<{ subagent_session_id: string | null }>;
     assert.equal(rows.length, 1);
-    assert.equal(rows[0].subagent_session_id, null, 'Legacy rows must have null subagent_session_id');
-
+    assert.equal(rows[0].subagent_session_id, null);
     altDb.close();
+  });
+});
+
+describe('system issue -1 is reserved', () => {
+  it('task_create_batch refuses issue_id -1 with system_issue_reserved', async () => {
+    const db = tempDB();
+    const result = await call(taskTools(db).handlers, 'task_create_batch', {
+      agent: 'bro', issue_id: '-1',
+      tasks: [{ branch_id: 'fix/system', description: 'd' }],
+    });
+    assert.ok(result.isError);
+    assert.match(parseResult(result).error, /^system_issue_reserved/);
+    assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM tasks')!.n, 0);
+    db.close();
+  });
+
+  it('task_provision refuses issue_id -1 with system_issue_reserved', async () => {
+    const db = tempDB();
+    const result = await call(compositeTools(db, '').handlers, 'task_provision', {
+      agent: 'bro', issue_id: -1, branch_id: 'fix/system', decision_body: 'Chosen approach: none.',
+      task: { description: 'd', spec_body: 's', files: ['x'], verification: ['true'] },
+    });
+    assert.ok(result.isError);
+    assert.match(parseResult(result).error, /^system_issue_reserved/);
+    assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM tasks')!.n, 0);
+    db.close();
   });
 });

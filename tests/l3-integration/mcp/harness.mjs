@@ -1,4 +1,6 @@
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { fileURLToPath } from 'node:url';
@@ -7,7 +9,12 @@ import path from 'node:path';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIST = path.resolve(HERE, '../../../mcp/trajectory-server/dist/index.js');
 
-export async function startClient({ env, dbPath = ':memory:' } = {}) {
+// startClient({ fileDb: true }) backs the server with a temp-dir DB file
+// instead of :memory:, so the test can write rows only a hook writes (see
+// seedReviewerObservation); close() removes the dir.
+export async function startClient({ env, dbPath: requestedDbPath = ':memory:', fileDb = false } = {}) {
+  const dbDir = fileDb ? mkdtempSync(path.join(tmpdir(), 'tmb-l3-db-')) : null;
+  const dbPath = dbDir ? path.join(dbDir, 'trajectory.db') : requestedDbPath;
   const transport = new StdioClientTransport({
     command: env ? process.execPath : 'node',
     args: [SERVER_DIST],
@@ -34,10 +41,27 @@ export async function startClient({ env, dbPath = ':memory:' } = {}) {
 
   return {
     client,
+    dbPath,
     async close() {
       await client.close();
+      if (dbDir) rmSync(dbDir, { recursive: true, force: true });
     },
   };
+}
+
+// seedReviewerObservation writes the reviewer_identity_observed row the
+// reviewer-identity-observe hook writes when a pr-reviewer subagent calls
+// validation_record (the server refuses a verdict without one). Needs a
+// startClient({ fileDb: true }) dbPath; uses the sqlite3 CLI so it runs under
+// node and bun alike.
+export function seedReviewerObservation(dbPath, taskId, attemptN, { agentId = 'l3-reviewer-agent', sessionId = 'l3-main-session' } = {}) {
+  const content = JSON.stringify({ task_id: Number(taskId), attempt_n: attemptN, session_id: sessionId, agent_id: agentId, consumed: 0 }).replace(/'/g, "''");
+  const id = Number(taskId);
+  execFileSync('sqlite3', ['-cmd', '.timeout 5000', dbPath,
+    `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at, repo)
+     SELECT t.issue_id, 'hook:reviewer-identity-observe', 'reviewer_identity_observed', 'l3 fixture: reviewer observed', '${content}',
+            strftime('%Y-%m-%dT%H:%M:%fZ','now'), (SELECT repo FROM issues WHERE id = t.issue_id)
+       FROM tasks t WHERE t.id = ${id};`]);
 }
 
 export async function listTools(client) {
