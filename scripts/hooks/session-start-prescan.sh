@@ -141,7 +141,8 @@ fi
 # every contract runs in one sqlite3 -readonly pass under a hard budget
 # (TMB_DOCTOR_BUDGET_MS, default 1500, capped at 3000 so the 6 s hook wrapper
 # covers it). A timeout or read error never reports healthy; a DB whose
-# plugin_meta.schema_version is below the contracts' schema_version says so.
+# plugin_meta.schema_version is below the contracts' schema_version says so
+# and is never healthy, even when every column the contracts read exists.
 CONTRACTS_JSON="$SCRIPT_DIR/lib/data-contracts.json"
 DOCTOR_BUDGET_MS="${TMB_DOCTOR_BUDGET_MS:-1500}"
 case "$DOCTOR_BUDGET_MS" in ''|*[!0-9]*) DOCTOR_BUDGET_MS=1500 ;; esac
@@ -181,8 +182,12 @@ if [ -n "$CONTRACT_IDS" ] && [ -n "$CONTRACT_SCRIPT" ]; then
     done <<<"$CONTRACT_IDS"
     if [ "$FAILED_N" -gt 0 ]; then
       DOCTOR_STATE="${FAILED_N} contract violation(s) [${FAILED_IDS}] — run trajectory_doctor"
-      [ "$UNCHECKED_N" -gt 0 ] && DOCTOR_STATE="${DOCTOR_STATE} (${UNCHECKED_N} unchecked${SCHEMA_NOTE:+: $SCHEMA_NOTE})"
-    elif [ "$UNCHECKED_N" -gt 0 ]; then
+      if [ "$UNCHECKED_N" -gt 0 ]; then
+        DOCTOR_STATE="${DOCTOR_STATE} (${UNCHECKED_N} unchecked${SCHEMA_NOTE:+: $SCHEMA_NOTE})"
+      elif [ -n "$SCHEMA_NOTE" ]; then
+        DOCTOR_STATE="${DOCTOR_STATE} (${SCHEMA_NOTE})"
+      fi
+    elif [ "$UNCHECKED_N" -gt 0 ] || [ -n "$SCHEMA_NOTE" ]; then
       DOCTOR_STATE="unchecked (${SCHEMA_NOTE:-read error})"
     else
       DOCTOR_STATE="healthy"

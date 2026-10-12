@@ -15,15 +15,16 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 
 - **Prompt-engineering guide (authoring agent prompts)** — [`PROMPT_ENGINEERING.md`](../prompt-engineering/PROMPT_ENGINEERING.md)
 - **Agent layer model + override rules** — [`architecture/RESPONSIBILITIES.md`](../architecture/RESPONSIBILITIES.md)
-- **plugin_config keys** — `mcp/trajectory-server/docs/CONFIG_KEYS.md`
+- **plugin_config keys** — [`CONFIG_KEYS.md`](./CONFIG_KEYS.md)
 - **Full architecture** — `docs/architecture/FLOWS.md`
 
 ## MCP tools (full list)
 
-67 tools across these groups (full schema in `mcp/trajectory-server/src/tools/`):
+73 tools across these groups (full schema in `mcp/trajectory-server/src/tools/`):
 
-- **issues**: `issue_create`, `issue_get`, `issue_list`, `issue_close`, `issue_link`, `issue_update_description`, `issue_resume`, `issue_get_phase`, `issue_sync_retry`
-- **tasks**: `task_get`, `task_update_status`, `task_first_actionable`
+- **issues**: `issue_create`, `issue_get`, `issue_list`, `issue_close`, `issue_link`, `issue_update_description`, `issue_resume`, `issue_get_phase`, `issue_sync_retry`, `issue_adopt_remote`
+- **milestones**: `milestone_close`
+- **tasks**: `task_create_batch`, `task_get`, `task_update_status`, `task_first_actionable`
 - **stats**: `task_stats`
 - **discussions**: `discussion_append` (verified_human gate when author='human'), `discussion_list`, `discussion_search`, `issue_get_with_discussions`
 - **roundtable**: `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_close_with_decisions`, `roundtable_finalize_decisions`, `roundtable_summarize` (state machine: collecting → awaiting_human → closed | skipped)
@@ -33,12 +34,15 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **onboard**: `onboard_state_get`, `onboard_get_questions`, `onboard_apply`
 - **config**: `config_get`, `config_list`, `config_set`
 - **scan**: `scan_run`, `repos_list`
+- **repos**: `repo_rename`
 - **reports**: `issue_report_md`, `issue_snapshot_md`, `branch_report_md`
 - **cheatcodes** (unified skill/agent registry): `cheatcode_list`, `cheatcode_search`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_approve`, `cheatcode_vet`, `cheatcode_uninstall`
 - **skills** (builtin rows in the `cheatcodes` registry): `skill_register`, `skill_promote`
 - **agents**: `agent_list`, `agent_register`, `agent_resolve`
 - **composites**: `intent_start`, `branch_id_propose`, `task_provision`, `task_brief`, `task_retry`, `task_recover`, `task_reopen`, `task_update_spec`, `bro_atomic_close`, `bro_verification_fail_record`, `pr_monitor_worktree`, `worktree_commits_fetch`
 - **audit**: `audit_append`, `audit_list`, `audit_search`
+- **metering backfill**: `agent_runs_backfill`
+- **data contracts**: `trajectory_doctor`
 
 ## Slash commands
 
@@ -119,4 +123,4 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `consultant-persistence-gate.sh` | SubagentStop | Persist a consultant subagent's output before it exits |
 | `worktree-create.sh` | WorktreeCreate | Enforce worktree-creation rules |
 
-## Schema state — see ERD.md for full table list (schema v28)
+## Schema state — see [ERD.md](../architecture/ERD.md) for the full table list

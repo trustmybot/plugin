@@ -207,9 +207,10 @@ Schema enforces via `CHECK(kind IN ('skill','mcp','plugin'))`. The `cheatcodes` 
 | Value | Meaning |
 |---|---|
 | `builtin` | Plugin-shipped `tmb_*` capability; `source_url` is NULL |
-| `installed` | Acquired via the discover → vet → install pipeline; `source_url` carries the candidate identity |
+| `marketplace` | Acquired from a registered Claude Code marketplace; `source_url` is the `<name>@<marketplace>` ref or a marketplace-relative path |
+| `external` | Acquired from a raw external repo URL (registered as a marketplace first); `source_url` carries the candidate identity. The column default for an acquired row |
 
-Schema enforces via `CHECK(origin IN ('builtin','installed'))`, plus paired `CHECK`s: `installed` rows require `source_url`, `builtin` rows forbid it.
+Provenance, not lifecycle — the install lifecycle is `status`. Schema enforces via `CHECK(origin IN ('builtin','marketplace','external'))`, plus paired `CHECK`s: `marketplace` and `external` rows require `source_url`, `builtin` rows forbid it.
 
 ### `cheatcodes.scope` — where the capability lives
 
@@ -230,15 +231,26 @@ Schema enforces via `CHECK(scope IN ('global','template','project-local'))`.
 
 Schema enforces via `CHECK(file_path LIKE 'plugin:%' OR file_path LIKE 'project:%')` (schema v34). The backbone agents `swe` and `pr-reviewer` are always `plugin:`. `agent_list` filters by `root` (`plugin`/`project`) and returns each row's absolute `resolved_path`.
 
-### `cheatcodes.status` — install lifecycle
+### `cheatcodes.status` — lifecycle
+
+Two lifecycles share the column. Acquired cheatcodes (`marketplace` / `external`):
 
 | Value | Meaning |
 |---|---|
 | `installed` | Recorded but not confirmed loaded (new installs land here) |
-| `active` | Loaded / usable (builtin skills seed here) |
+| `active` | Loaded / usable (builtin skills seed here; `cheatcode_activate` advances a loaded skill here) |
 | `broken` | Recorded but failed (e.g. an uninstall whose teardown left the artifact on disk) |
 
-No `CHECK` constraint — runtime reconciliation to `active`/`broken` is the health-check's job. `trust_tier` is free-form text carrying the vet classification for installed rows and the curation tier (`curated`) for builtin ones.
+Builtin skills registered with `skill_register` start at `draft` and move one step at a time through `skill_promote` (`tools/skills.ts`):
+
+| Value | Meaning |
+|---|---|
+| `draft` | Registered, not yet reviewed (the `skill_register` default) |
+| `pending_review` | Submitted for review (`draft` →) |
+| `active` | Reviewed and in use (`pending_review` →) |
+| `deprecated` | Kept on record but out of use (`active` →) |
+
+No `CHECK` constraint — runtime reconciliation to `active`/`broken` is the health-check's job, and `skill_promote` rejects any other transition. `trust_tier` is free-form text carrying the vet classification for installed rows and the curation tier (`curated`) for builtin ones.
 
 ### `plugin_meta.schema_version` — DB schema version (integer)
 
@@ -287,7 +299,7 @@ Every timestamp column (`*_at`) holds `YYYY-MM-DDTHH:MM:SS.sssZ` — 24-char UTC
 
 ### `agent_runs.agent_type` (open enum)
 
-Common values: `swe`, `pr-reviewer`, `architect`, `cto`, `pm`, `ceo`. Open enum — accept any string. Document the canonical values for query convenience.
+Common values: `bro`, `swe`, `pr-reviewer`, `architect`, `cto`, `pm`, `ceo`. Open enum — accept any string. Document the canonical values for query convenience.
 
 ### `repo_remotes.provider` — git host provider per remote
 
@@ -321,7 +333,7 @@ Schema enforces via `CHECK (provider IN ('github','gitlab','other'))`. The write
 
 ## Lint guard
 
-`tests/l1-lint/enums-stable.sh` compares code and this doc both ways for `audit.event_type`, `audit.from_node`, `tasks.status`, `issues.status`, `validation_attempts.verdict`, `discussions.kind`, `milestones.state` and `agent_runs.usage_source`: every value found in `mcp/trajectory-server/src/` (the `schema.sql` `CHECK` lists and the literals written or compared) and `scripts/` (including the event types passed to `tmb_audit_append` / `tmb_audit_sql`) must be documented here, and every documented value must appear in code unless its row is marked `reserved`. `tests/l1-lint/enums-doc-fresh.sh` fails when the generated `audit.event_type` table or `scripts/hooks/lib/audit-events.txt` differs from `audit-events.ts`.
+`tests/l1-lint/enums-stable.sh` compares code and this doc both ways for `audit.event_type`, `audit.from_node`, `tasks.status`, `issues.status`, `validation_attempts.verdict`, `discussions.kind`, `milestones.state` and `agent_runs.usage_source`: every value found in `mcp/trajectory-server/src/` (the `schema.sql` `CHECK` lists of the six `CHECK`-backed columns, and the literals written or compared; `src/test/` is not scanned) and `scripts/` (including the event types passed to `tmb_audit_append` / `tmb_audit_sql`) must be documented here, and every documented value must appear in code unless its row is marked `reserved`. `tests/l1-lint/enums-doc-fresh.sh` fails when the generated `audit.event_type` table or `scripts/hooks/lib/audit-events.txt` differs from `audit-events.ts`.
 
 ---
 
@@ -329,4 +341,4 @@ Schema enforces via `CHECK (provider IN ('github','gitlab','other'))`. The write
 
 - [`LABELS.md`](./LABELS.md) — same governance rule for GH issue labels and `issue_labels` DB table (when shipped, see #38)
 - `mcp/trajectory-server/src/schema.sql` — schema source of truth
-- `mcp/trajectory-server/docs/CONFIG_KEYS.md` — `plugin_config` key registry (different doc because keys are looser than ENUMs)
+- [`CONFIG_KEYS.md`](../reference/CONFIG_KEYS.md) — `plugin_config` key registry (different doc because keys are looser than ENUMs)
