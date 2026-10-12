@@ -234,16 +234,24 @@ out=$(echo '{"tool_input":{"agent":"swe","status":"completed","task_id":"1"}}' |
   TRAJECTORY_DB_PATH="$TMPDIR/nonexistent.db" bash "$HOOK" 2>&1 || true)
 assert_not_contains "$out" '"permissionDecision":"deny"' "no DB should allow"
 
-# ---- Timeout: DENIED --------------------------------------------------------
-test_case "Verification timeout: DENIED"
+# ---- Budget floor: 0 or a non-integer falls back to the default ------------
 sqlite3 "$DB" "
-  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (99, 1, 'feat/slow-test', 'plugin', 'pending', '', '[\"sleep 5\",\"echo done\"]');
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (99, 1, 'feat/zero-budget', 'plugin', 'pending', '', '[\"sleep 1; echo done\"]');
 "
-mkdir -p "$WT_ROOT/slow-test"
-out=$(cd "$REPO_DIR" && \
-  TMB_VERIFICATION_TIMEOUT_S=0 run_hook "$(make_input swe completed 99)")
-assert_contains "$out" '"permissionDecision":"deny"' "timeout should deny"
-assert_contains "$out" "timed out" "deny reason should mention timeout"
+git_worktree zero-budget >/dev/null
+
+test_case "budget 0: falls back to the default 900 s with a warning naming the value"
+out=$(cd "$REPO_DIR" && echo "$(make_input swe completed 99)" | TMB_VERIFICATION_TIMEOUT_S=0 bash "$HOOK" 2>"$TMPDIR/zero.err" || true)
+assert_not_contains "$out" '"permissionDecision":"deny"' "a 0 budget does not time the command out"
+assert_contains "$(cat "$TMPDIR/zero.err")" "verification_timeout_s '0' is not an integer from 1 to 1800; using the default 900s" "stderr warns naming the bad value"
+assert_eq "900|0" "$(sqlite3 "$DB" "SELECT budget_s || '|' || timed_out FROM verification_runs WHERE task_id = 99 ORDER BY id DESC LIMIT 1;")" "run records the default budget"
+
+test_case "budget non-integer: falls back to the default with a warning naming the value"
+git_commit zero-budget "abc" >/dev/null
+out=$(cd "$REPO_DIR" && echo "$(make_input swe completed 99)" | TMB_VERIFICATION_TIMEOUT_S=abc bash "$HOOK" 2>"$TMPDIR/abc.err" || true)
+assert_not_contains "$out" '"permissionDecision":"deny"' "a non-integer budget does not deny"
+assert_contains "$(cat "$TMPDIR/abc.err")" "verification_timeout_s 'abc'" "stderr warns naming the bad value"
+assert_eq "900|0" "$(sqlite3 "$DB" "SELECT budget_s || '|' || timed_out FROM verification_runs WHERE task_id = 99 ORDER BY id DESC LIMIT 1;")" "run records the default budget"
 
 # ---- Timeout mid-command: deny carries permissionDecisionReason mentioning timeout ---
 # Drive a real per-command timeout (budget 1s, command sleeps 5s) so the deny is
@@ -463,7 +471,8 @@ sqlite3 "$DB" "
 "
 LOCK_PASS_SHA=$(git_worktree lock-pass)
 LOCK_FAIL_SHA=$(git_worktree lock-fail)
-mkdir -p "$WT_ROOT/lock-stale" "$WT_ROOT/lock-unstamped"
+LOCK_STALE_SHA=$(git_worktree lock-stale)
+LOCK_UNSTAMPED_SHA=$(git_worktree lock-unstamped)
 
 test_case "run lock: concurrent passing invocations run verification[] once, both allow"
 (cd "$REPO_DIR" && run_hook "$(make_input swe completed 60)" > "$TMPDIR/lock-a.out") &
@@ -491,20 +500,20 @@ assert_eq "2" "$(runs_of 61)" "two runs recorded"
 assert_eq "no" "$([ -d "$LOCK_ROOT/verify-61-$LOCK_FAIL_SHA" ] && echo yes || echo no)" "lock removed on exit"
 
 test_case "run lock: a stale lock is reclaimed"
-mkdir -p "$LOCK_ROOT/verify-62-nohead"
-echo 1000 > "$LOCK_ROOT/verify-62-nohead/started"
+mkdir -p "$LOCK_ROOT/verify-62-$LOCK_STALE_SHA"
+echo 1000 > "$LOCK_ROOT/verify-62-$LOCK_STALE_SHA/started"
 out=$(cd "$REPO_DIR" && TMB_VERIFICATION_TIMEOUT_S=5 run_hook "$(make_input swe completed 62)")
 assert_not_contains "$out" '"permissionDecision":"deny"' "reclaimed lock lets the run proceed"
 assert_eq "1" "$(wc -l < "$COUNT_FILE.stale" | tr -d ' ')" "verification[] ran after reclaiming"
-assert_eq "no" "$([ -d "$LOCK_ROOT/verify-62-nohead" ] && echo yes || echo no)" "reclaimed lock removed"
+assert_eq "no" "$([ -d "$LOCK_ROOT/verify-62-$LOCK_STALE_SHA" ] && echo yes || echo no)" "reclaimed lock removed"
 
 test_case "run lock: a stale lock without a started stamp is reclaimed by mtime"
-mkdir -p "$LOCK_ROOT/verify-63-nohead"
-touch -t 200001010000 "$LOCK_ROOT/verify-63-nohead"
+mkdir -p "$LOCK_ROOT/verify-63-$LOCK_UNSTAMPED_SHA"
+touch -t 200001010000 "$LOCK_ROOT/verify-63-$LOCK_UNSTAMPED_SHA"
 out=$(cd "$REPO_DIR" && TMB_VERIFICATION_TIMEOUT_S=5 run_hook "$(make_input swe completed 63)")
 assert_not_contains "$out" '"permissionDecision":"deny"' "unstamped stale lock lets the run proceed"
 assert_eq "1" "$(wc -l < "$COUNT_FILE.unstamped" 2>/dev/null | tr -d ' ')" "verification[] ran after reclaiming the unstamped lock"
-assert_eq "no" "$([ -d "$LOCK_ROOT/verify-63-nohead" ] && echo yes || echo no)" "unstamped lock removed"
+assert_eq "no" "$([ -d "$LOCK_ROOT/verify-63-$LOCK_UNSTAMPED_SHA" ] && echo yes || echo no)" "unstamped lock removed"
 
 # ---- Lock-less path: run_verification runs in the hook's own shell ----------
 # When the locks dir cannot be created the gate verifies without the lock, under
@@ -586,7 +595,7 @@ assert_contains "$(sqlite3 "$DB" "SELECT output_tail FROM verification_run_comma
 
 # ---- Budget: plugin_config, env override, cap --------------------------------
 sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (82, 1, 'feat/budget', 'plugin', 'pending', '', '[\"sleep 3\"]');"
-mkdir -p "$WT_ROOT/budget"
+git_worktree budget >/dev/null
 budget_of_last() { sqlite3 "$DB" "SELECT budget_s || '|' || timed_out FROM verification_runs WHERE task_id = 82 ORDER BY id DESC LIMIT 1;"; }
 
 test_case "budget: plugin_config.verification_timeout_s is honoured"
@@ -597,12 +606,14 @@ assert_contains "$(reason_of "$out")" "the 1s budget ran out" "deny names the co
 assert_eq "1|1" "$(budget_of_last)" "run records budget_s 1 and timed_out"
 
 test_case "budget: TMB_VERIFICATION_TIMEOUT_S overrides plugin_config"
+git_commit budget "env budget" >/dev/null
 out=$(cd "$REPO_DIR" && TMB_VERIFICATION_TIMEOUT_S=30 run_hook "$(make_input swe completed 82)")
 assert_not_contains "$out" '"permissionDecision":"deny"' "the env budget lets the command finish"
 assert_eq "30|0" "$(budget_of_last)" "run records the env budget"
 
 test_case "budget: a configured budget above the cap is capped at 1800 s"
 sqlite3 "$DB" "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('verification_timeout_s', '99999');"
+git_commit budget "capped budget" >/dev/null
 out=$(cd "$REPO_DIR" && env -u TMB_VERIFICATION_TIMEOUT_S bash -c 'echo "$1" | bash "$2" 2>&1' _ "$(make_input swe completed 82)" "$HOOK" || true)
 assert_not_contains "$out" '"permissionDecision":"deny"' "capped budget still runs"
 assert_eq "1800|0" "$(budget_of_last)" "run records the capped budget"
@@ -611,7 +622,7 @@ sqlite3 "$DB" "DELETE FROM plugin_config WHERE key IN ('verification_timeout_s')
 # ---- Timeout record: timed_out and the running command -----------------------
 test_case "timeout: the run is marked timed_out and the deny names the running command and the cumulative time"
 sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (83, 1, 'feat/rec-slow', 'plugin', 'pending', '', '[\"echo quick\",\"sleep 5\",\"echo never\"]');"
-mkdir -p "$WT_ROOT/rec-slow"
+git_worktree rec-slow >/dev/null
 out=$(cd "$REPO_DIR" && TMB_VERIFICATION_TIMEOUT_S=2 run_hook "$(make_input swe completed 83)")
 REASON=$(reason_of "$out")
 assert_contains "$REASON" "timed out" "deny says timed out"
@@ -620,5 +631,66 @@ assert_contains "$REASON" "sleep 5" "deny names the running command"
 assert_contains "$REASON" "s in," "deny carries the cumulative time"
 assert_eq "124|1|2" "$(sqlite3 "$DB" "SELECT r.exit_code || '|' || r.timed_out || '|' || (SELECT COUNT(*) FROM verification_run_commands c WHERE c.run_id = r.id) FROM verification_runs r WHERE r.task_id = 83;")" "run exit 124, timed_out, the cut-off command recorded"
 assert_eq "124" "$(sqlite3 "$DB" "SELECT c.exit_code FROM verification_run_commands c JOIN verification_runs r ON r.id = c.run_id WHERE r.task_id = 83 AND c.ordinal = 2;")" "the cut-off command row carries exit 124"
+
+# ---- HEAD unresolvable: verification runs, nothing is recorded or reused ------
+sqlite3 "$DB" "
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (90, 1, 'feat/no-head', 'plugin', 'pending', '', '[\"echo ran >> $TMPDIR/nohead.log\"]');
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (94, 1, 'feat/no-head-fail', 'plugin', 'pending', '', '[\"echo nope; exit 5\"]');
+"
+mkdir -p "$WT_ROOT/no-head" "$WT_ROOT/no-head-fail"
+
+test_case "HEAD unresolvable: verification[] runs, no run row, the allow says not recorded"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 90)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "passing verification allows"
+assert_contains "$out" "not recorded: worktree HEAD unresolvable" "allow context says the run is not recorded"
+assert_eq "1" "$(wc -l < "$TMPDIR/nohead.log" | tr -d ' ')" "verification[] ran"
+assert_eq "0" "$(runs_of 90)" "no run row"
+
+test_case "HEAD unresolvable: a second close runs verification[] again (nothing to reuse)"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 90)")
+assert_not_contains "$out" "verification reused" "nothing is reused"
+assert_eq "2" "$(wc -l < "$TMPDIR/nohead.log" | tr -d ' ')" "verification[] ran again"
+
+test_case "HEAD unresolvable: a failing command denies and says not recorded"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 94)")
+assert_contains "$(reason_of "$out")" "Exit 5 after" "deny names the failing command's exit"
+assert_contains "$(reason_of "$out")" "(not recorded: worktree HEAD unresolvable)" "deny says the run is not recorded"
+assert_eq "0" "$(runs_of 94)" "no run row"
+assert_eq "0" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM verification_runs WHERE commit_sha = 'nohead';")" "no nohead row anywhere"
+
+# ---- A command's own exit 124 is a failure, not a timeout --------------------
+test_case "own exit 124: recorded as exit 124 with timed_out 0, the deny names a failing command"
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (91, 1, 'feat/own-124', 'plugin', 'pending', '', '[\"echo own-124; exit 124\"]');"
+git_worktree own-124 >/dev/null
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 91)")
+REASON=$(reason_of "$out")
+assert_contains "$REASON" "verification failed" "deny says verification failed"
+assert_contains "$REASON" "Failing command (1/1): echo own-124; exit 124" "deny names the failing command"
+assert_not_contains "$REASON" "timed out" "deny does not call it a timeout"
+assert_eq "124|0" "$(sqlite3 "$DB" "SELECT exit_code || '|' || timed_out FROM verification_runs WHERE task_id = 91;")" "run exit 124, not timed out"
+assert_eq "124" "$(sqlite3 "$DB" "SELECT c.exit_code FROM verification_run_commands c JOIN verification_runs r ON r.id = c.run_id WHERE r.task_id = 91;")" "command row exit 124"
+
+# ---- Finish write failure: decision unchanged, row left unfinished -----------
+test_case "finish write fails (DB read-only after start): allow stands, stderr says unfinished, row unfinished"
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (92, 1, 'feat/ro-finish', 'plugin', 'pending', '', '[\"chmod 444 $DB\"]');"
+git_worktree ro-finish >/dev/null
+out=$(cd "$REPO_DIR" && echo "$(make_input swe completed 92)" | bash "$HOOK" 2>"$TMPDIR/ro.err" || true)
+chmod 644 "$DB"
+assert_not_contains "$out" '"permissionDecision":"deny"' "the passing verification still allows"
+assert_contains "$(cat "$TMPDIR/ro.err")" "record unfinished" "stderr says the record is unfinished"
+assert_contains "$(cat "$TMPDIR/ro.err")" "failed 3 times" "stderr says the finish write was tried 3 times"
+assert_eq "1" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM verification_runs WHERE task_id = 92 AND finished_at IS NULL;")" "the run row stays unfinished"
+
+# ---- Record writes do not count against the command budget -------------------
+# Command 1 holds the DB write lock for 4 s, so its command-row write waits out
+# its 3 s record budget; command 2 then needs 2 s of a 4 s budget. Counting the
+# write against the budget would leave 1 s and time command 2 out.
+test_case "slow record write: the command budget excludes the time spent writing the record"
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (93, 1, 'feat/slow-record', 'plugin', 'pending', '', '[\"( { echo \\\"BEGIN IMMEDIATE;\\\"; sleep 4; echo \\\"COMMIT;\\\"; } | sqlite3 $DB ) >/dev/null 2>&1 & sleep 0.5\",\"sleep 2\"]');"
+git_worktree slow-record >/dev/null
+out=$(cd "$REPO_DIR" && echo "$(make_input swe completed 93)" | TMB_VERIFICATION_TIMEOUT_S=4 bash "$HOOK" 2>"$TMPDIR/slow.err" || true)
+assert_not_contains "$out" '"permissionDecision":"deny"' "command 2 finishes inside the budget"
+assert_contains "$(cat "$TMPDIR/slow.err")" "tmb_db_write" "the command-row write did wait on the held lock"
+assert_eq "0|0" "$(sqlite3 "$DB" "SELECT exit_code || '|' || timed_out FROM verification_runs WHERE task_id = 93;")" "run finished exit 0, not timed out"
 
 summarize

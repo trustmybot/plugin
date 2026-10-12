@@ -42,9 +42,9 @@ function seedVerifiedClose(db, sha, updatedAt = iso(), verification = '["npm tes
     db.run('UPDATE tasks SET commit_sha = ?, verification = ? WHERE id = ?', [sha, verification, id]);
     return id;
 }
-function seedVerificationRun(db, taskId, sha) {
+function seedVerificationRun(db, taskId, sha, startedAt = iso(-HOUR), finishedAt = iso()) {
     db.run(`INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s)
-     VALUES (?, ?, 'gate', ?, ?, 0, 900)`, [taskId, sha, iso(-HOUR), iso()]);
+     VALUES (?, ?, 'gate', ?, ?, ?, 900)`, [taskId, sha, startedAt, finishedAt, finishedAt === null ? null : 0]);
 }
 function seedRun(db, o = {}) {
     const completedAt = o.completedAt === undefined ? iso() : o.completedAt;
@@ -155,16 +155,30 @@ const FIXTURES = {
     },
     verification_recorded_for_closed_tasks: {
         violate: (db) => {
+            const other = seedVerifiedClose(db, 'ccc2222');
+            seedVerificationRun(db, other, 'ccc2222');
             seedVerifiedClose(db, 'abc1234');
         },
         pass: (db) => {
             const recorded = seedVerifiedClose(db, 'abc1234');
             seedVerificationRun(db, recorded, 'abc1234' + 'f'.repeat(33));
+            seedVerifiedClose(db, 'eee3333', iso(-2 * HOUR));
             seedVerifiedClose(db, 'def5678', iso(-8 * DAY));
             seedVerifiedClose(db, 'aaa0000', iso(), '[]');
             const waived = seedVerifiedClose(db, 'bbb1111');
             seedAudit(db, 'verification_gate_waived', { task_id: waived, commit_sha: 'bbb1111' });
             seedTask(db, seedIssue(db), 'closed');
+        },
+    },
+    no_unfinished_verification_runs: {
+        violate: (db) => {
+            const task = seedVerifiedClose(db, 'abc1234');
+            seedVerificationRun(db, task, 'abc1234', iso(-3 * HOUR), null);
+        },
+        pass: (db) => {
+            const task = seedVerifiedClose(db, 'abc1234');
+            seedVerificationRun(db, task, 'abc1234', iso(-30 * 60_000), null);
+            seedVerificationRun(db, task, 'abc1234', iso(-3 * HOUR), iso(-3 * HOUR + 60_000));
         },
     },
     embeddings_not_degraded: {
@@ -233,12 +247,39 @@ const FIXTURES = {
     },
 };
 describe('data contracts', () => {
-    it('a fresh DB is healthy with no violations', () => {
+    it('a fresh DB is healthy with no violations; only the run-anchored contract is skipped', () => {
         const db = tempDB();
         const report = runDataContracts(trajectoryDbReader(db), DB_CONTRACTS, { env: {} });
         assert.deepEqual(report.violations, []);
-        assert.deepEqual(report.skipped, []);
+        assert.deepEqual(report.skipped, [{ id: 'verification_recorded_for_closed_tasks', reason: 'no_v36_timestamp' }]);
         assert.equal(report.healthy, true);
+    });
+    it('verification_recorded_for_closed_tasks: the v36 migration keeps no applied-at timestamp, so the first recorded run anchors it', () => {
+        const db = tempDB();
+        const meta = db.all('PRAGMA table_info(plugin_meta)').map((c) => c.name);
+        assert.deepEqual(meta.sort(), ['id', 'plugin_version', 'schema_version']);
+        assert.equal(db.get("SELECT COUNT(*) AS n FROM sqlite_master WHERE name IN ('schema_migrations','schema_version')").n, 0);
+    });
+    it('verification_recorded_for_closed_tasks ignores tasks closed before the first recorded run (MIN(started_at))', () => {
+        const db = tempDB();
+        seedVerifiedClose(db, 'old0001', iso(-3 * HOUR));
+        const recorded = seedVerifiedClose(db, 'abc1234', iso(-HOUR));
+        seedVerificationRun(db, recorded, 'abc1234', iso(-2 * HOUR));
+        assert.equal(violated(db, 'verification_recorded_for_closed_tasks'), false);
+        seedVerifiedClose(db, 'new0002');
+        assert.equal(violated(db, 'verification_recorded_for_closed_tasks'), true);
+    });
+    it('verification_recorded_for_closed_tasks is skipped with no_v36_timestamp, healthy, while no run is recorded', () => {
+        const db = tempDB();
+        seedVerifiedClose(db, 'abc1234');
+        const report = runDataContracts(trajectoryDbReader(db), [contract('verification_recorded_for_closed_tasks')], { env: {} });
+        assert.deepEqual(report.skipped, [{ id: 'verification_recorded_for_closed_tasks', reason: 'no_v36_timestamp' }]);
+        assert.deepEqual(report.violations, []);
+        assert.equal(report.healthy, true);
+    });
+    it('no_unfinished_verification_runs holds on an empty verification_runs table', () => {
+        const db = tempDB();
+        assert.equal(violated(db, 'no_unfinished_verification_runs'), false);
     });
     it('every DB contract has a violating and a passing fixture', () => {
         assert.deepEqual(Object.keys(FIXTURES).sort(), DB_CONTRACTS.map((c) => c.id).sort());

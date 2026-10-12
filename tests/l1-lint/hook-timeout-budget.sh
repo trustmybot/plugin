@@ -68,24 +68,43 @@ if require "$DBW_DEFAULT_RUN_MS" "db-write default run budget"; then
   done
 fi
 
-# --- swe-verification-gate: verification budget cap ------------------------
+# --- swe-verification-gate: verification budget cap + run-record writes -----
 # The gate reads its budget from plugin_config.verification_timeout_s (or
-# TMB_VERIFICATION_TIMEOUT_S) and caps it at VERIFICATION_MAX_S; the wrapper
-# must cover the cap plus a 30 s margin (dispatcher, run-record writes, the
-# deny). The default must sit under the cap.
+# TMB_VERIFICATION_TIMEOUT_S) and caps it at VERIFICATION_MAX_S; the budget
+# counts command time only. The run-record writes are budgeted apart: the start
+# and command writes share VERIFICATION_RECORD_POOL_MS, and the finish write
+# gets VERIFICATION_FINISH_ATTEMPTS tries of VERIFICATION_RECORD_BUDGET_MS with
+# a backoff of attempt × VERIFICATION_FINISH_BACKOFF_MS between them. So
+#   floor = cap + ceil((POOL + ATTEMPTS × RECORD + BACKOFF × ATTEMPTS ×
+#           (ATTEMPTS-1) / 2) / 1000) + dispatcher + VG_OVERHEAD_S
+# where VG_OVERHEAD_S covers the reads, the toolchain resolution and the
+# decision. The default must sit under the cap.
+VG_OVERHEAD_S=5
 VG_SRC="scripts/hooks/swe-verification-gate.sh"
 VG_WRAP=$(wrapper_timeout "swe-verification-gate.sh")
-VG_DEFAULT=$(grep -oE '^VERIFICATION_DEFAULT_S=[0-9]+' "$VG_SRC" | head -1 | grep -oE '[0-9]+$' || true)
-VG_MAX=$(grep -oE '^VERIFICATION_MAX_S=[0-9]+' "$VG_SRC" | head -1 | grep -oE '[0-9]+$' || true)
+vg_const() { grep -oE "^$1=[0-9]+" "$VG_SRC" | head -1 | grep -oE '[0-9]+$' || true; }
+VG_DEFAULT=$(vg_const VERIFICATION_DEFAULT_S)
+VG_MAX=$(vg_const VERIFICATION_MAX_S)
+VG_RECORD_MS=$(vg_const VERIFICATION_RECORD_BUDGET_MS)
+VG_POOL_MS=$(vg_const VERIFICATION_RECORD_POOL_MS)
+VG_ATTEMPTS=$(vg_const VERIFICATION_FINISH_ATTEMPTS)
+VG_BACKOFF_MS=$(vg_const VERIFICATION_FINISH_BACKOFF_MS)
 VG_FLOOR=""
+VG_RECORD_S=""
 
 if require "$VG_WRAP" "swe-verification-gate wrapper timeout" \
    && require "$VG_DEFAULT" "verification-gate default budget (VERIFICATION_DEFAULT_S)" \
-   && require "$VG_MAX" "verification-gate budget cap (VERIFICATION_MAX_S)"; then
-  VG_FLOOR=$((VG_MAX + 30))
+   && require "$VG_MAX" "verification-gate budget cap (VERIFICATION_MAX_S)" \
+   && require "$VG_RECORD_MS" "verification-gate record write budget (VERIFICATION_RECORD_BUDGET_MS)" \
+   && require "$VG_POOL_MS" "verification-gate record pool (VERIFICATION_RECORD_POOL_MS)" \
+   && require "$VG_ATTEMPTS" "verification-gate finish attempts (VERIFICATION_FINISH_ATTEMPTS)" \
+   && require "$VG_BACKOFF_MS" "verification-gate finish backoff (VERIFICATION_FINISH_BACKOFF_MS)"; then
+  VG_RECORD_TOTAL_MS=$(( VG_POOL_MS + VG_ATTEMPTS * VG_RECORD_MS + VG_BACKOFF_MS * VG_ATTEMPTS * (VG_ATTEMPTS - 1) / 2 ))
+  VG_RECORD_S=$(( (VG_RECORD_TOTAL_MS + 999) / 1000 ))
+  VG_FLOOR=$(( VG_MAX + VG_RECORD_S + DISPATCH_OVERHEAD_S + VG_OVERHEAD_S ))
   if [ "$VG_WRAP" -lt "$VG_FLOOR" ]; then
-    printf "hook-timeout-budget: FAIL swe-verification-gate wrapper %ss < floor %ss (budget cap %ss + 30s margin)\n" \
-      "$VG_WRAP" "$VG_FLOOR" "$VG_MAX" >&2
+    printf "hook-timeout-budget: FAIL swe-verification-gate wrapper %ss < floor %ss (budget cap %ss + record writes %ss + %ss dispatcher + %ss overhead)\n" \
+      "$VG_WRAP" "$VG_FLOOR" "$VG_MAX" "$VG_RECORD_S" "$DISPATCH_OVERHEAD_S" "$VG_OVERHEAD_S" >&2
     FAIL=$((FAIL + 1))
   fi
   if [ "$VG_DEFAULT" -gt "$VG_MAX" ]; then
@@ -99,5 +118,5 @@ if [ "$FAIL" -gt 0 ]; then
   exit 1
 fi
 printf "%s" "$DBW_SUMMARY"
-printf "hook-timeout-budget: %s db-write hooks + verification-gate %ss (floor %ss, cap %ss) — wrappers cover budgets.\n" \
-  "$DBW_CHECKED" "$VG_WRAP" "$VG_FLOOR" "$VG_MAX"
+printf "hook-timeout-budget: %s db-write hooks + verification-gate %ss (floor %ss = cap %ss + record writes %ss + %ss dispatcher + %ss overhead) — wrappers cover budgets.\n" \
+  "$DBW_CHECKED" "$VG_WRAP" "$VG_FLOOR" "$VG_MAX" "$VG_RECORD_S" "$DISPATCH_OVERHEAD_S" "$VG_OVERHEAD_S"

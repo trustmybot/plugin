@@ -7,7 +7,9 @@
  * Each DB contract's `sql` is one read-only SELECT returning a single number;
  * the contract holds when `actual <op> value`. A NULL result never holds.
  * `params` are bound by name (`:name`), each read from an environment variable
- * with a numeric default. A file contract (`source: 'files'`) reads Claude Code
+ * with a numeric default. A DB contract with `skip_when` is skipped with its
+ * reason when that SELECT returns a non-zero number (its reference point is
+ * missing); the skip leaves the report healthy. A file contract (`source: 'files'`) reads Claude Code
  * config files instead; it runs only in `trajectory_doctor`, not in the hook
  * copy, and is skipped with a reason when its inputs are unavailable — a skip
  * that leaves the report healthy, because absent inputs are no evidence of a
@@ -24,6 +26,7 @@ export function singleTmbPluginEnabled(env) {
     return { actual: result.copies.length, sample: result.copies.map((c) => ({ ...c })) };
 }
 const daysAgo = (days) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${days} days')`;
+const hoursAgo = (hours) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${hours} hours')`;
 // A stored timestamp in the one ms-ISO form, so a legacy `YYYY-MM-DD HH:MM:SS`
 // value compares by time, not by its separator character.
 const ts = (column) => `strftime('%Y-%m-%dT%H:%M:%fZ', ${column})`;
@@ -33,7 +36,12 @@ export const REVIEW_GRACE_HOURS_DEFAULT = 24;
 // A run's commit_sha is the full HEAD the gate tested; tasks.commit_sha may be
 // the short form task_update_status was given.
 const runMatchesTaskCommit = (run, task) => `${run}.task_id = ${task}.id AND substr(${run}.commit_sha, 1, length(${task}.commit_sha)) = ${task}.commit_sha`;
+// The v36 migration keeps no applied-at timestamp (plugin_meta holds only the
+// schema version), so the first recorded verification run stands in for it:
+// tasks closed before it predate the recorder.
+const V36_RECORDING_SINCE = `(SELECT MIN(${ts('started_at')}) FROM verification_runs)`;
 const VERIFIED_CLOSE_SCOPE = `t.status = 'closed' AND ${ts('t.updated_at')} >= ${daysAgo(7)}
+               AND ${ts('t.updated_at')} >= ${V36_RECORDING_SINCE}
                AND COALESCE(t.commit_sha, '') <> '' AND COALESCE(t.verification, '[]') NOT IN ('', '[]')
                AND NOT EXISTS (SELECT 1 FROM audit w WHERE w.event_type = 'verification_gate_waived' AND ${auditTaskId('w')} = t.id)`;
 const UNCONSUMED_STALE_OBSERVATION = (alias) => `${alias}.event_type = 'reviewer_identity_observed' AND ${ts(`${alias}.created_at`)} < strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 hours')
@@ -195,7 +203,8 @@ export function buildDataContracts(documentedEventTypes) {
             id: 'verification_recorded_for_closed_tasks',
             severity: 'warn',
             min_schema: 36,
-            description: 'tasks closed in the last 7 days with a commit_sha, a non-empty verification[] and no verification_gate_waived row have a verification_runs row for that commit (the close gate records one per run)',
+            description: 'tasks closed in the last 7 days, and not before the first recorded verification run, with a commit_sha, a non-empty verification[] and no verification_gate_waived row have a verification_runs row for that commit (the close gate records one per run); skipped while no run is recorded',
+            skip_when: { sql: 'SELECT COUNT(*) = 0 FROM verification_runs', reason: 'no_v36_timestamp' },
             sql: `SELECT COUNT(*) FROM tasks t
              WHERE ${VERIFIED_CLOSE_SCOPE}
                AND NOT EXISTS (SELECT 1 FROM verification_runs r WHERE ${runMatchesTaskCommit('r', 't')})`,
@@ -204,6 +213,18 @@ export function buildDataContracts(documentedEventTypes) {
              WHERE ${VERIFIED_CLOSE_SCOPE}
                AND NOT EXISTS (SELECT 1 FROM verification_runs r WHERE ${runMatchesTaskCommit('r', 't')})
              ORDER BY t.id DESC LIMIT 5`,
+        },
+        {
+            id: 'no_unfinished_verification_runs',
+            severity: 'warn',
+            min_schema: 36,
+            description: 'no verification_runs row started more than 2 hours ago is still unfinished (finished_at NULL: the gate was killed, or its finish write failed after its retries)',
+            sql: `SELECT COUNT(*) FROM verification_runs
+             WHERE finished_at IS NULL AND ${ts('started_at')} < ${hoursAgo(2)}`,
+            expect: { op: '=', value: 0 },
+            sample_sql: `SELECT id, task_id, commit_sha, source, started_at FROM verification_runs
+             WHERE finished_at IS NULL AND ${ts('started_at')} < ${hoursAgo(2)}
+             ORDER BY id DESC LIMIT 5`,
         },
         ...POPULATED_COLUMNS.map(populatedContract),
         {

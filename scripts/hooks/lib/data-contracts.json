@@ -121,13 +121,29 @@
       "id": "verification_recorded_for_closed_tasks",
       "severity": "warn",
       "min_schema": 36,
-      "description": "tasks closed in the last 7 days with a commit_sha, a non-empty verification[] and no verification_gate_waived row have a verification_runs row for that commit (the close gate records one per run)",
-      "sql": "SELECT COUNT(*) FROM tasks t\n             WHERE t.status = 'closed' AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days')\n               AND COALESCE(t.commit_sha, '') <> '' AND COALESCE(t.verification, '[]') NOT IN ('', '[]')\n               AND NOT EXISTS (SELECT 1 FROM audit w WHERE w.event_type = 'verification_gate_waived' AND CASE WHEN json_valid(w.content_json) THEN json_extract(w.content_json, '$.task_id') END = t.id)\n               AND NOT EXISTS (SELECT 1 FROM verification_runs r WHERE r.task_id = t.id AND substr(r.commit_sha, 1, length(t.commit_sha)) = t.commit_sha)",
+      "description": "tasks closed in the last 7 days, and not before the first recorded verification run, with a commit_sha, a non-empty verification[] and no verification_gate_waived row have a verification_runs row for that commit (the close gate records one per run); skipped while no run is recorded",
+      "skip_when": {
+        "sql": "SELECT COUNT(*) = 0 FROM verification_runs",
+        "reason": "no_v36_timestamp"
+      },
+      "sql": "SELECT COUNT(*) FROM tasks t\n             WHERE t.status = 'closed' AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days')\n               AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) >= (SELECT MIN(strftime('%Y-%m-%dT%H:%M:%fZ', started_at)) FROM verification_runs)\n               AND COALESCE(t.commit_sha, '') <> '' AND COALESCE(t.verification, '[]') NOT IN ('', '[]')\n               AND NOT EXISTS (SELECT 1 FROM audit w WHERE w.event_type = 'verification_gate_waived' AND CASE WHEN json_valid(w.content_json) THEN json_extract(w.content_json, '$.task_id') END = t.id)\n               AND NOT EXISTS (SELECT 1 FROM verification_runs r WHERE r.task_id = t.id AND substr(r.commit_sha, 1, length(t.commit_sha)) = t.commit_sha)",
       "expect": {
         "op": "=",
         "value": 0
       },
-      "sample_sql": "SELECT t.id, t.issue_id, t.commit_sha, t.updated_at FROM tasks t\n             WHERE t.status = 'closed' AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days')\n               AND COALESCE(t.commit_sha, '') <> '' AND COALESCE(t.verification, '[]') NOT IN ('', '[]')\n               AND NOT EXISTS (SELECT 1 FROM audit w WHERE w.event_type = 'verification_gate_waived' AND CASE WHEN json_valid(w.content_json) THEN json_extract(w.content_json, '$.task_id') END = t.id)\n               AND NOT EXISTS (SELECT 1 FROM verification_runs r WHERE r.task_id = t.id AND substr(r.commit_sha, 1, length(t.commit_sha)) = t.commit_sha)\n             ORDER BY t.id DESC LIMIT 5"
+      "sample_sql": "SELECT t.id, t.issue_id, t.commit_sha, t.updated_at FROM tasks t\n             WHERE t.status = 'closed' AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days')\n               AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) >= (SELECT MIN(strftime('%Y-%m-%dT%H:%M:%fZ', started_at)) FROM verification_runs)\n               AND COALESCE(t.commit_sha, '') <> '' AND COALESCE(t.verification, '[]') NOT IN ('', '[]')\n               AND NOT EXISTS (SELECT 1 FROM audit w WHERE w.event_type = 'verification_gate_waived' AND CASE WHEN json_valid(w.content_json) THEN json_extract(w.content_json, '$.task_id') END = t.id)\n               AND NOT EXISTS (SELECT 1 FROM verification_runs r WHERE r.task_id = t.id AND substr(r.commit_sha, 1, length(t.commit_sha)) = t.commit_sha)\n             ORDER BY t.id DESC LIMIT 5"
+    },
+    {
+      "id": "no_unfinished_verification_runs",
+      "severity": "warn",
+      "min_schema": 36,
+      "description": "no verification_runs row started more than 2 hours ago is still unfinished (finished_at NULL: the gate was killed, or its finish write failed after its retries)",
+      "sql": "SELECT COUNT(*) FROM verification_runs\n             WHERE finished_at IS NULL AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) < strftime('%Y-%m-%dT%H:%M:%fZ','now','-2 hours')",
+      "expect": {
+        "op": "=",
+        "value": 0
+      },
+      "sample_sql": "SELECT id, task_id, commit_sha, source, started_at FROM verification_runs\n             WHERE finished_at IS NULL AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) < strftime('%Y-%m-%dT%H:%M:%fZ','now','-2 hours')\n             ORDER BY id DESC LIMIT 5"
     },
     {
       "id": "populated_agent_runs_session_id",
