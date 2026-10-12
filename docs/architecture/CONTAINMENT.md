@@ -33,6 +33,9 @@ Paths are relative to the project root; `<state>` is `.claude/<plugin>/` (Claude
 | `<state>/locks/verify-<task>-<sha>/` | `swe-verification-gate.sh` | One verification run per (task, worktree HEAD) at a time; the run itself is recorded in the trajectory DB (`verification_runs`) |
 | `.claude/settings.local.json` (PreToolUse entries only) | `/onboard`, on Yes to headless enforcement | The opt-in headless shim, each entry stamped `_tmb_managed` + `_tmb_project` |
 | `<state>/resolve-hook.sh` | `/onboard`, on Yes to headless enforcement | The resolver the shim entries call |
+| `CLAUDE.md` (between `<!-- tmb:persona start v<version> -->` and `<!-- tmb:persona end -->`) | `/onboard` (`onboard_apply`) | The bro persona, copied from the plugin's `CLAUDE.md` |
+
+A user project's `CLAUDE.md` is written only by onboarding: `onboard_apply` appends, replaces or (with `persona: false`) removes the marked persona block, atomically and never outside the markers, and records each change as a `persona_block_written` audit row. No hook and no agent writes it. When the project root is the plugin root, the file is the persona source and onboarding leaves it alone.
 
 ## One install, one dispatcher, one execution
 

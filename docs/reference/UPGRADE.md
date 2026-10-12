@@ -103,6 +103,10 @@ sqlite3 <project>/.claude/tmb/trajectory.db \
 
 Both columns should match the version you just installed.
 
+### Upgrading into v1.0.3 — the bro persona moves into your CLAUDE.md
+
+Claude Code does not load a plugin's `CLAUDE.md`, so before v1.0.3 bro's persona never reached a user project. After upgrading, run `/onboard` once: `onboard_apply` writes the plugin's `CLAUDE.md` into `<project>/CLAUDE.md` between `<!-- tmb:persona start v<version> -->` and `<!-- tmb:persona end -->`, leaving the rest of the file as it was. On every later upgrade the SessionStart prescan prints `Persona: tmb persona block is v<x>, plugin is v<y> — run /onboard` and `trajectory_doctor` reports `persona_block_current`; re-running `/onboard` replaces only the marked block. `onboard_apply` with `persona: false` removes it. Commit the block with the rest of your `CLAUDE.md`, or keep it out of version control — TMB only reads the markers.
+
 ### Upgrading into v1.0.3 — recover lost agent_runs
 
 Before v1.0.3 the SubagentStop hook dropped swe rows whose spawn prompt was plain text, and bro rows often metered 0. The Claude Code transcripts still on disk (`~/.claude/projects/<project-slug>/`) hold the real numbers; Claude Code prunes old sessions, so recover them soon after upgrading. From the project directory:

@@ -26,12 +26,22 @@ Everything lives under the project root (`CLAUDE_PROJECT_DIR`), which the projec
 | `.claude/tmb/locks/verify-*` | `swe-verification-gate.sh` | One verification run per (task, worktree HEAD) at a time; the run itself is recorded in the trajectory DB (`verification_runs`) |
 | `.claude/settings.local.json` (PreToolUse entries only) | `/onboard`, on **Yes** to headless enforcement | The opt-in headless shim (below) |
 | `.claude/tmb/resolve-hook.sh` | `/onboard`, on **Yes** to headless enforcement | The resolver the shim entries call |
+| `CLAUDE.md` (the marked persona block only) | `/onboard` | The bro persona (below) |
 
 Nothing is written under `~/.claude` or anywhere else in your home directory. The one path outside the project is the embedding model cache, `TMB_MODEL_CACHE_DIR` (default `HF_HOME`, else `~/.cache/huggingface`) — a shared, re-downloadable cache. `tests/l1-lint/no-home-writes.sh` enforces this; [`../architecture/CONTAINMENT.md`](../architecture/CONTAINMENT.md) is the full rule.
 
 ## What `/onboard` writes
 
 - **Always:** policy rows in the trajectory DB (`plugin_config`, `repos`) — branching model, PR target, protected branches, remotes, issue sync, the `onboarded` marker, and the `headless_enforcement` answer.
+- **Always: the bro persona block in the project's `CLAUDE.md`.** Claude Code loads the project's own `CLAUDE.md`, never a plugin's, so `onboard_apply` copies the plugin's `CLAUDE.md` (bro's persona and routing table) into `<project>/CLAUDE.md` between two markers:
+
+  ```markdown
+  <!-- tmb:persona start v1.0.3 -->
+  …the plugin's CLAUDE.md…
+  <!-- tmb:persona end -->
+  ```
+
+  With no block it is appended after your own text (one blank line between; the file is created when missing). A block from another plugin version, or with another body, is replaced in place. An identical block is left alone, so re-running `/onboard` changes nothing. Text outside the markers is never touched, CRLF files stay CRLF, and the write is atomic and keeps the file's mode. A start marker without an end marker is reported in the result (`persona.reason`) and the file is left as it was. Each change writes one `persona_block_written` audit row. To remove the block, call `onboard_apply` with `persona: false` (or delete the marked lines yourself; the SessionStart prescan then prints `Persona: project CLAUDE.md has no tmb persona block — run /onboard` until the block is back). When the project root is the plugin source checkout, its `CLAUDE.md` is the source and is never rewritten (`persona.action: "skipped_source"`).
 - **Headless enforcement — default No.** Marketplace plugin hooks do not fire in non-interactive `claude -p` runs. Answering **Yes** copies TMB's deny-capable PreToolUse gates into the project's `.claude/settings.local.json` (each entry stamped `"_tmb_managed": true` and `"_tmb_project": "<project root>"`) and materializes `.claude/tmb/resolve-hook.sh`, which execs the active install's `dispatch.sh <gate> --shim`. In an interactive session the plugin's own hooks are active, the SessionStart marker exists, and every shim entry exits without running its gate, so each gate runs once. In a headless run there is no marker and the shim enforces. Answering **No** — or re-onboarding from Yes to No — removes exactly the managed entries and the resolver; the rest of `settings.local.json` is left as it was.
 
 ## Leftovers from older versions

@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
@@ -1191,6 +1191,136 @@ describe('onboard tools', () => {
 
     it('the isolated HOME stays empty across every onboard test', () => {
       assert.deepEqual(readdirSync(ISOLATED_HOME), []);
+    });
+  });
+  describe('persona block', () => {
+    const BODY = '# You are bro\n\nOrchestrate.\n';
+    function fixture(version = '1.0.3') {
+      const base = mkdtempSync(join(tmpdir(), 'onboard-persona-'));
+      const pluginRoot = join(base, 'plugin');
+      const proj = join(base, 'proj');
+      mkdirSync(join(pluginRoot, '.claude-plugin'), { recursive: true });
+      mkdirSync(proj);
+      writeFileSync(join(pluginRoot, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'tmb', version }));
+      writeFileSync(join(pluginRoot, 'CLAUDE.md'), BODY);
+      return { base, pluginRoot, proj, dbPath: join(proj, '.claude', 'tmb', 'trajectory.db'), claudeMd: join(proj, 'CLAUDE.md') };
+    }
+    const block = (v: string) => `<!-- tmb:persona start v${v} -->\n# You are bro\n\nOrchestrate.\n<!-- tmb:persona end -->`;
+    const personaRows = (db: ReturnType<typeof tempDB>) =>
+      db.all<{ issue_id: number; content_json: string }>(`SELECT issue_id, content_json FROM audit WHERE event_type = 'persona_block_written' ORDER BY id`);
+
+    it('writes the block into the project CLAUDE.md after the Human text and records one audit row', async () => {
+      const db = tempDB();
+      const fx = fixture();
+      const human = '# My project\n\nOur rules.\n';
+      writeFileSync(fx.claudeMd, human, { mode: 0o640 });
+      const tools = onboardTools(db, fx.dbPath, { pluginRoot: fx.pluginRoot });
+      const data = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local' }));
+      assert.deepEqual(data.persona, { action: 'appended', version: '1.0.3', path: fx.claudeMd });
+      assert.equal(readFileSync(fx.claudeMd, 'utf8'), `${human}\n${block('1.0.3')}\n`);
+      assert.equal(statSync(fx.claudeMd).mode & 0o777, 0o640, 'file mode kept');
+      const rows = personaRows(db);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].issue_id, -1);
+      assert.deepEqual(JSON.parse(rows[0].content_json), { action: 'appended', version: '1.0.3' });
+      assert.deepEqual(readdirSync(fx.proj).filter((n) => n.endsWith('.tmp')), [], 'no temp file left');
+      rmSync(fx.base, { recursive: true, force: true });
+      db.close();
+    });
+
+    it('creates CLAUDE.md when the project has none', async () => {
+      const db = tempDB();
+      const fx = fixture();
+      const data = parse(await call(onboardTools(db, fx.dbPath, { pluginRoot: fx.pluginRoot }).handlers, 'onboard_apply', { shape: 'local' }));
+      assert.equal((data.persona as Record<string, unknown>).action, 'appended');
+      assert.equal(readFileSync(fx.claudeMd, 'utf8'), `${block('1.0.3')}\n`);
+      rmSync(fx.base, { recursive: true, force: true });
+      db.close();
+    });
+
+    it('a second apply is unchanged and writes no audit row', async () => {
+      const db = tempDB();
+      const fx = fixture();
+      const tools = onboardTools(db, fx.dbPath, { pluginRoot: fx.pluginRoot });
+      await call(tools.handlers, 'onboard_apply', { shape: 'local' });
+      const first = readFileSync(fx.claudeMd, 'utf8');
+      const data = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local' }));
+      assert.equal((data.persona as Record<string, unknown>).action, 'unchanged');
+      assert.equal(readFileSync(fx.claudeMd, 'utf8'), first);
+      assert.equal(personaRows(db).length, 1);
+      rmSync(fx.base, { recursive: true, force: true });
+      db.close();
+    });
+
+    it('an upgrade replaces only the block', async () => {
+      const db = tempDB();
+      const fx = fixture('1.0.4');
+      const before = '# Top\n\n';
+      const after = '\n\n## Mine\nkeep me\n';
+      writeFileSync(fx.claudeMd, `${before}${block('1.0.2')}${after}`);
+      const data = parse(await call(onboardTools(db, fx.dbPath, { pluginRoot: fx.pluginRoot }).handlers, 'onboard_apply', { shape: 'local' }));
+      assert.equal((data.persona as Record<string, unknown>).action, 'replaced');
+      assert.equal(readFileSync(fx.claudeMd, 'utf8'), `${before}${block('1.0.4')}${after}`);
+      assert.deepEqual(JSON.parse(personaRows(db)[0].content_json), { action: 'replaced', version: '1.0.4' });
+      rmSync(fx.base, { recursive: true, force: true });
+      db.close();
+    });
+
+    it('persona:false removes the block and leaves the rest byte-identical', async () => {
+      const db = tempDB();
+      const fx = fixture();
+      const human = '# My project\r\n\r\nOur rules.\r\n';
+      writeFileSync(fx.claudeMd, human);
+      const tools = onboardTools(db, fx.dbPath, { pluginRoot: fx.pluginRoot });
+      await call(tools.handlers, 'onboard_apply', { shape: 'local' });
+      assert.notEqual(readFileSync(fx.claudeMd, 'utf8'), human);
+      const data = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local', persona: false }));
+      assert.deepEqual(data.persona, { action: 'removed', version: '1.0.3', path: fx.claudeMd });
+      assert.equal(readFileSync(fx.claudeMd, 'utf8'), human);
+      assert.deepEqual(personaRows(db).map((r) => JSON.parse(r.content_json).action), ['appended', 'removed']);
+      rmSync(fx.base, { recursive: true, force: true });
+      db.close();
+    });
+
+    it('project root == plugin root: skipped_source and the file untouched', async () => {
+      const db = tempDB();
+      const fx = fixture();
+      const dbPath = join(fx.pluginRoot, '.claude', 'tmb', 'trajectory.db');
+      const data = parse(await call(onboardTools(db, dbPath, { pluginRoot: fx.pluginRoot }).handlers, 'onboard_apply', { shape: 'local' }));
+      assert.deepEqual(data.persona, { action: 'skipped_source', version: '1.0.3', path: join(fx.pluginRoot, 'CLAUDE.md') });
+      assert.equal(readFileSync(join(fx.pluginRoot, 'CLAUDE.md'), 'utf8'), BODY);
+      const off = parse(await call(onboardTools(db, dbPath, { pluginRoot: fx.pluginRoot }).handlers, 'onboard_apply', { shape: 'local', persona: false }));
+      assert.equal((off.persona as Record<string, unknown>).action, 'skipped_source');
+      assert.equal(readFileSync(join(fx.pluginRoot, 'CLAUDE.md'), 'utf8'), BODY);
+      assert.equal(personaRows(db).length, 0);
+      rmSync(fx.base, { recursive: true, force: true });
+      db.close();
+    });
+
+    it('a start marker with no end marker is reported, the file untouched, onboarding still ok', async () => {
+      const db = tempDB();
+      const fx = fixture();
+      const broken = '# Mine\n<!-- tmb:persona start v1.0.2 -->\nhalf\n';
+      writeFileSync(fx.claudeMd, broken);
+      const data = parse(await call(onboardTools(db, fx.dbPath, { pluginRoot: fx.pluginRoot }).handlers, 'onboard_apply', { shape: 'local' }));
+      assert.equal(data.ok, true);
+      const persona = data.persona as Record<string, unknown>;
+      assert.equal(persona.action, 'skipped');
+      assert.match(String(persona.reason), /without an end marker/);
+      assert.equal(readFileSync(fx.claudeMd, 'utf8'), broken);
+      assert.equal(personaRows(db).length, 0);
+      rmSync(fx.base, { recursive: true, force: true });
+      db.close();
+    });
+
+    it('writes nothing without a project derived from the DB path', async () => {
+      const db = tempDB();
+      const fx = fixture();
+      const data = parse(await call(onboardTools(db, '', { pluginRoot: fx.pluginRoot }).handlers, 'onboard_apply', { shape: 'local' }));
+      assert.equal((data.persona as Record<string, unknown>).action, 'skipped');
+      assert.equal(personaRows(db).length, 0);
+      rmSync(fx.base, { recursive: true, force: true });
+      db.close();
     });
   });
 });
