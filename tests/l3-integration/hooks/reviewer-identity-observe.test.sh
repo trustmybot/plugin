@@ -10,6 +10,11 @@
 #   3. every observed call is allowed
 #   4. an unreadable DB denies with the db-unavailable reason
 #   5. without jq it allows with a stderr note and writes nothing
+#   6. through the trajectory-gates chain, a reviewer retry (first
+#      validation_record fails on bad args, the second succeeds) leaves one
+#      consumed and one superseded row; a main-loop validation_record with
+#      agent='pr-reviewer' is denied by agent-arg-matches-caller and leaves the
+#      existing row unconsumed and unsuperseded
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -113,5 +118,49 @@ ERR=$(cd "$PROJ" && payload pr-reviewer e1b2c3d4e5f6a7b8c | PATH="$NOJQ" CLAUDE_
 assert_eq "0" "$rc" "exit 0"
 assert_contains "$ERR" "jq not found" "stderr names jq"
 assert_eq "3" "$(rows)" "no row"
+
+# chain <payload> — the payload through the trajectory-gates registration.
+chain() {
+  (cd "$PROJ" && printf '%s' "$1" \
+    | CLAUDE_PROJECT_DIR="$PROJ" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" trajectory-gates 2>/dev/null || true)
+}
+
+# server <payload> — the payload's tool_input through the built validation_record handler.
+server() {
+  (cd "$PROJ" && printf '%s' "$1" | jq -c '.tool_input' | CLAUDE_PROJECT_DIR="$PROJ" node --experimental-sqlite --no-warnings --input-type=module -e "
+    import { readFileSync } from 'node:fs';
+    const { TrajectoryDB } = await import('$PLUGIN_ROOT/mcp/trajectory-server/dist/db.js');
+    const { validationTools } = await import('$PLUGIN_ROOT/mcp/trajectory-server/dist/tools/validation.js');
+    const db = new TrajectoryDB('$DB');
+    const res = await validationTools(db).handlers.validation_record(JSON.parse(readFileSync(0, 'utf8')));
+    db.close();
+    process.stdout.write(res.isError ? 'error' : 'ok');
+  " 2>&1)
+}
+
+# state <attempt_n> — consumed|superseded|superseded_by per observation row, oldest first.
+state() {
+  sqlite3 "$DB" "SELECT group_concat(s, ' ') FROM (SELECT json_extract(content_json, '$.consumed') || '|' || COALESCE(json_extract(content_json, '$.superseded'), '-') || '|' || COALESCE(json_extract(content_json, '$.superseded_by') - (SELECT MIN(id) FROM audit WHERE event_type = 'reviewer_identity_observed' AND json_extract(content_json, '$.attempt_n') = $1), '-') AS s FROM audit WHERE event_type = 'reviewer_identity_observed' AND json_extract(content_json, '$.attempt_n') = $1 ORDER BY id);"
+}
+
+test_case "a reviewer retry through the chain leaves one consumed and one superseded row"
+RETRY_BAD=$(payload pr-reviewer f1b2c3d4e5f6a7b8c toolu_retry1 | jq -c '.tool_input.attempt_n = 3 | .tool_input.verdict = "approve"')
+assert_eq "allow" "$(decision "$(chain "$RETRY_BAD")")" "the first call passes the chain"
+assert_eq "error" "$(server "$RETRY_BAD")" "and fails on bad args at the server"
+assert_eq "0|-|-" "$(state 3)" "its row is unconsumed"
+RETRY_OK=$(payload pr-reviewer f1b2c3d4e5f6a7b8c toolu_retry2 | jq -c '.tool_input.attempt_n = 3')
+assert_eq "allow" "$(decision "$(chain "$RETRY_OK")")" "the retry passes the chain"
+assert_eq "ok" "$(server "$RETRY_OK")" "and records the verdict"
+assert_eq "0|1|1 1|-|-" "$(state 3)" "the older row is superseded by the consumed retry row"
+
+test_case "a main-loop validation_record(agent='pr-reviewer') is denied and consumes nothing"
+assert_eq "allow" "$(decision "$(chain "$(payload pr-reviewer f2b2c3d4e5f6a7b8c toolu_obs | jq -c '.tool_input.attempt_n = 4')")")" "a reviewer observation for attempt 4"
+BEFORE=$(rows)
+MAIN=$(payload "" "" toolu_main | jq -c '.tool_input.attempt_n = 4')
+OUT=$(chain "$MAIN")
+assert_eq "deny" "$(decision "$OUT")" "agent-arg-matches-caller denies the main loop"
+assert_contains "$OUT" "pass agent='bro'" "agent-arg-matches-caller's reason"
+assert_eq "$BEFORE" "$(rows)" "no row written"
+assert_eq "0|-|-" "$(state 4)" "the reviewer row stays unconsumed and unsuperseded"
 
 summarize
