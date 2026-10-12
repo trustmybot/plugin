@@ -32,7 +32,47 @@ run_step() {
   fi
 }
 
+# ----- Live-CLI stubs (L1 and the L2 stubbed-PATH step) --------------------
+# gh/glab stubs append to a sentinel file on invocation and exit 97; a 0-byte
+# sentinel means the step made no live CLI calls (B5 incident guard). The
+# `claude` stub exits 0 with a one-line marker, so no lint or unit test
+# reaches the real CLI (which writes ~/.claude.json).
+_stub_dir=$(mktemp -d)
+_sentinel="$_stub_dir/live-cli-sentinel"
+touch "$_sentinel"
+for _cli in gh glab; do
+  cat > "$_stub_dir/$_cli" <<STUB
+#!/usr/bin/env bash
+echo "LIVE-CLI BLOCKED: $_cli \$*" >> "$_sentinel"
+echo "tmb test-stub: $_cli blocked (exit 97)" >&2
+exit 97
+STUB
+  chmod +x "$_stub_dir/$_cli"
+done
+cat > "$_stub_dir/claude" <<'STUB'
+#!/usr/bin/env bash
+echo "tmb test-stub: claude $*"
+exit 0
+STUB
+chmod +x "$_stub_dir/claude"
+
+# live_cli_check <step>: fail when the stubs were called, then reset.
+live_cli_check() {
+  if [ -s "$_sentinel" ]; then
+    printf "→ FAIL: live CLI calls detected during %s:\n" "$1"
+    cat "$_sentinel"
+    : > "$_sentinel"
+    return 1
+  fi
+  printf "→ sentinel 0-byte: no live CLI calls during %s. PASS\n" "$1"
+}
+
 # ----- L1 — Static / lint -----------------------------------------------
+# Offline: lints that would query a forge (TMB_L1_OFFLINE=1) skip, and the
+# stubs above shadow gh/glab/claude.
+
+_l1_saved_path="$PATH"
+export PATH="$_stub_dir:$PATH" TMB_L1_OFFLINE=1
 
 run_step "L1 lint: agent template line budget"        bash "$HERE/l1-lint/agent-line-budget.sh"
 run_step "L1 lint: agent template byte-identity (swe + pr-reviewer)"  bash "$HERE/l1-lint/agent-template-byte-identity.sh"
@@ -92,6 +132,10 @@ run_step "L1 lint: main-source-guard + CODEOWNERS present" bash "$HERE/l1-lint/m
 
 run_step "L1 bench: measurement harness selftest"     bash "$HERE/benchmarks/selftest.sh"
 
+export PATH="$_l1_saved_path"
+unset TMB_L1_OFFLINE
+live_cli_check "L1" || FAIL=1
+
 # ----- L2 — Unit + L3 — Integration -------------------------------------
 
 printf "\n=== L2 unit: MCP handlers (node --test on built dist/) ===\n"
@@ -105,29 +149,8 @@ fi
 # ----- L2 adjacent: stubbed-PATH suite (no live gh/glab calls) ---------------
 # Runs the MCP unit suite with loud-fail gh/glab PATH stubs and
 # TMB_FORBID_LIVE_SYNC=1. Reuses the already-built dist/ — no second build.
-# Stubs append to a sentinel file on invocation; a 0-byte sentinel means the
-# suite completed without making any live CLI calls (B5 incident guard). A
-# `claude` stub exits 0 with a one-line marker, so no unit test reaches the
-# real CLI (which writes ~/.claude.json).
+# Reuses the live-CLI stubs and sentinel the L1 step ran with.
 printf "\n=== L2 stubbed-PATH: MCP unit suite with live-CLI stubs (reuses dist/) ===\n"
-_stub_dir=$(mktemp -d)
-_sentinel="$_stub_dir/live-cli-sentinel"
-touch "$_sentinel"
-for _cli in gh glab; do
-  cat > "$_stub_dir/$_cli" <<STUB
-#!/usr/bin/env bash
-echo "LIVE-CLI BLOCKED: $_cli \$*" >> "$_sentinel"
-echo "tmb test-stub: $_cli blocked (exit 97)" >&2
-exit 97
-STUB
-  chmod +x "$_stub_dir/$_cli"
-done
-cat > "$_stub_dir/claude" <<'STUB'
-#!/usr/bin/env bash
-echo "tmb test-stub: claude $*"
-exit 0
-STUB
-chmod +x "$_stub_dir/claude"
 _stub_pass=0
 if (
   export PATH="$_stub_dir:$PATH"
@@ -140,14 +163,10 @@ else
   printf "→ FAIL\n"
   _stub_pass=1
 fi
-if [ -s "$_sentinel" ]; then
-  printf "→ FAIL: live CLI calls detected during stubbed-PATH run:\n"
-  cat "$_sentinel"
+if ! live_cli_check "stubbed-PATH run"; then
   FAIL=1
 elif [ "$_stub_pass" -ne 0 ]; then
   FAIL=1
-else
-  printf "→ sentinel 0-byte: no live CLI calls. PASS\n"
 fi
 rm -rf "$_stub_dir"
 

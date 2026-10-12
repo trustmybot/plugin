@@ -19,7 +19,10 @@
 #
 # Allowlist: tests/l1-lint/no-tmp-writes.allowlist — repo-relative paths.
 #
-# --self-test runs the checks against fixtures/no-tmp-writes/.
+# --self-test runs the checks against fixtures/no-tmp-writes/, then runs every
+# other tests/l1-lint/*.sh with HOME at an empty temp dir, gh/glab/claude
+# stubbed on PATH and TMB_L1_OFFLINE=1, and fails when the loop wrote under
+# that HOME (the embedding model cache, ~/.cache/huggingface, excepted).
 
 set -uo pipefail
 
@@ -104,6 +107,32 @@ scan() {
   ' "$@"
 }
 
+# l1_loop_footprint — prints every path the L1 loop wrote under an isolated HOME.
+l1_loop_footprint() {
+  local home tools cli f real_home mise_data mise_config model_cache
+  real_home="$HOME"
+  mise_data="${MISE_DATA_DIR:-$real_home/.local/share/mise}"
+  mise_config="${MISE_CONFIG_DIR:-$real_home/.config/mise}"
+  model_cache="${TMB_MODEL_CACHE_DIR:-${HF_HOME:-$real_home/.cache/huggingface}}"
+  home=$(mktemp -d)
+  tools=$(mktemp -d)
+  for cli in gh glab; do
+    printf '#!/usr/bin/env bash\necho "tmb test-stub: %s blocked" >&2\nexit 97\n' "$cli" > "$tools/$cli"
+  done
+  printf '#!/usr/bin/env bash\necho "tmb test-stub: claude $*"\nexit 0\n' > "$tools/claude"
+  chmod +x "$tools/gh" "$tools/glab" "$tools/claude"
+  for f in "$ROOT"/tests/l1-lint/*.sh; do
+    [ "$(basename "$f")" = "no-tmp-writes.sh" ] && continue
+    HOME="$home" PATH="$tools:$PATH" TMB_L1_OFFLINE=1 TMB_TEST_REAL_HOME="$real_home" \
+      MISE_DATA_DIR="$mise_data" MISE_CONFIG_DIR="$mise_config" \
+      MISE_STATE_DIR="$tools/mise-state" MISE_CACHE_DIR="$tools/mise-cache" \
+      TMB_MODEL_CACHE_DIR="$model_cache" \
+      bash "$f" >/dev/null 2>&1 || true
+  done
+  find "$home" -mindepth 1 -path "$home/.cache/huggingface" -prune -o -print 2>/dev/null | sed "s|^$home|\$HOME|" | grep -vx '\$HOME/.cache' || true
+  rm -rf "$home" "$tools"
+}
+
 if [ "${1:-}" = "--self-test" ]; then
   fail=0
   bad=$(scan "$FIXTURES"/bad.sh "$FIXTURES"/bad.ts | wc -l | tr -d ' ')
@@ -111,6 +140,8 @@ if [ "${1:-}" = "--self-test" ]; then
   good=$(scan "$FIXTURES"/good.sh "$FIXTURES"/good.ts)
   [ "$bad" = "$expected_bad" ] || { printf 'no-tmp-writes self-test: expected %s violations in bad fixtures, got %s\n' "$expected_bad" "$bad" >&2; scan "$FIXTURES"/bad.sh "$FIXTURES"/bad.ts >&2; fail=1; }
   [ -z "$good" ] || { printf 'no-tmp-writes self-test: false positives in good fixtures:\n%s\n' "$good" >&2; fail=1; }
+  leaked=$(l1_loop_footprint)
+  [ -z "$leaked" ] || { printf 'no-tmp-writes self-test: the L1 loop wrote under an isolated HOME:\n%s\n' "$leaked" >&2; fail=1; }
   [ "$fail" -eq 0 ] && echo "No-tmp-writes self-test: PASS"
   exit "$fail"
 fi
