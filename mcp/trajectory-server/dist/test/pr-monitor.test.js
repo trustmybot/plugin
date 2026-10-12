@@ -531,6 +531,21 @@ describe('pr_monitor_comments_get — server-side comment persistence (GH 1208)'
         assert.equal(prDiscussions(db)[0].issue_id, newer, 'most recently updated carrying task wins; failed is skipped');
         db.close();
     });
+    it('never binds to another registered repo\'s task when the slug maps to a registered repo', async () => {
+        const db = tempDB();
+        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+        seedTask(db, 'fix/shared', 'closed');
+        db.run(`INSERT INTO repos (name, path, remotes) VALUES ('b', '/tmp/b', ?)`, [
+            JSON.stringify([{ name: 'origin', provider: 'github', url: 'https://github.com/owner/b.git' }]),
+        ]);
+        const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: payload('fix/shared', [C1]), stderr: '' }]));
+        const result = parseResult((await tools.handlers['pr_monitor_comments_get']({ agent: 'bro', pr_number: 56, repo: 'owner/b' })));
+        assert.equal(result.persisted, 0, 'repo app\'s task must not carry repo b\'s PR comments');
+        assert.equal(prDiscussions(db).length, 0);
+        const run = db.get('SELECT task_id FROM pr_review_runs WHERE pr_number = 56');
+        assert.equal(run?.task_id, null, 'the run row is not linked to another repo\'s task');
+        db.close();
+    });
     it('keys GitLab notes with the gitlab provider', async () => {
         const db = tempDB();
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"glab"')`);
