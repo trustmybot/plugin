@@ -26,7 +26,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/db-write.sh"
 
 INPUT=$(cat 2>/dev/null) || exit 0
-command -v jq >/dev/null 2>&1 || exit 0
+command -v jq >/dev/null 2>&1 || { echo "reviewer-identity-observe: jq not found — caller not recorded" >&2; exit 0; }
 
 case "$(printf '%s' "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)" in
   mcp__*trajectory-server__validation_record) ;;

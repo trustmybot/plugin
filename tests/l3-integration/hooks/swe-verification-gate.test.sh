@@ -6,7 +6,9 @@
 # Rails #673), runs each command in the task worktree and records the run in
 # verification_runs + verification_run_commands. Deny on non-zero exit or
 # budget spent. Allow on pass, empty array, valid waiver, or a passing run for
-# the same (task, worktree HEAD) recorded within the hour.
+# the same (task, worktree HEAD) recorded within the hour. Through the
+# trajectory-gates chain, a call agent-arg-matches-caller denies never reaches
+# the gate.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -692,5 +694,17 @@ out=$(cd "$REPO_DIR" && echo "$(make_input swe completed 93)" | TMB_VERIFICATION
 assert_not_contains "$out" '"permissionDecision":"deny"' "command 2 finishes inside the budget"
 assert_contains "$(cat "$TMPDIR/slow.err")" "tmb_db_write" "the command-row write did wait on the held lock"
 assert_eq "0|0" "$(sqlite3 "$DB" "SELECT exit_code || '|' || timed_out FROM verification_runs WHERE task_id = 93;")" "run finished exit 0, not timed out"
+
+# ---- Chain: a call agent-arg-matches-caller denies never runs verification ---
+test_case "chain: main-loop task_update_status(agent='swe') is denied and records no verification run"
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (95, 1, 'feat/chain-close', 'plugin', 'pending', '', '[\"echo ok\"]');"
+git_worktree chain-close >/dev/null
+CHAIN_IN=$(make_input swe completed 95 | jq -c '. + {hook_event_name: "PreToolUse", session_id: "main-1", tool_use_id: "tu-chain-1"}')
+out=$(cd "$REPO_DIR" && printf '%s' "$CHAIN_IN" | CLAUDE_PROJECT_DIR="$WS" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" trajectory-gates 2>/dev/null || true)
+assert_contains "$out" '"permissionDecision":"deny"' "denied"
+assert_contains "$(reason_of "$out")" "pass agent='bro'" "by agent-arg-matches-caller"
+assert_eq "0" "$(runs_of 95)" "no verification run recorded"
+out=$(cd "$REPO_DIR" && run_hook "$CHAIN_IN")
+assert_eq "1" "$(runs_of 95)" "the gate alone would have recorded one"
 
 summarize

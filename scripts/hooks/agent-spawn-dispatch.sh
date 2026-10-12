@@ -24,7 +24,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 INPUT=$(cat 2>/dev/null) || exit 0
-command -v jq >/dev/null 2>&1 || exit 0
+command -v jq >/dev/null 2>&1 || { echo "agent-spawn-dispatch: jq not found" >&2; exit 1; }
 
 HOOKS=(
   "$SCRIPT_DIR/require-task-spec.sh"

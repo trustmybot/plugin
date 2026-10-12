@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The one entry point for every TMB hook registration:
 #
-#   dispatch.sh <gate> [--shim]
+#   dispatch.sh <gate | chain> [--shim]
 #
 # hooks/hooks.json registers `dispatch.sh <gate>` for every gate; the headless
 # shim (scripts/lib/resolve-hook.sh) execs `dispatch.sh <gate> --shim`. However
@@ -47,19 +47,42 @@
 #    itself errors, the dispatcher prints a blocking decision shaped for the
 #    event (PreToolUse deny, else decision block) and exits 0, with a stderr
 #    line naming the cause. Other hooks keep their exit code and output.
+#    The registration (timeout, onFailure) is read from hooks.json with awk,
+#    so it holds on a host without jq. There, every fail-closed gate denies
+#    with "jq not found" before it runs: the gates decide from jq-parsed
+#    payloads and cannot decide without it.
+# 5. Chains. `dispatch.sh <chain>` (lib/registrations.sh: trajectory-gates)
+#    runs the chain's gates one after another with the same payload, each through
+#    `dispatch.sh <gate> --chain <chain>` (its own dedupe key and lock, the
+#    chain's onFailure, the gate's own timeout from the chain table). The
+#    first deny (exit 2 or a deny decision, fail-closed ones included) ends
+#    the chain and is returned; the additionalContext of the gates that
+#    allowed is joined into one output. Each gate runs in its own process
+#    group under a watchdog at its chain-table timeout: past it, the group
+#    (the gate and everything it started) is killed and the chain denies. Any other exit ends the chain with a deny.
+#    A duplicate waiter that gives up on its holder exits 75 under --chain,
+#    and the chain ends there without a decision (the holder's chain
+#    decides), so no later gate runs for it. A chain, a gate run with
+#    --chain, and any gate when lib/registrations.sh cannot be loaded are
+#    fail-closed whatever hooks.json says.
 
 set -uo pipefail
 
 GATE="${1:-}"
 [ $# -gt 0 ] && shift
 SHIM=0
+CHAIN=""
 PASS=()
-for arg in "$@"; do
-  if [ "$arg" = "--shim" ] && [ "$SHIM" = "0" ]; then
+while [ $# -gt 0 ]; do
+  if [ "$1" = "--shim" ] && [ "$SHIM" = "0" ]; then
     SHIM=1
+  elif [ "$1" = "--chain" ] && [ -z "$CHAIN" ] && [ $# -gt 1 ]; then
+    CHAIN="$2"
+    shift
   else
-    PASS+=("$arg")
+    PASS+=("$1")
   fi
+  shift
 done
 
 case "$GATE" in
@@ -73,16 +96,13 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SELF_ROOT="$(cd "$SELF_DIR/../.." && pwd)"
 export CLAUDE_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$SELF_ROOT}"
 
-REGISTRATION=$(jq -r --arg g "$GATE" '
-  [.hooks[][]?.hooks[]? | select((.command // "") | test("/dispatch\\.sh " + $g + "( |$)"))]
-  | "\([.[].timeout // empty] | max // "") \(if any(.[]; .onFailure == "block") then 1 else 0 end)"
-  ' "$SELF_ROOT/hooks/hooks.json" 2>/dev/null || true)
-GATE_TIMEOUT="${REGISTRATION% *}"
-FAIL_CLOSED="${REGISTRATION##* }"
-[ "$FAIL_CLOSED" = "1" ] || FAIL_CLOSED=0
 PAYLOAD=""
 PAYLOAD_READ=0
 DENY_PATTERN='"permissionDecision"[[:space:]]*:[[:space:]]*"deny"|"decision"[[:space:]]*:[[:space:]]*"block"'
+# Exit code of a chain gate whose duplicate waiter gave up on the holder: the
+# chain ends without a decision of its own (the holder's chain decides).
+CHAIN_YIELD=75
+FAIL_CLOSED=1
 
 read_payload() {
   [ "$PAYLOAD_READ" = "1" ] && return 0
@@ -90,10 +110,13 @@ read_payload() {
   PAYLOAD=$(cat)
 }
 
-# fail_closed_decision <cause> — the blocking decision for this gate's event.
+# fail_closed_decision <cause> [<reason>] [<gate>] — the blocking decision for
+# this gate's event.
 fail_closed_decision() {
-  local reason="BLOCKED: TMB gate $GATE $1 without a decision, so the action is denied (fail-closed). The hook's stderr names the cause; fix the gate, then retry."
-  printf 'TMB dispatch: gate %s %s — failing closed\n' "$GATE" "$1" >&2
+  local gate="${3:-$GATE}"
+  local reason="BLOCKED: TMB gate $gate $1 without a decision, so the action is denied (fail-closed). The hook's stderr names the cause; fix the gate, then retry."
+  [ -n "${2:-}" ] && reason="$2"
+  printf 'TMB dispatch: gate %s %s — failing closed\n' "$gate" "$1" >&2
   if printf '%s' "$PAYLOAD" | grep -qE '"hook_event_name"[[:space:]]*:[[:space:]]*"PreToolUse"'; then
     printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$reason"
   else
@@ -105,11 +128,34 @@ on_exit() {
   local rc=$?
   [ "$FAIL_CLOSED" = "1" ] || return 0
   case "$rc" in 0|2) return 0 ;; esac
+  [ -n "$CHAIN" ] && [ "$rc" = "$CHAIN_YIELD" ] && return 0
   read_payload
   fail_closed_decision "dispatch failed (exit $rc)"
   exit 0
 }
 trap on_exit EXIT
+
+# Without the registration library nothing says whether this gate may fail
+# open, so it fails closed.
+# shellcheck source=scripts/hooks/lib/registrations.sh
+if ! . "$SELF_DIR/lib/registrations.sh" 2>/dev/null || ! declare -F tmb_registration >/dev/null; then
+  read_payload
+  fail_closed_decision "could not load lib/registrations.sh"
+  exit 0
+fi
+
+REGISTRATION=$(tmb_registration "$SELF_ROOT/hooks/hooks.json" "${CHAIN:-$GATE}")
+GATE_TIMEOUT="${REGISTRATION% *}"
+FAIL_CLOSED="${REGISTRATION##* }"
+[ "$FAIL_CLOSED" = "1" ] || FAIL_CLOSED=0
+CHAIN_GATES=""
+if [ -n "$CHAIN" ]; then
+  FAIL_CLOSED=1
+  GATE_TIMEOUT=$(tmb_chain_table "$CHAIN" | awk -v g="$GATE" '$1 == g { print $2; exit }')
+else
+  CHAIN_GATES=$(tmb_chain_table "$GATE")
+  [ -n "$CHAIN_GATES" ] && FAIL_CLOSED=1
+fi
 
 # settle <rc> <stdout> — a fail-closed gate's non-zero exit other than 2 keeps
 # its own deny, or becomes one; every other result passes through unchanged.
@@ -132,6 +178,115 @@ settle() {
 # shellcheck source=scripts/hooks/lib/resolve-install.sh
 . "$SELF_DIR/lib/resolve-install.sh"
 
+PROJECT_REAL=""
+[ -n "${CLAUDE_PROJECT_DIR:-}" ] && PROJECT_REAL=$(_tmb_canonical_dir "$CLAUDE_PROJECT_DIR")
+
+if [ "$SHIM" = "1" ]; then
+  read_payload
+  SHIM_PROJECT="${TMB_SHIM_PROJECT:-}"
+  [ -n "$SHIM_PROJECT" ] && SHIM_PROJECT=$(_tmb_canonical_dir "$SHIM_PROJECT")
+  if [ -n "$PROJECT_REAL" ] && [ -n "$SHIM_PROJECT" ] && [ "$PROJECT_REAL" != "$SHIM_PROJECT" ]; then
+    exit 0
+  fi
+  SESSION_ROOT="${PROJECT_REAL:-$SHIM_PROJECT}"
+  SESSION_ID=""
+  command -v jq >/dev/null 2>&1 \
+    && SESSION_ID=$(printf '%s' "$PAYLOAD" | jq -r '.session_id // empty' 2>/dev/null || true)
+  case "$SESSION_ID" in
+    ''|*/*|.*) ;;
+    *)
+      if [ -n "$SESSION_ROOT" ] \
+         && [ -e "$SESSION_ROOT/$TMB_STATE_HOST_DIR/$(tmb_plugin_name)/sessions/$SESSION_ID.plugin-hooks" ]; then
+        exit 0
+      fi
+      ;;
+  esac
+fi
+
+# run_member <gate> <budget s> — the gate through `dispatch.sh <gate> --chain`,
+# killed with everything it started once it runs past <budget>. Prints its
+# stdout, then a last line with its exit code. Job control puts the gate and
+# the watchdog in process groups of their own, so either is stopped with one
+# kill of its group: no process-tree walk, and nothing is left running.
+run_member() {
+  local pid watch rc
+  set -m
+  ( printf '%s' "$PAYLOAD" | bash "$SELF_DIR/dispatch.sh" "$1" --chain "$GATE" ${PASS[@]+"${PASS[@]}"} ) &
+  pid=$!
+  ( sleep "$2"; kill -KILL -- -"$pid" ) </dev/null >/dev/null 2>&1 &
+  watch=$!
+  trap 'kill -KILL -- -"$pid" -"$watch" 2>/dev/null; exit 143' TERM INT HUP
+  wait "$pid"
+  rc=$?
+  kill -KILL -- -"$watch" 2>/dev/null
+  wait "$watch" 2>/dev/null
+  printf '\n%s' "$rc"
+}
+
+# run_chain — the chain's gates in order. The first deny ends it, as does a
+# gate that runs past its chain-table timeout or exits other than 0 or 2
+# (a deny), or a duplicate waiter that gave up (no decision: the holder's
+# chain decides).
+run_chain() {
+  local tool="" gate budget res out rc started
+  local -a context=()
+  command -v jq >/dev/null 2>&1 \
+    && tool=$(printf '%s' "$PAYLOAD" | jq -r '.tool_name // empty' 2>/dev/null || true)
+  while IFS= read -r gate; do
+    [ -n "$gate" ] || continue
+    budget=$(tmb_chain_table "$GATE" | awk -v g="$gate" '$1 == g { print $2; exit }')
+    case "$budget" in ''|*[!0-9]*) budget=6 ;; esac
+    started=$SECONDS
+    res=$(run_member "$gate" "$budget")
+    rc="${res##*$'\n'}"
+    out="${res%$'\n'*}"
+    [ "$res" = "$rc" ] && out=""
+    if [ "$rc" = "2" ] || printf '%s' "$out" | grep -qE "$DENY_PATTERN"; then
+      [ -n "$out" ] && printf '%s\n' "$out"
+      return "$rc"
+    fi
+    case "$rc" in
+      0) ;;
+      "$CHAIN_YIELD")
+        printf 'TMB dispatch: chain %s yields at %s to the duplicate event already running it\n' "$GATE" "$gate" >&2
+        return 0
+        ;;
+      *)
+        if [ $((SECONDS - started)) -ge "$budget" ]; then
+          fail_closed_decision "ran past its ${budget} s budget" "" "$gate"
+        else
+          fail_closed_decision "exited $rc" "" "$gate"
+        fi
+        return 0
+        ;;
+    esac
+    [ -n "$out" ] && context+=("$out")
+  done < <(tmb_chain_gates "$GATE" "$tool")
+  if [ "${#context[@]}" -eq 1 ]; then
+    printf '%s\n' "${context[0]}"
+  elif [ "${#context[@]}" -gt 1 ]; then
+    printf '%s\n' "${context[@]}" | jq -sc '
+      {hookSpecificOutput: {
+        hookEventName: (map(.hookSpecificOutput.hookEventName? // empty) | first // "PreToolUse"),
+        additionalContext: (map(.hookSpecificOutput.additionalContext? // empty) | join("\n\n"))}}' 2>/dev/null \
+      || printf '%s\n' "${context[@]}"
+  fi
+  return 0
+}
+
+if [ -n "$CHAIN_GATES" ]; then
+  read_payload
+  run_chain
+  exit $?
+fi
+
+if [ "$FAIL_CLOSED" = "1" ] && ! command -v jq >/dev/null 2>&1; then
+  read_payload
+  fail_closed_decision "could not run: jq not found" \
+    "BLOCKED: jq not found — TMB gate $GATE cannot decide without it, so the action is denied (fail-closed). Install jq (brew install jq, apt-get install jq), then retry."
+  exit 0
+fi
+
 ROOT=$(tmb_active_install)
 TARGET="$ROOT/scripts/hooks/$GATE.sh"
 if [ -z "$ROOT" ] || [ ! -f "$TARGET" ]; then
@@ -146,9 +301,6 @@ if [ ! -f "$TARGET" ]; then
   exit 1
 fi
 export CLAUDE_PLUGIN_ROOT="$ROOT"
-
-PROJECT_REAL=""
-[ -n "${CLAUDE_PROJECT_DIR:-}" ] && PROJECT_REAL=$(_tmb_canonical_dir "$CLAUDE_PROJECT_DIR")
 
 LOCK_BASE=""
 if tmb_have_sqlite && STATE_DIR=$(tmb_state_dir 2>/dev/null); then
@@ -171,25 +323,6 @@ run_gate() {
   rc=$?
   settle "$rc" "$out"
 }
-
-if [ "$SHIM" = "1" ] && command -v jq >/dev/null 2>&1; then
-  SHIM_PROJECT="${TMB_SHIM_PROJECT:-}"
-  [ -n "$SHIM_PROJECT" ] && SHIM_PROJECT=$(_tmb_canonical_dir "$SHIM_PROJECT")
-  if [ -n "$PROJECT_REAL" ] && [ -n "$SHIM_PROJECT" ] && [ "$PROJECT_REAL" != "$SHIM_PROJECT" ]; then
-    exit 0
-  fi
-  SESSION_ROOT="${PROJECT_REAL:-$SHIM_PROJECT}"
-  SESSION_ID=$(printf '%s' "$PAYLOAD" | jq -r '.session_id // empty' 2>/dev/null || true)
-  case "$SESSION_ID" in
-    ''|*/*|.*) ;;
-    *)
-      if [ -n "$SESSION_ROOT" ] \
-         && [ -e "$SESSION_ROOT/$TMB_STATE_HOST_DIR/$(tmb_plugin_name)/sessions/$SESSION_ID.plugin-hooks" ]; then
-        exit 0
-      fi
-      ;;
-  esac
-fi
 
 [ -n "$LOCK_BASE" ] || { run_gate; exit $?; }
 
@@ -319,6 +452,9 @@ while :; do
     reclaim
     [ -d "$LOCK" ] || continue
   fi
-  [ "$(_now)" -ge "$DEADLINE" ] && exit 0
+  if [ "$(_now)" -ge "$DEADLINE" ]; then
+    [ -n "$CHAIN" ] && exit "$CHAIN_YIELD"
+    exit 0
+  fi
   sleep 0.1
 done

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Lint: the docs/reference/REFERENCE.md hook table and hooks/hooks.json agree
 # both ways. Every row names a script that exists under scripts/hooks/ and is
-# registered in hooks.json (`dispatch.sh <name>`), so a deleted or unwired hook
-# cannot leave a stale row; every hook hooks.json registers has a row.
+# registered in hooks.json (`dispatch.sh <name>`, or as a gate of a chain
+# registration, scripts/hooks/lib/registrations.sh), so a deleted or unwired
+# hook cannot leave a stale row; every hook hooks.json registers has a row.
 #
 # Usage: hooks-doc-fresh.sh [<root>]   (default: this repo; self-tests first)
 
@@ -11,20 +12,32 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 
+# registered <root> — every gate script hooks.json runs, chains expanded.
+registered() {
+  local name members
+  for name in $(grep -oE 'dispatch\.sh [a-z0-9-]+"' "$1/hooks/hooks.json" | sed -E 's/dispatch\.sh (.*)"/\1/' | sort -u); do
+    members=$(tmb_chain_table "$name" | cut -d' ' -f1)
+    printf '%s\n' ${members:-$name}
+  done | sort -u
+}
+
 check_tree() {
-  local root="$1" hook failed=0 rows=0
+  local root="$1" hook failed=0 rows=0 gates
+  # shellcheck source=scripts/hooks/lib/registrations.sh
+  . "$root/scripts/hooks/lib/registrations.sh"
+  gates=$(registered "$root")
   for hook in $(awk '/^## Hooks/{on=1; next} on && /^## /{on=0} on' "$root/docs/reference/REFERENCE.md" \
       | grep -oE '^\| `[a-z0-9-]+\.sh`' | sed -E 's/^\| `(.*)\.sh`/\1/'); do
     rows=$((rows + 1))
     if [ ! -f "$root/scripts/hooks/$hook.sh" ]; then
       echo "  ✗ docs/reference/REFERENCE.md lists $hook.sh, which is not in scripts/hooks/" >&2
       failed=1
-    elif ! grep -qF "dispatch.sh $hook\"" "$root/hooks/hooks.json"; then
+    elif ! printf '%s\n' "$gates" | grep -qxF "$hook"; then
       echo "  ✗ docs/reference/REFERENCE.md lists $hook.sh, which hooks/hooks.json does not register" >&2
       failed=1
     fi
   done
-  for hook in $(grep -oE 'dispatch\.sh [a-z0-9-]+"' "$root/hooks/hooks.json" | sed -E 's/dispatch\.sh (.*)"/\1/' | sort -u); do
+  for hook in $gates; do
     if ! awk '/^## Hooks/{on=1; next} on && /^## /{on=0} on' "$root/docs/reference/REFERENCE.md" | grep -qF "| \`$hook.sh\` |"; then
       echo "  ✗ hooks/hooks.json registers $hook.sh, which has no row in the docs/reference/REFERENCE.md hook table" >&2
       failed=1

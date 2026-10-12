@@ -3,7 +3,7 @@
 #
 # Blocks `gh auth login` and `glab auth login` (only the `login` subcommand)
 # when the current repo's repo_remotes rows (tmb_repo_remotes) carry no non-empty URL.
-# Fail-open on any error: missing DB, jq absent, sqlite3 absent → allow.
+# Fail-open on a missing DB or sqlite3 → allow. jq absent → exit 1 (the dispatcher denies, fail-closed).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
@@ -37,7 +37,7 @@ done < <(tmb_cmd_statements "$CMD" "$(tmb_payload_cwd "$INPUT")")
 DB=$(tmb_db_path 2>/dev/null || true)
 [ -n "$DB" ] || exit 0
 tmb_have_sqlite || exit 0
-command -v jq >/dev/null 2>&1 || exit 0
+command -v jq >/dev/null 2>&1 || { echo "no-remote-auth-guard: jq not found" >&2; exit 1; }
 
 # Read remotes JSON from the login statement's repo (sole source of truth),
 # resolved from its effective dir — in a multi-repo workspace $PWD is the

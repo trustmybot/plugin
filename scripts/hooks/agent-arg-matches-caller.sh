@@ -28,7 +28,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/normalize-role.sh"
 
 INPUT=$(cat 2>/dev/null) || exit 0
-command -v jq >/dev/null 2>&1 || exit 0
+command -v jq >/dev/null 2>&1 || { echo "agent-arg-matches-caller: jq not found" >&2; exit 1; }
 
 FIELDS=$(printf '%s' "$INPUT" | jq -r '
   [(.tool_name // ""),

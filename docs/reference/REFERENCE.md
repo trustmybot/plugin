@@ -74,7 +74,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 
 ## Hooks (SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / Stop / SubagentStop / WorktreeCreate)
 
-52 hook scripts under `scripts/hooks/`, wired via `hooks/hooks.json`. The six PreToolUse-Agent gates run through a single `agent-spawn-dispatch.sh` dispatcher rather than as separate registrations.
+52 hook scripts under `scripts/hooks/`, wired via `hooks/hooks.json`. The six PreToolUse-Agent gates run through a single `agent-spawn-dispatch.sh` dispatcher rather than as separate registrations. The trajectory-server gates are one registration, `dispatch.sh trajectory-gates`: `agent-arg-matches-caller.sh`, `swe-brief-gate.sh`, then the tool's own gate, in that order, stopping at the first deny.
 
 | Hook | Trigger | Purpose |
 |---|---|---|
@@ -103,9 +103,9 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `agent-spawn-dispatch.sh` | PreToolUse Agent | Dispatcher for the spawn gates: `require-task-spec.sh`, `require-feature-branch-active.sh`, `pr-reviewer-no-worktree.sh`, `pr-reviewer-spawn-prompt-shape.sh`, `pr-reviewer-after-atomic-close.sh`, then prepares the worktree via `ensure-swe-worktree.sh` |
 | `agent-arg-matches-caller.sh` | PreToolUse trajectory-server | Deny a call whose `agent` argument names another role than the caller (the payload's `agent_type`, or bro for the main session) and audit `agent_arg_mismatch`; a missing `agent` is allowed and the decision never depends on the trajectory DB |
 | `swe-brief-gate.sh` | PreToolUse trajectory-server + Edit/Write | SWE must have fetched its task brief before touching state or files |
-| `swe-verification-gate.sh` | PreToolUse task_update_status | Gate the SWE close transition on verification |
-| `reviewer-identity-observe.sh` | PreToolUse validation_record | Record the calling pr-reviewer's `session_id`, `agent_id` and `tool_use_id` with `observed_at` (`reviewer_identity_observed`) so `validation_record` stamps the reviewer's identity; observe-only, fails closed only when the trajectory DB is unavailable |
-| `cheatcode-install-approval.sh` | PreToolUse cheatcode_install | Require Human approval before installing a cheatcode |
+| `swe-verification-gate.sh` | PreToolUse trajectory-server (task_update_status) | Gate the SWE close transition on verification |
+| `reviewer-identity-observe.sh` | PreToolUse trajectory-server (validation_record) | Record the calling pr-reviewer's `session_id`, `agent_id` and `tool_use_id` with `observed_at` (`reviewer_identity_observed`) so `validation_record` stamps the reviewer's identity; observe-only, fails closed only when the trajectory DB is unavailable |
+| `cheatcode-install-approval.sh` | PreToolUse trajectory-server (cheatcode_install) | Require Human approval before installing a cheatcode |
 | `askuserquestion-length-lint.sh` | PreToolUse AskUserQuestion | Cap label/description lengths |
 | `roundtable-auq-shape.sh` | PreToolUse AskUserQuestion | Validate AUQ shape during roundtable awaiting_human |
 | `no-source-edit-from-main.sh` | PreToolUse Edit/Write | Bro can't edit source from main checkout |

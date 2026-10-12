@@ -5,7 +5,7 @@
 # stay in the tmb_project-prescan skill.
 #
 # Always silent on failure — a slow / broken prescan must never block
-# session start.
+# session start. Without jq it prints only the Tooling line naming it.
 
 set -uo pipefail
 
@@ -18,10 +18,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/resolve-install.sh
 . "$SCRIPT_DIR/lib/resolve-install.sh"
 
+# Without jq every fail-closed TMB gate denies; say so, without jq.
+if ! command -v jq >/dev/null 2>&1; then
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Tooling: jq not found — every TMB gate will deny until it is installed"}}'
+  exit 0
+fi
+
 DB_PATH=$(tmb_db_path_advisory session-start-prescan) || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0
 command -v git >/dev/null 2>&1 || exit 0
-command -v jq >/dev/null 2>&1 || exit 0
 
 # Version-skew probe (#602). Surface the ACTIVE plugin version and, when the
 # marketplace cache holds a NEWER version that isn't the running one, a
