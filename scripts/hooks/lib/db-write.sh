@@ -157,6 +157,26 @@ _tmb_audit_event_writers() {
   return 1
 }
 
+# tmb_audit_writer_check <label> <event_type> <writer>
+# Exit 2 + stderr (prefixed with <label>) when audit-events.txt is missing or
+# unreadable, <event_type> is not in it, or <writer> is not among its writers.
+tmb_audit_writer_check() {
+  local label="${1:-}" event_type="${2:-}" writer="${3:-}" writers
+  if [ ! -r "$_TMB_AUDIT_EVENTS_FILE" ]; then
+    printf '%s: audit event list missing or unreadable: %s (run npm run build in mcp/trajectory-server)\n' "$label" "$_TMB_AUDIT_EVENTS_FILE" >&2
+    return 2
+  fi
+  if ! writers=$(_tmb_audit_event_writers "$event_type"); then
+    printf '%s: unknown event_type %s (not in %s; add it to mcp/trajectory-server/src/audit-events.ts and rebuild)\n' "$label" "'$event_type'" "$_TMB_AUDIT_EVENTS_FILE" >&2
+    return 2
+  fi
+  case ",$writers," in
+    *",$writer,"*) return 0 ;;
+  esac
+  printf '%s: audit_event_not_writable_by_role: %s may not write %s (writers: %s)\n' "$label" "'$writer'" "'$event_type'" "$writers" >&2
+  return 2
+}
+
 # tmb_audit_dedupe_guard <event_type> <content_json> <json_path>...
 # Prints a guard condition for tmb_audit_sql: true when no audit row of
 # <event_type> already carries the same value as <content_json> at every
@@ -204,23 +224,7 @@ tmb_audit_sql() {
     printf 'tmb_audit_append: %s: invalid from_node %s (want hook:<name> or system)\n' "$caller" "'$from_node'" >&2
     return 2
   fi
-  if [ ! -r "$_TMB_AUDIT_EVENTS_FILE" ]; then
-    printf 'tmb_audit_append: %s: audit event list missing or unreadable: %s (run npm run build in mcp/trajectory-server)\n' "$caller" "$_TMB_AUDIT_EVENTS_FILE" >&2
-    return 2
-  fi
-  local writers writer
-  if ! writers=$(_tmb_audit_event_writers "$event_type"); then
-    printf 'tmb_audit_append: %s: unknown event_type %s (not in %s; add it to mcp/trajectory-server/src/audit-events.ts and rebuild)\n' "$caller" "'$event_type'" "$_TMB_AUDIT_EVENTS_FILE" >&2
-    return 2
-  fi
-  writer=$(_tmb_audit_writer "$from_node")
-  case ",$writers," in
-    *",$writer,"*) ;;
-    *)
-      printf 'tmb_audit_append: %s: audit_event_not_writable_by_role: %s may not write %s (writers: %s)\n' "$caller" "'$writer'" "'$event_type'" "$writers" >&2
-      return 2
-      ;;
-  esac
+  tmb_audit_writer_check "tmb_audit_append: $caller" "$event_type" "$(_tmb_audit_writer "$from_node")" || return 2
   local safe_issue
   case "$issue_id" in
     -1) safe_issue="-1" ;;

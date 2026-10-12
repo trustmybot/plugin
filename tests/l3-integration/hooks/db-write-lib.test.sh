@@ -187,14 +187,14 @@ assert_eq "0" "$(count "SELECT COUNT(*) FROM plugin_config WHERE key LIKE 'dbw_b
 test_case "sqlite3 fallback audits against the system issue (issue_id = -1)"
 ERR=$(TRAJECTORY_DB_PATH="$DB" bash -c '
   . "$1"
-  tmb_fallback_audit_append -1 "" "bro" "fallback_probe" "system audit" "{}" bro
+  tmb_fallback_audit_append -1 "" "bro" "planning_complete" "system audit" "{}" bro
 ' _ "$PLUGIN_ROOT/scripts/lib/sqlite3-fallback.sh" 2>&1 >/dev/null) && RC=0 || RC=$?
 assert_eq "0" "$RC" "fallback accepts issue_id -1"
 assert_eq "" "$ERR" "no stderr"
-assert_eq "1" "$(count "SELECT COUNT(*) FROM audit WHERE issue_id = -1 AND event_type='fallback_probe';")" "audit row filed under issue -1"
+assert_eq "1" "$(count "SELECT COUNT(*) FROM audit WHERE issue_id = -1 AND event_type='planning_complete';")" "audit row filed under issue -1"
 ERR=$(TRAJECTORY_DB_PATH="$DB" bash -c '
   . "$1"
-  tmb_fallback_audit_append -2 "" "bro" "fallback_probe" "x" "{}" bro
+  tmb_fallback_audit_append -2 "" "bro" "planning_complete" "x" "{}" bro
 ' _ "$PLUGIN_ROOT/scripts/lib/sqlite3-fallback.sh" 2>&1 >/dev/null) && RC=0 || RC=$?
 [ "$RC" -ne 0 ] && _pass || _fail "issue_id -2 must still be rejected"
 
