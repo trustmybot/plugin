@@ -1,11 +1,17 @@
 import { describe, it, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { setTimeout as sleep } from 'node:timers/promises';
 import { tempDB } from './helpers.js';
-import { embed, embeddingStatus, embedFailThreshold, embedRetryDelayMs, resetEmbeddingModelForTests, } from '../embeddings/model.js';
+import { embed, embeddingStatus, embedFailThreshold, embedRetryDelayMs, resetEmbeddingModelForTests, __setClockForTests, } from '../embeddings/model.js';
 import { recordEmbeddingTransitions } from '../embeddings/health.js';
-const RETRY_MS = 40;
+const T0 = Date.parse('2026-01-01T00:00:00.000Z');
 const VECTOR = [1, 0, 0];
+let clock = T0;
+function advance(ms) {
+    clock += ms;
+}
+function iso(ms) {
+    return new Date(ms).toISOString();
+}
 function mockLoader() {
     const m = {
         loads: 0,
@@ -27,17 +33,23 @@ function mockLoader() {
     return m;
 }
 function auditRows(db, eventType) {
-    return db.all('SELECT issue_id, from_node, content_json FROM audit WHERE event_type = ? ORDER BY id', [eventType]);
+    return db.all('SELECT issue_id, from_node, content_json FROM audit WHERE event_type = ? AND issue_id = -1 ORDER BY id', [eventType]);
+}
+function auditCount(db, eventType) {
+    return db.get('SELECT COUNT(*) AS n FROM audit WHERE event_type = ? AND issue_id = -1', [eventType]).n;
 }
 describe('embedding model state', () => {
     const savedRetry = process.env['TMB_EMBED_RETRY_MS'];
     const savedThreshold = process.env['TMB_EMBED_FAIL_THRESHOLD'];
     beforeEach(() => {
-        process.env['TMB_EMBED_RETRY_MS'] = String(RETRY_MS);
+        delete process.env['TMB_EMBED_RETRY_MS'];
         delete process.env['TMB_EMBED_FAIL_THRESHOLD'];
+        clock = T0;
+        __setClockForTests(() => clock);
     });
     after(() => {
         resetEmbeddingModelForTests();
+        __setClockForTests();
         if (savedRetry === undefined)
             delete process.env['TMB_EMBED_RETRY_MS'];
         else
@@ -55,7 +67,7 @@ describe('embedding model state', () => {
         assert.deepEqual(Array.from(v), VECTOR);
         const status = embeddingStatus();
         assert.equal(status.state, 'ready');
-        assert.equal(typeof status.since, 'string');
+        assert.equal(status.since, iso(T0));
         assert.equal(status.consecutive_failures, 0);
         assert.equal(status.next_retry_at, undefined);
     });
@@ -84,17 +96,20 @@ describe('embedding model state', () => {
         assert.equal(await embed('x4'), null);
         const status = embeddingStatus();
         assert.equal(status.state, 'degraded');
+        assert.equal(status.since, iso(T0));
         assert.equal(status.consecutive_failures, 5);
         assert.match(status.reason, /5 consecutive embed failures: embed boom/);
-        assert.ok(Date.parse(status.next_retry_at) > Date.now(), 'a re-attempt is scheduled');
+        assert.equal(status.next_retry_at, iso(T0 + 60_000), 'the first re-attempt is due 1 min after degrading');
         const callsBefore = m.calls;
+        advance(59_999);
         assert.equal(await embed('skipped'), null);
         assert.equal(m.calls, callsBefore, 'no call while the re-attempt is not due');
-        const rows = auditRows(db, 'embeddings_degraded');
-        assert.equal(rows.length, 1);
-        assert.equal(rows[0].issue_id, -1);
-        assert.equal(rows[0].from_node, 'trajectory-server');
-        const content = JSON.parse(rows[0].content_json);
+        assert.equal(m.loads, 1);
+        assert.equal(auditCount(db, 'embeddings_degraded'), 1);
+        assert.equal(auditCount(db, 'embeddings_recovered'), 0);
+        const [row] = auditRows(db, 'embeddings_degraded');
+        assert.equal(row.from_node, 'trajectory-server');
+        const content = JSON.parse(row.content_json);
         assert.equal(content.consecutive_failures, 5);
         assert.match(content.reason, /embed boom/);
     });
@@ -118,21 +133,21 @@ describe('embedding model state', () => {
             await embed(`x${i}`);
         assert.equal(embeddingStatus().state, 'degraded');
         m.failCalls = false;
-        await sleep(RETRY_MS + 20);
+        advance(60_000);
         const v = await embed('back');
         assert.deepEqual(Array.from(v), VECTOR);
         assert.equal(m.loads, 2, 'the re-attempt rebuilds the model');
         const status = embeddingStatus();
         assert.equal(status.state, 'ready');
+        assert.equal(status.since, iso(T0 + 60_000));
         assert.equal(status.consecutive_failures, 0);
-        assert.equal(auditRows(db, 'embeddings_degraded').length, 1);
-        const recovered = auditRows(db, 'embeddings_recovered');
-        assert.equal(recovered.length, 1);
-        const content = JSON.parse(recovered[0].content_json);
+        assert.equal(auditCount(db, 'embeddings_degraded'), 1);
+        assert.equal(auditCount(db, 'embeddings_recovered'), 1);
+        const content = JSON.parse(auditRows(db, 'embeddings_recovered')[0].content_json);
         assert.equal(content.retries, 1);
-        assert.equal(typeof content.degraded_since, 'string');
+        assert.equal(content.degraded_since, iso(T0));
         await embed('again');
-        assert.equal(auditRows(db, 'embeddings_recovered').length, 1);
+        assert.equal(auditCount(db, 'embeddings_recovered'), 1);
     });
     it('a load failure degrades at once with a re-attempt; a failed re-attempt stays degraded without a second audit row', async () => {
         const db = tempDB();
@@ -145,23 +160,26 @@ describe('embedding model state', () => {
         assert.equal(first.state, 'degraded');
         assert.match(first.reason, /model load failed: model unavailable/);
         assert.equal(first.consecutive_failures, 1);
-        assert.ok(first.next_retry_at);
-        assert.equal(auditRows(db, 'embeddings_degraded').length, 1);
-        await sleep(RETRY_MS + 20);
+        assert.equal(first.next_retry_at, iso(T0 + 60_000));
+        assert.equal(auditCount(db, 'embeddings_degraded'), 1);
+        advance(60_000);
         assert.equal(await embed('b'), null);
         assert.equal(m.loads, 2);
         const second = embeddingStatus();
         assert.equal(second.state, 'degraded');
         assert.equal(second.since, first.since);
-        assert.ok(Date.parse(second.next_retry_at) > Date.parse(first.next_retry_at));
-        assert.equal(auditRows(db, 'embeddings_degraded').length, 1);
+        assert.equal(second.next_retry_at, iso(T0 + 60_000 + 300_000));
+        assert.equal(auditCount(db, 'embeddings_degraded'), 1);
         m.failLoad = false;
-        await sleep(RETRY_MS + 20);
+        advance(299_999);
+        assert.equal(await embed('early'), null);
+        assert.equal(m.loads, 2, 'no re-attempt before it is due');
+        advance(1);
         assert.ok(await embed('c'));
         assert.equal(embeddingStatus().state, 'ready');
-        const recovered = auditRows(db, 'embeddings_recovered');
-        assert.equal(recovered.length, 1);
-        assert.equal(JSON.parse(recovered[0].content_json).retries, 2);
+        assert.equal(auditCount(db, 'embeddings_degraded'), 1);
+        assert.equal(auditCount(db, 'embeddings_recovered'), 1);
+        assert.equal(JSON.parse(auditRows(db, 'embeddings_recovered')[0].content_json).retries, 2);
     });
     it('concurrent callers share one load and one degraded transition', async () => {
         const db = tempDB();
@@ -172,7 +190,33 @@ describe('embedding model state', () => {
         const results = await Promise.all([embed('a'), embed('b'), embed('c')]);
         assert.deepEqual(results, [null, null, null]);
         assert.equal(m.loads, 1);
-        assert.equal(auditRows(db, 'embeddings_degraded').length, 1);
+        assert.equal(auditCount(db, 'embeddings_degraded'), 1);
+    });
+    it('failed re-attempts follow the 1 min, 5 min, then every 10 min schedule', async () => {
+        const m = mockLoader();
+        resetEmbeddingModelForTests(m.loader);
+        m.failLoad = true;
+        await embed('a');
+        let due = T0 + 60_000;
+        assert.equal(embeddingStatus().next_retry_at, iso(due));
+        for (const delay of [300_000, 600_000, 600_000]) {
+            clock = due;
+            assert.equal(await embed('retry'), null);
+            due += delay;
+            assert.equal(embeddingStatus().next_retry_at, iso(due));
+        }
+        assert.equal(m.loads, 4);
+    });
+    it('TMB_EMBED_RETRY_MS sets one fixed re-attempt delay', async () => {
+        process.env['TMB_EMBED_RETRY_MS'] = '250';
+        const m = mockLoader();
+        resetEmbeddingModelForTests(m.loader);
+        m.failLoad = true;
+        await embed('a');
+        assert.equal(embeddingStatus().next_retry_at, iso(T0 + 250));
+        advance(250);
+        await embed('b');
+        assert.equal(embeddingStatus().next_retry_at, iso(T0 + 500));
     });
     it('re-attempt schedule is 1 min, 5 min, then every 10 min; TMB_EMBED_RETRY_MS overrides it', () => {
         const env = {};

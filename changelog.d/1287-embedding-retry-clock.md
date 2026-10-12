@@ -1,0 +1,2 @@
+### Fixed
+- **The embedding degrade/re-attempt test is deterministic** (GH 1287): `src/embeddings/model.ts` reads time through an injectable clock (`__setClockForTests`, default `Date.now`) for `since`, `next_retry_at` and the re-attempt gate, and `embedding-model.test.ts` advances that clock instead of sleeping, asserting the 1 min / 5 min / 10 min schedule by exact timestamps and counting audit rows by `event_type`, so the test no longer fails intermittently under load.
