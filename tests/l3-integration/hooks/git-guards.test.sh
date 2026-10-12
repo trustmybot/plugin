@@ -1059,6 +1059,37 @@ push_out=$(cd "$REPO_PATH" && jq -cn --arg d "$REPO_PATH" --arg c 'cd $D && git 
 assert_contains "$push_out" "ambiguous_git_target" "git-push-guard gives the same verdict for the same unknown dir"
 cleanup_repo
 
+# ---- GH 1281: text in a heredoc or a quoted $( ) body is never a statement ----
+
+test_case "GH 1281: bro gh issue comment whose \$( ) heredoc body names cd && git commit → allowed"
+setup_dev_main_repo
+COMMENT_CMD=$(printf '%s\n' "gh issue comment 1 --body \"\$(cat <<'EOF'" 'run: cd x && git commit --amend then rebase' 'and `cd x && git push origin dev` after' 'EOF' ')"')
+out=$(run_hook_payload "" "$REPO_PATH" "$COMMENT_CMD")
+assert_not_contains "$out" '"permissionDecision":"deny"' "the comment body is data"
+cleanup_repo
+
+test_case "GH 1281: bro heredoc into a --body-file naming git push origin dev → allowed"
+setup_dev_main_repo
+NOTES_CMD=$(printf '%s\n' "cat > notes.md <<'EOF'" 'git push origin dev' 'git commit --amend' 'EOF' 'gh issue comment 1 --body-file notes.md')
+out=$(run_hook_payload "" "$REPO_PATH" "$NOTES_CMD")
+assert_not_contains "$out" '"permissionDecision":"deny"' "the notes file body is data"
+cleanup_repo
+
+test_case "GH 1281: git commit on dev in the main checkout → still denied"
+setup_dev_main_repo
+git -C "$REPO_PATH" worktree remove --force "$WT_PATH"
+out=$(run_hook_payload "" "$REPO_PATH" "git commit -m x")
+assert_contains "$out" "dev is a shared workflow base" "a real commit on protected dev denies"
+cleanup_repo
+
+test_case "GH 1281: 'cd <wt> && git commit --amend' on a feature branch → allowed; same on the main checkout at dev → denied"
+setup_dev_main_repo
+out=$(run_hook_payload "" "$REPO_PATH" "cd $WT_PATH && git commit --amend")
+assert_not_contains "$out" '"permissionDecision":"deny"' "judged against the worktree's fix/thing"
+out=$(run_hook_payload "" "$WT_PATH" "cd $REPO_PATH && git commit --amend")
+assert_contains "$out" "dev is a shared workflow base" "judged against the main checkout's dev"
+cleanup_repo
+
 test_case "GH 1196: 'cd \$D && git commit' without worktrees → judged in the payload cwd"
 setup_dev_main_repo
 git -C "$REPO_PATH" worktree remove --force "$WT_PATH"

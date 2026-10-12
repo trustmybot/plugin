@@ -6,10 +6,15 @@
 # tmb_cmd_strip_literals <command> [keep]
 #   Prints <command> with the parts that are data rather than shell syntax
 #   neutralized, so a scanner never mistakes them for operators:
-#     - heredoc bodies are dropped (the `<<WORD` operator stays);
-#     - quotes are removed, and inside a quoted string every blank and every
-#       operator character (< > | ; & ( ) `) becomes `_`, so `echo "> /tmp/z"`
-#       is one word while `echo hi > "/tmp/z"` keeps its redirect target;
+#     - heredoc bodies are dropped (the `<<WORD` operator stays), every form:
+#       <<WORD, <<-WORD, <<'WORD', <<"WORD", several on one line, inside $( );
+#     - quotes ('…', "…", $'…') are removed, and inside a quoted string every
+#       blank and every operator character (< > | ; & ( ) `) becomes `_`, so
+#       `echo "> /tmp/z"` is one word while `echo hi > "/tmp/z"` keeps its
+#       redirect target;
+#     - a $( ) or backtick inside double quotes runs, so its body is shell
+#       syntax again (written as $( ) — with `keep`, as the bytes \007 … \010
+#       that _tmb_cmd_statements_enc reads as a word of the outer statement);
 #     - `# comments` are dropped.
 #   A quoted string spanning lines joins them with `_`. With `keep`, those
 #   characters (and backslash-escaped ones) become reversible control bytes
@@ -37,7 +42,9 @@
 #   ( ) $( ) and backticks; leading `{ ! if then else elif do while until`,
 #   VAR=value assignments and sudo/env/command/nohup/exec/time wrappers are
 #   dropped, so the statement starts at its real argv0, words single-spaced,
-#   quoted words carrying `_` for their blanks. `bash|sh|zsh|dash|ksh -c <s>`
+#   quoted words carrying `_` for their blanks. A $( ) or backtick inside
+#   double quotes yields its own statements and stays one word of the outer
+#   statement, so the words after it still count. `bash|sh|zsh|dash|ksh -c <s>`
 #   and `eval <s>` are analyzed recursively. <effective_dir> is, in order:
 #     - the statement's own `git -C <path>` (chained -C compose);
 #     - the dir set by a preceding `cd|pushd <path>` in the same command
@@ -89,11 +96,23 @@
 #   nothing for any other statement.
 #
 # tmb_gh_mutation <statement>
-#   For a statement that runs `gh …` / `glab …` (every word whose basename is
-#   gh or glab is parsed from there, so /usr/bin/gh, VAR=value prefixes and
-#   any wrapper such as timeout, nice, xargs or time -p count; quoted and
-#   heredoc text is stripped before this point) prints the first write to the
-#   forge it makes: the HTTP
+#   For a statement that runs `gh …` / `glab …` prints the first write to the
+#   forge it makes. gh/glab is judged at command position: argv0 (after
+#   VAR=value prefixes), or any later word when argv0 is a wrapper or any
+#   command that is not a data command, so /usr/bin/gh and every wrapper
+#   (timeout, nice, xargs, stdbuf, sudo -u x, …) count. When argv0 is a data
+#   command (echo, printf, grep, cat, sed, jq, …) its words never count. A
+#   statement that starts with an option left by a removed wrapper
+#   (`sudo -u git gh …` becomes `-u git gh …`) has no argv0 to judge, so
+#   every word counts. For git only the commands it runs count: after
+#   `bisect run`, `submodule [opts] foreach`, and rebase's -x in any short
+#   cluster (-x, -ix, -x<cmd>) or --exec / --exe / --ex (with or without =);
+#   in such a command every gh/glab word counts, compounds included.
+#   Known misses: a shell alias (`git -c alias.X='!gh …' X`), a command run
+#   as an editor or pager (GIT_SEQUENCE_EDITOR='gh …' git rebase -i,
+#   GIT_EDITOR, GIT_PAGER, `git -c core.pager='gh …' log`, core.editor,
+#   sequence.editor). Quoted and heredoc text is
+#   stripped before this point. The write is the HTTP
 #   verb of an `api` call (-X <V>, -X<V>, --method <V>, --method=<V> in any
 #   position, V in POST|PATCH|PUT|DELETE, case-insensitive; with no verb,
 #   POST when a -f/-F/--field/--raw-field/--input parameter is present, as
@@ -160,8 +179,10 @@ tmb_cmd_strip_literals() {
       return (c ~ /[ \t<>|;&()`]/) ? "_" : c
     }
     function joiner() { return keep ? enc[12] : "_" }
+    function subopen(  ) { sp++; pd[sp] = 0; return keep ? sprintf("%c", 7) : "$(" }
+    function subclose(  ) { sp--; state = "d"; return keep ? sprintf("%c", 8) : ")" }
     BEGIN {
-      state = ""; nh = 0; cur = 0; inbody = 0
+      state = ""; nh = 0; cur = 0; inbody = 0; sp = 0
       for (k = 1; k <= 12; k++) enc[k] = sprintf("%c", k < 7 ? k : k + 7)
     }
     {
@@ -182,11 +203,27 @@ tmb_cmd_strip_literals() {
           if (c == sq) { state = "" } else { out = out neutral(c) }
           i++; continue
         }
+        if (state == "a") {
+          if (c == "\\") { out = out neutral(substr(line, i + 1, 1)); i += 2; continue }
+          if (c == sq) { state = "" } else { out = out neutral(c) }
+          i++; continue
+        }
         if (state == "d") {
           if (c == "\\") { out = out neutral(substr(line, i + 1, 1)); i += 2; continue }
+          if (c == "$" && substr(line, i + 1, 1) == "(") { out = out subopen(); state = ""; sub_bt[sp] = 0; i += 2; continue }
+          if (c == "`") { out = out subopen(); state = ""; sub_bt[sp] = 1; i++; continue }
           if (c == "\"") { state = "" } else { out = out neutral(c) }
           i++; continue
         }
+        if (sp > 0) {
+          if (sub_bt[sp] && c == "`") { out = out subclose(); i++; continue }
+          if (!sub_bt[sp] && c == "(") pd[sp]++
+          if (!sub_bt[sp] && c == ")") {
+            if (pd[sp] == 0) { out = out subclose(); i++; continue }
+            pd[sp]--
+          }
+        }
+        if (c == "$" && substr(line, i + 1, 1) == sq) { state = "a"; i += 2; continue }
         if (c == "\\") { out = out (keep ? neutral(substr(line, i + 1, 1)) : substr(line, i + 1, 1)); i += 2; continue }
         if (c == sq) { state = "s"; i++; continue }
         if (c == "\"") { state = "d"; i++; continue }
@@ -437,13 +474,40 @@ _tmb_cmd_statements_enc() {
       }
       printf "%s\t%s\n", d, out
     }
-    BEGIN { cur = base; sp = 0; bt = 0; stmt = "" }
+    function rawword(t,   k, m, ch, out, x) {
+      out = ""; m = length(t)
+      for (k = 1; k <= m; k++) {
+        ch = substr(t, k, 1)
+        if (ch == qo) { out = out "$" enc[8]; continue }
+        if (ch == qc) { out = out enc[9]; continue }
+        if (ch == "\n") { out = out enc[12]; continue }
+        x = index(" \t<>|;&()`", ch)
+        out = out (x ? enc[x] : ch)
+      }
+      return out
+    }
+    BEGIN {
+      cur = base; sp = 0; bt = 0; stmt = ""; qsp = 0
+      qo = sprintf("%c", 7); qc = sprintf("%c", 8)
+      for (k = 1; k <= 12; k++) enc[k] = sprintf("%c", k < 7 ? k : k + 7)
+    }
     { buf = (NR == 1) ? $0 : buf "\n" $0 }
     END {
       n = length(buf)
       for (i = 1; i <= n; i++) {
         c = substr(buf, i, 1)
         nx = substr(buf, i + 1, 1)
+        if (c == qo) {
+          qsp++; qstmt[qsp] = stmt; qcur[qsp] = cur; qstart[qsp] = i + 1; qsps[qsp] = sp
+          stmt = ""; continue
+        }
+        if (c == qc) {
+          if (qsp == 0) continue
+          flush()
+          stmt = qstmt[qsp] "$" enc[8] rawword(substr(buf, qstart[qsp], i - qstart[qsp])) enc[9]
+          cur = qcur[qsp]; sp = qsps[qsp]; qsp--
+          continue
+        }
         if (c == "\n" || c == ";") { flush(); continue }
         if (c == "&") {
           if (nx == ">" || substr(buf, i - 1, 1) == ">") { stmt = stmt c; continue }
@@ -543,11 +607,72 @@ tmb_git_subcommand() {
 }
 
 tmb_gh_mutation() {
-  local -a w
-  local k n found
+  local -a w g
+  local k=0 n a sub found
   read -r -a w <<< "${1:-}"
   n=${#w[@]}
-  for ((k = 0; k < n; k++)); do
+  while [ "$k" -lt "$n" ]; do
+    case "${w[$k]}" in [A-Za-z_]*=*) k=$((k + 1)) ;; *) break ;; esac
+  done
+  [ "$k" -lt "$n" ] || return 0
+  case "${w[$k]##*/}" in
+    git)
+      sub=$(tmb_git_subcommand "${w[*]:$k}")
+      read -r -a g <<< "$sub"
+      case "${g[0]:-} ${g[1]:-}" in
+        "bisect run") _tmb_gh_mutation_in "${g[@]:2}"; return 0 ;;
+      esac
+      if [ "${g[0]:-}" = "submodule" ]; then
+        k=1
+        while [ "$k" -lt "${#g[@]}" ] && [ "${g[$k]#-}" != "${g[$k]}" ]; do k=$((k + 1)); done
+        [ "${g[$k]:-}" = "foreach" ] || return 0
+        k=$((k + 1))
+        while [ "$k" -lt "${#g[@]}" ] && [ "${g[$k]#-}" != "${g[$k]}" ]; do k=$((k + 1)); done
+        _tmb_gh_mutation_in "${g[@]:$k}"
+        return 0
+      fi
+      [ "${g[0]:-}" = "rebase" ] || return 0
+      for ((k = 1; k < ${#g[@]}; k++)); do
+        a="${g[$k]}"
+        case "$a" in
+          --ex|--exe|--exec) found=$(_tmb_gh_mutation_in "${g[$((k + 1))]:-}"); k=$((k + 1)) ;;
+          --ex=*|--exe=*|--exec=*) found=$(_tmb_gh_mutation_in "${a#*=}") ;;
+          --*) found="" ;;
+          -*x*)
+            if [ -n "${a#*x}" ]; then
+              found=$(_tmb_gh_mutation_in "${a#*x}")
+            else
+              found=$(_tmb_gh_mutation_in "${g[$((k + 1))]:-}"); k=$((k + 1))
+            fi
+            ;;
+          *) found="" ;;
+        esac
+        if [ -n "$found" ]; then printf '%s\n' "$found"; return 0; fi
+      done
+      return 0
+      ;;
+    echo|printf|grep|egrep|fgrep|rg|ag|ack|cat|head|tail|less|more|sed|awk|gawk|jq|yq|test|'['|'[['|man|which|type|wc|sort|cut|tr) return 0 ;;
+  esac
+  for ((; k < n; k++)); do
+    case "${w[$k]##*/}" in
+      gh|glab)
+        found=$(tmb_gh_mutation_from "${w[@]:$k}")
+        if [ -n "$found" ]; then printf '%s\n' "$found"; return 0; fi
+        ;;
+    esac
+  done
+}
+
+# _tmb_gh_mutation_in <words…>
+# The first forge write of a command git runs from its own arguments. A quoted
+# command arrives as one word with `_` for its blanks and its operators, so
+# its statements cannot be told apart: every gh/glab word in it is judged.
+_tmb_gh_mutation_in() {
+  local cmd="$*" k found
+  local -a w
+  [ -n "$cmd" ] || return 0
+  read -r -a w <<< "${cmd//_/ }"
+  for ((k = 0; k < ${#w[@]}; k++)); do
     case "${w[$k]##*/}" in
       gh|glab)
         found=$(tmb_gh_mutation_from "${w[@]:$k}")
