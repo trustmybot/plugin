@@ -23990,6 +23990,7 @@ async function defaultLoader() {
   env.cacheDir = TMB_MODEL_CACHE_DIR;
   return await pipeline("feature-extraction", MODEL_ID);
 }
+var now = Date.now;
 var loader = defaultLoader;
 var pipePromise = null;
 var loadingSince = null;
@@ -24026,13 +24027,13 @@ function message(e) {
 }
 function loadPipe() {
   if (!pipePromise) {
-    loadingSince = (/* @__PURE__ */ new Date()).toISOString();
+    loadingSince = new Date(now()).toISOString();
     readySince = null;
     const p = loader();
     pipePromise = p;
     p.then(
       () => {
-        if (pipePromise === p) readySince = (/* @__PURE__ */ new Date()).toISOString();
+        if (pipePromise === p) readySince = new Date(now()).toISOString();
       },
       () => {
         if (pipePromise === p) pipePromise = null;
@@ -24043,7 +24044,7 @@ function loadPipe() {
 }
 function enterDegraded(reason) {
   if (degraded) return;
-  degraded = { since: (/* @__PURE__ */ new Date()).toISOString(), reason, retries: 0, nextRetryAt: Date.now() + embedRetryDelayMs(0) };
+  degraded = { since: new Date(now()).toISOString(), reason, retries: 0, nextRetryAt: now() + embedRetryDelayMs(0) };
   emit({ kind: "degraded", reason, consecutive_failures: consecutiveFailures });
 }
 async function retry(text) {
@@ -24062,7 +24063,7 @@ async function retry(text) {
     consecutiveFailures++;
     d.retries++;
     d.reason = `re-attempt failed: ${message(e)}`;
-    d.nextRetryAt = Date.now() + embedRetryDelayMs(d.retries);
+    d.nextRetryAt = now() + embedRetryDelayMs(d.retries);
     return null;
   } finally {
     retrying = false;
@@ -24070,7 +24071,7 @@ async function retry(text) {
 }
 async function embed(text) {
   if (degraded) {
-    if (retrying || Date.now() < degraded.nextRetryAt) return null;
+    if (retrying || now() < degraded.nextRetryAt) return null;
     return retry(text);
   }
   let pipe2;
@@ -24569,7 +24570,7 @@ function auditTools(db2) {
       const fromNode = role === "consultant" ? agentName : role;
       const issueId = requireArg(args, "issue_id");
       const branchId = args["branch_id"] ?? null;
-      const now = nowISO();
+      const now2 = nowISO();
       requireArg(args, "event_type");
       requireArg(args, "summary");
       const eventType = args["event_type"];
@@ -24596,7 +24597,7 @@ function auditTools(db2) {
         event_type: eventType,
         summary,
         content_json: contentJson,
-        created_at: now,
+        created_at: now2,
         writer: role
       });
       return ok(db2.get("SELECT * FROM audit WHERE id = ?", [id]));
@@ -24995,8 +24996,8 @@ function discussionTools(db2) {
         if (!issue2) {
           throw new Error(`Not found: issue ${issueId}`);
         }
-        const now = nowISO();
-        const id = insertDiscussion(db2, { issue_id: issueId, author, kind, body, created_at: now });
+        const now2 = nowISO();
+        const id = insertDiscussion(db2, { issue_id: issueId, author, kind, body, created_at: now2 });
         const row = db2.get("SELECT * FROM discussions WHERE id = ?", [id]);
         return ok2(row);
       })
@@ -25728,7 +25729,7 @@ function exitReasonForStatus(status) {
 }
 var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
 var WINDOW_MS_SQL = "COALESCE(CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)";
-function closeOpenRunsForTask(db2, taskId, now, exitReason) {
+function closeOpenRunsForTask(db2, taskId, now2, exitReason) {
   return db2.run(
     `UPDATE agent_runs
         SET completed_at = ?,
@@ -25736,10 +25737,10 @@ function closeOpenRunsForTask(db2, taskId, now, exitReason) {
             exit_reason = ?
       WHERE task_id = ?
         AND completed_at IS NULL`,
-    [now, now, exitReason, taskId]
+    [now2, now2, exitReason, taskId]
   ).changes;
 }
-function sweepRunsOfTerminalTasks(db2, now) {
+function sweepRunsOfTerminalTasks(db2, now2) {
   const placeholders = [...TERMINAL_TASK_STATUSES].map(() => "?").join(", ");
   return db2.run(
     `UPDATE agent_runs
@@ -25749,7 +25750,7 @@ function sweepRunsOfTerminalTasks(db2, now) {
                                THEN 'swept_orphan' ELSE 'swept_stale' END
       WHERE completed_at IS NULL
         AND task_id IN (SELECT id FROM tasks WHERE status IN (${placeholders}))`,
-    [now, now, ...TERMINAL_TASK_STATUSES]
+    [now2, now2, ...TERMINAL_TASK_STATUSES]
   ).changes;
 }
 var RUN_SESSION_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
@@ -25765,15 +25766,15 @@ function parseRunSessionId(value) {
   }
   return value;
 }
-function openBroRun(db2, task, now, ctx, sessionId = null) {
+function openBroRun(db2, task, now2, ctx, sessionId = null) {
   db2.run(
     `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host, session_id)
      VALUES (?, ?, 'bro', ?, ?, ?, ?, ?)`,
-    [task.id, task.issue_id, now, task.repo, ctx.projectRoot, ctx.host, sessionId]
+    [task.id, task.issue_id, now2, task.repo, ctx.projectRoot, ctx.host, sessionId]
   );
 }
-function openSweRun(db2, task, now, ctx, rootDir) {
-  const orphanBefore = new Date(Date.parse(now) - SWE_ORPHAN_AFTER_MS).toISOString();
+function openSweRun(db2, task, now2, ctx, rootDir) {
+  const orphanBefore = new Date(Date.parse(now2) - SWE_ORPHAN_AFTER_MS).toISOString();
   db2.run(
     `UPDATE agent_runs
         SET completed_at = ?,
@@ -25781,7 +25782,7 @@ function openSweRun(db2, task, now, ctx, rootDir) {
             exit_reason = 'swept_orphan'
       WHERE task_id = ? AND agent_type = 'swe' AND completed_at IS NULL
         AND started_at IS NOT NULL AND started_at < ?`,
-    [now, now, task.id, orphanBefore]
+    [now2, now2, task.id, orphanBefore]
   );
   const open = db2.get(
     `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'swe' AND completed_at IS NULL LIMIT 1`,
@@ -25791,7 +25792,7 @@ function openSweRun(db2, task, now, ctx, rootDir) {
   db2.run(
     `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host)
      VALUES (?, ?, 'swe', ?, ?, ?, ?)`,
-    [task.id, task.issue_id, now, task.repo, rootDir, ctx.host]
+    [task.id, task.issue_id, now2, task.repo, rootDir, ctx.host]
   );
   return true;
 }
@@ -25837,7 +25838,7 @@ function closedTasksWithoutReview(db2, issueId) {
     [issueId]
   );
 }
-function recordReviewBypassIfUnreviewed(db2, task, closedBy, fromNode, now) {
+function recordReviewBypassIfUnreviewed(db2, task, closedBy, fromNode, now2) {
   const state = reviewStateAt(db2, task.id, task.commit_sha);
   if (state.pass || state.skipRecorded) return false;
   insertAudit(db2, {
@@ -25847,15 +25848,15 @@ function recordReviewBypassIfUnreviewed(db2, task, closedBy, fromNode, now) {
     event_type: "review_gate_bypassed",
     summary: `Task ${task.id} closed by ${closedBy} without a passing review`,
     content_json: JSON.stringify({ task_id: task.id, commit_sha: task.commit_sha, closed_by: closedBy }),
-    created_at: now
+    created_at: now2
   });
   return true;
 }
-function escalateLiveTasksForIssueClose(db2, tasks, reason, now) {
+function escalateLiveTasksForIssueClose(db2, tasks, reason, now2) {
   for (const task of tasks) {
     db2.run(
       `UPDATE tasks SET status = 'escalated', completed_at = NULL, updated_at = ? WHERE id = ?`,
-      [now, task.id]
+      [now2, task.id]
     );
     insertAudit(db2, {
       issue_id: task.issue_id,
@@ -25864,15 +25865,15 @@ function escalateLiveTasksForIssueClose(db2, tasks, reason, now) {
       event_type: "task_escalated_by_issue_close",
       summary: `Task ${task.id} escalated from ${task.status} by issue_close cascade`,
       content_json: JSON.stringify({ task_id: task.id, from_status: task.status, reason }),
-      created_at: now
+      created_at: now2
     });
-    closeOpenRunsForTask(db2, task.id, now, "issue_closed");
+    closeOpenRunsForTask(db2, task.id, now2, "issue_closed");
   }
 }
-function markIssueClosed(db2, issueId, now) {
+function markIssueClosed(db2, issueId, now2) {
   db2.run(
     `UPDATE issues SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?) WHERE id = ?`,
-    [now, now, issueId]
+    [now2, now2, issueId]
   );
 }
 var STALE_RUNNING_HOURS_DEFAULT = 6;
@@ -25881,8 +25882,8 @@ function staleRunningHours(env = process.env) {
   const raw = Number(env["TMB_STALE_RUNNING_HOURS"]);
   return Number.isFinite(raw) && raw > 0 ? raw : STALE_RUNNING_HOURS_DEFAULT;
 }
-function sweepStaleTasks(db2, now) {
-  const nowMs = Date.parse(now);
+function sweepStaleTasks(db2, now2) {
+  const nowMs = Date.parse(now2);
   const hours = staleRunningHours();
   const runningCutoff = new Date(nowMs - hours * 36e5).toISOString();
   const pendingCutoff = new Date(nowMs - STALE_PENDING_DAYS * 864e5).toISOString();
@@ -25898,7 +25899,7 @@ function sweepStaleTasks(db2, now) {
   if (stale.length > 0) {
     db2.transaction(() => {
       for (const task of stale) {
-        db2.run(`UPDATE tasks SET status = 'failed', completed_at = NULL, updated_at = ? WHERE id = ?`, [now, task.id]);
+        db2.run(`UPDATE tasks SET status = 'failed', completed_at = NULL, updated_at = ? WHERE id = ?`, [now2, task.id]);
         insertAudit(db2, {
           issue_id: task.issue_id,
           branch_id: task.branch_id,
@@ -25911,9 +25912,9 @@ function sweepStaleTasks(db2, now) {
             last_updated_at: task.updated_at,
             stale_after_hours: hours
           }),
-          created_at: now
+          created_at: now2
         });
-        runsSwept += closeOpenRunsForTask(db2, task.id, now, "swept_stale");
+        runsSwept += closeOpenRunsForTask(db2, task.id, now2, "swept_stale");
       }
     });
   }
@@ -26375,7 +26376,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       const milestoneResolution = resolveDefaultMilestone(db2, explicitMilestone, issueRepo);
       const milestone = milestoneResolution.milestone;
       const spawnFn = args["_spawnFn"] ?? void 0;
-      const now = nowISO();
+      const now2 = nowISO();
       const remoteIidRaw = args["remote_iid"];
       if (remoteIidRaw !== void 0 && remoteIidRaw !== null) {
         const remoteIid = typeof remoteIidRaw === "number" ? remoteIidRaw : Number(remoteIidRaw);
@@ -26387,7 +26388,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         db2.run(
           `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
            VALUES (?, ?, 'open', ?, ?, ?, ?, ?)`,
-          [objective, description, now, now, milestone, issueRepo, JSON.stringify(labels)]
+          [objective, description, now2, now2, milestone, issueRepo, JSON.stringify(labels)]
         );
         const adoptRowId = db2.get(
           `SELECT id FROM issues WHERE rowid = last_insert_rowid()`
@@ -26400,7 +26401,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         const glIid = adoption.backend === "gitlab" ? remoteIid : null;
         db2.run(
           `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-          [adoption.backend, ghIid, glIid, now, adoptId]
+          [adoption.backend, ghIid, glIid, now2, adoptId]
         );
         insertAudit(db2, {
           issue_id: adoptId,
@@ -26408,7 +26409,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
           event_type: "issue_adopted",
           summary: `issue ${adoptId} adopted ${adoption.backend} #${remoteIid} at create`,
           content_json: JSON.stringify({ issue_id: adoptId, backend: adoption.backend, remote_iid: remoteIid, at_create: true }),
-          created_at: now
+          created_at: now2
         });
         const adoptedRow = db2.get("SELECT * FROM issues WHERE id = ?", [adoptId]);
         const adoptedIssue = decodeIssue(adoptedRow);
@@ -26423,7 +26424,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       db2.run(
         `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
          VALUES (?, ?, 'open', ?, ?, ?, ?, ?)`,
-        [objective, description, now, now, milestone, issueRepo, JSON.stringify(labels)]
+        [objective, description, now2, now2, milestone, issueRepo, JSON.stringify(labels)]
       );
       const rowId = db2.get(
         `SELECT id FROM issues WHERE rowid = last_insert_rowid()`
@@ -26512,7 +26513,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
               if (firstSuccess !== null) {
                 db2.run(
                   `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-                  [firstSuccess.remote_kind, ghIid, glIid, now, issueId]
+                  [firstSuccess.remote_kind, ghIid, glIid, now2, issueId]
                 );
               } else {
                 const failures = [];
@@ -26589,7 +26590,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
                 const glIid = syncResult.remote_kind === "gitlab" ? syncResult.remote_iid : null;
                 db2.run(
                   `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-                  [syncResult.remote_kind, ghIid, glIid, now, issueId]
+                  [syncResult.remote_kind, ghIid, glIid, now2, issueId]
                 );
                 if (syncResult.unknown_labels && syncResult.unknown_labels.length > 0) {
                   syncDiagnostic = {
@@ -26681,7 +26682,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
     issue_close: requireRoles("issue_close", ["bro"], wrapHandler3(async (args) => {
       requireArg3(args, "agent");
       const issueId = requireArg3(args, "issue_id");
-      const now = nowISO();
+      const now2 = nowISO();
       const existing = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!existing) {
         throw new Error(`Not found: ${issueId}`);
@@ -26722,12 +26723,12 @@ function issueTools(db2, dbPath2 = "", options = {}) {
                 commit_sha: t.commit_sha,
                 waive_review_reason: waiveReason
               }),
-              created_at: now
+              created_at: now2
             });
           }
         }
-        escalateLiveTasksForIssueClose(db2, live, cascadeReason, now);
-        markIssueClosed(db2, issueId, now);
+        escalateLiveTasksForIssueClose(db2, live, cascadeReason, now2);
+        markIssueClosed(db2, issueId, now2);
       });
       const remote = await syncIssueCloseRemotes(db2, dbPath2, issueId, args["_spawnFn"]);
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
@@ -26833,10 +26834,10 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       if (!existing) {
         return err3(`not_found: issue ${issueId}`);
       }
-      const now = nowISO();
+      const now2 = nowISO();
       db2.run(
         "UPDATE issues SET description = ?, updated_at = ? WHERE id = ?",
-        [description, now, issueId]
+        [description, now2, issueId]
       );
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       return ok3(decodeIssue(updated));
@@ -26997,16 +26998,16 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       if (existingIid != null && !force) {
         return err3(`already_linked: issue ${issueId} already has ${backend} iid ${existingIid} \u2014 pass force=true to overwrite`);
       }
-      const now = nowISO();
+      const now2 = nowISO();
       if (backend === "github") {
         db2.run(
           `UPDATE issues SET gh_iid = ?, remote_kind = COALESCE(remote_kind, 'github'), updated_at = ? WHERE id = ?`,
-          [iid, now, issueId]
+          [iid, now2, issueId]
         );
       } else {
         db2.run(
           `UPDATE issues SET gl_iid = ?, remote_kind = COALESCE(remote_kind, 'gitlab'), updated_at = ? WHERE id = ?`,
-          [iid, now, issueId]
+          [iid, now2, issueId]
         );
       }
       insertAudit(db2, {
@@ -27015,7 +27016,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         event_type: "issue_linked",
         summary: `issue ${issueId} linked to ${backend} #${iid}${force && existingIid != null ? ` (forced, was ${existingIid})` : ""}`,
         content_json: JSON.stringify({ issue_id: issueId, backend, iid, forced: force && existingIid != null }),
-        created_at: now
+        created_at: now2
       });
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       return ok3({ linked: true, backend, iid, issue: decodeIssue(updated) });
@@ -27039,12 +27040,12 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         return err3(`already_linked: issue ${issueId} already has a ${adoption.backend} link (#${existingIid}); re-adopt is only idempotent for the same iid`);
       }
       const idempotent = existingIid === remoteIid;
-      const now = nowISO();
+      const now2 = nowISO();
       const ghIid = adoption.backend === "github" ? remoteIid : null;
       const glIid = adoption.backend === "gitlab" ? remoteIid : null;
       db2.run(
         `UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_kind = COALESCE(remote_kind, ?), updated_at = ? WHERE id = ?`,
-        [ghIid, glIid, adoption.backend, now, issueId]
+        [ghIid, glIid, adoption.backend, now2, issueId]
       );
       if (!idempotent) {
         insertAudit(db2, {
@@ -27053,7 +27054,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
           event_type: "issue_adopted",
           summary: `issue ${issueId} adopted ${adoption.backend} #${remoteIid}`,
           content_json: JSON.stringify({ issue_id: issueId, backend: adoption.backend, remote_iid: remoteIid, at_create: false }),
-          created_at: now
+          created_at: now2
         });
       }
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
@@ -28015,7 +28016,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
       }
       const inserted = db2.transaction(() => {
         const results = [];
-        const now = nowISO();
+        const now2 = nowISO();
         for (const t of taskInputs) {
           if (!t.branch_id) throw new Error("Missing required arg: branch_id");
           if (t.parent_branch_id != null) validateParentBranchId(t.parent_branch_id);
@@ -28068,8 +28069,8 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
               promptBearing,
               JSON.stringify(typedFiles),
               JSON.stringify(typedVerification),
-              now,
-              now
+              now2,
+              now2
             ]
           );
           const row = db2.get(
@@ -28077,7 +28078,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
           );
           if (row) {
             results.push(row);
-            openBroRun(db2, { id: row.id, issue_id: Number(issueId), repo: row.repo ?? null }, now, runContext, sessionId);
+            openBroRun(db2, { id: row.id, issue_id: Number(issueId), repo: row.repo ?? null }, now2, runContext, sessionId);
           }
         }
         for (const ac of autocreatedAudits) {
@@ -28088,7 +28089,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
             event_type: "tmb_branch_autocreated",
             summary: `Auto-created branch '${ac.branchId}' from '${ac.startPoint}' in repo '${ac.repoPath}'.`,
             content_json: JSON.stringify({ branch: ac.branchId, start_point: ac.startPoint, repo_path: ac.repoPath }),
-            created_at: now
+            created_at: now2
           });
         }
         const emitPlanningComplete = args["emit_planning_complete"] === true;
@@ -28110,7 +28111,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
             event_type: "planning_complete",
             summary,
             content_json: contentJson,
-            created_at: now
+            created_at: now2
           });
         }
         const firstBranch = results[0]?.branch_id ?? "";
@@ -28126,7 +28127,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
               waive_scope_gate_reason: waiverReason,
               tasks_created: results.length
             }),
-            created_at: now
+            created_at: now2
           });
         }
         if (branchGateWaived) {
@@ -28137,7 +28138,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
             event_type: "branch_gate_waived",
             summary: branchGateWaiverReason.slice(0, 200),
             content_json: JSON.stringify({ waive_branch_gate_reason: branchGateWaiverReason, tasks_created: results.length }),
-            created_at: now
+            created_at: now2
           });
         }
         if (registryGateWaived) {
@@ -28148,7 +28149,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
             event_type: "registry_gate_waived",
             summary: registryGateWaiverReason.slice(0, 200),
             content_json: JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: results.length }),
-            created_at: now
+            created_at: now2
           });
         }
         if (intentGateWaived) {
@@ -28159,7 +28160,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
             event_type: "intent_gate_waived",
             summary: intentGateWaiverReason.slice(0, 200),
             content_json: JSON.stringify({ waive_intent_gate_reason: intentGateWaiverReason, tasks_created: results.length }),
-            created_at: now
+            created_at: now2
           });
         }
         if (decisionGateWaived) {
@@ -28170,12 +28171,12 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
             event_type: "decision_gate_waived",
             summary: decisionGateWaiverReason.slice(0, 200),
             content_json: JSON.stringify({ waive_decision_gate_reason: decisionGateWaiverReason, tasks_created: results.length }),
-            created_at: now
+            created_at: now2
           });
         }
         if (specShapeWaived) {
           for (const r of results) {
-            insertSpecShapeWaiver(db2, { issue_id: r.issue_id, branch_id: r.branch_id, task_id: r.id }, specShapeWaiverReason, "task_create_batch", now);
+            insertSpecShapeWaiver(db2, { issue_id: r.issue_id, branch_id: r.branch_id, task_id: r.id }, specShapeWaiverReason, "task_create_batch", now2);
           }
         }
         return results;
@@ -28292,8 +28293,8 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
           );
         }
       }
-      const now = nowISO();
-      const completedAt = status === "completed" ? now : status === "closed" ? task.completed_at : null;
+      const now2 = nowISO();
+      const completedAt = status === "completed" ? now2 : status === "closed" ? task.completed_at : null;
       db2.transaction(() => {
         if (status === "closed" && task.status !== "closed") {
           recordReviewBypassIfUnreviewed(
@@ -28301,22 +28302,22 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
             { ...task, commit_sha: rawCommitSha ?? task.commit_sha ?? null },
             "task_update_status",
             agent,
-            now
+            now2
           );
         }
         if (rawCommitSha !== void 0) {
           db2.run(
             `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ?, commit_sha = ? WHERE id = ?`,
-            [status, now, completedAt, rawCommitSha, taskId]
+            [status, now2, completedAt, rawCommitSha, taskId]
           );
         } else {
           db2.run(
             `UPDATE tasks SET status = ?, updated_at = ?, completed_at = ? WHERE id = ?`,
-            [status, now, completedAt, taskId]
+            [status, now2, completedAt, taskId]
           );
         }
         if (TERMINAL_TASK_STATUSES.has(status)) {
-          closeOpenRunsForTask(db2, task.id, now, exitReasonForStatus(status));
+          closeOpenRunsForTask(db2, task.id, now2, exitReasonForStatus(status));
         }
       });
       const updated = db2.get("SELECT * FROM tasks WHERE id = ?", [taskId]);
@@ -28413,7 +28414,7 @@ function latestObservation(db2, taskId, attemptN) {
     [REVIEWER_OBSERVE_FROM_NODE, taskId, attemptN]
   );
 }
-function supersedeOlderObservations(db2, taskId, attemptN, consumedId, now) {
+function supersedeOlderObservations(db2, taskId, attemptN, consumedId, now2) {
   db2.run(
     `UPDATE audit
         SET content_json = json_set(content_json, '$.superseded', 1, '$.superseded_by', CAST(? AS INTEGER), '$.superseded_at', ?)
@@ -28425,7 +28426,7 @@ function supersedeOlderObservations(db2, taskId, attemptN, consumedId, now) {
         AND CAST(json_extract(content_json, '$.attempt_n') AS INTEGER) = ?
         AND COALESCE(json_extract(content_json, '$.consumed'), 0) = 0
         AND COALESCE(json_extract(content_json, '$.superseded'), 0) = 0`,
-    [consumedId, now, REVIEWER_OBSERVE_FROM_NODE, consumedId, taskId, attemptN]
+    [consumedId, now2, REVIEWER_OBSERVE_FROM_NODE, consumedId, taskId, attemptN]
   );
 }
 function observationAgeS(observation, nowMs) {
@@ -28512,7 +28513,7 @@ function validationTools(db2) {
       }
       const attemptN = args["attempt_n"];
       const feedback = args["feedback"];
-      const now = nowISO();
+      const now2 = nowISO();
       const callerSessionId = typeof args["subagent_session_id"] === "string" ? args["subagent_session_id"] : null;
       db2.transaction(() => {
         if (mcpAvailable === 0) {
@@ -28560,7 +28561,7 @@ function validationTools(db2) {
             `UPDATE audit SET content_json = json_set(content_json, '$.consumed', 1) WHERE id = ?`,
             [observed.id]
           );
-          supersedeOlderObservations(db2, taskId, attemptN, observed.id, now);
+          supersedeOlderObservations(db2, taskId, attemptN, observed.id, now2);
         } else if (mcpAvailable === 0) {
           subagentSessionId = callerSessionId;
           reviewerAgentId = null;
@@ -28570,7 +28571,7 @@ function validationTools(db2) {
             event_type: "validation_session_unverified",
             summary: `validation_record for task ${taskId} attempt ${attemptN} recorded on the honor-system path without a hook-observed reviewer identity`,
             content_json: JSON.stringify({ task_id: taskId, attempt_n: attemptN, subagent_session_id: callerSessionId }),
-            created_at: now
+            created_at: now2
           });
         } else if (staleRow) {
           const age = Number.isFinite(ageS) ? `${ageS}s old` : "of unknown age";
@@ -28595,7 +28596,7 @@ function validationTools(db2) {
              reviewer_agent_id = excluded.reviewer_agent_id,
              created_at = excluded.created_at,
              repo = excluded.repo`,
-          [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, reviewerAgentId, now, taskExists.repo]
+          [taskId, attemptN, agent, verdict, feedback, mcpAvailable, subagentSessionId, reviewerAgentId, now2, taskExists.repo]
         );
       });
       const row = db2.get(
@@ -28757,12 +28758,12 @@ function skillTools(db2) {
           `skill_register rejected: invalid name "${name}". Skill names must match ^[a-z][a-z0-9-]{0,63}$ \u2014 lowercase letters, digits, and hyphens only, starting with a letter, max 64 chars. Examples: my-skill, data-export-v2.`
         );
       }
-      const now = nowISO();
+      const now2 = nowISO();
       db2.run(
         `INSERT INTO cheatcodes
            (name, kind, origin, description, file_path, scope, trust_tier, status, installed_at, created_at, updated_at)
          VALUES (?, 'skill', 'builtin', ?, ?, ?, ?, 'draft', ?, ?, ?)`,
-        [name, description, filePath, scope, trustTier, now, now, now]
+        [name, description, filePath, scope, trustTier, now2, now2, now2]
       );
       const row = db2.get("SELECT * FROM cheatcodes WHERE rowid = last_insert_rowid()");
       return ok7(row);
@@ -28794,16 +28795,16 @@ function skillTools(db2) {
           `skill_promote rejected: skill '${name}' has trust_tier '${skill.trust_tier}', not '${fromStatus}'. from_status must match the skill's current trust_tier for tier transitions.`
         );
       }
-      const now = nowISO();
+      const now2 = nowISO();
       if (isStatusTransition) {
         db2.run(
           `UPDATE cheatcodes SET status = ?, updated_at = ? WHERE name = ? AND origin = 'builtin'`,
-          [toStatus, now, name]
+          [toStatus, now2, name]
         );
       } else {
         db2.run(
           `UPDATE cheatcodes SET trust_tier = ?, updated_at = ? WHERE name = ? AND origin = 'builtin'`,
-          [toStatus, now, name]
+          [toStatus, now2, name]
         );
       }
       const updated = db2.get(
@@ -29236,10 +29237,10 @@ function reportTools(db2) {
         `SELECT * FROM tasks WHERE issue_id = ? ORDER BY branch_id ASC`,
         [issueId]
       );
-      const now = (/* @__PURE__ */ new Date()).toISOString();
+      const now2 = (/* @__PURE__ */ new Date()).toISOString();
       const lines = [];
       lines.push(`<!-- Generated by issue_snapshot_md. Do not edit; rebuild via issue_snapshot_md. -->`);
-      lines.push(`<!-- GENERATED: ${now} -->`);
+      lines.push(`<!-- GENERATED: ${now2} -->`);
       lines.push("");
       lines.push(`# Issue Snapshot: ${issue2.id}`);
       lines.push("");
@@ -30023,7 +30024,7 @@ function roundtableTools(db2) {
             };
           }
         }
-        const now = nowISO();
+        const now2 = nowISO();
         const slashAuditId = slashGateWaived ? null : db2.get(
           `SELECT id FROM audit
                WHERE event_type = 'roundtable_slash_invoked'
@@ -30035,7 +30036,7 @@ function roundtableTools(db2) {
         db2.run(
           `INSERT INTO roundtables (issue_id, topic, outcome, created_at, state, expected_participants)
            VALUES (?, ?, '', ?, 'collecting', ?)`,
-          [issueId, topic, now, expectedParticipants]
+          [issueId, topic, now2, expectedParticipants]
         );
         const row = db2.get(
           "SELECT * FROM roundtables WHERE rowid = last_insert_rowid()"
@@ -30085,11 +30086,11 @@ function roundtableTools(db2) {
             `invalid_state: roundtable ${roundtableId} is in state '${currentState}'; votes only allowed in collecting or awaiting_human`
           );
         }
-        const now = nowISO();
+        const now2 = nowISO();
         db2.run(
           `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at)
            VALUES (?, ?, ?, ?, ?)`,
-          [roundtableId, participant, vote, rationale, now]
+          [roundtableId, participant, vote, rationale, now2]
         );
         const row = db2.get(
           "SELECT * FROM roundtable_votes WHERE rowid = last_insert_rowid()"
@@ -30132,10 +30133,10 @@ function roundtableTools(db2) {
           throw new Error(`Not found: roundtable ${roundtableId}`);
         }
         if (skip2) {
-          const now2 = nowISO();
+          const now3 = nowISO();
           db2.run(
             `UPDATE roundtables SET state = 'skipped', outcome = ?, closed_at = ? WHERE id = ?`,
-            [outcome, now2, roundtableId]
+            [outcome, now3, roundtableId]
           );
           const updated2 = db2.get("SELECT * FROM roundtables WHERE id = ?", [roundtableId]);
           return ok13({
@@ -30161,10 +30162,10 @@ function roundtableTools(db2) {
             );
           }
         }
-        const now = nowISO();
+        const now2 = nowISO();
         db2.run(
           `UPDATE roundtables SET state = 'closed', outcome = ?, closed_at = ? WHERE id = ?`,
-          [outcome, now, roundtableId]
+          [outcome, now2, roundtableId]
         );
         const updated = db2.get("SELECT * FROM roundtables WHERE id = ?", [roundtableId]);
         return ok13({
@@ -30207,31 +30208,31 @@ function roundtableTools(db2) {
           }
         }
         const issueId = roundtable.issue_id;
-        const now = nowISO();
+        const now2 = nowISO();
         let discussionRowsWritten = 0;
         let voteRowsWritten = 0;
         db2.transaction(() => {
           for (const agreement of ratified) {
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "answer", body: agreement, created_at: now });
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "answer", body: agreement, created_at: now2 });
             discussionRowsWritten++;
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Ratified: ${agreement}`, created_at: now });
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Ratified: ${agreement}`, created_at: now2 });
             discussionRowsWritten++;
             db2.run(
               `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', 'ratified', ?, ?)`,
-              [roundtableId, `Ratified: ${agreement}`, now]
+              [roundtableId, `Ratified: ${agreement}`, now2]
             );
             voteRowsWritten++;
           }
           for (const agreement of unratified) {
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "note", body: `not ratified: ${agreement}`, created_at: now });
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "note", body: `not ratified: ${agreement}`, created_at: now2 });
             discussionRowsWritten++;
           }
           for (const r of resolutions) {
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, created_at: now });
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, created_at: now2 });
             discussionRowsWritten++;
             db2.run(
               `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', ?, ?, ?)`,
-              [roundtableId, r.winning_stance, r.rationale ?? "", now]
+              [roundtableId, r.winning_stance, r.rationale ?? "", now2]
             );
             voteRowsWritten++;
           }
@@ -30323,37 +30324,37 @@ function roundtableTools(db2) {
           }
         }
         const issueId = roundtable.issue_id;
-        const now = nowISO();
+        const now2 = nowISO();
         let discussionRowsWritten = 0;
         let voteRowsWritten = 0;
         db2.transaction(() => {
           for (const agreement of decisions.ratified) {
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "answer", body: agreement, created_at: now });
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "answer", body: agreement, created_at: now2 });
             discussionRowsWritten++;
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Ratified: ${agreement}`, created_at: now });
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Ratified: ${agreement}`, created_at: now2 });
             discussionRowsWritten++;
             db2.run(
               `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', 'ratified', ?, ?)`,
-              [roundtableId, `Ratified: ${agreement}`, now]
+              [roundtableId, `Ratified: ${agreement}`, now2]
             );
             voteRowsWritten++;
           }
           for (const agreement of decisions.unratified) {
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "note", body: `not ratified: ${agreement}`, created_at: now });
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "note", body: `not ratified: ${agreement}`, created_at: now2 });
             discussionRowsWritten++;
           }
           for (const r of decisions.resolutions) {
-            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, created_at: now });
+            insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "decision", body: `Human chose ${r.winning_stance}; ${r.dissenter} dissented but did not block.`, created_at: now2 });
             discussionRowsWritten++;
             db2.run(
               `INSERT INTO roundtable_votes (roundtable_id, participant, vote, rationale, created_at) VALUES (?, 'human', ?, ?, ?)`,
-              [roundtableId, r.winning_stance, r.rationale ?? "", now]
+              [roundtableId, r.winning_stance, r.rationale ?? "", now2]
             );
             voteRowsWritten++;
           }
           db2.run(
             `UPDATE roundtables SET state = 'closed', outcome = ?, closed_at = ? WHERE id = ?`,
-            [outcome, now, roundtableId]
+            [outcome, now2, roundtableId]
           );
         });
         const updated = db2.get("SELECT * FROM roundtables WHERE id = ?", [roundtableId]);
@@ -30747,7 +30748,7 @@ function prMonitorTools(db2, _spawnFn) {
       if (!fetchResult) {
         return err14("Failed to fetch PR comments \u2014 check gh/glab auth and PR number");
       }
-      const now = nowISO();
+      const now2 = nowISO();
       const lastCommentId = fetchResult.comments.length > 0 ? fetchResult.comments[fetchResult.comments.length - 1]?.id ?? null : null;
       if (repo !== "") {
         const taskId = resolveMonitorTaskId(db2, fetchResult.head_branch, repo);
@@ -30758,13 +30759,13 @@ function prMonitorTools(db2, _spawnFn) {
         if (existingCursor) {
           db2.run(
             "UPDATE pr_review_runs SET last_fetched_at = ?, last_comment_id = ?, task_id = COALESCE(?, task_id) WHERE id = ?",
-            [now, lastCommentId, taskId, existingCursor.id]
+            [now2, lastCommentId, taskId, existingCursor.id]
           );
         } else {
           db2.run(
             `INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id, task_id)
              VALUES (?, ?, ?, ?, ?)`,
-            [prNumber, repo, now, lastCommentId, taskId]
+            [prNumber, repo, now2, lastCommentId, taskId]
           );
         }
       }
@@ -30973,14 +30974,14 @@ function intentToType(text) {
   }
   return { prefix: "chore", confidence: 0.3 };
 }
-function insertIntentAndNote(db2, issueId, intentVerbatim, noteLine, now) {
+function insertIntentAndNote(db2, issueId, intentVerbatim, noteLine, now2) {
   const existing = db2.get(
     `SELECT id FROM discussions
       WHERE issue_id = ? AND kind = 'intent' AND body = ?
       LIMIT 1`,
     [issueId, `Human intent verbatim: "${intentVerbatim}"`]
   );
-  insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "note", body: noteLine, created_at: now });
+  insertDiscussion(db2, { issue_id: issueId, author: "bro", kind: "note", body: noteLine, created_at: now2 });
   const written = ["note"];
   if (!existing) {
     insertDiscussion(db2, {
@@ -30988,13 +30989,13 @@ function insertIntentAndNote(db2, issueId, intentVerbatim, noteLine, now) {
       author: "bro",
       kind: "intent",
       body: `Human intent verbatim: "${intentVerbatim}"`,
-      created_at: now
+      created_at: now2
     });
     written.push("intent");
   }
   return written;
 }
-function closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssueIfLast, bypassClosedBy = null, scope = null) {
+function closeTaskInTx(db2, task, commitSha, verificationSummary, now2, closeIssueIfLast, bypassClosedBy = null, scope = null) {
   insertAudit(db2, {
     issue_id: task.issue_id,
     branch_id: task.branch_id,
@@ -31002,7 +31003,7 @@ function closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssu
     event_type: "bro_verification_pass",
     summary: verificationSummary.slice(0, 200),
     content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, ...scope ? { scope } : {} }),
-    created_at: now
+    created_at: now2
   });
   let reviewGateBypassed = false;
   if (bypassClosedBy !== null) {
@@ -31011,16 +31012,16 @@ function closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssu
       { ...task, commit_sha: commitSha },
       bypassClosedBy,
       "bro",
-      now
+      now2
     );
   }
   db2.run(
     `UPDATE tasks
         SET status='closed', commit_sha=?, completed_at=COALESCE(completed_at, ?), updated_at=?
       WHERE id=?`,
-    [commitSha, now, now, task.id]
+    [commitSha, now2, now2, task.id]
   );
-  closeOpenRunsForTask(db2, task.id, now, "completed");
+  closeOpenRunsForTask(db2, task.id, now2, "completed");
   let issueClosed = false;
   let leftOpen = null;
   if (closeIssueIfLast) {
@@ -31037,7 +31038,7 @@ function closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssu
     } else {
       db2.run(
         `UPDATE issues SET status='closed', closed_at=COALESCE(closed_at,?), updated_at=? WHERE id=? AND status != 'closed'`,
-        [now, now, task.issue_id]
+        [now2, now2, task.issue_id]
       );
       issueClosed = true;
     }
@@ -31650,9 +31651,9 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             return gitFailure(`failed to fast-forward existing branch '${branchId}' to '${resolvedBaseRef ?? base}'`, e);
           }
         }
-        const now = nowISO();
+        const now2 = nowISO();
         const result = db2.transaction(() => {
-          insertDiscussion(db2, { issue_id: issueId, author: agent, kind: "decision", body: decisionBody, created_at: now });
+          insertDiscussion(db2, { issue_id: issueId, author: agent, kind: "decision", body: decisionBody, created_at: now2 });
           db2.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
@@ -31669,15 +31670,15 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
               promptBearing,
               JSON.stringify(files),
               JSON.stringify(verification),
-              now,
-              now
+              now2,
+              now2
             ]
           );
           const row = db2.get(
             "SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()"
           );
           if (!row) throw new Error("task_provision: task insert succeeded but row lookup failed");
-          openBroRun(db2, { id: row.id, issue_id: issueId, repo: row.repo }, now, runContext, sessionId);
+          openBroRun(db2, { id: row.id, issue_id: issueId, repo: row.repo }, now2, runContext, sessionId);
           insertAudit(db2, {
             issue_id: issueId,
             branch_id: branchId,
@@ -31685,7 +31686,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             event_type: "planning_complete",
             summary: `Planning complete for issue ${issueId}: 1 task created on ${branchId}.`,
             content_json: JSON.stringify({ issue_id: issueId, task_count: 1, task_branch_ids: [branchId] }),
-            created_at: now
+            created_at: now2
           });
           if (registryGateWaived) {
             insertAudit(db2, {
@@ -31695,11 +31696,11 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
               event_type: "registry_gate_waived",
               summary: registryGateWaiverReason.slice(0, 200),
               content_json: JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: 1 }),
-              created_at: now
+              created_at: now2
             });
           }
           if (specShapeWaived) {
-            insertSpecShapeWaiver(db2, { issue_id: issueId, branch_id: branchId, task_id: row.id }, specShapeWaiverReason, "task_provision", now);
+            insertSpecShapeWaiver(db2, { issue_id: issueId, branch_id: branchId, task_id: row.id }, specShapeWaiverReason, "task_provision", now2);
           }
           return { task_id: row.id };
         });
@@ -31762,11 +31763,11 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         }
         const files = appendUnique(parseTaskFiles(task.files), filesAdd);
         const verification = appendUnique(parseTaskFiles(task.verification), verificationAdd);
-        const now = nowISO();
+        const now2 = nowISO();
         db2.transaction(() => {
           db2.run(
             `UPDATE tasks SET status = 'running', files = ?, verification = ?, completed_at = NULL, updated_at = ? WHERE id = ?`,
-            [JSON.stringify(files), JSON.stringify(verification), now, taskId]
+            [JSON.stringify(files), JSON.stringify(verification), now2, taskId]
           );
           const fenceLines = [
             filesAdd.length > 0 ? `files[] += ${filesAdd.join(", ")}` : null,
@@ -31777,7 +31778,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             author: agent,
             kind: "decision",
             body: [`Task ${taskId} reopened from ${task.status}: ${reason}`, ...fenceLines].join("\n"),
-            created_at: now
+            created_at: now2
           });
           insertAudit(db2, {
             issue_id: task.issue_id,
@@ -31792,13 +31793,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
               files_add: filesAdd,
               verification_add: verificationAdd
             }),
-            created_at: now
+            created_at: now2
           });
           const openBro = db2.get(
             `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'bro' AND completed_at IS NULL LIMIT 1`,
             [taskId]
           );
-          if (!openBro) openBroRun(db2, { id: taskId, issue_id: task.issue_id, repo: task.repo }, now, runContext, sessionId);
+          if (!openBro) openBroRun(db2, { id: taskId, issue_id: task.issue_id, repo: task.repo }, now2, runContext, sessionId);
         });
         let worktreePath = null;
         let worktreeRecreated = false;
@@ -31890,18 +31891,18 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         });
         const files = newFiles ?? oldFiles;
         const verification = newVerification ?? oldVerification;
-        const now = nowISO();
+        const now2 = nowISO();
         db2.transaction(() => {
           db2.run(
             `UPDATE tasks SET files = ?, verification = ?, spec_body = ?, updated_at = ? WHERE id = ?`,
-            [JSON.stringify(files), JSON.stringify(verification), newSpec ?? task.spec_body, now, taskId]
+            [JSON.stringify(files), JSON.stringify(verification), newSpec ?? task.spec_body, now2, taskId]
           );
           insertDiscussion(db2, {
             issue_id: task.issue_id,
             author: agent,
             kind: "decision",
             body: `Task ${taskId} spec amended (${summaryParts.join("; ")}): ${reason}`,
-            created_at: now
+            created_at: now2
           });
           insertAudit(db2, {
             issue_id: task.issue_id,
@@ -31910,7 +31911,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             event_type: "task_spec_amended",
             summary: `Task ${taskId} spec amended: ${summaryParts.join("; ")}`.slice(0, 200),
             content_json: JSON.stringify({ task_id: taskId, status: task.status, reason, changes }),
-            created_at: now
+            created_at: now2
           });
         });
         return ok15({ task_id: taskId, changed, files, verification });
@@ -32105,14 +32106,14 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             );
           }
         }
-        const now = nowISO();
+        const now2 = nowISO();
         const result = db2.transaction(() => {
           insertDiscussion(db2, {
             issue_id: failed.issue_id,
             author: "bro",
             kind: "decision",
             body: `Retry rationale (failed task ${failedTaskId}): ${rationale}`,
-            created_at: now
+            created_at: now2
           });
           db2.run(
             `INSERT INTO tasks
@@ -32130,15 +32131,15 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
               failed.prompt_bearing,
               failed.files,
               failed.verification,
-              now,
-              now
+              now2,
+              now2
             ]
           );
           const newTask = db2.get(
             "SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()"
           );
           if (!newTask) throw new Error("insert succeeded but row lookup failed");
-          openBroRun(db2, { id: newTask.id, issue_id: failed.issue_id, repo: newTask.repo }, now, runContext, sessionId);
+          openBroRun(db2, { id: newTask.id, issue_id: failed.issue_id, repo: newTask.repo }, now2, runContext, sessionId);
           insertAudit(db2, {
             issue_id: failed.issue_id,
             branch_id: newBranchId,
@@ -32150,7 +32151,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
               new_task_id: newTask.id,
               new_branch_id: newBranchId
             }),
-            created_at: now
+            created_at: now2
           });
           return newTask;
         });
@@ -32190,7 +32191,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           if (labelError !== null) return err15(labelError);
         }
         const labels = suppliedLabels ?? defaultSyncLabels(db2);
-        const now = nowISO();
+        const now2 = nowISO();
         const issueRepo = explicitRepo ?? resolveSoleRepo(db2)?.name ?? null;
         const milestoneResolution = resolveDefaultMilestone(db2, null, issueRepo);
         const milestone = milestoneResolution.milestone;
@@ -32198,7 +32199,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           db2.run(
             `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
              VALUES (?, '', 'open', ?, ?, ?, ?, ?)`,
-            [objective, now, now, milestone, issueRepo, JSON.stringify(labels)]
+            [objective, now2, now2, milestone, issueRepo, JSON.stringify(labels)]
           );
           const row = db2.get(
             `SELECT id FROM issues WHERE rowid = last_insert_rowid()`
@@ -32210,7 +32211,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             issueId,
             intentVerbatim,
             `Beginning planning on ${branchId}.`,
-            now
+            now2
           );
           insertAudit(db2, {
             issue_id: issueId,
@@ -32219,7 +32220,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             event_type: "branch_id_proposed",
             summary: `branch_id proposed: ${branchId} for "${objective.slice(0, 80)}"`,
             content_json: JSON.stringify({ branch_id: branchId, objective }),
-            created_at: now
+            created_at: now2
           });
           return {
             issue_id: issueId,
@@ -32253,7 +32254,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         );
         if (!task) return err15(`No task with id=${taskId}`);
         const summary = `${whichCheck} \u2014 ${details.slice(0, 160)}`;
-        const now = nowISO();
+        const now2 = nowISO();
         db2.transaction(() => {
           insertAudit(db2, {
             issue_id: task.issue_id,
@@ -32262,14 +32263,14 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             event_type: "bro_verification_fail",
             summary,
             content_json: JSON.stringify({ task_id: task.id, which_check: whichCheck, details }),
-            created_at: now
+            created_at: now2
           });
           insertDiscussion(db2, {
             issue_id: task.issue_id,
             author: "bro",
             kind: "note",
             body: `Verification fail: ${summary}`,
-            created_at: now
+            created_at: now2
           });
         });
         return ok15({ task_id: task.id, which_check: whichCheck, written: ["audit", "note"] });
@@ -32438,7 +32439,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             `Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". bro_atomic_close runs after SWE flips status to completed.`
           );
         }
-        const now = nowISO();
+        const now2 = nowISO();
         const scopeWaiverReason = typeof args["scope_waiver_reason"] === "string" ? args["scope_waiver_reason"].trim() : "";
         if (waiveScopeGate && scopeWaiverReason.length < 10) {
           return err15("bro_atomic_close: waive_scope_gate=true requires scope_waiver_reason (at least 10 characters) naming why the extra paths are accepted.");
@@ -32512,10 +32513,10 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
                 recorded_base: scopeRecord.recorded_base,
                 merge_base: scopeRecord.merge_base
               }),
-              created_at: now
+              created_at: now2
             });
           }
-          const closed = closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssueIfLast, null, scopeRecord);
+          const closed = closeTaskInTx(db2, task, commitSha, verificationSummary, now2, closeIssueIfLast, null, scopeRecord);
           return {
             task_id: task.id,
             issue_closed: closed.issue_closed,
@@ -32577,7 +32578,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             ...sweepResult
           });
         }
-        const now = nowISO();
+        const now2 = nowISO();
         const result = db2.transaction(() => {
           insertAudit(db2, {
             issue_id: task.issue_id,
@@ -32586,9 +32587,9 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             event_type: "task_recovered",
             summary: `Recovered stuck-${current.status} task ${task.id} at ${commitSha}`,
             content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, prior_status: current.status }),
-            created_at: now
+            created_at: now2
           });
-          return closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssueIfLast, "task_recover");
+          return closeTaskInTx(db2, task, commitSha, verificationSummary, now2, closeIssueIfLast, "task_recover");
         });
         const remote = result.issue_closed ? await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args["_spawnFn"]) : void 0;
         return ok15({
@@ -34257,7 +34258,7 @@ function readReadmeSummary(absDirPath) {
   }
   return null;
 }
-function persistDirectoriesGraph(graph, out, now) {
+function persistDirectoriesGraph(graph, out, now2) {
   const repoPaths = /* @__PURE__ */ new Map();
   for (const r of out.repos) repoPaths.set(r.name, r.path);
   const dirMap = deriveDirectoryEntries(out);
@@ -34285,7 +34286,7 @@ function persistDirectoriesGraph(graph, out, now) {
       parent_path: entry.parent_path,
       summary,
       summary_source: readmeSummary !== null ? "readme" : "structural",
-      summary_updated_at: now,
+      summary_updated_at: now2,
       file_count: entry.file_count
     });
     if (readmeSummary !== null) dirs_readme_summarized++;
@@ -34369,7 +34370,7 @@ function detectRenames(existing, discovered, remotesByRepo, storedRemotes) {
   return candidates;
 }
 function persistScan(db2, graph, out, sessionDir) {
-  const now = nowISO();
+  const now2 = nowISO();
   const normSession = sessionDir.replace(/\/+$/, "");
   const existing = db2.all(`SELECT name, path FROM repos`);
   const remotesByRepo = /* @__PURE__ */ new Map();
@@ -34401,7 +34402,7 @@ function persistScan(db2, graph, out, sessionDir) {
            path = excluded.path,
            file_count = excluded.file_count,
            last_scanned_at = excluded.last_scanned_at`,
-        [r.name, r.path, r.file_count, now]
+        [r.name, r.path, r.file_count, now2]
       );
       upsertRepoRemotes(db2, r.name, remotesByRepo.get(r.name) ?? []);
       repos_upserted++;
@@ -34444,7 +34445,7 @@ function persistScan(db2, graph, out, sessionDir) {
   let dirs_readme_summarized = 0;
   let dirs_structural_summarized = 0;
   if (graph) {
-    const stats = persistDirectoriesGraph(graph, persisted, now);
+    const stats = persistDirectoriesGraph(graph, persisted, now2);
     dirs_upserted = stats.dirs_upserted;
     dirs_readme_summarized = stats.dirs_readme_summarized;
     dirs_structural_summarized = stats.dirs_structural_summarized;
@@ -36581,7 +36582,7 @@ function compareKey(a, b) {
   }
   return 0;
 }
-function applyWrites(db2, writes, now) {
+function applyWrites(db2, writes, now2) {
   for (const w of writes) {
     if (w.kind === "insert") {
       db2.run(
@@ -36611,7 +36612,7 @@ function applyWrites(db2, writes, now) {
                 session_id = COALESCE(session_id, ?), usage_source = 'backfill', model = COALESCE(?, model),
                 host = COALESCE(host, 'claude')
           WHERE id = ?`,
-        [w.u.ti, w.u.to, w.u.cr, w.u.cc, w.tu, now, w.session, w.model, w.id]
+        [w.u.ti, w.u.to, w.u.cr, w.u.cc, w.tu, now2, w.session, w.model, w.id]
       );
     }
   }
@@ -37029,7 +37030,7 @@ function firstNumber(row) {
 }
 function runDataContracts(reader, contracts, opts = {}) {
   const timeoutMs = opts.statementTimeoutMs ?? statementTimeoutMs(opts.env);
-  const now = opts.now ?? (() => performance.now());
+  const now2 = opts.now ?? (() => performance.now());
   const stored = readSchemaVersion(reader);
   const required2 = Math.max(0, ...contracts.map((c) => c.min_schema ?? 0));
   const report = {
@@ -37064,7 +37065,7 @@ function runDataContracts(reader, contracts, opts = {}) {
       continue;
     }
     const params = contractParamValues(contract, opts.env);
-    const started = now();
+    const started = now2();
     let actual;
     try {
       if (contract.skip_when && firstNumber(reader.get(contract.skip_when.sql, params))) {
@@ -37077,7 +37078,7 @@ function runDataContracts(reader, contracts, opts = {}) {
       if (contract.severity === "error") report.healthy = false;
       continue;
     }
-    const elapsed = Math.round(now() - started);
+    const elapsed = Math.round(now2() - started);
     if (elapsed > timeoutMs) {
       report.skipped.push({ id: contract.id, reason: `timeout: ${elapsed}ms > ${timeoutMs}ms` });
       if (contract.severity === "error") report.healthy = false;

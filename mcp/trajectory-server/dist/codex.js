@@ -24745,7 +24745,7 @@ var runGit = (cwd, args) => {
     );
   });
 };
-function openRuntime(projectRoot, plugin2, now, lastUsedOrder, graphHolderFactory) {
+function openRuntime(projectRoot, plugin2, now2, lastUsedOrder, graphHolderFactory) {
   let context;
   try {
     context = createCodexRuntimeContext({
@@ -24792,7 +24792,7 @@ function openRuntime(projectRoot, plugin2, now, lastUsedOrder, graphHolderFactor
       context,
       db,
       graph,
-      lastUsed: now,
+      lastUsed: now2,
       lastUsedOrder,
       closed: false
     };
@@ -25469,6 +25469,7 @@ async function defaultLoader() {
   env.cacheDir = TMB_MODEL_CACHE_DIR;
   return await pipeline("feature-extraction", MODEL_ID);
 }
+var now = Date.now;
 var loader = defaultLoader;
 var pipePromise = null;
 var loadingSince = null;
@@ -25501,13 +25502,13 @@ function message(e) {
 }
 function loadPipe() {
   if (!pipePromise) {
-    loadingSince = (/* @__PURE__ */ new Date()).toISOString();
+    loadingSince = new Date(now()).toISOString();
     readySince = null;
     const p = loader();
     pipePromise = p;
     p.then(
       () => {
-        if (pipePromise === p) readySince = (/* @__PURE__ */ new Date()).toISOString();
+        if (pipePromise === p) readySince = new Date(now()).toISOString();
       },
       () => {
         if (pipePromise === p) pipePromise = null;
@@ -25518,7 +25519,7 @@ function loadPipe() {
 }
 function enterDegraded(reason) {
   if (degraded) return;
-  degraded = { since: (/* @__PURE__ */ new Date()).toISOString(), reason, retries: 0, nextRetryAt: Date.now() + embedRetryDelayMs(0) };
+  degraded = { since: new Date(now()).toISOString(), reason, retries: 0, nextRetryAt: now() + embedRetryDelayMs(0) };
   emit({ kind: "degraded", reason, consecutive_failures: consecutiveFailures });
 }
 async function retry(text) {
@@ -25537,7 +25538,7 @@ async function retry(text) {
     consecutiveFailures++;
     d.retries++;
     d.reason = `re-attempt failed: ${message(e)}`;
-    d.nextRetryAt = Date.now() + embedRetryDelayMs(d.retries);
+    d.nextRetryAt = now() + embedRetryDelayMs(d.retries);
     return null;
   } finally {
     retrying = false;
@@ -25545,7 +25546,7 @@ async function retry(text) {
 }
 async function embed(text) {
   if (degraded) {
-    if (retrying || Date.now() < degraded.nextRetryAt) return null;
+    if (retrying || now() < degraded.nextRetryAt) return null;
     return retry(text);
   }
   let pipe2;
@@ -26099,8 +26100,8 @@ function discussionTools(db) {
         if (!issue2) {
           throw new Error(`Not found: issue ${issueId}`);
         }
-        const now = nowISO();
-        const id = insertDiscussion(db, { issue_id: issueId, author, kind, body, created_at: now });
+        const now2 = nowISO();
+        const id = insertDiscussion(db, { issue_id: issueId, author, kind, body, created_at: now2 });
         const row = db.get("SELECT * FROM discussions WHERE id = ?", [id]);
         return ok(row);
       })
@@ -26829,7 +26830,7 @@ async function syncIssueClose(opts) {
 // src/tools/agent-runs.ts
 var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
 var WINDOW_MS_SQL = "COALESCE(CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)";
-function closeOpenRunsForTask(db, taskId, now, exitReason) {
+function closeOpenRunsForTask(db, taskId, now2, exitReason) {
   return db.run(
     `UPDATE agent_runs
         SET completed_at = ?,
@@ -26837,7 +26838,7 @@ function closeOpenRunsForTask(db, taskId, now, exitReason) {
             exit_reason = ?
       WHERE task_id = ?
         AND completed_at IS NULL`,
-    [now, now, exitReason, taskId]
+    [now2, now2, exitReason, taskId]
   ).changes;
 }
 
@@ -26874,11 +26875,11 @@ function closedTasksWithoutReview(db, issueId) {
     [issueId]
   );
 }
-function escalateLiveTasksForIssueClose(db, tasks, reason, now) {
+function escalateLiveTasksForIssueClose(db, tasks, reason, now2) {
   for (const task of tasks) {
     db.run(
       `UPDATE tasks SET status = 'escalated', completed_at = NULL, updated_at = ? WHERE id = ?`,
-      [now, task.id]
+      [now2, task.id]
     );
     insertAudit(db, {
       issue_id: task.issue_id,
@@ -26887,15 +26888,15 @@ function escalateLiveTasksForIssueClose(db, tasks, reason, now) {
       event_type: "task_escalated_by_issue_close",
       summary: `Task ${task.id} escalated from ${task.status} by issue_close cascade`,
       content_json: JSON.stringify({ task_id: task.id, from_status: task.status, reason }),
-      created_at: now
+      created_at: now2
     });
-    closeOpenRunsForTask(db, task.id, now, "issue_closed");
+    closeOpenRunsForTask(db, task.id, now2, "issue_closed");
   }
 }
-function markIssueClosed(db, issueId, now) {
+function markIssueClosed(db, issueId, now2) {
   db.run(
     `UPDATE issues SET status = 'closed', updated_at = ?, closed_at = COALESCE(closed_at, ?) WHERE id = ?`,
-    [now, now, issueId]
+    [now2, now2, issueId]
   );
 }
 
@@ -27349,7 +27350,7 @@ function issueTools(db, dbPath = "", options = {}) {
       const milestoneResolution = resolveDefaultMilestone(db, explicitMilestone, issueRepo);
       const milestone = milestoneResolution.milestone;
       const spawnFn = args["_spawnFn"] ?? void 0;
-      const now = nowISO();
+      const now2 = nowISO();
       const remoteIidRaw = args["remote_iid"];
       if (remoteIidRaw !== void 0 && remoteIidRaw !== null) {
         const remoteIid = typeof remoteIidRaw === "number" ? remoteIidRaw : Number(remoteIidRaw);
@@ -27361,7 +27362,7 @@ function issueTools(db, dbPath = "", options = {}) {
         db.run(
           `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
            VALUES (?, ?, 'open', ?, ?, ?, ?, ?)`,
-          [objective, description, now, now, milestone, issueRepo, JSON.stringify(labels)]
+          [objective, description, now2, now2, milestone, issueRepo, JSON.stringify(labels)]
         );
         const adoptRowId = db.get(
           `SELECT id FROM issues WHERE rowid = last_insert_rowid()`
@@ -27374,7 +27375,7 @@ function issueTools(db, dbPath = "", options = {}) {
         const glIid = adoption.backend === "gitlab" ? remoteIid : null;
         db.run(
           `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-          [adoption.backend, ghIid, glIid, now, adoptId]
+          [adoption.backend, ghIid, glIid, now2, adoptId]
         );
         insertAudit(db, {
           issue_id: adoptId,
@@ -27382,7 +27383,7 @@ function issueTools(db, dbPath = "", options = {}) {
           event_type: "issue_adopted",
           summary: `issue ${adoptId} adopted ${adoption.backend} #${remoteIid} at create`,
           content_json: JSON.stringify({ issue_id: adoptId, backend: adoption.backend, remote_iid: remoteIid, at_create: true }),
-          created_at: now
+          created_at: now2
         });
         const adoptedRow = db.get("SELECT * FROM issues WHERE id = ?", [adoptId]);
         const adoptedIssue = decodeIssue(adoptedRow);
@@ -27397,7 +27398,7 @@ function issueTools(db, dbPath = "", options = {}) {
       db.run(
         `INSERT INTO issues (objective, description, status, created_at, updated_at, milestone, repo, labels)
          VALUES (?, ?, 'open', ?, ?, ?, ?, ?)`,
-        [objective, description, now, now, milestone, issueRepo, JSON.stringify(labels)]
+        [objective, description, now2, now2, milestone, issueRepo, JSON.stringify(labels)]
       );
       const rowId = db.get(
         `SELECT id FROM issues WHERE rowid = last_insert_rowid()`
@@ -27486,7 +27487,7 @@ function issueTools(db, dbPath = "", options = {}) {
               if (firstSuccess !== null) {
                 db.run(
                   `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-                  [firstSuccess.remote_kind, ghIid, glIid, now, issueId]
+                  [firstSuccess.remote_kind, ghIid, glIid, now2, issueId]
                 );
               } else {
                 const failures = [];
@@ -27563,7 +27564,7 @@ function issueTools(db, dbPath = "", options = {}) {
                 const glIid = syncResult.remote_kind === "gitlab" ? syncResult.remote_iid : null;
                 db.run(
                   `UPDATE issues SET remote_kind = ?, gh_iid = ?, gl_iid = ?, updated_at = ? WHERE id = ?`,
-                  [syncResult.remote_kind, ghIid, glIid, now, issueId]
+                  [syncResult.remote_kind, ghIid, glIid, now2, issueId]
                 );
                 if (syncResult.unknown_labels && syncResult.unknown_labels.length > 0) {
                   syncDiagnostic = {
@@ -27655,7 +27656,7 @@ function issueTools(db, dbPath = "", options = {}) {
     issue_close: requireRoles("issue_close", ["bro"], wrapHandler2(async (args) => {
       requireArg2(args, "agent");
       const issueId = requireArg2(args, "issue_id");
-      const now = nowISO();
+      const now2 = nowISO();
       const existing = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       if (!existing) {
         throw new Error(`Not found: ${issueId}`);
@@ -27696,12 +27697,12 @@ function issueTools(db, dbPath = "", options = {}) {
                 commit_sha: t.commit_sha,
                 waive_review_reason: waiveReason
               }),
-              created_at: now
+              created_at: now2
             });
           }
         }
-        escalateLiveTasksForIssueClose(db, live, cascadeReason, now);
-        markIssueClosed(db, issueId, now);
+        escalateLiveTasksForIssueClose(db, live, cascadeReason, now2);
+        markIssueClosed(db, issueId, now2);
       });
       const remote = await syncIssueCloseRemotes(db, dbPath, issueId, args["_spawnFn"]);
       const updated = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
@@ -27807,10 +27808,10 @@ function issueTools(db, dbPath = "", options = {}) {
       if (!existing) {
         return err2(`not_found: issue ${issueId}`);
       }
-      const now = nowISO();
+      const now2 = nowISO();
       db.run(
         "UPDATE issues SET description = ?, updated_at = ? WHERE id = ?",
-        [description, now, issueId]
+        [description, now2, issueId]
       );
       const updated = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       return ok2(decodeIssue(updated));
@@ -27971,16 +27972,16 @@ function issueTools(db, dbPath = "", options = {}) {
       if (existingIid != null && !force) {
         return err2(`already_linked: issue ${issueId} already has ${backend} iid ${existingIid} \u2014 pass force=true to overwrite`);
       }
-      const now = nowISO();
+      const now2 = nowISO();
       if (backend === "github") {
         db.run(
           `UPDATE issues SET gh_iid = ?, remote_kind = COALESCE(remote_kind, 'github'), updated_at = ? WHERE id = ?`,
-          [iid, now, issueId]
+          [iid, now2, issueId]
         );
       } else {
         db.run(
           `UPDATE issues SET gl_iid = ?, remote_kind = COALESCE(remote_kind, 'gitlab'), updated_at = ? WHERE id = ?`,
-          [iid, now, issueId]
+          [iid, now2, issueId]
         );
       }
       insertAudit(db, {
@@ -27989,7 +27990,7 @@ function issueTools(db, dbPath = "", options = {}) {
         event_type: "issue_linked",
         summary: `issue ${issueId} linked to ${backend} #${iid}${force && existingIid != null ? ` (forced, was ${existingIid})` : ""}`,
         content_json: JSON.stringify({ issue_id: issueId, backend, iid, forced: force && existingIid != null }),
-        created_at: now
+        created_at: now2
       });
       const updated = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       return ok2({ linked: true, backend, iid, issue: decodeIssue(updated) });
@@ -28013,12 +28014,12 @@ function issueTools(db, dbPath = "", options = {}) {
         return err2(`already_linked: issue ${issueId} already has a ${adoption.backend} link (#${existingIid}); re-adopt is only idempotent for the same iid`);
       }
       const idempotent = existingIid === remoteIid;
-      const now = nowISO();
+      const now2 = nowISO();
       const ghIid = adoption.backend === "github" ? remoteIid : null;
       const glIid = adoption.backend === "gitlab" ? remoteIid : null;
       db.run(
         `UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_kind = COALESCE(remote_kind, ?), updated_at = ? WHERE id = ?`,
-        [ghIid, glIid, adoption.backend, now, issueId]
+        [ghIid, glIid, adoption.backend, now2, issueId]
       );
       if (!idempotent) {
         insertAudit(db, {
@@ -28027,7 +28028,7 @@ function issueTools(db, dbPath = "", options = {}) {
           event_type: "issue_adopted",
           summary: `issue ${issueId} adopted ${adoption.backend} #${remoteIid}`,
           content_json: JSON.stringify({ issue_id: issueId, backend: adoption.backend, remote_iid: remoteIid, at_create: false }),
-          created_at: now
+          created_at: now2
         });
       }
       const updated = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
@@ -28512,7 +28513,7 @@ function readReadmeSummary(absDirPath) {
   }
   return null;
 }
-function persistDirectoriesGraph(graph, out, now) {
+function persistDirectoriesGraph(graph, out, now2) {
   const repoPaths = /* @__PURE__ */ new Map();
   for (const r of out.repos) repoPaths.set(r.name, r.path);
   const dirMap = deriveDirectoryEntries(out);
@@ -28540,7 +28541,7 @@ function persistDirectoriesGraph(graph, out, now) {
       parent_path: entry.parent_path,
       summary,
       summary_source: readmeSummary !== null ? "readme" : "structural",
-      summary_updated_at: now,
+      summary_updated_at: now2,
       file_count: entry.file_count
     });
     if (readmeSummary !== null) dirs_readme_summarized++;
@@ -28624,7 +28625,7 @@ function detectRenames(existing, discovered, remotesByRepo, storedRemotes) {
   return candidates;
 }
 function persistScan(db, graph, out, sessionDir) {
-  const now = nowISO();
+  const now2 = nowISO();
   const normSession = sessionDir.replace(/\/+$/, "");
   const existing = db.all(`SELECT name, path FROM repos`);
   const remotesByRepo = /* @__PURE__ */ new Map();
@@ -28656,7 +28657,7 @@ function persistScan(db, graph, out, sessionDir) {
            path = excluded.path,
            file_count = excluded.file_count,
            last_scanned_at = excluded.last_scanned_at`,
-        [r.name, r.path, r.file_count, now]
+        [r.name, r.path, r.file_count, now2]
       );
       upsertRepoRemotes(db, r.name, remotesByRepo.get(r.name) ?? []);
       repos_upserted++;
@@ -28699,7 +28700,7 @@ function persistScan(db, graph, out, sessionDir) {
   let dirs_readme_summarized = 0;
   let dirs_structural_summarized = 0;
   if (graph) {
-    const stats = persistDirectoriesGraph(graph, persisted, now);
+    const stats = persistDirectoriesGraph(graph, persisted, now2);
     dirs_upserted = stats.dirs_upserted;
     dirs_readme_summarized = stats.dirs_readme_summarized;
     dirs_structural_summarized = stats.dirs_structural_summarized;

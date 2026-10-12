@@ -12,6 +12,7 @@ async function defaultLoader() {
     env.cacheDir = TMB_MODEL_CACHE_DIR;
     return (await pipeline('feature-extraction', MODEL_ID));
 }
+let now = Date.now;
 let loader = defaultLoader;
 let pipePromise = null;
 let loadingSince = null;
@@ -51,13 +52,13 @@ function message(e) {
 }
 function loadPipe() {
     if (!pipePromise) {
-        loadingSince = new Date().toISOString();
+        loadingSince = new Date(now()).toISOString();
         readySince = null;
         const p = loader();
         pipePromise = p;
         p.then(() => {
             if (pipePromise === p)
-                readySince = new Date().toISOString();
+                readySince = new Date(now()).toISOString();
         }, () => {
             if (pipePromise === p)
                 pipePromise = null;
@@ -68,7 +69,7 @@ function loadPipe() {
 function enterDegraded(reason) {
     if (degraded)
         return;
-    degraded = { since: new Date().toISOString(), reason, retries: 0, nextRetryAt: Date.now() + embedRetryDelayMs(0) };
+    degraded = { since: new Date(now()).toISOString(), reason, retries: 0, nextRetryAt: now() + embedRetryDelayMs(0) };
     emit({ kind: 'degraded', reason, consecutive_failures: consecutiveFailures });
 }
 async function retry(text) {
@@ -88,7 +89,7 @@ async function retry(text) {
         consecutiveFailures++;
         d.retries++;
         d.reason = `re-attempt failed: ${message(e)}`;
-        d.nextRetryAt = Date.now() + embedRetryDelayMs(d.retries);
+        d.nextRetryAt = now() + embedRetryDelayMs(d.retries);
         return null;
     }
     finally {
@@ -103,7 +104,7 @@ async function retry(text) {
  */
 export async function embed(text) {
     if (degraded) {
-        if (retrying || Date.now() < degraded.nextRetryAt)
+        if (retrying || now() < degraded.nextRetryAt)
             return null;
         return retry(text);
     }
@@ -161,5 +162,9 @@ export function resetEmbeddingModelForTests(next = null) {
     degraded = null;
     retrying = false;
     listeners.clear();
+}
+/** Test seam: replace the clock behind `since`, `next_retry_at` and the re-attempt gate; no argument restores `Date.now`. */
+export function __setClockForTests(fn = Date.now) {
+    now = fn;
 }
 //# sourceMappingURL=model.js.map

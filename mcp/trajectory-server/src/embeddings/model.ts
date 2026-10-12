@@ -47,6 +47,7 @@ interface Degraded {
   nextRetryAt: number;
 }
 
+let now: () => number = Date.now;
 let loader: EmbeddingLoader = defaultLoader;
 let pipePromise: Promise<EmbedPipe> | null = null;
 let loadingSince: string | null = null;
@@ -90,13 +91,13 @@ function message(e: unknown): string {
 
 function loadPipe(): Promise<EmbedPipe> {
   if (!pipePromise) {
-    loadingSince = new Date().toISOString();
+    loadingSince = new Date(now()).toISOString();
     readySince = null;
     const p = loader();
     pipePromise = p;
     p.then(
       () => {
-        if (pipePromise === p) readySince = new Date().toISOString();
+        if (pipePromise === p) readySince = new Date(now()).toISOString();
       },
       () => {
         if (pipePromise === p) pipePromise = null;
@@ -108,7 +109,7 @@ function loadPipe(): Promise<EmbedPipe> {
 
 function enterDegraded(reason: string): void {
   if (degraded) return;
-  degraded = { since: new Date().toISOString(), reason, retries: 0, nextRetryAt: Date.now() + embedRetryDelayMs(0) };
+  degraded = { since: new Date(now()).toISOString(), reason, retries: 0, nextRetryAt: now() + embedRetryDelayMs(0) };
   emit({ kind: 'degraded', reason, consecutive_failures: consecutiveFailures });
 }
 
@@ -128,7 +129,7 @@ async function retry(text: string): Promise<Float32Array | null> {
     consecutiveFailures++;
     d.retries++;
     d.reason = `re-attempt failed: ${message(e)}`;
-    d.nextRetryAt = Date.now() + embedRetryDelayMs(d.retries);
+    d.nextRetryAt = now() + embedRetryDelayMs(d.retries);
     return null;
   } finally {
     retrying = false;
@@ -143,7 +144,7 @@ async function retry(text: string): Promise<Float32Array | null> {
  */
 export async function embed(text: string): Promise<Float32Array | null> {
   if (degraded) {
-    if (retrying || Date.now() < degraded.nextRetryAt) return null;
+    if (retrying || now() < degraded.nextRetryAt) return null;
     return retry(text);
   }
   let pipe: EmbedPipe;
@@ -196,4 +197,9 @@ export function resetEmbeddingModelForTests(next: EmbeddingLoader | null = null)
   degraded = null;
   retrying = false;
   listeners.clear();
+}
+
+/** Test seam: replace the clock behind `since`, `next_retry_at` and the re-attempt gate; no argument restores `Date.now`. */
+export function __setClockForTests(fn: () => number = Date.now): void {
+  now = fn;
 }
