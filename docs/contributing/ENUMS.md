@@ -61,7 +61,7 @@ Server enforces valid transitions: `collecting → awaiting_human → closed | s
 | `github` | TMB | GitHub (github.com or GHE) |
 | `gitlab` | TMB | GitLab (gitlab.com or self-hosted) |
 
-Mirrors `repos.remotes[].provider` (see [`repos.remotes[].provider`](#reposremotesprovider---git-host-provider-per-remote)). Only these two values are supported for issue sync. Schema enforces via `CHECK(remote_kind IN ('github','gitlab'))`.
+Mirrors `repo_remotes.provider` (see [`repo_remotes.provider`](#repo_remotesprovider---git-host-provider-per-remote)). Only these two values are supported for issue sync. Schema enforces via `CHECK(remote_kind IN ('github','gitlab'))`.
 
 ### `discussions.kind` — narrative kind in issue discussions
 
@@ -160,6 +160,7 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `planning_complete` | `bro` | Bro finished planning: batched `task_create_batch` + SWE spawn |
 | `readme_staleness_surfaced` | `hook` | `post-atomic-close-readme` surfaced READMEs a closed task may have left stale |
 | `registry_gate_waived` | `bro` | `task_create_batch` ran with `waive_registry_gate`; `content_json` carries the waiver reason |
+| `repo_remotes_migration_skipped` | `server` | The v35 migration could not move a repo's `repos.remotes` JSON into `repo_remotes` — the value did not parse as an array or a name → url map, or some entries carried no url or a duplicate name (the rest moved); one row per repo on the system issue `-1`, written by `system`; `content_json` carries `repo`, `reason`, `raw` |
 | `repo_rename_detected` | `bro` | `scan_run` found a discovered repo whose canonical path or primary remote URL matches an existing row under another name; no second row is inserted and the old row is kept until `repo_rename`; filed under the system issue `-1` by `bro`; `content_json` carries `old`, `new`, `by` (`path` or `remote`) |
 | `repo_renamed` | `bro` | `repo_rename` moved a repo to a new name: the `repos` row, its FK children, `pr_review_runs` host slugs and the world-model nodes; filed under the system issue `-1` by `bro` with `repo` = the new name; `content_json` carries `old`, `new`, `reason`, `rows_by_table`, `graph` (`rekeyed`, or `deferred` when kuzu was unavailable or failed — the next `scan_run` rebuilds), `graph_nodes`, and `graph_error` when the re-key failed |
 | `review_gate_bypassed` | `bro`, `hook` | A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing pr-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha` |
@@ -286,27 +287,25 @@ Every timestamp column (`*_at`) holds `YYYY-MM-DDTHH:MM:SS.sssZ` — 24-char UTC
 
 Common values: `swe`, `pr-reviewer`, `architect`, `cto`, `pm`, `ceo`. Open enum — accept any string. Document the canonical values for query convenience.
 
-### `repos.remotes[].provider` — git host provider per remote
+### `repo_remotes.provider` — git host provider per remote
 
 | Value | Meaning |
 |---|---|
 | `github` | github.com or GitHub Enterprise |
 | `gitlab` | gitlab.com or self-hosted GitLab |
-| `bitbucket` | Atlassian's git host (bitbucket.org) |
-| `codeberg` | codeberg.org (Forgejo-based public forge) |
-| `azuredev` | Azure DevOps (dev.azure.com) |
-| `other` | Unrecognised or custom host |
+| `other` | Any other host (Bitbucket, Codeberg, Azure DevOps, custom) |
 
-URL-pattern auto-detection rules:
+Schema enforces via `CHECK (provider IN ('github','gitlab','other'))`. The writer (`upsertRepoRemotes`, and the v35 migration from the old `repos.remotes` JSON) derives the value from the URL host:
 
 - `github.com` → `github`
 - `gitlab.com` or `gitlab.<corp>.<tld>` → `gitlab`
-- `bitbucket.org` → `bitbucket`
-- `codeberg.org` → `codeberg`
-- `dev.azure.com` → `azuredev`
-- everything else → `other`
+- everything else → `other`, except that a blank or unrecognised URL keeps a declared `github`/`gitlab` (onboard records the chosen provider before the repo has a URL)
 
-`remotes` is a `repos`-table column whose value is a JSON array of `{ name, provider, url }` objects (e.g. `[{ "name": "origin", "provider": "github", "url": "git@github.com:org/repo.git" }]`). An empty array means no remote is configured.
+`onboard_state_get`'s `probe.detected_remotes[].provider` still reports the finer host classification (`bitbucket`, `codeberg`, `azuredev`) — it is a probe result, not a stored value.
+
+### `repo_remotes.is_primary`
+
+`1` on the remote named `origin`, else on the first remote recorded; `0` on the rest. `CHECK (is_primary IN (0,1))`.
 
 ---
 

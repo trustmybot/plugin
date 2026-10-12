@@ -4,6 +4,7 @@ import { tempDB } from './helpers.js';
 import { remoteSyncGate } from '../sync/backend.js';
 import { issueTools, syncIssueCloseRemotes } from '../tools/issues.js';
 import { compositeTools } from '../tools/composites.js';
+import { upsertRepoRemotes } from '../repos/remotes.js';
 const DB_PATH = '/tmp/.claude/tmb/trajectory.db';
 function parse(r) {
     return JSON.parse(r.content[0].text);
@@ -30,12 +31,13 @@ function setIssueSync(db, value) {
     db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', ?)`, [JSON.stringify(value)]);
 }
 function registerRepo(db, providers = ['github', 'gitlab']) {
-    const remotes = providers.map((provider) => ({
-        name: 'origin',
+    const remotes = providers.map((provider, i) => ({
+        name: i === 0 ? 'origin' : provider,
         provider,
         url: provider === 'github' ? 'https://github.com/owner/repo.git' : 'https://gitlab.com/owner/repo.git',
     }));
-    db.run(`INSERT INTO repos (name, path, remotes) VALUES ('app', '/tmp/app', ?)`, [JSON.stringify(remotes)]);
+    db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
+    upsertRepoRemotes(db, 'app', remotes);
 }
 function seedLinkedIssue(db, links = { gh: 42 }) {
     const now = new Date().toISOString();

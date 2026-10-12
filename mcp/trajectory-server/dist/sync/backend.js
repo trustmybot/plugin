@@ -71,7 +71,7 @@ export function resolveBackend(configValue, repoRemotes, hasSpawnFn = false, ava
     if (configValue === 'both')
         return 'both';
     // 'auto' — derive the decision from the issue repo's configured remotes
-    // (repos.remotes), gated only by a CLI-availability check that confirms the
+    // (repo_remotes), gated only by a CLI-availability check that confirms the
     // chosen CLI is installed/authed. No process.cwd() git probe.
     const available = availability ?? detectAvailable();
     const ghUsable = (repoRemotes?.github ?? false) && available.gh;

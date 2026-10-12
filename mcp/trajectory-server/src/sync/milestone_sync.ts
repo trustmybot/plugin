@@ -4,7 +4,7 @@ import { defaultSpawnFn } from './issue_sync.js';
 import type { SpawnFn } from './issue_sync.js';
 
 // One remote a repo's milestones live on: the CLI that talks to it plus the
-// host-qualified `host/owner/repo` slug from repos.remotes (repoSlugFromRemoteUrl).
+// host-qualified `host/owner/repo` slug from the repo's repo_remotes rows (repoSlugFromRemoteUrl).
 export interface MilestoneTarget {
   backend: 'gh' | 'glab';
   slug: string;

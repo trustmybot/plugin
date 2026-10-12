@@ -4,22 +4,16 @@ export function resolveSoleRepoPath(db: TrajectoryDB): string | undefined {
   return resolveSoleRepo(db)?.path;
 }
 
-export interface RepoRemote {
-  name?: string;
-  provider: string;
-  url: string;
-}
-
 export interface ResolvedRepoSync {
   name: string;
   path: string;
-  remotes: RepoRemote[];
 }
 
 // Issue-scoped repo resolution for the sync path (#155/#146). Resolve the repo
-// an issue belongs to, returning its on-disk path AND the per-repo remotes
-// drained into repos.remotes. The sync caller uses `path` as the explicit cwd
-// and `remotes` to pick the gh --repo / glab -R target — never process.cwd().
+// an issue belongs to, returning its name and on-disk path. The sync caller
+// uses `path` as the explicit cwd and reads the repo's remotes through
+// repoRemotes(db, name) to pick the gh --repo / glab -R target — never
+// process.cwd().
 //
 // Resolution order:
 //   1. An explicit repo name (the issue's repo column) → that repos row.
@@ -30,32 +24,14 @@ export function resolveRepoForSync(
   db: TrajectoryDB,
   repoName?: string | null,
 ): ResolvedRepoSync | null {
-  const decodeRemotes = (raw: string | null): RepoRemote[] => {
-    if (!raw) return [];
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (Array.isArray(parsed)) return parsed as RepoRemote[];
-    } catch {
-      // malformed remotes blob — treat as none
-    }
-    return [];
-  };
-
   if (repoName) {
-    const row = db.get<{ name: string; path: string; remotes: string | null }>(
-      `SELECT name, path, remotes FROM repos WHERE name = ?`,
-      [repoName],
-    );
-    if (!row) return null;
-    return { name: row.name, path: row.path, remotes: decodeRemotes(row.remotes) };
+    const row = db.get<{ name: string; path: string }>(`SELECT name, path FROM repos WHERE name = ?`, [repoName]);
+    return row ? { name: row.name, path: row.path } : null;
   }
 
-  const rows = db.all<{ name: string; path: string; remotes: string | null }>(
-    `SELECT name, path, remotes FROM repos`,
-  );
+  const rows = db.all<{ name: string; path: string }>(`SELECT name, path FROM repos`);
   if (rows.length !== 1) return null;
-  const sole = rows[0]!;
-  return { name: sole.name, path: sole.path, remotes: decodeRemotes(sole.remotes) };
+  return { name: rows[0]!.name, path: rows[0]!.path };
 }
 
 // Path-keyed repo resolution. There is no name-keyed global default — callers

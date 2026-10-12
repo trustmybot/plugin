@@ -3,9 +3,11 @@ import { repoSlugFromRemoteUrl } from '../sync/issue_sync.js';
 import { insertAudit } from './audit.js';
 import { taskWorktreePath } from './composites.js';
 import { LIVE_TASK_STATUSES } from './lifecycle.js';
+import { repoRemotes } from '../repos/remotes.js';
 // Every table whose `repo` column is an FK to repos(name), with its move.
 export const REPO_FK_CHILDREN = [
     ['milestones', 'UPDATE milestones SET repo = ? WHERE repo = ?'],
+    ['repo_remotes', 'UPDATE repo_remotes SET repo = ? WHERE repo = ?'],
     ['issues', 'UPDATE issues SET repo = ? WHERE repo = ?'],
     ['tasks', 'UPDATE tasks SET repo = ? WHERE repo = ?'],
     ['audit', 'UPDATE audit SET repo = ? WHERE repo = ?'],
@@ -39,19 +41,10 @@ function blockingTasks(db, old, oldPath) {
 // The pr_review_runs host-slug rewrites implied by the repo's remotes: a remote
 // whose last path segment names the old (or already the new) repo identifies
 // the owner prefix; both the host-qualified and the bare owner/repo forms move.
-function slugRewrites(remotesJson, old, next) {
-    let remotes = [];
-    try {
-        const parsed = JSON.parse(remotesJson ?? '[]');
-        if (Array.isArray(parsed))
-            remotes = parsed;
-    }
-    catch {
-        return [];
-    }
+function slugRewrites(remotes, old, next) {
     const pairs = new Map();
     for (const r of remotes) {
-        const full = r.url ? repoSlugFromRemoteUrl(r.url) : null;
+        const full = repoSlugFromRemoteUrl(r.url);
         if (!full)
             continue;
         const cut = full.lastIndexOf('/');
@@ -75,7 +68,7 @@ export function renameRepo(db, graph, input) {
     const next = input.new;
     if (old === next)
         return { renamed: false, error: 'repo_same', old, new: next };
-    const row = db.get(`SELECT name, path, remotes FROM repos WHERE name = ?`, [old]);
+    const row = db.get(`SELECT name, path FROM repos WHERE name = ?`, [old]);
     if (!row)
         return { renamed: false, error: 'repo_not_found', old, new: next };
     if (db.get(`SELECT 1 AS x FROM repos WHERE name = ?`, [next])) {
@@ -87,20 +80,21 @@ export function renameRepo(db, graph, input) {
             return { renamed: false, error: 'rename_in_progress', old, new: next, blocking_tasks: blocking };
         }
     }
+    const remotes = repoRemotes(db, old);
     // foreign_keys cannot change inside a transaction, so it is switched off
     // around it; foreign_key_check inside the transaction is the real guard.
     db.run('PRAGMA foreign_keys = OFF');
     try {
         return db.transaction(() => {
             const rows_by_table = {};
-            db.run(`INSERT INTO repos (name, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches, remotes)
-         SELECT ?, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches, remotes
+            db.run(`INSERT INTO repos (name, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches)
+         SELECT ?, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches
            FROM repos WHERE name = ?`, [next, old]);
             for (const [table, sql] of REPO_FK_CHILDREN) {
                 rows_by_table[table] = Number(db.run(sql, [next, old]).changes);
             }
             let prRuns = 0;
-            for (const [from, to] of slugRewrites(row.remotes, old, next)) {
+            for (const [from, to] of slugRewrites(remotes, old, next)) {
                 prRuns += Number(db.run(`UPDATE pr_review_runs SET repo = ? WHERE repo = ? COLLATE NOCASE`, [to, from]).changes);
             }
             rows_by_table['pr_review_runs'] = prRuns;

@@ -5,7 +5,8 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logger.js';
 import { assertSafeProjectWritePath, resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
-export const TARGET_SCHEMA_VERSION = 34;
+import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
+export const TARGET_SCHEMA_VERSION = 35;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -483,6 +484,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 34 && toVersion >= 34) {
         migrateV33toV34(db);
+    }
+    if (fromVersion < 35 && toVersion >= 35) {
+        migrateV34toV35(db);
     }
 }
 function hasColumn(db, table, column) {
@@ -1855,9 +1859,107 @@ function migrateV33toV34(db) {
         db.exec('PRAGMA foreign_keys = ON');
     }
 }
+// v34→v35: a repo's remotes become rows (GH 1225); audit.branch_id '' → NULL (GH 1221).
+//
+//   1. repo_remotes(repo → repos ON DELETE/UPDATE CASCADE, name, provider,
+//      url, is_primary, created_at, PK(repo, name)) is created and filled from
+//      each JSON value of the repos remotes column — an array of {name, provider, url} or a
+//      name → url map. provider comes from the URL host; `origin` (else the
+//      first remote) is primary. A value that does not parse, or entries that
+//      carry no url, leave one repo_remotes_migration_skipped audit row with
+//      the raw value on the system issue -1; the migration goes on.
+//   2. repos is rebuilt without the remotes column.
+//   3. validation_attempts gains reviewer_agent_id (GH 1226 writes it).
+//   4. audit.branch_id '' becomes NULL, the one "no branch" value.
+//
+// Guarded on the old shape; a re-run against a v35 shape is a no-op.
+function migrateV34toV35(db) {
+    if (!tableExists(db, 'repos'))
+        return;
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('BEGIN');
+    try {
+        db.exec(`
+      CREATE TABLE IF NOT EXISTS repo_remotes (
+        repo        TEXT    NOT NULL REFERENCES repos(name) ON DELETE CASCADE ON UPDATE CASCADE,
+        name        TEXT    NOT NULL,
+        provider    TEXT    NOT NULL CHECK (provider IN ('github','gitlab','other')),
+        url         TEXT    NOT NULL,
+        is_primary  INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0,1)),
+        created_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+        PRIMARY KEY (repo, name)
+      );
+      CREATE INDEX IF NOT EXISTS idx_repo_remotes_primary ON repo_remotes(repo, is_primary);
+    `);
+        if (hasColumn(db, 'repos', 'remotes')) {
+            const rows = db
+                .prepare(`SELECT name, remotes AS legacy FROM repos WHERE remotes IS NOT NULL AND trim(remotes) <> '' ORDER BY name`)
+                .all();
+            const insertRemote = db.prepare(`INSERT OR IGNORE INTO repo_remotes (repo, name, provider, url, is_primary) VALUES (?, ?, ?, ?, ?)`);
+            const canAudit = tableExists(db, 'audit') && tableExists(db, 'issues');
+            const skipped = (repo, raw, reason) => {
+                if (!canAudit)
+                    return;
+                db.exec(`INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+           VALUES (-1, 'system', 'parent issue for recovery / system-level audit and discussion events', 'open', ${ISO_NOW_SQL}, ${ISO_NOW_SQL})`);
+                db.prepare(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at)
+           VALUES (-1, NULL, 'system', 'repo_remotes_migration_skipped', ?, ?, ?, ${ISO_NOW_SQL})`).run(`v35 migration skipped remotes of repo ${repo}: ${reason}`, JSON.stringify({ repo, reason, raw }), repo);
+            };
+            for (const row of rows) {
+                const parsed = parseLegacyRemotes(row.legacy);
+                if (!parsed.ok) {
+                    skipped(row.name, row.legacy, parsed.reason);
+                    continue;
+                }
+                const primary = primaryIndex(parsed.entries);
+                parsed.entries.forEach((r, i) => {
+                    insertRemote.run(row.name, r.name, remoteProvider(r.url, r.provider), r.url, i === primary ? 1 : 0);
+                });
+                if (parsed.dropped > 0) {
+                    skipped(row.name, row.legacy, `${parsed.dropped} remote entr${parsed.dropped === 1 ? 'y' : 'ies'} without a url or with a duplicate name`);
+                }
+            }
+            rebuildTable(db, 'repos', `
+          name               TEXT PRIMARY KEY,
+          path               TEXT    NOT NULL,
+          file_count         INTEGER NOT NULL DEFAULT 0,
+          last_scanned_at    TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          target_branch      TEXT,
+          branching_model    TEXT,
+          protected_branches TEXT
+        `, [
+                ['name', 'NULL'], ['path', "''"], ['file_count', '0'], ['last_scanned_at', ISO_NOW_DEFAULT],
+                ['target_branch', 'NULL'], ['branching_model', 'NULL'], ['protected_branches', 'NULL'],
+            ]);
+        }
+        if (tableExists(db, 'validation_attempts') && !hasColumn(db, 'validation_attempts', 'reviewer_agent_id')) {
+            db.exec('ALTER TABLE validation_attempts ADD COLUMN reviewer_agent_id TEXT');
+        }
+        if (tableExists(db, 'audit')) {
+            db.exec(`UPDATE audit SET branch_id = NULL WHERE branch_id = ''`);
+        }
+        const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
+        if (fkViolations.length > 0) {
+            throw new Error(`migrateV34toV35: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v35 rebuild`);
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // original error wins
+        }
+        throw err;
+    }
+    finally {
+        db.exec('PRAGMA foreign_keys = ON');
+    }
+}
 // v22→v23: the repos-centric schema (#155). repos(name) becomes the FK hub.
 //
-//   1. repos.remotes — new column so issue-scoped sync resolves the per-repo
+//   1. repos gains a remotes column so issue-scoped sync resolves the per-repo
 //      remote. Populated by scan_run (#979) from each repo's git remotes.
 //   2. milestones(name, repo→repos, state, PK(name,repo)) — GitHub-style
 //      per-repo milestones; backfilled from distinct issues.milestone values.
@@ -1890,7 +1992,7 @@ function migrateV22toV23(db) {
     db.exec('PRAGMA foreign_keys = OFF');
     db.exec('BEGIN');
     try {
-        // (1) repos.remotes — the per-repo remote list column. scan_run populates
+        // (1) the repos remotes column — the per-repo remote list. scan_run populates
         // it from each repo's actual git remotes (#979); migrateV26toV27 drains any
         // residual global plugin_config('remotes') before that key is removed.
         if (tableExists(db, 'repos')) {

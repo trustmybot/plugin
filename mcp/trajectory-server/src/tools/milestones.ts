@@ -14,6 +14,7 @@ import {
 } from '../sync/milestone_sync.js';
 import type { MilestoneRemoteFailure, MilestoneTarget, RemoteMilestone } from '../sync/milestone_sync.js';
 import { resolveRepoForSync } from '../utils/repo-paths.js';
+import { repoRemotes } from '../repos/remotes.js';
 import { insertAudit } from './audit.js';
 import type { AuditEventType } from '../audit-events.js';
 
@@ -75,7 +76,7 @@ export function resolveMilestoneTargets(
     }
   }
   const slugFor = (provider: string): string | null => {
-    const entry = resolved.remotes.find((r) => r.provider === provider);
+    const entry = repoRemotes(db, resolved.name).find((r) => r.provider === provider);
     return entry ? repoSlugFromRemoteUrl(entry.url) : null;
   };
   const ghSlug = slugFor('github');

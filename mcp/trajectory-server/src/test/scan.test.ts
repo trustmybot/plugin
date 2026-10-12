@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { tempDB } from './helpers.js';
 import { scanTools, runScanWithScript, upsertDiscoveredCheatcode } from '../tools/scan.js';
 import { renameRepo } from '../tools/repos.js';
+import { remotesView, repoRemotes } from '../repos/remotes.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -277,7 +278,7 @@ describe('scan_run — workspace discovery + persistence', () => {
   });
 });
 
-describe('scan_run — per-repo git remotes into repos.remotes (#979)', () => {
+describe('scan_run — per-repo git remotes into repo_remotes (#979)', () => {
   it('captures a repo\'s real remote as {name, provider, url} with classifyUrl provider', async () => {
     const ws = mkdtempSync(join(tmpdir(), 'scan-remotes-'));
     try {
@@ -289,9 +290,9 @@ describe('scan_run — per-repo git remotes into repos.remotes (#979)', () => {
       const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
       assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
 
-      const row = db.get<{ remotes: string }>(`SELECT remotes FROM repos WHERE name='app'`);
+      const row = remotesView(repoRemotes(db, 'app'));
       assert.ok(row, 'app repo row should exist');
-      const remotes = JSON.parse(row!.remotes) as Array<{ name: string; provider: string; url: string }>;
+      const remotes = row;
       assert.deepEqual(remotes, [
         { name: 'origin', provider: 'github', url: 'git@github.com:acme/app.git' },
       ]);
@@ -312,9 +313,9 @@ describe('scan_run — per-repo git remotes into repos.remotes (#979)', () => {
       const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
       assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
 
-      const row = db.get<{ remotes: string }>(`SELECT remotes FROM repos WHERE name='noremote'`);
+      const row = remotesView(repoRemotes(db, 'noremote'));
       assert.ok(row, 'noremote repo row should exist');
-      assert.deepEqual(JSON.parse(row!.remotes), []);
+      assert.deepEqual(row, []);
 
       db.close();
     } finally {
@@ -335,12 +336,12 @@ describe('scan_run — per-repo git remotes into repos.remotes (#979)', () => {
       const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
       assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
 
-      const appRow = db.get<{ remotes: string }>(`SELECT remotes FROM repos WHERE name='app'`);
-      const libRow = db.get<{ remotes: string }>(`SELECT remotes FROM repos WHERE name='lib'`);
-      assert.deepEqual(JSON.parse(appRow!.remotes), [
+      const appRow = remotesView(repoRemotes(db, 'app'));
+      const libRow = remotesView(repoRemotes(db, 'lib'));
+      assert.deepEqual(appRow, [
         { name: 'origin', provider: 'github', url: 'https://github.com/acme/app.git' },
       ]);
-      assert.deepEqual(JSON.parse(libRow!.remotes), [
+      assert.deepEqual(libRow, [
         { name: 'origin', provider: 'gitlab', url: 'https://gitlab.com/acme/lib.git' },
       ]);
 
@@ -358,14 +359,14 @@ describe('scan_run — per-repo git remotes into repos.remotes (#979)', () => {
       const db = tempDB();
       const tools = scanTools(db, null);
       await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
-      const before = db.get<{ remotes: string }>(`SELECT remotes FROM repos WHERE name='app'`);
-      assert.deepEqual(JSON.parse(before!.remotes), []);
+      const before = remotesView(repoRemotes(db, 'app'));
+      assert.deepEqual(before, []);
 
       // Add a remote, re-scan: the row reflects the new state, no duplication.
       execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/acme/app.git'], { cwd: root });
       await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
-      const after = db.get<{ remotes: string }>(`SELECT remotes FROM repos WHERE name='app'`);
-      assert.deepEqual(JSON.parse(after!.remotes), [
+      const after = remotesView(repoRemotes(db, 'app'));
+      assert.deepEqual(after, [
         { name: 'origin', provider: 'github', url: 'https://github.com/acme/app.git' },
       ]);
 
@@ -388,8 +389,8 @@ describe('scan_run — per-repo git remotes into repos.remotes (#979)', () => {
       // Simulate a stale/unreadable repo path: insert a row whose path no longer
       // resolves to a git repo, then re-scan over the live workspace — the scan
       // must not throw, and the unreadable row degrades to [] on its own read.
-      const goodRow = db.get<{ remotes: string }>(`SELECT remotes FROM repos WHERE name='good'`);
-      assert.deepEqual(JSON.parse(goodRow!.remotes), []);
+      const goodRow = remotesView(repoRemotes(db, 'good'));
+      assert.deepEqual(goodRow, []);
 
       db.close();
     } finally {
@@ -408,8 +409,8 @@ describe('scan_run — per-repo git remotes into repos.remotes (#979)', () => {
       const tools = scanTools(db, null);
       const r = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
       assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
-      const row = db.get<{ remotes: string }>(`SELECT remotes FROM repos WHERE name='plain'`);
-      assert.deepEqual(JSON.parse(row!.remotes), []);
+      const row = remotesView(repoRemotes(db, 'plain'));
+      assert.deepEqual(row, []);
       db.close();
     } finally {
       rmSync(ws, { recursive: true, force: true });

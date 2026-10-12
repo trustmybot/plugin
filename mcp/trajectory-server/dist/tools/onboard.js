@@ -20,6 +20,7 @@ import { SUBPROCESS_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS } from '../utils/timeouts.
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
 import { resolveSoleRepoPath } from '../utils/repo-paths.js';
+import { remotesView, repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { countShimEntries, removeProjectEnforcementShim, writeProjectEnforcementShim, } from './onboard-hooks-shim.js';
 import { removeProjectSandbox, writeProjectSandbox, } from './onboard-sandbox.js';
@@ -149,12 +150,12 @@ function writeConfig(db, key, value) {
      VALUES (?, ?)
      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`, [key, JSON.stringify(value)]);
 }
-// Read the four repo-scoped policy keys from the repos table — the sole source
-// of truth (#980). onboard applies policy workspace-wide (every repos row gets
+// Read the four repo-scoped policy keys from the repos table and its
+// repo_remotes rows — the sole source of truth (#980). onboard applies policy workspace-wide (every repos row gets
 // the same values), so the representative first row reflects current state.
 // Returns null for each field on an empty repos table or a NULL column.
 function readRepoPolicy(db) {
-    const row = db.get(`SELECT target_branch, branching_model, protected_branches, remotes
+    const row = db.get(`SELECT name, target_branch, branching_model, protected_branches
        FROM repos ORDER BY name LIMIT 1`);
     const parseJson = (s) => {
         if (!s)
@@ -170,7 +171,7 @@ function readRepoPolicy(db) {
         branching_model: row?.branching_model ?? null,
         pr_target: row?.target_branch ?? null,
         protected_branches: parseJson(row?.protected_branches ?? null),
-        remotes: parseJson(row?.remotes ?? null),
+        remote_list: row ? remotesView(repoRemotes(db, row.name)) : null,
     };
 }
 // Read one repos row by name for the per-repo onboard path. Returns null when
@@ -559,7 +560,7 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     branching_model: policy.branching_model,
                     pr_target: policy.pr_target,
                     protected_branches: policy.protected_branches,
-                    remotes: policy.remotes,
+                    remotes: policy.remote_list,
                     issue_sync: readConfig(db, 'issue_sync'),
                     headless_enforcement: readConfig(db, 'headless_enforcement') ?? 'no',
                     sandbox_enforcement: readConfig(db, 'sandbox_enforcement') ?? 'no',
@@ -620,7 +621,7 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
             const policy = readRepoPolicy(db);
             const currentBranching = policy.branching_model;
             const currentPrTarget = policy.pr_target;
-            const currentRemotes = policy.remotes;
+            const currentRemotes = policy.remote_list;
             const currentSync = readConfig(db, 'issue_sync');
             const gh = probeCli('gh');
             const glab = probeCli('glab');
@@ -892,7 +893,8 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                         effRemotes = shape === 'remote' ? remotes : [];
                     }
                     const effProtected = deriveProtectedBranches(effModel, effTarget);
-                    db.run(`UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?, remotes = ? WHERE name = ?`, [effTarget, effModel, JSON.stringify(effProtected), JSON.stringify(effRemotes), row.name]);
+                    db.run(`UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`, [effTarget, effModel, JSON.stringify(effProtected), row.name]);
+                    upsertRepoRemotes(db, row.name, effRemotes);
                 }
             });
             // Headless enforcement is opt-in: 'yes' writes the shim into the

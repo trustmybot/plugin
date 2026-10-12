@@ -62,7 +62,7 @@ describe('resolveBackend — hasSpawnFn bypasses TMB_DISABLE_REMOTE_SYNC', () =>
         assert.equal(result, null);
     });
 });
-describe('resolveBackend — auto derives from repos.remotes, not the cwd (#1043)', () => {
+describe('resolveBackend — auto derives from repo_remotes, not the cwd (#1043)', () => {
     let savedEnv;
     const savedCwd = process.cwd();
     before(() => {

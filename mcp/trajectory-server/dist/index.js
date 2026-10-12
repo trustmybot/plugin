@@ -21140,8 +21140,115 @@ function sqlLog(entry) {
   getDefaultLogger().sqlLog(entry);
 }
 
+// src/utils/classify-url.ts
+function extractHost(url2) {
+  const scpMatch = url2.match(/^[^@]+@([^:/]+)[:/]/);
+  if (scpMatch) return scpMatch[1].toLowerCase();
+  try {
+    const parsed = new URL(url2);
+    if (parsed.hostname) return parsed.hostname.toLowerCase();
+  } catch {
+  }
+  return null;
+}
+function classifyHost(host) {
+  if (host === "github.com" || host.endsWith(".github.com")) return "github";
+  if (host === "gitlab.com" || /(?:^|\.)gitlab\./i.test(host)) return "gitlab";
+  if (host === "bitbucket.org" || host.endsWith(".bitbucket.org")) return "bitbucket";
+  if (host === "codeberg.org" || host.endsWith(".codeberg.org")) return "codeberg";
+  if (host === "dev.azure.com" || host.endsWith(".dev.azure.com")) return "azuredev";
+  return "other";
+}
+function classifyUrl(url2) {
+  const host = extractHost(url2);
+  if (!host) return "other";
+  return classifyHost(host);
+}
+
+// src/repos/remotes.ts
+function remoteProvider(url2, declared) {
+  const fromHost = classifyUrl(url2);
+  if (fromHost === "github" || fromHost === "gitlab") return fromHost;
+  if (declared === "github" || declared === "gitlab") return declared;
+  return "other";
+}
+function primaryIndex(remotes) {
+  if (remotes.length === 0) return -1;
+  const origin = remotes.findIndex((r) => r.name === "origin");
+  return origin >= 0 ? origin : 0;
+}
+function parseLegacyRemotes(raw) {
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    return { ok: false, reason: `invalid JSON: ${e.message}` };
+  }
+  let entries;
+  if (Array.isArray(parsed)) {
+    entries = parsed.map(
+      (e) => e !== null && typeof e === "object" ? {
+        name: e["name"],
+        url: e["url"],
+        provider: e["provider"]
+      } : { name: void 0, url: void 0, provider: void 0 }
+    );
+  } else if (parsed !== null && typeof parsed === "object") {
+    entries = Object.entries(parsed).map(([name, url2]) => ({ name, url: url2, provider: void 0 }));
+  } else {
+    return { ok: false, reason: `expected an array or an object, got ${parsed === null ? "null" : typeof parsed}` };
+  }
+  const remotes = [];
+  const seen = /* @__PURE__ */ new Set();
+  let dropped = 0;
+  entries.forEach((e, i) => {
+    if (typeof e.url !== "string") {
+      dropped++;
+      return;
+    }
+    const name = typeof e.name === "string" && e.name.trim() !== "" ? e.name.trim() : i === 0 ? "origin" : `remote-${i}`;
+    if (seen.has(name)) {
+      dropped++;
+      return;
+    }
+    seen.add(name);
+    remotes.push({ name, url: e.url.trim(), provider: typeof e.provider === "string" ? e.provider : null });
+  });
+  return { ok: true, entries: remotes, dropped };
+}
+function repoRemotes(db2, repo) {
+  return db2.all(
+    `SELECT name, provider, url, is_primary FROM repo_remotes WHERE repo = ? ORDER BY is_primary DESC, rowid`,
+    [repo]
+  ).map((r) => ({ name: r.name, provider: r.provider, url: r.url, is_primary: r.is_primary === 1 }));
+}
+function remotesView(remotes) {
+  return remotes.map(({ name, provider, url: url2 }) => ({ name, provider, url: url2 }));
+}
+function upsertRepoRemotes(db2, repo, remotes) {
+  const unique = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const r of remotes) {
+    if (seen.has(r.name)) continue;
+    seen.add(r.name);
+    unique.push(r);
+  }
+  const primary = primaryIndex(unique);
+  db2.run(
+    `DELETE FROM repo_remotes WHERE repo = ? AND name NOT IN (SELECT value FROM json_each(?))`,
+    [repo, JSON.stringify(unique.map((r) => r.name))]
+  );
+  unique.forEach((r, i) => {
+    db2.run(
+      `INSERT INTO repo_remotes (repo, name, provider, url, is_primary) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(repo, name) DO UPDATE SET provider = excluded.provider, url = excluded.url, is_primary = excluded.is_primary`,
+      [repo, r.name, remoteProvider(r.url, r.provider), r.url, i === primary ? 1 : 0]
+    );
+  });
+}
+
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 34;
+var TARGET_SCHEMA_VERSION = 35;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
 }
@@ -21542,6 +21649,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 34 && toVersion >= 34) {
     migrateV33toV34(db2);
+  }
+  if (fromVersion < 35 && toVersion >= 35) {
+    migrateV34toV35(db2);
   }
 }
 function hasColumn(db2, table, column) {
@@ -22844,6 +22954,100 @@ function migrateV33toV34(db2) {
     db2.exec("PRAGMA foreign_keys = ON");
   }
 }
+function migrateV34toV35(db2) {
+  if (!tableExists(db2, "repos")) return;
+  db2.exec("PRAGMA foreign_keys = OFF");
+  db2.exec("BEGIN");
+  try {
+    db2.exec(`
+      CREATE TABLE IF NOT EXISTS repo_remotes (
+        repo        TEXT    NOT NULL REFERENCES repos(name) ON DELETE CASCADE ON UPDATE CASCADE,
+        name        TEXT    NOT NULL,
+        provider    TEXT    NOT NULL CHECK (provider IN ('github','gitlab','other')),
+        url         TEXT    NOT NULL,
+        is_primary  INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0,1)),
+        created_at  TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+        PRIMARY KEY (repo, name)
+      );
+      CREATE INDEX IF NOT EXISTS idx_repo_remotes_primary ON repo_remotes(repo, is_primary);
+    `);
+    if (hasColumn(db2, "repos", "remotes")) {
+      const rows = db2.prepare(`SELECT name, remotes AS legacy FROM repos WHERE remotes IS NOT NULL AND trim(remotes) <> '' ORDER BY name`).all();
+      const insertRemote = db2.prepare(
+        `INSERT OR IGNORE INTO repo_remotes (repo, name, provider, url, is_primary) VALUES (?, ?, ?, ?, ?)`
+      );
+      const canAudit = tableExists(db2, "audit") && tableExists(db2, "issues");
+      const skipped = (repo, raw, reason) => {
+        if (!canAudit) return;
+        db2.exec(
+          `INSERT OR IGNORE INTO issues (id, objective, description, status, created_at, updated_at)
+           VALUES (-1, 'system', 'parent issue for recovery / system-level audit and discussion events', 'open', ${ISO_NOW_SQL}, ${ISO_NOW_SQL})`
+        );
+        db2.prepare(
+          `INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, repo, created_at)
+           VALUES (-1, NULL, 'system', 'repo_remotes_migration_skipped', ?, ?, ?, ${ISO_NOW_SQL})`
+        ).run(`v35 migration skipped remotes of repo ${repo}: ${reason}`, JSON.stringify({ repo, reason, raw }), repo);
+      };
+      for (const row of rows) {
+        const parsed = parseLegacyRemotes(row.legacy);
+        if (!parsed.ok) {
+          skipped(row.name, row.legacy, parsed.reason);
+          continue;
+        }
+        const primary = primaryIndex(parsed.entries);
+        parsed.entries.forEach((r, i) => {
+          insertRemote.run(row.name, r.name, remoteProvider(r.url, r.provider), r.url, i === primary ? 1 : 0);
+        });
+        if (parsed.dropped > 0) {
+          skipped(row.name, row.legacy, `${parsed.dropped} remote entr${parsed.dropped === 1 ? "y" : "ies"} without a url or with a duplicate name`);
+        }
+      }
+      rebuildTable(
+        db2,
+        "repos",
+        `
+          name               TEXT PRIMARY KEY,
+          path               TEXT    NOT NULL,
+          file_count         INTEGER NOT NULL DEFAULT 0,
+          last_scanned_at    TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT},
+          target_branch      TEXT,
+          branching_model    TEXT,
+          protected_branches TEXT
+        `,
+        [
+          ["name", "NULL"],
+          ["path", "''"],
+          ["file_count", "0"],
+          ["last_scanned_at", ISO_NOW_DEFAULT],
+          ["target_branch", "NULL"],
+          ["branching_model", "NULL"],
+          ["protected_branches", "NULL"]
+        ]
+      );
+    }
+    if (tableExists(db2, "validation_attempts") && !hasColumn(db2, "validation_attempts", "reviewer_agent_id")) {
+      db2.exec("ALTER TABLE validation_attempts ADD COLUMN reviewer_agent_id TEXT");
+    }
+    if (tableExists(db2, "audit")) {
+      db2.exec(`UPDATE audit SET branch_id = NULL WHERE branch_id = ''`);
+    }
+    const fkViolations = db2.prepare("PRAGMA foreign_key_check").all();
+    if (fkViolations.length > 0) {
+      throw new Error(
+        `migrateV34toV35: foreign_key_check found ${fkViolations.length} dangling reference(s) after the v35 rebuild`
+      );
+    }
+    db2.exec("COMMIT");
+  } catch (err20) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err20;
+  } finally {
+    db2.exec("PRAGMA foreign_keys = ON");
+  }
+}
 function migrateV22toV23(db2) {
   const soleRepo = () => {
     if (!tableExists(db2, "repos")) return null;
@@ -24001,6 +24205,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "planning_complete", writers: ["bro"], description: "Bro finished planning: batched `task_create_batch` + SWE spawn" },
   { type: "readme_staleness_surfaced", writers: ["hook"], description: "`post-atomic-close-readme` surfaced READMEs a closed task may have left stale" },
   { type: "registry_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_registry_gate`; `content_json` carries the waiver reason" },
+  { type: "repo_remotes_migration_skipped", writers: ["server"], description: "The v35 migration could not move a repo's `repos.remotes` JSON into `repo_remotes` \u2014 the value did not parse as an array or a name \u2192 url map, or some entries carried no url or a duplicate name (the rest moved); one row per repo on the system issue `-1`, written by `system`; `content_json` carries `repo`, `reason`, `raw`" },
   { type: "repo_rename_detected", writers: ["bro"], description: "`scan_run` found a discovered repo whose canonical path or primary remote URL matches an existing row under another name; no second row is inserted and the old row is kept until `repo_rename`; filed under the system issue `-1` by `bro`; `content_json` carries `old`, `new`, `by` (`path` or `remote`)" },
   { type: "repo_renamed", writers: ["bro"], description: "`repo_rename` moved a repo to a new name: the `repos` row, its FK children, `pr_review_runs` host slugs and the world-model nodes; filed under the system issue `-1` by `bro` with `repo` = the new name; `content_json` carries `old`, `new`, `reason`, `rows_by_table`, `graph` (`rekeyed`, or `deferred` when kuzu was unavailable or failed \u2014 the next `scan_run` rebuilds), `graph_nodes`, and `graph_error` when the re-key failed" },
   { type: "review_gate_bypassed", writers: ["bro", "hook"], description: "A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing pr-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`" },
@@ -24877,29 +25082,13 @@ function resolveSoleRepoPath(db2) {
   return resolveSoleRepo(db2)?.path;
 }
 function resolveRepoForSync(db2, repoName) {
-  const decodeRemotes = (raw) => {
-    if (!raw) return [];
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
-    } catch {
-    }
-    return [];
-  };
   if (repoName) {
-    const row = db2.get(
-      `SELECT name, path, remotes FROM repos WHERE name = ?`,
-      [repoName]
-    );
-    if (!row) return null;
-    return { name: row.name, path: row.path, remotes: decodeRemotes(row.remotes) };
+    const row = db2.get(`SELECT name, path FROM repos WHERE name = ?`, [repoName]);
+    return row ? { name: row.name, path: row.path } : null;
   }
-  const rows = db2.all(
-    `SELECT name, path, remotes FROM repos`
-  );
+  const rows = db2.all(`SELECT name, path FROM repos`);
   if (rows.length !== 1) return null;
-  const sole = rows[0];
-  return { name: sole.name, path: sole.path, remotes: decodeRemotes(sole.remotes) };
+  return { name: rows[0].name, path: rows[0].path };
 }
 function resolveSoleRepo(db2, name) {
   if (name) {
@@ -24930,31 +25119,6 @@ function liveCliBlockReason(env = process.env) {
 }
 function liveCliBlockedMessage(reason, cmd, args) {
   return `live CLI blocked in test context (${reason}) \u2014 refused to spawn "${cmd} ${args.join(" ")}"; inject _spawnFn`;
-}
-
-// src/utils/classify-url.ts
-function extractHost(url2) {
-  const scpMatch = url2.match(/^[^@]+@([^:/]+)[:/]/);
-  if (scpMatch) return scpMatch[1].toLowerCase();
-  try {
-    const parsed = new URL(url2);
-    if (parsed.hostname) return parsed.hostname.toLowerCase();
-  } catch {
-  }
-  return null;
-}
-function classifyHost(host) {
-  if (host === "github.com" || host.endsWith(".github.com")) return "github";
-  if (host === "gitlab.com" || /(?:^|\.)gitlab\./i.test(host)) return "gitlab";
-  if (host === "bitbucket.org" || host.endsWith(".bitbucket.org")) return "bitbucket";
-  if (host === "codeberg.org" || host.endsWith(".codeberg.org")) return "codeberg";
-  if (host === "dev.azure.com" || host.endsWith(".dev.azure.com")) return "azuredev";
-  return "other";
-}
-function classifyUrl(url2) {
-  const host = extractHost(url2);
-  if (!host) return "other";
-  return classifyHost(host);
 }
 
 // src/sync/backend.ts
@@ -25005,7 +25169,7 @@ function remoteSyncEnvDisabled() {
   const v = process.env.TMB_DISABLE_REMOTE_SYNC;
   return v === "1" || v?.toLowerCase() === "true";
 }
-function resolveBackend(configValue, repoRemotes, hasSpawnFn = false, availability) {
+function resolveBackend(configValue, repoRemotes2, hasSpawnFn = false, availability) {
   if (!hasSpawnFn && remoteSyncEnvDisabled()) {
     return null;
   }
@@ -25014,8 +25178,8 @@ function resolveBackend(configValue, repoRemotes, hasSpawnFn = false, availabili
   if (configValue === "glab") return "glab";
   if (configValue === "both") return "both";
   const available = availability ?? detectAvailable();
-  const ghUsable = (repoRemotes?.github ?? false) && available.gh;
-  const glUsable = (repoRemotes?.gitlab ?? false) && available.glab;
+  const ghUsable = (repoRemotes2?.github ?? false) && available.gh;
+  const glUsable = (repoRemotes2?.gitlab ?? false) && available.glab;
   if (ghUsable && glUsable) return "both";
   if (ghUsable) return "gh";
   if (glUsable) return "glab";
@@ -25877,7 +26041,7 @@ function resolveIssueSyncContext(db2, repoName) {
     cwd: resolved.path,
     remoteFor(backend) {
       const provider = backend === "gh" ? "github" : "gitlab";
-      const entry = resolved.remotes.find((r) => r.provider === provider);
+      const entry = repoRemotes(db2, resolved.name).find((r) => r.provider === provider);
       if (!entry) return null;
       return { url: entry.url, slug: repoSlugFromRemoteUrl(entry.url) };
     }
@@ -26241,8 +26405,8 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       let syncDiagnostic;
       if (syncConfig !== "off") {
         const syncCtx = resolveIssueSyncContext(db2, issueRepo);
-        const repoRemotes = syncCtx ? { github: syncCtx.remoteFor("gh") !== null, gitlab: syncCtx.remoteFor("glab") !== null } : null;
-        const backend = resolveBackend(syncConfig, repoRemotes, !!spawnFn);
+        const remoteProviders = syncCtx ? { github: syncCtx.remoteFor("gh") !== null, gitlab: syncCtx.remoteFor("glab") !== null } : null;
+        const backend = resolveBackend(syncConfig, remoteProviders, !!spawnFn);
         if (backend === null) {
           serverLog({ event: "issue_sync_skip", reason: "no_remote_configured", issueId });
         } else if (backend !== "off") {
@@ -27000,7 +27164,7 @@ function resolveMilestoneTargets(db2, repoName, spawnFn) {
     }
   }
   const slugFor = (provider) => {
-    const entry = resolved.remotes.find((r) => r.provider === provider);
+    const entry = repoRemotes(db2, resolved.name).find((r) => r.provider === provider);
     return entry ? repoSlugFromRemoteUrl(entry.url) : null;
   };
   const ghSlug = slugFor("github");
@@ -30132,20 +30296,10 @@ function defaultSpawnFn2(cmd, args, opts) {
 }
 function repoNameForSlug(db2, slug) {
   if (!slug) return null;
-  const rows = db2.all(
-    `SELECT name, remotes FROM repos`
-  );
+  const rows = db2.all(`SELECT name FROM repos`);
   for (const row of rows) {
-    if (!row.remotes) continue;
-    let remotes;
-    try {
-      const parsed = JSON.parse(row.remotes);
-      remotes = Array.isArray(parsed) ? parsed : [];
-    } catch {
-      continue;
-    }
-    for (const r of remotes) {
-      const full = r.url ? repoSlugFromRemoteUrl(r.url) : null;
+    for (const r of repoRemotes(db2, row.name)) {
+      const full = repoSlugFromRemoteUrl(r.url);
       if (!full) continue;
       const bare = full.replace(/^[^/]+\//, "");
       if (slug === full || slug === bare) return row.name;
@@ -30371,7 +30525,7 @@ function prMonitorTools(db2, _spawnFn) {
           );
         }
         const resolved = resolveRepoForSync(db2, null);
-        const slug = resolved ? resolved.remotes.map((r) => repoSlugFromRemoteUrl(r.url)).find((s) => s !== null) ?? null : null;
+        const slug = resolved ? repoRemotes(db2, resolved.name).map((r) => repoSlugFromRemoteUrl(r.url)).find((s) => s !== null) ?? null : null;
         repo = slug ?? "";
       }
       let since = typeof args["since"] === "string" ? args["since"] : void 0;
@@ -32590,7 +32744,7 @@ function writeConfig(db2, key, value) {
 }
 function readRepoPolicy(db2) {
   const row = db2.get(
-    `SELECT target_branch, branching_model, protected_branches, remotes
+    `SELECT name, target_branch, branching_model, protected_branches
        FROM repos ORDER BY name LIMIT 1`
   );
   const parseJson = (s) => {
@@ -32605,7 +32759,7 @@ function readRepoPolicy(db2) {
     branching_model: row?.branching_model ?? null,
     pr_target: row?.target_branch ?? null,
     protected_branches: parseJson(row?.protected_branches ?? null),
-    remotes: parseJson(row?.remotes ?? null)
+    remote_list: row ? remotesView(repoRemotes(db2, row.name)) : null
   };
 }
 function readRepoRow(db2, repo) {
@@ -32953,7 +33107,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             branching_model: policy.branching_model,
             pr_target: policy.pr_target,
             protected_branches: policy.protected_branches,
-            remotes: policy.remotes,
+            remotes: policy.remote_list,
             issue_sync: readConfig(db2, "issue_sync"),
             headless_enforcement: readConfig(db2, "headless_enforcement") ?? "no",
             sandbox_enforcement: readConfig(db2, "sandbox_enforcement") ?? "no"
@@ -33012,7 +33166,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         const policy = readRepoPolicy(db2);
         const currentBranching = policy.branching_model;
         const currentPrTarget = policy.pr_target;
-        const currentRemotes = policy.remotes;
+        const currentRemotes = policy.remote_list;
         const currentSync = readConfig(db2, "issue_sync");
         const gh = probeCli("gh");
         const glab = probeCli("glab");
@@ -33238,9 +33392,10 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             }
             const effProtected = deriveProtectedBranches(effModel, effTarget);
             db2.run(
-              `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ?, remotes = ? WHERE name = ?`,
-              [effTarget, effModel, JSON.stringify(effProtected), JSON.stringify(effRemotes), row.name]
+              `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`,
+              [effTarget, effModel, JSON.stringify(effProtected), row.name]
             );
+            upsertRepoRemotes(db2, row.name, effRemotes);
           }
         });
         let headless_shim = { skipped: "headless_enforcement_off" };
@@ -33893,10 +34048,10 @@ function normalizeRemoteUrl(url2) {
   return url2.trim().replace(/\/+$/, "").replace(/\.git$/, "");
 }
 function primaryRemoteUrl(remotes) {
-  const primary = remotes.find((r) => r.name === "origin") ?? remotes[0];
+  const primary = remotes[primaryIndex(remotes)];
   return primary ? normalizeRemoteUrl(primary.url) : null;
 }
-function detectRenames(existing, discovered, remotesByRepo) {
+function detectRenames(existing, discovered, remotesByRepo, storedRemotes) {
   const scannedNames = new Set(discovered.map((r) => r.name));
   const existingNames = new Set(existing.map((r) => r.name));
   const orphaned = existing.filter((r) => !scannedNames.has(r.name));
@@ -33917,14 +34072,7 @@ function detectRenames(existing, discovered, remotesByRepo) {
     if (!match && remote) {
       for (const row of orphaned) {
         if (claimed.has(row.name)) continue;
-        let rowRemotes = [];
-        try {
-          const parsed = JSON.parse(row.remotes ?? "[]");
-          if (Array.isArray(parsed)) rowRemotes = parsed;
-        } catch {
-          continue;
-        }
-        if (primaryRemoteUrl(rowRemotes) === remote) {
+        if (primaryRemoteUrl(storedRemotes(row.name)) === remote) {
           match = { name: row.name, by: "remote" };
           break;
         }
@@ -33940,12 +34088,10 @@ function detectRenames(existing, discovered, remotesByRepo) {
 function persistScan(db2, graph, out, sessionDir) {
   const now = nowISO();
   const normSession = sessionDir.replace(/\/+$/, "");
-  const existing = db2.all(
-    `SELECT name, path, remotes FROM repos`
-  );
+  const existing = db2.all(`SELECT name, path FROM repos`);
   const remotesByRepo = /* @__PURE__ */ new Map();
   for (const r of out.repos) remotesByRepo.set(r.name, readRepoRemotes(r.path));
-  const rename_candidates = detectRenames(existing, out.repos, remotesByRepo);
+  const rename_candidates = detectRenames(existing, out.repos, remotesByRepo, (repo) => repoRemotes(db2, repo));
   const renamedTo = new Set(rename_candidates.map((c) => c.new));
   const renamedFrom = new Set(rename_candidates.map((c) => c.old));
   const persisted = {
@@ -33965,17 +34111,16 @@ function persistScan(db2, graph, out, sessionDir) {
   const retired = [];
   db2.transaction(() => {
     for (const r of persisted.repos) {
-      const remotesJson = JSON.stringify(remotesByRepo.get(r.name) ?? []);
       db2.run(
-        `INSERT INTO repos (name, path, file_count, last_scanned_at, remotes)
-         VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO repos (name, path, file_count, last_scanned_at)
+         VALUES (?, ?, ?, ?)
          ON CONFLICT(name) DO UPDATE SET
            path = excluded.path,
            file_count = excluded.file_count,
-           last_scanned_at = excluded.last_scanned_at,
-           remotes = excluded.remotes`,
-        [r.name, r.path, r.file_count, now, remotesJson]
+           last_scanned_at = excluded.last_scanned_at`,
+        [r.name, r.path, r.file_count, now]
       );
+      upsertRepoRemotes(db2, r.name, remotesByRepo.get(r.name) ?? []);
       repos_upserted++;
     }
     for (const r of toRetire) {
@@ -34202,6 +34347,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
 // src/tools/repos.ts
 var REPO_FK_CHILDREN = [
   ["milestones", "UPDATE milestones SET repo = ? WHERE repo = ?"],
+  ["repo_remotes", "UPDATE repo_remotes SET repo = ? WHERE repo = ?"],
   ["issues", "UPDATE issues SET repo = ? WHERE repo = ?"],
   ["tasks", "UPDATE tasks SET repo = ? WHERE repo = ?"],
   ["audit", "UPDATE audit SET repo = ? WHERE repo = ?"],
@@ -34232,17 +34378,10 @@ function blockingTasks(db2, old, oldPath) {
   }
   return blocking;
 }
-function slugRewrites(remotesJson, old, next) {
-  let remotes = [];
-  try {
-    const parsed = JSON.parse(remotesJson ?? "[]");
-    if (Array.isArray(parsed)) remotes = parsed;
-  } catch {
-    return [];
-  }
+function slugRewrites(remotes, old, next) {
   const pairs = /* @__PURE__ */ new Map();
   for (const r of remotes) {
-    const full = r.url ? repoSlugFromRemoteUrl(r.url) : null;
+    const full = repoSlugFromRemoteUrl(r.url);
     if (!full) continue;
     const cut = full.lastIndexOf("/");
     if (cut < 0) continue;
@@ -34261,7 +34400,7 @@ function renameRepo(db2, graph, input) {
   const { old, reason } = input;
   const next = input.new;
   if (old === next) return { renamed: false, error: "repo_same", old, new: next };
-  const row = db2.get(`SELECT name, path, remotes FROM repos WHERE name = ?`, [old]);
+  const row = db2.get(`SELECT name, path FROM repos WHERE name = ?`, [old]);
   if (!row) return { renamed: false, error: "repo_not_found", old, new: next };
   if (db2.get(`SELECT 1 AS x FROM repos WHERE name = ?`, [next])) {
     return { renamed: false, error: "repo_exists", old, new: next };
@@ -34272,13 +34411,14 @@ function renameRepo(db2, graph, input) {
       return { renamed: false, error: "rename_in_progress", old, new: next, blocking_tasks: blocking };
     }
   }
+  const remotes = repoRemotes(db2, old);
   db2.run("PRAGMA foreign_keys = OFF");
   try {
     return db2.transaction(() => {
       const rows_by_table = {};
       db2.run(
-        `INSERT INTO repos (name, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches, remotes)
-         SELECT ?, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches, remotes
+        `INSERT INTO repos (name, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches)
+         SELECT ?, path, file_count, last_scanned_at, target_branch, branching_model, protected_branches
            FROM repos WHERE name = ?`,
         [next, old]
       );
@@ -34286,7 +34426,7 @@ function renameRepo(db2, graph, input) {
         rows_by_table[table] = Number(db2.run(sql, [next, old]).changes);
       }
       let prRuns = 0;
-      for (const [from, to] of slugRewrites(row.remotes, old, next)) {
+      for (const [from, to] of slugRewrites(remotes, old, next)) {
         prRuns += Number(
           db2.run(`UPDATE pr_review_runs SET repo = ? WHERE repo = ? COLLATE NOCASE`, [to, from]).changes
         );

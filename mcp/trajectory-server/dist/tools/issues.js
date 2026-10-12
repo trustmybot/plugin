@@ -1,4 +1,5 @@
 import { resolveRepoForSync } from '../utils/repo-paths.js';
+import { repoRemotes } from '../repos/remotes.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
 import { resolveBackend, detectPreferred, remoteSyncGate } from '../sync/backend.js';
@@ -214,7 +215,7 @@ function resolveIssueSyncContext(db, repoName) {
         cwd: resolved.path,
         remoteFor(backend) {
             const provider = backend === 'gh' ? 'github' : 'gitlab';
-            const entry = resolved.remotes.find((r) => r.provider === provider);
+            const entry = repoRemotes(db, resolved.name).find((r) => r.provider === provider);
             if (!entry)
                 return null;
             return { url: entry.url, slug: repoSlugFromRemoteUrl(entry.url) };
@@ -607,10 +608,10 @@ export function issueTools(db, dbPath = '', options = {}) {
                 // the issue's repo. The repo's remotes also drive the 'auto' backend
                 // decision (#1043) — never a process.cwd() git probe.
                 const syncCtx = resolveIssueSyncContext(db, issueRepo);
-                const repoRemotes = syncCtx
+                const remoteProviders = syncCtx
                     ? { github: syncCtx.remoteFor('gh') !== null, gitlab: syncCtx.remoteFor('glab') !== null }
                     : null;
-                const backend = resolveBackend(syncConfig, repoRemotes, !!spawnFn);
+                const backend = resolveBackend(syncConfig, remoteProviders, !!spawnFn);
                 if (backend === null) {
                     serverLog({ event: 'issue_sync_skip', reason: 'no_remote_configured', issueId });
                 }

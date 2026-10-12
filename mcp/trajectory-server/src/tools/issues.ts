@@ -3,6 +3,7 @@ import type { SpawnSyncOptions } from 'node:child_process';
 import type { TrajectoryDB } from '../db.js';
 import { resolveRepoForSync } from '../utils/repo-paths.js';
 import type { ResolvedRepoSync } from '../utils/repo-paths.js';
+import { repoRemotes } from '../repos/remotes.js';
 import { nowISO } from '../db.js';
 import type { Issue, IssueRow, MilestoneResolution, Task } from '../types.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
@@ -272,7 +273,7 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
 // Issue-scoped sync context (#155/#146). Resolve the repo an issue belongs to
 // (its `repo` column, or the sole-repo fallback) into the on-disk path used as
 // the explicit spawn cwd and a per-backend remote lookup. The remotes come from
-// the resolved repos.remotes row — never the global plugin_config, and never
+// the repo's repo_remotes rows (repoRemotes) — never the global plugin_config, and never
 // process.cwd(). `null` means the repo could not be resolved; the caller raises
 // a named, actionable error rather than silently syncing against the cwd.
 interface IssueSyncContext {
@@ -292,7 +293,7 @@ function resolveIssueSyncContext(
     cwd: resolved.path,
     remoteFor(backend) {
       const provider = backend === 'gh' ? 'github' : 'gitlab';
-      const entry = resolved.remotes.find((r) => r.provider === provider);
+      const entry = repoRemotes(db, resolved.name).find((r) => r.provider === provider);
       if (!entry) return null;
       return { url: entry.url, slug: repoSlugFromRemoteUrl(entry.url) };
     },
@@ -747,10 +748,10 @@ export function issueTools(
         // the issue's repo. The repo's remotes also drive the 'auto' backend
         // decision (#1043) — never a process.cwd() git probe.
         const syncCtx = resolveIssueSyncContext(db, issueRepo);
-        const repoRemotes = syncCtx
+        const remoteProviders = syncCtx
           ? { github: syncCtx.remoteFor('gh') !== null, gitlab: syncCtx.remoteFor('glab') !== null }
           : null;
-        const backend = resolveBackend(syncConfig, repoRemotes, !!spawnFn);
+        const backend = resolveBackend(syncConfig, remoteProviders, !!spawnFn);
         if (backend === null) {
           serverLog({ event: 'issue_sync_skip', reason: 'no_remote_configured', issueId });
         } else if (backend !== 'off') {

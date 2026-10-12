@@ -33,7 +33,7 @@ schema() {
   sqlite3 "$1" "
     CREATE TABLE issues (id INTEGER PRIMARY KEY, objective TEXT DEFAULT 'o', status TEXT DEFAULT 'open', repo TEXT, updated_at TEXT DEFAULT '2026-01-01');
     CREATE TABLE tasks (id INTEGER PRIMARY KEY, issue_id INTEGER DEFAULT 1, branch_id TEXT, status TEXT, spec_body TEXT DEFAULT '## spec', repo TEXT, parent_branch_id TEXT, files TEXT, verification TEXT, prompt_bearing INTEGER DEFAULT 0, commit_sha TEXT);
-    CREATE TABLE repos (name TEXT, path TEXT, target_branch TEXT, branching_model TEXT, protected_branches TEXT, remotes TEXT);
+    CREATE TABLE repos (name TEXT, path TEXT, target_branch TEXT, branching_model TEXT, protected_branches TEXT);
     CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT);
     CREATE TABLE plugin_meta (id INTEGER PRIMARY KEY, schema_version INTEGER);
     CREATE TABLE agents (name TEXT, kind TEXT);

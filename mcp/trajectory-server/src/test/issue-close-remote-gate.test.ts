@@ -5,6 +5,7 @@ import type { TrajectoryDB } from '../db.js';
 import { remoteSyncGate } from '../sync/backend.js';
 import { issueTools, syncIssueCloseRemotes } from '../tools/issues.js';
 import { compositeTools } from '../tools/composites.js';
+import { upsertRepoRemotes } from '../repos/remotes.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Handlers = Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
@@ -45,12 +46,13 @@ function setIssueSync(db: TrajectoryDB, value: string): void {
 }
 
 function registerRepo(db: TrajectoryDB, providers: Array<'github' | 'gitlab'> = ['github', 'gitlab']): void {
-  const remotes = providers.map((provider) => ({
-    name: 'origin',
+  const remotes = providers.map((provider, i) => ({
+    name: i === 0 ? 'origin' : provider,
     provider,
     url: provider === 'github' ? 'https://github.com/owner/repo.git' : 'https://gitlab.com/owner/repo.git',
   }));
-  db.run(`INSERT INTO repos (name, path, remotes) VALUES ('app', '/tmp/app', ?)`, [JSON.stringify(remotes)]);
+  db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
+  upsertRepoRemotes(db, 'app', remotes);
 }
 
 function seedLinkedIssue(db: TrajectoryDB, links: { gh?: number; gl?: number } = { gh: 42 }): number {

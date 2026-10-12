@@ -10,6 +10,7 @@ import { compositeTools } from '../tools/composites.js';
 import { reportTools } from '../tools/reports.js';
 import { branchReportMdTools } from '../tools/branch_report_md.js';
 import { GATE_SKIP_RECORDED_SQL, HAS_PASS_SQL, taskHasPassingReview } from '../tools/lifecycle.js';
+import { upsertRepoRemotes } from '../repos/remotes.js';
 const DB_PATH = '/tmp/.claude/tmb/trajectory.db';
 function parse(r) {
     return JSON.parse(r.content[0].text);
@@ -76,9 +77,8 @@ describe('issue_close: refuse or cascade', () => {
     });
     it('cascade escalates live tasks, closes their runs issue_closed, audits each, then closes remote once after local', async () => {
         const db = tempDB();
-        db.run(`INSERT INTO repos (name, path, remotes) VALUES ('app', '/tmp/app', ?)`, [
-            JSON.stringify([{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }]),
-        ]);
+        db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
+        upsertRepoRemotes(db, 'app', [{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }]);
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"auto"')`);
         const savedEnv = process.env.TMB_DISABLE_REMOTE_SYNC;
         delete process.env.TMB_DISABLE_REMOTE_SYNC;

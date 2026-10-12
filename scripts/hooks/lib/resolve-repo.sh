@@ -21,7 +21,8 @@
 #                                 from the repos row matching <git_root>.
 #                                 Prints empty when no row matches (unregistered repo).
 #   tmb_repo_remotes <db> <git_root>
-#                               — print repos.remotes (JSON array) for the row
+#                               — print the repo's repo_remotes rows as a JSON
+#                                 array of {name,provider,url} for the row
 #                                 matching <git_root>, falling back to the sole
 #                                 registered repo. Empty when unresolved.
 #   tmb_repo_is_registered <db> <git_root>
@@ -139,19 +140,23 @@ tmb_repo_resolve() {
 }
 
 # tmb_repo_remotes <db> <git_root>
-# Prints repos.remotes (JSON array of {name,provider,url}) for the row whose
-# path matches <git_root>. When <git_root> is empty or no row matches, falls
-# back to the sole registered repo (single-repo). Empty when unresolved.
+# Prints the repo's remotes as a JSON array of {name,provider,url} (primary
+# first) built from repo_remotes, for the repos row whose path matches
+# <git_root>; "[]" for a registered repo with no remotes. When <git_root> is
+# empty or no row matches, falls back to the sole registered repo
+# (single-repo). Empty when unresolved.
 tmb_repo_remotes() {
   local db="$1"
   local git_root="$2"
   [ -f "$db" ] || return 0
   command -v sqlite3 >/dev/null 2>&1 || return 0
+  local select="SELECT COALESCE((SELECT json_group_array(json_object('name', rr.name, 'provider', rr.provider, 'url', rr.url))
+      FROM (SELECT name, provider, url FROM repo_remotes WHERE repo = r.name ORDER BY is_primary DESC, rowid) rr), '[]')
+    FROM repos r"
   local out=""
   if [ -n "$git_root" ]; then
     out=$(sqlite3 -readonly -cmd '.timeout 500' "$db" \
-      "SELECT COALESCE(remotes,'')
-         FROM repos WHERE path = '$(printf '%s' "$git_root" | sed "s/'/''/g")' LIMIT 1;" \
+      "$select WHERE r.path = '$(printf '%s' "$git_root" | sed "s/'/''/g")' LIMIT 1;" \
       2>/dev/null | head -1 || true)
   fi
   if [ -z "$out" ]; then
@@ -160,7 +165,7 @@ tmb_repo_remotes() {
       "SELECT COUNT(*) FROM repos;" 2>/dev/null || echo 0)
     if [ "${count:-0}" = "1" ]; then
       out=$(sqlite3 -readonly -cmd '.timeout 500' "$db" \
-        "SELECT COALESCE(remotes,'') FROM repos LIMIT 1;" 2>/dev/null | head -1 || true)
+        "$select LIMIT 1;" 2>/dev/null | head -1 || true)
     fi
   fi
   printf '%s' "$out"

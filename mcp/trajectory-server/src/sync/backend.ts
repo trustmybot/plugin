@@ -65,7 +65,7 @@ export function detectPreferred(): 'gh' | 'glab' | null {
 }
 
 // Which providers the issue's repo actually has remotes for, derived from the
-// repos.remotes row (#1043) — the same source issues.ts uses to pick the gh
+// repo's repo_remotes rows (#1043) — the same source issues.ts uses to pick the gh
 // --repo / glab -R target. The 'auto' backend decision reads THIS, not a
 // process.cwd() `git remote` probe, so sync works in a non-git-root / multi-repo
 // workspace.
@@ -95,7 +95,7 @@ export function resolveBackend(
   if (configValue === 'both') return 'both';
 
   // 'auto' — derive the decision from the issue repo's configured remotes
-  // (repos.remotes), gated only by a CLI-availability check that confirms the
+  // (repo_remotes), gated only by a CLI-availability check that confirms the
   // chosen CLI is installed/authed. No process.cwd() git probe.
   const available = availability ?? detectAvailable();
   const ghUsable = (repoRemotes?.github ?? false) && available.gh;

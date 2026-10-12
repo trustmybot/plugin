@@ -2,7 +2,7 @@
 # PreToolUse hook — deny interactive auth login when no remote is configured.
 #
 # Blocks `gh auth login` and `glab auth login` (only the `login` subcommand)
-# when the current repo's repos.remotes contains no entry with a non-empty URL.
+# when the current repo's repo_remotes rows (tmb_repo_remotes) carry no non-empty URL.
 # Fail-open on any error: missing DB, jq absent, sqlite3 absent → allow.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -45,7 +45,7 @@ command -v jq >/dev/null 2>&1 || exit 0
 _GIT_ROOT=$(tmb_stmt_repo_root "$MATCHED_DIR" "$(tmb_payload_cwd "$INPUT")" 2>/dev/null || true)
 REMOTES_JSON=$(tmb_repo_remotes "$DB" "$_GIT_ROOT" 2>/dev/null || true)
 
-# No remotes key at all → config says nothing → fail-open (allow).
+# No registered repo resolves → config says nothing → fail-open (allow).
 [ -n "$REMOTES_JSON" ] || exit 0
 
 # Check whether any entry has a non-empty url.

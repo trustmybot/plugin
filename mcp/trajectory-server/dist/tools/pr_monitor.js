@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason, liveCliBlockedMessage } from '../utils/live-cli-guard.js';
 import { resolveRepoForSync } from '../utils/repo-paths.js';
+import { repoRemotes } from '../repos/remotes.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { repoSlugFromRemoteUrl } from '../sync/issue_sync.js';
 import { insertDiscussion } from './discussions.js';
@@ -46,20 +47,10 @@ function defaultSpawnFn(cmd, args, opts) {
 function repoNameForSlug(db, slug) {
     if (!slug)
         return null;
-    const rows = db.all(`SELECT name, remotes FROM repos`);
+    const rows = db.all(`SELECT name FROM repos`);
     for (const row of rows) {
-        if (!row.remotes)
-            continue;
-        let remotes;
-        try {
-            const parsed = JSON.parse(row.remotes);
-            remotes = Array.isArray(parsed) ? parsed : [];
-        }
-        catch {
-            continue;
-        }
-        for (const r of remotes) {
-            const full = r.url ? repoSlugFromRemoteUrl(r.url) : null;
+        for (const r of repoRemotes(db, row.name)) {
+            const full = repoSlugFromRemoteUrl(r.url);
             if (!full)
                 continue;
             const bare = full.replace(/^[^/]+\//, '');
@@ -330,7 +321,7 @@ export function prMonitorTools(db, _spawnFn) {
                 // (uninitialized).
                 const resolved = resolveRepoForSync(db, null);
                 const slug = resolved
-                    ? resolved.remotes
+                    ? repoRemotes(db, resolved.name)
                         .map((r) => repoSlugFromRemoteUrl(r.url))
                         .find((s) => s !== null) ?? null
                     : null;

@@ -2,6 +2,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempDB } from './helpers.js';
 import { prMonitorTools, remoteCommentId } from '../tools/pr_monitor.js';
+import { upsertRepoRemotes } from '../repos/remotes.js';
 function parseResult(result) {
     return JSON.parse(result.content[0].text);
 }
@@ -348,7 +349,8 @@ describe('pr_review_runs table state capture', () => {
 });
 describe('pr_monitor_comments_get — pr_review_runs.task_id population (#1024)', () => {
     function seedTask(db, branch, repo) {
-        db.run(`INSERT INTO repos (name, path, remotes) VALUES (?, '/tmp/app', ?)`, [repo, JSON.stringify([{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }])]);
+        db.run(`INSERT INTO repos (name, path) VALUES (?, '/tmp/app')`, [repo]);
+        upsertRepoRemotes(db, repo, [{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }]);
         db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES ('t', '', 'open', datetime('now'), datetime('now'))`);
         const issue = db.get('SELECT id FROM issues ORDER BY id DESC LIMIT 1');
         db.run(`INSERT INTO tasks (issue_id, branch_id, description, repo, created_at, updated_at)
@@ -411,9 +413,8 @@ describe('pr_monitor_comments_get — pr_review_runs.task_id population (#1024)'
 describe('pr_monitor_comments_get — server-side comment persistence (GH 1208)', () => {
     const REPO_URL = 'https://github.com/owner/repo.git';
     function seedTask(db, branch, status = 'pending', updatedAt = '2024-01-01T00:00:00.000Z') {
-        db.run(`INSERT OR IGNORE INTO repos (name, path, remotes) VALUES ('app', '/tmp/app', ?)`, [
-            JSON.stringify([{ name: 'origin', provider: 'github', url: REPO_URL }]),
-        ]);
+        db.run(`INSERT OR IGNORE INTO repos (name, path) VALUES ('app', '/tmp/app')`);
+        upsertRepoRemotes(db, 'app', [{ name: 'origin', provider: 'github', url: REPO_URL }]);
         db.run(`INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES ('carrier', '', 'open', datetime('now'), datetime('now'))`);
         const issueId = db.get('SELECT id FROM issues ORDER BY id DESC LIMIT 1').id;
         db.run(`INSERT INTO tasks (issue_id, branch_id, description, repo, status, created_at, updated_at)
@@ -535,9 +536,8 @@ describe('pr_monitor_comments_get — server-side comment persistence (GH 1208)'
         const db = tempDB();
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
         seedTask(db, 'fix/shared', 'closed');
-        db.run(`INSERT INTO repos (name, path, remotes) VALUES ('b', '/tmp/b', ?)`, [
-            JSON.stringify([{ name: 'origin', provider: 'github', url: 'https://github.com/owner/b.git' }]),
-        ]);
+        db.run(`INSERT INTO repos (name, path) VALUES ('b', '/tmp/b')`);
+        upsertRepoRemotes(db, 'b', [{ name: 'origin', provider: 'github', url: 'https://github.com/owner/b.git' }]);
         const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: payload('fix/shared', [C1]), stderr: '' }]));
         const result = parseResult((await tools.handlers['pr_monitor_comments_get']({ agent: 'bro', pr_number: 56, repo: 'owner/b' })));
         assert.equal(result.persisted, 0, 'repo app\'s task must not carry repo b\'s PR comments');
@@ -703,7 +703,8 @@ describe('pr_monitor_comments_get — repo resolution (#15)', () => {
     it('resolves the sole repo\'s remote slug and threads it into gh -R + the cursor key', async () => {
         const db = tempDB();
         db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
-        db.run(`INSERT INTO repos (name, path, remotes) VALUES ('app', '/tmp/app', ?)`, [JSON.stringify([{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }])]);
+        db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
+        upsertRepoRemotes(db, 'app', [{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }]);
         const { spawnFn, calls } = makeCapturingSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]);
         const tools = prMonitorTools(db, spawnFn);
         const result = (await tools.handlers['pr_monitor_comments_get']({
