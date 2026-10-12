@@ -76,12 +76,17 @@ sqlite3 "$WS_DB" "
 "
 
 # run_ws <mode> <hook> <payload> [env...]: runs <hook> with cwd inside the repo.
-# mode=root sets CLAUDE_PROJECT_DIR=<ws>; mode=walk leaves it unset.
+# mode=root sets CLAUDE_PROJECT_DIR=<ws>; mode=walk leaves it unset and drops
+# the test flags, under which the resolver never walks.
 run_ws() {
   local mode="$1" hook="$2" payload="$3"
   shift 3
   local -a envs=(HOME="$FAKE_HOME")
-  [ "$mode" = "root" ] && envs+=(CLAUDE_PROJECT_DIR="$WS")
+  if [ "$mode" = "root" ]; then
+    envs+=(CLAUDE_PROJECT_DIR="$WS")
+  else
+    envs=(-u TMB_TEST_RUN_ID -u TMB_FORBID_LIVE_SYNC "${envs[@]}")
+  fi
   (cd "$REPO/src" && printf '%s' "$payload" | env "${envs[@]}" "$@" bash "$HOOKS/$hook" 2>/dev/null) || true
 }
 

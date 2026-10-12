@@ -8,12 +8,23 @@
 # - correct tool_response.content[0].text parsing
 # - valid task list emits hint
 # - empty task list passes silently
+#
+# Every call runs with CLAUDE_PROJECT_DIR pinned to a fixture project, so the
+# hook resolves the fixture DB and never walks up from the runner cwd; the
+# worktree paths it prints prove which DB it read.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/post-task-create-spawn-hint.sh"
+
+PROJECT="$(mktemp -d)"
+trap 'rm -rf "$PROJECT"' EXIT
+mkdir -p "$PROJECT/.claude/tmb"
+touch "$PROJECT/.claude/tmb/trajectory.db"
+export CLAUDE_PROJECT_DIR="$PROJECT"
+cd "$PROJECT"
 
 run_hook() {
   echo "$1" | bash "$HOOK" 2>&1 || true
@@ -76,6 +87,7 @@ out=$(run_hook "$input")
 assert_contains "$out" "additionalContext" "hook emits additionalContext"
 assert_contains "$out" "SWE-spawn hint" "hint mentions SWE-spawn"
 assert_contains "$out" "task_id=42" "hint lists task id 42"
+assert_contains "$out" "worktree=$PROJECT/.claude/worktrees/my-feature" "worktree path comes from the pinned fixture project"
 assert_contains "$out" "task_id=43" "hint lists task id 43"
 assert_contains "$out" "branch_id=feat/my-feature" "hint lists branch_id"
 assert_contains "$out" "Step 4" "hint cites tmb_planning Step 4"

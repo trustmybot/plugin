@@ -19,6 +19,8 @@ cleanup() {
   rm -rf "$TMPDIR_BASE"
 }
 trap cleanup EXIT
+# Pin the project so the hook never resolves one by walking up from the cwd.
+export CLAUDE_PROJECT_DIR="$TMPDIR_BASE"
 
 TOOL_DIR="$TMPDIR_BASE/dist/tools"
 mkdir -p "$TOOL_DIR"

@@ -834,7 +834,7 @@ assert_not_contains "$out" "cannot resolve" "bro is not judged by swe-boundary"
 # A stale legacy ~/.claude/tmb/trajectory.db (old schema, no prompt_bearing
 # column) up-tree from the hook's cwd must be treated as UNRESOLVED, not
 # queried-and-defaulted-to-0. The hook resolves the live DB instead.
-# These cases unset TRAJECTORY_DB_PATH and CLAUDE_PROJECT_DIR (either bypasses walk-up);
+# These cases unset TRAJECTORY_DB_PATH, CLAUDE_PROJECT_DIR (either bypasses walk-up) and the test flags (they disable it);
 # they exercise the cwd walk-up + sentinel resolution directly.
 # ===========================================================================
 
@@ -873,7 +873,7 @@ mkdir -p "$LIVE_WT_PROMPT/agents"
 test_case "(L1) stale legacy DB up-tree, live DB at workspace: prompt_bearing=1 edit ALLOWED"
 out=$(cd "$LIVE_WT_PROMPT" && \
   echo "$(make_edit_no_transcript swe "$LIVE_WT_PROMPT/agents/swe.md")" | \
-  HOME="$SCHEMA_HOME" env -u TRAJECTORY_DB_PATH -u CLAUDE_PROJECT_DIR bash "$HOOK" 2>&1 || true)
+  HOME="$SCHEMA_HOME" env -u TRAJECTORY_DB_PATH -u CLAUDE_PROJECT_DIR -u TMB_TEST_RUN_ID -u TMB_FORBID_LIVE_SYNC bash "$HOOK" 2>&1 || true)
 assert_not_contains "$out" '"permissionDecision":"deny"' "live current-schema DB should be resolved, prompt edit allowed"
 
 # The schema probe rejects the legacy DB and accepts the current-schema one.
@@ -898,7 +898,7 @@ sqlite3 "$SENTINEL_HOME/.claude/tmb/trajectory.db" "
 "
 printf '%s\n' "$SENTINEL_HOME" > "$SENTINEL_HOME/.claude/tmb-active-workspace"
 resolved=$( cd "$SENTINEL_HOME" && \
-  HOME="$SENTINEL_HOME" env -u TRAJECTORY_DB_PATH -u CLAUDE_PROJECT_DIR \
+  HOME="$SENTINEL_HOME" env -u TRAJECTORY_DB_PATH -u CLAUDE_PROJECT_DIR -u TMB_TEST_RUN_ID -u TMB_FORBID_LIVE_SYNC \
   bash -c '. "'"$PLUGIN_ROOT"'/scripts/hooks/lib/query-task.sh"; tmb_db_path || true' )
 assert_eq "" "$resolved" "home-level pointer must be treated as unresolved"
 

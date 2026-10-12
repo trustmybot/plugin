@@ -3,7 +3,9 @@
 # the summary names each failing file with its last lines, verbose mode
 # prints per-file durations, the TMPDIR footprint assertion fires on a file a
 # test leaves behind, and the /tmp check fails only on entries named for the
-# run itself — another session's entries are a warning.
+# run itself — another session's entries are a warning — and the sqlite3 shim
+# refuses the real project's .claude/tmb/ (failing the run) while passing every
+# other call through.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -105,6 +107,27 @@ assert_eq "1" "$rc" "the run's own /tmp leak exits 1"
 assert_contains "$out" "FAIL footprint: the hook suite left entries in /tmp:" "own leak reported"
 assert_contains "$out" "-leak-$$" "the leaked entry is named"
 
+CHECKOUT="$(cd "$HERE/../../.." && pwd -P)"
+SHIM_DIR="$WORK/live-db"
+mkdir -p "$SHIM_DIR"
+cat > "$SHIM_DIR/probe.test.sh" <<EOF
+sqlite3 :memory: 'select 41 + 1'
+sqlite3 -readonly "$CHECKOUT/.claude/tmb/shim-probe.db" 'select 1' || echo "probe refused"
+EOF
+
+test_case "hooks runner: the sqlite3 shim refuses the real project DB dir and fails the run"
+rc=0
+out=$(L3_HOOKS_TEST_DIR="$SHIM_DIR" bash "$HOOKS_RUNNER" 2>&1) || rc=$?
+assert_eq "1" "$rc" "a refused sqlite3 call exits 1"
+assert_contains "$out" "42" "other sqlite3 calls pass through to the real binary"
+assert_contains "$out" "sqlite3-shim: refused $CHECKOUT/.claude/tmb/shim-probe.db" "the refusal is printed to the test"
+assert_contains "$out" "probe refused" "the refused call exits non-zero"
+assert_contains "$out" "FAIL live DB: the hook suite ran sqlite3 against the real project DB (1 refusals" "the runner fails with the refusal list"
+
+test_case "hooks runner: a suite with no refusals reports zero"
+out=$(L3_HOOKS_TEST_DIR="$PASS_DIR" bash "$HOOKS_RUNNER" 2>&1 || true)
+assert_contains "$out" "live DB: 0 sqlite3 refusals from the hook suite" "zero refusals reported"
+
 cat > "$WORK/broken.test.mjs" <<'EOF'
 import { test } from 'node:test';
 import assert from 'node:assert';
@@ -147,5 +170,11 @@ assert_eq "1" "$rc" "the TMPDIR leak still fails the run"
 assert_contains "$out" "FAIL footprint: the L3 MCP suite left files in TMPDIR:" "TMPDIR leak reported"
 assert_contains "$out" "warning: /tmp gained entries not named for this run" "foreign growth is a warning"
 assert_contains "$out" "footprint: /tmp gained no entries from this run" "no own /tmp leak"
+
+test_case "mcp runner: the sqlite3 shim refuses the real project DB dir and fails the run"
+rc=0
+out=$(L3_MCP_TEST_FILES="$WORK/slow.test.mjs" L3_MCP_TEST_SCRIPTS="$SHIM_DIR/probe.test.sh" bash "$MCP_RUNNER" 2>&1) || rc=$?
+assert_eq "1" "$rc" "a refused sqlite3 call exits 1"
+assert_contains "$out" "FAIL live DB: the L3 MCP suite ran sqlite3 against the real project DB (1 refusals" "the runner fails with the refusal list"
 
 summarize

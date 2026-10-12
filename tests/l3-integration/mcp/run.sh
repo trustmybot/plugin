@@ -35,6 +35,7 @@ fi
 TOOL_PATH="$PATH"
 export TMB_MODEL_CACHE_DIR="${TMB_MODEL_CACHE_DIR:-${HF_HOME:-$HOME/.cache/huggingface}}"
 . "$HERE/../../lib/tmp-footprint.sh"
+. "$HERE/../../lib/live-db-shim.sh"
 tmp_footprint_start l3-mcp
 FOOTPRINT_HOME="$(mktemp -d "$(tmp_footprint_parent)/$TMB_TEST_RUN_ID-home.XXXXXX")"
 RUN_TMPDIR="$FOOTPRINT_HOME/tmp"
@@ -48,6 +49,12 @@ export MISE_DATA_DIR="${MISE_DATA_DIR:-$HOME/.local/share/mise}"
 export MISE_CONFIG_DIR="${MISE_CONFIG_DIR:-$HOME/.config/mise}"
 export MISE_STATE_DIR="$TOOL_STATE/mise-state" MISE_CACHE_DIR="$TOOL_STATE/mise-cache"
 unset CLAUDE_PLUGIN_ROOT CLAUDE_PROJECT_DIR CLAUDE_CONFIG_DIR
+
+# Live DB: hooks spawned by the suite see a sqlite3 shim first on PATH that
+# refuses (and records) any argument under the real project's .claude/tmb/
+# (tests/lib/live-db-shim.sh); one refusal fails the suite.
+live_db_shim_start "$PLUGIN_ROOT" "$RUNNER_LOGS/live-db-shim"
+TOOL_PATH="$PATH"
 
 L3_MCP_TESTS=("$HERE"/*.test.mjs)
 [ -z "${L3_MCP_TEST_FILES:-}" ] || read -r -a L3_MCP_TESTS <<< "$L3_MCP_TEST_FILES"
@@ -86,6 +93,7 @@ else
   printf 'footprint: TMPDIR left clean by the L3 MCP suite\n'
 fi
 tmp_footprint_check "the L3 MCP suite" "$FOOTPRINT_HOME" "$TOOL_STATE" || footprint_fail=1
+live_db_shim_check "the L3 MCP suite" || footprint_fail=1
 
 # Summary: every failing file with its last 10 lines — for a node test file,
 # the last 10 lines of its entries in node's "failing tests" report, stack

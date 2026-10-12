@@ -38,28 +38,31 @@
 #   session_dir defaults to $PWD.
 #
 # Environment:
-#   TMB_FORBID_LIVE_SYNC=1  never spawn `claude`: the plugin inventory comes
-#                           from TMB_SCAN_PLUGIN_JSON, else it is unavailable.
 #   TMB_SCAN_PLUGIN_JSON    path to a file holding `claude plugin list --json`
-#                           output; read only under TMB_FORBID_LIVE_SYNC=1.
+#                           output; read in place of the CLI under the test
+#                           flags.
 #   TMB_SCAN_MCP_JSON       path to a file holding an `mcpServers` object (the
 #                           shape of ~/.claude.json's `.mcpServers`); read in
 #                           place of ~/.claude.json under the test flags.
 #   TMB_SCAN_DISCOVERY_TIMEOUT  seconds allowed for `claude plugin list` (4).
 #
-# Test flags: TMB_FORBID_LIVE_SYNC=1 or a set TMB_TEST_RUN_ID. Under either,
-# TRAJECTORY_DB_PATH must name an existing file (no walk-up DB discovery; exit
-# 2 otherwise) and ~/.claude.json is never read.
+# Test flags: TMB_FORBID_LIVE_SYNC=1 or a set TMB_TEST_RUN_ID (tmb_test_flag in
+# hooks/lib/query-task.sh). Under either, the DB must resolve from
+# TRAJECTORY_DB_PATH or CLAUDE_PROJECT_DIR (the shared resolver never walks up;
+# exit 2 otherwise), `claude` is never spawned and ~/.claude.json is never read.
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# shellcheck source=scripts/hooks/lib/query-task.sh
+. "$SCRIPT_DIR/hooks/lib/query-task.sh"
+
 SCAN_TEST_MODE=0
-if [ "${TMB_FORBID_LIVE_SYNC:-}" = "1" ] || [ -n "${TMB_TEST_RUN_ID:-}" ]; then
+if tmb_test_flag >/dev/null; then
   SCAN_TEST_MODE=1
-  if [ -z "${TRAJECTORY_DB_PATH:-}" ] || [ ! -f "$TRAJECTORY_DB_PATH" ]; then
-    echo 'scan: TRAJECTORY_DB_PATH is required under TMB_FORBID_LIVE_SYNC/TMB_TEST_RUN_ID (walk-up discovery disabled)' >&2
+  if ! tmb_db_path >/dev/null; then
+    echo 'scan: TRAJECTORY_DB_PATH is required under TMB_FORBID_LIVE_SYNC/TMB_TEST_RUN_ID (walk-up discovery disabled) unless CLAUDE_PROJECT_DIR names a project with a DB' >&2
     exit 2
   fi
 fi
@@ -414,12 +417,12 @@ $audit_sql" >/dev/null || return 0
   # `enabled`. Each entry's `mcpServers` object names the MCP servers a plugin
   # registers.
   local plugin_json="" plugin_source="" plugin_note=""
-  if [ "${TMB_FORBID_LIVE_SYNC:-}" = "1" ]; then
+  if [ "$SCAN_TEST_MODE" = "1" ]; then
     if [ -n "${TMB_SCAN_PLUGIN_JSON:-}" ] && [ -r "$TMB_SCAN_PLUGIN_JSON" ]; then
       plugin_json=$(cat "$TMB_SCAN_PLUGIN_JSON")
       plugin_source=fixture
     else
-      plugin_note="TMB_FORBID_LIVE_SYNC=1 and no readable TMB_SCAN_PLUGIN_JSON: claude plugin list skipped"
+      plugin_note="TMB_FORBID_LIVE_SYNC=1 or TMB_TEST_RUN_ID set and no readable TMB_SCAN_PLUGIN_JSON: claude plugin list skipped"
     fi
   elif command -v claude >/dev/null 2>&1; then
     plugin_json=$(_run_bounded claude plugin list --json)

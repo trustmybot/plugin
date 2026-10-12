@@ -11,6 +11,7 @@ One rule decides which `trajectory.db` the MCP server and every hook use. It is 
    - No `.git` stop: a workspace root above a nested repo is reachable.
    - Skip a stale legacy DB (its `tasks` table has no `prompt_bearing` column). A candidate whose read fails is kept, so the failure surfaces instead of resolving somewhere else.
    - The **outermost** candidate wins (the workspace root beats a nested repo).
+   - Hooks and `scripts/scan.sh` (`tmb_db_path`) never walk under a test flag (`TMB_FORBID_LIVE_SYNC=1` or a set `TMB_TEST_RUN_ID`): the DB is unresolved and one stderr line names the flag.
 4. Otherwise **unresolved**.
 
 Nothing under `$HOME` takes part in the rule.

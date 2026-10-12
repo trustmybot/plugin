@@ -12,6 +12,8 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/ensure-gitignore.sh"
 
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
+# Pin the project so the hook never resolves one by walking up from the cwd.
+export CLAUDE_PROJECT_DIR="$TMPDIR"
 
 run_in_repo() {
   local repo="$1"
