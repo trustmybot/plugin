@@ -256,7 +256,7 @@ else
   case "$LAST_GRAPH_LINE" in
     *graph_db_open_failed*)
       # A failure is the latest signal. Sub-diagnose by error_message.
-      if printf '%s' "$LAST_GRAPH_LINE" | grep -qiE 'could not set lock|lock.*world-model'; then
+      if printf '%s' "$LAST_GRAPH_LINE" | grep -iE 'could not set lock|lock.*world-model' >/dev/null; then
         fail "world-model: kuzu open FAILED — graph file is locked by another process"
         remediate \
           "A concurrent/orphan trajectory-server holds the single-writer lock." \

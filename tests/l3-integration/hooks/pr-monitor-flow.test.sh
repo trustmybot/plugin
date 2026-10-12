@@ -182,7 +182,7 @@ NON_ARCH_PATHS=(
 
 is_arch_impact() {
   local path="$1"
-  echo "$path" | grep -qE '(mcp/trajectory-server/src/schema\.sql|\.claude-plugin/plugin\.json|templates/agents/|^agents/)' && return 0
+  echo "$path" | grep -E '(mcp/trajectory-server/src/schema\.sql|\.claude-plugin/plugin\.json|templates/agents/|^agents/)' >/dev/null && return 0
   return 1
 }
 

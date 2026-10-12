@@ -74,6 +74,7 @@ bash tests/l1-lint/link-check.sh
 | [`hooks-executable.sh`](./hooks-executable.sh) | Hook scripts missing the executable bit |
 | [`hook-onfailure.sh`](./hook-onfailure.sh) | A deny-capable `hooks/hooks.json` registration (its script prints a deny, exits 2, calls a deny helper from a sourced library, or runs a deny-capable script) without `"onFailure": "block"`; warns when an observe-only one carries it. Prints the derived table; `--self-test` checks the fixtures in `fixtures/hook-onfailure/` |
 | [`shellcheck-hooks.sh`](./shellcheck-hooks.sh) | Shellcheck violations in hook scripts |
+| [`no-grep-q-in-pipelines.sh`](./no-grep-q-in-pipelines.sh) | A `\| grep -q` (or `--quiet`, `egrep`/`fgrep`/`rg -q`) in a `*.sh` under `tests/`, `scripts/` or `hooks/` that sets pipefail, or in any `*.sh` under `scripts/hooks/lib/` or `tests/lib/` (sourced libraries inherit pipefail from their callers) — `grep -q` closes the pipe on the first match, the upstream can die of SIGPIPE and the pipeline fails although the pattern was present; write `cmd \| grep PAT >/dev/null` (`--self-test` runs `fixtures/no-grep-q-in-pipelines/`) |
 | [`dir-toolchain.sh`](./dir-toolchain.sh) | Per-directory toolchain expectations |
 | [`kuzu-trusted-dep.sh`](./kuzu-trusted-dep.sh) | kuzu trusted-dependency declaration |
 | [`symlink-targets.sh`](./symlink-targets.sh) | Symlinks pointing at missing targets |

@@ -61,7 +61,7 @@ PREFIX=$(printf '%s' "$FIRST_LINE" | awk '{print $1}')
 REST=$(printf '%s' "$FIRST_LINE" | awk '{$1=""; sub(/^[[:space:]]+/, ""); print}')
 
 prefix_ok=
-if printf '%s' "$PREFIX" | grep -qE '^:[a-z0-9_+-]+:$'; then
+if printf '%s' "$PREFIX" | grep -E '^:[a-z0-9_+-]+:$' >/dev/null; then
   prefix_ok=1
 elif printf '%s' "$PREFIX" | LC_ALL=C grep -qE '[^[:print:][:space:]]'; then
   # Any high byte at the start = literal emoji.
@@ -69,7 +69,7 @@ elif printf '%s' "$PREFIX" | LC_ALL=C grep -qE '[^[:print:][:space:]]'; then
 fi
 
 rest_ok=
-if printf '%s' "$REST" | grep -qE "^($TYPES)(\\([a-z0-9._/-]+\\))?:[[:space:]].+"; then
+if printf '%s' "$REST" | grep -E "^($TYPES)(\\([a-z0-9._/-]+\\))?:[[:space:]].+" >/dev/null; then
   rest_ok=1
 fi
 

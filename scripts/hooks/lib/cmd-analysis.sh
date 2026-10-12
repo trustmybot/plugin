@@ -843,7 +843,7 @@ _tmb_cmd_prog_writes() {
   local prog="${1:-}" q="['\"]" sp="[[:space:]]*" reads writes fn out
   fn="writeFileSync|appendFileSync|writeFile|appendFile|createWriteStream|mkdirSync|renameSync|rmSync|rmdirSync|unlinkSync|copyFileSync|cpSync|fs\.(mkdir|rename|rm|rmdir|unlink|copyFile|cp)|makedirs|rmtree|(File|IO)\.(bin)?write|os\.(remove|unlink|mkdir|rename|replace|rmdir)|shutil\.(copy|copyfile|copy2|copytree|move)"
   writes=$(printf '%s\n' "$prog" | grep -oE "open${sp}\(${sp}${q}[^'\"]+${q}${sp},${sp}(mode${sp}=${sp})?${q}[rbt]*[wax+]|(${fn})${sp}\(${sp}${q}[^'\"]+${q}|Path${sp}\(${sp}${q}[^'\"]+${q}${sp}\)${sp}\.${sp}(write_text|write_bytes|mkdir|touch|unlink|rmdir|rename)" || true)
-  if [ -z "$writes" ] && ! printf '%s\n' "$prog" | grep -qE "open${sp}\([^)]*,${sp}(mode${sp}=${sp})?${q}[rbt]*[wax+]|open${sp}\(?[^,;()]*,${sp}${q}[+]?>|write_text|write_bytes|createWriteStream|(${fn})${sp}\("; then
+  if [ -z "$writes" ] && ! printf '%s\n' "$prog" | grep -E "open${sp}\([^)]*,${sp}(mode${sp}=${sp})?${q}[rbt]*[wax+]|open${sp}\(?[^,;()]*,${sp}${q}[+]?>|write_text|write_bytes|createWriteStream|(${fn})${sp}\(" >/dev/null; then
     return 0
   fi
   reads=$(printf '%s\n' "$prog" | grep -oE "open${sp}\(${sp}${q}[^'\"]+${q}${sp}(,${sp}${q}r[bt]?${q}${sp})?\)|(readFileSync|readFile|createReadStream|existsSync|statSync)${sp}\(${sp}${q}[^'\"]+${q}|Path${sp}\(${sp}${q}[^'\"]+${q}${sp}\)${sp}\.${sp}(read_text|read_bytes|exists)" | grep -oE "${q}[^'\"]+${q}" || true)
@@ -857,7 +857,7 @@ _tmb_cmd_prog_writes() {
 _tmb_cmd_prog_literals() {
   local lit q="['\"]"
   printf '%s\n' "${1:-}" | grep -oE "${q}[^'\"[:space:]]+${q}" | while IFS= read -r lit; do
-    if printf '%s\n' "${2:-}" | grep -qxF -- "$lit" && ! printf '%s\n' "${3:-}" | grep -qxF -- "$lit"; then continue; fi
+    if printf '%s\n' "${2:-}" | grep -xF -- "$lit" >/dev/null && ! printf '%s\n' "${3:-}" | grep -xF -- "$lit" >/dev/null; then continue; fi
     lit="${lit:1:${#lit}-2}"
     lit="${lit#+}"; lit="${lit#>}"; lit="${lit#>}"
     case "$lit" in ''|.|..|*[!A-Za-z0-9_./~-]*) continue ;; esac

@@ -66,7 +66,7 @@ is_allowlisted() {
     local path_part line_part
     path_part="${entry%%:*}"
     line_part="${entry#*:}"
-    if echo "$finding" | grep -qF "$path_part" && echo "$finding" | grep -qF "$line_part"; then
+    if echo "$finding" | grep -F "$path_part" >/dev/null && echo "$finding" | grep -F "$line_part" >/dev/null; then
       return 0
     fi
   done < "$ALLOWLIST"
@@ -125,7 +125,7 @@ run_self_test() {
 
   # Placeholder must NOT produce a non-placeholder match
   placeholder_hit=$(grep_secret "$tmpdir/placeholder.sh")
-  if [ -n "$placeholder_hit" ] && ! printf '%s' "$placeholder_hit" | grep -qE "$P_PLACEHOLDER"; then
+  if [ -n "$placeholder_hit" ] && ! printf '%s' "$placeholder_hit" | grep -E "$P_PLACEHOLDER" >/dev/null; then
     printf 'FAIL self-test: placeholder line was incorrectly flagged\n' >&2
     fail=1
   else
@@ -191,7 +191,7 @@ run_live_check() {
       filtered_hit=""
       while IFS= read -r h; do
         [ -n "$h" ] || continue
-        if printf '%s' "$h" | grep -qE "$P_PLACEHOLDER"; then
+        if printf '%s' "$h" | grep -E "$P_PLACEHOLDER" >/dev/null; then
           continue
         fi
         filtered_hit="$h"

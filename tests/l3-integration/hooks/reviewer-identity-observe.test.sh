@@ -71,7 +71,7 @@ assert_eq "1" "$(rows)" "one row written"
 ROW=$(sqlite3 "$DB" "SELECT issue_id || '|' || from_node || '|' || json_remove(content_json, '$.observed_at') FROM audit WHERE event_type = 'reviewer_identity_observed';")
 assert_eq "7|hook:reviewer-identity-observe|{\"task_id\":42,\"attempt_n\":2,\"session_id\":\"main-session-1\",\"agent_id\":\"a1b2c3d4e5f6a7b8c\",\"tool_use_id\":\"toolu_01ABCDEF\",\"consumed\":0}" "$ROW" "row on the task's issue with the observed identity and tool_use_id"
 OBSERVED_AT=$(sqlite3 "$DB" "SELECT json_extract(content_json, '$.observed_at') FROM audit WHERE event_type = 'reviewer_identity_observed';")
-if printf '%s' "$OBSERVED_AT" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$'; then OBS_ISO=yes; else OBS_ISO="no: $OBSERVED_AT"; fi
+if printf '%s' "$OBSERVED_AT" | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$' >/dev/null; then OBS_ISO=yes; else OBS_ISO="no: $OBSERVED_AT"; fi
 assert_eq "yes" "$OBS_ISO" "observed_at is a 24-char ms-ISO timestamp"
 
 test_case "plugin-prefixed agent_type normalises to pr-reviewer"

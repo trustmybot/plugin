@@ -49,7 +49,7 @@ assert_contains() {
   local haystack="$1"
   local needle="$2"
   local label="${3:-output}"
-  if echo "$haystack" | grep -q -F -- "$needle"; then
+  if echo "$haystack" | grep -F -- "$needle" >/dev/null; then
     _pass
   else
     _fail "$label missing substring <$needle>. got=<$haystack>"
@@ -60,7 +60,7 @@ assert_not_contains() {
   local haystack="$1"
   local needle="$2"
   local label="${3:-output}"
-  if echo "$haystack" | grep -q -F -- "$needle"; then
+  if echo "$haystack" | grep -F -- "$needle" >/dev/null; then
     _fail "$label unexpectedly contains <$needle>. got=<$haystack>"
   else
     _pass

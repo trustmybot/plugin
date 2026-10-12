@@ -61,7 +61,7 @@ l5_smoke_mcp() {
   local resp
   resp=$(printf '%s\n' "$req" | _l5_timeout 10 node --experimental-sqlite "$mcp_entry" 2>&1 || true)
 
-  if echo "$resp" | grep -q '"tools"'; then
+  if echo "$resp" | grep '"tools"' >/dev/null; then
     return 0
   fi
 

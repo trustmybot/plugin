@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-if git ls-files | grep -qE '(^|/)\.codex/agents/'; then
+if git ls-files | grep -E '(^|/)\.codex/agents/' >/dev/null; then
   echo "tracked .codex/agents files would bypass explicit materialization" >&2
   exit 1
 fi

@@ -70,7 +70,7 @@ test_case "rescan from worktree cwd finds ≥1 repo (session_dir walk-up)"
 OUT=$( (cd "$WT" && _l5_timeout 60 node --experimental-sqlite "$INVOKER" 2>&1) || true )
 
 # The invoker emits a summary line on stderr on success. Check for it.
-if echo "$OUT" | grep -q "\[post-close-rescan\] OK"; then
+if echo "$OUT" | grep "\[post-close-rescan\] OK" >/dev/null; then
   _pass
 else
   _fail "invoker did not emit OK line. output: $OUT"
@@ -85,7 +85,7 @@ else
 fi
 
 test_case "rescan summary reports discovered repos"
-if echo "$OUT" | grep -qE "discovered [0-9]+ repos"; then
+if echo "$OUT" | grep -E "discovered [0-9]+ repos" >/dev/null; then
   _pass
 else
   _fail "expected 'discovered N repos' in output, got: $OUT"

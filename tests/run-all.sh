@@ -106,6 +106,8 @@ run_step "L1 lint: version sync (4 manifests agree)"  bash "$HERE/l1-lint/versio
 run_step "L1 lint: changelog top section current"     bash "$HERE/l1-lint/changelog-current.sh"
 run_step "L1 lint: link-check (relative md links)"    bash "$HERE/l1-lint/link-check.sh"
 run_step "L1 lint: shellcheck on shell scripts"       bash "$HERE/l1-lint/shellcheck-hooks.sh"
+run_step "L1 lint: no grep -q in pipelines (self-test)" bash "$HERE/l1-lint/no-grep-q-in-pipelines.sh" --self-test
+run_step "L1 lint: no grep -q in pipelines under pipefail" bash "$HERE/l1-lint/no-grep-q-in-pipelines.sh"
 run_step "L1 lint: no destructive SQL in migrations"  bash "$HERE/l1-lint/no-destructive-sql.sh"
 run_step "L1 lint: tsc --noEmit on MCP server"        bash "$HERE/l1-lint/tsc-noemit.sh"
 run_step "L1 lint: release script safety guards"      bash "$HERE/l1-lint/release-script-safety.sh"

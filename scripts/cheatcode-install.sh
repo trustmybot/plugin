@@ -159,7 +159,7 @@ resolve_registered_marketplace() {
       # registered one; let the bare-name install resolve it (no add needed).
       printf '' ; return ;;
   esac
-  if printf '%s' "$src_url" | grep -qE '^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$'; then
+  if printf '%s' "$src_url" | grep -E '^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$' >/dev/null; then
     printf '%s' "$src_url" | sed -E 's/^[^@]+@//'
     return
   fi

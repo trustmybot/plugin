@@ -43,7 +43,7 @@ _clean_merged_branch_main() {
   [ -n "$cmd" ] || exit 0
 
   # Act only on a PR/MR merge command (word-boundary match; git/gh/glab parity).
-  if ! printf '%s' "$cmd" | grep -Eq '(^|[^[:alnum:]_-])(gh[[:space:]]+pr[[:space:]]+merge|glab[[:space:]]+mr[[:space:]]+merge)([^[:alnum:]_-]|$)'; then
+  if ! printf '%s' "$cmd" | grep -E '(^|[^[:alnum:]_-])(gh[[:space:]]+pr[[:space:]]+merge|glab[[:space:]]+mr[[:space:]]+merge)([^[:alnum:]_-]|$)' >/dev/null; then
     exit 0
   fi
 
@@ -51,7 +51,7 @@ _clean_merged_branch_main() {
   # not-mergeable) must never trigger deletion. Treat an explicit failure
   # signal in the response as a hard stop; otherwise assume success (PostToolUse
   # only fires after the tool ran, and CC reports failures in tool_response).
-  if printf '%s' "$resp" | grep -qiE '(is_error|"error"|failed to merge|not mergeable|merge conflict|GraphQL: |pull request is not mergeable)'; then
+  if printf '%s' "$resp" | grep -iE '(is_error|"error"|failed to merge|not mergeable|merge conflict|GraphQL: |pull request is not mergeable)' >/dev/null; then
     exit 0
   fi
 

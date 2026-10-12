@@ -158,9 +158,9 @@ EOF
       # Word-bounded install intent: an `install`/`installing` token AND a
       # capability object noun, EXCLUDING package-manager installs
       # (npm/bun/pip/... install → dependencies, never a cheatcode).
-      if printf '%s' "$LOWER" | grep -qE '\b(install|installing)\b' \
-        && printf '%s' "$LOWER" | grep -qE '\b(plugin|plugins|skill|skills|mcp|cheatcode|cheatcodes)\b' \
-        && ! printf '%s' "$LOWER" | grep -qE '\b(npm|npx|bun|yarn|pnpm|pip|pipx|brew|apt|apt-get|cargo|gem)[[:space:]]+install(ing)?\b'; then
+      if printf '%s' "$LOWER" | grep -E '\b(install|installing)\b' >/dev/null \
+        && printf '%s' "$LOWER" | grep -E '\b(plugin|plugins|skill|skills|mcp|cheatcode|cheatcodes)\b' >/dev/null \
+        && ! printf '%s' "$LOWER" | grep -E '\b(npm|npx|bun|yarn|pnpm|pip|pipx|brew|apt|apt-get|cargo|gem)[[:space:]]+install(ing)?\b' >/dev/null; then
         cheatcode_install_match="install capability"
       fi
       ;;

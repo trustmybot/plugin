@@ -26,7 +26,7 @@ ALLOWLIST="tests/l1-lint/no-private-db-path.allowlist"
 allowed() {
   [ "$1" = "$OWNER" ] && return 0
   [ -f "$ALLOWLIST" ] || return 1
-  grep -v '^[[:space:]]*#' "$ALLOWLIST" | grep -qxF "$1"
+  grep -v '^[[:space:]]*#' "$ALLOWLIST" | grep -xF "$1" >/dev/null
 }
 
 VIOLATIONS=""

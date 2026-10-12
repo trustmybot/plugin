@@ -206,7 +206,7 @@ l6c_run_step() {
 
     # Terminal-pattern early-exit.
     if [ -n "$terminal_pattern" ] && [ -n "$bro_text" ]; then
-      if echo "$bro_text" | grep -qE "$terminal_pattern"; then
+      if echo "$bro_text" | grep -E "$terminal_pattern" >/dev/null; then
         rm -f "$turn_jsonl"
         break
       fi

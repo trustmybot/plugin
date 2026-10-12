@@ -49,7 +49,7 @@ is_excluded_file() {
 is_excluded_line() {
   local line="$1"
   for pattern in "${EXCLUDED_LINE_PATTERNS[@]}"; do
-    if printf '%s' "$line" | grep -qF "$pattern"; then
+    if printf '%s' "$line" | grep -F "$pattern" >/dev/null; then
       return 0
     fi
   done

@@ -108,8 +108,8 @@ compute_status() {
           ;;
         *)
           [ -n "$MCP_NAMES" ] || [ -n "$CLAUDE_JSON_MCP" ] || return 0
-          if printf '%s\n' "$MCP_NAMES" | grep -qxF -- "$name" \
-            || printf '%s\n' "$CLAUDE_JSON_MCP" | grep -qxF -- "$name"; then
+          if printf '%s\n' "$MCP_NAMES" | grep -xF -- "$name" >/dev/null \
+            || printf '%s\n' "$CLAUDE_JSON_MCP" | grep -xF -- "$name" >/dev/null; then
             echo "active"
           else
             echo "broken"

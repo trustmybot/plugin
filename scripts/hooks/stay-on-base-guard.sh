@@ -51,7 +51,7 @@ while IFS="$(printf '\t')" read -r dir stmt; do
     case "$w" in -*) ;; *) target="$w" ;; esac
   done
   [ -n "$target" ] || continue
-  printf '%s' "$target" | grep -qE '^[a-zA-Z0-9_./:@^~-]+$' || continue
+  printf '%s' "$target" | grep -E '^[a-zA-Z0-9_./:@^~-]+$' >/dev/null || continue
   SWITCHES="${SWITCHES}${dir}$(printf '\t')${target}$(printf '\t')${stmt}
 "
 done < <(tmb_cmd_statements "$CMD" "$(tmb_payload_cwd "$INPUT")")
@@ -79,7 +79,7 @@ while IFS="$(printf '\t')" read -r DIR TARGET_BRANCH STMT; do
     exit 0
   fi
   [ -n "$OPEN_TASK_ID" ] || continue
-  printf '%s' "$OPEN_TASK_ID" | grep -qE '^[0-9]+$' || continue
+  printf '%s' "$OPEN_TASK_ID" | grep -E '^[0-9]+$' >/dev/null || continue
 
   if [ "$DIR" = "?" ]; then
     tmb_deny_ambiguous_git_target "$STMT"

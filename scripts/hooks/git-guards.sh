@@ -28,7 +28,7 @@ CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')
 
 # Early-exit: skip all analysis and DB work when no git/gh/glab word appears.
 _cmd_needs_git_guard() {
-  printf '%s' "$1" | grep -qE '(^|[^[:alnum:]_./-])(git|gh|glab)([[:space:]]|$)'
+  printf '%s' "$1" | grep -E '(^|[^[:alnum:]_./-])(git|gh|glab)([[:space:]]|$)' >/dev/null
 }
 _cmd_needs_git_guard "$CMD" || exit 0
 
@@ -280,7 +280,7 @@ while IFS="$(printf '\t')" read -r DIR STMT <&3; do
       else
         need_dir "$DIR" "$STMT" || continue
         BRANCH=$(dir_branch "$DIR")
-        printf '%s\n' "$RULE2_PROTECTED" | grep -qxF "$BRANCH" || BRANCH=""
+        printf '%s\n' "$RULE2_PROTECTED" | grep -xF "$BRANCH" >/dev/null || BRANCH=""
       fi
       if [ -n "$BRANCH" ]; then
         deny "BLOCKED: ${BRANCH} is a shared workflow base — no direct commits/merges/rebases.$(rule2_recovery "$DIR")"

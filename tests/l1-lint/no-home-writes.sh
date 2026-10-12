@@ -127,7 +127,7 @@ fi
 cd "$ROOT" || exit 1
 ALLOWLIST="tests/l1-lint/no-home-writes.allowlist"
 allowed() {
-  [ -f "$ALLOWLIST" ] && grep -v '^[[:space:]]*#' "$ALLOWLIST" | grep -qxF "$1"
+  [ -f "$ALLOWLIST" ] && grep -v '^[[:space:]]*#' "$ALLOWLIST" | grep -xF "$1" >/dev/null
 }
 FILES=()
 while IFS= read -r f; do allowed "$f" || FILES+=("$f"); done < <(

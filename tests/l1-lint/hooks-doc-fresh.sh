@@ -32,13 +32,13 @@ check_tree() {
     if [ ! -f "$root/scripts/hooks/$hook.sh" ]; then
       echo "  ✗ docs/reference/REFERENCE.md lists $hook.sh, which is not in scripts/hooks/" >&2
       failed=1
-    elif ! printf '%s\n' "$gates" | grep -qxF "$hook"; then
+    elif ! printf '%s\n' "$gates" | grep -xF "$hook" >/dev/null; then
       echo "  ✗ docs/reference/REFERENCE.md lists $hook.sh, which hooks/hooks.json does not register" >&2
       failed=1
     fi
   done
   for hook in $gates; do
-    if ! awk '/^## Hooks/{on=1; next} on && /^## /{on=0} on' "$root/docs/reference/REFERENCE.md" | grep -qF "| \`$hook.sh\` |"; then
+    if ! awk '/^## Hooks/{on=1; next} on && /^## /{on=0} on' "$root/docs/reference/REFERENCE.md" | grep -F "| \`$hook.sh\` |" >/dev/null; then
       echo "  ✗ hooks/hooks.json registers $hook.sh, which has no row in the docs/reference/REFERENCE.md hook table" >&2
       failed=1
     fi

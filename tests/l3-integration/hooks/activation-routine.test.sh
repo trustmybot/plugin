@@ -109,7 +109,7 @@ sqlite3 "$DB" "INSERT INTO plugin_config (key, value_json) VALUES ('onboarded', 
 out=$(run_hook "$(input '@bro hi')")
 assert_contains "$out" 'onboarded=yes' "onboarded marker present"
 # Critical: the first-contact auto-fire must NOT fire for an existing row
-if echo "$out" | grep -q 'FIRST CONTACT'; then
+if echo "$out" | grep 'FIRST CONTACT' >/dev/null; then
   echo "  FAIL onboarded row should NOT trigger FIRST CONTACT auto-fire (#95 regression)"
   exit 1
 fi

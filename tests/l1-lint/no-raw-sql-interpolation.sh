@@ -119,7 +119,7 @@ scan() {
       esac
       if [ "$IN_SQL_CONTEXT" -eq 0 ]; then
         CONTEXT_LINES=$(sed -n "$((line_num > 20 ? line_num - 20 : 1)),$((line_num - 1))p" "$script" 2>/dev/null || true)
-        if echo "$CONTEXT_LINES" | grep -qE 'sqlite3[^#]*<<'; then
+        if echo "$CONTEXT_LINES" | grep -E 'sqlite3[^#]*<<' >/dev/null; then
           IN_SQL_CONTEXT=1
         fi
       fi
@@ -137,18 +137,18 @@ scan() {
 
         # Guard type A: tmb_sql_int or tmb_sql_quote call referencing this variable,
         # or this variable assigned from a tmb_sql_int/tmb_sql_quote substitution.
-        if echo "$PRECEDING" | grep -qE "tmb_sql_int.*${VAR}|tmb_sql_quote.*${VAR}|${VAR}=\\\$\\(tmb_sql_(int|quote)"; then
+        if echo "$PRECEDING" | grep -E "tmb_sql_int.*${VAR}|tmb_sql_quote.*${VAR}|${VAR}=\\\$\\(tmb_sql_(int|quote)" >/dev/null; then
           GUARDED=1
         fi
         # Guard type A (alt): if this variable name starts with SAFE_ it was
         # already processed by tmb_sql_int/tmb_sql_quote.
         case "$VAR" in SAFE_*) GUARDED=1 ;; esac
         # Guard type B: case-guard on the same variable within preceding lines.
-        if echo "$PRECEDING" | grep -qE "case.*\\\$${VAR}|case.*\\\${${VAR}}|tmb_sql_int.*\\\$${VAR}"; then
+        if echo "$PRECEDING" | grep -E "case.*\\\$${VAR}|case.*\\\${${VAR}}|tmb_sql_int.*\\\$${VAR}" >/dev/null; then
           GUARDED=1
         fi
         # Guard type B (alt): printf '%d' sanitization for numeric fields.
-        if echo "$PRECEDING" | grep -qE "printf '%d'.*\\\$${VAR}|printf '%d'.*\\\${${VAR}}"; then
+        if echo "$PRECEDING" | grep -E "printf '%d'.*\\\$${VAR}|printf '%d'.*\\\${${VAR}}" >/dev/null; then
           GUARDED=1
         fi
 
@@ -156,7 +156,7 @@ scan() {
 
         # Check allowlist.
         ALLOWED=0
-        if printf '%s\n' "$resolved" | grep -qxF -e "$LOCATION" -e "$script"; then
+        if printf '%s\n' "$resolved" | grep -xF -e "$LOCATION" -e "$script" >/dev/null; then
           ALLOWED=1
         fi
         [ "$ALLOWED" -eq 1 ] && continue

@@ -31,7 +31,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 INPUT=$(cat)
 CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')
-printf '%s' "$CMD" | grep -qE 'push' || exit 0
+printf '%s' "$CMD" | grep -E 'push' >/dev/null || exit 0
 
 CWD=$(tmb_payload_cwd "$INPUT")
 PUSHES=""

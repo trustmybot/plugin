@@ -150,7 +150,7 @@ if [ -f "$INSTALLED_JSON" ] && [ -d "$CACHE_ROOT" ] && _within_deadline; then
     [ -d "$vdir" ] || continue
     _within_deadline || break
     # Pinned if any installed_plugins entry's installPath equals this dir.
-    if printf '%s\n' "$PINNED_PATHS" | grep -qxF "$vdir"; then
+    if printf '%s\n' "$PINNED_PATHS" | grep -xF "$vdir" >/dev/null; then
       continue
     fi
     UNUSED_CACHE+=("$vdir")
@@ -236,7 +236,7 @@ if [ -s "$LIVE_DB" ] && _within_deadline; then
   while IFS= read -r pid; do
     [ -n "$pid" ] || continue
     # Confirm it is a trajectory-server node proc (not an unrelated reader).
-    ps -p "$pid" -o command= 2>/dev/null | grep -q 'trajectory-server' || continue
+    ps -p "$pid" -o command= 2>/dev/null | grep 'trajectory-server' >/dev/null || continue
     # Never flag the current session's own server.
     chain_contains "$pid" "$OWN_CC" && continue
     # Classify by owner liveness.
@@ -286,7 +286,7 @@ if [ "$CLEAN" = "1" ]; then
   for pid in "${STALE_PROCS[@]:-}"; do
     [ -n "$pid" ] || continue
     # Liveness check then terminate only the confirmed stale duplicate.
-    if kill -0 "$pid" 2>/dev/null && ps -p "$pid" -o command= 2>/dev/null | grep -q 'trajectory-server'; then
+    if kill -0 "$pid" 2>/dev/null && ps -p "$pid" -o command= 2>/dev/null | grep 'trajectory-server' >/dev/null; then
       if kill "$pid" 2>/dev/null; then
         CLEANED="${CLEANED}terminated stale duplicate trajectory-server: pid $pid
 "
