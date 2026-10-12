@@ -37,22 +37,24 @@ file_timeout() {
 # inherited from a Claude Code session would point tests at a live DB.
 unset CLAUDE_PROJECT_DIR CLAUDE_PLUGIN_ROOT CLAUDE_CONFIG_DIR
 . "$HERE/../../l5-l6/lib/timeout-shim.sh"
+. "$HERE/../../lib/tmp-footprint.sh"
 
 # Footprint: every test runs with HOME at one empty temp dir and TMPDIR at a
 # fresh dir under it; after the suite HOME must hold nothing but that TMPDIR,
 # and TMPDIR nothing but the runner's own logs — no hook writes project state
 # (or anything) under $HOME or leaves temp files behind. /tmp must gain no
-# tmb*/claude* entries. Tests that resolve the user's real toolchain
+# entry named for this run (tests/lib/tmp-footprint.sh). Tests that resolve the user's real toolchain
 # (mise/homebrew) read it from TMB_TEST_REAL_HOME; the embedding cache stays
 # the shared user cache.
-FOOTPRINT_HOME="$(mktemp -d)"
+tmp_footprint_start l3-hooks
+FOOTPRINT_HOME="$(mktemp -d "$(tmp_footprint_parent)/$TMB_TEST_RUN_ID-home.XXXXXX")"
 RUN_TMPDIR="$FOOTPRINT_HOME/tmp"
 RUNNER_LOGS="$RUN_TMPDIR/l3-hooks-runner"
 mkdir -p "$RUNNER_LOGS"
 export TMB_TEST_REAL_HOME="$HOME"
 # mise shims on PATH resolve tools from the real install + config; their own
 # state and caches go to the throwaway dir, not the footprint HOME.
-TOOL_STATE="$(mktemp -d)"
+TOOL_STATE="$(mktemp -d "$(tmp_footprint_parent)/$TMB_TEST_RUN_ID-tools.XXXXXX")"
 trap 'rm -rf "$FOOTPRINT_HOME" "$TOOL_STATE"' EXIT
 export MISE_DATA_DIR="${MISE_DATA_DIR:-$HOME/.local/share/mise}"
 export MISE_CONFIG_DIR="${MISE_CONFIG_DIR:-$HOME/.config/mise}"
@@ -60,9 +62,6 @@ export MISE_STATE_DIR="$TOOL_STATE/mise-state" MISE_CACHE_DIR="$TOOL_STATE/mise-
 export TMB_MODEL_CACHE_DIR="${TMB_MODEL_CACHE_DIR:-${HF_HOME:-$HOME/.cache/huggingface}}"
 export HOME="$FOOTPRINT_HOME"
 export TMPDIR="$RUN_TMPDIR"
-
-tmp_entries() { find /tmp/ -mindepth 1 -maxdepth 1 \( -name 'tmb*' -o -name 'claude*' \) -print 2>/dev/null | sort; }
-TMP_BEFORE="$(tmp_entries)"
 
 FAILED=0
 TOTAL=0
@@ -105,13 +104,7 @@ else
   printf "footprint: TMPDIR left clean by the hook suite\n"
 fi
 
-NEW_TMP="$(comm -13 <(printf '%s\n' "$TMP_BEFORE") <(tmp_entries) | sed '/^$/d')"
-if [ -n "$NEW_TMP" ]; then
-  printf "\nFAIL footprint: /tmp gained entries during the hook suite:\n%s\n" "$NEW_TMP"
-  FAILED=$((FAILED + 1))
-else
-  printf "footprint: /tmp gained no tmb*/claude* entries\n"
-fi
+tmp_footprint_check "the hook suite" "$FOOTPRINT_HOME" "$TOOL_STATE" || FAILED=$((FAILED + 1))
 
 if [ "${#FAILED_FILES[@]}" -gt 0 ]; then
   printf "\nFailing test files:\n"

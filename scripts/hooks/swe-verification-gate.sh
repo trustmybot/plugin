@@ -231,8 +231,10 @@ run_verification() {
         exit 0
       fi
       FAILED_CMD="$CMD"
-      FAILED_MATCHES=$(printf '%s\n' "$CMD_OUTPUT" | grep -E 'FAIL|failed|Error|❌' | head -15)
-      FAILED_OUTPUT=$(printf '%s\n' "$CMD_OUTPUT" | tail -20)
+      # No pipelines here: under pipefail a writer killed by SIGPIPE or a grep
+      # with no match would end the hook without its deny.
+      FAILED_MATCHES=$(grep -m 15 -E 'FAIL|failed|Error|❌' <<< "$CMD_OUTPUT" || true)
+      FAILED_OUTPUT=$(tail -20 <<< "$CMD_OUTPUT" || true)
       break
     }
 

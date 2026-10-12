@@ -32,12 +32,35 @@ run_step() {
   fi
 }
 
-# ----- Live-CLI stubs (L1 and the L2 stubbed-PATH step) --------------------
+# ----- Run scratch + HOME footprint ------------------------------------------
+# Stubs and tool caches (bun, mise state) live in one run-scoped temp dir that
+# goes when the run ends; the real mise installs on PATH (and their config)
+# stay resolvable under any HOME. A run started with an empty HOME
+# (`HOME=$(mktemp -d) bash tests/run-all.sh`) must end with that HOME holding
+# nothing but the embedding model cache, .cache/huggingface.
+_run_tmp=$(mktemp -d)
+trap 'rm -rf "$_run_tmp"' EXIT
+_home_isolated=0
+[ -z "$(ls -A "$HOME" 2>/dev/null)" ] && _home_isolated=1
+export BUN_INSTALL_CACHE_DIR="$_run_tmp/bun-install-cache"
+export BUN_RUNTIME_TRANSPILER_CACHE_PATH="$_run_tmp/bun-transpiler-cache"
+export MISE_STATE_DIR="$_run_tmp/mise-state" MISE_CACHE_DIR="$_run_tmp/mise-cache"
+if [ -z "${MISE_DATA_DIR:-}" ]; then
+  MISE_DATA_DIR=$(printf '%s\n' "$PATH" | tr ':' '\n' | sed -n 's|^\(.*/mise\)/installs/.*|\1|p' | head -1)
+  export MISE_DATA_DIR="${MISE_DATA_DIR:-$_run_tmp/mise-data}"
+fi
+_mise_home="${MISE_DATA_DIR%/.local/share/mise}"
+if [ -z "${MISE_CONFIG_DIR:-}" ] && [ "$_mise_home" != "$MISE_DATA_DIR" ] && [ -d "$_mise_home/.config/mise" ]; then
+  export MISE_CONFIG_DIR="$_mise_home/.config/mise"
+fi
+
+# ----- Live-CLI stubs (L1, L2 and L4) ----------------------------------------
 # gh/glab stubs append to a sentinel file on invocation and exit 97; a 0-byte
 # sentinel means the step made no live CLI calls (B5 incident guard). The
-# `claude` stub exits 0 with a one-line marker, so no lint or unit test
-# reaches the real CLI (which writes ~/.claude.json).
-_stub_dir=$(mktemp -d)
+# `claude` stub exits 0 with a one-line marker, so no lint, unit test or
+# workflow flow reaches the real CLI (which writes ~/.claude.json).
+_stub_dir="$_run_tmp/stubs"
+mkdir -p "$_stub_dir"
 _sentinel="$_stub_dir/live-cli-sentinel"
 touch "$_sentinel"
 for _cli in gh glab; do
@@ -136,39 +159,25 @@ export PATH="$_l1_saved_path"
 unset TMB_L1_OFFLINE
 live_cli_check "L1" || FAIL=1
 
-# ----- L2 — Unit + L3 — Integration -------------------------------------
+# ----- L2 — Unit (no live gh/glab/claude calls) -----------------------------
+# Builds dist/ and runs the MCP unit suite once, behind the live-CLI stubs and
+# with TMB_FORBID_LIVE_SYNC=1.
 
-printf "\n=== L2 unit: MCP handlers (node --test on built dist/) ===\n"
-if (cd "$PLUGIN_ROOT/mcp/trajectory-server" && bun run build && node --experimental-sqlite --test dist/test/*.test.js); then
-  printf "→ PASS\n"
-else
-  printf "→ FAIL\n"
-  FAIL=1
-fi
-
-# ----- L2 adjacent: stubbed-PATH suite (no live gh/glab calls) ---------------
-# Runs the MCP unit suite with loud-fail gh/glab PATH stubs and
-# TMB_FORBID_LIVE_SYNC=1. Reuses the already-built dist/ — no second build.
-# Reuses the live-CLI stubs and sentinel the L1 step ran with.
-printf "\n=== L2 stubbed-PATH: MCP unit suite with live-CLI stubs (reuses dist/) ===\n"
-_stub_pass=0
+printf "\n=== L2 unit: MCP handlers (node --test on built dist/, live-CLI stubs) ===\n"
 if (
   export PATH="$_stub_dir:$PATH"
   export TMB_FORBID_LIVE_SYNC=1
   cd "$PLUGIN_ROOT/mcp/trajectory-server"
-  node --experimental-sqlite --test dist/test/*.test.js
+  bun run build && node --experimental-sqlite --test dist/test/*.test.js
 ); then
   printf "→ PASS\n"
 else
   printf "→ FAIL\n"
-  _stub_pass=1
-fi
-if ! live_cli_check "stubbed-PATH run"; then
-  FAIL=1
-elif [ "$_stub_pass" -ne 0 ]; then
   FAIL=1
 fi
-rm -rf "$_stub_dir"
+live_cli_check "L2" || FAIL=1
+
+# ----- L3 — Integration ------------------------------------------------------
 
 run_step "L3 integration: MCP server end-to-end (stdio JSON-RPC)"  bash "$HERE/l3-integration/mcp/run.sh"
 run_step "L3 integration: hook script tests"                         bash "$HERE/l3-integration/hooks/run.sh"
@@ -176,13 +185,34 @@ run_step "L3 integration: deterministic health-check (scripts/health.sh)"  bash 
 run_step "L3 integration: L5 scorer unit tests"                      bash "$HERE/l5-l6/lib/scorers-test.sh"
 
 # ----- L4 — Workflow simulation (MCP server scripted flows) -----------------
+# The spawned server inherits the stubs and TMB_FORBID_LIVE_SYNC=1, so its
+# gh/glab auth probes and any claude call never reach a real CLI.
 
+_l4_saved_path="$PATH"
+export PATH="$_stub_dir:$PATH" TMB_FORBID_LIVE_SYNC=1
 run_step "L4 workflow-sim: flow-02 simple-task"            bun test "$HERE/l4-workflow-sim/flow-02-simple-task.test.mjs"
 run_step "L4 workflow-sim: flow-03 difficult-task"          bun test "$HERE/l4-workflow-sim/flow-03-difficult-task.test.mjs"
 run_step "L4 workflow-sim: flow-06 push-gate"               bun test "$HERE/l4-workflow-sim/flow-06-push-gate.test.mjs"
 run_step "L4 workflow-sim: flow-08 swe-retry"               bun test "$HERE/l4-workflow-sim/flow-08-swe-retry.test.mjs"
 run_step "L4 workflow-sim: flow-09 anonymous-cold-restart"  bun test "$HERE/l4-workflow-sim/flow-09-anonymous-cold-restart.test.mjs"
 run_step "L4 workflow-sim: flow-10 roundtable-composite"    bun test "$HERE/l4-workflow-sim/flow-10-roundtable-composite.test.mjs"
+
+export PATH="$_l4_saved_path"
+unset TMB_FORBID_LIVE_SYNC
+live_cli_check "L4" || FAIL=1
+
+# ----- isolated-HOME footprint ------------------------------------------------
+
+if [ "$_home_isolated" -eq 1 ]; then
+  printf "\n=== HOME footprint (run started with an empty HOME) ===\n"
+  _home_leaks=$(find "$HOME" -mindepth 1 \( -path "$HOME/.cache/huggingface" -prune \) -o \( -path "$HOME/.cache" \) -o -print 2>/dev/null | sed "s|^$HOME|\$HOME|")
+  if [ -n "$_home_leaks" ]; then
+    printf "→ FAIL: the run wrote under HOME:\n%s\n" "$_home_leaks"
+    FAIL=1
+  else
+    printf "→ PASS: HOME holds nothing but .cache/huggingface\n"
+  fi
+fi
 
 # ----- summary -----------------------------------------------------------
 

@@ -29,26 +29,25 @@ fi
 # plugin root, so no server spawned here can reach the real ~/.claude, and
 # TMPDIR is a fresh dir under that HOME. Afterwards HOME must hold nothing but
 # that TMPDIR, TMPDIR nothing but the runner's own logs, and /tmp must have
-# gained no tmb*/claude* entries.
+# gained no entry named for this run (tests/lib/tmp-footprint.sh).
 # The embedding model cache is a shared user cache, not TMB state: keep using
 # the real one so the suite never re-downloads the model.
 TOOL_PATH="$PATH"
 export TMB_MODEL_CACHE_DIR="${TMB_MODEL_CACHE_DIR:-${HF_HOME:-$HOME/.cache/huggingface}}"
-FOOTPRINT_HOME="$(mktemp -d)"
+. "$HERE/../../lib/tmp-footprint.sh"
+tmp_footprint_start l3-mcp
+FOOTPRINT_HOME="$(mktemp -d "$(tmp_footprint_parent)/$TMB_TEST_RUN_ID-home.XXXXXX")"
 RUN_TMPDIR="$FOOTPRINT_HOME/tmp"
 RUNNER_LOGS="$RUN_TMPDIR/l3-mcp-runner"
 mkdir -p "$RUNNER_LOGS"
 # mise shims resolve tools from the real install + config; their own state and
 # caches go to a throwaway dir, not the footprint HOME.
-TOOL_STATE="$(mktemp -d)"
+TOOL_STATE="$(mktemp -d "$(tmp_footprint_parent)/$TMB_TEST_RUN_ID-tools.XXXXXX")"
 trap 'rm -rf "$FOOTPRINT_HOME" "$TOOL_STATE"' EXIT
 export MISE_DATA_DIR="${MISE_DATA_DIR:-$HOME/.local/share/mise}"
 export MISE_CONFIG_DIR="${MISE_CONFIG_DIR:-$HOME/.config/mise}"
 export MISE_STATE_DIR="$TOOL_STATE/mise-state" MISE_CACHE_DIR="$TOOL_STATE/mise-cache"
 unset CLAUDE_PLUGIN_ROOT CLAUDE_PROJECT_DIR CLAUDE_CONFIG_DIR
-
-tmp_entries() { find /tmp/ -mindepth 1 -maxdepth 1 \( -name 'tmb*' -o -name 'claude*' \) -print 2>/dev/null | sort; }
-TMP_BEFORE="$(tmp_entries)"
 
 L3_MCP_TESTS=("$HERE"/*.test.mjs)
 [ -z "${L3_MCP_TEST_FILES:-}" ] || read -r -a L3_MCP_TESTS <<< "$L3_MCP_TEST_FILES"
@@ -86,13 +85,7 @@ if [ -n "$leaked_tmp" ]; then
 else
   printf 'footprint: TMPDIR left clean by the L3 MCP suite\n'
 fi
-new_tmp="$(comm -13 <(printf '%s\n' "$TMP_BEFORE") <(tmp_entries) | sed '/^$/d')"
-if [ -n "$new_tmp" ]; then
-  printf 'FAIL footprint: /tmp gained entries during the L3 MCP suite:\n%s\n' "$new_tmp" >&2
-  footprint_fail=1
-else
-  printf 'footprint: /tmp gained no tmb*/claude* entries\n'
-fi
+tmp_footprint_check "the L3 MCP suite" "$FOOTPRINT_HOME" "$TOOL_STATE" || footprint_fail=1
 
 # Summary: every failing file with its last 10 lines — for a node test file,
 # the last 10 lines of its entries in node's "failing tests" report, stack

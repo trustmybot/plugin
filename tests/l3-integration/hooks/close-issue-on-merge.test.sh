@@ -24,6 +24,10 @@ SCHEMA="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
 
 command -v sqlite3 >/dev/null 2>&1 || { echo "FAIL: sqlite3 unavailable — required dependency for this security-gate test"; exit 1; }
 
+# The remote-sync kill-switch is set per case; a value inherited from the
+# caller (tests/run-all.sh exports it) would silence the remote-close cases.
+unset TMB_DISABLE_REMOTE_SYNC
+
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 cd "$TMPDIR"

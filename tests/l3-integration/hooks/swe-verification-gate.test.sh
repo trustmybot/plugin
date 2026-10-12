@@ -16,7 +16,10 @@ TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
 # The gate's toolchain resolution may invoke mise, which keeps its own state
-# under HOME; keep that inside the sandbox.
+# under HOME; keep that inside the sandbox. The user's real mise installs (the
+# inherited MISE_DATA_DIR, else the real home's) stay reachable for the
+# minimal-PATH cases.
+TOOLCHAIN_MISE_DATA="${MISE_DATA_DIR:-${TMB_TEST_REAL_HOME:-$HOME}/.local/share/mise}"
 export MISE_DATA_DIR="$TMPDIR/mise/data" MISE_STATE_DIR="$TMPDIR/mise/state" MISE_CACHE_DIR="$TMPDIR/mise/cache"
 
 # Plugin-subdir layout (mirrors the real TMB workspace):
@@ -352,7 +355,7 @@ if [ -n "$TOOL" ]; then
   # Toolchain resolution reads the user's real mise/homebrew install, which
   # lives under the real home (run.sh points HOME at an empty footprint dir).
   run_hook_min_path() {
-    echo "$1" | env -u MISE_DATA_DIR PATH="$MINIMAL_PATH" HOME="${TMB_TEST_REAL_HOME:-$HOME}" bash "$HOOK" 2>&1 || true
+    echo "$1" | env MISE_DATA_DIR="$TOOLCHAIN_MISE_DATA" PATH="$MINIMAL_PATH" HOME="${TMB_TEST_REAL_HOME:-$HOME}" bash "$HOOK" 2>&1 || true
   }
 
   # Sanity: under the minimal PATH the tool is genuinely unresolvable.
@@ -459,5 +462,29 @@ out=$(cd "$REPO_DIR" && TMB_VERIFICATION_TIMEOUT_S=5 run_hook "$(make_input swe 
 assert_not_contains "$out" '"permissionDecision":"deny"' "unstamped stale lock lets the run proceed"
 assert_eq "1" "$(wc -l < "$COUNT_FILE.unstamped" 2>/dev/null | tr -d ' ')" "verification[] ran after reclaiming the unstamped lock"
 assert_eq "no" "$([ -d "$LOCK_ROOT/verify-63-nohead" ] && echo yes || echo no)" "unstamped lock removed"
+
+# ---- Lock-less path: run_verification runs in the hook's own shell ----------
+# When the locks dir cannot be created the gate verifies without the lock, under
+# the hook's `set -euo pipefail`; every failing command must still deny.
+rm -rf "$LOCK_ROOT"
+touch "$LOCK_ROOT"
+mkdir -p "$WT_ROOT/nolock-quiet" "$WT_ROOT/nolock-loud"
+sqlite3 "$DB" "
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (70, 1, 'feat/nolock-quiet', 'plugin', 'pending', '', '[\"echo quiet; exit 2\"]');
+  INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (71, 1, 'feat/nolock-loud', 'plugin', 'pending', '', '[\"for i in \$(seq 1 20000); do echo FAIL line \$i; done; exit 1\"]');
+"
+
+test_case "no lock dir: a failing command with no failure line still denies"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 70)")
+assert_contains "$out" '"permissionDecision":"deny"' "lock-less failing verification should deny"
+assert_contains "$out" "quiet" "deny carries the output tail"
+assert_not_contains "$out" "Failure lines" "no failure-lines section when nothing matched"
+
+test_case "no lock dir: a failing command with 20000 failure lines denies with 15 shown"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 71)")
+assert_contains "$out" '"permissionDecision":"deny"' "lock-less flood should deny"
+HITS=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason' 2>/dev/null | sed -n '/^Failure lines/,/^$/p' | grep -c '^FAIL line' || true)
+assert_eq "15" "$HITS" "exactly 15 failure lines forwarded"
+rm -f "$LOCK_ROOT"
 
 summarize

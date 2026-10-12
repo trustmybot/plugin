@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Tests for the L3 runners (tests/l3-integration/hooks/run.sh and mcp/run.sh):
 # the summary names each failing file with its last lines, verbose mode
-# prints per-file durations, and the TMPDIR footprint assertion fires on a
-# file a test leaves behind.
+# prints per-file durations, the TMPDIR footprint assertion fires on a file a
+# test leaves behind, and the /tmp check fails only on entries named for the
+# run itself — another session's entries are a warning.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -64,7 +65,45 @@ rc=0
 out=$(L3_HOOKS_TEST_DIR="$PASS_DIR" bash "$HOOKS_RUNNER" 2>&1) || rc=$?
 assert_eq "0" "$rc" "a clean suite exits 0"
 assert_contains "$out" "footprint: TMPDIR left clean by the hook suite" "TMPDIR check reported"
-assert_contains "$out" "footprint: /tmp gained no tmb*/claude* entries" "/tmp check reported"
+assert_contains "$out" "footprint: /tmp gained no entries from this run" "/tmp check reported"
+
+SLOW_DIR="$WORK/slow"
+mkdir -p "$SLOW_DIR"
+cat > "$SLOW_DIR/slow.test.sh" <<'EOF'
+sleep 2
+EOF
+FOREIGN="/tmp/tmb-foreign-$$"
+FOREIGN_CWD="/tmp/claude-f00d$$-cwd"
+cleanup_foreign() { rm -rf "$FOREIGN" "$FOREIGN_CWD" /tmp/tmb-l3-*-leak-$$ 2>/dev/null || true; }
+trap 'cleanup_foreign; rm -rf "$WORK"' EXIT
+
+test_case "hooks runner: another session's /tmp entries during the run do not fail it"
+rc=0
+L3_HOOKS_TEST_DIR="$SLOW_DIR" bash "$HOOKS_RUNNER" > "$WORK/concurrent.out" 2>&1 &
+runner=$!
+sleep 1
+mkdir "$FOREIGN"
+touch "$FOREIGN_CWD"
+wait "$runner" || rc=$?
+out=$(cat "$WORK/concurrent.out")
+cleanup_foreign
+assert_eq "0" "$rc" "a concurrent foreign tmb-* entry does not fail the run"
+assert_contains "$out" "warning: /tmp gained entries not named for this run" "foreign growth is a warning"
+assert_contains "$out" "$FOREIGN" "the foreign entry is named in the warning"
+assert_not_contains "$out" "$FOREIGN_CWD" "claude-*-cwd entries are not counted"
+assert_contains "$out" "footprint: /tmp gained no entries from this run" "the run's own check still passes"
+
+OWN_DIR="$WORK/own-leak"
+mkdir -p "$OWN_DIR"
+printf 'mkdir "/tmp/$TMB_TEST_RUN_ID-leak-%s"\n' "$$" > "$OWN_DIR/own.test.sh"
+
+test_case "hooks runner: a /tmp entry named for the run fails it"
+rc=0
+out=$(L3_HOOKS_TEST_DIR="$OWN_DIR" bash "$HOOKS_RUNNER" 2>&1) || rc=$?
+cleanup_foreign
+assert_eq "1" "$rc" "the run's own /tmp leak exits 1"
+assert_contains "$out" "FAIL footprint: the hook suite left entries in /tmp:" "own leak reported"
+assert_contains "$out" "-leak-$$" "the leaked entry is named"
 
 cat > "$WORK/broken.test.mjs" <<'EOF'
 import { test } from 'node:test';
@@ -73,6 +112,10 @@ test('planted mcp failure', () => { assert.equal('planted-actual', 'planted-expe
 EOF
 cat > "$WORK/leak.test.sh" <<'EOF'
 touch "$TMPDIR/planted-mcp-leak"
+EOF
+cat > "$WORK/slow.test.mjs" <<'EOF'
+import { test } from 'node:test';
+test('slow pass', async () => { await new Promise((r) => setTimeout(r, 2500)); });
 EOF
 
 test_case "mcp runner: summary names the failing node test file with its lines"
@@ -90,5 +133,19 @@ out=$(L3_MCP_TEST_FILES="$WORK/broken.test.mjs" L3_MCP_TEST_SCRIPTS="$WORK/leak.
 assert_eq "1" "$rc" "a file left in TMPDIR exits 1"
 assert_contains "$out" "FAIL footprint: the L3 MCP suite left files in TMPDIR:" "TMPDIR leak reported"
 assert_contains "$out" "\$TMPDIR/planted-mcp-leak" "the planted file is named"
+
+test_case "mcp runner: a concurrent foreign entry is a warning, a TMPDIR leak still fails"
+rc=0
+L3_MCP_TEST_FILES="$WORK/slow.test.mjs" L3_MCP_TEST_SCRIPTS="$WORK/leak.test.sh" bash "$MCP_RUNNER" > "$WORK/mcp-concurrent.out" 2>&1 &
+runner=$!
+sleep 1
+mkdir "$FOREIGN"
+wait "$runner" || rc=$?
+out=$(cat "$WORK/mcp-concurrent.out")
+cleanup_foreign
+assert_eq "1" "$rc" "the TMPDIR leak still fails the run"
+assert_contains "$out" "FAIL footprint: the L3 MCP suite left files in TMPDIR:" "TMPDIR leak reported"
+assert_contains "$out" "warning: /tmp gained entries not named for this run" "foreign growth is a warning"
+assert_contains "$out" "footprint: /tmp gained no entries from this run" "no own /tmp leak"
 
 summarize
