@@ -47,7 +47,9 @@ function firstNumber(row) {
  * the reader's busy timeout. A contract whose `min_schema` is above the DB's
  * plugin_meta.schema_version is skipped as `schema vN < vM`; nothing migrates.
  * A file contract reads its own inputs; when they are unavailable it is
- * skipped with its reason and does not affect `healthy`.
+ * skipped with its reason and does not affect `healthy`. A DB contract whose
+ * `skip_when` SELECT returns non-zero is skipped with that reason, likewise
+ * without affecting `healthy`.
  * `healthy` is false when an error-severity contract fails or a DB contract
  * is skipped.
  */
@@ -94,6 +96,10 @@ export function runDataContracts(reader, contracts, opts = {}) {
         const started = now();
         let actual;
         try {
+            if (contract.skip_when && firstNumber(reader.get(contract.skip_when.sql, params))) {
+                report.skipped.push({ id: contract.id, reason: contract.skip_when.reason });
+                continue;
+            }
             actual = firstNumber(reader.get(contract.sql, params));
         }
         catch (e) {

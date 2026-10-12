@@ -85,7 +85,7 @@ export const KEYS = [
     type: 'integer (seconds)',
     defaultText: 'unset (900)',
     setBy: 'bro via `config_set`',
-    effect: '`swe-verification-gate.sh` gives one run of a task\'s `verification[]` this many seconds on the swe close, capped at 1800 (the gate\'s hooks.json timeout of 1830 s minus 30 s); `TMB_VERIFICATION_TIMEOUT_S` overrides it (tests).',
+    effect: '`swe-verification-gate.sh` gives one run of a task\'s `verification[]` this many seconds of command time on the swe close (the run-record writes are budgeted apart), clamped to 1–1800; 0 or a non-integer falls back to 900 with a stderr warning. `TMB_VERIFICATION_TIMEOUT_S` overrides it (tests).',
   },
 ];
 
