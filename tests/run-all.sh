@@ -55,15 +55,16 @@ if [ -z "${MISE_CONFIG_DIR:-}" ] && [ "$_mise_home" != "$MISE_DATA_DIR" ] && [ -
 fi
 
 # ----- Live-CLI stubs (L1, L2 and L4) ----------------------------------------
-# gh/glab stubs append to a sentinel file on invocation and exit 97; a 0-byte
-# sentinel means the step made no live CLI calls (B5 incident guard). The
-# `claude` stub exits 0 with a one-line marker, so no lint, unit test or
-# workflow flow reaches the real CLI (which writes ~/.claude.json).
+# gh/glab/claude stubs append to a sentinel file on invocation and exit 97; a
+# 0-byte sentinel means the step made no live CLI calls (B5 incident guard).
+# L2 and L4 also run with TMB_FORBID_LIVE_SYNC=1, under which scripts/scan.sh
+# reads its plugin list from TMB_SCAN_PLUGIN_JSON (an empty list here) instead
+# of spawning `claude plugin list --json`.
 _stub_dir="$_run_tmp/stubs"
 mkdir -p "$_stub_dir"
 _sentinel="$_stub_dir/live-cli-sentinel"
 touch "$_sentinel"
-for _cli in gh glab; do
+for _cli in gh glab claude; do
   cat > "$_stub_dir/$_cli" <<STUB
 #!/usr/bin/env bash
 echo "LIVE-CLI BLOCKED: $_cli \$*" >> "$_sentinel"
@@ -72,12 +73,8 @@ exit 97
 STUB
   chmod +x "$_stub_dir/$_cli"
 done
-cat > "$_stub_dir/claude" <<'STUB'
-#!/usr/bin/env bash
-echo "tmb test-stub: claude $*"
-exit 0
-STUB
-chmod +x "$_stub_dir/claude"
+_scan_plugin_json="$_run_tmp/claude-plugin-list.json"
+echo '[]' > "$_scan_plugin_json"
 
 # live_cli_check <step>: fail when the stubs were called, then reset.
 live_cli_check() {
@@ -181,12 +178,12 @@ live_cli_check "L1" || FAIL=1
 
 # ----- L2 — Unit (no live gh/glab/claude calls) -----------------------------
 # Builds dist/ and runs the MCP unit suite once, behind the live-CLI stubs and
-# with TMB_FORBID_LIVE_SYNC=1.
+# with TMB_FORBID_LIVE_SYNC=1 and the scan plugin-list fixture.
 
 printf "\n=== L2 unit: MCP handlers (node --test on built dist/, live-CLI stubs) ===\n"
 if (
   export PATH="$_stub_dir:$PATH"
-  export TMB_FORBID_LIVE_SYNC=1
+  export TMB_FORBID_LIVE_SYNC=1 TMB_SCAN_PLUGIN_JSON="$_scan_plugin_json"
   cd "$PLUGIN_ROOT/mcp/trajectory-server"
   bun run build && node --experimental-sqlite --test dist/test/*.test.js
 ); then
@@ -205,20 +202,22 @@ run_step "L3 integration: deterministic health-check (scripts/health.sh)"  bash 
 run_step "L3 integration: L5 scorer unit tests"                      bash "$HERE/l5-l6/lib/scorers-test.sh"
 
 # ----- L4 — Workflow simulation (MCP server scripted flows) -----------------
-# The spawned server inherits the stubs and TMB_FORBID_LIVE_SYNC=1, so its
-# gh/glab auth probes and any claude call never reach a real CLI.
+# The spawned server inherits the stubs, TMB_FORBID_LIVE_SYNC=1 and the scan
+# plugin-list fixture, so its gh/glab auth probes and scan.sh never reach a
+# real CLI. Each flow gets a 30 s per-test timeout (bun's 5 s default flakes
+# under a loaded full run).
 
 _l4_saved_path="$PATH"
-export PATH="$_stub_dir:$PATH" TMB_FORBID_LIVE_SYNC=1
-run_step "L4 workflow-sim: flow-02 simple-task"            bun test "$HERE/l4-workflow-sim/flow-02-simple-task.test.mjs"
-run_step "L4 workflow-sim: flow-03 difficult-task"          bun test "$HERE/l4-workflow-sim/flow-03-difficult-task.test.mjs"
-run_step "L4 workflow-sim: flow-06 push-gate"               bun test "$HERE/l4-workflow-sim/flow-06-push-gate.test.mjs"
-run_step "L4 workflow-sim: flow-08 swe-retry"               bun test "$HERE/l4-workflow-sim/flow-08-swe-retry.test.mjs"
-run_step "L4 workflow-sim: flow-09 anonymous-cold-restart"  bun test "$HERE/l4-workflow-sim/flow-09-anonymous-cold-restart.test.mjs"
-run_step "L4 workflow-sim: flow-10 roundtable-composite"    bun test "$HERE/l4-workflow-sim/flow-10-roundtable-composite.test.mjs"
+export PATH="$_stub_dir:$PATH" TMB_FORBID_LIVE_SYNC=1 TMB_SCAN_PLUGIN_JSON="$_scan_plugin_json"
+run_step "L4 workflow-sim: flow-02 simple-task"            bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-02-simple-task.test.mjs"
+run_step "L4 workflow-sim: flow-03 difficult-task"          bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-03-difficult-task.test.mjs"
+run_step "L4 workflow-sim: flow-06 push-gate"               bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-06-push-gate.test.mjs"
+run_step "L4 workflow-sim: flow-08 swe-retry"               bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-08-swe-retry.test.mjs"
+run_step "L4 workflow-sim: flow-09 anonymous-cold-restart"  bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-09-anonymous-cold-restart.test.mjs"
+run_step "L4 workflow-sim: flow-10 roundtable-composite"    bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-10-roundtable-composite.test.mjs"
 
 export PATH="$_l4_saved_path"
-unset TMB_FORBID_LIVE_SYNC
+unset TMB_FORBID_LIVE_SYNC TMB_SCAN_PLUGIN_JSON
 live_cli_check "L4" || FAIL=1
 
 # ----- isolated-HOME footprint ------------------------------------------------

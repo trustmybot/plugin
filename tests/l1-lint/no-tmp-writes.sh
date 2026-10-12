@@ -116,10 +116,9 @@ l1_loop_footprint() {
   model_cache="${TMB_MODEL_CACHE_DIR:-${HF_HOME:-$real_home/.cache/huggingface}}"
   home=$(mktemp -d)
   tools=$(mktemp -d)
-  for cli in gh glab; do
+  for cli in gh glab claude; do
     printf '#!/usr/bin/env bash\necho "tmb test-stub: %s blocked" >&2\nexit 97\n' "$cli" > "$tools/$cli"
   done
-  printf '#!/usr/bin/env bash\necho "tmb test-stub: claude $*"\nexit 0\n' > "$tools/claude"
   chmod +x "$tools/gh" "$tools/glab" "$tools/claude"
   for f in "$ROOT"/tests/l1-lint/*.sh; do
     [ "$(basename "$f")" = "no-tmp-writes.sh" ] && continue

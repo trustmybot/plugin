@@ -35,6 +35,7 @@ interface ScanOutput {
   scanned_at: string;
   repos: ScanRepo[];
   files: ScanFile[];
+  plugin_inventory?: { status: string; note: string };
 }
 
 function ok(data: unknown): CallToolResult {
@@ -833,11 +834,15 @@ export function scanTools(
 
           // Emit deep_scan_completed audit row. Attach to the system issue
           // (id=-1) — this is a session-level event, not work-issue scoped.
+          const pluginInventory = out.plugin_inventory ?? null;
+          const pluginNote = pluginInventory?.status === 'unavailable'
+            ? `; plugins unavailable: ${pluginInventory.note}`
+            : '';
           insertAudit(db, {
             issue_id: -1,
             from_node: 'bro',
             event_type: 'deep_scan_completed',
-            summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} — source=${source}${structuralChange ? ', structural-change' : ''}`,
+            summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} — source=${source}${structuralChange ? ', structural-change' : ''}${pluginNote}`,
             content_json: JSON.stringify({
               ...stats,
               session_dir: out.session_dir,
@@ -855,6 +860,7 @@ export function scanTools(
             repos: out.repos.map((r) => ({ name: r.name, file_count: r.file_count })),
             source,
             structural_change: structuralChange,
+            plugin_inventory: pluginInventory,
             ...stats,
           });
         } finally {

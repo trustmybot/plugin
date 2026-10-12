@@ -10,8 +10,13 @@
 #     "session_dir": "<absolute path>",
 #     "scanned_at": "<ISO timestamp>",
 #     "repos":  [ { name, path, file_count } ],
-#     "files":  [ { repo, path, size_bytes, content_md5, last_commit_sha } ]
+#     "files":  [ { repo, path, size_bytes, content_md5, last_commit_sha } ],
+#     "plugin_inventory": { status, note }
 #   }
+#
+# plugin_inventory.status: cli (read from `claude plugin list --json`),
+# fixture (read from TMB_SCAN_PLUGIN_JSON), unavailable (no plugin list; note
+# says why) or skipped (no trajectory DB with a cheatcodes table to record into).
 #
 # Determinism rules (per the user's design):
 #   - Drift detection is md5-only. No git diff. last_commit_sha is metadata,
@@ -28,6 +33,13 @@
 # Usage:
 #   bash scripts/scan.sh [session_dir]
 #   session_dir defaults to $PWD.
+#
+# Environment:
+#   TMB_FORBID_LIVE_SYNC=1  never spawn `claude`: the plugin inventory comes
+#                           from TMB_SCAN_PLUGIN_JSON, else it is unavailable.
+#   TMB_SCAN_PLUGIN_JSON    path to a file holding `claude plugin list --json`
+#                           output; read only under TMB_FORBID_LIVE_SYNC=1.
+#   TMB_SCAN_DISCOVERY_TIMEOUT  seconds allowed for `claude plugin list` (4).
 
 set -uo pipefail
 
@@ -247,8 +259,10 @@ done < <(discover_repos)
 # yields origin=marketplace with source_url=<the ref>. A plugin's enabled flag
 # maps to status (enabled→active, else installed).
 #
-# Non-load-bearing: this never alters stdout (the world-model JSON below is
+# Non-load-bearing: it only sets plugin_inventory on stdout (the world-model JSON is
 # unchanged) and never fails the scan — every step is guarded and best-effort.
+PLUGIN_INVENTORY_STATUS=skipped
+PLUGIN_INVENTORY_NOTE="no trajectory DB with a cheatcodes table"
 discover_resources() {
   local lib="$SCRIPT_DIR/hooks/lib/query-task.sh"
   [ -f "$lib" ] || return 0
@@ -378,45 +392,64 @@ $audit_sql" >/dev/null || return 0
   # <name>@<marketplace> → origin=marketplace, source_url=<the ref>, status from
   # `enabled`. Each entry's `mcpServers` object names the MCP servers a plugin
   # registers.
-  if command -v claude >/dev/null 2>&1; then
-    local plugin_json
-    plugin_json=$(_run_bounded claude plugin list --json)
-    if printf '%s' "$plugin_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
-      # plugins: one line per entry → name, ref, status, version, description,
-      # installPath, separated by US (\x1f) so empty fields keep their place.
-      # jq splits the id on '@' and maps enabled→active/installed; the shell
-      # loop validates + inserts. A blank name (malformed id) is dropped by
-      # _valid_name. A description absent from the list entry is read from the
-      # installed plugin.json.
-      local pname pref pstatus pversion pdesc ppath
-      while IFS=$'\x1f' read -r pname pref pstatus pversion pdesc ppath; do
-        [ -n "$pname" ] || continue
-        if [ -z "$pdesc" ] && [ -n "$ppath" ] && [ -f "$ppath/.claude-plugin/plugin.json" ]; then
-          pdesc=$(jq -r '.description // ""' "$ppath/.claude-plugin/plugin.json" 2>/dev/null || true)
-        fi
-        _register plugin "$pname" "" marketplace "$pref" "$pstatus" "$pdesc" "$pversion"
-      done < <(printf '%s' "$plugin_json" | jq -r '
-        .[]? | [ ((.id // "") | split("@")[0]),
-                 (.id // ""),
-                 (if .enabled == true then "active" else "installed" end),
-                 (.version // ""),
-                 ((.description // "") | gsub("[\t\n\r]"; " ")),
-                 (.installPath // "") ]
-        | join("\u001f")' 2>/dev/null)
-
-      # mcp servers bundled by each plugin's mcpServers object → plugin, server,
-      # version (US-separated). source_url mcp:<plugin>/<server> lets the
-      # health-check find the parent plugin.
-      local mplugin mname mversion
-      while IFS=$'\x1f' read -r mplugin mname mversion; do
-        [ -n "$mname" ] || continue
-        _valid_name "$mplugin" || continue
-        _register mcp "$mname" "" marketplace "mcp:$mplugin/$mname" active \
-          "$mname MCP server bundled by $mplugin" "$mversion" "$mplugin"
-      done < <(printf '%s' "$plugin_json" | jq -r '
-        .[]? | ((.id // "") | split("@")[0]) as $p | (.version // "") as $v
-        | (.mcpServers? // {} | keys[]?) | [ $p, ., $v ] | join("\u001f")' 2>/dev/null)
+  local plugin_json="" plugin_source="" plugin_note=""
+  if [ "${TMB_FORBID_LIVE_SYNC:-}" = "1" ]; then
+    if [ -n "${TMB_SCAN_PLUGIN_JSON:-}" ] && [ -r "$TMB_SCAN_PLUGIN_JSON" ]; then
+      plugin_json=$(cat "$TMB_SCAN_PLUGIN_JSON")
+      plugin_source=fixture
+    else
+      plugin_note="TMB_FORBID_LIVE_SYNC=1 and no readable TMB_SCAN_PLUGIN_JSON: claude plugin list skipped"
     fi
+  elif command -v claude >/dev/null 2>&1; then
+    plugin_json=$(_run_bounded claude plugin list --json)
+    plugin_source=cli
+  else
+    plugin_note="claude CLI not on PATH"
+  fi
+  if [ -n "$plugin_source" ] && ! printf '%s' "$plugin_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    plugin_note="$plugin_source plugin list is not a JSON array"
+    plugin_source=""
+  fi
+  if [ -z "$plugin_source" ]; then
+    PLUGIN_INVENTORY_STATUS=unavailable
+    PLUGIN_INVENTORY_NOTE="$plugin_note"
+  else
+    PLUGIN_INVENTORY_STATUS="$plugin_source"
+    PLUGIN_INVENTORY_NOTE=""
+    # plugins: one line per entry → name, ref, status, version, description,
+    # installPath, separated by US (\x1f) so empty fields keep their place.
+    # jq splits the id on '@' and maps enabled→active/installed; the shell
+    # loop validates + inserts. A blank name (malformed id) is dropped by
+    # _valid_name. A description absent from the list entry is read from the
+    # installed plugin.json.
+    local pname pref pstatus pversion pdesc ppath
+    while IFS=$'\x1f' read -r pname pref pstatus pversion pdesc ppath; do
+      [ -n "$pname" ] || continue
+      if [ -z "$pdesc" ] && [ -n "$ppath" ] && [ -f "$ppath/.claude-plugin/plugin.json" ]; then
+        pdesc=$(jq -r '.description // ""' "$ppath/.claude-plugin/plugin.json" 2>/dev/null || true)
+      fi
+      _register plugin "$pname" "" marketplace "$pref" "$pstatus" "$pdesc" "$pversion"
+    done < <(printf '%s' "$plugin_json" | jq -r '
+      .[]? | [ ((.id // "") | split("@")[0]),
+               (.id // ""),
+               (if .enabled == true then "active" else "installed" end),
+               (.version // ""),
+               ((.description // "") | gsub("[\t\n\r]"; " ")),
+               (.installPath // "") ]
+      | join("\u001f")' 2>/dev/null)
+
+    # mcp servers bundled by each plugin's mcpServers object → plugin, server,
+    # version (US-separated). source_url mcp:<plugin>/<server> lets the
+    # health-check find the parent plugin.
+    local mplugin mname mversion
+    while IFS=$'\x1f' read -r mplugin mname mversion; do
+      [ -n "$mname" ] || continue
+      _valid_name "$mplugin" || continue
+      _register mcp "$mname" "" marketplace "mcp:$mplugin/$mname" active \
+        "$mname MCP server bundled by $mplugin" "$mversion" "$mplugin"
+    done < <(printf '%s' "$plugin_json" | jq -r '
+      .[]? | ((.id // "") | split("@")[0]) as $p | (.version // "") as $v
+      | (.mcpServers? // {} | keys[]?) | [ $p, ., $v ] | join("\u001f")' 2>/dev/null)
   fi
 
   # mcp fallback — ~/.claude.json mcpServers keys (covers a stale/absent CLI).
@@ -439,4 +472,6 @@ jq -n \
   --arg scanned_at "$scanned_at" \
   --slurpfile repos "$repos_jsonl" \
   --slurpfile files "$files_jsonl" \
-  '{session_dir:$session_dir,scanned_at:$scanned_at,repos:$repos,files:$files}'
+  --arg plugin_status "$PLUGIN_INVENTORY_STATUS" \
+  --arg plugin_note "$PLUGIN_INVENTORY_NOTE" \
+  '{session_dir:$session_dir,scanned_at:$scanned_at,repos:$repos,files:$files,plugin_inventory:{status:$plugin_status,note:$plugin_note}}'
