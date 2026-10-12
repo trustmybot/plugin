@@ -4,13 +4,25 @@
  * banner (via the generated `scripts/hooks/lib/data-contracts.json`) and the
  * L5/L6 gate (`scripts/maintenance/trajectory-doctor.sh`) all run this list.
  *
- * Each contract's `sql` is one read-only SELECT returning a single number; the
- * contract holds when `actual <op> value`. A NULL result never holds. `params`
- * are bound by name (`:name`), each read from an environment variable with a
- * numeric default.
+ * Each DB contract's `sql` is one read-only SELECT returning a single number;
+ * the contract holds when `actual <op> value`. A NULL result never holds.
+ * `params` are bound by name (`:name`), each read from an environment variable
+ * with a numeric default. A file contract (`source: 'files'`) reads Claude Code
+ * config files instead; it runs only in `trajectory_doctor`, not in the hook
+ * copy, and is skipped with a reason when its inputs are unavailable — a skip
+ * that leaves the report healthy, because absent inputs are no evidence of a
+ * fault.
  */
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { STALE_RUNNING_HOURS_DEFAULT, reviewSkipAuthoredSql } from './tools/lifecycle.js';
+import { enabledPluginCopies } from './utils/plugin-installs.js';
+export const isSqlContract = (c) => c.source !== 'files';
+export function singleTmbPluginEnabled(env) {
+    const result = enabledPluginCopies(env);
+    if ('skipped' in result)
+        return { skipped: result.skipped };
+    return { actual: result.copies.length, sample: result.copies.map((c) => ({ ...c })) };
+}
 const daysAgo = (days) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${days} days')`;
 // A stored timestamp in the one ms-ISO form, so a legacy `YYYY-MM-DD HH:MM:SS`
 // value compares by time, not by its separator character.
@@ -191,6 +203,14 @@ export function buildDataContracts(documentedEventTypes) {
             sample_sql: `SELECT i.id AS issue_id, t.id AS task_id, t.status FROM issues i JOIN tasks t ON t.issue_id = i.id
              WHERE i.status = 'closed' AND t.status IN (${LIVE_TASK_STATUSES}) ORDER BY i.id DESC, t.id LIMIT 5`,
         },
+        {
+            source: 'files',
+            id: 'single_tmb_plugin_enabled',
+            severity: 'error',
+            description: 'at most one enabled copy of this plugin applies to CLAUDE_PROJECT_DIR (installed_plugins.json + enabledPlugins in the project settings.local.json / settings.json and the user settings.json, read-only); Claude Code registers the hooks of only one copy per manifest name, so a second copy silently drops TMB\'s gates — run /plugin and disable the extra copy. Skipped when CLAUDE_PROJECT_DIR is unset or installed_plugins.json is unreadable',
+            expect: { op: '<=', value: 1 },
+            check: singleTmbPluginEnabled,
+        },
     ];
 }
 export const DATA_CONTRACTS = buildDataContracts(AUDIT_EVENT_TYPES.map((e) => e.type));
@@ -220,8 +240,9 @@ export function contractParamValues(contract, env = process.env) {
     }
     return values;
 }
-/** The hook-side copy of the contract list: `scripts/hooks/lib/data-contracts.json`. */
-export function dataContractsJson(contracts = DATA_CONTRACTS) {
+/** The hook-side copy of the DB contracts: `scripts/hooks/lib/data-contracts.json`. */
+export function dataContractsJson(all = DATA_CONTRACTS) {
+    const contracts = all.filter(isSqlContract);
     const schema_version = Math.max(0, ...contracts.map((c) => c.min_schema ?? 0));
     return `${JSON.stringify({ generated_from: 'mcp/trajectory-server/src/data-contracts.ts', schema_version, contracts }, null, 2)}\n`;
 }

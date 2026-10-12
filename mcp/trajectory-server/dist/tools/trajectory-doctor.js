@@ -46,7 +46,10 @@ function firstNumber(row) {
  * skipped (`timeout`) and its result is discarded; lock waits are bounded by
  * the reader's busy timeout. A contract whose `min_schema` is above the DB's
  * plugin_meta.schema_version is skipped as `schema vN < vM`; nothing migrates.
- * `healthy` is false when an error-severity contract fails or is skipped.
+ * A file contract reads its own inputs; when they are unavailable it is
+ * skipped with its reason and does not affect `healthy`.
+ * `healthy` is false when an error-severity contract fails or a DB contract
+ * is skipped.
  */
 export function runDataContracts(reader, contracts, opts = {}) {
     const timeoutMs = opts.statementTimeoutMs ?? statementTimeoutMs(opts.env);
@@ -61,6 +64,26 @@ export function runDataContracts(reader, contracts, opts = {}) {
         skipped: [],
     };
     for (const contract of contracts) {
+        if (contract.source === 'files') {
+            const result = contract.check(opts.env ?? process.env);
+            if ('skipped' in result) {
+                report.skipped.push({ id: contract.id, reason: result.skipped });
+                continue;
+            }
+            if (contractHolds(result.actual, contract.expect))
+                continue;
+            report.violations.push({
+                id: contract.id,
+                severity: contract.severity,
+                description: contract.description,
+                actual: result.actual,
+                expected: contract.expect,
+                sample: result.sample,
+            });
+            if (contract.severity === 'error')
+                report.healthy = false;
+            continue;
+        }
         if (stored !== null && (contract.min_schema ?? 0) > stored) {
             report.skipped.push({ id: contract.id, reason: schemaTooOldReason(stored, contract.min_schema) });
             if (contract.severity === 'error')

@@ -15,7 +15,9 @@
 #    project has a TMB state dir): a user-scope install beside this project's
 #    install is ignored; a user-scope install alone gets a `--scope project`
 #    recommendation. Read from installed_plugins.json via lib/resolve-install.sh.
-# 4. Appends one forensic JSONL line to <project>/.claude/<plugin>/logs/
+# 4. Warns when more than one enabled copy of this plugin applies to the
+#    project (tmb_duplicate_installs): Claude Code loads the hooks of only one.
+# 5. Appends one forensic JSONL line to <project>/.claude/<plugin>/logs/
 #    mcp-health.log when the project has a TMB state dir. Nothing is written
 #    under $HOME.
 
@@ -115,6 +117,15 @@ if [ -n "$user_install" ]; then
 
 }${NOTICE}"
   fi
+fi
+
+# --- Duplicate enabled copies (read only) -----------------------------------
+dup_installs=$(tmb_duplicate_installs "${CLAUDE_PROJECT_DIR:-}" 2>/dev/null || true)
+if [ -n "$dup_installs" ]; then
+  DUP_TEXT="TMB WARNING: $(printf '%s\n' "$dup_installs" | grep -c .) copies of the $(_tmb_install_plugin_name) plugin are enabled for this project ($(tmb_duplicate_installs_names "$dup_installs")). Claude Code registers the hooks of only one of them (which one is not documented) and skips the other's with a note under /plugin Errors, so TMB's gates may be missing while its MCP tools still work. Remedy: run /plugin and disable the extra copy."
+  CONTEXT="${CONTEXT:+$CONTEXT
+
+}${DUP_TEXT}"
 fi
 
 # --- Forensic log, project-local ---------------------------------------------
