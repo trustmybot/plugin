@@ -24242,7 +24242,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "repo_renamed", writers: ["bro"], description: "`repo_rename` moved a repo to a new name: the `repos` row, its FK children, `pr_review_runs` host slugs and the world-model nodes; filed under the system issue `-1` by `bro` with `repo` = the new name; `content_json` carries `old`, `new`, `reason`, `rows_by_table`, `graph` (`rekeyed`, or `deferred` when kuzu was unavailable or failed \u2014 the next `scan_run` rebuilds), `graph_nodes`, and `graph_error` when the re-key failed" },
   { type: "review_gate_bypassed", writers: ["bro", "hook"], description: "A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing pr-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`" },
   { type: "review_gate_waived", writers: ["bro"], description: "`issue_close(waive_review: true)` closed an issue over a closed task with no passing pr-reviewer verdict for its current commit; one row per such task; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason`" },
-  { type: "reviewer_identity_observed", writers: ["hook"], description: "`reviewer-identity-observe` saw a pr-reviewer subagent call `validation_record` (the payload carried `agent_id` and an `agent_type` that normalises to `pr-reviewer`); one row per call on the task's issue, from_node `hook:reviewer-identity-observe`; `content_json` carries `task_id`, `attempt_n`, `session_id`, `agent_id`, `tool_use_id` (null when the payload has none), `observed_at`, `consumed` (0 until `validation_record` stamps `subagent_session_id` and `reviewer_agent_id` from it and sets 1; a row observed more than 600 s before the call is never consumed). `audit_append` refuses this event" },
+  { type: "reviewer_identity_observed", writers: ["hook"], description: "`reviewer-identity-observe` saw a pr-reviewer subagent call `validation_record` (the payload carried `agent_id` and an `agent_type` that normalises to `pr-reviewer`); one row per call on the task's issue, from_node `hook:reviewer-identity-observe`; `content_json` carries `task_id`, `attempt_n`, `session_id`, `agent_id`, `tool_use_id` (null when the payload has none), `observed_at`, `consumed` (0 until `validation_record` stamps `subagent_session_id` and `reviewer_agent_id` from it and sets 1; a row observed more than 600 s before the call is never consumed), and `superseded`, `superseded_by`, `superseded_at` (set when `validation_record` consumes a newer row for the same `(task_id, attempt_n)`: every older unconsumed row gets `superseded` 1, the audit id of the consumed row and the time; a superseded row is never consumed). `audit_append` refuses this event" },
   { type: "roundtable_slash_invoked", writers: ["hook"], description: "`roundtable-slash-detect` saw the Human type `/roundtable`; `roundtable_create` consumes the row" },
   { type: "roundtable_summary", writers: ["bro"], description: "Bro recorded a roundtable's outcome summary via `audit_append`; `roundtable-cleanup-postcheck` requires it", reserved: true },
   { type: "scan_discovered", writers: ["server", "hook"], description: "A scan registered a newly discovered cheatcode (`scan_run`, or `scan.sh` as `hook:scan`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `origin`, `source`" },
@@ -28402,9 +28402,25 @@ function latestObservation(db2, taskId, attemptN) {
         AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ?
         AND CAST(json_extract(content_json, '$.attempt_n') AS INTEGER) = ?
         AND COALESCE(json_extract(content_json, '$.consumed'), 0) = 0
+        AND COALESCE(json_extract(content_json, '$.superseded'), 0) = 0
       ORDER BY id DESC
       LIMIT 1`,
     [REVIEWER_OBSERVE_FROM_NODE, taskId, attemptN]
+  );
+}
+function supersedeOlderObservations(db2, taskId, attemptN, consumedId, now) {
+  db2.run(
+    `UPDATE audit
+        SET content_json = json_set(content_json, '$.superseded', 1, '$.superseded_by', CAST(? AS INTEGER), '$.superseded_at', ?)
+      WHERE event_type = 'reviewer_identity_observed'
+        AND from_node = ?
+        AND id < ?
+        AND json_valid(content_json)
+        AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ?
+        AND CAST(json_extract(content_json, '$.attempt_n') AS INTEGER) = ?
+        AND COALESCE(json_extract(content_json, '$.consumed'), 0) = 0
+        AND COALESCE(json_extract(content_json, '$.superseded'), 0) = 0`,
+    [consumedId, now, REVIEWER_OBSERVE_FROM_NODE, consumedId, taskId, attemptN]
   );
 }
 function observationAgeS(observation, nowMs) {
@@ -28539,6 +28555,7 @@ function validationTools(db2) {
             `UPDATE audit SET content_json = json_set(content_json, '$.consumed', 1) WHERE id = ?`,
             [observed.id]
           );
+          supersedeOlderObservations(db2, taskId, attemptN, observed.id, now);
         } else if (mcpAvailable === 0) {
           subagentSessionId = callerSessionId;
           reviewerAgentId = null;
@@ -36720,7 +36737,8 @@ var VERIFIED_CLOSE_SCOPE = `t.status = 'closed' AND ${ts("t.updated_at")} >= ${d
                AND COALESCE(t.commit_sha, '') <> '' AND COALESCE(t.verification, '[]') NOT IN ('', '[]')
                AND NOT EXISTS (SELECT 1 FROM audit w WHERE w.event_type = 'verification_gate_waived' AND ${auditTaskId("w")} = t.id)`;
 var UNCONSUMED_STALE_OBSERVATION = (alias) => `${alias}.event_type = 'reviewer_identity_observed' AND ${ts(`${alias}.created_at`)} < strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 hours')
-               AND COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.consumed') END, 0) = 0`;
+               AND COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.consumed') END, 0) = 0
+               AND COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.superseded') END, 0) = 0`;
 var LIVE_TASK_STATUSES2 = "'pending','running','needs_validation','completed'";
 var POPULATED_COLUMNS = [
   { table: "agent_runs", column: "session_id", created_column: "started_at", floor: 0.2, min_schema: 30 },
@@ -36842,7 +36860,7 @@ function buildDataContracts(documentedEventTypes) {
     {
       id: "no_unconsumed_reviewer_observations",
       severity: "warn",
-      description: "no reviewer_identity_observed row older than 1 hour is still unconsumed (a pr-reviewer validation_record call that never recorded a verdict)",
+      description: "no reviewer_identity_observed row older than 1 hour is still unconsumed and unsuperseded (a pr-reviewer validation_record call that never recorded a verdict)",
       sql: `SELECT COUNT(*) FROM audit o
              WHERE ${UNCONSUMED_STALE_OBSERVATION("o")}`,
       expect: { op: "=", value: 0 },

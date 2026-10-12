@@ -120,7 +120,8 @@ const VERIFIED_CLOSE_SCOPE = `t.status = 'closed' AND ${ts('t.updated_at')} >= $
 
 const UNCONSUMED_STALE_OBSERVATION = (alias: string): string =>
   `${alias}.event_type = 'reviewer_identity_observed' AND ${ts(`${alias}.created_at`)} < strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 hours')
-               AND COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.consumed') END, 0) = 0`;
+               AND COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.consumed') END, 0) = 0
+               AND COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.superseded') END, 0) = 0`;
 
 const LIVE_TASK_STATUSES = "'pending','running','needs_validation','completed'";
 
@@ -257,7 +258,7 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
     {
       id: 'no_unconsumed_reviewer_observations',
       severity: 'warn',
-      description: 'no reviewer_identity_observed row older than 1 hour is still unconsumed (a pr-reviewer validation_record call that never recorded a verdict)',
+      description: 'no reviewer_identity_observed row older than 1 hour is still unconsumed and unsuperseded (a pr-reviewer validation_record call that never recorded a verdict)',
       sql: `SELECT COUNT(*) FROM audit o
              WHERE ${UNCONSUMED_STALE_OBSERVATION('o')}`,
       expect: { op: '=', value: 0 },

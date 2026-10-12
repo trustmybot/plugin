@@ -6,6 +6,8 @@ import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
 import { auditTools } from '../tools/audit.js';
 import { compositeTools } from '../tools/composites.js';
+import { DATA_CONTRACTS } from '../data-contracts.js';
+import { runDataContracts, trajectoryDbReader } from '../tools/trajectory-doctor.js';
 function parseResult(result) {
     return JSON.parse(result.content[0].text);
 }
@@ -119,7 +121,7 @@ describe('validation_record reviewer identity', () => {
         assert.equal(consumed(auditId), 0, 'a stale row is never consumed');
         assert.equal(db.get('SELECT COUNT(*) AS n FROM validation_attempts WHERE task_id = ? AND attempt_n = 11', [taskId]).n, 0);
     });
-    it('two rows: the newest fresh one is consumed, the other is untouched', async () => {
+    it('two rows: the newest fresh one is consumed, the older one is superseded, not consumed', async () => {
         const older = seedReviewerObservation(db, taskId, 12, { agentId: 'older-reviewer-02', toolUseId: 'toolu_older' });
         const newer = seedReviewerObservation(db, taskId, 12, { agentId: 'newer-reviewer-02', toolUseId: 'toolu_newer' });
         const result = await record(12);
@@ -127,6 +129,7 @@ describe('validation_record reviewer identity', () => {
         assert.equal(parseResult(result).reviewer_agent_id, 'newer-reviewer-02');
         assert.equal(consumed(newer), 1);
         assert.equal(consumed(older), 0);
+        assert.equal(db.get(`SELECT json_extract(content_json, '$.superseded_by') AS s FROM audit WHERE id = ?`, [older]).s, newer);
     });
     it('a verified pass is never overwritten by an honor-system call (verified_verdict_exists)', async () => {
         seedReviewerObservation(db, taskId, 13, { agentId: 'reviewer-agent-0013' });
@@ -229,6 +232,121 @@ describe('validation_record reviewer identity', () => {
         assert.equal(rows.length, 1);
         assert.equal(rows[0].subagent_session_id, null);
         altDb.close();
+    });
+});
+describe('validation_record supersedes older unconsumed observations', () => {
+    let db;
+    let taskId;
+    before(async () => {
+        db = tempDB();
+        taskId = await createTask(db, await createIssue(db));
+    });
+    after(() => {
+        db.close();
+    });
+    function record(attemptN, extra = {}) {
+        return call(validationTools(db).handlers, 'validation_record', {
+            agent: 'pr-reviewer', task_id: taskId, attempt_n: attemptN, verdict: 'pass', feedback: '# LGTM', mcp_available: true, ...extra,
+        });
+    }
+    function state(auditId) {
+        return db.get(`SELECT json_extract(content_json, '$.consumed') AS consumed,
+              json_extract(content_json, '$.superseded') AS superseded,
+              json_extract(content_json, '$.superseded_by') AS superseded_by,
+              json_extract(content_json, '$.superseded_at') AS superseded_at
+         FROM audit WHERE id = ?`, [auditId]);
+    }
+    function assertSuperseded(auditId, by) {
+        const s = state(auditId);
+        assert.equal(s.consumed, 0);
+        assert.equal(s.superseded, 1);
+        assert.equal(s.superseded_by, by);
+        assert.ok(Number.isFinite(Date.parse(String(s.superseded_at))), `superseded_at is a timestamp: ${s.superseded_at}`);
+    }
+    function assertUntouched(auditId) {
+        assert.deepEqual({ ...state(auditId) }, { consumed: 0, superseded: null, superseded_by: null, superseded_at: null });
+    }
+    function orphanWarned() {
+        const contract = DATA_CONTRACTS.find((c) => c.id === 'no_unconsumed_reviewer_observations');
+        const report = runDataContracts(trajectoryDbReader(db), [contract], { env: {} });
+        assert.deepEqual(report.skipped, []);
+        return report.violations.some((v) => v.id === contract.id);
+    }
+    function age(auditId) {
+        db.run(`UPDATE audit SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-2 hours') WHERE id = ?`, [auditId]);
+    }
+    it('retry then success: the failed call\'s row is superseded by the consumed one', async () => {
+        const first = seedReviewerObservation(db, taskId, 1, { toolUseId: 'toolu_first' });
+        const failed = await record(1, { verdict: 'approve' });
+        assert.ok(failed.isError);
+        assertUntouched(first);
+        const second = seedReviewerObservation(db, taskId, 1, { toolUseId: 'toolu_second' });
+        const ok = await record(1);
+        assert.ok(!ok.isError, JSON.stringify(parseResult(ok)));
+        assert.equal(state(second).consumed, 1);
+        assert.equal(state(second).superseded, null);
+        assertSuperseded(first, second);
+    });
+    it('two stale rows plus one fresh: the fresh row is consumed, both older rows superseded', async () => {
+        const staleAt = new Date(Date.now() - (REVIEWER_OBSERVATION_TTL_S + 60) * 1000).toISOString();
+        const a = seedReviewerObservation(db, taskId, 2, { observedAt: staleAt });
+        const b = seedReviewerObservation(db, taskId, 2, { observedAt: staleAt });
+        const fresh = seedReviewerObservation(db, taskId, 2);
+        const result = await record(2);
+        assert.ok(!result.isError, JSON.stringify(parseResult(result)));
+        assert.equal(state(fresh).consumed, 1);
+        assertSuperseded(a, fresh);
+        assertSuperseded(b, fresh);
+    });
+    it('no older rows: nothing is superseded, other attempts are untouched', async () => {
+        const otherAttempt = seedReviewerObservation(db, taskId, 4);
+        const only = seedReviewerObservation(db, taskId, 3);
+        const result = await record(3);
+        assert.ok(!result.isError, JSON.stringify(parseResult(result)));
+        assert.equal(state(only).consumed, 1);
+        assert.equal(state(only).superseded, null);
+        assertUntouched(otherAttempt);
+    });
+    it('a superseded row is never consumed by a later call', async () => {
+        const older = seedReviewerObservation(db, taskId, 5);
+        const newer = seedReviewerObservation(db, taskId, 5);
+        assert.ok(!(await record(5)).isError);
+        assertSuperseded(older, newer);
+        const again = await record(5);
+        assert.ok(again.isError);
+        assert.match(parseResult(again).error, /^subagent_session_unavailable/);
+        assertSuperseded(older, newer);
+    });
+    it('a stale-row refusal supersedes nothing', async () => {
+        const staleAt = new Date(Date.now() - (REVIEWER_OBSERVATION_TTL_S + 60) * 1000).toISOString();
+        const a = seedReviewerObservation(db, taskId, 6, { observedAt: staleAt });
+        const b = seedReviewerObservation(db, taskId, 6, { observedAt: staleAt });
+        const result = await record(6);
+        assert.ok(result.isError);
+        assert.match(parseResult(result).error, /^subagent_session_unavailable/);
+        assertUntouched(a);
+        assertUntouched(b);
+    });
+    it('honor-system path (mcp_available:false, no fresh row) supersedes nothing', async () => {
+        const staleAt = new Date(Date.now() - (REVIEWER_OBSERVATION_TTL_S + 60) * 1000).toISOString();
+        const stale = seedReviewerObservation(db, taskId, 7, { observedAt: staleAt });
+        const result = await record(7, { mcp_available: false, subagent_session_id: 'sess-honor' });
+        assert.ok(!result.isError, JSON.stringify(parseResult(result)));
+        assert.equal(parseResult(result).reviewer_agent_id, null);
+        assertUntouched(stale);
+    });
+    it('no_unconsumed_reviewer_observations ignores superseded rows and still warns on an orphaned one', async () => {
+        db.run(`DELETE FROM audit WHERE event_type = 'reviewer_identity_observed'`);
+        const older = seedReviewerObservation(db, taskId, 8);
+        const newer = seedReviewerObservation(db, taskId, 8);
+        assert.ok(!(await record(8)).isError);
+        age(older);
+        age(newer);
+        assertSuperseded(older, newer);
+        assert.equal(orphanWarned(), false, 'a routine retry does not warn');
+        const orphan = seedReviewerObservation(db, taskId, 9);
+        age(orphan);
+        assert.equal(orphanWarned(), true, 'an orphaned row still warns');
     });
 });
 describe('system issue -1 is reserved', () => {

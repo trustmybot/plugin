@@ -43,8 +43,21 @@ function latestObservation(db, taskId, attemptN) {
         AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ?
         AND CAST(json_extract(content_json, '$.attempt_n') AS INTEGER) = ?
         AND COALESCE(json_extract(content_json, '$.consumed'), 0) = 0
+        AND COALESCE(json_extract(content_json, '$.superseded'), 0) = 0
       ORDER BY id DESC
       LIMIT 1`, [REVIEWER_OBSERVE_FROM_NODE, taskId, attemptN]);
+}
+function supersedeOlderObservations(db, taskId, attemptN, consumedId, now) {
+    db.run(`UPDATE audit
+        SET content_json = json_set(content_json, '$.superseded', 1, '$.superseded_by', CAST(? AS INTEGER), '$.superseded_at', ?)
+      WHERE event_type = 'reviewer_identity_observed'
+        AND from_node = ?
+        AND id < ?
+        AND json_valid(content_json)
+        AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) = ?
+        AND CAST(json_extract(content_json, '$.attempt_n') AS INTEGER) = ?
+        AND COALESCE(json_extract(content_json, '$.consumed'), 0) = 0
+        AND COALESCE(json_extract(content_json, '$.superseded'), 0) = 0`, [consumedId, now, REVIEWER_OBSERVE_FROM_NODE, consumedId, taskId, attemptN]);
 }
 function observationAgeS(observation, nowMs) {
     const observedMs = Date.parse(String(observation.observed_at ?? ''));
@@ -152,6 +165,7 @@ export function validationTools(db) {
                     subagentSessionId = typeof observed.session_id === 'string' && observed.session_id !== '' ? observed.session_id : null;
                     reviewerAgentId = observedAgentId;
                     db.run(`UPDATE audit SET content_json = json_set(content_json, '$.consumed', 1) WHERE id = ?`, [observed.id]);
+                    supersedeOlderObservations(db, taskId, attemptN, observed.id, now);
                 }
                 else if (mcpAvailable === 0) {
                     subagentSessionId = callerSessionId;

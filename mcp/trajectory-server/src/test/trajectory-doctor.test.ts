@@ -193,6 +193,7 @@ const FIXTURES: Record<string, { violate?: (db: TrajectoryDB) => void; pass: (db
     pass: (db) => {
       seedAudit(db, 'reviewer_identity_observed', { task_id: 7, attempt_n: 1, agent_id: 'reviewer0agent01', consumed: 1 }, iso(-2 * HOUR), 'hook:reviewer-identity-observe');
       seedAudit(db, 'reviewer_identity_observed', { task_id: 7, attempt_n: 2, agent_id: 'reviewer0agent01', consumed: 0 }, iso(-10 * 60_000), 'hook:reviewer-identity-observe');
+      seedAudit(db, 'reviewer_identity_observed', { task_id: 7, attempt_n: 3, agent_id: 'reviewer0agent01', consumed: 0, superseded: 1, superseded_by: 99 }, iso(-2 * HOUR), 'hook:reviewer-identity-observe');
     },
   },
   verification_recorded_for_closed_tasks: {
