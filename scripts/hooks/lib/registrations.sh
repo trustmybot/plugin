@@ -45,12 +45,15 @@ tmb_chain_gates() {
 # tmb_registration <hooks.json> <name> — "<largest timeout> <1 when any
 # registration of `dispatch.sh <name>` carries onFailure block, else 0>".
 # Each innermost hook object is the text after the last `{` before a `}`
-# once `${VAR}` references are dropped, whatever its key order.
+# once `${VAR}` references and escaped quotes are dropped, whatever its key
+# order, so `"${CLAUDE_PLUGIN_ROOT}/…/dispatch.sh" <name>` and the unquoted
+# form match alike.
 tmb_registration() {
   awk -v g="$2" '
     { s = s $0 "\n" }
     END {
       gsub(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/, "", s)
+      gsub(/\\"/, "", s)
       t = ""; b = 0
       while ((e = index(s, "}")) > 0) {
         o = substr(s, 1, e - 1)

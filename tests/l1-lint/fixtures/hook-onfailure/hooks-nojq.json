@@ -6,13 +6,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-nojq-gate",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-nojq-gate",
             "timeout": 6,
             "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-nojq-brace-gate",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-nojq-brace-gate",
             "timeout": 6,
             "onFailure": "block"
           }

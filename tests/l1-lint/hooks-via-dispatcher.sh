@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Lint: every hooks/hooks.json command is
-#   ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh <gate>
+#   "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" <gate>
+# (the placeholder quoted, so a plugin root with a space stays one word)
 # and scripts/hooks/<gate>.sh exists and is executable (git mode 100755). A
 # chain name (scripts/hooks/lib/registrations.sh) stands for its gates: each
 # of them must exist and be executable.
@@ -20,7 +21,7 @@ command -v jq >/dev/null 2>&1 || { printf "hooks-via-dispatcher: jq required\n" 
 FAIL=0
 CHECKED=0
 GATES=0
-PREFIX='${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh '
+PREFIX='"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh" '
 
 while IFS= read -r cmd; do
   CHECKED=$((CHECKED + 1))

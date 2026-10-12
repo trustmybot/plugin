@@ -9,6 +9,11 @@
 #   adapters/codex/.mcp.json
 #   hooks/codex/hooks.json
 #   .agents/plugins/marketplace.json
+#
+# When the claude CLI is on PATH and neither TMB_FORBID_LIVE_SYNC nor
+# TMB_L1_OFFLINE is set, it also runs `claude plugin validate --strict` on the
+# plugin root and fails on any warning or error outside STRICT_ACCEPTED.
+# run-all.sh runs L1 with TMB_L1_OFFLINE=1, so the hermetic suite skips it.
 
 set -euo pipefail
 
@@ -186,7 +191,12 @@ else
       # Strip ${CLAUDE_PLUGIN_ROOT} prefix for local resolution
       local_path="${script//\$\{CLAUDE_PLUGIN_ROOT\}/.}"
       local_path="${local_path//\$CLAUDE_PLUGIN_ROOT/.}"
-      local_path="${local_path%% *}"
+      if [ "${local_path:0:1}" = '"' ]; then
+        local_path="${local_path#\"}"
+        local_path="${local_path%%\"*}"
+      else
+        local_path="${local_path%% *}"
+      fi
       if [ ! -f "$local_path" ]; then
         fail "$HOOKS_MANIFEST references missing script: $script (resolved: $local_path)"
         missing=1
@@ -195,6 +205,56 @@ else
     if [ $missing -eq 0 ]; then
       pass "$HOOKS_MANIFEST is valid + all referenced scripts exist"
     fi
+  fi
+fi
+
+# --- claude plugin validate --strict ---------------------------------------
+
+# Findings awaiting a Human-owned or prompt-surface change, one
+# "<path relative to the plugin root>|<message prefix>" per line.
+STRICT_ACCEPTED='CLAUDE.md|root: CLAUDE.md at the plugin root is not loaded as project context.
+agents/README.md|frontmatter: No frontmatter block found.
+commands/README.md|frontmatter: No frontmatter block found.'
+
+# strict_findings — one "<relative path>|<finding>" line per warning or error
+# in `claude plugin validate` output on stdin.
+strict_findings() {
+  awk -v root="$ROOT/" '
+    /^Validating [^:]+: / { f = $0; sub(/^Validating [^:]+: /, "", f); if (index(f, root) == 1) f = substr(f, length(root) + 1); next }
+    /^[[:space:]]*❯ / { m = $0; sub(/^[[:space:]]*❯ /, "", m); print f "|" m }
+  '
+}
+
+# strict_unaccepted — the findings on stdin that match no STRICT_ACCEPTED line.
+strict_unaccepted() {
+  local finding accepted apath amsg
+  while IFS= read -r finding; do
+    accepted=0
+    while IFS='|' read -r apath amsg; do
+      case "$finding" in "$apath|$amsg"*) accepted=1 ;; esac
+    done <<< "$STRICT_ACCEPTED"
+    [ "$accepted" -eq 1 ] || printf '%s\n' "$finding"
+  done
+}
+
+echo ""
+echo "Validating with claude plugin validate --strict"
+if ! command -v claude >/dev/null 2>&1 || [ -n "${TMB_FORBID_LIVE_SYNC:-}" ] || [ -n "${TMB_L1_OFFLINE:-}" ]; then
+  echo "manifest-shape: claude CLI absent or TMB_FORBID_LIVE_SYNC / TMB_L1_OFFLINE set — strict validate skipped"
+else
+  # The CLI writes .claude.json under its config dir; a throwaway one keeps the
+  # Human's untouched.
+  strict_home=$(mktemp -d)
+  strict_rc=0
+  strict_out=$(HOME="$strict_home" CLAUDE_CONFIG_DIR="$strict_home/.claude" claude plugin validate --strict "$ROOT" 2>&1) || strict_rc=$?
+  rm -rf "$strict_home"
+  unexpected=$(printf '%s\n' "$strict_out" | strict_findings | strict_unaccepted)
+  if [ -n "$unexpected" ]; then
+    while IFS= read -r finding; do fail "strict validate: $finding"; done <<< "$unexpected"
+  elif [ "$strict_rc" -ne 0 ] && [ -z "$(printf '%s\n' "$strict_out" | strict_findings)" ]; then
+    fail "claude plugin validate --strict exited $strict_rc with no parsed finding: $(printf '%s' "$strict_out" | tail -3)"
+  else
+    pass "claude plugin validate --strict reports no finding outside STRICT_ACCEPTED"
   fi
 fi
 

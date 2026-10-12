@@ -64,14 +64,14 @@ make_install() {
   printf '{"name":"tmb"}\n' > "$root/.claude-plugin/plugin.json"
   cat > "$root/hooks/hooks.json" <<'EOF'
 {"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[
-  {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-deny","timeout":6},
-  {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-allow","timeout":6},
-  {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-gate-dies","timeout":6,"onFailure":"block"},
-  {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-gate-dies-deny","timeout":6,"onFailure":"block"},
-  {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-gate-gone","timeout":6,"onFailure":"block"},
-  {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-observe-dies","timeout":6}]}],
+  {"type":"command","command":"\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-deny","timeout":6},
+  {"type":"command","command":"\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-allow","timeout":6},
+  {"type":"command","command":"\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-gate-dies","timeout":6,"onFailure":"block"},
+  {"type":"command","command":"\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-gate-dies-deny","timeout":6,"onFailure":"block"},
+  {"type":"command","command":"\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-gate-gone","timeout":6,"onFailure":"block"},
+  {"type":"command","command":"\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-observe-dies","timeout":6}]}],
 "SubagentStop":[{"matcher":"","hooks":[
-  {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-gate-dies","timeout":6,"onFailure":"block"}]}]}}
+  {"type":"command","command":"\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-gate-dies","timeout":6,"onFailure":"block"}]}]}}
 EOF
   cat > "$root/scripts/hooks/fx-deny.sh" <<EOF
 #!/usr/bin/env bash
@@ -448,9 +448,9 @@ C="$TMP/chain-install"
 make_install "$C" C
 cat > "$C/hooks/hooks.json" <<'EOF'
 {"hooks":{"PreToolUse":[{"matcher":"mcp__.*trajectory-server__.*","hooks":[
-  {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh trajectory-gates","timeout":1842,"onFailure":"block"}]},
+  {"type":"command","command":"\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" trajectory-gates","timeout":1842,"onFailure":"block"}]},
   {"matcher":"Bash","hooks":[
-  {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-allow","timeout":6}]}]}}
+  {"type":"command","command":"\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-allow","timeout":6}]}]}}
 EOF
 for g in agent-arg-matches-caller swe-brief-gate swe-verification-gate reviewer-identity-observe cheatcode-install-approval; do
   cat > "$C/scripts/hooks/$g.sh" <<EOF
@@ -677,7 +677,7 @@ test_case "registration without jq equals the jq reading for every hooks.json en
 . "$PLUGIN_ROOT/scripts/hooks/lib/registrations.sh"
 jq_registration() {
   jq -r --arg g "$2" '
-    [.hooks[][]?.hooks[]? | select((.command // "") | test("/dispatch\\.sh " + $g + "( |$)"))]
+    [.hooks[][]?.hooks[]? | select((.command // "") | test("/dispatch\\.sh\"? " + $g + "( |$)"))]
     | "\([.[].timeout // empty] | max // "") \(if any(.[]; .onFailure == "block") then 1 else 0 end)"' "$1"
 }
 diffs=""
@@ -687,12 +687,12 @@ while IFS= read -r name; do
   want=$(jq_registration "$PLUGIN_ROOT/hooks/hooks.json" "$name")
   got=$(PATH="$NOJQ" tmb_registration "$PLUGIN_ROOT/hooks/hooks.json" "$name")
   [ "$want" = "$got" ] || diffs="$diffs $name(jq=<$want> awk=<$got>)"
-done < <(jq -r '.hooks[][]?.hooks[]?.command | capture("/dispatch\\.sh (?<g>[a-z0-9-]+)").g' "$PLUGIN_ROOT/hooks/hooks.json" | sort -u)
+done < <(jq -r '.hooks[][]?.hooks[]?.command | capture("/dispatch\\.sh\"? (?<g>[a-z0-9-]+)").g' "$PLUGIN_ROOT/hooks/hooks.json" | sort -u)
 assert_eq "" "$diffs" "every registration reads the same"
 [ "$n" -gt 30 ] && _pass || _fail "only $n registrations compared"
 assert_eq "1842 1" "$(tmb_registration "$PLUGIN_ROOT/hooks/hooks.json" trajectory-gates)" "the chain: timeout and fail-closed"
 assert_eq " 0" "$(tmb_registration "$PLUGIN_ROOT/hooks/hooks.json" not-registered)" "an unregistered name"
-printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"x{2}","hooks":[{"onFailure":"block","timeout":9,"command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-a"},{"timeout":3,"command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-ab"}]}]}}' > "$TMP/order.json"
+printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"x{2}","hooks":[{"onFailure":"block","timeout":9,"command":"\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-a"},{"timeout":3,"command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-ab"}]}]}}' > "$TMP/order.json"
 assert_eq "$(jq_registration "$TMP/order.json" fx-a)" "$(tmb_registration "$TMP/order.json" fx-a)" "keys before the command, one line"
 assert_eq "$(jq_registration "$TMP/order.json" fx-ab)" "$(tmb_registration "$TMP/order.json" fx-ab)" "a name that extends another"
 
@@ -718,7 +718,7 @@ while IFS= read -r reg; do
       mismatch="$mismatch $gate"
     fi
   done
-done < <(jq -r '.hooks.PreToolUse[].hooks[].command | capture("/dispatch\\.sh (?<g>[a-z0-9-]+)$").g' "$PLUGIN_ROOT/hooks/hooks.json" | sort -u)
+done < <(jq -r '.hooks.PreToolUse[].hooks[].command | capture("/dispatch\\.sh\"? (?<g>[a-z0-9-]+)$").g' "$PLUGIN_ROOT/hooks/hooks.json" | sort -u)
 assert_eq "" "$mismatch" "no gate differs through the dispatcher"
 [ "$checked" -gt 10 ] && _pass || _fail "parity checked only $checked gates"
 [ ! -e "$PARITY/.claude" ] && _pass || _fail "parity project gained state"
