@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
 // tempDB returns an in-memory DB. By default it pre-seeds a
 // `deep_scan_completed` audit row so the world-model-cold gate on
@@ -28,5 +31,37 @@ export function seedReviewerObservation(db, taskId, attemptN, opts = {}) {
     const res = db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
      VALUES (?, NULL, 'hook:reviewer-identity-observe', 'reviewer_identity_observed', 'test fixture: reviewer observed', ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`, [issueId, content]);
     return Number(res.lastInsertRowid);
+}
+const SCAN_PIN_KEYS = ['TMB_FORBID_LIVE_SYNC', 'TRAJECTORY_DB_PATH', 'TMB_SCAN_MCP_JSON'];
+// pinScanEnv is the one way a test that forks scripts/scan.sh (directly or via
+// scan_run) reaches a DB: it sets TMB_FORBID_LIVE_SYNC=1, points
+// TRAJECTORY_DB_PATH at an empty per-file temp DB and TMB_SCAN_MCP_JSON at an
+// empty mcpServers fixture, so scan.sh never walks up to the project's live
+// trajectory DB nor reads ~/.claude.json. Child processes inherit the pin.
+export function pinScanEnv() {
+    const saved = {};
+    for (const k of SCAN_PIN_KEYS)
+        saved[k] = process.env[k];
+    const dir = mkdtempSync(join(tmpdir(), 'tmb-scan-pin-'));
+    const dbPath = join(dir, 'trajectory.db');
+    const mcpJsonPath = join(dir, 'mcp-servers.json');
+    writeFileSync(dbPath, '');
+    writeFileSync(mcpJsonPath, '{}');
+    process.env['TMB_FORBID_LIVE_SYNC'] = '1';
+    process.env['TRAJECTORY_DB_PATH'] = dbPath;
+    process.env['TMB_SCAN_MCP_JSON'] = mcpJsonPath;
+    return {
+        dbPath,
+        mcpJsonPath,
+        restore() {
+            for (const k of SCAN_PIN_KEYS) {
+                if (saved[k] === undefined)
+                    delete process.env[k];
+                else
+                    process.env[k] = saved[k];
+            }
+            rmSync(dir, { recursive: true, force: true });
+        },
+    };
 }
 //# sourceMappingURL=helpers.js.map

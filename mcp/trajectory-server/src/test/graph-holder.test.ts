@@ -1,10 +1,14 @@
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   GraphHolder,
   GRAPH_REOPEN_THROTTLE_MS,
   type WorldModelGraph,
 } from '../graph-db.js';
+import { pinScanEnv } from './helpers.js';
+
+const scanPin = pinScanEnv();
+after(() => scanPin.restore());
 
 // The holder is unit-tested with a dependency-injected opener + clock — no real
 // kuzu lock is simulated (that stays out of L2, as with the rest of the graph

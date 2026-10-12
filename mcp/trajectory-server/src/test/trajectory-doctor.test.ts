@@ -54,6 +54,13 @@ function seedAudit(db: TrajectoryDB, eventType: string, content: Record<string, 
   );
 }
 
+function seedCheatcode(db: TrajectoryDB, name: string, kind: 'plugin' | 'mcp' | 'skill', sourceUrl: string): void {
+  db.run(
+    `INSERT INTO cheatcodes (name, kind, origin, source_url, file_path, status, installed_at) VALUES (?, ?, 'external', ?, ?, 'active', ?)`,
+    [name, kind, sourceUrl, kind === 'skill' ? `.claude/skills/${name}/SKILL.md` : null, iso()],
+  );
+}
+
 function seedVerifiedClose(db: TrajectoryDB, sha: string, updatedAt = iso(), verification = '["npm test"]'): number {
   const id = seedTask(db, seedIssue(db), 'closed', updatedAt);
   db.run('UPDATE tasks SET commit_sha = ?, verification = ? WHERE id = ?', [sha, verification, id]);
@@ -290,6 +297,17 @@ const FIXTURES: Record<string, { violate?: (db: TrajectoryDB) => void; pass: (db
   populated_tasks_prompt_bearing: {
     pass: (db) => {
       seedTask(db, seedIssue(db), 'pending');
+    },
+  },
+  no_fixture_rows_in_inventory: {
+    violate: (db) => {
+      seedCheatcode(db, 'alpha', 'plugin', 'alpha@tmb-test-market');
+      seedCheatcode(db, 'fixture-mcp', 'mcp', 'mcp:fixture-mcp');
+    },
+    pass: (db) => {
+      seedCheatcode(db, 'linear', 'plugin', 'linear@claude-plugins-official');
+      seedCheatcode(db, 'alpha', 'skill', 'skill:alpha');
+      seedCheatcode(db, 'alphabet', 'mcp', 'mcp:alphabet');
     },
   },
   issues_closed_no_live_tasks: {

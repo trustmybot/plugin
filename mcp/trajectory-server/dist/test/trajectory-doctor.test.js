@@ -37,6 +37,9 @@ function seedTask(db, issueId, status, updatedAt = iso()) {
 function seedAudit(db, eventType, content = {}, createdAt = iso(), fromNode = 'bro') {
     db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (-1, ?, ?, 's', ?, ?)`, [fromNode, eventType, JSON.stringify(content), createdAt]);
 }
+function seedCheatcode(db, name, kind, sourceUrl) {
+    db.run(`INSERT INTO cheatcodes (name, kind, origin, source_url, file_path, status, installed_at) VALUES (?, ?, 'external', ?, ?, 'active', ?)`, [name, kind, sourceUrl, kind === 'skill' ? `.claude/skills/${name}/SKILL.md` : null, iso()]);
+}
 function seedVerifiedClose(db, sha, updatedAt = iso(), verification = '["npm test"]') {
     const id = seedTask(db, seedIssue(db), 'closed', updatedAt);
     db.run('UPDATE tasks SET commit_sha = ?, verification = ? WHERE id = ?', [sha, verification, id]);
@@ -249,6 +252,17 @@ const FIXTURES = {
     populated_tasks_prompt_bearing: {
         pass: (db) => {
             seedTask(db, seedIssue(db), 'pending');
+        },
+    },
+    no_fixture_rows_in_inventory: {
+        violate: (db) => {
+            seedCheatcode(db, 'alpha', 'plugin', 'alpha@tmb-test-market');
+            seedCheatcode(db, 'fixture-mcp', 'mcp', 'mcp:fixture-mcp');
+        },
+        pass: (db) => {
+            seedCheatcode(db, 'linear', 'plugin', 'linear@claude-plugins-official');
+            seedCheatcode(db, 'alpha', 'skill', 'skill:alpha');
+            seedCheatcode(db, 'alphabet', 'mcp', 'mcp:alphabet');
         },
     },
     issues_closed_no_live_tasks: {

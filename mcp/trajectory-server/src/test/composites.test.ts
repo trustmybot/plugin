@@ -1,11 +1,11 @@
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
-import { tempDB } from './helpers.js';
+import { pinScanEnv, tempDB } from './helpers.js';
 import { compositeTools, filesToDirs, scopeCheckCommit } from '../tools/composites.js';
 import { GraphHolder, type WorldModelGraph } from '../graph-db.js';
 import { issueTools } from '../tools/issues.js';
@@ -14,6 +14,9 @@ import { discussionTools } from '../tools/discussions.js';
 import { auditTools } from '../tools/audit.js';
 import { embed } from '../embeddings/model.js';
 import { upsertRepoRemotes } from '../repos/remotes.js';
+
+const scanPin = pinScanEnv();
+after(() => scanPin.restore());
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 

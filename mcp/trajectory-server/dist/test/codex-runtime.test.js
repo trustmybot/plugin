@@ -5,13 +5,16 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { afterEach, describe, it } from 'node:test';
+import { after, afterEach, describe, it } from 'node:test';
 import { TrajectoryDB } from '../db.js';
 import { GraphHolder } from '../graph-db.js';
 import { readCodexPackageMetadata } from '../codex-package.js';
 import { CodexRuntimeError, CodexRuntimeManager, } from '../codex-runtime.js';
 import { CODEX_SCOPE_3_TOOL_NAMES, CODEX_SCOPE_4_TOOL_NAMES, createCodexToolRegistry, } from '../codex-tools.js';
 import { registerTools, toolDefinitions, toolHandlers, } from '../tools/index.js';
+import { pinScanEnv } from './helpers.js';
+const scanPin = pinScanEnv();
+after(() => scanPin.restore());
 const cleanup = [];
 const EXPECTED_SCOPE_3_TOOL_NAMES = [
     'runtime_initialize',

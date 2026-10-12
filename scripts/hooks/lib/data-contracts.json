@@ -157,6 +157,17 @@
       "sample_sql": "SELECT id, task_id, commit_sha, source, started_at FROM verification_runs\n             WHERE finished_at IS NULL AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) < strftime('%Y-%m-%dT%H:%M:%fZ','now','-2 hours')\n             ORDER BY id DESC LIMIT 5"
     },
     {
+      "id": "no_fixture_rows_in_inventory",
+      "severity": "warn",
+      "description": "no plugin or MCP-server cheatcodes row carries a scan test-fixture name (alpha, beta, alpha-server, fixture-*, test-plugin*, or a <name>@tmb-test-market ref): such a row means a test's scan.sh run reached this DB; report only — agents never delete these rows, the Human decides",
+      "sql": "SELECT COUNT(*) FROM cheatcodes c\n             WHERE c.kind IN ('plugin','mcp')\n               AND (c.name IN ('alpha','beta','alpha-server')\n                    OR c.name GLOB 'fixture-*' OR c.name GLOB 'test-plugin*'\n                    OR COALESCE(c.source_url, '') LIKE '%@tmb-test-market')",
+      "expect": {
+        "op": "=",
+        "value": 0
+      },
+      "sample_sql": "SELECT c.id, c.name, c.kind, c.source_url, c.created_at FROM cheatcodes c\n             WHERE c.kind IN ('plugin','mcp')\n               AND (c.name IN ('alpha','beta','alpha-server')\n                    OR c.name GLOB 'fixture-*' OR c.name GLOB 'test-plugin*'\n                    OR COALESCE(c.source_url, '') LIKE '%@tmb-test-market')\n             ORDER BY c.id DESC LIMIT 5"
+    },
+    {
       "id": "populated_agent_runs_session_id",
       "severity": "warn",
       "description": "agent_runs.session_id NULL rate over rows created in the last 30 days stays at or under 0.2",

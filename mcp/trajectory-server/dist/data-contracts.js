@@ -52,6 +52,11 @@ const UNCONSUMED_STALE_OBSERVATION = (alias) => `${alias}.event_type = 'reviewer
                AND COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.consumed') END, 0) = 0
                AND COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.superseded') END, 0) = 0`;
 const LIVE_TASK_STATUSES = "'pending','running','needs_validation','completed'";
+// The plugin / MCP-server names the scan fixtures in src/test/ register.
+const FIXTURE_INVENTORY_ROW = (alias) => `${alias}.kind IN ('plugin','mcp')
+               AND (${alias}.name IN ('alpha','beta','alpha-server')
+                    OR ${alias}.name GLOB 'fixture-*' OR ${alias}.name GLOB 'test-plugin*'
+                    OR COALESCE(${alias}.source_url, '') LIKE '%@tmb-test-market')`;
 /** Columns added in v29–v33 that stay NULL by design; they get no contract. */
 export const NULLABLE_COLUMNS = [
     { table: 'discussions', column: 'remote_comment_id', reason: 'set only on discussions ingested from a PR/MR comment; NULL for every local discussion' },
@@ -241,6 +246,17 @@ export function buildDataContracts(documentedEventTypes) {
             sample_sql: `SELECT id, task_id, commit_sha, source, started_at FROM verification_runs
              WHERE finished_at IS NULL AND ${ts('started_at')} < ${hoursAgo(2)}
              ORDER BY id DESC LIMIT 5`,
+        },
+        {
+            id: 'no_fixture_rows_in_inventory',
+            severity: 'warn',
+            description: 'no plugin or MCP-server cheatcodes row carries a scan test-fixture name (alpha, beta, alpha-server, fixture-*, test-plugin*, or a <name>@tmb-test-market ref): such a row means a test\'s scan.sh run reached this DB; report only — agents never delete these rows, the Human decides',
+            sql: `SELECT COUNT(*) FROM cheatcodes c
+             WHERE ${FIXTURE_INVENTORY_ROW('c')}`,
+            expect: { op: '=', value: 0 },
+            sample_sql: `SELECT c.id, c.name, c.kind, c.source_url, c.created_at FROM cheatcodes c
+             WHERE ${FIXTURE_INVENTORY_ROW('c')}
+             ORDER BY c.id DESC LIMIT 5`,
         },
         ...POPULATED_COLUMNS.map(populatedContract),
         {
