@@ -18,6 +18,8 @@ consultant_spawn_nudged
 containment_denied
 decision_gate_waived
 deep_scan_completed
+embeddings_degraded
+embeddings_recovered
 intent_gate_waived
 issue_adopted
 issue_auto_close_deferred

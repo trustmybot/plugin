@@ -357,6 +357,7 @@ The schema says what a row may hold; the data contracts say what the rows TMB wr
 | `no_stale_running` | warn | no `running` task has gone `TMB_STALE_RUNNING_HOURS` (default 6) without an update and without an open swe `agent_runs` row |
 | `scan_fresh` | warn | some `repos.last_scanned_at` is within 7 days (passes with no repo row) |
 | `waiver_not_duplicated` | warn | no `(task_id, commit_sha)` has two `verification_gate_waived` rows |
+| `embeddings_not_degraded` | warn | no `embeddings_degraded` audit row from the last 24 hours lacks a later `embeddings_recovered` row (semantic search is on its FTS fallback) |
 | `populated_agent_runs_session_id` | warn | NULL rate over rows started in the last 30 days ≤ 0.2 |
 | `populated_agent_runs_usage_source` | warn | NULL rate over completed rows started in the last 30 days ≤ 0.05 |
 | `populated_agent_runs_model` | warn | NULL rate over measured rows (`transcript` / `subagent_stop` / `backfill`) started in the last 30 days ≤ 0.1 |
