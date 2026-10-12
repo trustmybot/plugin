@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 34`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 35`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -28,12 +28,13 @@ The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drif
 `issues.labels` (#53, schema v28) is a nullable `TEXT` column holding the validated label set from `issue_create` as a JSON array string. `issue_sync_retry` replays it verbatim so a retried remote create carries the original labels rather than re-deriving them; a `NULL` value marks a pre-v28 row and falls back to the taxonomy-derived default label pair.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 34`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 35`; edit the schema, then rerun the script._
 
 ## Diagram
 
 ```mermaid
 erDiagram
+    repos ||--o{ repo_remotes : "repo (CASCADE)"
     repos ||--o{ milestones : "repo (RESTRICT)"
     repos |o--o{ issues : "repo (RESTRICT)"
     milestones |o--o{ issues : "milestone, repo (RESTRICT)"
@@ -63,7 +64,15 @@ erDiagram
         TEXT target_branch
         TEXT branching_model
         TEXT protected_branches
-        TEXT remotes
+    }
+
+    repo_remotes {
+        TEXT repo PK,FK "NOT NULL; → repos.name CASCADE"
+        TEXT name PK "NOT NULL"
+        TEXT provider "NOT NULL; CHECK github|gitlab|other"
+        TEXT url "NOT NULL"
+        INTEGER is_primary "NOT NULL; CHECK is_primary IN (0,1)"
+        TEXT created_at "NOT NULL"
     }
 
     milestones {
@@ -130,6 +139,7 @@ erDiagram
         TEXT subagent_session_id
         TEXT repo FK "→ repos.name RESTRICT"
         TEXT created_at "NOT NULL"
+        TEXT reviewer_agent_id
     }
 
     agents {
@@ -268,7 +278,21 @@ erDiagram
 | `target_branch` | TEXT | nullable |  |  |
 | `branching_model` | TEXT | nullable |  |  |
 | `protected_branches` | TEXT | nullable |  |  |
-| `remotes` | TEXT | nullable |  |  |
+
+### `repo_remotes`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `repo` | TEXT | NOT NULL |  | FK → `repos.name` ON DELETE CASCADE |
+| `name` | TEXT | NOT NULL |  |  |
+| `provider` | TEXT | NOT NULL |  | CHECK `provider IN ('github','gitlab','other')` |
+| `url` | TEXT | NOT NULL |  |  |
+| `is_primary` | INTEGER | NOT NULL | `0` | CHECK `is_primary IN (0,1)` |
+| `created_at` | TEXT | NOT NULL | `(strftime('%Y-%m-%dT%H:%M:%fZ','now'))` |  |
+
+Table constraints:
+
+- PRIMARY KEY `(repo, name)`
 
 ### `milestones`
 
@@ -353,6 +377,7 @@ Table constraints:
 | `subagent_session_id` | TEXT | nullable |  |  |
 | `repo` | TEXT | nullable |  | FK → `repos.name` ON DELETE RESTRICT |
 | `created_at` | TEXT | NOT NULL |  |  |
+| `reviewer_agent_id` | TEXT | nullable |  |  |
 
 Table constraints:
 
@@ -521,6 +546,7 @@ SQLite enforces every one (`PRAGMA foreign_keys = ON`); `NO ACTION` is SQLite's 
 
 | From | Column(s) | → To | ON DELETE |
 |---|---|---|---|
+| `repo_remotes` | `repo` | `repos(name)` | CASCADE |
 | `milestones` | `repo` | `repos(name)` | RESTRICT |
 | `issues` | `repo` | `repos(name)` | RESTRICT |
 | `issues` | `milestone, repo` | `milestones(name, repo)` | RESTRICT |
@@ -555,6 +581,7 @@ FTS5 virtual tables over a content table. SQLite creates and maintains each one'
 
 | Index | Table | Columns | Unique | Where |
 |---|---|---|---|---|
+| `idx_repo_remotes_primary` | `repo_remotes` | `repo, is_primary` |  |  |
 | `idx_issues_status` | `issues` | `status` |  |  |
 | `idx_issues_gh_iid` | `issues` | `gh_iid` |  |  |
 | `idx_tasks_issue_branch` | `tasks` | `issue_id, branch_id` | yes |  |

@@ -26,16 +26,16 @@ A new key is added in code and given a `KEYS` entry (type, who sets it, effect) 
 
 The schema-seeded keys are present in every initialised DB via `INSERT OR IGNORE`, which never overwrites a user's choice. The label-taxonomy keys fall back to a generic default in code (`validateIssueLabels`) when unset or malformed, so a label-less project can still create issues. The other keys may be absent until the operation that writes them runs; readers treat absent as the documented default.
 
-## Repo-scoped policy lives on `repos`, not here
+## Repo-scoped policy lives on `repos` and `repo_remotes`, not here
 
-The four repo-scoped policy fields are columns of the `repos` table — the sole source of truth (#980). There is no global key and no global fallback. `/onboard` applies policy workspace-wide by writing the chosen values onto every `repos` row (or onto one row with `repo=<name>`); `scan_run` keeps `repos.remotes` in sync with each repo's git remotes (#979). See [`REPO_RESOLUTION.md`](../architecture/REPO_RESOLUTION.md).
+Repo-scoped policy lives on the `repos` row (`branching_model`, `target_branch`, `protected_branches`) and in the repo's `repo_remotes` rows — the sole source of truth (#980). There is no global key and no global fallback. `/onboard` applies policy workspace-wide by writing the chosen values onto every `repos` row (or onto one row with `repo=<name>`); `scan_run` keeps `repo_remotes` in sync with each repo's git remotes (#979). See [`REPO_RESOLUTION.md`](../architecture/REPO_RESOLUTION.md).
 
-| Column | Type | Allowed values | Read by | Written by |
+| Field | Type | Allowed values | Read by | Written by |
 |---|---|---|---|---|
 | `repos.branching_model` | string | `github-flow` \| `gitflow` \| `custom` | `git-guards.sh`, bro routing | `onboard_apply` |
 | `repos.target_branch` (`pr_target`) | string | any valid branch name | `git-guards.sh` PR rule, `git-push-guard.sh`, `branch-up-to-date-with-remote.sh`, `clean-merged-branch.sh`, `cleanup-worktree-on-task-close.sh`, `task_create_batch` (branch base) | `onboard_apply` |
 | `repos.protected_branches` | string[] (JSON) | array of branch names | `git-guards.sh` commit rule, `clean-merged-branch.sh` | `onboard_apply` |
-| `repos.remotes` | object[] (JSON) | array of `{name, provider, url}` (`provider` ∈ `github` \| `gitlab` \| `bitbucket` \| `codeberg` \| `azuredev` \| `other`) | issue-scoped sync, `substrate-preflight.sh`, `no-remote-auth-guard.sh`, the push gate | `scan_run` (from git remotes); `onboard_apply` |
+| `repo_remotes` rows | one row per `(repo, name)`: `url`, `provider` (`github` \| `gitlab` \| `other`, from the URL host), `is_primary` | `origin`, else the first remote, is primary | issue-scoped sync, `substrate-preflight.sh`, `no-remote-auth-guard.sh`, the push gate | `scan_run` (from git remotes); `onboard_apply` |
 
 Shell hooks resolve the current repo via `scripts/hooks/lib/resolve-repo.sh` (`tmb_repo_git_root` + `tmb_repo_resolve` / `tmb_repo_remotes`) and read the matching `repos` row. An unset `branching_model` / `target_branch` / `protected_branches` means the repo is not onboarded — run `/onboard` — never a silent global default.
 
@@ -52,7 +52,7 @@ Shell hooks resolve the current repo via `scripts/hooks/lib/resolve-repo.sh` (`t
 In a multi-repo workspace the trajectory DB lives at `<workspace>/.claude/<plugin>/trajectory.db` while each git repo lives at `<workspace>/<inner>/`. Repo identity is the `repos` table, and every work table carries a `repo` column that is a real FK to `repos(name)`. Repo selection is per row:
 
 - `task_create_batch` and `issue_create` accept `repo=<name>`; with exactly one `repos` row it is the default. The value must match a `repos.name` row.
-- Issue-scoped sync resolves the repo's path and `repos.remotes` to target an explicit `gh --repo` / `glab -R`, never the server's working directory.
+- Issue-scoped sync resolves the repo's path and its `repo_remotes` rows to target an explicit `gh --repo` / `glab -R`, never the server's working directory.
 - `issue_create` upserts the `milestones(name, repo)` row for an explicit milestone; an omitted milestone defaults to the repo's sole open milestone and never creates a row.
 - `onboard_get_questions` / `onboard_apply` take an optional `repo=<name>` to seed from and write to only that `repos` row; omitting it applies to every row plus the global `onboarded` / `issue_sync` keys. An unknown repo name is a validation error with no partial write.
 

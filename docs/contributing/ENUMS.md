@@ -309,7 +309,7 @@ Common values: `bro`, `swe`, `pr-reviewer`, `architect`, `cto`, `pm`, `ceo`. Ope
 | `gitlab` | gitlab.com or self-hosted GitLab |
 | `other` | Any other host (Bitbucket, Codeberg, Azure DevOps, custom) |
 
-Schema enforces via `CHECK (provider IN ('github','gitlab','other'))`. The writer (`upsertRepoRemotes`, and the v35 migration from the old `repos.remotes` JSON) derives the value from the URL host:
+Schema enforces via `CHECK (provider IN ('github','gitlab','other'))`. The writer (`upsertRepoRemotes`, and the v35 migration from the v34 `repos.remotes` JSON) derives the value from the URL host:
 
 - `github.com` → `github`
 - `gitlab.com` or `gitlab.<corp>.<tld>` → `gitlab`
