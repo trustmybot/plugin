@@ -34,6 +34,8 @@ node --test dist/test/*.test.js
 | Variable | Default | Description |
 |---|---|---|
 | `TRAJECTORY_DB_PATH` | `<CLAUDE_PROJECT_DIR>/.claude/<plugin-name>/trajectory.db`; without a project root, the outermost existing DB walking up from `<cwd>` — see [Where the trajectory DB lives](../../docs/reference/TRAJECTORY_DB_LOCATION.md) | Absolute path to the SQLite database, or `:memory:` for ephemeral runs. Filenames `world-model.kuzu` and `*.world-model.kuzu` are reserved for graph storage and rejected. |
+| `TMB_EMBED_FAIL_THRESHOLD` | `5` | Consecutive failed embed calls that put the embedding model in the degraded state (see [Health](#health)). |
+| `TMB_EMBED_RETRY_MS` | unset (1 min, 5 min, then every 10 min) | One fixed delay between degraded-state re-attempts, for tests. |
 
 Default is project-local, per-user, gitignored (the plugin-root `.gitignore` excludes `.claude/`). The `<plugin-name>` segment is read from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field. Both stable and RC channels currently ship `name=tmb`, so both resolve to `.claude/tmb/` — install only one channel at a time to avoid DB collision. The hooks resolve the same DB by the same rule ([`docs/reference/TRAJECTORY_DB_LOCATION.md`](../../docs/reference/TRAJECTORY_DB_LOCATION.md)). Set the env var to override for CI, isolated tests, or shared testbeds.
 
@@ -42,6 +44,12 @@ Server logs (`mcp-server.log`, `sql.log`, `issue-sync.log`) live in `logs/` besi
 `TrajectoryDB` has two construction modes. The existing one-argument constructor keeps Claude behavior and discovers `plugin_version` from `CLAUDE_PLUGIN_ROOT`. Supplying `TrajectoryDBDependencies` switches to an authoritative explicit mode: the provided `pluginVersion`, `serverLog`, and `sqlLog` are used without falling back to Claude process state; `pluginVersion: null` deliberately disables version synchronization. Logger callback failures are isolated and never change a database operation's result.
 
 Codex-bound consumers pass the context's canonical `projectRoot` as `trustedProjectRoot` when creating a project logger, `TrajectoryDB`, or `WorldModelGraph`. Each consumer then revalidates its target immediately before creating or opening state. Explicit project loggers also reject symlink leaves and create new log files with mode `0600` on POSIX; the legacy Claude singleton keeps its existing append semantics. This is a fail-closed guard against path replacement between context resolution and use, not a claim of atomic protection against a same-user filesystem mutation in the final syscall window.
+
+## Health
+
+The embedding model (`src/embeddings/model.ts`) reports its state through `embeddingStatus()`: `{state: 'ready'|'degraded'|'loading'|'disabled', since?, reason?, consecutive_failures, next_retry_at?}` (`disabled` = no load attempted yet). `trajectory_doctor` returns it as `embeddings` beside the data-contract report, and every degraded / recovered transition logs an `embeddings_state` line with it to `mcp-server.log`.
+
+A model that cannot load enters `degraded` at once; a failed embed call is only counted, and `TMB_EMBED_FAIL_THRESHOLD` (default 5) consecutive failures enter `degraded` too; any success resets the count. While degraded, embedding returns nothing — search and embed-at-write use FTS only, with unchanged result shapes — until a re-attempt (rebuild the model, then embed) is due: 1 min after entering, then 5 min, then every 10 min (`TMB_EMBED_RETRY_MS` sets one fixed delay, for tests). A successful re-attempt returns to `ready`. Each episode writes one `embeddings_degraded` audit row on the system issue `-1` and one `embeddings_recovered` row when it clears; the `embeddings_not_degraded` warn contract flags a degraded row from the last 24 hours with no later recovery.
 
 ## Tool families
 

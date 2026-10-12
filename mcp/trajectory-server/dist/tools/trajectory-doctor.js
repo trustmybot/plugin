@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
+import { embeddingStatus } from '../embeddings/model.js';
 import { DATA_CONTRACTS, contractHolds, schemaTooOldReason, contractParamValues, } from '../data-contracts.js';
 export const STATEMENT_TIMEOUT_MS_DEFAULT = 2000;
 const bind = (params) => (Object.keys(params).length > 0 ? [params] : []);
@@ -172,7 +173,7 @@ export function trajectoryDoctorTools(db) {
     const definitions = [
         {
             name: 'trajectory_doctor',
-            description: 'Check the trajectory DB against its data contracts (read-only). Returns {healthy, violations, skipped}; record:true logs one trajectory_doctor_run audit row.',
+            description: 'Check the trajectory DB against its data contracts (read-only). Returns {healthy, violations, skipped, embeddings}; record:true logs one trajectory_doctor_run audit row.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -201,6 +202,7 @@ export function trajectoryDoctorTools(db) {
         finally {
             ro?.close();
         }
+        report.embeddings = embeddingStatus();
         if (!record)
             return ok(report);
         const auditId = insertAudit(db, {

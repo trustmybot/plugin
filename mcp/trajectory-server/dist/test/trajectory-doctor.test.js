@@ -33,8 +33,8 @@ function seedTask(db, issueId, status, updatedAt = iso()) {
      VALUES (?, ?, 'd', ?, ?, ?)`, [issueId, `feat/t-${Math.random().toString(36).slice(2)}`, status, iso(), updatedAt]);
     return db.get('SELECT MAX(id) AS id FROM tasks').id;
 }
-function seedAudit(db, eventType, content = {}) {
-    db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (-1, 'bro', ?, 's', ?, ?)`, [eventType, JSON.stringify(content), iso()]);
+function seedAudit(db, eventType, content = {}, createdAt = iso()) {
+    db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (-1, 'bro', ?, 's', ?, ?)`, [eventType, JSON.stringify(content), createdAt]);
 }
 function seedRun(db, o = {}) {
     const completedAt = o.completedAt === undefined ? iso() : o.completedAt;
@@ -130,6 +130,18 @@ const FIXTURES = {
             seedAudit(db, 'verification_gate_waived', { task_id: 7, commit_sha: 'aaa1111' });
             seedAudit(db, 'verification_gate_waived', { task_id: 7, commit_sha: 'bbb2222' });
             seedAudit(db, 'verification_gate_waived', { task_id: 8 });
+        },
+    },
+    embeddings_not_degraded: {
+        violate: (db) => {
+            seedAudit(db, 'embeddings_degraded', { reason: 'model load failed', consecutive_failures: 1 }, iso(-2 * HOUR));
+            seedAudit(db, 'embeddings_recovered', { retries: 1 }, iso(-HOUR));
+            seedAudit(db, 'embeddings_degraded', { reason: '5 consecutive embed failures', consecutive_failures: 5 });
+        },
+        pass: (db) => {
+            seedAudit(db, 'embeddings_degraded', { reason: 'model load failed', consecutive_failures: 1 }, iso(-2 * DAY));
+            seedAudit(db, 'embeddings_degraded', { reason: 'model load failed', consecutive_failures: 1 }, iso(-2 * HOUR));
+            seedAudit(db, 'embeddings_recovered', { retries: 1 }, iso(-HOUR));
         },
     },
     populated_agent_runs_session_id: {
@@ -386,6 +398,12 @@ describe('trajectory_doctor tool', () => {
         assert.equal(JSON.parse(row.content_json).healthy, true);
         const again = JSON.parse((await call(db, { agent: 'bro' })).content[0].text);
         assert.deepEqual(again.violations, [], 'a recorded run is itself a documented event');
+    });
+    it('carries the live embedding model status', async () => {
+        const db = tempDB();
+        const body = JSON.parse((await call(db, { agent: 'bro' })).content[0].text);
+        assert.ok(['ready', 'degraded', 'loading', 'disabled'].includes(body.embeddings.state));
+        assert.equal(typeof body.embeddings.consecutive_failures, 'number');
     });
     it('ids runs only the named subset', async () => {
         const db = tempDB();

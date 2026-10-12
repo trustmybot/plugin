@@ -197,6 +197,20 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
              WHERE a.event_type = 'verification_gate_waived'
              GROUP BY ${auditTaskId('a')}, COALESCE(${auditCommitSha('a')}, '') HAVING COUNT(*) > 1 ORDER BY n DESC LIMIT 5`,
     },
+    {
+      id: 'embeddings_not_degraded',
+      severity: 'warn',
+      min_schema: 33,
+      description: 'no embeddings_degraded audit row from the last 24 hours lacks a later embeddings_recovered row (semantic search is falling back to FTS)',
+      sql: `SELECT COUNT(*) FROM audit d
+             WHERE d.event_type = 'embeddings_degraded' AND ${ts('d.created_at')} >= ${daysAgo(1)}
+               AND NOT EXISTS (SELECT 1 FROM audit r WHERE r.event_type = 'embeddings_recovered' AND r.id > d.id)`,
+      expect: { op: '=', value: 0 },
+      sample_sql: `SELECT d.id, d.created_at, d.content_json FROM audit d
+             WHERE d.event_type = 'embeddings_degraded' AND ${ts('d.created_at')} >= ${daysAgo(1)}
+               AND NOT EXISTS (SELECT 1 FROM audit r WHERE r.event_type = 'embeddings_recovered' AND r.id > d.id)
+             ORDER BY d.id DESC LIMIT 5`,
+    },
     ...POPULATED_COLUMNS.map(populatedContract),
     {
       id: 'issues_closed_no_live_tasks',

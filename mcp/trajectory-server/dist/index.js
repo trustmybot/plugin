@@ -1359,12 +1359,12 @@ var require_errors = __commonJS({
       }
       return [E.schemaPath, schPath];
     }
-    function extraErrorProps(cxt, { params, message }, keyValues) {
+    function extraErrorProps(cxt, { params, message: message2 }, keyValues) {
       const { keyword, data, schemaValue, it } = cxt;
       const { opts, propertyName, topSchemaRef, schemaPath } = it;
       keyValues.push([E.keyword, keyword], [E.params, typeof params == "function" ? params(cxt) : params || (0, codegen_1._)`{}`]);
       if (opts.messages) {
-        keyValues.push([E.message, typeof message == "function" ? message(cxt) : message]);
+        keyValues.push([E.message, typeof message2 == "function" ? message2(cxt) : message2]);
       }
       if (opts.verbose) {
         keyValues.push([E.schema, schemaValue], [E.parentSchema, (0, codegen_1._)`${topSchemaRef}${schemaPath}`], [names_1.default.data, data]);
@@ -4097,11 +4097,11 @@ var require_core = __commonJS({
         }
         const valid = this.validate($schema, schema);
         if (!valid && throwOrLogError) {
-          const message = "schema is invalid: " + this.errorsText();
+          const message2 = "schema is invalid: " + this.errorsText();
           if (this.opts.validateSchema === "log")
-            this.logger.error(message);
+            this.logger.error(message2);
           else
-            throw new Error(message);
+            throw new Error(message2);
         }
         return valid;
       }
@@ -7052,104 +7052,104 @@ ZodError.create = (issues) => {
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/locales/en.js
 var errorMap = (issue2, _ctx) => {
-  let message;
+  let message2;
   switch (issue2.code) {
     case ZodIssueCode.invalid_type:
       if (issue2.received === ZodParsedType.undefined) {
-        message = "Required";
+        message2 = "Required";
       } else {
-        message = `Expected ${issue2.expected}, received ${issue2.received}`;
+        message2 = `Expected ${issue2.expected}, received ${issue2.received}`;
       }
       break;
     case ZodIssueCode.invalid_literal:
-      message = `Invalid literal value, expected ${JSON.stringify(issue2.expected, util.jsonStringifyReplacer)}`;
+      message2 = `Invalid literal value, expected ${JSON.stringify(issue2.expected, util.jsonStringifyReplacer)}`;
       break;
     case ZodIssueCode.unrecognized_keys:
-      message = `Unrecognized key(s) in object: ${util.joinValues(issue2.keys, ", ")}`;
+      message2 = `Unrecognized key(s) in object: ${util.joinValues(issue2.keys, ", ")}`;
       break;
     case ZodIssueCode.invalid_union:
-      message = `Invalid input`;
+      message2 = `Invalid input`;
       break;
     case ZodIssueCode.invalid_union_discriminator:
-      message = `Invalid discriminator value. Expected ${util.joinValues(issue2.options)}`;
+      message2 = `Invalid discriminator value. Expected ${util.joinValues(issue2.options)}`;
       break;
     case ZodIssueCode.invalid_enum_value:
-      message = `Invalid enum value. Expected ${util.joinValues(issue2.options)}, received '${issue2.received}'`;
+      message2 = `Invalid enum value. Expected ${util.joinValues(issue2.options)}, received '${issue2.received}'`;
       break;
     case ZodIssueCode.invalid_arguments:
-      message = `Invalid function arguments`;
+      message2 = `Invalid function arguments`;
       break;
     case ZodIssueCode.invalid_return_type:
-      message = `Invalid function return type`;
+      message2 = `Invalid function return type`;
       break;
     case ZodIssueCode.invalid_date:
-      message = `Invalid date`;
+      message2 = `Invalid date`;
       break;
     case ZodIssueCode.invalid_string:
       if (typeof issue2.validation === "object") {
         if ("includes" in issue2.validation) {
-          message = `Invalid input: must include "${issue2.validation.includes}"`;
+          message2 = `Invalid input: must include "${issue2.validation.includes}"`;
           if (typeof issue2.validation.position === "number") {
-            message = `${message} at one or more positions greater than or equal to ${issue2.validation.position}`;
+            message2 = `${message2} at one or more positions greater than or equal to ${issue2.validation.position}`;
           }
         } else if ("startsWith" in issue2.validation) {
-          message = `Invalid input: must start with "${issue2.validation.startsWith}"`;
+          message2 = `Invalid input: must start with "${issue2.validation.startsWith}"`;
         } else if ("endsWith" in issue2.validation) {
-          message = `Invalid input: must end with "${issue2.validation.endsWith}"`;
+          message2 = `Invalid input: must end with "${issue2.validation.endsWith}"`;
         } else {
           util.assertNever(issue2.validation);
         }
       } else if (issue2.validation !== "regex") {
-        message = `Invalid ${issue2.validation}`;
+        message2 = `Invalid ${issue2.validation}`;
       } else {
-        message = "Invalid";
+        message2 = "Invalid";
       }
       break;
     case ZodIssueCode.too_small:
       if (issue2.type === "array")
-        message = `Array must contain ${issue2.exact ? "exactly" : issue2.inclusive ? `at least` : `more than`} ${issue2.minimum} element(s)`;
+        message2 = `Array must contain ${issue2.exact ? "exactly" : issue2.inclusive ? `at least` : `more than`} ${issue2.minimum} element(s)`;
       else if (issue2.type === "string")
-        message = `String must contain ${issue2.exact ? "exactly" : issue2.inclusive ? `at least` : `over`} ${issue2.minimum} character(s)`;
+        message2 = `String must contain ${issue2.exact ? "exactly" : issue2.inclusive ? `at least` : `over`} ${issue2.minimum} character(s)`;
       else if (issue2.type === "number")
-        message = `Number must be ${issue2.exact ? `exactly equal to ` : issue2.inclusive ? `greater than or equal to ` : `greater than `}${issue2.minimum}`;
+        message2 = `Number must be ${issue2.exact ? `exactly equal to ` : issue2.inclusive ? `greater than or equal to ` : `greater than `}${issue2.minimum}`;
       else if (issue2.type === "bigint")
-        message = `Number must be ${issue2.exact ? `exactly equal to ` : issue2.inclusive ? `greater than or equal to ` : `greater than `}${issue2.minimum}`;
+        message2 = `Number must be ${issue2.exact ? `exactly equal to ` : issue2.inclusive ? `greater than or equal to ` : `greater than `}${issue2.minimum}`;
       else if (issue2.type === "date")
-        message = `Date must be ${issue2.exact ? `exactly equal to ` : issue2.inclusive ? `greater than or equal to ` : `greater than `}${new Date(Number(issue2.minimum))}`;
+        message2 = `Date must be ${issue2.exact ? `exactly equal to ` : issue2.inclusive ? `greater than or equal to ` : `greater than `}${new Date(Number(issue2.minimum))}`;
       else
-        message = "Invalid input";
+        message2 = "Invalid input";
       break;
     case ZodIssueCode.too_big:
       if (issue2.type === "array")
-        message = `Array must contain ${issue2.exact ? `exactly` : issue2.inclusive ? `at most` : `less than`} ${issue2.maximum} element(s)`;
+        message2 = `Array must contain ${issue2.exact ? `exactly` : issue2.inclusive ? `at most` : `less than`} ${issue2.maximum} element(s)`;
       else if (issue2.type === "string")
-        message = `String must contain ${issue2.exact ? `exactly` : issue2.inclusive ? `at most` : `under`} ${issue2.maximum} character(s)`;
+        message2 = `String must contain ${issue2.exact ? `exactly` : issue2.inclusive ? `at most` : `under`} ${issue2.maximum} character(s)`;
       else if (issue2.type === "number")
-        message = `Number must be ${issue2.exact ? `exactly` : issue2.inclusive ? `less than or equal to` : `less than`} ${issue2.maximum}`;
+        message2 = `Number must be ${issue2.exact ? `exactly` : issue2.inclusive ? `less than or equal to` : `less than`} ${issue2.maximum}`;
       else if (issue2.type === "bigint")
-        message = `BigInt must be ${issue2.exact ? `exactly` : issue2.inclusive ? `less than or equal to` : `less than`} ${issue2.maximum}`;
+        message2 = `BigInt must be ${issue2.exact ? `exactly` : issue2.inclusive ? `less than or equal to` : `less than`} ${issue2.maximum}`;
       else if (issue2.type === "date")
-        message = `Date must be ${issue2.exact ? `exactly` : issue2.inclusive ? `smaller than or equal to` : `smaller than`} ${new Date(Number(issue2.maximum))}`;
+        message2 = `Date must be ${issue2.exact ? `exactly` : issue2.inclusive ? `smaller than or equal to` : `smaller than`} ${new Date(Number(issue2.maximum))}`;
       else
-        message = "Invalid input";
+        message2 = "Invalid input";
       break;
     case ZodIssueCode.custom:
-      message = `Invalid input`;
+      message2 = `Invalid input`;
       break;
     case ZodIssueCode.invalid_intersection_types:
-      message = `Intersection results could not be merged`;
+      message2 = `Intersection results could not be merged`;
       break;
     case ZodIssueCode.not_multiple_of:
-      message = `Number must be a multiple of ${issue2.multipleOf}`;
+      message2 = `Number must be a multiple of ${issue2.multipleOf}`;
       break;
     case ZodIssueCode.not_finite:
-      message = "Number must be finite";
+      message2 = "Number must be finite";
       break;
     default:
-      message = _ctx.defaultError;
+      message2 = _ctx.defaultError;
       util.assertNever(issue2);
   }
-  return { message };
+  return { message: message2 };
 };
 var en_default = errorMap;
 
@@ -7271,8 +7271,8 @@ var isAsync = (x) => typeof Promise !== "undefined" && x instanceof Promise;
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/errorUtil.js
 var errorUtil;
 (function(errorUtil2) {
-  errorUtil2.errToObj = (message) => typeof message === "string" ? { message } : message || {};
-  errorUtil2.toString = (message) => typeof message === "string" ? message : message?.message;
+  errorUtil2.errToObj = (message2) => typeof message2 === "string" ? { message: message2 } : message2 || {};
+  errorUtil2.toString = (message2) => typeof message2 === "string" ? message2 : message2?.message;
 })(errorUtil || (errorUtil = {}));
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/types.js
@@ -7324,16 +7324,16 @@ function processCreateParams(params) {
   if (errorMap2)
     return { errorMap: errorMap2, description };
   const customMap = (iss, ctx) => {
-    const { message } = params;
+    const { message: message2 } = params;
     if (iss.code === "invalid_enum_value") {
-      return { message: message ?? ctx.defaultError };
+      return { message: message2 ?? ctx.defaultError };
     }
     if (typeof ctx.data === "undefined") {
-      return { message: message ?? required_error ?? ctx.defaultError };
+      return { message: message2 ?? required_error ?? ctx.defaultError };
     }
     if (iss.code !== "invalid_type")
       return { message: ctx.defaultError };
-    return { message: message ?? invalid_type_error ?? ctx.defaultError };
+    return { message: message2 ?? invalid_type_error ?? ctx.defaultError };
   };
   return { errorMap: customMap, description };
 }
@@ -7459,14 +7459,14 @@ var ZodType = class {
     const result = await (isAsync(maybeAsyncResult) ? maybeAsyncResult : Promise.resolve(maybeAsyncResult));
     return handleResult(ctx, result);
   }
-  refine(check2, message) {
+  refine(check2, message2) {
     const getIssueProperties = (val) => {
-      if (typeof message === "string" || typeof message === "undefined") {
-        return { message };
-      } else if (typeof message === "function") {
-        return message(val);
+      if (typeof message2 === "string" || typeof message2 === "undefined") {
+        return { message: message2 };
+      } else if (typeof message2 === "function") {
+        return message2(val);
       } else {
-        return message;
+        return message2;
       }
     };
     return this._refinement((val, ctx) => {
@@ -8002,11 +8002,11 @@ var ZodString = class _ZodString2 extends ZodType {
     }
     return { status: status.value, value: input.data };
   }
-  _regex(regex, validation, message) {
+  _regex(regex, validation, message2) {
     return this.refinement((data) => regex.test(data), {
       validation,
       code: ZodIssueCode.invalid_string,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
   _addCheck(check2) {
@@ -8015,37 +8015,37 @@ var ZodString = class _ZodString2 extends ZodType {
       checks: [...this._def.checks, check2]
     });
   }
-  email(message) {
-    return this._addCheck({ kind: "email", ...errorUtil.errToObj(message) });
+  email(message2) {
+    return this._addCheck({ kind: "email", ...errorUtil.errToObj(message2) });
   }
-  url(message) {
-    return this._addCheck({ kind: "url", ...errorUtil.errToObj(message) });
+  url(message2) {
+    return this._addCheck({ kind: "url", ...errorUtil.errToObj(message2) });
   }
-  emoji(message) {
-    return this._addCheck({ kind: "emoji", ...errorUtil.errToObj(message) });
+  emoji(message2) {
+    return this._addCheck({ kind: "emoji", ...errorUtil.errToObj(message2) });
   }
-  uuid(message) {
-    return this._addCheck({ kind: "uuid", ...errorUtil.errToObj(message) });
+  uuid(message2) {
+    return this._addCheck({ kind: "uuid", ...errorUtil.errToObj(message2) });
   }
-  nanoid(message) {
-    return this._addCheck({ kind: "nanoid", ...errorUtil.errToObj(message) });
+  nanoid(message2) {
+    return this._addCheck({ kind: "nanoid", ...errorUtil.errToObj(message2) });
   }
-  cuid(message) {
-    return this._addCheck({ kind: "cuid", ...errorUtil.errToObj(message) });
+  cuid(message2) {
+    return this._addCheck({ kind: "cuid", ...errorUtil.errToObj(message2) });
   }
-  cuid2(message) {
-    return this._addCheck({ kind: "cuid2", ...errorUtil.errToObj(message) });
+  cuid2(message2) {
+    return this._addCheck({ kind: "cuid2", ...errorUtil.errToObj(message2) });
   }
-  ulid(message) {
-    return this._addCheck({ kind: "ulid", ...errorUtil.errToObj(message) });
+  ulid(message2) {
+    return this._addCheck({ kind: "ulid", ...errorUtil.errToObj(message2) });
   }
-  base64(message) {
-    return this._addCheck({ kind: "base64", ...errorUtil.errToObj(message) });
+  base64(message2) {
+    return this._addCheck({ kind: "base64", ...errorUtil.errToObj(message2) });
   }
-  base64url(message) {
+  base64url(message2) {
     return this._addCheck({
       kind: "base64url",
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
   jwt(options) {
@@ -8075,8 +8075,8 @@ var ZodString = class _ZodString2 extends ZodType {
       ...errorUtil.errToObj(options?.message)
     });
   }
-  date(message) {
-    return this._addCheck({ kind: "date", message });
+  date(message2) {
+    return this._addCheck({ kind: "date", message: message2 });
   }
   time(options) {
     if (typeof options === "string") {
@@ -8092,14 +8092,14 @@ var ZodString = class _ZodString2 extends ZodType {
       ...errorUtil.errToObj(options?.message)
     });
   }
-  duration(message) {
-    return this._addCheck({ kind: "duration", ...errorUtil.errToObj(message) });
+  duration(message2) {
+    return this._addCheck({ kind: "duration", ...errorUtil.errToObj(message2) });
   }
-  regex(regex, message) {
+  regex(regex, message2) {
     return this._addCheck({
       kind: "regex",
       regex,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
   includes(value, options) {
@@ -8110,46 +8110,46 @@ var ZodString = class _ZodString2 extends ZodType {
       ...errorUtil.errToObj(options?.message)
     });
   }
-  startsWith(value, message) {
+  startsWith(value, message2) {
     return this._addCheck({
       kind: "startsWith",
       value,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
-  endsWith(value, message) {
+  endsWith(value, message2) {
     return this._addCheck({
       kind: "endsWith",
       value,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
-  min(minLength, message) {
+  min(minLength, message2) {
     return this._addCheck({
       kind: "min",
       value: minLength,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
-  max(maxLength, message) {
+  max(maxLength, message2) {
     return this._addCheck({
       kind: "max",
       value: maxLength,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
-  length(len, message) {
+  length(len, message2) {
     return this._addCheck({
       kind: "length",
       value: len,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
   /**
    * Equivalent to `.min(1)`
    */
-  nonempty(message) {
-    return this.min(1, errorUtil.errToObj(message));
+  nonempty(message2) {
+    return this.min(1, errorUtil.errToObj(message2));
   }
   trim() {
     return new _ZodString2({
@@ -8342,19 +8342,19 @@ var ZodNumber = class _ZodNumber extends ZodType {
     }
     return { status: status.value, value: input.data };
   }
-  gte(value, message) {
-    return this.setLimit("min", value, true, errorUtil.toString(message));
+  gte(value, message2) {
+    return this.setLimit("min", value, true, errorUtil.toString(message2));
   }
-  gt(value, message) {
-    return this.setLimit("min", value, false, errorUtil.toString(message));
+  gt(value, message2) {
+    return this.setLimit("min", value, false, errorUtil.toString(message2));
   }
-  lte(value, message) {
-    return this.setLimit("max", value, true, errorUtil.toString(message));
+  lte(value, message2) {
+    return this.setLimit("max", value, true, errorUtil.toString(message2));
   }
-  lt(value, message) {
-    return this.setLimit("max", value, false, errorUtil.toString(message));
+  lt(value, message2) {
+    return this.setLimit("max", value, false, errorUtil.toString(message2));
   }
-  setLimit(kind, value, inclusive, message) {
+  setLimit(kind, value, inclusive, message2) {
     return new _ZodNumber({
       ...this._def,
       checks: [
@@ -8363,7 +8363,7 @@ var ZodNumber = class _ZodNumber extends ZodType {
           kind,
           value,
           inclusive,
-          message: errorUtil.toString(message)
+          message: errorUtil.toString(message2)
         }
       ]
     });
@@ -8374,68 +8374,68 @@ var ZodNumber = class _ZodNumber extends ZodType {
       checks: [...this._def.checks, check2]
     });
   }
-  int(message) {
+  int(message2) {
     return this._addCheck({
       kind: "int",
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  positive(message) {
+  positive(message2) {
     return this._addCheck({
       kind: "min",
       value: 0,
       inclusive: false,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  negative(message) {
+  negative(message2) {
     return this._addCheck({
       kind: "max",
       value: 0,
       inclusive: false,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  nonpositive(message) {
+  nonpositive(message2) {
     return this._addCheck({
       kind: "max",
       value: 0,
       inclusive: true,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  nonnegative(message) {
+  nonnegative(message2) {
     return this._addCheck({
       kind: "min",
       value: 0,
       inclusive: true,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  multipleOf(value, message) {
+  multipleOf(value, message2) {
     return this._addCheck({
       kind: "multipleOf",
       value,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  finite(message) {
+  finite(message2) {
     return this._addCheck({
       kind: "finite",
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  safe(message) {
+  safe(message2) {
     return this._addCheck({
       kind: "min",
       inclusive: true,
       value: Number.MIN_SAFE_INTEGER,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     })._addCheck({
       kind: "max",
       inclusive: true,
       value: Number.MAX_SAFE_INTEGER,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
   get minValue() {
@@ -8558,19 +8558,19 @@ var ZodBigInt = class _ZodBigInt extends ZodType {
     });
     return INVALID;
   }
-  gte(value, message) {
-    return this.setLimit("min", value, true, errorUtil.toString(message));
+  gte(value, message2) {
+    return this.setLimit("min", value, true, errorUtil.toString(message2));
   }
-  gt(value, message) {
-    return this.setLimit("min", value, false, errorUtil.toString(message));
+  gt(value, message2) {
+    return this.setLimit("min", value, false, errorUtil.toString(message2));
   }
-  lte(value, message) {
-    return this.setLimit("max", value, true, errorUtil.toString(message));
+  lte(value, message2) {
+    return this.setLimit("max", value, true, errorUtil.toString(message2));
   }
-  lt(value, message) {
-    return this.setLimit("max", value, false, errorUtil.toString(message));
+  lt(value, message2) {
+    return this.setLimit("max", value, false, errorUtil.toString(message2));
   }
-  setLimit(kind, value, inclusive, message) {
+  setLimit(kind, value, inclusive, message2) {
     return new _ZodBigInt({
       ...this._def,
       checks: [
@@ -8579,7 +8579,7 @@ var ZodBigInt = class _ZodBigInt extends ZodType {
           kind,
           value,
           inclusive,
-          message: errorUtil.toString(message)
+          message: errorUtil.toString(message2)
         }
       ]
     });
@@ -8590,43 +8590,43 @@ var ZodBigInt = class _ZodBigInt extends ZodType {
       checks: [...this._def.checks, check2]
     });
   }
-  positive(message) {
+  positive(message2) {
     return this._addCheck({
       kind: "min",
       value: BigInt(0),
       inclusive: false,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  negative(message) {
+  negative(message2) {
     return this._addCheck({
       kind: "max",
       value: BigInt(0),
       inclusive: false,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  nonpositive(message) {
+  nonpositive(message2) {
     return this._addCheck({
       kind: "max",
       value: BigInt(0),
       inclusive: true,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  nonnegative(message) {
+  nonnegative(message2) {
     return this._addCheck({
       kind: "min",
       value: BigInt(0),
       inclusive: true,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  multipleOf(value, message) {
+  multipleOf(value, message2) {
     return this._addCheck({
       kind: "multipleOf",
       value,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
   get minValue() {
@@ -8749,18 +8749,18 @@ var ZodDate = class _ZodDate extends ZodType {
       checks: [...this._def.checks, check2]
     });
   }
-  min(minDate, message) {
+  min(minDate, message2) {
     return this._addCheck({
       kind: "min",
       value: minDate.getTime(),
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  max(maxDate, message) {
+  max(maxDate, message2) {
     return this._addCheck({
       kind: "max",
       value: maxDate.getTime(),
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
   get minDate() {
@@ -8992,26 +8992,26 @@ var ZodArray = class _ZodArray extends ZodType {
   get element() {
     return this._def.type;
   }
-  min(minLength, message) {
+  min(minLength, message2) {
     return new _ZodArray({
       ...this._def,
-      minLength: { value: minLength, message: errorUtil.toString(message) }
+      minLength: { value: minLength, message: errorUtil.toString(message2) }
     });
   }
-  max(maxLength, message) {
+  max(maxLength, message2) {
     return new _ZodArray({
       ...this._def,
-      maxLength: { value: maxLength, message: errorUtil.toString(message) }
+      maxLength: { value: maxLength, message: errorUtil.toString(message2) }
     });
   }
-  length(len, message) {
+  length(len, message2) {
     return new _ZodArray({
       ...this._def,
-      exactLength: { value: len, message: errorUtil.toString(message) }
+      exactLength: { value: len, message: errorUtil.toString(message2) }
     });
   }
-  nonempty(message) {
-    return this.min(1, message);
+  nonempty(message2) {
+    return this.min(1, message2);
   }
 };
 ZodArray.create = (schema, params) => {
@@ -9154,17 +9154,17 @@ var ZodObject = class _ZodObject extends ZodType {
   get shape() {
     return this._def.shape();
   }
-  strict(message) {
+  strict(message2) {
     errorUtil.errToObj;
     return new _ZodObject({
       ...this._def,
       unknownKeys: "strict",
-      ...message !== void 0 ? {
+      ...message2 !== void 0 ? {
         errorMap: (issue2, ctx) => {
           const defaultError = this._def.errorMap?.(issue2, ctx).message ?? ctx.defaultError;
           if (issue2.code === "unrecognized_keys")
             return {
-              message: errorUtil.errToObj(message).message ?? defaultError
+              message: errorUtil.errToObj(message2).message ?? defaultError
             };
           return {
             message: defaultError
@@ -9920,23 +9920,23 @@ var ZodSet = class _ZodSet extends ZodType {
       return finalizeSet(elements);
     }
   }
-  min(minSize, message) {
+  min(minSize, message2) {
     return new _ZodSet({
       ...this._def,
-      minSize: { value: minSize, message: errorUtil.toString(message) }
+      minSize: { value: minSize, message: errorUtil.toString(message2) }
     });
   }
-  max(maxSize, message) {
+  max(maxSize, message2) {
     return new _ZodSet({
       ...this._def,
-      maxSize: { value: maxSize, message: errorUtil.toString(message) }
+      maxSize: { value: maxSize, message: errorUtil.toString(message2) }
     });
   }
-  size(size, message) {
-    return this.min(size, message).max(size, message);
+  size(size, message2) {
+    return this.min(size, message2).max(size, message2);
   }
-  nonempty(message) {
-    return this.min(1, message);
+  nonempty(message2) {
+    return this.min(1, message2);
   }
 };
 ZodSet.create = (valueType, params) => {
@@ -11321,14 +11321,14 @@ function prefixIssues(path2, issues) {
     return iss;
   });
 }
-function unwrapMessage(message) {
-  return typeof message === "string" ? message : message?.message;
+function unwrapMessage(message2) {
+  return typeof message2 === "string" ? message2 : message2?.message;
 }
 function finalizeIssue(iss, ctx, config2) {
   const full = { ...iss, path: iss.path ?? [] };
   if (!iss.message) {
-    const message = unwrapMessage(iss.inst?._zod.def?.error?.(iss)) ?? unwrapMessage(ctx?.error?.(iss)) ?? unwrapMessage(config2.customError?.(iss)) ?? unwrapMessage(config2.localeError?.(iss)) ?? "Invalid input";
-    full.message = message;
+    const message2 = unwrapMessage(iss.inst?._zod.def?.error?.(iss)) ?? unwrapMessage(ctx?.error?.(iss)) ?? unwrapMessage(config2.customError?.(iss)) ?? unwrapMessage(config2.localeError?.(iss)) ?? "Invalid input";
+    full.message = message2;
   }
   delete full.inst;
   delete full.continue;
@@ -19033,8 +19033,8 @@ var ServerResultSchema = union([
   CreateTaskResultSchema
 ]);
 var McpError = class _McpError extends Error {
-  constructor(code, message, data) {
-    super(`MCP error ${code}: ${message}`);
+  constructor(code, message2, data) {
+    super(`MCP error ${code}: ${message2}`);
     this.code = code;
     this.data = data;
     this.name = "McpError";
@@ -19042,19 +19042,19 @@ var McpError = class _McpError extends Error {
   /**
    * Factory method to create the appropriate error type based on the error code and data
    */
-  static fromError(code, message, data) {
+  static fromError(code, message2, data) {
     if (code === ErrorCode.UrlElicitationRequired && data) {
       const errorData = data;
       if (errorData.elicitations) {
-        return new UrlElicitationRequiredError(errorData.elicitations, message);
+        return new UrlElicitationRequiredError(errorData.elicitations, message2);
       }
     }
-    return new _McpError(code, message, data);
+    return new _McpError(code, message2, data);
   }
 };
 var UrlElicitationRequiredError = class extends McpError {
-  constructor(elicitations, message = `URL elicitation${elicitations.length > 1 ? "s" : ""} required`) {
-    super(ErrorCode.UrlElicitationRequired, message, {
+  constructor(elicitations, message2 = `URL elicitation${elicitations.length > 1 ? "s" : ""} required`) {
+    super(ErrorCode.UrlElicitationRequired, message2, {
       elicitations
     });
   }
@@ -19140,15 +19140,15 @@ var Protocol = class {
             let queuedMessage;
             while (queuedMessage = await this._taskMessageQueue.dequeue(taskId, extra.sessionId)) {
               if (queuedMessage.type === "response" || queuedMessage.type === "error") {
-                const message = queuedMessage.message;
-                const requestId = message.id;
+                const message2 = queuedMessage.message;
+                const requestId = message2.id;
                 const resolver = this._requestResolvers.get(requestId);
                 if (resolver) {
                   this._requestResolvers.delete(requestId);
                   if (queuedMessage.type === "response") {
-                    resolver(message);
+                    resolver(message2);
                   } else {
-                    const errorMessage = message;
+                    const errorMessage = message2;
                     const error2 = new McpError(errorMessage.error.code, errorMessage.error.message, errorMessage.error.data);
                     resolver(error2);
                   }
@@ -19287,16 +19287,16 @@ var Protocol = class {
       this._onerror(error2);
     };
     const _onmessage = this._transport?.onmessage;
-    this._transport.onmessage = (message, extra) => {
-      _onmessage?.(message, extra);
-      if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
-        this._onresponse(message);
-      } else if (isJSONRPCRequest(message)) {
-        this._onrequest(message, extra);
-      } else if (isJSONRPCNotification(message)) {
-        this._onnotification(message);
+    this._transport.onmessage = (message2, extra) => {
+      _onmessage?.(message2, extra);
+      if (isJSONRPCResultResponse(message2) || isJSONRPCErrorResponse(message2)) {
+        this._onresponse(message2);
+      } else if (isJSONRPCRequest(message2)) {
+        this._onrequest(message2, extra);
+      } else if (isJSONRPCNotification(message2)) {
+        this._onnotification(message2);
       } else {
-        this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
+        this._onerror(new Error(`Unknown message type: ${JSON.stringify(message2)}`));
       }
     };
     await this._transport.start();
@@ -19906,12 +19906,12 @@ var Protocol = class {
    * the error appropriately (e.g., by failing the task, logging, etc.). The Protocol layer
    * simply propagates the error.
    */
-  async _enqueueTaskMessage(taskId, message, sessionId) {
+  async _enqueueTaskMessage(taskId, message2, sessionId) {
     if (!this._taskStore || !this._taskMessageQueue) {
       throw new Error("Cannot enqueue task message: taskStore and taskMessageQueue are not configured");
     }
     const maxQueueSize = this._options?.maxTaskQueueSize;
-    await this._taskMessageQueue.enqueue(taskId, message, sessionId, maxQueueSize);
+    await this._taskMessageQueue.enqueue(taskId, message2, sessionId, maxQueueSize);
   }
   /**
    * Clears the message queue for a task and rejects any pending request resolvers.
@@ -19921,9 +19921,9 @@ var Protocol = class {
   async _clearTaskQueue(taskId, sessionId) {
     if (this._taskMessageQueue) {
       const messages = await this._taskMessageQueue.dequeueAll(taskId, sessionId);
-      for (const message of messages) {
-        if (message.type === "request" && isJSONRPCRequest(message.message)) {
-          const requestId = message.message.id;
+      for (const message2 of messages) {
+        if (message2.type === "request" && isJSONRPCRequest(message2.message)) {
+          const requestId = message2.message.id;
           const resolver = this._requestResolvers.get(requestId);
           if (resolver) {
             resolver(new McpError(ErrorCode.InternalError, "Task cancelled or completed"));
@@ -20772,8 +20772,8 @@ var ReadBuffer = class {
 function deserializeMessage(line) {
   return JSONRPCMessageSchema.parse(JSON.parse(line));
 }
-function serializeMessage(message) {
-  return JSON.stringify(message) + "\n";
+function serializeMessage(message2) {
+  return JSON.stringify(message2) + "\n";
 }
 
 // node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
@@ -20805,11 +20805,11 @@ var StdioServerTransport = class {
   processReadBuffer() {
     while (true) {
       try {
-        const message = this._readBuffer.readMessage();
-        if (message === null) {
+        const message2 = this._readBuffer.readMessage();
+        if (message2 === null) {
           break;
         }
-        this.onmessage?.(message);
+        this.onmessage?.(message2);
       } catch (error2) {
         this.onerror?.(error2);
       }
@@ -20825,9 +20825,9 @@ var StdioServerTransport = class {
     this._readBuffer.clear();
     this.onclose?.();
   }
-  send(message) {
+  send(message2) {
     return new Promise((resolve5) => {
-      const json2 = serializeMessage(message);
+      const json2 = serializeMessage(message2);
       if (this._stdout.write(json2)) {
         resolve5();
       } else {
@@ -20874,8 +20874,8 @@ import {
   sep
 } from "node:path";
 var UnsafeProjectWritePathError = class extends Error {
-  constructor(message) {
-    super(message);
+  constructor(message2) {
+    super(message2);
     this.name = "UnsafeProjectWritePathError";
   }
 };
@@ -23747,37 +23747,135 @@ function redactValidationRow(row, agent, scope) {
 import { homedir as homedir2 } from "node:os";
 import { join as join4 } from "node:path";
 var TMB_MODEL_CACHE_DIR = process.env["TMB_MODEL_CACHE_DIR"] ?? process.env["HF_HOME"] ?? join4(homedir2(), ".cache", "huggingface");
-var pipelinePromise = null;
-var loadFailed = false;
-async function embed(text) {
-  if (loadFailed) return null;
-  if (!pipelinePromise) {
+var MODEL_ID = "Xenova/bge-small-en-v1.5";
+var EMBED_RETRY_SCHEDULE_MS = [6e4, 3e5, 6e5];
+var EMBED_FAIL_THRESHOLD_DEFAULT = 5;
+async function defaultLoader() {
+  const { pipeline, env } = await import("@huggingface/transformers");
+  env.cacheDir = TMB_MODEL_CACHE_DIR;
+  return await pipeline("feature-extraction", MODEL_ID);
+}
+var loader = defaultLoader;
+var pipePromise = null;
+var loadingSince = null;
+var readySince = null;
+var consecutiveFailures = 0;
+var degraded = null;
+var retrying = false;
+var listeners = /* @__PURE__ */ new Set();
+function embedRetryDelayMs(retries, env = process.env) {
+  const raw = env["TMB_EMBED_RETRY_MS"];
+  const override = raw === void 0 || raw === "" ? NaN : Number(raw);
+  if (Number.isFinite(override) && override >= 0) return override;
+  return EMBED_RETRY_SCHEDULE_MS[Math.min(retries, EMBED_RETRY_SCHEDULE_MS.length - 1)];
+}
+function embedFailThreshold(env = process.env) {
+  const raw = Number(env["TMB_EMBED_FAIL_THRESHOLD"]);
+  return Number.isInteger(raw) && raw > 0 ? raw : EMBED_FAIL_THRESHOLD_DEFAULT;
+}
+function onEmbeddingTransition(listener) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+function emit(t) {
+  for (const l of listeners) {
     try {
-      const { pipeline, env } = await import("@huggingface/transformers");
-      env.cacheDir = TMB_MODEL_CACHE_DIR;
-      pipelinePromise = pipeline("feature-extraction", "Xenova/bge-small-en-v1.5");
-      pipelinePromise.catch(() => {
-        loadFailed = true;
-        pipelinePromise = null;
-      });
+      l(t);
     } catch (e) {
-      console.error("[embeddings] model load failed:", e);
-      loadFailed = true;
-      return null;
+      console.error("[embeddings] transition listener failed:", e);
     }
   }
+}
+function message(e) {
+  return e instanceof Error ? e.message : String(e);
+}
+function loadPipe() {
+  if (!pipePromise) {
+    loadingSince = (/* @__PURE__ */ new Date()).toISOString();
+    readySince = null;
+    const p = loader();
+    pipePromise = p;
+    p.then(
+      () => {
+        if (pipePromise === p) readySince = (/* @__PURE__ */ new Date()).toISOString();
+      },
+      () => {
+        if (pipePromise === p) pipePromise = null;
+      }
+    );
+  }
+  return pipePromise;
+}
+function enterDegraded(reason) {
+  if (degraded) return;
+  degraded = { since: (/* @__PURE__ */ new Date()).toISOString(), reason, retries: 0, nextRetryAt: Date.now() + embedRetryDelayMs(0) };
+  emit({ kind: "degraded", reason, consecutive_failures: consecutiveFailures });
+}
+async function retry(text) {
+  const d = degraded;
+  retrying = true;
+  pipePromise = null;
   try {
-    const pipe2 = await pipelinePromise;
+    const pipe2 = await loadPipe();
     const result = await pipe2(text, { pooling: "mean", normalize: true });
+    consecutiveFailures = 0;
+    degraded = null;
+    emit({ kind: "recovered", degraded_since: d.since, reason: d.reason, retries: d.retries + 1 });
+    return new Float32Array(result.data);
+  } catch (e) {
+    console.error("[embeddings] re-attempt failed:", e);
+    consecutiveFailures++;
+    d.retries++;
+    d.reason = `re-attempt failed: ${message(e)}`;
+    d.nextRetryAt = Date.now() + embedRetryDelayMs(d.retries);
+    return null;
+  } finally {
+    retrying = false;
+  }
+}
+async function embed(text) {
+  if (degraded) {
+    if (retrying || Date.now() < degraded.nextRetryAt) return null;
+    return retry(text);
+  }
+  let pipe2;
+  try {
+    pipe2 = await loadPipe();
+  } catch (e) {
+    if (degraded) return null;
+    console.error("[embeddings] model load failed:", e);
+    consecutiveFailures++;
+    enterDegraded(`model load failed: ${message(e)}`);
+    return null;
+  }
+  try {
+    const result = await pipe2(text, { pooling: "mean", normalize: true });
+    consecutiveFailures = 0;
     return new Float32Array(result.data);
   } catch (e) {
     console.error("[embeddings] embed failed:", e);
-    loadFailed = true;
-    pipelinePromise = null;
+    if (degraded) return null;
+    consecutiveFailures++;
+    if (consecutiveFailures >= embedFailThreshold()) {
+      enterDegraded(`${consecutiveFailures} consecutive embed failures: ${message(e)}`);
+    }
     return null;
   }
 }
-var MODEL_ID = "Xenova/bge-small-en-v1.5";
+function embeddingStatus() {
+  if (degraded) {
+    return {
+      state: "degraded",
+      since: degraded.since,
+      reason: degraded.reason,
+      consecutive_failures: consecutiveFailures,
+      ...retrying ? {} : { next_retry_at: new Date(degraded.nextRetryAt).toISOString() }
+    };
+  }
+  if (readySince) return { state: "ready", since: readySince, consecutive_failures: consecutiveFailures };
+  if (pipePromise) return { state: "loading", since: loadingSince ?? void 0, consecutive_failures: consecutiveFailures };
+  return { state: "disabled", consecutive_failures: consecutiveFailures };
+}
 
 // src/embeddings/store.ts
 function packEmbedding(v) {
@@ -23885,6 +23983,8 @@ var AUDIT_EVENT_TYPES = [
   { type: "containment_denied", description: "`containment-guard` denied a write outside the run's root (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `root`, `task_id`" },
   { type: "decision_gate_waived", description: "`task_create_batch` ran with `waive_decision_gate`; `content_json` carries the waiver reason" },
   { type: "deep_scan_completed", description: "`scan_run` finished; `content_json` carries `source`, `structural_change`, `repos_seen`, `top_dirs`" },
+  { type: "embeddings_degraded", description: "The embedding model entered the degraded state \u2014 it could not load, or `TMB_EMBED_FAIL_THRESHOLD` (default 5) consecutive embed calls failed \u2014 so semantic search falls back to FTS until a timed re-attempt (1 min, 5 min, then every 10 min) succeeds; one row per degraded episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `reason`, `consecutive_failures`" },
+  { type: "embeddings_recovered", description: "A re-attempt brought the degraded embedding model back; one row per episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `degraded_since`, `reason`, `retries`" },
   { type: "intent_gate_waived", description: "`task_create_batch` ran with `waive_intent_gate`; `content_json` carries the waiver reason" },
   { type: "issue_adopted", description: "`issue_create` or `issue_adopt_remote` adopted an existing remote issue as the local issue's twin; `content_json` carries `issue_id`, `backend`, `remote_iid`" },
   { type: "issue_auto_close_deferred", description: "`close-issue-on-merge` left an issue named by a merged PR's closing-ref open because other tasks of it are still live; `content_json` carries `blocking_task_ids`, `gh_iid`" },
@@ -23923,7 +24023,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "tmb_agent_created", description: "`agent_register` registered a project-local consultant; `content_json` carries `name`, `mode`, `agent_id`" },
   { type: "tmb_branch_autocreated", description: "`task_create_batch` created the task's feature branch ref" },
   { type: "tmb_skill_created", description: "`tmb_skill-creator` landed a new skill; written by bro via `audit_append`", reserved: true },
-  { type: "trajectory_doctor_run", description: "`trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`)" },
+  { type: "trajectory_doctor_run", description: "`trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`), `embeddings` (the server's `embeddingStatus()`: `state`, `since`, `reason`, `consecutive_failures`, `next_retry_at`)" },
   { type: "verification_gate_waived", description: "`swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason`" }
 ];
 var KNOWN = new Set(AUDIT_EVENT_TYPES.map((e) => e.type));
@@ -23942,9 +24042,9 @@ var MAX_CONTENT_BYTES = 1e6;
 function ok(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err(message) {
+function err(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -24285,9 +24385,9 @@ var MAX_BODY_BYTES = 65536;
 function ok2(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err2(message) {
+function err2(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -24896,9 +24996,9 @@ function syncLog(entry) {
 function defaultSpawnFn(cmd, args, opts) {
   const blockReason = liveCliBlockReason();
   if (blockReason) {
-    const message = liveCliBlockedMessage(blockReason, cmd, args);
+    const message2 = liveCliBlockedMessage(blockReason, cmd, args);
     syncLog({ event: "live_cli_blocked", cmd, args, reason: blockReason });
-    return { status: null, stdout: "", stderr: message };
+    return { status: null, stdout: "", stderr: message2 };
   }
   const result = spawnSync2(cmd, args, opts);
   return {
@@ -25183,18 +25283,18 @@ async function createOnBackend(backend, opts, spawnFn) {
       unknown_labels: unknownLabels.length > 0 ? unknownLabels : void 0
     };
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+    const message2 = e instanceof Error ? e.message : String(e);
     syncLog({
       event: "issue_create_error",
       backend,
       issueId: opts.issueId,
-      error: message
+      error: message2
     });
     return {
       ok: false,
       reason: "spawn_error",
       backend,
-      message
+      message: message2
     };
   }
 }
@@ -25270,14 +25370,14 @@ async function syncIssueClose(opts) {
     }
     return { ok: true };
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+    const message2 = e instanceof Error ? e.message : String(e);
     syncLog({
       event: "issue_close_error",
       remote_kind,
       remote_iid,
-      error: message
+      error: message2
     });
-    return { ok: false, reason: "spawn_error", message };
+    return { ok: false, reason: "spawn_error", message: message2 };
   }
 }
 
@@ -25670,9 +25770,9 @@ function decodeIssue(row) {
 function ok3(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err3(message) {
+function err3(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -26768,9 +26868,9 @@ function closeRemoteMilestone(target, title, spawnFn = defaultSpawnFn) {
 function ok4(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err4(message) {
+function err4(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -27183,9 +27283,9 @@ var BRO_TRANSITIONS = {
 function ok5(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err5(message) {
+function err5(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -27943,9 +28043,9 @@ var VALID_VERDICTS = /* @__PURE__ */ new Set(["pass", "fail", "escalate"]);
 function ok6(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err6(message) {
+function err6(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -28141,9 +28241,9 @@ var VALID_TIER_TRANSITIONS = /* @__PURE__ */ new Map([
 function ok7(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err7(message) {
+function err7(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -28289,9 +28389,9 @@ import { fileURLToPath as fileURLToPath2 } from "node:url";
 function ok8(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err8(message) {
+function err8(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -28506,9 +28606,9 @@ import { dirname as dirname5, resolve as resolve2, sep as sep3 } from "node:path
 function ok9(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err9(message) {
+function err9(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -28775,9 +28875,9 @@ function reportTools(db2) {
 function ok10(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err10(message) {
+function err10(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -28934,9 +29034,9 @@ function configTools(db2) {
 function ok11(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err11(message) {
+function err11(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -29106,9 +29206,9 @@ var ALLOWED_ROLES = ["bro", "swe", "pr-reviewer", "consultant"];
 function ok12(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err12(message) {
+function err12(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -29261,9 +29361,9 @@ function statsTools(db2) {
 function ok13(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err13(message) {
+function err13(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -29909,9 +30009,9 @@ ${UNTRUSTED_CLOSE}`;
 function ok14(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err14(message) {
+function err14(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -30344,9 +30444,9 @@ function readRepoTargetBranch(db2, repoValue) {
 function ok15(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err15(message) {
+function err15(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -33391,12 +33491,12 @@ var GraphHolder = class _GraphHolder {
       this.log({ kind: "graph_db_open", ...recovered ? { recovered: true } : {} });
       return this.graph;
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      if (message !== this.lastFailureMessage) {
-        this.log({ kind: "graph_db_open_failed", error_message: message });
+      const message2 = e instanceof Error ? e.message : String(e);
+      if (message2 !== this.lastFailureMessage) {
+        this.log({ kind: "graph_db_open_failed", error_message: message2 });
       }
-      this.lastFailureMessage = message;
-      this.openError = isKuzuLockError(e) ? message : null;
+      this.lastFailureMessage = message2;
+      this.openError = isKuzuLockError(e) ? message2 : null;
       this.graph = null;
       return null;
     }
@@ -33407,9 +33507,9 @@ var GraphHolder = class _GraphHolder {
 function ok17(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err16(message) {
+function err16(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -34157,9 +34257,9 @@ import { fileURLToPath as fileURLToPath5 } from "node:url";
 function ok19(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err17(message) {
+function err17(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -35260,9 +35360,9 @@ function computeUnmergedWork(db2, repo) {
 function ok20(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err18(message) {
+function err18(message2) {
   return {
-    content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
   };
 }
@@ -35959,8 +36059,8 @@ function applyWrites(db2, writes, now) {
 function okResult(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function errResult(message) {
-  return { content: [{ type: "text", text: JSON.stringify({ error: message }) }], isError: true };
+function errResult(message2) {
+  return { content: [{ type: "text", text: JSON.stringify({ error: message2 }) }], isError: true };
 }
 function agentRunsBackfillTools(db2, dbPath2) {
   const definitions = [
@@ -36131,6 +36231,20 @@ function buildDataContracts(documentedEventTypes) {
              WHERE a.event_type = 'verification_gate_waived'
              GROUP BY ${auditTaskId("a")}, COALESCE(${auditCommitSha("a")}, '') HAVING COUNT(*) > 1 ORDER BY n DESC LIMIT 5`
     },
+    {
+      id: "embeddings_not_degraded",
+      severity: "warn",
+      min_schema: 33,
+      description: "no embeddings_degraded audit row from the last 24 hours lacks a later embeddings_recovered row (semantic search is falling back to FTS)",
+      sql: `SELECT COUNT(*) FROM audit d
+             WHERE d.event_type = 'embeddings_degraded' AND ${ts("d.created_at")} >= ${daysAgo(1)}
+               AND NOT EXISTS (SELECT 1 FROM audit r WHERE r.event_type = 'embeddings_recovered' AND r.id > d.id)`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT d.id, d.created_at, d.content_json FROM audit d
+             WHERE d.event_type = 'embeddings_degraded' AND ${ts("d.created_at")} >= ${daysAgo(1)}
+               AND NOT EXISTS (SELECT 1 FROM audit r WHERE r.event_type = 'embeddings_recovered' AND r.id > d.id)
+             ORDER BY d.id DESC LIMIT 5`
+    },
     ...POPULATED_COLUMNS.map(populatedContract),
     {
       id: "issues_closed_no_live_tasks",
@@ -36287,14 +36401,14 @@ function selectContracts(ids) {
 function ok21(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err19(message, extra = {}) {
-  return { content: [{ type: "text", text: JSON.stringify({ error: message, ...extra }) }], isError: true };
+function err19(message2, extra = {}) {
+  return { content: [{ type: "text", text: JSON.stringify({ error: message2, ...extra }) }], isError: true };
 }
 function trajectoryDoctorTools(db2) {
   const definitions = [
     {
       name: "trajectory_doctor",
-      description: "Check the trajectory DB against its data contracts (read-only). Returns {healthy, violations, skipped}; record:true logs one trajectory_doctor_run audit row.",
+      description: "Check the trajectory DB against its data contracts (read-only). Returns {healthy, violations, skipped, embeddings}; record:true logs one trajectory_doctor_run audit row.",
       inputSchema: {
         type: "object",
         properties: {
@@ -36322,6 +36436,7 @@ function trajectoryDoctorTools(db2) {
     } finally {
       ro?.close();
     }
+    report.embeddings = embeddingStatus();
     if (!record2) return ok21(report);
     const auditId = insertAudit(db2, {
       issue_id: -1,
@@ -36442,6 +36557,31 @@ function registerTools(server2, db2, dbPath2 = "", graphHolder2 = null) {
     ...backfill.handlers,
     ...doctor.handlers
   };
+}
+
+// src/embeddings/health.ts
+function recordEmbeddingTransitions(db2) {
+  return onEmbeddingTransition((t) => {
+    serverLog({ kind: "embeddings_state", transition: t.kind, embeddings: embeddingStatus() });
+    if (!db2.isOpen) return;
+    if (t.kind === "degraded") {
+      insertAudit(db2, {
+        issue_id: -1,
+        from_node: "trajectory-server",
+        event_type: "embeddings_degraded",
+        summary: `embeddings degraded \u2014 semantic search falls back to FTS: ${t.reason}`,
+        content_json: JSON.stringify({ reason: t.reason, consecutive_failures: t.consecutive_failures })
+      });
+    } else {
+      insertAudit(db2, {
+        issue_id: -1,
+        from_node: "trajectory-server",
+        event_type: "embeddings_recovered",
+        summary: `embeddings recovered after ${t.retries} re-attempt(s)`,
+        content_json: JSON.stringify({ degraded_since: t.degraded_since, reason: t.reason, retries: t.retries })
+      });
+    }
+  });
 }
 
 // src/shutdown.ts
@@ -36617,6 +36757,7 @@ if (db.legacyNoPluginMeta) {
     "WARNING: trajectory DB had tables but no plugin_meta row (pre-stamp legacy); adopted forward and stamped. Verify the upgrade.\n"
   );
 }
+recordEmbeddingTransitions(db);
 embed("warmup").catch(() => {
 });
 startBackfill(db).catch((e) => console.error("[embeddings] startBackfill error:", e));

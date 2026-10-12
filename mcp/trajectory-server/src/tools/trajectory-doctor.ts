@@ -4,6 +4,7 @@ import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
+import { embeddingStatus, type EmbeddingStatus } from '../embeddings/model.js';
 import {
   DATA_CONTRACTS,
   contractHolds,
@@ -34,6 +35,8 @@ export interface DoctorReport {
   schema: { stored: number | null; required: number; current: boolean };
   violations: DoctorViolation[];
   skipped: Array<{ id: string; reason: string }>;
+  /** The live embedding model state; set only by the in-server `trajectory_doctor` tool. */
+  embeddings?: EmbeddingStatus;
 }
 
 /** A read-only view of the DB the contracts run against. */
@@ -219,7 +222,7 @@ export function trajectoryDoctorTools(db: TrajectoryDB): {
     {
       name: 'trajectory_doctor',
       description:
-        'Check the trajectory DB against its data contracts (read-only). Returns {healthy, violations, skipped}; record:true logs one trajectory_doctor_run audit row.',
+        'Check the trajectory DB against its data contracts (read-only). Returns {healthy, violations, skipped, embeddings}; record:true logs one trajectory_doctor_run audit row.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -249,6 +252,7 @@ export function trajectoryDoctorTools(db: TrajectoryDB): {
     } finally {
       ro?.close();
     }
+    report.embeddings = embeddingStatus();
 
     if (!record) return ok(report);
     const auditId = insertAudit(db, {
