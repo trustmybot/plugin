@@ -756,6 +756,80 @@ for guard in swe-boundary.sh no-source-edit-from-main.sh; do
 done
 
 # ===========================================================================
+# GH 1279 — a program fed to an interpreter through a heredoc is analysed for
+# the paths it writes; a variable set earlier in the same command is resolved;
+# a target behind a variable the command does not set is denied for a
+# non-prompt-bearing swe. A path outside the worktree is containment-guard's
+# deny on the same PreToolUse event, so those cases run both hooks.
+# ===========================================================================
+
+CG_HOOK="$PLUGIN_ROOT/scripts/hooks/containment-guard.sh"
+sqlite3 "$DB" "
+  CREATE TABLE IF NOT EXISTS agent_runs (
+    id INTEGER PRIMARY KEY, task_id INTEGER, issue_id INTEGER, agent_type TEXT,
+    started_at TEXT, completed_at TEXT, root_dir TEXT, host TEXT
+  );
+  INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, root_dir, host)
+    VALUES (20, 1, 'swe', datetime('now'), '$WT_PLAIN', 'claude');
+"
+# run_event <dir> <command>: swe-boundary then containment-guard, as Claude
+# Code runs both on one Bash PreToolUse.
+run_event() {
+  local input
+  input=$(make_bash_input swe "$2")
+  (cd "$1" && { echo "$input" | bash "$HOOK"; echo "$input" | bash "$CG_HOOK"; } 2>&1 || true)
+}
+heredoc_prog() { printf '%s\n' "$1 <<'EOF'" "$2" 'EOF'; }
+
+test_case "GH 1279 swe python3 heredoc writing outside the worktree: DENIED"
+out=$(run_event "$WT_PLAIN" "$(heredoc_prog 'python3 -' "open('/etc/tmb-1279', 'w').write('x')")")
+assert_contains "$out" '"permissionDecision":"deny"' "the program's write is judged"
+assert_contains "$out" "/etc/tmb-1279 is outside this run's root" "containment names the path"
+
+test_case "GH 1279 swe python3 heredoc writing inside the worktree: ALLOWED"
+out=$(run_event "$WT_PLAIN" "$(heredoc_prog 'python3 -' "open('$IN_FENCE', 'w').write('x')")")
+assert_not_contains "$out" '"permissionDecision":"deny"' "an in-worktree, in-fence write"
+
+test_case "GH 1279 swe heredoc programs reach the prompt-surface rule"
+for interp in 'python3 -' python3 'node' 'ruby -' 'perl'; do
+  case "$interp" in
+    python3*) prog="open('$SURFACE', 'w').write('x')" ;;
+    node) prog="require('fs').writeFileSync('$SURFACE', 'x')" ;;
+    ruby*) prog="File.write('$SURFACE', 'x')" ;;
+    perl) prog="open(my \$f, '>', '$SURFACE');" ;;
+  esac
+  out=$(run_in "$WT_PLAIN" "$(heredoc_prog "$interp" "$prog")")
+  assert_contains "$out" "prompt-surface" "$interp heredoc writing $SURFACE"
+  out=$(run_in "$WT_PB" "$(heredoc_prog "$interp" "$prog")")
+  assert_not_contains "$out" '"permissionDecision":"deny"' "$interp heredoc on a prompt-bearing task"
+done
+out=$(run_in "$WT_PLAIN" "$(heredoc_prog 'bash -s' "echo x > $SURFACE")")
+assert_contains "$out" "prompt-surface" "an sh program's redirect"
+
+test_case "GH 1279 a data heredoc is never scanned"
+out=$(run_in "$WT_PLAIN" "$(heredoc_prog 'cat > notes/fixture.py' "open('$SURFACE', 'w')")")
+assert_not_contains "$out" '"permissionDecision":"deny"' "cat > f <<EOF body is data"
+out=$(run_in "$WT_PLAIN" "$(heredoc_prog 'python3 notes/run.py' "open('$SURFACE', 'w')")")
+assert_not_contains "$out" '"permissionDecision":"deny"' "stdin of a script is data"
+
+test_case "GH 1279 variable-held write targets"
+out=$(run_event "$WT_PLAIN" 'OUT=/etc/tmb-1279-var; cat > "$OUT" < /dev/null')
+assert_contains "$out" "/etc/tmb-1279-var is outside this run's root" "OUT=/etc/x; cat > \$OUT is judged on /etc/x"
+out=$(run_event "$WT_PLAIN" "OUT=$WT_PLAIN/$IN_FENCE; cat > \"\$OUT\" < /dev/null")
+assert_not_contains "$out" '"permissionDecision":"deny"' "OUT=<worktree>/f; cat > \$OUT"
+out=$(run_in "$WT_PLAIN" "D=skills/tmb_audit; echo x > \"\$D/SKILL.md\"")
+assert_contains "$out" "prompt-surface" "a resolved variable reaches the prompt-surface rule"
+out=$(run_in "$WT_PLAIN" 'cat > "$UNKNOWN/f" < /dev/null')
+assert_contains "$out" '"permissionDecision":"deny"' "an unresolvable target is denied"
+assert_contains "$out" 'write target \"$UNKNOWN/f\" depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command.' "the deny names the variable"
+out=$(run_in "$WT_PLAIN" 'F=$(mktemp); echo x > "$F"')
+assert_contains "$out" 'write target \"$F\"' "a value built by \$( ) is unresolvable"
+out=$(run_in "$WT_PB" 'cat > "$UNKNOWN/f" < /dev/null')
+assert_not_contains "$out" '"permissionDecision":"deny"' "a prompt-bearing swe follows the prompt-surface rules as today"
+out=$(run_hook_bro "$(make_bash_input bro 'cat > "$UNKNOWN/f" < /dev/null')")
+assert_not_contains "$out" "cannot resolve" "bro is not judged by swe-boundary"
+
+# ===========================================================================
 # Layer 1 — schema-mismatch fail-safe (#596)
 # A stale legacy ~/.claude/tmb/trajectory.db (old schema, no prompt_bearing
 # column) up-tree from the hook's cwd must be treated as UNRESOLVED, not

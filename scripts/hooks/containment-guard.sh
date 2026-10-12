@@ -11,12 +11,17 @@
 #   Write/Edit/MultiEdit/NotebookEdit — deny when the canonical file_path
 #     (symlinks followed before `..` applies, as the kernel does; /tmp ≡
 #     /private/tmp) is outside the root.
-#   Bash — deny when the payload cwd is outside the root, or when a write
-#     position (redirect target, tee, cp/mv/rsync/install destination, mkdir,
-#     rm, touch, ln/link/cp -s/cp -l destination and source, git worktree add,
-#     git clone; see lib/cmd-analysis.sh) names a path outside the root. Heredoc bodies and quoted text are data, not
-#     syntax. ~, $HOME, ${HOME} and $TMB_MODEL_CACHE_DIR are expanded; a path
-#     behind any other variable is not judged. Reads are never judged.
+#   Bash — deny when the payload cwd is outside the root, or when a path the
+#     command writes (tmb_cmd_write_paths in lib/cmd-analysis.sh: redirect
+#     targets, tee, cp/mv/rsync/install, mkdir, rm, touch, links, sed -i,
+#     git worktree add, git clone, interpreter one-liners and programs fed to
+#     an interpreter through a heredoc, each in its statement's own cd dir) is
+#     outside the root. Data heredocs and quoted text are data, not syntax.
+#     Variables set earlier in the same command are resolved; ~, $HOME,
+#     $TMPDIR and $TMB_MODEL_CACHE_DIR are expanded. A target behind a
+#     variable the command does not set is allowed only when the literal
+#     directory before the variable is inside the root; otherwise denied with
+#     the variable named. Reads are never judged.
 #   Always allowed, mirroring the Claude Code sandbox: the model cache
 #     (TMB_MODEL_CACHE_DIR, default ${HF_HOME:-~/.cache/huggingface}), the
 #     host's own temp dir ($TMPDIR when the host sets it, e.g. /tmp/claude-501,
@@ -132,8 +137,9 @@ allowed() {
   [ -n "$CC_PLANS_C" ] && under "$c" "$CC_PLANS_C"
 }
 
+# deny <path> [<reason>]
 deny() {
-  local path="$1" content issue
+  local path="$1" reason="${2:-}" content issue
   content=$(jq -cn --arg tool "$TOOL_NAME" --arg path "$path" --arg root "$ROOT" --arg tid "$TASK_ID" \
     '{tool:$tool, path:$path, root:$root, task_id:(if $tid == "" then null else ($tid | tonumber) end)}')
   issue=-1
@@ -143,7 +149,8 @@ deny() {
   fi
   tmb_audit_append "$DB" "$issue" '' "hook:containment-guard" "containment_denied" \
     "${TOOL_NAME} denied: ${path} is outside ${ROOT}" "$content" || true
-  jq -nc --arg r "BLOCKED: containment — ${path} is outside this run's root ${ROOT}. TMB agents write only under their root (the task worktree for swe, the project for bro); keep scratch files inside it." \
+  [ -n "$reason" ] || reason="BLOCKED: containment — ${path} is outside this run's root ${ROOT}. TMB agents write only under their root (the task worktree for swe, the project for bro); keep scratch files inside it."
+  jq -nc --arg r "$reason" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
   exit 0
 }
@@ -183,10 +190,31 @@ allowed "$CWD" || deny "$CWD"
 
 COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null || true)
 [ -n "$COMMAND" ] || exit 0
+# unresolved <target> — a write target behind a variable this command does
+# not set: allowed only when the literal directory before the variable is
+# inside the root.
+unresolved() {
+  local raw="$1" lit dir
+  lit="${raw%%[\$\`]*}"
+  case "$lit" in
+    */*) dir="${lit%/*}"; [ -n "$dir" ] || dir=/ ;;
+    *) dir="" ;;
+  esac
+  if [ -n "$dir" ] && dir=$(expand "$dir") && allowed "$dir"; then return 0; fi
+  deny "$raw" "BLOCKED: write target \"$raw\" depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command."
+}
+
 while IFS= read -r word; do
   [ -n "$word" ] || continue
+  case "$word" in
+    UNRESOLVED:*)
+      word="${word#UNRESOLVED:*:}"
+      if path=$(expand "$word"); then allowed "$path" || deny "$path"; else unresolved "$word"; fi
+      continue
+      ;;
+  esac
   path=$(expand "$word") || continue
   allowed "$path" || deny "$path"
-done < <(tmb_cmd_write_targets "$(tmb_cmd_strip_literals "$COMMAND")")
+done < <(tmb_cmd_write_paths "$COMMAND" "$CWD" raw)
 
 exit 0

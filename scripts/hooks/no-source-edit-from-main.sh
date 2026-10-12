@@ -70,11 +70,13 @@ if [ "$TOOL_NAME" = "Bash" ]; then
   }
 
   # Destination-coupled matching on the command's executable skeleton
-  # (tmb_cmd_write_paths, the shared list of write shapes). A prompt-surface
-  # path inside quoted text or a heredoc body is data. Exempt only when the WRITE DESTINATION is inside a
+  # (tmb_cmd_write_paths, the shared list of write shapes; a target behind an
+  # unresolvable variable is judged as written). A prompt-surface path inside
+  # quoted text or a data heredoc is data. Exempt only when the WRITE DESTINATION is inside a
   # worktree (#1031) — not when the command merely reads from one.
   _BASH_DEST_TOK=""
   while IFS= read -r _wpath; do
+    _wpath="${_wpath#UNRESOLVED:*:}"
     if tmb_is_prompt_surface_path "$_wpath" && ! _token_in_worktree "$_wpath"; then
       _BASH_DEST_TOK="$_wpath"
       break

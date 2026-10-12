@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Unit tests: scripts/hooks/lib/cmd-analysis.sh — tmb_cmd_strip_literals,
-# tmb_cmd_write_targets, tmb_cmd_write_paths, tmb_is_prompt_surface_path,
+# tmb_cmd_write_targets, tmb_cmd_write_paths, tmb_cmd_heredoc_bodies,
+# tmb_is_prompt_surface_path,
 # tmb_path_canonical, tmb_cmd_statements,
 # tmb_gh_mutation and the role / harness-turn / quoted-span helpers.
 set -uo pipefail
@@ -90,6 +91,65 @@ assert_eq "/w/s/a.md" "$(wpaths "bash -c 'echo x > s/a.md'" /w)" "bash -c body"
 assert_eq "skills/a.md" "$(wpaths 'cd "$X" && echo x > skills/a.md' /w)" "an unknown dir keeps the path as written"
 assert_eq "skills/a.md" "$(wpaths 'cd skills && echo x > a.md')" "no cwd: relative to the caller's dir"
 assert_eq "" "$(wpaths 'cat skills/a.md; grep -r x skills/' /w)" "reads write nothing"
+
+bodies() { tmb_cmd_heredoc_bodies "$1" | tr '\t\037' '#|' | paste -sd';' - ; }
+
+test_case "tmb_cmd_heredoc_bodies: every form, with its delimiter and statement (GH 1279)"
+assert_eq "1#EOF#a > b|c" "$(bodies "$(printf '%s\n' 'cat <<EOF' 'a > b' 'c' 'EOF')")" "<<EOF"
+assert_eq "1#EOF#a|b" "$(bodies "$(printf 'cat <<-EOF\n\ta\n\tb\n\tEOF')")" "<<-EOF strips leading tabs"
+assert_eq "1#EOF#\$x" "$(bodies "$(printf '%s\n' "cat <<'EOF'" '$x' 'EOF')")" "<<'EOF'"
+assert_eq "1#EOF#y" "$(bodies "$(printf '%s\n' 'cat <<"EOF"' 'y' 'EOF')")" "<<\"EOF\""
+assert_eq "1#A#one;1#B#two" "$(bodies "$(printf '%s\n' 'cat <<A 3<<B' 'one' 'A' 'two' 'B')")" "two heredocs in one statement"
+assert_eq "2#EOF#in" "$(bodies "$(printf '%s\n' 'echo $(cat <<EOF' 'in' 'EOF' ')')")" "inside \$( ): the statement that carries it"
+assert_eq "1#X#x;2#Y#y" "$(bodies "$(printf '%s\n' 'cat <<X && cat <<Y' 'x' 'X' 'y' 'Y')")" "one per statement"
+assert_eq "" "$(bodies 'cat <<< "here string"')" "a here-string is not a heredoc"
+assert_eq "" "$(bodies 'echo "<<EOF"')" "quoted text is not a heredoc"
+
+heredoc() { printf '%s\n' "$1 <<'EOF'" "$2" 'EOF'; }
+
+test_case "tmb_cmd_write_paths: programs fed to an interpreter through a heredoc (GH 1279)"
+assert_eq "/etc/x" "$(wpaths "$(heredoc 'python3 -' "open('/etc/x','w').write('y')")" /w)" "python3 -"
+assert_eq "/w/o.txt" "$(wpaths "$(heredoc 'python' "from pathlib import Path; Path('o.txt').write_text('y')")" /w)" "python, no script"
+assert_eq "/tmp/x" "$(wpaths "$(heredoc 'node' "require('fs').writeFileSync('/tmp/x','y')")" /w)" "node"
+assert_eq "/w/d" "$(wpaths "$(heredoc 'node -' "require('fs').mkdirSync('d/', {recursive: true})")" /w)" "node - mkdirSync"
+assert_eq "/w/p.txt" "$(wpaths "$(heredoc 'perl' 'open(my $f, ">", "p.txt");')" /w)" "perl"
+assert_eq "/w/r.txt" "$(wpaths "$(heredoc 'ruby -' "File.write('r.txt', 'x')")" /w)" "ruby -"
+assert_eq "/tmp/s,/w/sub/t" "$(wpaths "$(printf '%s\n' "sh <<'EOF'" 'echo x > /tmp/s' 'cd sub && touch t' 'EOF')" /w)" "sh: redirects and write commands, in the program's own dirs"
+assert_eq "/w/sub/a" "$(wpaths "$(heredoc 'cd sub && bash -s' 'echo x > a')" /w)" "bash -s, from its statement's dir"
+assert_eq "/w/a.txt,/w/b.txt" "$(wpaths "$(printf '%s\n' "python3 - <<A 3<<B" "open('a.txt','w')" 'A' "open('b.txt','w')" 'B')" /w)" "every heredoc of the statement"
+assert_eq "/w/t.txt" "$(wpaths "$(printf 'python3 - <<-EOF\n\topen("t.txt","w")\n\tEOF')" /w)" "<<-EOF"
+assert_eq "/o/sub" "$(wpaths "$(printf '%s\n' 'x=$(python3 - <<"EOF"' "open('/o/sub','w')" 'EOF' ')')" /w)" "inside \$( )"
+assert_eq "/yes" "$(wpaths "$(printf '%s\n' "cat <<'X' && python3 <<'Y'" "open('/no','w')" 'X' "open('/yes','w')" 'Y')" /w)" "only the interpreter's own heredoc"
+assert_eq "/hs" "$(wpaths 'python3 - <<< "open(\"/hs\",\"w\")"' /w)" "a here-string program"
+assert_eq "" "$(wpaths "$(heredoc 'python3 -' "print(open('/etc/hosts').read())")" /w)" "a program that only reads"
+assert_eq "/w/f" "$(wpaths "$(heredoc 'cat > f' "open('/etc/passwd','w')")" /w)" "a data heredoc: only the redirect"
+assert_eq "" "$(wpaths "$(heredoc 'python3 script.py' "open('/etc/passwd','w')")" /w)" "a script is given: stdin is data"
+assert_eq "" "$(wpaths "$(heredoc 'python3 -c pass' "open('/etc/passwd','w')")" /w)" "python -c: stdin is data"
+assert_eq "" "$(wpaths "$(heredoc 'bash script.sh' 'echo x > /etc/passwd')" /w)" "bash script: stdin is data"
+
+test_case "tmb_cmd_write_paths: variables set in the same command (GH 1279)"
+assert_eq "/etc/x" "$(wpaths 'OUT=/etc/x; cat > "$OUT"' /w)" "a prior statement"
+assert_eq "/w/o/f" "$(wpaths 'D=o && touch "${D}/f"' /w)" "\${VAR}, relative to the statement's dir"
+assert_eq "/e/y" "$(wpaths 'export OUT=/e/y && tee "$OUT"' /w)" "export"
+assert_eq "/x/y/z" "$(wpaths 'A=/x; B="$A/y"; cat > "$B/z"' /w)" "one level of nesting"
+assert_eq "/tmp/d" "$(wpaths 'cat > "${NOPE:-/tmp}/d"' /w)" "\${VAR:-default}: the default branch"
+assert_eq "/k/d" "$(wpaths 'V=/k; cat > "${V:-/tmp}/d"' /w)" "\${VAR:-default}: the set value"
+assert_eq "/w/a.txt,/w/b.txt" "$(wpaths 'for f in a.txt b.txt; do sed -i s/x/y/ "$f"; done' /w)" "a for loop's words"
+assert_eq "/a,/b" "$(wpaths 'P=/a; true || P=/b; touch "$P"' /w)" "every value a variable may hold"
+assert_eq "$HOME/f" "$(wpaths 'touch $HOME/f' /w)" "\$HOME from the host"
+assert_eq "$HOME/.bashrc" "$(wpaths 'HOME=/inside cat > "$HOME/.bashrc"' /w)" "a HOME= prefix does not reach its own command's words"
+assert_eq "/w/out" "$(wpaths 'echo x > "$PWD/out"' /w)" "\$PWD is the cwd"
+assert_eq "/w/x/f" "$(wpaths 'cd x && echo y > "$PWD/f"' /w)" "\$PWD after a cd"
+assert_eq "/w/s/f" "$(wpaths 'cd s; D="$PWD/f"; cd /; echo y > "$D"' /w)" "\$PWD in an assignment is that statement's dir"
+assert_eq 'UNRESOLVED:PWD:$PWD/f' "$(wpaths 'cd "$X" && echo y > "$PWD/f"' /w)" "\$PWD after cd \$X is unknown"
+assert_eq 'UNRESOLVED:OUT:$OUT' "$(wpaths 'OUT=/etc/x cat > "$OUT"' /w)" "a VAR=value prefix does not reach its own command's words (the shell expands them first)"
+assert_eq 'UNRESOLVED:OUT:$OUT' "$(wpaths 'OUT="$(mktemp)"; cat > "$OUT"' /w)" "a \$( ) value"
+assert_eq 'UNRESOLVED:OUT:$OUT' "$(wpaths 'OUT=`mktemp`; cat > $OUT' /w)" "a backtick value"
+assert_eq 'UNRESOLVED:UNKNOWN:$UNKNOWN/f' "$(wpaths 'cat > "$UNKNOWN/f"' /w)" "never set"
+assert_eq 'UNRESOLVED:UNKNOWN:/w/sub/$UNKNOWN' "$(wpaths 'cat > sub/$UNKNOWN' /w)" "a relative target keeps its dir"
+assert_eq 'UNRESOLVED:$():$(mktemp)' "$(wpaths 'cat > "$(mktemp)"' /w)" "a \$( ) target"
+assert_eq 'UNRESOLVED:f:$f' "$(wpaths 'while read -r f; do touch "$f"; done < list' /w)" "read"
+assert_eq "/w/out" "$(wpaths 'echo $(date) > out' /w)" "a \$( ) outside the target is not a target"
 
 test_case "tmb_cmd_write_shapes lists the shapes once"
 assert_contains "$(tmb_cmd_write_shapes)" "sed -i" "sed -i"
