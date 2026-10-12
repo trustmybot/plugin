@@ -38,16 +38,59 @@ export function parseTaskFiles(filesJson) {
         return [];
     }
 }
-// Close-time files[] scope gate (#157): diff the commit's cumulative changed
-// files (baseRef...commitSha, three-dot → auto merge-base) against the task's
-// typed files[] and return the paths NOT covered. Coverage: a files[] entry
-// ending in '/' (or one that resolves to a directory under it) matches any path
-// beneath it (prefix); otherwise an exact path match. `checked:false` + a reason
-// when git can't resolve the repo or commit (caller fails CLOSED).
-export function scopeCheckCommit(repoPath, baseRef, commitSha, files) {
+// The directory a files[] entry covers — the same rule as the edit-time
+// classifier (scripts/hooks/lib/scope-fence.sh): a trailing slash names the
+// directory itself, a nested path contributes its containing directory, a
+// root-level path covers itself. Any tests/ entry also covers all of tests/.
+function fileEntryDir(entry) {
+    if (entry.endsWith('/'))
+        return entry.replace(/\/+$/, '');
+    const slash = entry.lastIndexOf('/');
+    return slash >= 0 ? entry.slice(0, slash) : entry;
+}
+export function pathInFiles(path, files) {
+    const dirs = files.map(fileEntryDir).filter((d) => d.length > 0);
+    if (dirs.some((d) => d === 'tests' || d.startsWith('tests/')))
+        dirs.push('tests');
+    return dirs.some((d) => path === d || path.startsWith(`${d}/`));
+}
+// The top-level surfaces the close-time refusal groups extra paths by.
+export const SCOPE_SURFACES = ['mcp/trajectory-server/src', 'scripts/hooks', 'tests', 'docs', 'skills'];
+export function scopeSurface(path) {
+    return SCOPE_SURFACES.find((s) => path === s || path.startsWith(`${s}/`)) ?? 'other';
+}
+export function groupBySurface(paths) {
+    const groups = {};
+    for (const path of paths) {
+        const surface = scopeSurface(path);
+        const group = (groups[surface] ??= { count: 0, paths: [] });
+        group.count += 1;
+        group.paths.push(path);
+    }
+    return groups;
+}
+function gitOut(repoPath, args) {
+    return execFileSync('git', ['-C', repoPath, ...args], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: SUBPROCESS_TIMEOUT_MS,
+    })
+        .toString()
+        .trim();
+}
+// Close-time files[] scope gate: the task's own changes are
+// `git diff --name-only $(git merge-base <commit> <targetRef>) <commit>`, so
+// commits the PR target gained after the task branched never count. Returns
+// the changed paths files[] does not cover. `recordedBaseRef` (the task's
+// parent branch) gives `recordedBase` = merge-base(commit, recordedBaseRef);
+// `baseMoved` is true when it differs from the merge-base with the target.
+// `checked:false` + a reason when git can't resolve the repo or commit (the
+// caller fails CLOSED).
+export function scopeCheckCommit(repoPath, targetRef, commitSha, files, recordedBaseRef = null) {
+    let mergeBase;
     let diffOut;
     try {
-        diffOut = execFileSync('git', ['-C', repoPath, 'diff', '--name-only', `${baseRef}...${commitSha}`], { stdio: ['ignore', 'pipe', 'pipe'], timeout: SUBPROCESS_TIMEOUT_MS }).toString();
+        mergeBase = gitOut(repoPath, ['merge-base', commitSha, targetRef]);
+        diffOut = gitOut(repoPath, ['diff', '--name-only', mergeBase, commitSha]);
     }
     catch (e) {
         return {
@@ -56,31 +99,20 @@ export function scopeCheckCommit(repoPath, baseRef, commitSha, files) {
             reason: e.message.split('\n')[0] || 'git diff failed',
         };
     }
-    const changed = diffOut
-        .split('\n')
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0);
-    // Build the coverage matchers. A files[] entry that names a directory (ends in
-    // '/') becomes a prefix matcher; every entry doubles as an exact-path matcher.
-    // filesToDirs gives the per-file parent dirs but we want the entries
-    // themselves, so derive prefixes directly.
-    const exact = new Set();
-    const prefixes = [];
-    for (const entry of files) {
-        if (entry.endsWith('/')) {
-            prefixes.push(entry);
+    let recordedBase = mergeBase;
+    if (recordedBaseRef && recordedBaseRef !== targetRef) {
+        try {
+            recordedBase = gitOut(repoPath, ['merge-base', commitSha, recordedBaseRef]);
         }
-        else {
-            exact.add(entry);
-            prefixes.push(`${entry}/`);
+        catch {
+            recordedBase = null;
         }
     }
-    const outOfScope = changed.filter((path) => {
-        if (exact.has(path))
-            return false;
-        return !prefixes.some((p) => path.startsWith(p));
-    });
-    return { outOfScope, checked: true };
+    const outOfScope = diffOut
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0 && !pathInFiles(l, files));
+    return { outOfScope, checked: true, mergeBase, recordedBase, baseMoved: recordedBase !== mergeBase };
 }
 // Resolve a task's repo to its on-disk path (repos.path; relative → resolved
 // against the trajectory DB's directory). Sole-repo fallback applies when the
@@ -220,15 +252,16 @@ function insertIntentAndNote(db, issueId, intentVerbatim, noteLine, now) {
 // row. Returns whether the issue was closed (so the caller can mirror the
 // close to the remote after the transaction commits) and, when it was left
 // open, why.
-function closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast, bypassClosedBy = null) {
-    // 1. bro_verification_pass audit row — the review anchor of this commit.
+function closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast, bypassClosedBy = null, scope = null) {
+    // 1. bro_verification_pass audit row — the review anchor of this commit;
+    // bro_atomic_close adds the close-time scope record task_brief reads.
     insertAudit(db, {
         issue_id: task.issue_id,
         branch_id: task.branch_id,
         from_node: 'bro',
         event_type: 'bro_verification_pass',
         summary: verificationSummary.slice(0, 200),
-        content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha }),
+        content_json: JSON.stringify({ task_id: task.id, commit_sha: commitSha, ...(scope ? { scope } : {}) }),
         created_at: now,
     });
     // 2. review bypass for a non-atomic closer, judged against that anchor.
@@ -548,6 +581,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             description: 'Bro task-close composite — writes bro_verification_pass, advances the task to closed, and optionally closes the parent issue, all in one DB transaction. ' +
                 'Runs before pr-reviewer: the payload carries review_pending=true (spawn pr-reviewer next). ' +
                 'close_issue_if_last_task applies the issue_close rules: it never closes the issue over a live sibling task (issue_left_open {reason: issue_has_open_tasks, tasks}) nor over a closed task, this one included, without a passing review (issue_left_open {reason: tasks_without_review, tasks, review_pending: true}); the issue then closes on merge or via issue_close after review. ' +
+                'Scope gate: the paths changed between merge-base(commit, origin/<pr_target>) and the commit must fall within files[]; extras refuse the close grouped by surface unless waive_scope_gate + scope_waiver_reason accepts them. The result carries base_moved (with recorded_base and merge_base when true). ' +
                 'PostToolUse hooks fire on bro_atomic_close (not task_update_status).',
             inputSchema: {
                 type: 'object',
@@ -567,10 +601,15 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                     },
                     waive_scope_gate: {
                         type: 'boolean',
-                        description: 'When true, SKIP the server-side files[] scope gate (the close-time check that the ' +
-                            "commit's changed files all fall within the task's typed files[]) and record a waive " +
-                            'note. Use only when closing intentionally outside a resolvable git checkout, or when ' +
-                            'the out-of-scope paths are accepted. Default false (gate enforced, fail-closed).',
+                        description: "When true, accept the task's changed paths outside its typed files[] (the close-time scope gate " +
+                            'diffs merge-base(commit, origin/<pr_target>)..commit against files[]) and close; requires ' +
+                            'scope_waiver_reason. The scope_gate_waived audit row records accepted_paths, reason, base_moved, ' +
+                            'recorded_base, merge_base. Also closes when the repo/commit cannot be resolved. Default false ' +
+                            '(gate enforced, fail-closed).',
+                    },
+                    scope_waiver_reason: {
+                        type: 'string',
+                        description: 'Required with waive_scope_gate (at least 10 characters): why bro accepts the extra paths.',
                     },
                 },
                 required: ['agent', 'task_id', 'commit_sha', 'verification_summary'],
@@ -646,7 +685,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                             files: {
                                 type: 'array',
                                 items: { type: 'string' },
-                                description: 'Authoritative allowlist of paths SWE may edit (swe-scope-fence hook).',
+                                description: "The task's expected scope at directory granularity; writes outside it are noted to the swe and judged at bro_atomic_close.",
                             },
                             verification: {
                                 type: 'array',
@@ -713,7 +752,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
         },
         {
             name: 'task_brief',
-            description: "Full context bundle for one task in a single call — swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch. A swe call opens the task's swe agent_runs row when none is open.",
+            description: "Full context bundle for one task in a single call — swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one). A swe call opens the task's swe agent_runs row when none is open.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -1284,6 +1323,20 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                     truncated: true,
                 };
             });
+            // The latest bro_atomic_close scope record (extras bro accepted, base
+            // moved) — pr-reviewer reads it instead of recomputing the diff.
+            const closeRow = db.get(`SELECT content_json FROM audit
+            WHERE event_type = 'bro_verification_pass' AND json_valid(content_json)
+              AND json_extract(content_json, '$.task_id') = ?
+            ORDER BY created_at DESC, id DESC LIMIT 1`, [task.id]);
+            const closeScope = closeRow?.content_json
+                ? (JSON.parse(closeRow.content_json).scope ?? null)
+                : null;
+            const scope = {
+                files: parseTaskFiles(task.files),
+                extras_accepted: Array.isArray(closeScope?.extras_accepted) ? closeScope.extras_accepted : [],
+                base_moved: closeScope ? closeScope.base_moved === true : null,
+            };
             return ok({
                 task_id: task.id,
                 issue_id: task.issue_id,
@@ -1296,6 +1349,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 spec_body: task.spec_body,
                 files: parseTaskFiles(task.files),
                 verification: parseTaskFiles(task.verification),
+                scope,
                 scope_world_model,
                 ...(world_model_warning ? { world_model_warning } : {}),
                 task_discussions,
@@ -1697,35 +1751,75 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 return err(`Task ${taskId} status is "${task.status}", expected "completed" or "needs_validation". ` +
                     `bro_atomic_close runs after SWE flips status to completed.`);
             }
-            // --- Close-time files[] scope gate (#157) ---
-            // Deterministic, un-skippable: diff the commit's cumulative changes
-            // against the task's typed files[] and REFUSE to close on any
-            // out-of-scope path. Fail-CLOSED when the repo/commit can't be resolved.
-            // waive_scope_gate=true skips the gate and records an audit note.
-            // task_recover's shared close path is intentionally NOT gated.
+            // --- Close-time files[] scope gate ---
+            // The task's own changes (merge-base with origin/<pr_target> .. commit)
+            // against its typed files[]. Extras refuse the close, grouped by
+            // surface, unless bro accepts them with waive_scope_gate +
+            // scope_waiver_reason; the acceptance lands in scope_gate_waived.
+            // Fail-CLOSED when the repo/commit can't be resolved. task_recover's
+            // shared close path is intentionally NOT gated.
             const now = nowISO();
+            const scopeWaiverReason = typeof args['scope_waiver_reason'] === 'string' ? args['scope_waiver_reason'].trim() : '';
+            if (waiveScopeGate && scopeWaiverReason.length < 10) {
+                return err('bro_atomic_close: waive_scope_gate=true requires scope_waiver_reason (at least 10 characters) naming why the extra paths are accepted.');
+            }
+            const repoPath = resolveRepoPath(db, task.repo);
+            const targetCandidates = [readRepoTargetBranch(db, task.repo), task.parent_branch_id, 'dev'].filter((b) => typeof b === 'string' && b.length > 0);
+            let targetRef = null;
+            if (repoPath) {
+                for (const candidate of targetCandidates) {
+                    targetRef = resolveBaseRef(repoPath, candidate);
+                    if (targetRef)
+                        break;
+                }
+            }
+            const recordedBaseRef = repoPath && task.parent_branch_id ? resolveBaseRef(repoPath, task.parent_branch_id) : null;
+            const scope = repoPath && targetRef
+                ? scopeCheckCommit(repoPath, targetRef, commitSha, parseTaskFiles(task.files), recordedBaseRef)
+                : {
+                    outOfScope: [],
+                    checked: false,
+                    reason: repoPath
+                        ? `no PR target resolves (tried ${targetCandidates.map((b) => `'origin/${b}'`).join(', ')} and their local branches)`
+                        : `cannot resolve a path for repo '${task.repo ?? ''}'`,
+                };
+            const baseMoved = scope.baseMoved === true;
+            const scopeRecord = {
+                extras_accepted: waiveScopeGate ? scope.outOfScope : [],
+                base_moved: baseMoved,
+                recorded_base: scope.recordedBase ?? null,
+                merge_base: scope.mergeBase ?? null,
+            };
             if (!waiveScopeGate) {
-                const repoPath = resolveRepoPath(db, task.repo);
-                const base = task.parent_branch_id || 'dev';
-                const baseRef = repoPath ? resolveBaseRef(repoPath, base) : null;
-                const scope = repoPath && baseRef
-                    ? scopeCheckCommit(repoPath, baseRef, commitSha, parseTaskFiles(task.files))
-                    : {
-                        outOfScope: [],
-                        checked: false,
-                        reason: repoPath
-                            ? `base does not resolve as 'origin/${base}' or local '${base}'`
-                            : `cannot resolve a path for repo '${task.repo ?? ''}'`,
-                    };
                 if (!scope.checked) {
                     return err(`bro_atomic_close scope gate: cannot resolve ${task.repo ?? '<repo>'}@${commitSha} to verify ` +
-                        `files[] scope (${scope.reason ?? 'unknown'}). Pass waive_scope_gate=true if this close ` +
+                        `files[] scope (${scope.reason ?? 'unknown'}). Pass waive_scope_gate=true with scope_waiver_reason if this close ` +
                         `is intentional outside a git checkout.`);
                 }
                 if (scope.outOfScope.length > 0) {
-                    return err(`bro_atomic_close scope gate: these committed files are outside the task's files[] fence: ` +
-                        `${scope.outOfScope.join(', ')}. Add them to files[] (re-plan) or revert them, then retry. ` +
-                        `Pass waive_scope_gate=true to override.`);
+                    const groups = groupBySurface(scope.outOfScope);
+                    const listing = Object.entries(groups)
+                        .map(([surface, g]) => `${surface} (${g.count}): ${g.paths.join(', ')}`)
+                        .join('; ');
+                    const moved = baseMoved
+                        ? ` The task's recorded base (${scope.recordedBase ?? 'unresolved'}) differs from the merge-base ${scope.mergeBase}: some paths may come from the moved base.`
+                        : '';
+                    return {
+                        isError: true,
+                        content: [
+                            {
+                                type: 'text',
+                                text: JSON.stringify({
+                                    error: `bro_atomic_close scope gate: ${scope.outOfScope.length} committed path(s) outside the task's files[]: ${listing}.${moved} ` +
+                                        `Revert them, or accept them with waive_scope_gate=true and scope_waiver_reason.`,
+                                    extras_by_surface: groups,
+                                    base_moved: baseMoved,
+                                    recorded_base: scopeRecord.recorded_base,
+                                    merge_base: scopeRecord.merge_base,
+                                }),
+                            },
+                        ],
+                    };
                 }
             }
             const result = db.transaction(() => {
@@ -1738,16 +1832,28 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                         branch_id: task.branch_id,
                         from_node: 'bro',
                         event_type: 'scope_gate_waived',
-                        summary: `bro_atomic_close scope gate waived for task ${task.id}`,
-                        content_json: JSON.stringify({ skill: 'bro_atomic_close', task_id: task.id, commit_sha: commitSha }),
+                        summary: scopeWaiverReason.slice(0, 200),
+                        content_json: JSON.stringify({
+                            skill: 'bro_atomic_close',
+                            task_id: task.id,
+                            commit_sha: commitSha,
+                            accepted_paths: scope.outOfScope,
+                            reason: scopeWaiverReason,
+                            base_moved: baseMoved,
+                            recorded_base: scopeRecord.recorded_base,
+                            merge_base: scopeRecord.merge_base,
+                        }),
                         created_at: now,
                     });
                 }
-                const closed = closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast);
+                const closed = closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast, null, scopeRecord);
                 return {
                     task_id: task.id,
                     issue_closed: closed.issue_closed,
                     review_pending: true,
+                    base_moved: baseMoved,
+                    ...(baseMoved ? { recorded_base: scopeRecord.recorded_base, merge_base: scopeRecord.merge_base } : {}),
+                    ...(waiveScopeGate ? { extras_accepted: scope.outOfScope } : {}),
                     ...(closed.issue_left_open ? { issue_left_open: closed.issue_left_open } : {}),
                 };
             });

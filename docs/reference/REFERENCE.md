@@ -101,7 +101,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `askuserquestion-length-lint.sh` | PreToolUse AskUserQuestion | Cap label/description lengths |
 | `roundtable-auq-shape.sh` | PreToolUse AskUserQuestion | Validate AUQ shape during roundtable awaiting_human |
 | `no-source-edit-from-main.sh` | PreToolUse Edit/Write | Bro can't edit source from main checkout |
-| `swe-scope-fence.sh` | PreToolUse Edit/Write | Confine SWE edits to the task's declared `files[]` scope |
+| `swe-scope-fence.sh` | PreToolUse Edit/Write | Note (never deny) an SWE edit outside the task's `files[]`, once per path; scope is judged at close by `bro_atomic_close` |
 | `naming-lint.sh` | PreToolUse Edit/Write | Enforce kebab/snake/Pascal naming conventions per language |
 | `code-quality-lint.sh` | PreToolUse Edit/Write | Catch mechanical quality patterns (bare except, mutable defaults, etc.) |
 | `debug-trajectory.sh` | PreToolUse (all, debug-mode) | Persist trajectory rows when TMB_DEBUG_TRAJECTORY=1 |

@@ -262,7 +262,7 @@ describe('composite audit writers populate audit.repo', () => {
                 agent: 'swe', task_id: taskId, status: 'completed', commit_sha: 'abc1234',
             });
             const r = await call(composites.handlers, 'bro_atomic_close', {
-                agent: 'bro', task_id: taskId, commit_sha: 'abc1234', verification_summary: 'ok', waive_scope_gate: true,
+                agent: 'bro', task_id: taskId, commit_sha: 'abc1234', verification_summary: 'ok', waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
             });
             assert.ok(!r.isError, JSON.stringify(parse(r)));
             for (const e of ['bro_verification_fail', 'bro_verification_pass', 'scope_gate_waived']) {
