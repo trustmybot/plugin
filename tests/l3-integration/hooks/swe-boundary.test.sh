@@ -6,6 +6,8 @@
 # (b) gh/glab MUTATING subcommands from SWE context → DENY (reads allowed)
 # (c) Edit/Write target outside assigned worktree → DENY
 # (d) Edit/Write to prompt-surface paths → DENY (unless prompt_bearing=1)
+# (e) Bash-written prompt-surface path → DENY (unless prompt_bearing=1)
+# (f) Bash-written path outside the task's files[] dirs → DENY (scope fence)
 #
 # Negative cases (bro context) prove bro is NOT blocked.
 set -euo pipefail
@@ -39,13 +41,14 @@ sqlite3 "$DB" "
     branch_id TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     spec_body TEXT NOT NULL DEFAULT '',
-    prompt_bearing INTEGER NOT NULL DEFAULT 0
+    prompt_bearing INTEGER NOT NULL DEFAULT 0,
+    files TEXT NOT NULL DEFAULT '[]'
   );
   INSERT INTO issues VALUES (1, 'test', '', 'open', datetime('now'), datetime('now'));
-  INSERT INTO tasks VALUES (10, 1, 'feat/my-feature', 'pending', '', 0);
-  INSERT INTO tasks VALUES (11, 1, 'feat/prompt-task', 'pending', '', 1);
-  INSERT INTO tasks VALUES (12, 1, 'fix/failed-pb', 'failed', '', 1);
-  INSERT INTO tasks VALUES (13, 1, 'fix/failed-nonpb', 'failed', '', 0);
+  INSERT INTO tasks VALUES (10, 1, 'feat/my-feature', 'pending', '', 0, '[]');
+  INSERT INTO tasks VALUES (11, 1, 'feat/prompt-task', 'pending', '', 1, '[]');
+  INSERT INTO tasks VALUES (12, 1, 'fix/failed-pb', 'failed', '', 1, '[]');
+  INSERT INTO tasks VALUES (13, 1, 'fix/failed-nonpb', 'failed', '', 0, '[]');
 "
 
 # Worktree for the prompt-bearing task (slug matches feat/prompt-task).
@@ -521,6 +524,167 @@ assert_not_contains "$gh_fn" "*/sudo" "no wrapper list in tmb_gh_mutation"
 assert_not_contains "$gh_fn" "--split-string" "no wrapper option list in tmb_gh_mutation"
 
 # ===========================================================================
+# GH 1272 — every Bash write shape reaches the Edit/Write decision for both the
+# prompt-surface rule (e) and the scope fence (f).
+# ===========================================================================
+
+sqlite3 "$DB" "
+  INSERT INTO tasks (id, issue_id, branch_id, status, spec_body, prompt_bearing, files)
+    VALUES (20, 1, 'feat/shape-plain', 'running', '', 0, '[\"src/index.ts\",\"notes/\",\"myskills/\"]');
+  INSERT INTO tasks (id, issue_id, branch_id, status, spec_body, prompt_bearing, files)
+    VALUES (21, 1, 'feat/shape-prompt', 'running', '', 1, '[\"agents/\",\"skills/\",\"commands/\",\"templates/\",\"CLAUDE.md\",\"src/\"]');
+"
+WT_PLAIN="$WT_ROOT/shape-plain"
+WT_PB="$WT_ROOT/shape-prompt"
+mkdir -p "$WT_PLAIN" "$WT_PB"
+
+SURFACE='skills/tmb_audit/SKILL.md'
+OUT_OF_FENCE='scripts/hooks/x.sh'
+IN_FENCE='src/index.ts'
+
+# shape_write <shape> <target>: the shape writing <target>.
+shape_write() {
+  local t="$2"
+  case "$1" in
+    '>') printf 'echo x > %s' "$t" ;;
+    '>>') printf 'echo x >> %s' "$t" ;;
+    heredoc) printf "cat > %s <<'EOF'\nbody\nEOF" "$t" ;;
+    tee) printf 'echo x | tee %s' "$t" ;;
+    'tee -a') printf 'echo x | tee -a %s' "$t" ;;
+    'sed -i') printf "sed -i 's/a/b/' %s" "$t" ;;
+    'perl -i') printf "perl -i -pe 's/a/b/' %s" "$t" ;;
+    cp) printf 'cp /tmp/src.md %s' "$t" ;;
+    mv) printf 'mv /tmp/src.md %s' "$t" ;;
+    install) printf 'install -m 644 /tmp/src.md %s' "$t" ;;
+    rsync) printf 'rsync -a /tmp/src.md %s' "$t" ;;
+    python3) printf "python3 -c \"open('%s','w').write('x')\"" "$t" ;;
+    node) printf "node -e \"require('fs').writeFileSync('%s','x')\"" "$t" ;;
+    dd) printf 'dd if=/tmp/src.md of=%s' "$t" ;;
+    '>|') printf 'echo x >| %s' "$t" ;;
+    'exec N>') printf 'exec 3> %s' "$t" ;;
+    truncate) printf 'truncate -s 0 %s' "$t" ;;
+    'git mv') printf 'git mv /tmp/src.md %s' "$t" ;;
+    'perl -e') printf "perl -e 'open(my \$f, \">\", \"%s\")'" "$t" ;;
+  esac
+}
+
+# shape_read_input <shape> <surface> <out>: the shape writing <out> with the
+# surface path only as a read input.
+shape_read_input() {
+  local src="$2" out="$3"
+  case "$1" in
+    '>') printf 'cat %s > %s' "$src" "$out" ;;
+    '>>') printf 'cat %s >> %s' "$src" "$out" ;;
+    heredoc) printf "cat - %s > %s <<'EOF'\nbody\nEOF" "$src" "$out" ;;
+    tee) printf 'cat %s | tee %s' "$src" "$out" ;;
+    'tee -a') printf 'cat %s | tee -a %s' "$src" "$out" ;;
+    'sed -i') printf "sed -i '/x/r %s' %s" "$src" "$out" ;;
+    'perl -i') printf "perl -i -pe 'BEGIN{open(F,\"%s\")}' %s" "$src" "$out" ;;
+    cp) printf 'cp %s %s' "$src" "$out" ;;
+    install) printf 'install -m 644 %s %s' "$src" "$out" ;;
+    rsync) printf 'rsync -a %s %s' "$src" "$out" ;;
+    python3) printf "python3 -c \"open('%s','w').write(open('%s').read())\"" "$out" "$src" ;;
+    node) printf "node -e \"const fs=require('fs'); fs.writeFileSync('%s', fs.readFileSync('%s'))\"" "$out" "$src" ;;
+    dd) printf 'dd if=%s of=%s' "$src" "$out" ;;
+  esac
+}
+
+run_in() { (cd "$1" && echo "$(make_bash_input swe "$2")" | bash "$HOOK" 2>&1 || true); }
+
+for shape in '>' '>>' heredoc tee 'tee -a' 'sed -i' 'perl -i' cp mv install rsync python3 node dd \
+  '>|' 'exec N>' truncate 'git mv' 'perl -e'; do
+  test_case "GH 1272 [$shape] non-prompt-bearing task writes $SURFACE: DENIED"
+  out=$(run_in "$WT_PLAIN" "$(shape_write "$shape" "$SURFACE")")
+  assert_contains "$out" '"permissionDecision":"deny"' "a surface write via $shape is denied"
+  assert_contains "$out" "prompt-surface" "the prompt-surface reason"
+
+  test_case "GH 1272 [$shape] prompt-bearing task writes $SURFACE: ALLOWED"
+  out=$(run_in "$WT_PB" "$(shape_write "$shape" "$SURFACE")")
+  assert_not_contains "$out" '"permissionDecision":"deny"' "prompt_bearing=1 lifts the surface rule for $shape"
+
+  test_case "GH 1272 [$shape] write outside files[] ($OUT_OF_FENCE): DENIED"
+  out=$(run_in "$WT_PLAIN" "$(shape_write "$shape" "$OUT_OF_FENCE")")
+  assert_contains "$out" '"permissionDecision":"deny"' "an out-of-fence write via $shape is denied"
+  assert_contains "$out" "BLOCKED (scope fence): '$OUT_OF_FENCE'" "the scope-fence reason names the path"
+
+  test_case "GH 1272 [$shape] write inside files[] ($IN_FENCE): ALLOWED"
+  out=$(run_in "$WT_PLAIN" "$(shape_write "$shape" "$IN_FENCE")")
+  assert_not_contains "$out" '"permissionDecision":"deny"' "an in-fence write via $shape is allowed"
+
+  read_cmd=$(shape_read_input "$shape" "$SURFACE" "$IN_FENCE")
+  if [ -n "$read_cmd" ]; then
+    test_case "GH 1272 [$shape] in-fence write with $SURFACE as read input: ALLOWED"
+    out=$(run_in "$WT_PLAIN" "$read_cmd")
+    assert_not_contains "$out" '"permissionDecision":"deny"' "a surface read input of $shape is not a write"
+  fi
+done
+
+for read_cmd in "cat $SURFACE" "grep -n x $SURFACE" "sed -n '1,5p' $SURFACE" "head -3 $SURFACE" \
+  "python3 -c \"print(open('$SURFACE').read())\"" "node -e \"process.stdout.write(require('fs').readFileSync('$SURFACE'))\"" \
+  "grep -rn x skills/ > /dev/null"; do
+  test_case "GH 1272 read '$read_cmd': ALLOWED"
+  out=$(run_in "$WT_PLAIN" "$read_cmd")
+  assert_not_contains "$out" '"permissionDecision":"deny"' "a read never fires"
+done
+
+test_case "GH 1272 mv removes its source: moving $SURFACE away is a surface write"
+out=$(run_in "$WT_PLAIN" "mv $SURFACE $IN_FENCE")
+assert_contains "$out" "prompt-surface" "the mv source is removed, so it is written"
+
+test_case "GH 1272 path boundary: myskills/ is not the skills/ surface"
+out=$(run_in "$WT_PLAIN" 'echo x > myskills/notes.md')
+assert_not_contains "$out" '"permissionDecision":"deny"' "myskills/x.md is neither a surface nor out of fence"
+
+test_case "GH 1272 rules/ and .claude/agents/ are surfaces"
+out=$(run_in "$WT_PLAIN" 'echo x > rules/style.md')
+assert_contains "$out" "prompt-surface" "rules/*.md is a surface"
+out=$(run_in "$WT_PLAIN" 'echo x > .claude/agents/local.md')
+assert_contains "$out" "prompt-surface" ".claude/agents/*.md is a surface"
+
+test_case "GH 1272 directory-aware: cd into skills/ then write a relative path"
+out=$(run_in "$WT_PLAIN" 'cd skills && echo x > tmb_audit/SKILL.md')
+assert_contains "$out" "prompt-surface" "the statement's cd dir is applied"
+out=$(run_in "$WT_PLAIN" 'cd src && echo x > ../skills/tmb_audit/SKILL.md')
+assert_contains "$out" "prompt-surface" "a ../ path from the cd dir is normalized"
+out=$(run_in "$WT_PLAIN" 'cd src && echo x > index.ts')
+assert_not_contains "$out" '"permissionDecision":"deny"' "src/index.ts via cd stays in fence"
+
+test_case "GH 1272 bash -c and a second statement are judged"
+out=$(run_in "$WT_PLAIN" "bash -c 'echo x > $SURFACE'")
+assert_contains "$out" "prompt-surface" "a bash -c body is a statement"
+out=$(run_in "$WT_PLAIN" "echo ok > $IN_FENCE && echo x > $OUT_OF_FENCE")
+assert_contains "$out" "BLOCKED (scope fence)" "every statement's paths are judged"
+
+test_case "GH 1272 interpreter write mode with the path in argv"
+out=$(run_in "$WT_PLAIN" "python3 -c \"import sys; open(sys.argv[1],'w').write('x')\" $SURFACE")
+assert_contains "$out" "prompt-surface" "the operand of a writing one-liner is written"
+out=$(run_in "$WT_PLAIN" "python3 -c \"from pathlib import Path; Path('$SURFACE').write_text('x')\"")
+assert_contains "$out" "prompt-surface" "write_text"
+out=$(run_in "$WT_PLAIN" "node -e \"require('fs').appendFileSync('$SURFACE','x')\"")
+assert_contains "$out" "prompt-surface" "appendFileSync"
+
+test_case "GH 1272 writes outside the worktree are not fenced (/dev/null, /tmp)"
+out=$(run_in "$WT_PLAIN" 'ls 2>/dev/null > /tmp/swe-boundary-out.txt')
+assert_not_contains "$out" '"permissionDecision":"deny"' "the fence covers the worktree only"
+
+test_case "GH 1272 task with empty files[]: fence skipped"
+out=$(run_in "$WORKTREE" "echo x > $OUT_OF_FENCE")
+assert_not_contains "$out" '"permissionDecision":"deny"' "no typed files[] means no fence, as for Edit"
+
+test_case "GH 1272 Edit/Write and Bash share one surface predicate"
+out=$(cd "$WT_PLAIN" && echo "$(make_edit_input swe "$WT_PLAIN/rules/style.md")" | bash "$HOOK" 2>&1 || true)
+assert_contains "$out" "prompt-surface" "Edit of rules/*.md reaches the same decision"
+
+test_case "GH 1272 one shared write-shape list: neither guard carries its own copy"
+for guard in swe-boundary.sh no-source-edit-from-main.sh; do
+  body=$(cat "$PLUGIN_ROOT/scripts/hooks/$guard")
+  assert_not_contains "$body" "sed -i" "$guard names no write shape itself"
+  assert_not_contains "$body" "_is_prompt_surface_token" "$guard keeps no surface predicate of its own"
+  assert_contains "$body" "tmb_cmd_write_paths" "$guard takes written paths from the lib"
+  assert_contains "$body" "tmb_is_prompt_surface_path" "$guard takes the surface predicate from the lib"
+done
+
+# ===========================================================================
 # Layer 1 — schema-mismatch fail-safe (#596)
 # A stale legacy ~/.claude/tmb/trajectory.db (old schema, no prompt_bearing
 # column) up-tree from the hook's cwd must be treated as UNRESOLVED, not
@@ -564,7 +728,7 @@ mkdir -p "$LIVE_WT_PROMPT/agents"
 test_case "(L1) stale legacy DB up-tree, live DB at workspace: prompt_bearing=1 edit ALLOWED"
 out=$(cd "$LIVE_WT_PROMPT" && \
   echo "$(make_edit_no_transcript swe "$LIVE_WT_PROMPT/agents/swe.md")" | \
-  HOME="$SCHEMA_HOME" env -u TRAJECTORY_DB_PATH bash "$HOOK" 2>&1 || true)
+  HOME="$SCHEMA_HOME" env -u TRAJECTORY_DB_PATH -u CLAUDE_PROJECT_DIR bash "$HOOK" 2>&1 || true)
 assert_not_contains "$out" '"permissionDecision":"deny"' "live current-schema DB should be resolved, prompt edit allowed"
 
 # The schema probe rejects the legacy DB and accepts the current-schema one.
@@ -589,7 +753,7 @@ sqlite3 "$SENTINEL_HOME/.claude/tmb/trajectory.db" "
 "
 printf '%s\n' "$SENTINEL_HOME" > "$SENTINEL_HOME/.claude/tmb-active-workspace"
 resolved=$( cd "$SENTINEL_HOME" && \
-  HOME="$SENTINEL_HOME" env -u TRAJECTORY_DB_PATH \
+  HOME="$SENTINEL_HOME" env -u TRAJECTORY_DB_PATH -u CLAUDE_PROJECT_DIR \
   bash -c '. "'"$PLUGIN_ROOT"'/scripts/hooks/lib/query-task.sh"; tmb_db_path || true' )
 assert_eq "" "$resolved" "home-level pointer must be treated as unresolved"
 

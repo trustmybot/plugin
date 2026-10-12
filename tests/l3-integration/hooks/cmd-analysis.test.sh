@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Unit tests: scripts/hooks/lib/cmd-analysis.sh — tmb_cmd_strip_literals,
-# tmb_cmd_write_targets, tmb_path_canonical, tmb_cmd_statements,
+# tmb_cmd_write_targets, tmb_cmd_write_paths, tmb_is_prompt_surface_path,
+# tmb_path_canonical, tmb_cmd_statements,
 # tmb_gh_mutation and the role / harness-turn / quoted-span helpers.
 set -uo pipefail
 
@@ -47,6 +48,62 @@ assert_eq "p,/etc/passwd," "$(targets 'link /etc/passwd p')" "link destination a
 assert_eq "/o/f,here," "$(targets 'cp -s /o/f here')" "cp -s source and destination"
 assert_eq "/o,d," "$(targets 'cp -al /o d')" "cp -l source and destination"
 assert_eq "b," "$(targets 'cp a b')" "a plain cp names only its destination"
+
+test_case "tmb_cmd_write_targets: dd of=, truncate, git mv"
+assert_eq "out.img," "$(targets 'dd if=in.img of=out.img bs=1M')" "dd of="
+assert_eq "a,b," "$(targets 'truncate -s 0 a b')" "truncate files, not the size"
+assert_eq "d/x.md," "$(targets 'git -C r mv -f x.md d/x.md')" "git mv destination"
+
+wpaths() { tmb_cmd_write_paths "$1" "${2:-}" | paste -sd',' - ; }
+
+test_case "tmb_cmd_write_paths: every write shape (GH 1272)"
+assert_eq "/w/a.md" "$(wpaths 'echo x >| a.md' /w)" ">|"
+assert_eq "/w/a.md" "$(wpaths 'exec 3> a.md' /w)" "exec N>"
+assert_eq "/w/a.md" "$(wpaths "$(printf "cat > a.md <<'EOF'\nx > /w/no.md\nEOF")" /w)" "heredoc: the redirect, not the body"
+assert_eq "/w/a.md,/w/b.md" "$(wpaths 'echo x | tee -a a.md b.md' /w)" "tee -a"
+assert_eq "/w/x.md,/w/y.md" "$(wpaths "sed -i -e 's/a/b/' x.md y.md" /w)" "sed -i: every file operand"
+assert_eq "/w/f.md" "$(wpaths "sed -i '/x/r skills/a/SKILL.md' f.md" /w)" "sed -i: a path inside the script is data"
+assert_eq "/w/a.md,/w/b.md" "$(wpaths "perl -pi -e 's/a/b/' a.md b.md" /w)" "perl -i"
+assert_eq "/w/of.md" "$(wpaths 'dd if=/w/if.md of=of.md' /w)" "dd of="
+assert_eq "/w/t.md" "$(wpaths 'truncate --size 0 t.md' /w)" "truncate"
+assert_eq "/w/d.md" "$(wpaths 'install -m 644 s.md d.md' /w)" "install"
+assert_eq "/w/dst" "$(wpaths 'rsync -av src/ dst/' /w)" "rsync destination"
+assert_eq "/w/d.md,/w/s.md" "$(wpaths 'mv s.md d.md' /w)" "mv: destination and the removed source"
+assert_eq "/w/r/d.md,/w/r/s.md" "$(wpaths 'git -C r mv s.md d.md' /w)" "git mv under git -C"
+assert_eq "/w/a.md" "$(wpaths "python3 -c \"open('a.md','w').write('x')\"" /w)" "python open w"
+assert_eq "/w/a.md" "$(wpaths "python3 -c \"open('a.md', mode='x')\"" /w)" "python open mode=x"
+assert_eq "/w/s/a.md" "$(wpaths "python3 -c \"from pathlib import Path; Path('s/a.md').write_text('x')\"" /w)" "python write_text"
+assert_eq "/w/s/a.md" "$(wpaths "python3 -c \"import sys; open(sys.argv[1],'w')\" s/a.md" /w)" "python writing its argv operand"
+assert_eq "/w/o.md" "$(wpaths "python3 -c \"open('o.md','w').write(open('s/a.md').read())\"" /w)" "python read input is not written"
+assert_eq "" "$(wpaths "python3 -c \"print(open('s/a.md').read())\"" /w)" "python read only"
+assert_eq "/w/s/a.md" "$(wpaths "node -e \"require('fs').writeFileSync('s/a.md','x')\"" /w)" "node writeFileSync"
+assert_eq "/w/s/a.md" "$(wpaths "node -e \"require('fs').appendFileSync('s/a.md','x')\"" /w)" "node appendFileSync"
+assert_eq "/w/o.md" "$(wpaths "node -e \"const f=require('fs'); f.writeFileSync('o.md', f.readFileSync('s/a.md'))\"" /w)" "node read input is not written"
+assert_eq "" "$(wpaths "node -e \"require('fs').readFileSync('s/a.md')\"" /w)" "node read only"
+assert_eq "/w/s/a.md" "$(wpaths "perl -e 'open(my \$f, \">\", \"s/a.md\")'" /w)" "perl -e open >"
+
+test_case "tmb_cmd_write_paths: per statement, in the statement's own dir"
+assert_eq "/w/skills/a.md" "$(wpaths 'cd skills && echo x > a.md' /w)" "cd applies"
+assert_eq "/w/skills/a.md" "$(wpaths 'cd src && echo x > ../skills/a.md' /w)" ".. normalized"
+assert_eq "/w/a.md,/w/b.md" "$(wpaths '(cd sub && true) ; echo > a.md; echo > b.md' /w)" "a subshell cd does not leak"
+assert_eq "/w/s/a.md" "$(wpaths "bash -c 'echo x > s/a.md'" /w)" "bash -c body"
+assert_eq "skills/a.md" "$(wpaths 'cd "$X" && echo x > skills/a.md' /w)" "an unknown dir keeps the path as written"
+assert_eq "skills/a.md" "$(wpaths 'cd skills && echo x > a.md')" "no cwd: relative to the caller's dir"
+assert_eq "" "$(wpaths 'cat skills/a.md; grep -r x skills/' /w)" "reads write nothing"
+
+test_case "tmb_cmd_write_shapes lists the shapes once"
+assert_contains "$(tmb_cmd_write_shapes)" "sed -i" "sed -i"
+assert_contains "$(tmb_cmd_write_shapes)" "dd of=" "dd of="
+assert_contains "$(tmb_cmd_write_shapes)" "git mv" "git mv"
+
+test_case "tmb_is_prompt_surface_path matches at a path boundary"
+for p in agents/swe.md skills/x/SKILL.md skills/x/references/r.md commands/scan.md templates/agents/a.md \
+  rules/style.md .claude/agents/local.md CLAUDE.md sub/CODEX.md /w/.claude/worktrees/t/agents/a.md; do
+  if tmb_is_prompt_surface_path "$p"; then _pass; else _fail "$p should be a prompt surface"; fi
+done
+for p in myskills/x/SKILL.md myagents/a.md src/agents.md skills/x/helper.sh agents/openai.yaml NOTCLAUDE.md docs/x.md; do
+  if tmb_is_prompt_surface_path "$p"; then _fail "$p is not a prompt surface"; else _pass; fi
+done
 
 test_case "tmb_path_canonical"
 TMP=$(mktemp -d)

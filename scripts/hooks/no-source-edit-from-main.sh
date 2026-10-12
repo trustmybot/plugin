@@ -21,10 +21,9 @@
 #
 # Rule 2 — Bash write-form targeting a prompt surface from main checkout:
 #   Denied for every agent identity (bro, subagent, swe, unknown) when outside a
-#   worktree. Write-forms: >, >>, tee, sed -i, perl -i, python open w/a, cp/mv/rsync.
-#   Prompt surfaces: agents/*.md, skills/*/SKILL.md, commands/*.md,
-#   templates/*.md, CLAUDE.md, CODEX.md, CURSOR.md, GEMINI.md.
-#   Reads (cat/grep/sed -n) are never tripped.
+#   worktree. Written paths: tmb_cmd_write_paths and prompt surfaces:
+#   tmb_is_prompt_surface_path (lib/cmd-analysis.sh, shared with
+#   swe-boundary.sh). Reads are never tripped.
 #   Sanctioned route: spawn an SWE task (prompt_bearing=1 for prompt edits).
 #
 # Bypass: TMB_ALLOW_SOURCE_EDIT=1 (emergency override for hotfixes — rule 1 only).
@@ -70,30 +69,13 @@ if [ "$TOOL_NAME" = "Bash" ]; then
     return 1
   }
 
-  # _is_prompt_surface_token <token>: returns 0 if the token is a prompt-surface path.
-  _is_prompt_surface_token() {
-    local tok="$1"
-    case "$tok" in
-      agents/*.md|*/agents/*.md) return 0 ;;
-      skills/*/SKILL.md|*/skills/*/SKILL.md) return 0 ;;
-      commands/*.md|*/commands/*.md) return 0 ;;
-      templates/*.md|*/templates/*.md) return 0 ;;
-      CLAUDE.md|*/CLAUDE.md) return 0 ;;
-      CODEX.md|*/CODEX.md) return 0 ;;
-      CURSOR.md|*/CURSOR.md) return 0 ;;
-      GEMINI.md|*/GEMINI.md) return 0 ;;
-    esac
-    return 1
-  }
-
   # Destination-coupled matching on the command's executable skeleton
-  # (tmb_cmd_write_paths: redirect, tee, cp/mv/rsync destination, sed -i,
-  # perl -i, python open w/a). A prompt-surface path inside quoted text or a
-  # heredoc body is data. Exempt only when the WRITE DESTINATION is inside a
+  # (tmb_cmd_write_paths, the shared list of write shapes). A prompt-surface
+  # path inside quoted text or a heredoc body is data. Exempt only when the WRITE DESTINATION is inside a
   # worktree (#1031) — not when the command merely reads from one.
   _BASH_DEST_TOK=""
   while IFS= read -r _wpath; do
-    if _is_prompt_surface_token "$_wpath" && ! _token_in_worktree "$_wpath"; then
+    if tmb_is_prompt_surface_path "$_wpath" && ! _token_in_worktree "$_wpath"; then
       _BASH_DEST_TOK="$_wpath"
       break
     fi

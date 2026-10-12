@@ -34,6 +34,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/query-task.sh"
 # shellcheck source=scripts/hooks/lib/normalize-role.sh disable=SC1091
 . "$SCRIPT_DIR/lib/normalize-role.sh"
+# shellcheck source=scripts/hooks/lib/scope-fence.sh disable=SC1091
+. "$SCRIPT_DIR/lib/scope-fence.sh"
 
 INPUT=$(cat)
 
@@ -69,50 +71,16 @@ fi
 TASK_ID=$(tmb_resolve_task_id_for_target "$TARGET" "$INPUT" "$DB")
 [ -n "$TASK_ID" ] || exit 0
 
-# Read the typed `files` column (JSON array of path-like strings, Typed Rails
-# #673). One path per line via jq; fail open if the column is absent, empty,
-# or not a JSON array.
-FILES_JSON=$(tmb_gate_read "$DB" "
-  SELECT COALESCE(files, '[]') FROM tasks
-   WHERE id = ${TASK_ID}
-   LIMIT 1;
-")
-if [ "$FILES_JSON" = "__ERR__" ]; then
-  tmb_deny_db_unavailable swe-scope-fence
-  exit 0
-fi
-
-# Fail open: no task row.
-[ -n "$FILES_JSON" ] || exit 0
-
-# Parse the JSON array into path tokens (one per line). Empty array or invalid
-# JSON yields no lines → fail open below.
-FILE_PATHS=$(printf '%s' "$FILES_JSON" | jq -r '.[]?' 2>/dev/null || true)
-
-# Build the dir allowlist from the typed paths.
-ALLOWED_DIRS=()
-HAS_TESTS_DIR=""
-
-while IFS= read -r path_token; do
-  # Strip a single trailing slash so a dir token like "tests/" maps to "tests"
-  # instead of collapsing to "." via dirname. Skips empty lines and a bare "/".
-  path_token="${path_token%/}"
-  [ -n "$path_token" ] || continue
-  case "$path_token" in
-    */*) dir=$(dirname "$path_token") ;;
-    *)   dir="$path_token" ;;  # root-level file → exact path
-  esac
-  ALLOWED_DIRS+=("$dir")
-  case "$dir" in
-    tests/*|tests) HAS_TESTS_DIR="yes" ;;
-  esac
-done <<< "$FILE_PATHS"
-
-# Empty typed files[] → skip enforcement.
-if [ "${#ALLOWED_DIRS[@]}" -eq 0 ]; then
-  jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"TMB: task has no typed files[] — scope fence skipped. Ask bro to set the task'"'"'s files[] field (Typed Rails #673) to enforce edit scope."}}'
-  exit 0
-fi
+# Read the typed files[] into the dir allowlist (lib/scope-fence.sh).
+tmb_scope_fence_load "$DB" "$TASK_ID"
+case "$TMB_FENCE_STATE" in
+  error) tmb_deny_db_unavailable swe-scope-fence; exit 0 ;;
+  none) exit 0 ;;
+  empty)
+    jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"TMB: task has no typed files[] — scope fence skipped. Ask bro to set the task'"'"'s files[] field (Typed Rails #673) to enforce edit scope."}}'
+    exit 0
+    ;;
+esac
 
 # Normalize target to a repo-relative path for comparison (strip WORKTREE_ROOT).
 case "$TARGET" in
@@ -139,26 +107,8 @@ case "$ABS_TARGET" in
     ;;
 esac
 
-# Check if target is under any allowed dir.
-for allowed in "${ALLOWED_DIRS[@]}"; do
-  case "$REL_TARGET" in
-    "${allowed}/"*|"${allowed}")
-      exit 0
-      ;;
-  esac
-done
+tmb_scope_fence_allows "$REL_TARGET" && exit 0
 
-# Special case: if files[] lists any tests/ parent, allow any tests/ path.
-if [ "$HAS_TESTS_DIR" = "yes" ]; then
-  case "$REL_TARGET" in
-    tests/*|tests) exit 0 ;;
-  esac
-fi
-
-# Target is out of scope — deny with recovery instructions.
-DIRS_LIST=$(printf '%s\n' "${ALLOWED_DIRS[@]}" | sort -u | tr '\n' ' ')
-DENY_MSG="BLOCKED (scope fence): '${REL_TARGET}' is outside this task's files[] dirs. Allowed: ${DIRS_LIST%. }. To edit files outside scope, ask bro to extend the task's typed files[] field (or file a follow-up task) — do not edit out of scope."
-
-jq -nc --arg r "$DENY_MSG" \
+jq -nc --arg r "$(tmb_scope_fence_reason "$REL_TARGET")" \
   '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
 exit 0

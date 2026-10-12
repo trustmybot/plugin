@@ -20,7 +20,8 @@
 #   passed through tmb_cmd_strip_literals: `>`, `>>`, `>|`, `&>`, `&>>`
 #   targets (fd duplications like 2>&1 are not paths), every non-option
 #   argument of tee, mkdir, rm, touch, the destination of cp, mv, install and
-#   rsync (last argument, or -t/--target-directory), every path of a link
+#   rsync (last argument, or -t/--target-directory), the `of=` of dd, every
+#   file of truncate, the destination of `git mv`, every path of a link
 #   (ln, ln -s, link, cp -s, cp -l: the destination and each source, a
 #   relative ln -s source also read against the link's directory), the path of
 #   `git worktree add` and the directory of `git clone`. Leading VAR=value
@@ -50,11 +51,31 @@
 #       must deny with tmb_deny_ambiguous_git_target;
 #     - `-` (unknown) when the path is behind a variable, `cd -`, or popd.
 #
-# tmb_cmd_write_paths <command>
-#   tmb_cmd_write_targets of the stripped command, plus the file of an
-#   in-place `sed -i` / `perl -i` (its last argument) and every path a
-#   `python -c` program opens for writing (open('<p>', 'w'|'a'|'x')). One
-#   path per line, as written.
+# tmb_cmd_write_paths <command> [<cwd>]
+#   Every path the command writes, one per line, statement by statement
+#   (bash -c / eval bodies included): tmb_cmd_write_targets of the statement,
+#   every file of an in-place `sed -i` / `perl -i`, the sources a mv / git mv
+#   removes, and for an interpreter one-liner (python -c, node -e/-p,
+#   perl -e/-E) whose program carries a write mode (open(…, 'w'|'a'|'x'|'+'),
+#   perl open '>', write_text, writeFileSync, appendFileSync, …) every
+#   path-like string literal of the program that is not only read, plus every
+#   operand after the program. A relative path is joined to its statement's
+#   own dir (a preceding cd / pushd, a subshell restoring it, git -C for
+#   git mv) and normalized: absolute when <cwd> is given, else relative to the
+#   caller's dir. A path behind a variable, or after `cd $X`, is printed as
+#   written. Both write guards (swe-boundary.sh, no-source-edit-from-main.sh)
+#   take their written paths from here and nowhere else.
+#
+# TMB_CMD_WRITE_SHAPES / tmb_cmd_write_shapes
+#   The write shapes tmb_cmd_write_paths recognizes, for deny texts
+#   (tmb_cmd_write_shapes prints them comma-joined).
+#
+# tmb_is_prompt_surface_path <path>
+#   Exit 0 when <path> (repo-relative, or absolute) is on the prompt surface:
+#   CLAUDE.md / CODEX.md / CURSOR.md / GEMINI.md anywhere, or a .md under an
+#   agents/, skills/, commands/, templates/ or rules/ directory (.claude/agents/
+#   included). Directory names match at a path boundary: skills/x.md is a
+#   surface, myskills/x.md is not.
 #
 # tmb_git_commit_message <command>
 #   Prints the message of the first `git commit` statement as its real argv
@@ -241,10 +262,20 @@ tmb_cmd_write_targets() {
         if (installdir) { for (k = 1; k <= nn; k++) print nonopt[k] }
         else if (linkcopy) { for (k = 1; k <= nn; k++) print nonopt[k] }
         else if (nn >= 2 && nonopt[nn] !~ /^[^\/]*:/) print nonopt[nn]
+      } else if (cmd == "dd") {
+        for (k = first + 1; k <= nw; k++) if (w[k] ~ /^of=./) print substr(w[k], 4)
+      } else if (cmd == "truncate") {
+        for (k = first + 1; k <= nw; k++) {
+          if (w[k] == "-s" || w[k] == "-r" || w[k] == "--size" || w[k] == "--reference") { k++; continue }
+          if (w[k] !~ /^-/) print w[k]
+        }
       } else if (cmd == "git") {
         k = first + 1
         while (k <= nw && w[k] ~ /^-/) { if (w[k] == "-C" || w[k] == "-c") k++; k++ }
-        if (k <= nw && w[k] == "worktree" && k + 1 <= nw && w[k + 1] == "add") {
+        if (k <= nw && w[k] == "mv") {
+          for (sub_i = k + 1; sub_i <= nw; sub_i++) if (w[sub_i] !~ /^-/) nonopt[++nn] = w[sub_i]
+          if (nn >= 2) print nonopt[nn]
+        } else if (k <= nw && w[k] == "worktree" && k + 1 <= nw && w[k + 1] == "add") {
           for (sub_i = k + 2; sub_i <= nw; sub_i++) {
             if (w[sub_i] == "-b" || w[sub_i] == "-B" || w[sub_i] == "--reason") { sub_i++; continue }
             if (w[sub_i] ~ /^-/) continue
@@ -578,37 +609,173 @@ tmb_gh_mutation_from() {
   printf '%s %s\n' "$group" "$action"
 }
 
-tmb_cmd_write_paths() {
-  local cmd="${1:-}" dir stmt w last inplace prog
-  local -a words
-  tmb_cmd_write_targets "$(tmb_cmd_strip_literals "$cmd")"
-  while IFS="$(printf '\t')" read -r dir stmt; do
-    read -r -a words <<< "$stmt"
-    [ "${#words[@]}" -gt 1 ] || continue
-    last="${words[$((${#words[@]} - 1))]}"
-    inplace=0
-    case "${words[0]##*/}" in
-      sed)
-        for w in "${words[@]:1}"; do
-          case "$w" in -i*|--in-place*|-[a-zA-Z]*i) inplace=1 ;; esac
-        done
-        ;;
-      perl)
-        for w in "${words[@]:1}"; do
-          case "$w" in --*) ;; -*i*) inplace=1 ;; esac
-        done
-        ;;
-      python|python3|python[23].*)
-        for w in "${words[@]:1}"; do
-          prog=$(tmb_cmd_decode "$w")
-          case "$prog" in *open\(*) ;; *) continue ;; esac
-          printf '%s\n' "$prog" | grep -oE "open\([[:space:]]*['\"][^'\"]+['\"][[:space:]]*,[[:space:]]*['\"][wax]" \
-            | sed -E "s/^open\([[:space:]]*['\"]//; s/['\"][[:space:]]*,.*$//"
-        done
-        ;;
+TMB_CMD_WRITE_SHAPES=(
+  '>' '>>' '>|' '&>' 'exec N>' 'heredoc into a redirect' 'tee' 'tee -a'
+  'sed -i' 'perl -i' 'dd of=' 'truncate' 'cp' 'mv' 'install' 'rsync' 'git mv'
+  'ln' 'mkdir' 'rm' 'touch'
+  'python -c / node -e / perl -e with a write mode'
+)
+
+tmb_cmd_write_shapes() {
+  local out="" s
+  for s in "${TMB_CMD_WRITE_SHAPES[@]}"; do out="${out:+$out, }$s"; done
+  printf '%s' "$out"
+}
+
+tmb_is_prompt_surface_path() {
+  case "${1##*/}" in CLAUDE.md|CODEX.md|CURSOR.md|GEMINI.md) return 0 ;; esac
+  case "/${1#/}" in
+    */agents/*.md|*/skills/*.md|*/commands/*.md|*/templates/*.md|*/rules/*.md) return 0 ;;
+  esac
+  return 1
+}
+
+# _tmb_cmd_interp_writes <encoded-statement-words…>
+# The paths an interpreter one-liner (python -c, node -e/-p, perl -e/-E) may
+# write: when its program carries a write mode, every path-like string literal
+# of the program except those only read (open(p) / open(p, 'r'), readFileSync,
+# read_text, perl '<'), plus every operand after the program.
+_tmb_cmd_interp_writes() {
+  local argv0="${1##*/}" flags w prog="" k=1 n=$# lit q="['\"]" sp="[[:space:]]*" reads writes
+  local -a words=("$@")
+  case "$argv0" in
+    python|python3|python[23].*) flags="-c" ;;
+    node|nodejs) flags="-e --eval -p --print" ;;
+    perl) flags="-e -E" ;;
+    *) return 0 ;;
+  esac
+  while [ "$k" -lt "$n" ]; do
+    w="${words[$k]}"
+    k=$((k + 1))
+    case " $flags " in *" $w "*) prog=$(tmb_cmd_decode "${words[$k]:-}"); k=$((k + 1)); break ;; esac
+  done
+  [ -n "$prog" ] || return 0
+  writes=$(printf '%s\n' "$prog" | grep -oE "open${sp}\(${sp}${q}[^'\"]+${q}${sp},${sp}(mode${sp}=${sp})?${q}[rbt]*[wax+]|(writeFileSync|appendFileSync|writeFile|appendFile|createWriteStream)${sp}\(${sp}${q}[^'\"]+${q}|Path${sp}\(${sp}${q}[^'\"]+${q}${sp}\)${sp}\.${sp}(write_text|write_bytes)" || true)
+  if [ -z "$writes" ] && ! printf '%s\n' "$prog" | grep -qE "open${sp}\([^)]*,${sp}(mode${sp}=${sp})?${q}[rbt]*[wax+]|open${sp}\(?[^,;()]*,${sp}${q}[+]?>|write_text|write_bytes|writeFileSync|appendFileSync|writeFile${sp}\(|appendFile${sp}\(|createWriteStream"; then
+    return 0
+  fi
+  reads=$(printf '%s\n' "$prog" | grep -oE "open${sp}\(${sp}${q}[^'\"]+${q}${sp}(,${sp}${q}r[bt]?${q}${sp})?\)|(readFileSync|readFile|createReadStream|existsSync|statSync)${sp}\(${sp}${q}[^'\"]+${q}|Path${sp}\(${sp}${q}[^'\"]+${q}${sp}\)${sp}\.${sp}(read_text|read_bytes|exists)" | grep -oE "${q}[^'\"]+${q}" || true)
+  writes=$(printf '%s\n' "$writes" | grep -oE "^[^'\"]*${q}[^'\"]+${q}" | grep -oE "${q}[^'\"]+${q}\$" || true)
+  printf '%s\n' "$prog" | grep -oE "${q}[^'\"[:space:]]+${q}" | while IFS= read -r lit; do
+    if printf '%s\n' "$reads" | grep -qxF -- "$lit" && ! printf '%s\n' "$writes" | grep -qxF -- "$lit"; then continue; fi
+    lit="${lit:1:${#lit}-2}"
+    lit="${lit#+}"; lit="${lit#>}"; lit="${lit#>}"
+    case "$lit" in ''|.|..|*[!A-Za-z0-9_./~-]*) continue ;; esac
+    case "$lit" in */*|*.[A-Za-z0-9]*) printf '%s\n' "$lit" ;; esac
+  done
+  while [ "$k" -lt "$n" ]; do
+    w="${words[$k]}"
+    k=$((k + 1))
+    case "$w" in -*) ;; *) tmb_cmd_decode "$w"; printf '\n' ;; esac
+  done
+}
+
+# _tmb_cmd_inplace_files <tool> <encoded-words-after-argv0…>
+# Every file operand of an in-place sed / perl (-i): the operands after the
+# script (the first operand unless -e / -f gave it).
+_tmb_cmd_inplace_files() {
+  local tool="$1" w inplace=0 hasprog=0 skip=0
+  local -a ops=()
+  shift
+  for w in "$@"; do
+    if [ "$skip" = 1 ]; then skip=0; continue; fi
+    case "$tool:$w" in
+      *:--) continue ;;
+      sed:--in-place*|sed:-i*|sed:-[a-zA-Z]*i) inplace=1 ;;
+      sed:-e|sed:-f|sed:--expression|sed:--file|sed:-l) hasprog=1; skip=1 ;;
+      sed:--expression=*|sed:--file=*) hasprog=1 ;;
+      sed:-[a-zA-Z]*[ef]) hasprog=1; skip=1 ;;
+      perl:--*) ;;
+      perl:-*[eE]) case "$w" in *i*) inplace=1 ;; esac; hasprog=1; skip=1 ;;
+      perl:-*i*) inplace=1 ;;
+      *:-*) ;;
+      *) ops+=("$w") ;;
     esac
-    [ "$inplace" = 1 ] && tmb_cmd_decode "$last" && printf '\n'
-  done < <(_tmb_cmd_statements_enc "$cmd" "-" 0)
+  done
+  [ "$inplace" = 1 ] && [ "${#ops[@]}" -gt 0 ] || return 0
+  [ "$hasprog" = 1 ] || ops=("${ops[@]:1}")
+  [ "${#ops[@]}" -gt 0 ] || return 0
+  printf '%s\n' "${ops[@]}"
+}
+
+# _tmb_cmd_stmt_write_paths <encoded-statement>
+# The written paths of one statement, as written (encoded): the write targets,
+# every in-place sed / perl file, the sources a mv / git mv removes, and the
+# paths an interpreter one-liner writes.
+_tmb_cmd_stmt_write_paths() {
+  local stmt="${1:-}" w k=1
+  local -a words ops=()
+  tmb_cmd_write_targets "$stmt"
+  read -r -a words <<< "$stmt"
+  [ "${#words[@]}" -gt 1 ] || return 0
+  case "${words[0]##*/}" in
+    sed|perl) _tmb_cmd_inplace_files "${words[0]##*/}" "${words[@]:1}" ;;
+    mv) ops=("${words[@]:1}") ;;
+    git)
+      while [ "$k" -lt "${#words[@]}" ]; do
+        case "${words[$k]}" in
+          -C|-c) k=$((k + 2)) ;;
+          -*) k=$((k + 1)) ;;
+          *) break ;;
+        esac
+      done
+      [ "${words[$k]:-}" = "mv" ] && ops=("${words[@]:$((k + 1))}")
+      ;;
+  esac
+  if [ "${#ops[@]}" -gt 0 ]; then
+    local -a srcs=()
+    for w in "${ops[@]}"; do case "$w" in -*) ;; *) srcs+=("$w") ;; esac; done
+    if [ "${#srcs[@]}" -ge 2 ]; then printf '%s\n' "${srcs[@]:0:${#srcs[@]}-1}"; fi
+  fi
+  _tmb_cmd_interp_writes "${words[@]}"
+}
+
+# _tmb_cmd_join <dir-token> <path> <cwd>
+# <path> joined to its statement's dir token and normalized; as written when
+# the dir is unknown or the path holds a variable.
+_tmb_cmd_join() {
+  local dir="${1:-}" p="${2:-}" cwd="${3:-}" base
+  case "$p" in *'$'*|*'`'*) printf '%s\n' "$p"; return 0 ;; esac
+  if [ "$p" = "~" ] || [ "${p#\~/}" != "$p" ]; then
+    [ -n "${HOME:-}" ] || { printf '%s\n' "$p"; return 0; }
+    p="${HOME}${p#\~}"
+  fi
+  case "$p" in
+    /*) base="" ;;
+    *)
+      case "$dir" in
+        -) printf '%s\n' "$p"; return 0 ;;
+        @) base="$cwd" ;;
+        @/*) base="${cwd:+${cwd%/}}${cwd:+/}${dir#@/}" ;;
+        *) base="$dir" ;;
+      esac
+      ;;
+  esac
+  printf '%s\n' "${base:+$base/}$p" | awk '{
+    lead = (substr($0, 1, 1) == "/") ? "/" : ""
+    n = split($0, parts, "/"); m = 0
+    for (k = 1; k <= n; k++) {
+      if (parts[k] == "" || parts[k] == ".") continue
+      if (parts[k] == ".." && m > 0 && out[m] != "..") { m--; continue }
+      if (parts[k] == ".." && lead == "/") continue
+      out[++m] = parts[k]
+    }
+    p = ""
+    for (k = 1; k <= m; k++) p = p (k > 1 ? "/" : "") out[k]
+    if (p == "" && lead == "") p = "."
+    print lead p
+  }'
+}
+
+tmb_cmd_write_paths() {
+  local cmd="${1:-}" cwd="${2:-}" dir stmt p
+  while IFS="$(printf '\t')" read -r dir stmt; do
+    [ -n "$stmt" ] || continue
+    while IFS= read -r p; do
+      [ -n "$p" ] || continue
+      _tmb_cmd_join "$dir" "$(tmb_cmd_decode "$p")" "$cwd"
+    done < <(_tmb_cmd_stmt_write_paths "$stmt")
+  done < <(_tmb_cmd_statements_enc "$cmd" "@" 0)
   return 0
 }
 

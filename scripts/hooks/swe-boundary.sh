@@ -5,20 +5,22 @@
 # This is a tripwire for obvious write-forms, not a Bash sandbox. When in
 # doubt, the hook passes — precision beats recall here.
 #
-# Five rules, all for an SWE identity (SWE_CTX):
+# Six rules, all for an SWE identity (SWE_CTX):
 #
 #   (a) Bash: git push from SWE context                  → DENY
 #   (b) Bash: gh/glab MUTATING subcommands               → DENY (read-only gh allowed)
 #   (c) Edit/Write: target outside assigned worktree      → DENY
 #   (d) Edit/Write: prompt-surface paths                  → DENY (unless prompt_bearing=1)
-#   (e) Bash: write-form command targeting prompt surface → DENY (unless prompt_bearing=1)
+#   (e) Bash: a written path on the prompt surface        → DENY (unless prompt_bearing=1)
+#   (f) Bash: a written path inside the worktree but outside the task's
+#       files[] dirs                                      → DENY (scope fence)
 #
-# Write-forms matched by rule (e):
-#   >, >>, tee, sed -i, perl -i, python/python3 open(...,'w'|'a'), cp/mv/rsync
-#   with a prompt-surface destination (verb coupled to destination token).
-# Prompt surfaces: agents/*.md, skills/*/SKILL.md, commands/*.md,
-#   templates/*.md, CLAUDE.md, CODEX.md, CURSOR.md, GEMINI.md.
-# Read-only commands (cat, grep, sed -n, sed without -i) are never tripped.
+# Bash writes are judged by the same rules as Edit/Write: every path a
+# statement writes (tmb_cmd_write_paths in lib/cmd-analysis.sh, the one list
+# of write shapes, resolved against the statement's own cd / git -C dir) goes
+# through the prompt-surface predicate (tmb_is_prompt_surface_path) and the
+# scope fence (lib/scope-fence.sh, shared with swe-scope-fence.sh). Reads and
+# read inputs of a write never fire.
 #
 # SWE context = the agent identity (tmb_agent_role in lib/cmd-analysis.sh) is
 # swe. A path never decides the role. Bash rules judge the command's
@@ -32,6 +34,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/query-task.sh"
 # shellcheck source=scripts/hooks/lib/cmd-analysis.sh
 . "$SCRIPT_DIR/lib/cmd-analysis.sh"
+# shellcheck source=scripts/hooks/lib/scope-fence.sh
+. "$SCRIPT_DIR/lib/scope-fence.sh"
 
 INPUT=$(cat)
 
@@ -40,7 +44,7 @@ TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null || true)
 SWE_CTX="no"
 [ "$(tmb_agent_role "$INPUT")" = "swe" ] && SWE_CTX="yes"
 
-# Resolve the assigned worktree root once — used by rules (c), (d), and (e).
+# Resolve the assigned worktree root once — used by rule (c).
 # Primary signal: $PWD when it's inside a worktree.
 WORKTREE_ROOT=""
 case "$PWD" in
@@ -49,7 +53,7 @@ case "$PWD" in
     ;;
 esac
 
-# ---- Rules (a), (b), (e): Bash from SWE context -----------------------------
+# ---- Rules (a), (b), (e), (f): Bash from SWE context ------------------------
 # Each rule judges the executable statements of the command
 # (tmb_cmd_statements): a push or gh mutation named in a heredoc, a quoted
 # string, a grep pattern or a commit message is data and never fires.
@@ -84,55 +88,77 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
     exit 0
   fi
 
-  # (e) A write position (redirect, tee, cp/mv/rsync/install destination,
-  # sed -i / perl -i file, python open w/a) naming a prompt surface. Reads
-  # never fire. Lifts when the resolved task has prompt_bearing=1.
-  _is_prompt_surface_token() {
+  # (e), (f) Every written path, relative to the worktree it lies in.
+  _wt_of() {
     case "$1" in
-      agents/*.md|*/agents/*.md) return 0 ;;
-      skills/*/SKILL.md|*/skills/*/SKILL.md) return 0 ;;
-      commands/*.md|*/commands/*.md) return 0 ;;
-      templates/*.md|*/templates/*.md) return 0 ;;
-      CLAUDE.md|*/CLAUDE.md) return 0 ;;
-      CODEX.md|*/CODEX.md) return 0 ;;
-      CURSOR.md|*/CURSOR.md) return 0 ;;
-      GEMINI.md|*/GEMINI.md) return 0 ;;
+      */.claude/worktrees/*) printf '%s' "$1" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|' ;;
     esac
-    return 1
   }
 
-  BASH_PROMPT_WRITE=""
+  SURFACE_PATH=""
+  SURFACE_ANCHOR=""
+  FENCE_PATHS=()
   while IFS= read -r _wpath; do
-    if _is_prompt_surface_token "$_wpath"; then BASH_PROMPT_WRITE="yes"; fi
-  done < <(tmb_cmd_write_paths "$CMD")
+    [ -n "$_wpath" ] || continue
+    _wt=$(_wt_of "$_wpath")
+    _rel="${_wpath#"$_wt"/}"
+    if [ -z "$_wt" ] || [ "$_rel" = "$_wpath" ]; then _wt=""; _rel="$_wpath"; fi
+    if [ -z "$SURFACE_PATH" ] && tmb_is_prompt_surface_path "$_rel"; then
+      SURFACE_PATH="$_wpath"
+      SURFACE_ANCHOR="${_wt:+$_wpath}"
+    fi
+    if [ -n "$_wt" ]; then FENCE_PATHS+=("$_wpath"); fi
+  done < <(tmb_cmd_write_paths "$CMD" "$(tmb_payload_cwd "$INPUT")")
 
-  if [ "$BASH_PROMPT_WRITE" = "yes" ]; then
-    # Resolve prompt_bearing via the shared resolver (worktree branch → slug →
-    # transcript). Bash write-forms have no Edit target path; pass empty so the
-    # resolver derives the worktree from $PWD.
-    _PB_DB=$(tmb_db_path || true)
+  if [ -n "$SURFACE_PATH" ] || [ "${#FENCE_PATHS[@]}" -gt 0 ]; then
+    _DB=$(tmb_db_path || true)
     if [ "$(tmb_db_state)" = "error" ]; then
       tmb_deny_db_unavailable swe-boundary
       exit 0
     fi
-    _PB_TASK_ID=$(tmb_resolve_task_id_for_target "" "$INPUT" "$_PB_DB")
+  fi
+
+  # (e) Lifts when the resolved task has prompt_bearing=1.
+  if [ -n "$SURFACE_PATH" ]; then
     _PB_ALLOWED=""
-    if [ -n "$_PB_TASK_ID" ]; then
-      if [ -n "$_PB_DB" ] && tmb_have_sqlite; then
-        _PB_VAL=$(tmb_gate_read "$_PB_DB" "
-          SELECT COALESCE(prompt_bearing, 0) FROM tasks WHERE id = ${_PB_TASK_ID} LIMIT 1;
-        ")
-        if [ "$_PB_VAL" = "__ERR__" ]; then
+    _PB_TASK_ID=$(tmb_resolve_task_id_for_target "$SURFACE_ANCHOR" "$INPUT" "$_DB")
+    if [ -n "$_PB_TASK_ID" ] && [ -n "$_DB" ] && tmb_have_sqlite; then
+      _PB_VAL=$(tmb_gate_read "$_DB" "
+        SELECT COALESCE(prompt_bearing, 0) FROM tasks WHERE id = ${_PB_TASK_ID} LIMIT 1;
+      ")
+      if [ "$_PB_VAL" = "__ERR__" ]; then
+        tmb_deny_db_unavailable swe-boundary
+        exit 0
+      fi
+      if [ "${_PB_VAL:-0}" = "1" ]; then _PB_ALLOWED="yes"; fi
+    fi
+    if [ "$_PB_ALLOWED" != "yes" ]; then
+      jq -nc --arg r "BLOCKED: SWE may not write prompt-surface files via Bash ($(tmb_cmd_write_shapes)). Target: ${SURFACE_PATH}. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed." \
+        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
+      exit 0
+    fi
+  fi
+
+  # (f) Scope fence, per worktree a written path lies in.
+  if [ "${#FENCE_PATHS[@]}" -gt 0 ] && [ -n "$_DB" ] && tmb_have_sqlite; then
+    _FENCE_WT=""
+    for _wpath in "${FENCE_PATHS[@]}"; do
+      _wt=$(_wt_of "$_wpath")
+      if [ "$_wt" != "$_FENCE_WT" ]; then
+        _FENCE_WT="$_wt"
+        tmb_scope_fence_load "$_DB" "$(tmb_resolve_task_id_for_target "$_wpath" "$INPUT" "$_DB")"
+        if [ "$TMB_FENCE_STATE" = "error" ]; then
           tmb_deny_db_unavailable swe-boundary
           exit 0
         fi
-        [ "${_PB_VAL:-0}" = "1" ] && _PB_ALLOWED="yes"
       fi
-    fi
-    if [ "$_PB_ALLOWED" != "yes" ]; then
-      jq -nc '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"BLOCKED: SWE may not write prompt-surface files via Bash (>, >>, tee, sed -i, perl -i, python open w/a, cp/mv/rsync). Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed."}}'
+      [ "$TMB_FENCE_STATE" = "ok" ] || continue
+      _rel="${_wpath#"$_wt"/}"
+      if tmb_scope_fence_allows "$_rel"; then continue; fi
+      jq -nc --arg r "$(tmb_scope_fence_reason "$_rel")" \
+        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
       exit 0
-    fi
+    done
   fi
 fi
 
@@ -174,20 +200,12 @@ if [ -n "$WORKTREE_ROOT" ]; then
 fi
 
 # ---- Rule (d): prompt-surface paths ----------------------------------------
-# Deny edits to agents/, skills/*/SKILL.md, commands/, templates/, CLAUDE.md,
-# CODEX.md, CURSOR.md, GEMINI.md from SWE context — unless the task row has
-# prompt_bearing=1.
-BASENAME=$(basename "$TARGET")
+# Deny edits to the prompt surface (tmb_is_prompt_surface_path) from SWE
+# context — unless the task row has prompt_bearing=1.
+_WT_D=$(tmb_worktree_root_for_target "$TARGET")
+_SUBJECT="${TARGET#"$_WT_D"/}"
 IS_PROMPT_SURFACE=""
-case "$TARGET" in
-  */agents/*.md|agents/*.md) IS_PROMPT_SURFACE="yes" ;;
-  */skills/*/SKILL.md|skills/*/SKILL.md) IS_PROMPT_SURFACE="yes" ;;
-  */commands/*.md|commands/*.md) IS_PROMPT_SURFACE="yes" ;;
-  */templates/*.md|templates/*.md) IS_PROMPT_SURFACE="yes" ;;
-esac
-case "$BASENAME" in
-  CLAUDE.md|CODEX.md|CURSOR.md|GEMINI.md) IS_PROMPT_SURFACE="yes" ;;
-esac
+tmb_is_prompt_surface_path "$_SUBJECT" && IS_PROMPT_SURFACE="yes"
 
 if [ "$IS_PROMPT_SURFACE" = "yes" ]; then
   DB=$(tmb_db_path || true)
