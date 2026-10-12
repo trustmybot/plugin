@@ -51,7 +51,7 @@ fi
 if awk '
   /Refusing to re-tag a PUBLISHED release/ { found=1; line=NR }
   found && /^[[:space:]]*exit 1[[:space:]]*$/ && NR-line<=30 { print "ok"; exit }
-' "$SCRIPT" | grep -q ok; then
+' "$SCRIPT" | grep ok >/dev/null; then
   pass "exits non-zero on published-retag refusal path"
 else
   fail "no 'exit 1' within 30 lines of the refusal message — guard would be advisory only"
@@ -67,7 +67,7 @@ fi
 # G5: must NOT push to origin a deleted tag in the local-only retag path
 # (an earlier version did `git push origin :refs/tags/$NEW_TAG` even for
 # local-only tags, which would silently delete the remote tag if it existed)
-if awk '/Local-only/{found=1} found && /git push.*:refs\/tags/ {print "BAD"; exit}' "$SCRIPT" | grep -q BAD; then
+if awk '/Local-only/{found=1} found && /git push.*:refs\/tags/ {print "BAD"; exit}' "$SCRIPT" | grep BAD >/dev/null; then
   fail "local-only retag path still tries to push tag deletion to origin (would corrupt remote)"
 else
   pass "local-only retag path doesn't push tag deletion to origin"

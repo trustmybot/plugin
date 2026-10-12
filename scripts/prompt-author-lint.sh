@@ -33,7 +33,7 @@ echo "$BODY" | grep -nE "^(Don't|Never|Do not) " | while IFS= read -r line; do
 done
 echo "$BODY" | grep -nE "MUST NOT|\bdo not\b|\bdon't\b|\bnever\b" | grep -ivE "^[0-9]+:[[:space:]]*(#|//|--)" | while IFS= read -r line; do
   # Skip if already exempt with LOAD-BEARING-SAFETY comment on same line.
-  if echo "$line" | grep -q "LOAD-BEARING-SAFETY"; then continue; fi
+  if echo "$line" | grep "LOAD-BEARING-SAFETY" >/dev/null; then continue; fi
   echo "[pink-elephant-mid] $line"
 done
 

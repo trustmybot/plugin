@@ -98,16 +98,16 @@ UNICODE_SPACES=($'\302\240' $'\341\232\200' $'\342\200\200' $'\342\200\201' $'\3
 FOLD_SPACES=$(printf 's/%s/ /g;' "${UNICODE_SPACES[@]}")
 
 needs_contract() {
-  printf '%s\n' "$SPEC_FILES" | grep -iqE '(schema\.sql$|(^|/)db\.ts$|(^|/)migrations)' && return 0
+  printf '%s\n' "$SPEC_FILES" | grep -iE '(schema\.sql$|(^|/)db\.ts$|(^|/)migrations)' >/dev/null && return 0
   printf '%s' "$SPEC_BODY" | LC_ALL=C sed -e "$FOLD_SPACES" | LC_ALL=C tr '\n\r\t\v\f' '     ' \
-    | grep -iqE '(add[[:space:]]+column|new[[:space:]_-]+(column|tool|field|table))'
+    | grep -iE '(add[[:space:]]+column|new[[:space:]_-]+(column|tool|field|table))' >/dev/null
 }
 needs_contract || exit 0
 
 has_line() {
   printf '%s\n' "$SPEC_BODY" \
     | sed -nE "s/^[[:space:]>*+-]*([0-9]+[.)][[:space:]]+)?[\`*_]*$1:[\`*_]*(.*)\$/\2/p" \
-    | grep -qE '[^[:space:]`*_]'
+    | grep -E '[^[:space:]`*_]' >/dev/null
 }
 
 has_line Nullable && exit 0

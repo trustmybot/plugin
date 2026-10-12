@@ -36,12 +36,12 @@ for skill in $(find skills -type f -name 'SKILL.md' 2>/dev/null | sort); do
   fm=$(awk '/^---$/{c++; next} c==1' "$skill" | head -50)
 
   # Required fields
-  if ! echo "$fm" | grep -qE '^name:[[:space:]]+'; then
+  if ! echo "$fm" | grep -E '^name:[[:space:]]+' >/dev/null; then
     printf "  ✗ %s: missing 'name:' field in frontmatter\n" "$skill" >&2
     failed=1
     continue
   fi
-  if ! echo "$fm" | grep -qE '^description:[[:space:]]+'; then
+  if ! echo "$fm" | grep -E '^description:[[:space:]]+' >/dev/null; then
     printf "  ✗ %s: missing 'description:' field in frontmatter\n" "$skill" >&2
     failed=1
     continue

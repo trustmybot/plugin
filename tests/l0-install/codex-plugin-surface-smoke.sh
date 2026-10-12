@@ -77,7 +77,7 @@ if [ "$ACTUAL_SKILLS" != "$EXPECTED_SKILLS" ]; then
 fi
 
 if [ -e "$INSTALLED_PATH/.codex-plugin/migrated-command-skills" ] ||
-   find "$INSTALLED_PATH" -type d -name 'source-command-*' -print -quit | grep -q .; then
+   find "$INSTALLED_PATH" -type d -name 'source-command-*' -print -quit | grep . >/dev/null; then
   printf 'codex-plugin-surface-smoke: Claude commands migrated into Codex Skills\n' >&2
   exit 1
 fi

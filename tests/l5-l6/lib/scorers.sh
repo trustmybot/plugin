@@ -139,7 +139,7 @@ l5_score_trajectory_required() {
         fi
       fi
 
-      if ! echo "$tools_called" | grep -qFx "$tool"; then
+      if ! echo "$tools_called" | grep -Fx "$tool" >/dev/null; then
         missing="${missing}; $tool"
       fi
     done
@@ -182,7 +182,7 @@ l5_score_trajectory_forbidden() {
 
   while IFS= read -r tool; do
     [ -z "$tool" ] && continue
-    if echo "$tools_called" | grep -qFx "$tool"; then
+    if echo "$tools_called" | grep -Fx "$tool" >/dev/null; then
       violation="${violation}; $tool"
     fi
   done <<< "$forbidden"

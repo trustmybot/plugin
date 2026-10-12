@@ -97,7 +97,7 @@ else
   [ -n "$NOW_EPOCH" ] || exit 0
 
   MCP_ETIMES=$(ps -o etimes= -p "$MCP_PID" 2>/dev/null | tr -d ' ' || true)
-  if [ -n "$MCP_ETIMES" ] && echo "$MCP_ETIMES" | grep -qE '^[0-9]+$'; then
+  if [ -n "$MCP_ETIMES" ] && echo "$MCP_ETIMES" | grep -E '^[0-9]+$' >/dev/null; then
     MCP_START=$(( NOW_EPOCH - MCP_ETIMES ))
   else
     # macOS fallback: parse ps -o etime= output (DD-HH:MM:SS, HH:MM:SS, or MM:SS)

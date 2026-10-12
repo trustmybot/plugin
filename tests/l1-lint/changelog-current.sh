@@ -89,7 +89,7 @@ if [ -n "$BRANCH" ]; then
   CHANGED="$( { git diff --name-only "$MB"; git ls-files --others --exclude-standard; } | LC_ALL=C sort -u)"
 
   changelog_edited=0
-  printf '%s\n' "$CHANGED" | grep -qx 'CHANGELOG.md' && changelog_edited=1
+  printf '%s\n' "$CHANGED" | grep -x 'CHANGELOG.md' >/dev/null && changelog_edited=1
 
   branch_fragments=""
   while IFS= read -r p; do

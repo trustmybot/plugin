@@ -45,28 +45,28 @@ check_file() {
 
     # "never" anywhere on the line (case-insensitive)
     if [ -z "$matched" ]; then
-      if echo "$line" | grep -qiE '\bnever\b'; then
+      if echo "$line" | grep -iE '\bnever\b' >/dev/null; then
         matched="never"
       fi
     fi
 
     # MUST NOT / must not
     if [ -z "$matched" ]; then
-      if echo "$line" | grep -qE '(MUST NOT|must not)'; then
+      if echo "$line" | grep -E '(MUST NOT|must not)' >/dev/null; then
         matched="MUST NOT / must not"
       fi
     fi
 
     # Mid-sentence "do not"
     if [ -z "$matched" ]; then
-      if echo "$line" | grep -qiE '\bdo not\b'; then
+      if echo "$line" | grep -iE '\bdo not\b' >/dev/null; then
         matched="mid-sentence do not"
       fi
     fi
 
     # Mid-sentence "don't" — INFO only (narrative prose uses contractions)
     if [ -z "$matched" ]; then
-      if echo "$line" | grep -qiE "\bdon't\b"; then
+      if echo "$line" | grep -iE "\bdon't\b" >/dev/null; then
         matched="mid-sentence don't"
         level="INFO"
       fi

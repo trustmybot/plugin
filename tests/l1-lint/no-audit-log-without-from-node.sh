@@ -28,7 +28,7 @@ check_file() {
 
   flush_call() {
     if [ "$in_call" -eq 1 ]; then
-      if ! printf '%s\n' "$call_buf" | grep -q 'from_node='; then
+      if ! printf '%s\n' "$call_buf" | grep 'from_node=' >/dev/null; then
         printf '%s:%d: audit_append() missing from_node=\n' "$rel" "$call_start"
         FAIL=1
       fi
@@ -44,17 +44,17 @@ check_file() {
     if [ "$in_call" -eq 1 ]; then
       call_buf="${call_buf}
 ${line}"
-      if printf '%s\n' "$line" | grep -q ')'; then
+      if printf '%s\n' "$line" | grep ')' >/dev/null; then
         flush_call
       fi
       continue
     fi
 
-    if printf '%s\n' "$line" | grep -q 'audit_append('; then
+    if printf '%s\n' "$line" | grep 'audit_append(' >/dev/null; then
       in_call=1
       call_start="$lineno"
       call_buf="$line"
-      if printf '%s\n' "$line" | grep -q ')'; then
+      if printf '%s\n' "$line" | grep ')' >/dev/null; then
         flush_call
       fi
     fi

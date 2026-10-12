@@ -257,7 +257,7 @@ _close_issue_on_merge_main() {
   merge_args=$(_cim_merge_args "$cmd") || exit 0
 
   # The merge must have succeeded. A failed merge must never close anything.
-  if printf '%s' "$resp" | grep -qiE '(is_error|"error"|failed to merge|not mergeable|merge conflict|GraphQL: |pull request is not mergeable)'; then
+  if printf '%s' "$resp" | grep -iE '(is_error|"error"|failed to merge|not mergeable|merge conflict|GraphQL: |pull request is not mergeable)' >/dev/null; then
     exit 0
   fi
 

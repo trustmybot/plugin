@@ -81,7 +81,7 @@ tmb_active_install() {
     case "$self" in
       */plugins/cache/*) ;;
       *)
-        if ! tmb_install_candidates | cut -f3 | grep -qxF "$self"; then
+        if ! tmb_install_candidates | cut -f3 | grep -xF "$self" >/dev/null; then
           printf '%s\n' "$self"
           return 0
         fi

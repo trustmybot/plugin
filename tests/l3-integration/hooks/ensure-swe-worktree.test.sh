@@ -84,7 +84,7 @@ is_registered_worktree() {
   local repo="$1" wt_abs="$2"
   local slug="${wt_abs##*/}"
   git -C "$repo" worktree list --porcelain 2>/dev/null \
-    | grep -qE "^worktree .*/\.claude/worktrees/${slug}$"
+    | grep -E "^worktree .*/\.claude/worktrees/${slug}$" >/dev/null
 }
 
 cleanup() {

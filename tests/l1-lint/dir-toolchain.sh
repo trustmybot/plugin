@@ -40,7 +40,7 @@ check_dir() {
     # Check shebang line.
     local shebang
     shebang=$(head -1 "$script" 2>/dev/null || true)
-    if echo "$shebang" | grep -qE '^#!'; then
+    if echo "$shebang" | grep -E '^#!' >/dev/null; then
       # Extract the interpreter name (last path component, strip args).
       local interp
       interp=$(echo "$shebang" | sed -E 's|^#![[:space:]]*/?(usr/bin/env[[:space:]]+)?||' | awk '{print $1}' | xargs basename 2>/dev/null || true)

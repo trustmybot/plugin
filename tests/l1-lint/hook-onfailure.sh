@@ -70,12 +70,12 @@ deny_capable() {
   [ -f "$script" ] || return 1
   for s in "$@"; do [ "$s" = "$gate" ] && return 1; done
   body=$(code "$script")
-  printf '%s\n' "$body" | grep -qE "$DENY_RE" && return 0
+  printf '%s\n' "$body" | grep -E "$DENY_RE" >/dev/null && return 0
   while IFS= read -r lib; do
     [ -f "$dir/lib/$lib" ] || continue
     while IFS= read -r fn; do
       [ -n "$fn" ] || continue
-      printf '%s\n' "$body" | grep -qE "(^|[^a-zA-Z0-9_])$fn([^a-zA-Z0-9_(]|$)" && return 0
+      printf '%s\n' "$body" | grep -E "(^|[^a-zA-Z0-9_])$fn([^a-zA-Z0-9_(]|$)" >/dev/null && return 0
     done < <(deny_functions "$dir/lib/$lib")
   done < <(printf '%s\n' "$body" | grep -oE '/lib/[a-z0-9-]+\.sh' | sed -E 's#.*/lib/##' | sort -u)
   while IFS= read -r sub; do
@@ -128,7 +128,7 @@ check() {
       status='FAIL (deny-capable: add "onFailure": "block")'
       fail=$((fail + 1))
     elif [ "$capable" = yes ] && [ "${NOJQ_OBSERVE_ONLY#* "$gate" }" = "$NOJQ_OBSERVE_ONLY" ] \
-         && code "$dir/$gate.sh" | grep -qE "$NOJQ_ALLOW_RE"; then
+         && code "$dir/$gate.sh" | grep -E "$NOJQ_ALLOW_RE" >/dev/null; then
       status='FAIL (no jq: allows silently; exit non-zero naming jq)'
       fail=$((fail + 1))
     elif [ "$capable" = no ] && [ "$on_failure" = block ] && [ "$chain" = "-" ]; then
@@ -156,26 +156,26 @@ self_test() {
   local fx="$HERE/fixtures/hook-onfailure" dir out rc bad=0
   dir="$fx/scripts/hooks"
   out=$(check "$fx/hooks-missing.json" "$dir" 2>&1); rc=$?
-  if [ "$rc" -ne 1 ] || ! printf '%s' "$out" | grep -q 'fx-gate .*FAIL'; then
+  if [ "$rc" -ne 1 ] || ! printf '%s' "$out" | grep 'fx-gate .*FAIL' >/dev/null; then
     printf 'hook-onfailure --self-test: deny-capable hook without the key not failed\n%s\n' "$out" >&2; bad=1
   fi
   out=$(check "$fx/hooks-ok.json" "$dir" 2>&1); rc=$?
-  if [ "$rc" -ne 0 ] || printf '%s' "$out" | grep -q WARN; then
+  if [ "$rc" -ne 0 ] || printf '%s' "$out" | grep WARN >/dev/null; then
     printf 'hook-onfailure --self-test: correct registrations not passed cleanly\n%s\n' "$out" >&2; bad=1
   fi
   for g in fx-gate fx-helper-gate fx-exit2-gate fx-delegator; do
-    printf '%s' "$out" | grep -qE "^[A-Za-z]+ +$g +yes " \
+    printf '%s' "$out" | grep -E "^[A-Za-z]+ +$g +yes " >/dev/null \
       || { printf 'hook-onfailure --self-test: %s not derived deny-capable\n' "$g" >&2; bad=1; }
   done
-  printf '%s' "$out" | grep -qE "^[A-Za-z]+ +fx-observe +no " \
+  printf '%s' "$out" | grep -E "^[A-Za-z]+ +fx-observe +no " >/dev/null \
     || { printf 'hook-onfailure --self-test: fx-observe not derived observe-only\n' >&2; bad=1; }
   out=$(check "$fx/hooks-nojq.json" "$dir" 2>&1); rc=$?
-  if [ "$rc" -ne 1 ] || ! printf '%s' "$out" | grep -q 'fx-nojq-gate .*FAIL (no jq' \
-     || ! printf '%s' "$out" | grep -q 'fx-nojq-brace-gate .*FAIL (no jq'; then
+  if [ "$rc" -ne 1 ] || ! printf '%s' "$out" | grep 'fx-nojq-gate .*FAIL (no jq' >/dev/null \
+     || ! printf '%s' "$out" | grep 'fx-nojq-brace-gate .*FAIL (no jq' >/dev/null; then
     printf 'hook-onfailure --self-test: deny-capable hook that allows without jq not failed\n%s\n' "$out" >&2; bad=1
   fi
   out=$(check "$fx/hooks-warn.json" "$dir" 2>&1); rc=$?
-  if [ "$rc" -ne 0 ] || ! printf '%s' "$out" | grep -q 'fx-observe .*WARN'; then
+  if [ "$rc" -ne 0 ] || ! printf '%s' "$out" | grep 'fx-observe .*WARN' >/dev/null; then
     printf 'hook-onfailure --self-test: observe-only hook with the key not warned\n%s\n' "$out" >&2; bad=1
   fi
   if [ "$bad" -ne 0 ]; then

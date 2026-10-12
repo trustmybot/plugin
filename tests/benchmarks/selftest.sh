@@ -14,7 +14,7 @@ check() {
   local label="$1"
   local result="$2"
   local expect="$3"
-  if echo "$result" | grep -qF "$expect"; then
+  if echo "$result" | grep -F "$expect" >/dev/null; then
     printf '  PASS: %s\n' "$label"
     PASS=$((PASS + 1))
   else

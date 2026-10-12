@@ -89,7 +89,7 @@ WT_ABS="$REPO_ROOT/$WT_REL"
 # /var → /private/var), so compare against the basename rather than the full
 # REPO_ROOT-relative prefix — the slug is unique under .claude/worktrees/.
 if git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null \
-    | grep -qE "^worktree .*/\.claude/worktrees/${SLUG}$"; then
+    | grep -E "^worktree .*/\.claude/worktrees/${SLUG}$" >/dev/null; then
   exit 0
 fi
 

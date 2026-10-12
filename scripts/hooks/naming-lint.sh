@@ -51,9 +51,9 @@ case "$TARGET" in
   */migrations/*) exit 0 ;;
 esac
 
-is_snake() { echo "$1" | grep -qE '^[a-z][a-z0-9_]*$'; }
-is_kebab() { echo "$1" | grep -qE '^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*$'; }
-is_pascal() { echo "$1" | grep -qE '^[A-Z][A-Za-z0-9]*$'; }
+is_snake() { echo "$1" | grep -E '^[a-z][a-z0-9_]*$' >/dev/null; }
+is_kebab() { echo "$1" | grep -E '^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*$' >/dev/null; }
+is_pascal() { echo "$1" | grep -E '^[A-Z][A-Za-z0-9]*$' >/dev/null; }
 
 VIOLATION=""
 

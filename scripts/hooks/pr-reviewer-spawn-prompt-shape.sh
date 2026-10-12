@@ -34,7 +34,7 @@ PROMPT=$(echo "$INPUT" | jq -r '.tool_input.prompt // ""' 2>/dev/null)
 # Check required anchors
 MISSING=""
 for anchor in task_id commit_sha branch_id repo attempt_n subagent_session_id; do
-  if ! echo "$PROMPT" | grep -q "${anchor}"; then
+  if ! echo "$PROMPT" | grep "${anchor}" >/dev/null; then
     MISSING="${MISSING} ${anchor}"
   fi
 done
@@ -51,7 +51,7 @@ fi
 # Check forbidden rubber-stamp phrases
 RUBBER_STAMP_FOUND=""
 while IFS= read -r phrase; do
-  if echo "$PROMPT" | grep -qi "$phrase"; then
+  if echo "$PROMPT" | grep -i "$phrase" >/dev/null; then
     RUBBER_STAMP_FOUND="$phrase"
     break
   fi

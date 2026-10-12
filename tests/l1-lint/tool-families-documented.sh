@@ -28,7 +28,7 @@ check_tree() {
     for tool in $(grep -oE "^[[:space:]]+name: '[a-z_]+'" "$tools/$module.ts" | sed -E "s/.*'(.*)'/\1/"); do
       total=$((total + 1))
       grep -qF "\`$tool\`" "$tools_readme" || { echo "  ✗ src/tools/README.md does not name $tool ($module.ts)" >&2; failed=1; }
-      printf '%s\n' "$ref_section" | grep -qF "\`$tool\`" || { echo "  ✗ docs/reference/REFERENCE.md MCP tools list does not name $tool ($module.ts)" >&2; failed=1; }
+      printf '%s\n' "$ref_section" | grep -F "\`$tool\`" >/dev/null || { echo "  ✗ docs/reference/REFERENCE.md MCP tools list does not name $tool ($module.ts)" >&2; failed=1; }
     done
   done
   stated=$(printf '%s\n' "$ref_section" | grep -oE '^[0-9]+ tools' | head -1 | cut -d' ' -f1)

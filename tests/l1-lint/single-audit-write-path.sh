@@ -11,7 +11,7 @@ TOOLS="$ROOT/mcp/trajectory-server/src/tools"
 matches="$(grep -n "INSERT INTO audit" "$TOOLS"/*.ts || true)"
 count="$(printf '%s' "$matches" | grep -c . || true)"
 
-if [ "$count" -eq 1 ] && printf '%s' "$matches" | grep -q "/audit.ts:"; then
+if [ "$count" -eq 1 ] && printf '%s' "$matches" | grep "/audit.ts:" >/dev/null; then
   echo "  ✓ exactly one INSERT INTO audit in src/tools/ (insertAudit)"
   echo ""
   echo "Single-audit-write-path: PASS"

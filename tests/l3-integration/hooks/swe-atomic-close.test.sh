@@ -252,11 +252,11 @@ DIFF=$((LOG_AFTER - LOG_BEFORE))
 assert_eq "1" "$DIFF" "non-swe input should write exactly 1 entry-log line"
 
 LAST_LINE=$(tail -1 "$LOG")
-if ! echo "$LAST_LINE" | grep -q '"kind":"swe-atomic-close-entry"'; then
+if ! echo "$LAST_LINE" | grep '"kind":"swe-atomic-close-entry"' >/dev/null; then
   echo "FAIL: last log line is not entry-log: $LAST_LINE" >&2
   exit 1
 fi
-if ! echo "$LAST_LINE" | grep -q '"agent_type_resolved":"architect"'; then
+if ! echo "$LAST_LINE" | grep '"agent_type_resolved":"architect"' >/dev/null; then
   echo "FAIL: entry-log missing resolved agent_type architect: $LAST_LINE" >&2
   exit 1
 fi

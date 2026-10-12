@@ -37,7 +37,7 @@ check_workflow() {
     lineno=$((lineno + 1))
 
     # Key: value patterns — dockerfile:, entry:, script:
-    if printf '%s' "$line" | grep -qE '^\s*(dockerfile|entry|script):\s*\S'; then
+    if printf '%s' "$line" | grep -E '^\s*(dockerfile|entry|script):\s*\S' >/dev/null; then
       local val
       val="$(printf '%s' "$line" | sed -E 's/^\s*(dockerfile|entry|script):\s*//' | sed "s/#.*//" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
       val="$(printf '%s' "$val" | sed "s/^['\"]//; s/['\"]$//")"
@@ -49,7 +49,7 @@ check_workflow() {
     fi
 
     # Key: value patterns — path: (only when it looks like a local path)
-    if printf '%s' "$line" | grep -qE '^\s*path:\s*\S'; then
+    if printf '%s' "$line" | grep -E '^\s*path:\s*\S' >/dev/null; then
       local val
       val="$(printf '%s' "$line" | sed -E 's/^\s*path:\s*//' | sed "s/#.*//" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
       val="$(printf '%s' "$val" | sed "s/^['\"]//; s/['\"]$//")"
@@ -61,7 +61,7 @@ check_workflow() {
     fi
 
     # docker build -f <path> pattern
-    if printf '%s' "$line" | grep -qE 'docker build.*-f\s+\S'; then
+    if printf '%s' "$line" | grep -E 'docker build.*-f\s+\S' >/dev/null; then
       local val
       val="$(printf '%s' "$line" | grep -oE '\-f\s+[^[:space:]]+' | sed 's/-f[[:space:]]*//')"
       if [ -n "$val" ] && is_local_path "$val" && [ ! -e "$PLUGIN_ROOT/$val" ]; then
@@ -72,7 +72,7 @@ check_workflow() {
     fi
 
     # run: lines that call local shell scripts directly
-    if printf '%s' "$line" | grep -qE '^\s*(bash|sh)\s+(tests|scripts)/[^[:space:]]+\.sh'; then
+    if printf '%s' "$line" | grep -E '^\s*(bash|sh)\s+(tests|scripts)/[^[:space:]]+\.sh' >/dev/null; then
       local val
       val="$(printf '%s' "$line" | grep -oE '(tests|scripts)/[^[:space:]]+\.sh' | head -1)"
       if [ -n "$val" ] && [ ! -e "$PLUGIN_ROOT/$val" ]; then

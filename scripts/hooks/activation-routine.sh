@@ -37,7 +37,7 @@ TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/null)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""' 2>/dev/null)
 
 contains_bro_word() {
-  echo "$1" | grep -qiE '\bbro\b'
+  echo "$1" | grep -iE '\bbro\b' >/dev/null
 }
 
 is_sticky_bro() {
@@ -139,7 +139,7 @@ fi
 if [ -n "$HALT_TEXT" ]; then
   CONTEXT="${HALT_TEXT} ${CONTEXT}"
 fi
-if printf '%s' "$SESSION_ID" | grep -qE '^[A-Za-z0-9_-]{8,64}$'; then
+if printf '%s' "$SESSION_ID" | grep -E '^[A-Za-z0-9_-]{8,64}$' >/dev/null; then
   CONTEXT="${CONTEXT} session_id=${SESSION_ID}"
 fi
 emit "$CONTEXT"

@@ -117,7 +117,7 @@ fail_closed_decision() {
   local reason="BLOCKED: TMB gate $gate $1 without a decision, so the action is denied (fail-closed). The hook's stderr names the cause; fix the gate, then retry."
   [ -n "${2:-}" ] && reason="$2"
   printf 'TMB dispatch: gate %s %s — failing closed\n' "$gate" "$1" >&2
-  if printf '%s' "$PAYLOAD" | grep -qE '"hook_event_name"[[:space:]]*:[[:space:]]*"PreToolUse"'; then
+  if printf '%s' "$PAYLOAD" | grep -E '"hook_event_name"[[:space:]]*:[[:space:]]*"PreToolUse"' >/dev/null; then
     printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$reason"
   else
     printf '{"decision":"block","reason":"%s"}\n' "$reason"
@@ -165,7 +165,7 @@ settle() {
     [ -n "$out" ] && printf '%s\n' "$out"
     return "$rc"
   fi
-  if printf '%s' "$out" | grep -qE "$DENY_PATTERN"; then
+  if printf '%s' "$out" | grep -E "$DENY_PATTERN" >/dev/null; then
     printf '%s\n' "$out"
   else
     fail_closed_decision "exited $rc"
@@ -241,7 +241,7 @@ run_chain() {
     rc="${res##*$'\n'}"
     out="${res%$'\n'*}"
     [ "$res" = "$rc" ] && out=""
-    if [ "$rc" = "2" ] || printf '%s' "$out" | grep -qE "$DENY_PATTERN"; then
+    if [ "$rc" = "2" ] || printf '%s' "$out" | grep -E "$DENY_PATTERN" >/dev/null; then
       [ -n "$out" ] && printf '%s\n' "$out"
       return "$rc"
     fi

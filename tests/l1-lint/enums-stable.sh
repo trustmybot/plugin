@@ -93,24 +93,24 @@ check_tree() {
     while IFS=$'\t' read -r value file; do
       [ -n "$value" ] || continue
       if [ "$section" = audit.from_node ] && [ "${value#hook:}" != "$value" ]; then
-        if ! printf '%s' "$value" | grep -qE '^hook:[a-z0-9-]+$'; then
+        if ! printf '%s' "$value" | grep -E '^hook:[a-z0-9-]+$' >/dev/null; then
           echo "  ✗ from_node '$value' in ${file#"$root"/} does not match hook:[a-z0-9-]+" >&2
           failed=1
-        elif ! section_rows "$doc" "$section" | grep -q '`hook:<name>`'; then
+        elif ! section_rows "$doc" "$section" | grep '`hook:<name>`' >/dev/null; then
           echo "  ✗ ENUMS.md \`audit.from_node\` is missing the hook:<name> convention row" >&2
           failed=1
         fi
         continue
       fi
-      if ! printf '%s\n' "$documented" | grep -qxF -- "$value"; then
+      if ! printf '%s\n' "$documented" | grep -xF -- "$value" >/dev/null; then
         echo "  ✗ $section '$value' used in ${file#"$root"/} but missing from ENUMS.md" >&2
         failed=1
       fi
     done <<< "$found"
 
     for value in $documented; do
-      printf '%s\n' "$reserved" | grep -qxF -- "$value" && continue
-      printf '%s\n' "$found" | cut -f1 | grep -qxF -- "$value" && continue
+      printf '%s\n' "$reserved" | grep -xF -- "$value" >/dev/null && continue
+      printf '%s\n' "$found" | cut -f1 | grep -xF -- "$value" >/dev/null && continue
       if [ "$section" = audit.from_node ] && [ "${#files[@]}" -gt 0 ]; then
         grep -qE "['\"]${value}['\"]" "${files[@]}" 2>/dev/null && continue
       fi
