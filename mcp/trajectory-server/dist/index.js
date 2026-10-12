@@ -21248,7 +21248,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 35;
+var TARGET_SCHEMA_VERSION = 36;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
 }
@@ -21652,6 +21652,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 35 && toVersion >= 35) {
     migrateV34toV35(db2);
+  }
+  if (fromVersion < 36 && toVersion >= 36) {
+    migrateV35toV36(db2);
   }
 }
 function hasColumn(db2, table, column) {
@@ -23047,6 +23050,34 @@ function migrateV34toV35(db2) {
   } finally {
     db2.exec("PRAGMA foreign_keys = ON");
   }
+}
+function migrateV35toV36(db2) {
+  if (!tableExists(db2, "tasks")) return;
+  db2.exec(`
+    CREATE TABLE IF NOT EXISTS verification_runs (
+      id           INTEGER PRIMARY KEY,
+      task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      commit_sha   TEXT    NOT NULL,
+      source       TEXT    NOT NULL CHECK (source IN ('gate','manual')),
+      started_at   TEXT    NOT NULL,
+      finished_at  TEXT,
+      exit_code    INTEGER,
+      budget_s     INTEGER NOT NULL,
+      timed_out    INTEGER NOT NULL DEFAULT 0 CHECK (timed_out IN (0,1)),
+      created_at   TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT}
+    );
+    CREATE INDEX IF NOT EXISTS idx_verification_runs_task_commit
+      ON verification_runs(task_id, commit_sha, finished_at);
+    CREATE TABLE IF NOT EXISTS verification_run_commands (
+      run_id       INTEGER NOT NULL REFERENCES verification_runs(id) ON DELETE CASCADE,
+      ordinal      INTEGER NOT NULL,
+      command      TEXT    NOT NULL,
+      exit_code    INTEGER,
+      elapsed_s    REAL,
+      output_tail  TEXT,
+      PRIMARY KEY (run_id, ordinal)
+    );
+  `);
 }
 function migrateV22toV23(db2) {
   const soleRepo = () => {
@@ -28301,6 +28332,33 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
   return { definitions, handlers };
 }
 
+// src/tools/verification-runs.ts
+function latestVerificationRun(db2, taskId, startedBy) {
+  const run = db2.get(
+    `SELECT id, commit_sha, source, started_at, finished_at, exit_code, timed_out, budget_s
+       FROM verification_runs
+      WHERE task_id = ?${startedBy ? " AND started_at <= ?" : ""}
+      ORDER BY started_at DESC, id DESC LIMIT 1`,
+    startedBy ? [taskId, startedBy] : [taskId]
+  );
+  if (!run) return null;
+  const commands = db2.all(
+    `SELECT ordinal, command, exit_code, elapsed_s FROM verification_run_commands WHERE run_id = ? ORDER BY ordinal`,
+    [run.id]
+  ).map((c) => ({ ordinal: c.ordinal, command: c.command, exit_code: c.exit_code, elapsed_s: c.elapsed_s }));
+  return {
+    run_id: run.id,
+    commit_sha: run.commit_sha,
+    source: run.source,
+    started_at: run.started_at,
+    finished_at: run.finished_at,
+    exit_code: run.exit_code,
+    timed_out: run.timed_out === 1,
+    budget_s: run.budget_s,
+    commands
+  };
+}
+
 // src/tools/validation.ts
 var VALID_VERDICTS = /* @__PURE__ */ new Set(["pass", "fail", "escalate"]);
 function ok6(data) {
@@ -28376,7 +28434,7 @@ function validationTools(db2) {
     },
     {
       name: "validation_history",
-      description: "Return all validation attempts for a task ordered by attempt_n ascending. Without limit, returns a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=['attempt_n','verdict'] to return only those columns (unknown fields return a named error).",
+      description: "Return all validation attempts for a task ordered by attempt_n ascending; each row carries verification_run, the latest gate-recorded run started by the attempt (null when none). Without limit, returns a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=['attempt_n','verdict'] to return only those columns (unknown fields return a named error).",
       inputSchema: {
         type: "object",
         properties: {
@@ -28388,7 +28446,7 @@ function validationTools(db2) {
           fields: {
             type: "array",
             items: { type: "string" },
-            description: "Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at. Unknown fields return a named error. Default: all columns."
+            description: "Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, verification_run. Unknown fields return a named error. Default: all columns."
           }
         },
         required: ["agent", "task_id"]
@@ -28505,14 +28563,15 @@ function validationTools(db2) {
       const limitArg = args["limit"];
       const cursorArg = args["cursor"];
       const fieldsArg = args["fields"];
-      const ALLOWED_VALIDATION_FIELDS = /* @__PURE__ */ new Set(["id", "task_id", "attempt_n", "agent", "verdict", "feedback", "mcp_available", "subagent_session_id", "reviewer_agent_id", "created_at"]);
+      const ALLOWED_VALIDATION_FIELDS = /* @__PURE__ */ new Set(["id", "task_id", "attempt_n", "agent", "verdict", "feedback", "mcp_available", "subagent_session_id", "reviewer_agent_id", "created_at", "verification_run"]);
       if (fieldsArg !== void 0) {
         const unknown2 = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));
         if (unknown2.length > 0) {
           return err6(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_VALIDATION_FIELDS].join(", ")}`);
         }
       }
-      function projectRow(row) {
+      function projectRow(redacted) {
+        const row = { ...redacted, verification_run: latestVerificationRun(db2, taskId, String(redacted["created_at"])) };
         if (!fieldsArg) return row;
         const out = {};
         for (const f of fieldsArg) out[f] = row[f];
@@ -31338,7 +31397,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_brief",
-      description: "Full context bundle for one task in a single call \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one). A swe call opens the task's swe agent_runs row when none is open.",
+      description: "Full context bundle for one task in a single call \u2014 swe's only context read; joins the trajectory DB (task row, spec_body, the issue's discussion thread) with the kuzu world model for each directory the task's files[] touch, plus scope {files, extras_accepted, base_moved} from the latest close (base_moved null before one), and verification_run: the close gate's latest recorded run of verification[] with per-command exit/elapsed (null when none). A swe call opens the task's swe agent_runs row when none is open.",
       inputSchema: {
         type: "object",
         properties: {
@@ -31887,6 +31946,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           files: parseTaskFiles(task.files),
           verification: parseTaskFiles(task.verification),
           scope,
+          verification_run: latestVerificationRun(db2, task.id),
           scope_world_model,
           ...world_model_warning ? { world_model_warning } : {},
           task_discussions
@@ -36545,6 +36605,10 @@ var ts = (column) => `strftime('%Y-%m-%dT%H:%M:%fZ', ${column})`;
 var auditTaskId = (alias) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.task_id') END`;
 var auditCommitSha = (alias) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.commit_sha') END`;
 var REVIEW_GRACE_HOURS_DEFAULT = 24;
+var runMatchesTaskCommit = (run, task) => `${run}.task_id = ${task}.id AND substr(${run}.commit_sha, 1, length(${task}.commit_sha)) = ${task}.commit_sha`;
+var VERIFIED_CLOSE_SCOPE = `t.status = 'closed' AND ${ts("t.updated_at")} >= ${daysAgo(7)}
+               AND COALESCE(t.commit_sha, '') <> '' AND COALESCE(t.verification, '[]') NOT IN ('', '[]')
+               AND NOT EXISTS (SELECT 1 FROM audit w WHERE w.event_type = 'verification_gate_waived' AND ${auditTaskId("w")} = t.id)`;
 var LIVE_TASK_STATUSES2 = "'pending','running','needs_validation','completed'";
 var POPULATED_COLUMNS = [
   { table: "agent_runs", column: "session_id", created_column: "started_at", floor: 0.2, min_schema: 30 },
@@ -36676,6 +36740,20 @@ function buildDataContracts(documentedEventTypes) {
              WHERE d.event_type = 'embeddings_degraded' AND ${ts("d.created_at")} >= ${daysAgo(1)}
                AND NOT EXISTS (SELECT 1 FROM audit r WHERE r.event_type = 'embeddings_recovered' AND r.id > d.id)
              ORDER BY d.id DESC LIMIT 5`
+    },
+    {
+      id: "verification_recorded_for_closed_tasks",
+      severity: "warn",
+      min_schema: 36,
+      description: "tasks closed in the last 7 days with a commit_sha, a non-empty verification[] and no verification_gate_waived row have a verification_runs row for that commit (the close gate records one per run)",
+      sql: `SELECT COUNT(*) FROM tasks t
+             WHERE ${VERIFIED_CLOSE_SCOPE}
+               AND NOT EXISTS (SELECT 1 FROM verification_runs r WHERE ${runMatchesTaskCommit("r", "t")})`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT t.id, t.issue_id, t.commit_sha, t.updated_at FROM tasks t
+             WHERE ${VERIFIED_CLOSE_SCOPE}
+               AND NOT EXISTS (SELECT 1 FROM verification_runs r WHERE ${runMatchesTaskCommit("r", "t")})
+             ORDER BY t.id DESC LIMIT 5`
     },
     ...POPULATED_COLUMNS.map(populatedContract),
     {

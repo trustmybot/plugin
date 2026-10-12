@@ -1,6 +1,6 @@
 {
   "generated_from": "mcp/trajectory-server/src/data-contracts.ts",
-  "schema_version": 33,
+  "schema_version": 36,
   "contracts": [
     {
       "id": "fk_check_empty",
@@ -105,6 +105,18 @@
         "value": 0
       },
       "sample_sql": "SELECT d.id, d.created_at, d.content_json FROM audit d\n             WHERE d.event_type = 'embeddings_degraded' AND strftime('%Y-%m-%dT%H:%M:%fZ', d.created_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 days')\n               AND NOT EXISTS (SELECT 1 FROM audit r WHERE r.event_type = 'embeddings_recovered' AND r.id > d.id)\n             ORDER BY d.id DESC LIMIT 5"
+    },
+    {
+      "id": "verification_recorded_for_closed_tasks",
+      "severity": "warn",
+      "min_schema": 36,
+      "description": "tasks closed in the last 7 days with a commit_sha, a non-empty verification[] and no verification_gate_waived row have a verification_runs row for that commit (the close gate records one per run)",
+      "sql": "SELECT COUNT(*) FROM tasks t\n             WHERE t.status = 'closed' AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days')\n               AND COALESCE(t.commit_sha, '') <> '' AND COALESCE(t.verification, '[]') NOT IN ('', '[]')\n               AND NOT EXISTS (SELECT 1 FROM audit w WHERE w.event_type = 'verification_gate_waived' AND CASE WHEN json_valid(w.content_json) THEN json_extract(w.content_json, '$.task_id') END = t.id)\n               AND NOT EXISTS (SELECT 1 FROM verification_runs r WHERE r.task_id = t.id AND substr(r.commit_sha, 1, length(t.commit_sha)) = t.commit_sha)",
+      "expect": {
+        "op": "=",
+        "value": 0
+      },
+      "sample_sql": "SELECT t.id, t.issue_id, t.commit_sha, t.updated_at FROM tasks t\n             WHERE t.status = 'closed' AND strftime('%Y-%m-%dT%H:%M:%fZ', t.updated_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days')\n               AND COALESCE(t.commit_sha, '') <> '' AND COALESCE(t.verification, '[]') NOT IN ('', '[]')\n               AND NOT EXISTS (SELECT 1 FROM audit w WHERE w.event_type = 'verification_gate_waived' AND CASE WHEN json_valid(w.content_json) THEN json_extract(w.content_json, '$.task_id') END = t.id)\n               AND NOT EXISTS (SELECT 1 FROM verification_runs r WHERE r.task_id = t.id AND substr(r.commit_sha, 1, length(t.commit_sha)) = t.commit_sha)\n             ORDER BY t.id DESC LIMIT 5"
     },
     {
       "id": "populated_agent_runs_session_id",

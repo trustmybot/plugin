@@ -23,7 +23,7 @@ Everything lives under the project root (`CLAUDE_PROJECT_DIR`), which the projec
 | `.claude/tmb/sessions/<session_id>.plugin-hooks` | SessionStart hook | 0-byte marker: this session runs the plugin's own hooks (pruned after 24 h) |
 | `.claude/tmb/sessions/<session_id>.install-notice` | SessionStart hook | 0-byte marker: the install-scope notice was shown this session (pruned after 24 h) |
 | `.claude/tmb/locks/events/` | `scripts/hooks/dispatch.sh` | One gate execution per (event, payload, gate); results pruned after 10 min |
-| `.claude/tmb/locks/verify-*` | `swe-verification-gate.sh` | One verification run per (task, worktree HEAD); the verdict is kept beside the lock |
+| `.claude/tmb/locks/verify-*` | `swe-verification-gate.sh` | One verification run per (task, worktree HEAD) at a time; the run itself is recorded in the trajectory DB (`verification_runs`) |
 | `.claude/settings.local.json` (PreToolUse entries only) | `/onboard`, on **Yes** to headless enforcement | The opt-in headless shim (below) |
 | `.claude/tmb/resolve-hook.sh` | `/onboard`, on **Yes** to headless enforcement | The resolver the shim entries call |
 

@@ -52,6 +52,20 @@ function seedAudit(db: TrajectoryDB, eventType: string, content: Record<string, 
   );
 }
 
+function seedVerifiedClose(db: TrajectoryDB, sha: string, updatedAt = iso(), verification = '["npm test"]'): number {
+  const id = seedTask(db, seedIssue(db), 'closed', updatedAt);
+  db.run('UPDATE tasks SET commit_sha = ?, verification = ? WHERE id = ?', [sha, verification, id]);
+  return id;
+}
+
+function seedVerificationRun(db: TrajectoryDB, taskId: number, sha: string): void {
+  db.run(
+    `INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s)
+     VALUES (?, ?, 'gate', ?, ?, 0, 900)`,
+    [taskId, sha, iso(-HOUR), iso()],
+  );
+}
+
 interface RunOpts {
   agentType?: string;
   taskId?: number | null;
@@ -168,6 +182,20 @@ const FIXTURES: Record<string, { violate?: (db: TrajectoryDB) => void; pass: (db
       seedAudit(db, 'verification_gate_waived', { task_id: 7, commit_sha: 'aaa1111' });
       seedAudit(db, 'verification_gate_waived', { task_id: 7, commit_sha: 'bbb2222' });
       seedAudit(db, 'verification_gate_waived', { task_id: 8 });
+    },
+  },
+  verification_recorded_for_closed_tasks: {
+    violate: (db) => {
+      seedVerifiedClose(db, 'abc1234');
+    },
+    pass: (db) => {
+      const recorded = seedVerifiedClose(db, 'abc1234');
+      seedVerificationRun(db, recorded, 'abc1234' + 'f'.repeat(33));
+      seedVerifiedClose(db, 'def5678', iso(-8 * DAY));
+      seedVerifiedClose(db, 'aaa0000', iso(), '[]');
+      const waived = seedVerifiedClose(db, 'bbb1111');
+      seedAudit(db, 'verification_gate_waived', { task_id: waived, commit_sha: 'bbb1111' });
+      seedTask(db, seedIssue(db), 'closed');
     },
   },
   embeddings_not_degraded: {

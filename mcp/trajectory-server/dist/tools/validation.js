@@ -1,6 +1,7 @@
 import { nowISO } from '../db.js';
 import { normalizeAgent, redactValidationRow, requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
+import { latestVerificationRun } from './verification-runs.js';
 const VALID_VERDICTS = new Set(['pass', 'fail', 'escalate']);
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -71,7 +72,7 @@ export function validationTools(db) {
         },
         {
             name: 'validation_history',
-            description: 'Return all validation attempts for a task ordered by attempt_n ascending. Without limit, returns a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=[\'attempt_n\',\'verdict\'] to return only those columns (unknown fields return a named error).',
+            description: 'Return all validation attempts for a task ordered by attempt_n ascending; each row carries verification_run, the latest gate-recorded run started by the attempt (null when none). Without limit, returns a bare array (L4-compatible default). With limit, returns {rows, next_cursor}. Supports optional fields projection: pass fields=[\'attempt_n\',\'verdict\'] to return only those columns (unknown fields return a named error).',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -83,7 +84,7 @@ export function validationTools(db) {
                     fields: {
                         type: 'array',
                         items: { type: 'string' },
-                        description: 'Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at. Unknown fields return a named error. Default: all columns.',
+                        description: 'Optional column projection. Allowed: id, task_id, attempt_n, agent, verdict, feedback, mcp_available, subagent_session_id, reviewer_agent_id, created_at, verification_run. Unknown fields return a named error. Default: all columns.',
                     },
                 },
                 required: ['agent', 'task_id'],
@@ -177,14 +178,15 @@ export function validationTools(db) {
             const limitArg = args['limit'];
             const cursorArg = args['cursor'];
             const fieldsArg = args['fields'];
-            const ALLOWED_VALIDATION_FIELDS = new Set(['id', 'task_id', 'attempt_n', 'agent', 'verdict', 'feedback', 'mcp_available', 'subagent_session_id', 'reviewer_agent_id', 'created_at']);
+            const ALLOWED_VALIDATION_FIELDS = new Set(['id', 'task_id', 'attempt_n', 'agent', 'verdict', 'feedback', 'mcp_available', 'subagent_session_id', 'reviewer_agent_id', 'created_at', 'verification_run']);
             if (fieldsArg !== undefined) {
                 const unknown = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));
                 if (unknown.length > 0) {
                     return err(`Unknown fields: ${unknown.join(', ')}. Allowed: ${[...ALLOWED_VALIDATION_FIELDS].join(', ')}`);
                 }
             }
-            function projectRow(row) {
+            function projectRow(redacted) {
+                const row = { ...redacted, verification_run: latestVerificationRun(db, taskId, String(redacted['created_at'])) };
                 if (!fieldsArg)
                     return row;
                 const out = {};

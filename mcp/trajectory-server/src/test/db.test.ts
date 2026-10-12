@@ -12,7 +12,7 @@ import {
 } from '../db.js';
 
 describe('TrajectoryDB', () => {
-  it('opens an in-memory DB and verifies all prod tables exist with schema_version=35 (skills folded into cheatcodes #101; world model in kuzu)', () => {
+  it('opens an in-memory DB and verifies all prod tables exist with schema_version=36 (skills folded into cheatcodes #101; world model in kuzu)', () => {
     const db = tempDB();
 
     const expectedTables = [
@@ -31,6 +31,9 @@ describe('TrajectoryDB', () => {
       'repos',
       // GH 1225 — a repo's git remotes
       'repo_remotes',
+      // GH 1294 — recorded verification runs
+      'verification_runs',
+      'verification_run_commands',
       // #155 repos-centric schema — milestones FK hub
       'milestones',
       // #2905 FTS5 virtual tables (workflow tables only — directories moved to kuzu)
@@ -56,7 +59,7 @@ describe('TrajectoryDB', () => {
       'SELECT schema_version FROM plugin_meta LIMIT 1',
     );
     assert.ok(meta !== undefined, 'plugin_meta should have a row');
-    assert.equal(meta.schema_version, 35);
+    assert.equal(meta.schema_version, 36);
 
     db.close();
   });

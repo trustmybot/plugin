@@ -142,6 +142,40 @@ CREATE TABLE IF NOT EXISTS validation_attempts (
     UNIQUE(task_id, attempt_n)
 );
 
+-- verification_runs: one row per run of a task's verification[] commands.
+-- swe-verification-gate.sh writes it through the db-write lib: the row at the
+-- start of a run, a verification_run_commands row after each command, then
+-- finished_at/exit_code (both NULL only while the run is in progress). The
+-- gate allows a close on a passing run for the same (task, commit) that
+-- finished within the hour instead of running the commands again.
+CREATE TABLE IF NOT EXISTS verification_runs (
+    id           INTEGER PRIMARY KEY,
+    task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    commit_sha   TEXT    NOT NULL,
+    source       TEXT    NOT NULL CHECK (source IN ('gate','manual')),
+    started_at   TEXT    NOT NULL,
+    finished_at  TEXT,
+    exit_code    INTEGER,
+    budget_s     INTEGER NOT NULL,
+    timed_out    INTEGER NOT NULL DEFAULT 0 CHECK (timed_out IN (0,1)),
+    created_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_verification_runs_task_commit
+    ON verification_runs(task_id, commit_sha, finished_at);
+
+-- verification_run_commands: one row per command of a run, in verification[]
+-- order. exit_code 124 marks the command the budget ran out on.
+CREATE TABLE IF NOT EXISTS verification_run_commands (
+    run_id       INTEGER NOT NULL REFERENCES verification_runs(id) ON DELETE CASCADE,
+    ordinal      INTEGER NOT NULL,
+    command      TEXT    NOT NULL,
+    exit_code    INTEGER,
+    elapsed_s    REAL,
+    output_tail  TEXT,
+    PRIMARY KEY (run_id, ordinal)
+);
+
 -- agents.file_path names the root the prompt file ships from: 'plugin:' is
 -- relative to the installed plugin root (backbone agents, consultant
 -- templates), 'project:' to the workspace root (.claude/agents/<name>.md).
@@ -226,7 +260,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 35, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 36, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,

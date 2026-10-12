@@ -3,8 +3,10 @@
 #
 # Hook contract: PreToolUse gate on task_update_status(agent=swe, status=completed).
 # Reads the typed `verification` column (JSON array of command strings, Typed
-# Rails #673), runs each command in the task worktree. Deny on non-zero exit or
-# total timeout. Allow on pass, empty array, or valid waiver.
+# Rails #673), runs each command in the task worktree and records the run in
+# verification_runs + verification_run_commands. Deny on non-zero exit or
+# budget spent. Allow on pass, empty array, valid waiver, or a passing run for
+# the same (task, worktree HEAD) recorded within the hour.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -77,6 +79,28 @@ sqlite3 "$DB" "
     repo TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
+  CREATE TABLE verification_runs (
+    id INTEGER PRIMARY KEY,
+    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    commit_sha TEXT NOT NULL,
+    source TEXT NOT NULL CHECK (source IN ('gate','manual')),
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    exit_code INTEGER,
+    budget_s INTEGER NOT NULL,
+    timed_out INTEGER NOT NULL DEFAULT 0 CHECK (timed_out IN (0,1)),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  );
+  CREATE TABLE verification_run_commands (
+    run_id INTEGER NOT NULL REFERENCES verification_runs(id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL,
+    command TEXT NOT NULL,
+    exit_code INTEGER,
+    elapsed_s REAL,
+    output_tail TEXT,
+    PRIMARY KEY (run_id, ordinal)
+  );
   INSERT INTO issues VALUES (1, 'test', '', 'open', datetime('now'), datetime('now'), NULL);
   INSERT INTO repos VALUES (1, 'plugin', '$REPO_DIR');
   INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (1, 1, 'feat/my-feature', 'plugin', 'pending', '', '[\"bash tests/run.sh\"]');
@@ -100,12 +124,29 @@ run_hook() {
 }
 
 make_input() {
-  local agent="$1" status="$2" task_id="$3"
-  jq -n --arg a "$agent" --arg s "$status" --arg t "$task_id" '{
+  local agent="$1" status="$2" task_id="$3" sha="${4:-}"
+  jq -n --arg a "$agent" --arg s "$status" --arg t "$task_id" --arg sha "$sha" '{
     tool_name: "mcp__tmb__trajectory-server__task_update_status",
-    tool_input: {agent: $a, status: $s, task_id: $t}
+    tool_input: ({agent: $a, status: $s, task_id: $t} + (if $sha == "" then {} else {commit_sha: $sha} end))
   }'
 }
+
+# git_worktree <slug> — the worktree as a git repo with one commit; prints HEAD.
+git_worktree() {
+  local wt="$WT_ROOT/$1"
+  mkdir -p "$wt"
+  git -C "$wt" init --quiet
+  git -C "$wt" -c user.email=t@example.com -c user.name=t commit --quiet --allow-empty -m init
+  git -C "$wt" rev-parse HEAD
+}
+
+git_commit() {
+  git -C "$WT_ROOT/$1" -c user.email=t@example.com -c user.name=t commit --quiet --allow-empty -m "$2"
+  git -C "$WT_ROOT/$1" rev-parse HEAD
+}
+
+reason_of() { printf '%s' "$1" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>/dev/null || true; }
+runs_of() { sqlite3 "$DB" "SELECT COUNT(*) FROM verification_runs WHERE task_id = $1;"; }
 
 # ---- Non-SWE caller: allowed ------------------------------------------------
 test_case "non-SWE caller (bro) completing task: allowed"
@@ -410,8 +451,8 @@ assert_contains "$out" '"permissionDecision":"deny"' "DB read error must deny, n
 assert_contains "$out" "trajectory DB unavailable" "deny names the unavailable DB"
 
 # ---- Run lock: one verification run per (task, worktree HEAD) ---------------
-# Two concurrent invocations (the gate registered twice) run verification[]
-# once; the second waits and reuses the first's verdict.
+# Two concurrent invocations (the gate registered twice) serialize on the lock;
+# the second reuses the first's run when it passed and re-runs otherwise.
 COUNT_FILE="$TMPDIR/verify-runs.log"
 LOCK_ROOT="$WS/.claude/tmb/locks"
 sqlite3 "$DB" "
@@ -420,7 +461,9 @@ sqlite3 "$DB" "
   INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (62, 1, 'feat/lock-stale', 'plugin', 'pending', '', '[\"echo run >> $COUNT_FILE.stale\"]');
   INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (63, 1, 'feat/lock-unstamped', 'plugin', 'pending', '', '[\"echo run >> $COUNT_FILE.unstamped\"]');
 "
-mkdir -p "$WT_ROOT/lock-pass" "$WT_ROOT/lock-fail" "$WT_ROOT/lock-stale" "$WT_ROOT/lock-unstamped"
+LOCK_PASS_SHA=$(git_worktree lock-pass)
+LOCK_FAIL_SHA=$(git_worktree lock-fail)
+mkdir -p "$WT_ROOT/lock-stale" "$WT_ROOT/lock-unstamped"
 
 test_case "run lock: concurrent passing invocations run verification[] once, both allow"
 (cd "$REPO_DIR" && run_hook "$(make_input swe completed 60)" > "$TMPDIR/lock-a.out") &
@@ -430,22 +473,22 @@ wait
 assert_eq "1" "$(wc -l < "$COUNT_FILE" | tr -d ' ')" "verification[] ran exactly once"
 assert_not_contains "$(cat "$TMPDIR/lock-a.out")" '"permissionDecision":"deny"' "first invocation allows"
 assert_not_contains "$(cat "$TMPDIR/lock-b.out")" '"permissionDecision":"deny"' "second invocation allows"
-assert_eq "no" "$([ -d "$LOCK_ROOT/verify-60-nohead" ] && echo yes || echo no)" "lock removed on exit"
-assert_eq "allow" "$(jq -r '.verdict' "$LOCK_ROOT/verify-60-nohead.result")" "verdict persisted beside the lock"
+assert_contains "$(cat "$TMPDIR/lock-a.out" "$TMPDIR/lock-b.out")" "verification reused run #" "the waiter reuses the holder's run"
+assert_eq "no" "$([ -d "$LOCK_ROOT/verify-60-$LOCK_PASS_SHA" ] && echo yes || echo no)" "lock removed on exit"
+assert_eq "1" "$(runs_of 60)" "one verification_runs row for the pair"
+assert_eq "0" "$(find "$LOCK_ROOT" -name '*.result' | wc -l | tr -d ' ')" "no verdict file beside the lock"
 
-test_case "run lock: the waiter reuses a failing verdict"
+test_case "run lock: after a failing run the waiter runs verification[] itself"
 (cd "$REPO_DIR" && run_hook "$(make_input swe completed 61)" > "$TMPDIR/lock-c.out") &
 sleep 0.5
 (cd "$REPO_DIR" && run_hook "$(make_input swe completed 61)" > "$TMPDIR/lock-d.out") &
 wait
-assert_eq "1" "$(wc -l < "$COUNT_FILE.fail" | tr -d ' ')" "failing verification[] ran exactly once"
+assert_eq "2" "$(wc -l < "$COUNT_FILE.fail" | tr -d ' ')" "a failing run is never reused"
 assert_contains "$(cat "$TMPDIR/lock-c.out")" '"permissionDecision":"deny"' "holder denies"
-assert_contains "$(cat "$TMPDIR/lock-d.out")" '"permissionDecision":"deny"' "waiter gets the same deny"
-assert_contains "$(cat "$TMPDIR/lock-d.out")" "boom" "waiter's deny carries the holder's output tail"
-
-test_case "run lock: a later, non-concurrent invocation re-runs"
-(cd "$REPO_DIR" && run_hook "$(make_input swe completed 60)" >/dev/null)
-assert_eq "2" "$(wc -l < "$COUNT_FILE" | tr -d ' ')" "sequential call runs verification[] again"
+assert_contains "$(cat "$TMPDIR/lock-d.out")" '"permissionDecision":"deny"' "waiter denies from its own run"
+assert_contains "$(cat "$TMPDIR/lock-d.out")" "boom" "waiter's deny carries the output tail"
+assert_eq "2" "$(runs_of 61)" "two runs recorded"
+assert_eq "no" "$([ -d "$LOCK_ROOT/verify-61-$LOCK_FAIL_SHA" ] && echo yes || echo no)" "lock removed on exit"
 
 test_case "run lock: a stale lock is reclaimed"
 mkdir -p "$LOCK_ROOT/verify-62-nohead"
@@ -486,5 +529,96 @@ assert_contains "$out" '"permissionDecision":"deny"' "lock-less flood should den
 HITS=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason' 2>/dev/null | sed -n '/^Failure lines/,/^$/p' | grep -c '^FAIL line' || true)
 assert_eq "15" "$HITS" "exactly 15 failure lines forwarded"
 rm -f "$LOCK_ROOT"
+
+# ---- Run record: one row per run, one command row per command ---------------
+test_case "run record: a passing run writes the row, one command row per command, and finishes it"
+MARK="$TMPDIR/rec-marker.log"
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (80, 1, 'feat/rec-pass', 'plugin', 'pending', '', '[\"echo one >> $MARK\",\"sleep 1; echo two >> $MARK\",\"echo three >> $MARK\"]');"
+REC_SHA=$(git_worktree rec-pass)
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 80 "${REC_SHA:0:7}")")
+assert_not_contains "$out" '"permissionDecision":"deny"' "passing run allows"
+assert_eq "1" "$(runs_of 80)" "one run row"
+assert_eq "$REC_SHA|gate|0|0|900|1" "$(sqlite3 "$DB" "SELECT commit_sha || '|' || source || '|' || exit_code || '|' || timed_out || '|' || budget_s || '|' || (finished_at IS NOT NULL AND finished_at >= started_at) FROM verification_runs WHERE task_id = 80;")" "row: HEAD sha, gate, exit 0, not timed out, default budget, finished"
+assert_eq "3" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM verification_run_commands c JOIN verification_runs r ON r.id = c.run_id WHERE r.task_id = 80;")" "three command rows"
+assert_eq "1|0;2|0;3|0" "$(sqlite3 "$DB" "SELECT group_concat(ordinal || '|' || exit_code, ';') FROM (SELECT c.ordinal, c.exit_code FROM verification_run_commands c JOIN verification_runs r ON r.id = c.run_id WHERE r.task_id = 80 ORDER BY c.ordinal);")" "commands in order, each exit 0"
+assert_eq "1" "$(sqlite3 "$DB" "SELECT elapsed_s >= 0.9 FROM verification_run_commands c JOIN verification_runs r ON r.id = c.run_id WHERE r.task_id = 80 AND c.ordinal = 2;")" "the sleeping command's elapsed is recorded"
+assert_eq "3" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM verification_run_commands c JOIN verification_runs r ON r.id = c.run_id WHERE r.task_id = 80 AND c.elapsed_s IS NOT NULL;")" "every command carries elapsed_s"
+
+# ---- Reuse: a passing run for the same (task, HEAD) within the hour ----------
+test_case "reuse: a second close on the same HEAD within the hour allows without running verification[]"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 80 "$REC_SHA")")
+assert_not_contains "$out" '"permissionDecision":"deny"' "reuse allows"
+RUN80=$(sqlite3 "$DB" "SELECT id FROM verification_runs WHERE task_id = 80;")
+assert_contains "$out" "verification reused run #$RUN80" "additionalContext names the reused run"
+assert_eq "3" "$(wc -l < "$MARK" | tr -d ' ')" "no command ran again"
+assert_eq "1" "$(runs_of 80)" "no new run row"
+
+test_case "reuse: refused when the worktree HEAD moved to a new commit"
+NEW_SHA=$(git_commit rec-pass "second")
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 80)")
+assert_not_contains "$out" "verification reused" "a new HEAD is verified afresh"
+assert_eq "6" "$(wc -l < "$MARK" | tr -d ' ')" "the commands ran again"
+assert_eq "$NEW_SHA" "$(sqlite3 "$DB" "SELECT commit_sha FROM verification_runs WHERE task_id = 80 ORDER BY id DESC LIMIT 1;")" "the new run records the new HEAD"
+
+test_case "reuse: refused when tool_input.commit_sha names a commit other than the worktree HEAD"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 80 "$REC_SHA")")
+assert_not_contains "$out" "verification reused" "commit_sha ≠ HEAD is verified afresh"
+assert_eq "9" "$(wc -l < "$MARK" | tr -d ' ')" "the commands ran again"
+
+test_case "reuse: refused for a passing run that finished more than an hour ago"
+sqlite3 "$DB" "UPDATE verification_runs SET finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-61 minutes') WHERE task_id = 80;"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 80)")
+assert_not_contains "$out" "verification reused" "an old run is not reused"
+assert_eq "12" "$(wc -l < "$MARK" | tr -d ' ')" "the commands ran again"
+
+# ---- Failure deny: names the command and its timing --------------------------
+test_case "failure deny: names the failing command, its exit, elapsed and cumulative time; the run records it"
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (81, 1, 'feat/rec-fail', 'plugin', 'pending', '', '[\"echo fine\",\"echo FAIL step.test.sh; exit 4\",\"echo never\"]');"
+git_worktree rec-fail >/dev/null
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 81)")
+REASON=$(reason_of "$out")
+assert_contains "$REASON" "Failing command (2/3): echo FAIL step.test.sh; exit 4" "deny names the failing command and its position"
+assert_contains "$REASON" "Exit 4 after " "deny carries the exit code and elapsed"
+assert_contains "$REASON" "s cumulative" "deny carries the cumulative time"
+assert_contains "$REASON" "FAIL step.test.sh" "deny forwards the FAIL line"
+assert_eq "4|0|2" "$(sqlite3 "$DB" "SELECT r.exit_code || '|' || r.timed_out || '|' || (SELECT COUNT(*) FROM verification_run_commands c WHERE c.run_id = r.id) FROM verification_runs r WHERE r.task_id = 81;")" "run exit 4, two command rows (the third never ran)"
+assert_contains "$(sqlite3 "$DB" "SELECT output_tail FROM verification_run_commands c JOIN verification_runs r ON r.id = c.run_id WHERE r.task_id = 81 AND c.ordinal = 2;")" "FAIL step.test.sh" "the command row keeps the output tail"
+
+# ---- Budget: plugin_config, env override, cap --------------------------------
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (82, 1, 'feat/budget', 'plugin', 'pending', '', '[\"sleep 3\"]');"
+mkdir -p "$WT_ROOT/budget"
+budget_of_last() { sqlite3 "$DB" "SELECT budget_s || '|' || timed_out FROM verification_runs WHERE task_id = 82 ORDER BY id DESC LIMIT 1;"; }
+
+test_case "budget: plugin_config.verification_timeout_s is honoured"
+sqlite3 "$DB" "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('verification_timeout_s', '1');"
+out=$(cd "$REPO_DIR" && env -u TMB_VERIFICATION_TIMEOUT_S bash -c 'echo "$1" | bash "$2" 2>&1' _ "$(make_input swe completed 82)" "$HOOK" || true)
+assert_contains "$out" '"permissionDecision":"deny"' "a 1 s budget from plugin_config times out a 3 s command"
+assert_contains "$(reason_of "$out")" "the 1s budget ran out" "deny names the configured budget"
+assert_eq "1|1" "$(budget_of_last)" "run records budget_s 1 and timed_out"
+
+test_case "budget: TMB_VERIFICATION_TIMEOUT_S overrides plugin_config"
+out=$(cd "$REPO_DIR" && TMB_VERIFICATION_TIMEOUT_S=30 run_hook "$(make_input swe completed 82)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "the env budget lets the command finish"
+assert_eq "30|0" "$(budget_of_last)" "run records the env budget"
+
+test_case "budget: a configured budget above the cap is capped at 1800 s"
+sqlite3 "$DB" "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('verification_timeout_s', '99999');"
+out=$(cd "$REPO_DIR" && env -u TMB_VERIFICATION_TIMEOUT_S bash -c 'echo "$1" | bash "$2" 2>&1' _ "$(make_input swe completed 82)" "$HOOK" || true)
+assert_not_contains "$out" '"permissionDecision":"deny"' "capped budget still runs"
+assert_eq "1800|0" "$(budget_of_last)" "run records the capped budget"
+sqlite3 "$DB" "DELETE FROM plugin_config WHERE key IN ('verification_timeout_s');"
+
+# ---- Timeout record: timed_out and the running command -----------------------
+test_case "timeout: the run is marked timed_out and the deny names the running command and the cumulative time"
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (83, 1, 'feat/rec-slow', 'plugin', 'pending', '', '[\"echo quick\",\"sleep 5\",\"echo never\"]');"
+mkdir -p "$WT_ROOT/rec-slow"
+out=$(cd "$REPO_DIR" && TMB_VERIFICATION_TIMEOUT_S=2 run_hook "$(make_input swe completed 83)")
+REASON=$(reason_of "$out")
+assert_contains "$REASON" "timed out" "deny says timed out"
+assert_contains "$REASON" "while running command 2/3" "deny names the command's position"
+assert_contains "$REASON" "sleep 5" "deny names the running command"
+assert_contains "$REASON" "s in," "deny carries the cumulative time"
+assert_eq "124|1|2" "$(sqlite3 "$DB" "SELECT r.exit_code || '|' || r.timed_out || '|' || (SELECT COUNT(*) FROM verification_run_commands c WHERE c.run_id = r.id) FROM verification_runs r WHERE r.task_id = 83;")" "run exit 124, timed_out, the cut-off command recorded"
+assert_eq "124" "$(sqlite3 "$DB" "SELECT c.exit_code FROM verification_run_commands c JOIN verification_runs r ON r.id = c.run_id WHERE r.task_id = 83 AND c.ordinal = 2;")" "the cut-off command row carries exit 124"
 
 summarize

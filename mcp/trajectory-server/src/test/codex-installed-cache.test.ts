@@ -318,7 +318,7 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
     assert.equal(createdRuntime.project_root, canonicalProject);
     assert.equal(createdRuntime.plugin_name, manifest.name);
     assert.equal(createdRuntime.plugin_version, manifest.version);
-    assert.equal(createdRuntime.schema_version, 35);
+    assert.equal(createdRuntime.schema_version, 36);
     assert.equal(createdRuntime.graph_available, false);
     assert.equal(createdRuntime.graph_status, 'unavailable');
     assert.ok(
@@ -338,7 +338,7 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
       const row = db
         .prepare('SELECT schema_version, plugin_version FROM plugin_meta WHERE id = 1')
         .get() as { schema_version: number; plugin_version: string };
-      assert.equal(row.schema_version, 35);
+      assert.equal(row.schema_version, 36);
       assert.equal(row.plugin_version, manifest.version);
     } finally {
       db.close();

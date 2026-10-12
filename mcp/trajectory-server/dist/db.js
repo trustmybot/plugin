@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logger.js';
 import { assertSafeProjectWritePath, resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
-export const TARGET_SCHEMA_VERSION = 35;
+export const TARGET_SCHEMA_VERSION = 36;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -487,6 +487,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 35 && toVersion >= 35) {
         migrateV34toV35(db);
+    }
+    if (fromVersion < 36 && toVersion >= 36) {
+        migrateV35toV36(db);
     }
 }
 function hasColumn(db, table, column) {
@@ -1956,6 +1959,42 @@ function migrateV34toV35(db) {
     finally {
         db.exec('PRAGMA foreign_keys = ON');
     }
+}
+// v35→v36: verification runs are recorded (GH 1294). Adds
+// verification_runs(task → tasks ON DELETE CASCADE, commit_sha, source
+// gate|manual, started_at, finished_at, exit_code, budget_s, timed_out,
+// created_at) with an index on (task_id, commit_sha, finished_at), and
+// verification_run_commands(run → verification_runs ON DELETE CASCADE,
+// ordinal, command, exit_code, elapsed_s, output_tail, PK(run_id, ordinal)).
+// New tables only; no existing row changes. A re-run is a no-op.
+function migrateV35toV36(db) {
+    if (!tableExists(db, 'tasks'))
+        return;
+    db.exec(`
+    CREATE TABLE IF NOT EXISTS verification_runs (
+      id           INTEGER PRIMARY KEY,
+      task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      commit_sha   TEXT    NOT NULL,
+      source       TEXT    NOT NULL CHECK (source IN ('gate','manual')),
+      started_at   TEXT    NOT NULL,
+      finished_at  TEXT,
+      exit_code    INTEGER,
+      budget_s     INTEGER NOT NULL,
+      timed_out    INTEGER NOT NULL DEFAULT 0 CHECK (timed_out IN (0,1)),
+      created_at   TEXT    NOT NULL DEFAULT ${ISO_NOW_DEFAULT}
+    );
+    CREATE INDEX IF NOT EXISTS idx_verification_runs_task_commit
+      ON verification_runs(task_id, commit_sha, finished_at);
+    CREATE TABLE IF NOT EXISTS verification_run_commands (
+      run_id       INTEGER NOT NULL REFERENCES verification_runs(id) ON DELETE CASCADE,
+      ordinal      INTEGER NOT NULL,
+      command      TEXT    NOT NULL,
+      exit_code    INTEGER,
+      elapsed_s    REAL,
+      output_tail  TEXT,
+      PRIMARY KEY (run_id, ordinal)
+    );
+  `);
 }
 // v22→v23: the repos-centric schema (#155). repos(name) becomes the FK hub.
 //

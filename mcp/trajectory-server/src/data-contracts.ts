@@ -65,6 +65,15 @@ const auditCommitSha = (alias: string): string =>
 
 export const REVIEW_GRACE_HOURS_DEFAULT = 24;
 
+// A run's commit_sha is the full HEAD the gate tested; tasks.commit_sha may be
+// the short form task_update_status was given.
+const runMatchesTaskCommit = (run: string, task: string): string =>
+  `${run}.task_id = ${task}.id AND substr(${run}.commit_sha, 1, length(${task}.commit_sha)) = ${task}.commit_sha`;
+
+const VERIFIED_CLOSE_SCOPE = `t.status = 'closed' AND ${ts('t.updated_at')} >= ${daysAgo(7)}
+               AND COALESCE(t.commit_sha, '') <> '' AND COALESCE(t.verification, '[]') NOT IN ('', '[]')
+               AND NOT EXISTS (SELECT 1 FROM audit w WHERE w.event_type = 'verification_gate_waived' AND ${auditTaskId('w')} = t.id)`;
+
 const LIVE_TASK_STATUSES = "'pending','running','needs_validation','completed'";
 
 /** Columns added in v29–v33 that stay NULL by design; they get no contract. */
@@ -210,6 +219,20 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
              WHERE d.event_type = 'embeddings_degraded' AND ${ts('d.created_at')} >= ${daysAgo(1)}
                AND NOT EXISTS (SELECT 1 FROM audit r WHERE r.event_type = 'embeddings_recovered' AND r.id > d.id)
              ORDER BY d.id DESC LIMIT 5`,
+    },
+    {
+      id: 'verification_recorded_for_closed_tasks',
+      severity: 'warn',
+      min_schema: 36,
+      description: 'tasks closed in the last 7 days with a commit_sha, a non-empty verification[] and no verification_gate_waived row have a verification_runs row for that commit (the close gate records one per run)',
+      sql: `SELECT COUNT(*) FROM tasks t
+             WHERE ${VERIFIED_CLOSE_SCOPE}
+               AND NOT EXISTS (SELECT 1 FROM verification_runs r WHERE ${runMatchesTaskCommit('r', 't')})`,
+      expect: { op: '=', value: 0 },
+      sample_sql: `SELECT t.id, t.issue_id, t.commit_sha, t.updated_at FROM tasks t
+             WHERE ${VERIFIED_CLOSE_SCOPE}
+               AND NOT EXISTS (SELECT 1 FROM verification_runs r WHERE ${runMatchesTaskCommit('r', 't')})
+             ORDER BY t.id DESC LIMIT 5`,
     },
     ...POPULATED_COLUMNS.map(populatedContract),
     {

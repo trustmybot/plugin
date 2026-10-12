@@ -36,6 +36,15 @@ function seedTask(db, issueId, status, updatedAt = iso()) {
 function seedAudit(db, eventType, content = {}, createdAt = iso(), fromNode = 'bro') {
     db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (-1, ?, ?, 's', ?, ?)`, [fromNode, eventType, JSON.stringify(content), createdAt]);
 }
+function seedVerifiedClose(db, sha, updatedAt = iso(), verification = '["npm test"]') {
+    const id = seedTask(db, seedIssue(db), 'closed', updatedAt);
+    db.run('UPDATE tasks SET commit_sha = ?, verification = ? WHERE id = ?', [sha, verification, id]);
+    return id;
+}
+function seedVerificationRun(db, taskId, sha) {
+    db.run(`INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s)
+     VALUES (?, ?, 'gate', ?, ?, 0, 900)`, [taskId, sha, iso(-HOUR), iso()]);
+}
 function seedRun(db, o = {}) {
     const completedAt = o.completedAt === undefined ? iso() : o.completedAt;
     const tokens = o.tokens === undefined ? 100 : o.tokens;
@@ -132,6 +141,20 @@ const FIXTURES = {
             seedAudit(db, 'verification_gate_waived', { task_id: 7, commit_sha: 'aaa1111' });
             seedAudit(db, 'verification_gate_waived', { task_id: 7, commit_sha: 'bbb2222' });
             seedAudit(db, 'verification_gate_waived', { task_id: 8 });
+        },
+    },
+    verification_recorded_for_closed_tasks: {
+        violate: (db) => {
+            seedVerifiedClose(db, 'abc1234');
+        },
+        pass: (db) => {
+            const recorded = seedVerifiedClose(db, 'abc1234');
+            seedVerificationRun(db, recorded, 'abc1234' + 'f'.repeat(33));
+            seedVerifiedClose(db, 'def5678', iso(-8 * DAY));
+            seedVerifiedClose(db, 'aaa0000', iso(), '[]');
+            const waived = seedVerifiedClose(db, 'bbb1111');
+            seedAudit(db, 'verification_gate_waived', { task_id: waived, commit_sha: 'bbb1111' });
+            seedTask(db, seedIssue(db), 'closed');
         },
     },
     embeddings_not_degraded: {
