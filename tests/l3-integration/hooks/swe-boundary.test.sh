@@ -534,6 +534,41 @@ for gh_cmd in 'timeout 5 gh pr view 3' 'echo "timeout 5 gh pr merge 3"' \
   assert_not_contains "$out" '"permissionDecision":"deny"' "a wrapped read or a quoted mention is allowed"
 done
 
+# GH 1281 — only command-position words run gh/glab: a test fixture written
+# through a heredoc, a quoted argument and a data command's operand are text.
+
+for gh_cmd in "cat > x.test.ts <<'EOF'
+it('closes', () => {
+  run('gh', ['issue', 'close', '1'])
+  // gh issue close 1
+})
+EOF" \
+  "printf 'gh pr merge' > notes.txt" 'echo gh pr merge 1' \
+  "cat > notes.md <<-EOF
+	gh issue close 1
+	EOF" \
+  "x=\$(cat <<'EOF'
+gh pr merge 1
+EOF
+)"; do
+  test_case "GH 1281: SWE text naming a gh mutation '${gh_cmd%%$'\n'*}': NOT denied"
+  out=$(run_hook_swe "$(make_bash_input swe "$gh_cmd")")
+  assert_not_contains "$out" '"permissionDecision":"deny"' "text is data"
+done
+
+for gh_cmd in 'echo "$(gh pr merge 1)"' 'GH_TOKEN=x gh api -X POST repos/o/r/issues' \
+  '/usr/bin/gh issue close 2' 'glab mr merge 3' "printf 'x' | xargs gh pr merge" \
+  'sudo -u git gh pr merge 1' 'env -u cat gh pr merge 1' 'git bisect run gh pr merge 1' \
+  'git submodule foreach gh pr merge 1' "git rebase -x 'gh pr merge 1' main" \
+  'git submodule --quiet foreach gh pr merge 1' 'git submodule -q foreach gh pr merge 1' \
+  "git rebase -ix 'gh pr merge 1' main" "git rebase -kx 'gh pr merge 1' main" \
+  "git rebase --exe='gh pr merge 1' main" "git rebase -i --exe 'gh pr merge 1' main" \
+  'git rebase -x "echo hi && gh pr merge 1" main' "git submodule foreach 'echo x; gh pr merge 1'"; do
+  test_case "GH 1281: SWE real gh/glab mutation '$gh_cmd': DENIED"
+  out=$(run_hook_swe "$(make_bash_input swe "$gh_cmd")")
+  assert_contains "$out" "gh/glab mutating" "a command-position forge write still fires"
+done
+
 test_case "(b) tmb_gh_mutation keeps no wrapper allowlist"
 gh_fn=$(sed -n '/^tmb_gh_mutation() {/,/^}/p' "$PLUGIN_ROOT/scripts/hooks/lib/cmd-analysis.sh")
 assert_not_contains "$gh_fn" "nohup" "no wrapper list in tmb_gh_mutation"
