@@ -36757,10 +36757,11 @@ var hoursAgo = (hours) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${hours} hours'
 var ts = (column) => `strftime('%Y-%m-%dT%H:%M:%fZ', ${column})`;
 var auditTaskId = (alias) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.task_id') END`;
 var auditCommitSha = (alias) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.commit_sha') END`;
-var SPEC_SHAPE_WAIVER_NAMES_NO_TASK = (alias) => `${alias}.event_type = 'spec_shape_gate_waived'
-               AND NOT EXISTS (SELECT 1 FROM tasks t
-                                WHERE t.id = CAST(${auditTaskId(alias)} AS INTEGER)
-                                  AND CAST(CAST(${auditTaskId(alias)} AS INTEGER) AS TEXT) = CAST(${auditTaskId(alias)} AS TEXT))`;
+var SPEC_SHAPE_WAIVER_NOT_READ_BY_GATE = (alias) => `${alias}.event_type = 'spec_shape_gate_waived'
+               AND (NOT EXISTS (SELECT 1 FROM tasks t
+                                 WHERE t.id = CAST(${auditTaskId(alias)} AS INTEGER)
+                                   AND CAST(CAST(${auditTaskId(alias)} AS INTEGER) AS TEXT) = CAST(${auditTaskId(alias)} AS TEXT))
+                    OR COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.gate') END, '') <> 'spec_shape')`;
 var REVIEW_GRACE_HOURS_DEFAULT = 24;
 var runMatchesTaskCommit = (run, task) => `${run}.task_id = ${task}.id AND substr(${run}.commit_sha, 1, length(${task}.commit_sha)) = ${task}.commit_sha`;
 var V36_RECORDING_SINCE = `(SELECT MIN(${ts("started_at")}) FROM verification_runs)`;
@@ -36896,12 +36897,12 @@ function buildDataContracts(documentedEventTypes) {
     {
       id: "spec_shape_waived_rows_name_a_task",
       severity: "warn",
-      description: "every spec_shape_gate_waived row names an existing task: content_json.task_id is a positive integer (or its decimal string) matching a tasks row, the only shape require-task-spec reads as a spawn waiver",
+      description: "every spec_shape_gate_waived row names an existing task with gate spec_shape: content_json.task_id is a positive integer (or its decimal string) matching a tasks row and content_json.gate is spec_shape, the only shape require-task-spec reads as a spawn waiver",
       sql: `SELECT COUNT(*) FROM audit a
-             WHERE ${SPEC_SHAPE_WAIVER_NAMES_NO_TASK("a")}`,
+             WHERE ${SPEC_SHAPE_WAIVER_NOT_READ_BY_GATE("a")}`,
       expect: { op: "=", value: 0 },
       sample_sql: `SELECT a.id, a.issue_id, a.from_node, a.created_at, a.content_json FROM audit a
-             WHERE ${SPEC_SHAPE_WAIVER_NAMES_NO_TASK("a")}
+             WHERE ${SPEC_SHAPE_WAIVER_NOT_READ_BY_GATE("a")}
              ORDER BY a.id DESC LIMIT 5`
     },
     {

@@ -38,6 +38,10 @@
 #                                 when neither resolves.
 #
 # All functions never fail the caller (use || true / return 0 patterns).
+# DB reads go through tmb_sqlite_ro (lib/query-task.sh), sourced here when the
+# caller has not.
+
+declare -F tmb_sqlite_ro >/dev/null 2>&1 || . "$(dirname "${BASH_SOURCE[0]}")/query-task.sh"
 
 # tmb_cmd_cwd <command> [<input_json>]
 # Resolve the working directory a Bash command will execute in. SWE and bro
@@ -133,10 +137,10 @@ tmb_repo_resolve() {
   [ -f "$db" ] || return 0
   command -v sqlite3 >/dev/null 2>&1 || return 0
   [ -n "$git_root" ] || return 0
-  sqlite3 -readonly -cmd '.timeout 500' "$db" \
+  tmb_sqlite_ro "$db" \
     "SELECT COALESCE(target_branch,''), COALESCE(branching_model,''), COALESCE(protected_branches,'')
        FROM repos WHERE path = '$(printf '%s' "$git_root" | sed "s/'/''/g")' LIMIT 1;" \
-    2>/dev/null | head -1 || true
+    | head -1 || true
 }
 
 # tmb_repo_remotes <db> <git_root>
@@ -150,22 +154,19 @@ tmb_repo_remotes() {
   local git_root="$2"
   [ -f "$db" ] || return 0
   command -v sqlite3 >/dev/null 2>&1 || return 0
-  local select="SELECT COALESCE((SELECT json_group_array(json_object('name', rr.name, 'provider', rr.provider, 'url', rr.url))
-      FROM (SELECT name, provider, url FROM repo_remotes WHERE repo = r.name ORDER BY is_primary DESC, rowid) rr), '[]')
-    FROM repos r"
+  local remotes="COALESCE((SELECT json_group_array(json_object('name', rr.name, 'provider', rr.provider, 'url', rr.url))
+      FROM (SELECT name, provider, url FROM repo_remotes WHERE repo = r.name ORDER BY is_primary DESC, rowid) rr), '[]')"
   local out=""
   if [ -n "$git_root" ]; then
-    out=$(sqlite3 -readonly -cmd '.timeout 500' "$db" \
-      "$select WHERE r.path = '$(printf '%s' "$git_root" | sed "s/'/''/g")' LIMIT 1;" \
-      2>/dev/null | head -1 || true)
+    out=$(tmb_sqlite_ro "$db" \
+      "SELECT ${remotes} FROM repos r WHERE r.path = '$(printf '%s' "$git_root" | sed "s/'/''/g")' LIMIT 1;" \
+      | head -1 || true)
   fi
   if [ -z "$out" ]; then
     local count
-    count=$(sqlite3 -readonly -cmd '.timeout 500' "$db" \
-      "SELECT COUNT(*) FROM repos;" 2>/dev/null || echo 0)
+    count=$(tmb_sqlite_ro "$db" "SELECT COUNT(*) FROM repos;")
     if [ "${count:-0}" = "1" ]; then
-      out=$(sqlite3 -readonly -cmd '.timeout 500' "$db" \
-        "$select LIMIT 1;" 2>/dev/null | head -1 || true)
+      out=$(tmb_sqlite_ro "$db" "SELECT ${remotes} FROM repos r LIMIT 1;" | head -1 || true)
     fi
   fi
   printf '%s' "$out"
@@ -180,9 +181,8 @@ tmb_repo_is_registered() {
   command -v sqlite3 >/dev/null 2>&1 || return 1
   [ -n "$git_root" ] || return 1
   local count
-  count=$(sqlite3 -readonly -cmd '.timeout 500' "$db" \
-    "SELECT COUNT(*) FROM repos WHERE path = '$(printf '%s' "$git_root" | sed "s/'/''/g")';" \
-    2>/dev/null || echo 0)
+  count=$(tmb_sqlite_ro "$db" \
+    "SELECT COUNT(*) FROM repos WHERE path = '$(printf '%s' "$git_root" | sed "s/'/''/g")';")
   [ "${count:-0}" -gt 0 ]
 }
 
@@ -194,9 +194,9 @@ tmb_repo_path_by_name() {
   [ -f "$db" ] || return 0
   command -v sqlite3 >/dev/null 2>&1 || return 0
   [ -n "$name" ] || return 0
-  sqlite3 -readonly -cmd '.timeout 500' "$db" \
+  tmb_sqlite_ro "$db" \
     "SELECT path FROM repos WHERE name = '$(printf '%s' "$name" | sed "s/'/''/g")' LIMIT 1;" \
-    2>/dev/null | head -1 || true
+    | head -1 || true
 }
 
 # tmb_repo_single_path <db>
@@ -207,11 +207,9 @@ tmb_repo_single_path() {
   [ -f "$db" ] || return 0
   command -v sqlite3 >/dev/null 2>&1 || return 0
   local count
-  count=$(sqlite3 -readonly -cmd '.timeout 500' "$db" \
-    "SELECT COUNT(*) FROM repos;" 2>/dev/null || echo 0)
+  count=$(tmb_sqlite_ro "$db" "SELECT COUNT(*) FROM repos;")
   [ "${count:-0}" = "1" ] || return 0
-  sqlite3 -readonly -cmd '.timeout 500' "$db" \
-    "SELECT path FROM repos LIMIT 1;" 2>/dev/null | head -1 || true
+  tmb_sqlite_ro "$db" "SELECT path FROM repos LIMIT 1;" | head -1 || true
 }
 
 # tmb_repo_resolve_path <db> <name>

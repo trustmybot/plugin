@@ -154,6 +154,7 @@ assert_contains "$ERR" "invalid dedupe json path" "stderr names the bad path"
 
 test_case "tmb_gate_read prints __ERR__ on a missing DB file"
 assert_eq "__ERR__" "$(tmb_gate_read "$TMPDIR_FIXTURE/nope.db" "SELECT 1;")" "missing DB"
+assert_eq "absent" "$([ -e "$TMPDIR_FIXTURE/nope.db" ] && echo created || echo absent)" "the read never creates the DB"
 
 test_case "tmb_gate_read prints __ERR__ on a sqlite3 error"
 assert_eq "__ERR__" "$(tmb_gate_read "$DB" "SELECT * FROM no_such_table;")" "query error"
@@ -161,6 +162,46 @@ assert_eq "__ERR__" "$(tmb_gate_read "$DB" "SELECT * FROM no_such_table;")" "que
 test_case "tmb_gate_read distinguishes no rows from an error"
 assert_eq "" "$(tmb_gate_read "$DB" "SELECT key FROM plugin_config WHERE key='absent';")" "empty result"
 assert_eq "1" "$(tmb_gate_read "$DB" "SELECT value_json FROM plugin_config WHERE key='dbw_ok';")" "row result"
+
+# shellcheck source=tests/l3-integration/hooks/fixtures/wal-no-holder.sh disable=SC1091
+. "$HERE/fixtures/wal-no-holder.sh"
+RO_BIN="$TMPDIR_FIXTURE/ro-bin"
+RO_LOG="$TMPDIR_FIXTURE/ro-sqlite3.log"
+wal_wrapper "$RO_BIN" "$RO_LOG"
+
+test_case "tmb_gate_read, tmb_sqlite_ro and tmb_db_read_budget read a WAL DB with no holder"
+COLD_DB="$TMPDIR_FIXTURE/cold/trajectory.db"
+mkdir -p "$(dirname "$COLD_DB")"
+sqlite3 "$DB" ".backup '$COLD_DB'"
+wal_detach "$COLD_DB"
+assert_eq "1" "$(tmb_gate_read "$COLD_DB" "SELECT value_json FROM plugin_config WHERE key='dbw_ok';")" "tmb_gate_read"
+wal_detach "$COLD_DB"
+assert_eq "1" "$(tmb_sqlite_ro "$COLD_DB" "SELECT value_json FROM plugin_config WHERE key='dbw_ok';")" "tmb_sqlite_ro"
+wal_detach "$COLD_DB"
+assert_eq "1" "$(printf "SELECT value_json FROM plugin_config WHERE key='dbw_ok';\n" | tmb_db_read_budget "$COLD_DB" 1500)" "tmb_db_read_budget"
+
+test_case "tmb_gate_read retries nothing but an unopenable DB: a SQL error runs sqlite3 once"
+: > "$RO_LOG"
+assert_eq "__ERR__" "$(PATH="$RO_BIN:$PATH" tmb_gate_read "$DB" "SELECT * FROM no_such_table;")" "query error"
+assert_eq "1" "$(grep -c . "$RO_LOG")" "one sqlite3 run"
+
+test_case "tmb_gate_read retries nothing but an unopenable DB: a locked DB runs sqlite3 once"
+LOCKED_DB="$TMPDIR_FIXTURE/locked.db"
+sqlite3 "$LOCKED_DB" "CREATE TABLE x (a);"
+mkfifo "$TMPDIR_FIXTURE/lock.fifo"
+sqlite3 "$LOCKED_DB" < "$TMPDIR_FIXTURE/lock.fifo" >/dev/null 2>&1 &
+LOCK_PID=$!
+exec 8>"$TMPDIR_FIXTURE/lock.fifo"
+printf 'BEGIN EXCLUSIVE;\nINSERT INTO x VALUES (1);\n' >&8
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  sqlite3 -readonly "$LOCKED_DB" "SELECT 1;" >/dev/null 2>&1 || break
+  sleep 0.1
+done
+: > "$RO_LOG"
+assert_eq "__ERR__" "$(PATH="$RO_BIN:$PATH" TMB_DB_WRITE_TIMEOUT_MS=100 tmb_gate_read "$LOCKED_DB" "SELECT count(*) FROM x;")" "locked DB"
+assert_eq "1" "$(grep -c . "$RO_LOG")" "one sqlite3 run"
+exec 8>&-
+wait "$LOCK_PID" 2>/dev/null
 
 test_case "run budget: three writes under a held lock stop waiting once the budget is spent"
 ( printf 'BEGIN IMMEDIATE;\n'; sleep 6; printf 'COMMIT;\n' ) | sqlite3 "$DB" &

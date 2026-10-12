@@ -145,7 +145,7 @@ fi
 
 # Trajectory DB data contracts (read-only). The contract list is generated
 # from mcp/trajectory-server/src/data-contracts.ts into lib/data-contracts.json;
-# every contract runs in one sqlite3 -readonly pass under a hard budget
+# every contract runs in one read-only pass (tmb_db_read_budget) under a hard budget
 # (TMB_DOCTOR_BUDGET_MS, default 1500, capped at 3000 so the 6 s hook wrapper
 # covers it). A timeout or read error never reports healthy; a DB whose
 # plugin_meta.schema_version is below the contracts' schema_version says so

@@ -389,6 +389,13 @@ describe('data contracts', () => {
     });
   }
 
+  it('spec_shape_waived_rows_name_a_task warns on a row naming a real task without gate spec_shape', () => {
+    const db = tempDB();
+    const task = seedTask(db, seedIssue(db), 'pending');
+    seedAudit(db, 'spec_shape_gate_waived', { task_id: task, reason: 'placeholder task, no spec needed' });
+    assert.equal(violated(db, 'spec_shape_waived_rows_name_a_task'), true);
+  });
+
   it('closed_tasks_reviewed does not count a review_gate_waived row bro did not write', () => {
     const db = tempDB();
     const task = seedTask(db, seedIssue(db), 'closed', iso(-25 * HOUR));
