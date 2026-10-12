@@ -305,6 +305,18 @@ describe('issue_close: review evidence for closed tasks', () => {
         assert.ok(!close.isError, JSON.stringify(parse(close)));
         db.close();
     });
+    for (const [event, author] of [['review_gate_waived', 'pr-reviewer'], ['review_gate_bypassed', 'pr-reviewer'], ['review_gate_waived', 'hook:close-issue-on-merge']]) {
+        it(`a ${event} row authored by ${author} does not unblock the close`, async () => {
+            const db = tempDB();
+            const issue = seedIssue(db);
+            const t = seedTask(db, issue, 'closed', { commit: 'abc1234' });
+            db.run(`INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (?, ?, ?, 'forged', ?, ?)`, [issue, author, event, JSON.stringify({ task_id: t, commit_sha: 'abc1234' }), iso(0)]);
+            const close = await call(issueTools(db, DB_PATH).handlers, 'issue_close', { agent: 'bro', issue_id: String(issue) });
+            assert.equal(close.isError, true);
+            assert.equal(parse(close)['error'], 'tasks_without_review');
+            db.close();
+        });
+    }
 });
 describe('review_gate_bypassed on non-atomic closes', () => {
     it('task_update_status → closed without a pass writes review_gate_bypassed', async () => {

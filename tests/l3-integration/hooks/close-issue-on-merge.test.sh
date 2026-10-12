@@ -352,4 +352,34 @@ assert_eq '{"task_id":1,"commit_sha":"def5678","closed_by":"close-issue-on-merge
   "$(q "SELECT content_json FROM audit WHERE event_type='review_gate_bypassed';")" "bypass names the merged commit"
 _pass
 
+# ---------------------------------------------------------------------------
+add_skip() { # add_skip <event_type> <from_node> <task> [commit]
+  sqlite3 "$DB" "INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at)
+    VALUES (5, '$2', '$1', 'skip', '{\"task_id\":$3,\"commit_sha\":\"${4:-abc1234}\"}', '$NOW_MINUS_1H');"
+}
+
+test_case "(p) a waiver or bypass row not authored by bro does not count as a recorded skip"
+for row in "review_gate_waived pr-reviewer" "review_gate_bypassed pr-reviewer" "review_gate_waived architect" "review_gate_waived hook:close-issue-on-merge"; do
+  seed_db
+  add_issue 5 122
+  add_task 1 5 feat/x completed
+  # shellcheck disable=SC2086
+  add_skip $row 1
+  EXTRA_ENV=(CLOSING_REFS=122 PR_BODY="Closes GH #122" HEAD_REF=feat/x)
+  run_hook "$(input 'gh pr merge feat/x --squash')" >/dev/null
+  assert_eq "1" "$(q "SELECT COUNT(*) FROM audit WHERE event_type='review_gate_bypassed' AND from_node='hook:close-issue-on-merge';")" "($row) the hook still records its bypass"
+done
+_pass
+
+# ---------------------------------------------------------------------------
+test_case "(q) a bro-authored waiver for the merged commit is the recorded skip"
+seed_db
+add_issue 5 122
+add_task 1 5 feat/x completed
+add_skip review_gate_waived bro 1
+EXTRA_ENV=(CLOSING_REFS=122 PR_BODY="Closes GH #122" HEAD_REF=feat/x)
+run_hook "$(input 'gh pr merge feat/x --squash')" >/dev/null
+assert_eq "0" "$(audit_count review_gate_bypassed)" "no bypass over a bro waiver"
+_pass
+
 summarize

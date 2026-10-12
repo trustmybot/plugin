@@ -436,7 +436,7 @@ describe('reportTools', () => {
         await call(audit.handlers, 'audit_append', {
             agent: 'bro',
             issue_id: String(issueId),
-            from_node: 'swe',
+            from_node: 'bro',
             event_type: 'planning_complete',
             summary: 'SWE began work',
         });

@@ -26,10 +26,14 @@ export const HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
         AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
 
 // A recorded bypass or waiver for the task's current commit means the
-// trajectory already says the review gate was skipped. close-issue-on-merge.sh
-// holds a byte-identical copy (_CIM_SKIP_RECORDED).
+// trajectory already says the review gate was skipped. Only bro authors a
+// waiver; a bypass is bro's (a server close path) or close-issue-on-merge's.
+// Rows from any other author do not count. close-issue-on-merge.sh holds a
+// byte-identical copy (_CIM_SKIP_RECORDED).
 export const GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
-  WHERE g.event_type IN ('review_gate_bypassed', 'review_gate_waived') AND json_valid(g.content_json)
+  WHERE ((g.event_type = 'review_gate_waived' AND g.from_node = 'bro')
+      OR (g.event_type = 'review_gate_bypassed' AND g.from_node IN ('bro', 'hook:close-issue-on-merge')))
+    AND json_valid(g.content_json)
     AND json_extract(g.content_json, '$.task_id') = t.id
     AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
 

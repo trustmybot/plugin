@@ -286,7 +286,7 @@ test('audit_search — keyword: multiple matches + event_types filter', async (t
     event_type: 'planning_complete', summary: 'deployment plan for cache layer',
   });
   await call(client, 'audit_append', {
-    agent: 'swe', issue_id: issueId, from_node: 'swe',
+    agent: 'bro', issue_id: issueId, from_node: 'bro',
     event_type: 'bro_verification_pass', summary: 'deployment of cache layer committed',
   });
 

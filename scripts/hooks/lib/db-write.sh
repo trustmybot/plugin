@@ -130,11 +130,31 @@ _tmb_from_node_valid() {
 
 _TMB_AUDIT_EVENTS_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/audit-events.txt"
 
-# _tmb_audit_event_valid <event_type>
-# True when <event_type> is a line of audit-events.txt, the closed set that
-# `npm run build` generates from mcp/trajectory-server/src/audit-events.ts.
-_tmb_audit_event_valid() {
-  [ -n "${1:-}" ] && [ -f "$_TMB_AUDIT_EVENTS_FILE" ] && grep -qxF -- "$1" "$_TMB_AUDIT_EVENTS_FILE"
+# _tmb_audit_writer <from_node>
+# The audit-events.ts writer a from_node writes as: hook:<name> → hook,
+# system → server.
+_tmb_audit_writer() {
+  case "${1:-}" in
+    hook:*) printf 'hook' ;;
+    system) printf 'server' ;;
+  esac
+}
+
+# _tmb_audit_event_writers <event_type>
+# Prints the comma-joined writers of <event_type> from audit-events.txt
+# (`event<TAB>writers` lines that `npm run build` generates from
+# mcp/trajectory-server/src/audit-events.ts); prints nothing and returns 1
+# when the event is not listed.
+_tmb_audit_event_writers() {
+  [ -n "${1:-}" ] || return 1
+  local ev writers
+  while IFS=$'\t' read -r ev writers || [ -n "$ev" ]; do
+    if [ "$ev" = "$1" ]; then
+      printf '%s' "$writers"
+      return 0
+    fi
+  done < "$_TMB_AUDIT_EVENTS_FILE"
+  return 1
 }
 
 # tmb_audit_dedupe_guard <event_type> <content_json> <json_path>...
@@ -173,8 +193,9 @@ tmb_audit_dedupe_guard() {
 # row is conditional on: a constant (never user data) such as
 # "(SELECT changes()) > 0" after an UPDATE in the same transaction, or the
 # output of tmb_audit_dedupe_guard.
-# Exit 2 + stderr on an invalid from_node, an event_type outside
-# audit-events.txt, or a non-integer issue_id.
+# Exit 2 + stderr on an invalid from_node, a missing audit-events.txt, an
+# event_type outside it, an event whose writers exclude the from_node's writer
+# (hook:<name> writes as hook, system as server), or a non-integer issue_id.
 tmb_audit_sql() {
   local issue_id="${1:-}" branch_id="${2:-}" from_node="${3:-}" event_type="${4:-}" summary="${5:-}" content_json="${6:-}" guard_sql="${7:-}"
   local caller
@@ -183,10 +204,23 @@ tmb_audit_sql() {
     printf 'tmb_audit_append: %s: invalid from_node %s (want hook:<name> or system)\n' "$caller" "'$from_node'" >&2
     return 2
   fi
-  if ! _tmb_audit_event_valid "$event_type"; then
+  if [ ! -r "$_TMB_AUDIT_EVENTS_FILE" ]; then
+    printf 'tmb_audit_append: %s: audit event list missing or unreadable: %s (run npm run build in mcp/trajectory-server)\n' "$caller" "$_TMB_AUDIT_EVENTS_FILE" >&2
+    return 2
+  fi
+  local writers writer
+  if ! writers=$(_tmb_audit_event_writers "$event_type"); then
     printf 'tmb_audit_append: %s: unknown event_type %s (not in %s; add it to mcp/trajectory-server/src/audit-events.ts and rebuild)\n' "$caller" "'$event_type'" "$_TMB_AUDIT_EVENTS_FILE" >&2
     return 2
   fi
+  writer=$(_tmb_audit_writer "$from_node")
+  case ",$writers," in
+    *",$writer,"*) ;;
+    *)
+      printf 'tmb_audit_append: %s: audit_event_not_writable_by_role: %s may not write %s (writers: %s)\n' "$caller" "'$writer'" "'$event_type'" "$writers" >&2
+      return 2
+      ;;
+  esac
   local safe_issue
   case "$issue_id" in
     -1) safe_issue="-1" ;;

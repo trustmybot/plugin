@@ -5,7 +5,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tempDB } from './helpers.js';
 import { AUDIT_EVENT_TYPES, assertAuditEventType, isAuditEventType, type AuditEventType } from '../audit-events.js';
-import { auditTools, insertAudit } from '../tools/audit.js';
+import { AuditWriterError, auditTools, insertAudit } from '../tools/audit.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 
@@ -25,9 +25,23 @@ describe('AUDIT_EVENT_TYPES — the closed audit.event_type set', () => {
     assert.equal(new Set(types).size, types.length);
   });
 
-  it('the generated hook list equals the TS list', () => {
+  it('every value names at least one known writer', () => {
+    const known = new Set(['bro', 'swe', 'pr-reviewer', 'consultant', 'server', 'hook']);
+    for (const e of AUDIT_EVENT_TYPES) {
+      assert.ok(e.writers.length > 0, `${e.type} has writers`);
+      for (const w of e.writers) assert.ok(known.has(w), `${e.type} writer ${w} is known`);
+    }
+  });
+
+  it('every *_gate_waived event is written by bro or a hook only', () => {
+    for (const e of AUDIT_EVENT_TYPES.filter((x) => x.type.endsWith('_gate_waived'))) {
+      for (const w of e.writers) assert.ok(w === 'bro' || w === 'hook', `${e.type} writer ${w}`);
+    }
+  });
+
+  it('the generated hook list equals the TS list, one event<TAB>writers line each', () => {
     const lines = readFileSync(TXT, 'utf8').split('\n').filter((l) => l.length > 0);
-    assert.deepEqual(lines, AUDIT_EVENT_TYPES.map((e) => e.type));
+    assert.deepEqual(lines, AUDIT_EVENT_TYPES.map((e) => `${e.type}\t${e.writers.join(',')}`));
   });
 
   it('isAuditEventType / assertAuditEventType accept members and reject everything else', () => {
@@ -72,5 +86,73 @@ describe('server writers reject an unknown event_type', () => {
     const def = auditTools(tempDB()).definitions.find((d) => d.name === 'audit_append');
     const prop = (def?.inputSchema.properties as Record<string, { enum?: string[] }>)['event_type'];
     assert.deepEqual(prop?.enum, AUDIT_EVENT_TYPES.map((e) => e.type));
+  });
+});
+
+describe('audit_append — who may write which event', () => {
+  async function append(db: ReturnType<typeof tempDB>, args: Record<string, unknown>): Promise<RawResult> {
+    return (await auditTools(db).handlers['audit_append']!({ issue_id: '-1', summary: 's', ...args })) as RawResult;
+  }
+
+  it('bro writes a bro event; from_node is recorded as bro without being passed', async () => {
+    const db = tempDB();
+    const r = await append(db, { agent: 'bro', event_type: 'scope_gate_waived' });
+    assert.ok(!r.isError, r.content[0]!.text);
+    assert.equal((JSON.parse(r.content[0]!.text) as { from_node: string }).from_node, 'bro');
+    db.close();
+  });
+
+  for (const agent of ['pr-reviewer', 'swe', 'architect']) {
+    it(`${agent} is refused on scope_gate_waived with the allowed writers`, async () => {
+      const db = tempDB();
+      const r = await append(db, { agent, from_node: 'bro', event_type: 'scope_gate_waived' });
+      assert.equal(r.isError, true);
+      const body = JSON.parse(r.content[0]!.text) as { error: string; caller_role: string; allowed_writers: string[] };
+      assert.equal(body.error, 'audit_event_not_writable_by_role');
+      assert.equal(body.caller_role, agent === 'architect' ? 'consultant' : agent);
+      assert.deepEqual(body.allowed_writers, ['bro']);
+      assert.equal(db.get<{ n: number }>("SELECT COUNT(*) AS n FROM audit WHERE event_type = 'scope_gate_waived'")?.n, 0);
+      db.close();
+    });
+  }
+
+  it('a from_node other than the calling agent is refused', async () => {
+    const db = tempDB();
+    const r = await append(db, { agent: 'bro', from_node: 'pr-reviewer', event_type: 'roundtable_summary' });
+    assert.equal(r.isError, true);
+    assert.match((JSON.parse(r.content[0]!.text) as { error: string }).error, /from_node 'pr-reviewer' does not match/);
+    assert.equal(db.get<{ n: number }>("SELECT COUNT(*) AS n FROM audit WHERE event_type = 'roundtable_summary'")?.n, 0);
+    db.close();
+  });
+
+  it('a non-bro writer records its own role as from_node', async () => {
+    const db = tempDB();
+    const r = await append(db, { agent: 'pr-reviewer', event_type: 'mcp_unavailable_fallback_invoked' });
+    assert.ok(!r.isError, r.content[0]!.text);
+    assert.equal((JSON.parse(r.content[0]!.text) as { from_node: string }).from_node, 'pr-reviewer');
+    db.close();
+  });
+
+  it('a hook-only or server-only event is refused for every agent', async () => {
+    const db = tempDB();
+    for (const event_type of ['verification_gate_waived', 'task_escalated_repair']) {
+      const r = await append(db, { agent: 'bro', event_type });
+      assert.equal(r.isError, true, event_type);
+      assert.equal((JSON.parse(r.content[0]!.text) as { error: string }).error, 'audit_event_not_writable_by_role');
+    }
+    db.close();
+  });
+});
+
+describe('insertAudit writer check', () => {
+  it('throws AuditWriterError and writes nothing when the writer is not listed', () => {
+    const db = tempDB();
+    assert.throws(
+      () => insertAudit(db, { issue_id: -1, from_node: 'pr-reviewer', event_type: 'review_gate_waived', summary: 's', writer: 'pr-reviewer' }),
+      (e: unknown) => e instanceof AuditWriterError && /audit_event_not_writable_by_role/.test(e.message),
+    );
+    assert.equal(db.get<{ n: number }>("SELECT COUNT(*) AS n FROM audit WHERE event_type = 'review_gate_waived'")?.n, 0);
+    assert.ok(insertAudit(db, { issue_id: -1, from_node: 'bro', event_type: 'review_gate_waived', summary: 's', writer: 'bro' }) > 0);
+    db.close();
   });
 });

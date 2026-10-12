@@ -123,7 +123,21 @@ assert_eq "0" "$(count "SELECT COUNT(*) FROM audit WHERE event_type IN ('not_an_
 
 test_case "audit-events.txt lists every type in audit-events.ts"
 TS_TYPES=$(grep -oE "\{ type: '[a-z_]+'" "$PLUGIN_ROOT/mcp/trajectory-server/src/audit-events.ts" | sed -E "s/.*'([a-z_]+)'/\1/")
-assert_eq "$TS_TYPES" "$(cat "$PLUGIN_ROOT/scripts/hooks/lib/audit-events.txt")" "generated txt equals the TS list"
+assert_eq "$TS_TYPES" "$(cut -f1 "$PLUGIN_ROOT/scripts/hooks/lib/audit-events.txt")" "generated txt equals the TS list"
+
+test_case "tmb_audit_append rejects a hook write of an event hooks may not write"
+ERR=$(tmb_audit_append "$DB" -1 '' "hook:x" scope_gate_waived "x" '{}' 2>&1 >/dev/null) && RC=0 || RC=$?
+assert_eq "2" "$RC" "bro-only event rejected for a hook"
+assert_contains "$ERR" "audit_event_not_writable_by_role" "stderr names the writer refusal"
+assert_contains "$ERR" "writers: bro" "stderr lists the allowed writers"
+ERR=$(tmb_audit_append "$DB" -1 '' system verification_gate_waived "x" '{}' 2>&1 >/dev/null) && RC=0 || RC=$?
+assert_eq "2" "$RC" "hook-only event rejected for system"
+assert_eq "0" "$(count "SELECT COUNT(*) FROM audit WHERE event_type IN ('scope_gate_waived') OR (event_type = 'verification_gate_waived' AND from_node = 'system');")" "refused rows not written"
+
+test_case "tmb_audit_append names a missing audit-events.txt"
+ERR=$(_TMB_AUDIT_EVENTS_FILE="$TMPDIR_FIXTURE/missing/audit-events.txt" tmb_audit_append "$DB" -1 '' "hook:x" cheatcode_healthcheck "x" '{}' 2>&1 >/dev/null) && RC=0 || RC=$?
+assert_eq "2" "$RC" "missing list fails closed"
+assert_contains "$ERR" "audit event list missing or unreadable: $TMPDIR_FIXTURE/missing/audit-events.txt" "stderr names the condition and the path"
 
 test_case "tmb_audit_append dedupe paths: one row per (event_type, task_id, commit_sha)"
 DEDUPE_A='{"task_id":9,"commit_sha":"abc1234","waiver_reason":"first"}'

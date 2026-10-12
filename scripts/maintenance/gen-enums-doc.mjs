@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Generates the artifacts derived from mcp/trajectory-server/src/audit-events.ts
 // (read through its compiled dist/audit-events.js):
-//   --txt    scripts/hooks/lib/audit-events.txt, one event type per line (run by `npm run build`)
+//   --txt    scripts/hooks/lib/audit-events.txt, one `event<TAB>writers` line per event, writers comma-joined (run by `npm run build`)
 //   --doc    the audit.event_type section of docs/contributing/ENUMS.md, between the generated markers
 //   --check  writes nothing; exits 1 naming each artifact that differs from what would be generated
 //   --root <dir>  read and write the txt and doc under <dir> instead of this checkout (lint self-tests)
@@ -23,7 +23,7 @@ const END = '<!-- END GENERATED audit.event_type -->';
 const { AUDIT_EVENT_TYPES } = await import(pathToFileURL(SOURCE).href);
 
 function renderTxt() {
-  return AUDIT_EVENT_TYPES.map((e) => e.type).join('\n') + '\n';
+  return AUDIT_EVENT_TYPES.map((e) => `${e.type}\t${e.writers.join(',')}`).join('\n') + '\n';
 }
 
 function cell(text) {
@@ -32,9 +32,9 @@ function cell(text) {
 
 function renderSection() {
   const rows = AUDIT_EVENT_TYPES.map(
-    (e) => `| \`${e.type}\` | ${e.reserved ? 'reserved — ' : ''}${cell(e.description)} |`,
+    (e) => `| \`${e.type}\` | ${e.writers.map((w) => `\`${w}\``).join(', ')} | ${e.reserved ? 'reserved — ' : ''}${cell(e.description)} |`,
   );
-  return [BEGIN, '| Value | Trigger |', '|---|---|', ...rows, END].join('\n');
+  return [BEGIN, '| Value | Writers | Trigger |', '|---|---|---|', ...rows, END].join('\n');
 }
 
 function renderDoc(current) {

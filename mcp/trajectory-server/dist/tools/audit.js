@@ -1,8 +1,8 @@
 import { nowISO } from '../db.js';
-import { requireRoles } from '../middleware/agent-scope.js';
+import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { auditEmbedText, embedAndStore, topKByCosine } from '../embeddings/store.js';
 import { backfillMissing } from '../embeddings/backfill.js';
-import { AUDIT_EVENT_TYPES, assertAuditEventType, isAuditEventType } from '../audit-events.js';
+import { AUDIT_EVENT_TYPES, assertAuditEventType, auditEventWriters, isAuditEventType, isAuditEventWritableBy, } from '../audit-events.js';
 const MAX_CONTENT_BYTES = 1_000_000;
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -11,6 +11,22 @@ function err(message) {
     return {
         content: [{ type: 'text', text: JSON.stringify({ error: message }) }],
         isError: true,
+    };
+}
+function writerRefused(eventType, role) {
+    return {
+        isError: true,
+        content: [
+            {
+                type: 'text',
+                text: JSON.stringify({
+                    error: 'audit_event_not_writable_by_role',
+                    event_type: eventType,
+                    caller_role: role,
+                    allowed_writers: auditEventWriters(eventType),
+                }),
+            },
+        ],
     };
 }
 function requireArg(args, name) {
@@ -43,14 +59,27 @@ function encodeCursor(row) {
 export function resolveIssueRepo(db, issueId) {
     return db.get('SELECT repo FROM issues WHERE id = ?', [issueId])?.repo ?? null;
 }
+export class AuditWriterError extends Error {
+    eventType;
+    writer;
+    constructor(eventType, writer) {
+        super(`audit_event_not_writable_by_role: '${writer}' may not write '${eventType}' (writers: ${auditEventWriters(eventType).join(', ')})`);
+        this.eventType = eventType;
+        this.writer = writer;
+    }
+}
 /**
  * The single insert+embed path for audit rows. `repo` defaults to the parent
  * issue's repo. The embed is fire-and-forget so the helper is safe inside
  * `db.transaction()` callbacks — see `insertDiscussion` in discussions.ts for
- * the full reasoning.
+ * the full reasoning. With `writer` set, the event must list that writer
+ * (`AuditWriterError` otherwise).
  */
 export function insertAudit(db, entry) {
     assertAuditEventType(entry.event_type);
+    if (entry.writer !== undefined && !isAuditEventWritableBy(entry.event_type, entry.writer)) {
+        throw new AuditWriterError(entry.event_type, entry.writer);
+    }
     const contentJson = entry.content_json ?? '{}';
     const repo = entry.repo ?? resolveIssueRepo(db, entry.issue_id);
     const res = db.run(`INSERT INTO audit
@@ -107,19 +136,19 @@ export function auditTools(db) {
         },
         {
             name: 'audit_append',
-            description: 'Insert an audit lifecycle event. event_type must be in its closed enum (unknown values are rejected); event_type and summary are required.',
+            description: 'Insert an audit lifecycle event. event_type must be in its closed enum and list the calling role among its writers (else audit_event_not_writable_by_role); from_node is set to the calling agent.',
             inputSchema: {
                 type: 'object',
                 properties: {
                     agent: { type: 'string' },
                     issue_id: { type: 'string' },
                     branch_id: { type: 'string' },
-                    from_node: { type: 'string' },
+                    from_node: { type: 'string', description: 'Optional. Recorded as the calling agent; any other value is refused.' },
                     event_type: { type: 'string', enum: AUDIT_EVENT_TYPES.map((e) => e.type), description: 'Required. Lifecycle event identifier from the closed audit event set (e.g. planning_complete).' },
                     summary: { type: 'string', description: 'Required. One-line human-readable summary.' },
                     content_json: { type: 'string', description: 'Optional. JSON string with structured event payload, max 1 MB.' },
                 },
-                required: ['agent', 'issue_id', 'from_node', 'event_type', 'summary'],
+                required: ['agent', 'issue_id', 'event_type', 'summary'],
             },
         },
         {
@@ -274,10 +303,10 @@ export function auditTools(db) {
             return ok(response);
         }),
         audit_append: requireRoles('audit_append', ['bro', 'swe', 'pr-reviewer', 'consultant'], wrapHandler(async (args) => {
-            requireArg(args, 'agent');
+            const agentName = String(requireArg(args, 'agent')).toLowerCase();
+            const role = normalizeAgent(agentName);
+            const fromNode = role === 'consultant' ? agentName : role;
             const issueId = requireArg(args, 'issue_id');
-            requireArg(args, 'from_node');
-            const fromNode = args['from_node'];
             const branchId = args['branch_id'] ?? null;
             const now = nowISO();
             requireArg(args, 'event_type');
@@ -285,6 +314,13 @@ export function auditTools(db) {
             const eventType = args['event_type'];
             if (!isAuditEventType(eventType)) {
                 return err(`unknown audit event_type '${String(eventType)}'. Allowed: ${AUDIT_EVENT_TYPES.map((e) => e.type).join(', ')}`);
+            }
+            if (!isAuditEventWritableBy(eventType, role)) {
+                return writerRefused(eventType, role);
+            }
+            const claimedFrom = args['from_node'];
+            if (claimedFrom !== undefined && claimedFrom !== null && claimedFrom !== fromNode) {
+                return err(`from_node '${String(claimedFrom)}' does not match the calling agent; audit_append records from_node '${fromNode}' itself (omit from_node)`);
             }
             const summary = args['summary'];
             const contentJson = args['content_json'] ?? '{}';
@@ -300,6 +336,7 @@ export function auditTools(db) {
                 summary,
                 content_json: contentJson,
                 created_at: now,
+                writer: role,
             });
             return ok(db.get('SELECT * FROM audit WHERE id = ?', [id]));
         })),

@@ -10,7 +10,13 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { startClient, call } from './harness.mjs';
+
+const SLASH_HOOK = fileURLToPath(new URL('../../../scripts/hooks/roundtable-slash-detect.sh', import.meta.url));
 
 test('issue_create returns a single id (no issue_string_id ghost field)', async (t) => {
   const { client, close } = await startClient();
@@ -509,9 +515,11 @@ test('roundtable_create — slash-invoke gate rejects when no /roundtable was ty
   assert.equal(result.error?.error, 'roundtable_slash_gate_violation');
 });
 
-test('roundtable_create — slash-invoke gate clears after a /roundtable audit lands', async (t) => {
-  const { client, close } = await startClient();
-  t.after(async () => { await close(); });
+test('roundtable_create — slash-invoke gate clears after the /roundtable hook records it', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'tmb-l3-roundtable-'));
+  const dbPath = join(dir, 'trajectory.db');
+  const { client, close } = await startClient({ dbPath });
+  t.after(async () => { await close(); rmSync(dir, { recursive: true, force: true }); });
 
   const issue = await call(client, 'issue_create', {
     agent: 'bro',
@@ -521,13 +529,21 @@ test('roundtable_create — slash-invoke gate clears after a /roundtable audit l
   });
   const issueId = issue.data.id;
 
-  await call(client, 'audit_append', {
+  const forged = await call(client, 'audit_append', {
     agent: 'bro',
     issue_id: '-1',
-    from_node: 'system',
     event_type: 'roundtable_slash_invoked',
-    summary: 'manual seed (gate test)',
+    summary: 'bro cannot record the Human typing /roundtable',
   });
+  assert.equal(forged.ok, false);
+  assert.equal(forged.error?.error, 'audit_event_not_writable_by_role');
+
+  const hook = spawnSync('bash', [SLASH_HOOK], {
+    input: JSON.stringify({ prompt: '/roundtable Postgres vs SQLite' }),
+    env: { ...process.env, TRAJECTORY_DB_PATH: dbPath },
+    encoding: 'utf8',
+  });
+  assert.equal(hook.status, 0, hook.stderr);
 
   const result = await call(client, 'roundtable_create', {
     agent: 'bro',
