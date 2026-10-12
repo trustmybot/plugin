@@ -336,7 +336,7 @@ CREATE INDEX IF NOT EXISTS idx_pr_review_runs_task ON pr_review_runs(task_id);
 
 -- FTS5 virtual tables for keyword search (Phase 1 of #2905).
 -- content= tables shadow the source table so SQLite keeps them in sync
--- via the triggers below; we also backfill on fresh DBs here.
+-- via the triggers below.
 
 CREATE VIRTUAL TABLE IF NOT EXISTS discussions_fts USING fts5(
   body,

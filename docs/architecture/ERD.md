@@ -6,16 +6,20 @@ SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 35`). P
 
 Every timestamp column holds one format: `YYYY-MM-DDTHH:MM:SS.sssZ` (24-char UTC ms-ISO), so `ORDER BY` and keyset cursors compare them as plain strings.
 
-Tables fall in three groups (capability catalog unified into `cheatcodes` in #101; embedding cache from schema v8):
+Tables fall in four groups (capability catalog unified into `cheatcodes` in #101; embedding cache from the v3→v4 migration):
 
 | Group | Tables | Keyed by |
 |---|---|---|
-| **Workflow** (per-issue) | `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes` | `issue_id` (directly or transitively) |
-| **Registries** (standalone) | `cheatcodes`, `cheatcode_attachments`, `agents`, `repos`, `repo_remotes`, `milestones`, `plugin_config`, `plugin_meta`, `agent_runs`, `pr_review_runs`, `debug_trajectory`, `eval_results` | own primary keys; not tied to any issue |
+| **Workflow** (per-issue) | `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `roundtables`, `roundtable_votes`, `agent_runs`, `pr_review_runs` | `issue_id` or `task_id` (directly or transitively) |
+| **Registries** (standalone) | `cheatcodes`, `cheatcode_attachments`, `agents`, `repos`, `milestones`, `plugin_config`, `plugin_meta` | own primary keys; not tied to any issue |
+| **Search** | `discussions_embeddings`, `audit_embeddings`, and the FTS5 tables `discussions_fts`, `audit_fts` with their shadow tables | the source row's id |
+| **Eval mode** (`schema-eval.sql`, only with `TMB_EVAL_MODE=1`) | `debug_trajectory`, `eval_results` | own primary keys |
+
+The tables, columns, foreign keys, search indexes and indexes below are generated from `schema.sql` by `scripts/maintenance/gen-erd-doc.mjs`; `tests/l1-lint/erd-doc-fresh.sh` fails when they drift. The prose around them is hand-written.
 
 The **world model** lives in a sibling kuzu graph database (`world-model.kuzu`), not in this SQLite file. See `docs/architecture/WORLD_MODEL.md`.
 
-The `skills` table folded into `cheatcodes` (#101): builtin tmb_* skills are `origin='builtin'` rows in the unified `cheatcodes` registry, alongside the `origin='installed'` cheatcodes acquired via the install pipeline. Skill/plugin usage isn't recorded in the trajectory DB (#118) — verification lives in the stream-json session log.
+The `skills` table folded into `cheatcodes` (#101): builtin tmb_* skills are `origin='builtin'` rows in the unified `cheatcodes` registry, alongside the cheatcodes acquired via the install pipeline (`origin='marketplace'` from a registered marketplace ref, `origin='external'` from a raw repo URL). Skill/plugin usage isn't recorded in the trajectory DB (#118) — verification lives in the stream-json session log.
 
 The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drift state rides in `audit(event_type='deep_scan_completed').content_json`; `scan_run` is the single scan-side surface.
 
@@ -23,306 +27,672 @@ The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drif
 
 `issues.labels` (#53, schema v28) is a nullable `TEXT` column holding the validated label set from `issue_create` as a JSON array string. `issue_sync_retry` replays it verbatim so a retried remote create carries the original labels rather than re-deriving them; a `NULL` value marks a pre-v28 row and falls back to the taxonomy-derived default label pair.
 
+<!-- erd:generated:start -->
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 35`; edit the schema, then rerun the script._
+
 ## Diagram
 
 ```mermaid
 erDiagram
-    issues ||--o{ tasks : "issue_id"
-    issues ||--o{ audit : "issue_id"
-    issues ||--o{ discussions : "issue_id"
-    issues ||--o{ roundtables : "issue_id"
-
-    tasks ||--o{ validation_attempts : "task_id (INTEGER FK)"
-    tasks ||--o{ audit : "branch_id (soft ref)"
-    tasks ||--o{ agent_runs : "task_id"
-
-    roundtables ||--o{ roundtable_votes : "roundtable_id"
-
-    repos ||--o{ milestones : "name"
-    repos ||--o{ repo_remotes : "name (CASCADE)"
-    milestones ||--o{ issues : "(milestone, repo)"
+    repos ||--o{ repo_remotes : "repo (CASCADE)"
+    repos ||--o{ milestones : "repo (RESTRICT)"
+    repos |o--o{ issues : "repo (RESTRICT)"
+    milestones |o--o{ issues : "milestone, repo (RESTRICT)"
+    issues ||--o{ tasks : "issue_id (NO ACTION)"
+    repos |o--o{ tasks : "repo (RESTRICT)"
+    issues ||--o{ audit : "issue_id (NO ACTION)"
+    repos |o--o{ audit : "repo (RESTRICT)"
+    tasks ||--o{ validation_attempts : "task_id (NO ACTION)"
+    repos |o--o{ validation_attempts : "repo (RESTRICT)"
+    issues ||--o{ roundtables : "issue_id (NO ACTION)"
+    roundtables ||--o{ roundtable_votes : "roundtable_id (NO ACTION)"
+    issues ||--o{ discussions : "issue_id (NO ACTION)"
+    repos |o--o{ discussions : "repo (RESTRICT)"
+    tasks |o--o{ agent_runs : "task_id (NO ACTION)"
+    issues |o--o{ agent_runs : "issue_id (NO ACTION)"
+    repos |o--o{ agent_runs : "repo (RESTRICT)"
+    tasks |o--o{ pr_review_runs : "task_id (NO ACTION)"
+    discussions ||--o| discussions_embeddings : "discussion_id (CASCADE)"
+    audit ||--o| audit_embeddings : "audit_id (CASCADE)"
+    cheatcodes ||--o{ cheatcode_attachments : "cheatcode_id (CASCADE)"
 
     repos {
-        TEXT  name PK "renamed only via repo_rename"
-        TEXT  path
-        INT   file_count
-        TEXT  last_scanned_at
-        TEXT  target_branch "integration branch, e.g. main/dev (sole source of truth, #980)"
-        TEXT  branching_model "e.g. github-flow"
-        TEXT  protected_branches "JSON array"
+        TEXT name PK
+        TEXT path "NOT NULL"
+        INTEGER file_count "NOT NULL"
+        TEXT last_scanned_at "NOT NULL"
+        TEXT target_branch
+        TEXT branching_model
+        TEXT protected_branches
     }
 
     repo_remotes {
-        TEXT repo PK "FK → repos.name ON DELETE/UPDATE CASCADE; PK is composite (repo, name)"
-        TEXT name PK "git remote name, e.g. origin"
-        TEXT provider "CHECK github|gitlab|other; from the URL host"
-        TEXT url "may be blank (provider chosen, no URL yet)"
-        INT  is_primary "CHECK 0|1; origin, else the first remote"
-        TEXT created_at
+        TEXT repo PK,FK "NOT NULL; → repos.name CASCADE"
+        TEXT name PK "NOT NULL"
+        TEXT provider "NOT NULL; CHECK github|gitlab|other"
+        TEXT url "NOT NULL"
+        INTEGER is_primary "NOT NULL; CHECK is_primary IN (0,1)"
+        TEXT created_at "NOT NULL"
     }
 
     milestones {
-        TEXT name PK "GitHub-style milestone label"
-        TEXT repo PK "FK → repos.name; PK is composite (name, repo)"
-        TEXT state "CHECK open|closed; default open"
+        TEXT name PK "NOT NULL"
+        TEXT repo PK,FK "NOT NULL; → repos.name RESTRICT"
+        TEXT state "NOT NULL; CHECK open|closed"
     }
 
-    %% World model — see WORLD_MODEL.md — lives in sibling kuzu graph DB, not here
+    issues {
+        INTEGER id PK "NOT NULL"
+        TEXT objective "NOT NULL"
+        TEXT description "NOT NULL"
+        TEXT status "NOT NULL; CHECK open|closed"
+        TEXT created_at "NOT NULL"
+        TEXT updated_at "NOT NULL"
+        TEXT closed_at
+        TEXT remote_kind "CHECK github|gitlab"
+        INTEGER gh_iid
+        INTEGER gl_iid
+        TEXT repo FK "→ repos.name RESTRICT; → milestones.repo RESTRICT"
+        TEXT milestone FK "→ milestones.name RESTRICT"
+        TEXT labels
+    }
+
+    tasks {
+        INTEGER id PK "NOT NULL"
+        INTEGER issue_id FK "NOT NULL; → issues.id NO ACTION"
+        TEXT branch_id "NOT NULL"
+        TEXT parent_branch_id
+        TEXT title "NOT NULL"
+        TEXT description "NOT NULL"
+        TEXT status "NOT NULL; CHECK pending|running|needs_validation|completed|closed|failed|escalated"
+        TEXT spec_body "NOT NULL"
+        TEXT commit_sha
+        TEXT repo FK "→ repos.name RESTRICT"
+        INTEGER prompt_bearing "NOT NULL"
+        TEXT files "NOT NULL"
+        TEXT verification "NOT NULL"
+        TEXT created_at "NOT NULL"
+        TEXT updated_at "NOT NULL"
+        TEXT completed_at
+    }
+
+    audit {
+        INTEGER id PK "NOT NULL"
+        INTEGER issue_id FK "NOT NULL; → issues.id NO ACTION"
+        TEXT branch_id
+        TEXT from_node "NOT NULL"
+        TEXT event_type "NOT NULL"
+        TEXT summary "NOT NULL"
+        TEXT content_json "NOT NULL"
+        TEXT repo FK "→ repos.name RESTRICT"
+        TEXT created_at "NOT NULL"
+    }
+
+    validation_attempts {
+        INTEGER id PK "NOT NULL"
+        INTEGER task_id FK "NOT NULL; → tasks.id NO ACTION"
+        INTEGER attempt_n "NOT NULL"
+        TEXT agent "NOT NULL"
+        TEXT verdict "NOT NULL; CHECK pass|fail|escalate"
+        TEXT feedback "NOT NULL"
+        INTEGER mcp_available "NOT NULL"
+        TEXT subagent_session_id
+        TEXT repo FK "→ repos.name RESTRICT"
+        TEXT created_at "NOT NULL"
+        TEXT reviewer_agent_id
+    }
 
     agents {
-        INT  id PK
-        TEXT name UK
-        TEXT kind "backbone|consultant"
-        TEXT file_path "plugin:<path>|project:<path>"
+        INTEGER id PK "NOT NULL"
+        TEXT name UK "NOT NULL"
+        TEXT kind "NOT NULL; CHECK backbone|consultant"
+        TEXT file_path "NOT NULL; CHECK file_path LIKE 'plugin:%' OR file_path LIKE 'project:%'"
+        TEXT created_at "NOT NULL"
+        TEXT updated_at "NOT NULL"
     }
 
-    cheatcodes {
-        INT  id PK
-        TEXT name UK "UNIQUE (name, kind)"
-        TEXT kind UK "skill|mcp|plugin"
-        TEXT origin "builtin|installed"
-        TEXT description
-        TEXT source_url "NULL for builtin"
-        TEXT file_path "set for skill kind"
-        TEXT version
-        TEXT trust_tier
-        TEXT scope "global|template|project-local"
-        TEXT status "installed|active|broken"
+    roundtables {
+        INTEGER id PK "NOT NULL"
+        INTEGER issue_id FK "NOT NULL; → issues.id NO ACTION"
+        TEXT topic "NOT NULL"
+        TEXT outcome "NOT NULL"
+        TEXT created_at "NOT NULL"
+        TEXT closed_at
+        TEXT state "NOT NULL; CHECK collecting|awaiting_human|closed|skipped"
+        INTEGER expected_participants
     }
 
-    cheatcode_attachments {
-        INT  id PK
-        INT  cheatcode_id FK "→ cheatcodes.id CASCADE"
-        TEXT target
-        TEXT artifact
+    roundtable_votes {
+        INTEGER id PK "NOT NULL"
+        INTEGER roundtable_id FK "NOT NULL; → roundtables.id NO ACTION"
+        TEXT participant "NOT NULL"
+        TEXT vote "NOT NULL"
+        TEXT rationale "NOT NULL"
+        TEXT created_at "NOT NULL"
+    }
+
+    discussions {
+        INTEGER id PK "NOT NULL"
+        INTEGER issue_id FK "NOT NULL; → issues.id NO ACTION"
+        TEXT author "NOT NULL"
+        TEXT kind "NOT NULL; CHECK intent|question|answer|decision|note|analysis"
+        TEXT body "NOT NULL"
+        TEXT repo FK "→ repos.name RESTRICT"
+        TEXT created_at "NOT NULL"
+        TEXT remote_comment_id
+    }
+
+    plugin_meta {
+        INTEGER id PK "NOT NULL"
+        INTEGER schema_version "NOT NULL"
+        TEXT plugin_version "NOT NULL"
     }
 
     plugin_config {
         TEXT key PK
-        TEXT value_json
-    }
-
-    plugin_meta {
-        INT  id PK
-        INT  schema_version
-        TEXT plugin_version
-    }
-
-    issues {
-        INT  id PK
-        TEXT objective
-        TEXT description
-        TEXT status "CHECK open|closed"
-        TEXT remote_kind
-        INT  gh_iid
-        INT  gl_iid
-        TEXT milestone "nullable FK → milestones.name (composite with repo); #83/#155"
-        TEXT labels "nullable JSON array of the validated create labels; replayed by issue_sync_retry; #53"
-    }
-
-    tasks {
-        INT  id PK
-        INT  issue_id FK
-        TEXT branch_id "git branch: feat/x, fix/y, …"
-        TEXT parent_branch_id "branch this one was cut from"
-        TEXT title
-        TEXT description
-        TEXT status "CHECK pending|running|needs_validation|completed|closed|failed|escalated"
-        TEXT spec_body
-        TEXT commit_sha
-        TEXT repo "multi-repo workspace inner-repo path"
-        TEXT completed_at
-    }
-
-    validation_attempts {
-        INT  id PK
-        INT  task_id FK
-        INT  attempt_n
-        TEXT agent
-        TEXT verdict "CHECK pass|fail|escalate"
-        TEXT feedback
-        INT  mcp_available "NOT NULL, no default; 0 = MCP-down fallback"
-        TEXT subagent_session_id "the Claude Code session of the pr-reviewer call, stamped from the hook-observed row"
-        TEXT repo "FK → repos.name; task repo, else issue repo, at write time"
-        TEXT reviewer_agent_id "the pr-reviewer subagent's Claude Code agent_id, stamped by validation_record from the hook-observed row; NULL for honor-system and pre-GH-1226 rows"
-    }
-
-    audit {
-        INT  id PK
-        INT  issue_id FK
-        TEXT branch_id "NULL when the event names no branch, never ''"
-        TEXT from_node
-        TEXT event_type
-        TEXT summary
-        TEXT content_json
-        TEXT repo "FK → repos.name; issue repo at write time (NULL for issue -1)"
-    }
-
-    discussions {
-        INT  id PK
-        INT  issue_id FK
-        TEXT author
-        TEXT kind "CHECK intent|question|answer|decision|note|analysis"
-        TEXT body
-        TEXT remote_comment_id "UNIQUE when non-NULL; PR/MR comment dedupe key"
-        TEXT repo "FK → repos.name; issue repo at write time (NULL for issue -1)"
-    }
-
-    roundtables {
-        INT  id PK
-        INT  issue_id FK
-        TEXT topic
-        TEXT state "collecting|awaiting_human|closed|skipped"
-        INT  expected_participants
-    }
-
-    roundtable_votes {
-        INT  id PK
-        INT  roundtable_id FK
-        TEXT participant
-        TEXT vote
-        TEXT rationale
+        TEXT value_json "NOT NULL"
     }
 
     agent_runs {
-        INT  id PK
-        INT  task_id FK
-        INT  issue_id FK
-        TEXT agent_type
-        INT  tokens_in "NULL = unmeasured"
-        INT  tokens_out "NULL = unmeasured"
-        INT  cache_read_tokens "NULL = unmeasured"
-        INT  cache_creation_tokens "NULL = unmeasured"
-        INT  tool_uses
-        INT  duration_ms
-        TEXT started_at "window start"
-        TEXT completed_at "window end; NULL while open"
-        TEXT spawn_id "UNIQUE (task_id, spawn_id) when non-NULL"
+        INTEGER id PK "NOT NULL"
+        INTEGER task_id FK "→ tasks.id NO ACTION"
+        INTEGER issue_id FK "→ issues.id NO ACTION"
+        TEXT agent_type "NOT NULL"
+        INTEGER tokens_in
+        INTEGER tokens_out
+        INTEGER cache_read_tokens
+        INTEGER cache_creation_tokens
+        INTEGER tool_uses "NOT NULL"
+        INTEGER duration_ms "NOT NULL"
+        TEXT started_at
+        TEXT completed_at
+        TEXT repo FK "→ repos.name RESTRICT"
+        TEXT spawn_id
         TEXT session_id
         TEXT usage_source "CHECK transcript|subagent_stop|unmeasured|backfill"
-        TEXT repo "FK → repos.name; task repo at write time"
-        TEXT root_dir "where the run may write"
-        TEXT model "dominant message.model"
+        TEXT root_dir
+        TEXT model
         TEXT host "CHECK claude|codex"
         TEXT exit_reason "CHECK completed|failed|escalated|swept_orphan|swept_stale|issue_closed"
     }
 
     pr_review_runs {
-        INT      id PK
-        INT      pr_number "CHECK > 0; UNIQUE (pr_number, repo)"
-        TEXT     repo "CHECK non-empty"
-        DATETIME last_fetched_at
-        TEXT     last_comment_id
-        INT      task_id FK
-    }
-
-    debug_trajectory {
-        INT  id PK
-        TEXT session_id
-        INT  step_n
-        TEXT kind "mcp_call|tool_use|agent_thinking"
-        TEXT agent
-        TEXT tool_or_mcp_name
-        TEXT args_json
-        TEXT result_json
-    }
-
-    eval_results {
-        INT  id PK
-        TEXT run_id
-        TEXT flow_name
-        TEXT scorer_name
-        INT  pass
-        TEXT value
-        TEXT explanation
-        TEXT arm
-        TEXT scenario
+        INTEGER id PK "NOT NULL"
+        INTEGER pr_number "NOT NULL; CHECK pr_number > 0"
+        TEXT repo "NOT NULL; CHECK repo <> ''"
+        DATETIME last_fetched_at "NOT NULL"
+        TEXT last_comment_id
+        INTEGER task_id FK "→ tasks.id NO ACTION"
     }
 
     discussions_embeddings {
-        INT  discussion_id PK "FK → discussions.id CASCADE"
-        BLOB embedding
-        TEXT model_id
-        TEXT embedded_at
+        INTEGER discussion_id PK,FK "NOT NULL; → discussions.id CASCADE"
+        BLOB embedding "NOT NULL"
+        TEXT model_id "NOT NULL"
+        TEXT embedded_at "NOT NULL"
     }
 
     audit_embeddings {
-        INT  audit_id PK "FK → audit.id CASCADE"
-        BLOB embedding
-        TEXT model_id
-        TEXT embedded_at
+        INTEGER audit_id PK,FK "NOT NULL; → audit.id CASCADE"
+        BLOB embedding "NOT NULL"
+        TEXT model_id "NOT NULL"
+        TEXT embedded_at "NOT NULL"
+    }
+
+    cheatcodes {
+        INTEGER id PK "NOT NULL"
+        TEXT name "NOT NULL"
+        TEXT kind "NOT NULL; CHECK skill|mcp|plugin"
+        TEXT origin "NOT NULL; CHECK builtin|marketplace|external"
+        TEXT description "NOT NULL"
+        TEXT source_url
+        TEXT file_path
+        TEXT version
+        TEXT trust_tier
+        TEXT scope "NOT NULL; CHECK global|template|project-local"
+        TEXT status "NOT NULL"
+        TEXT installed_at "NOT NULL"
+        TEXT created_at "NOT NULL"
+        TEXT updated_at "NOT NULL"
+    }
+
+    cheatcode_attachments {
+        INTEGER id PK "NOT NULL"
+        INTEGER cheatcode_id FK "NOT NULL; → cheatcodes.id CASCADE"
+        TEXT target "NOT NULL"
+        TEXT artifact "NOT NULL"
+        TEXT created_at "NOT NULL"
     }
 ```
 
-## Relationships (foreign keys declared in schema)
+## Tables
 
-| From | Column | → To | Semantics |
+### `repos`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `name` | TEXT | nullable |  | PK |
+| `path` | TEXT | NOT NULL |  |  |
+| `file_count` | INTEGER | NOT NULL | `0` |  |
+| `last_scanned_at` | TEXT | NOT NULL | `(strftime('%Y-%m-%dT%H:%M:%fZ','now'))` |  |
+| `target_branch` | TEXT | nullable |  |  |
+| `branching_model` | TEXT | nullable |  |  |
+| `protected_branches` | TEXT | nullable |  |  |
+
+### `repo_remotes`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `repo` | TEXT | NOT NULL |  | FK → `repos.name` ON DELETE CASCADE |
+| `name` | TEXT | NOT NULL |  |  |
+| `provider` | TEXT | NOT NULL |  | CHECK `provider IN ('github','gitlab','other')` |
+| `url` | TEXT | NOT NULL |  |  |
+| `is_primary` | INTEGER | NOT NULL | `0` | CHECK `is_primary IN (0,1)` |
+| `created_at` | TEXT | NOT NULL | `(strftime('%Y-%m-%dT%H:%M:%fZ','now'))` |  |
+
+Table constraints:
+
+- PRIMARY KEY `(repo, name)`
+
+### `milestones`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `name` | TEXT | NOT NULL |  |  |
+| `repo` | TEXT | NOT NULL |  | FK → `repos.name` ON DELETE RESTRICT |
+| `state` | TEXT | NOT NULL | `'open'` | CHECK `state IN ('open','closed')` |
+
+Table constraints:
+
+- PRIMARY KEY `(name, repo)`
+
+### `issues`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `objective` | TEXT | NOT NULL |  |  |
+| `description` | TEXT | NOT NULL | `''` |  |
+| `status` | TEXT | NOT NULL | `'open'` | CHECK `status IN ('open','closed')` |
+| `created_at` | TEXT | NOT NULL |  |  |
+| `updated_at` | TEXT | NOT NULL |  |  |
+| `closed_at` | TEXT | nullable |  |  |
+| `remote_kind` | TEXT | nullable |  | CHECK `remote_kind IN ('github','gitlab')` |
+| `gh_iid` | INTEGER | nullable |  |  |
+| `gl_iid` | INTEGER | nullable |  |  |
+| `repo` | TEXT | nullable |  | FK → `repos.name` ON DELETE RESTRICT |
+| `milestone` | TEXT | nullable |  |  |
+| `labels` | TEXT | nullable |  |  |
+
+Table constraints:
+
+- FOREIGN KEY `(milestone, repo)` → `milestones(name, repo)` ON DELETE RESTRICT
+
+### `tasks`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `issue_id` | INTEGER | NOT NULL |  | FK → `issues.id` ON DELETE NO ACTION |
+| `branch_id` | TEXT | NOT NULL |  |  |
+| `parent_branch_id` | TEXT | nullable |  |  |
+| `title` | TEXT | NOT NULL | `''` |  |
+| `description` | TEXT | NOT NULL |  |  |
+| `status` | TEXT | NOT NULL | `'pending'` | CHECK `status IN ('pending','running','needs_validation','completed','closed','failed','escalated')` |
+| `spec_body` | TEXT | NOT NULL | `''` |  |
+| `commit_sha` | TEXT | nullable |  |  |
+| `repo` | TEXT | nullable |  | FK → `repos.name` ON DELETE RESTRICT |
+| `prompt_bearing` | INTEGER | NOT NULL | `0` |  |
+| `files` | TEXT | NOT NULL | `'[]'` |  |
+| `verification` | TEXT | NOT NULL | `'[]'` |  |
+| `created_at` | TEXT | NOT NULL |  |  |
+| `updated_at` | TEXT | NOT NULL |  |  |
+| `completed_at` | TEXT | nullable |  |  |
+
+### `audit`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `issue_id` | INTEGER | NOT NULL |  | FK → `issues.id` ON DELETE NO ACTION |
+| `branch_id` | TEXT | nullable |  |  |
+| `from_node` | TEXT | NOT NULL | `'executor'` |  |
+| `event_type` | TEXT | NOT NULL |  |  |
+| `summary` | TEXT | NOT NULL |  |  |
+| `content_json` | TEXT | NOT NULL | `'{}'` |  |
+| `repo` | TEXT | nullable |  | FK → `repos.name` ON DELETE RESTRICT |
+| `created_at` | TEXT | NOT NULL |  |  |
+
+### `validation_attempts`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `task_id` | INTEGER | NOT NULL |  | FK → `tasks.id` ON DELETE NO ACTION |
+| `attempt_n` | INTEGER | NOT NULL |  |  |
+| `agent` | TEXT | NOT NULL | `''` |  |
+| `verdict` | TEXT | NOT NULL |  | CHECK `verdict IN ('pass','fail','escalate')` |
+| `feedback` | TEXT | NOT NULL | `''` |  |
+| `mcp_available` | INTEGER | NOT NULL |  |  |
+| `subagent_session_id` | TEXT | nullable |  |  |
+| `repo` | TEXT | nullable |  | FK → `repos.name` ON DELETE RESTRICT |
+| `created_at` | TEXT | NOT NULL |  |  |
+| `reviewer_agent_id` | TEXT | nullable |  |  |
+
+Table constraints:
+
+- UNIQUE `(task_id, attempt_n)`
+
+### `agents`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `name` | TEXT | NOT NULL |  | UNIQUE |
+| `kind` | TEXT | NOT NULL |  | CHECK `kind IN ('backbone','consultant')` |
+| `file_path` | TEXT | NOT NULL |  | CHECK `file_path LIKE 'plugin:%' OR file_path LIKE 'project:%'` |
+| `created_at` | TEXT | NOT NULL | `(strftime('%Y-%m-%dT%H:%M:%fZ','now'))` |  |
+| `updated_at` | TEXT | NOT NULL | `(strftime('%Y-%m-%dT%H:%M:%fZ','now'))` |  |
+
+### `roundtables`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `issue_id` | INTEGER | NOT NULL |  | FK → `issues.id` ON DELETE NO ACTION |
+| `topic` | TEXT | NOT NULL |  |  |
+| `outcome` | TEXT | NOT NULL | `''` |  |
+| `created_at` | TEXT | NOT NULL |  |  |
+| `closed_at` | TEXT | nullable |  |  |
+| `state` | TEXT | NOT NULL | `'collecting'` | CHECK `state IN ('collecting','awaiting_human','closed','skipped')` |
+| `expected_participants` | INTEGER | nullable |  |  |
+
+### `roundtable_votes`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `roundtable_id` | INTEGER | NOT NULL |  | FK → `roundtables.id` ON DELETE NO ACTION |
+| `participant` | TEXT | NOT NULL |  |  |
+| `vote` | TEXT | NOT NULL |  |  |
+| `rationale` | TEXT | NOT NULL | `''` |  |
+| `created_at` | TEXT | NOT NULL |  |  |
+
+### `discussions`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `issue_id` | INTEGER | NOT NULL |  | FK → `issues.id` ON DELETE NO ACTION |
+| `author` | TEXT | NOT NULL |  |  |
+| `kind` | TEXT | NOT NULL | `'note'` | CHECK `kind IN ('intent','question','answer','decision','note','analysis')` |
+| `body` | TEXT | NOT NULL |  |  |
+| `repo` | TEXT | nullable |  | FK → `repos.name` ON DELETE RESTRICT |
+| `created_at` | TEXT | NOT NULL |  |  |
+| `remote_comment_id` | TEXT | nullable |  |  |
+
+### `plugin_meta`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `schema_version` | INTEGER | NOT NULL |  |  |
+| `plugin_version` | TEXT | NOT NULL |  |  |
+
+### `plugin_config`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `key` | TEXT | nullable |  | PK |
+| `value_json` | TEXT | NOT NULL |  |  |
+
+### `agent_runs`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `task_id` | INTEGER | nullable |  | FK → `tasks.id` ON DELETE NO ACTION |
+| `issue_id` | INTEGER | nullable |  | FK → `issues.id` ON DELETE NO ACTION |
+| `agent_type` | TEXT | NOT NULL |  |  |
+| `tokens_in` | INTEGER | nullable |  |  |
+| `tokens_out` | INTEGER | nullable |  |  |
+| `cache_read_tokens` | INTEGER | nullable |  |  |
+| `cache_creation_tokens` | INTEGER | nullable |  |  |
+| `tool_uses` | INTEGER | NOT NULL | `0` |  |
+| `duration_ms` | INTEGER | NOT NULL | `0` |  |
+| `started_at` | TEXT | nullable |  |  |
+| `completed_at` | TEXT | nullable |  |  |
+| `repo` | TEXT | nullable |  | FK → `repos.name` ON DELETE RESTRICT |
+| `spawn_id` | TEXT | nullable |  |  |
+| `session_id` | TEXT | nullable |  |  |
+| `usage_source` | TEXT | nullable |  | CHECK `usage_source IN ('transcript','subagent_stop','unmeasured','backfill')` |
+| `root_dir` | TEXT | nullable |  |  |
+| `model` | TEXT | nullable |  |  |
+| `host` | TEXT | nullable |  | CHECK `host IN ('claude','codex')` |
+| `exit_reason` | TEXT | nullable |  | CHECK `exit_reason IN ('completed','failed','escalated','swept_orphan','swept_stale','issue_closed')` |
+
+### `pr_review_runs`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `pr_number` | INTEGER | NOT NULL |  | CHECK `pr_number > 0` |
+| `repo` | TEXT | NOT NULL |  | CHECK `repo <> ''` |
+| `last_fetched_at` | DATETIME | NOT NULL |  |  |
+| `last_comment_id` | TEXT | nullable |  |  |
+| `task_id` | INTEGER | nullable |  | FK → `tasks.id` ON DELETE NO ACTION |
+
+Table constraints:
+
+- UNIQUE `(pr_number, repo)`
+
+### `discussions_embeddings`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `discussion_id` | INTEGER | NOT NULL |  | PK; FK → `discussions.id` ON DELETE CASCADE |
+| `embedding` | BLOB | NOT NULL |  |  |
+| `model_id` | TEXT | NOT NULL |  |  |
+| `embedded_at` | TEXT | NOT NULL |  |  |
+
+### `audit_embeddings`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `audit_id` | INTEGER | NOT NULL |  | PK; FK → `audit.id` ON DELETE CASCADE |
+| `embedding` | BLOB | NOT NULL |  |  |
+| `model_id` | TEXT | NOT NULL |  |  |
+| `embedded_at` | TEXT | NOT NULL |  |  |
+
+### `cheatcodes`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `name` | TEXT | NOT NULL |  |  |
+| `kind` | TEXT | NOT NULL |  | CHECK `kind IN ('skill','mcp','plugin')` |
+| `origin` | TEXT | NOT NULL | `'external'` | CHECK `origin IN ('builtin','marketplace','external')` |
+| `description` | TEXT | NOT NULL | `''` |  |
+| `source_url` | TEXT | nullable |  |  |
+| `file_path` | TEXT | nullable |  |  |
+| `version` | TEXT | nullable |  |  |
+| `trust_tier` | TEXT | nullable |  |  |
+| `scope` | TEXT | NOT NULL | `'project-local'` | CHECK `scope IN ('global','template','project-local')` |
+| `status` | TEXT | NOT NULL | `'installed'` |  |
+| `installed_at` | TEXT | NOT NULL |  |  |
+| `created_at` | TEXT | NOT NULL | `(strftime('%Y-%m-%dT%H:%M:%fZ','now'))` |  |
+| `updated_at` | TEXT | NOT NULL | `(strftime('%Y-%m-%dT%H:%M:%fZ','now'))` |  |
+
+Table constraints:
+
+- UNIQUE `(name, kind)`
+- CHECK `kind != 'skill' OR file_path IS NOT NULL`
+- CHECK `origin = 'builtin' OR source_url IS NOT NULL`
+- CHECK `origin != 'builtin' OR source_url IS NULL`
+
+### `cheatcode_attachments`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `cheatcode_id` | INTEGER | NOT NULL |  | FK → `cheatcodes.id` ON DELETE CASCADE |
+| `target` | TEXT | NOT NULL |  |  |
+| `artifact` | TEXT | NOT NULL |  |  |
+| `created_at` | TEXT | NOT NULL |  |  |
+
+## Foreign keys
+
+SQLite enforces every one (`PRAGMA foreign_keys = ON`); `NO ACTION` is SQLite's default when the schema names no action, and like `RESTRICT` it refuses to delete a parent that still has children.
+
+| From | Column(s) | → To | ON DELETE |
 |---|---|---|---|
-| `tasks` | `issue_id` | `issues.id` | every task belongs to one issue; never the system issue `-1`, which carries audit rows only (`task_provision` / `task_create_batch` refuse it with `system_issue_reserved`) |
-| `audit` | `issue_id` | `issues.id` | every event row scoped to an issue (use system issue id=-1 for project-level events) |
-| `discussions` | `issue_id` | `issues.id` | bro ↔ human ↔ consultants conversation per issue, plus the PR/MR comments `pr_monitor_comments_get` persists |
-| `roundtables` | `issue_id` | `issues.id` | a multi-agent debate belongs to an issue |
-| `roundtable_votes` | `roundtable_id` | `roundtables.id` | one vote row per agent per roundtable |
-| `validation_attempts` | `task_id` | `tasks.id` | every validation attempt belongs to one task |
-| `agent_runs` | `task_id` | `tasks.id` | resource tracking per SWE spawn |
-| `agent_runs` | `issue_id` | `issues.id` | resource tracking scoped to issue |
-| `audit`, `discussions` | `repo` | `repos.name` | populated at write time from the parent issue's repo (explicit `repo` wins); NULL for the system issue `-1` |
-| `validation_attempts` | `repo` | `repos.name` | populated at write time from the task's repo, else its issue's repo |
-| `agent_runs` | `repo` | `repos.name` | populated at write time from the task's repo |
-| `cheatcode_attachments` | `cheatcode_id` | `cheatcodes.id` | what an install wired, for exact uninstall (ON DELETE CASCADE) |
-| `milestones` | `repo` | `repos.name` | each milestone belongs to one repo (ON DELETE RESTRICT) |
-| `repo_remotes` | `repo` | `repos.name` | a repo's git remotes; they go with the repo (ON DELETE CASCADE ON UPDATE CASCADE) |
-| `issues` | `(milestone, repo)` | `milestones.(name, repo)` | nullable composite FK — an issue's milestone is scoped to its repo (ON DELETE RESTRICT) |
+| `repo_remotes` | `repo` | `repos(name)` | CASCADE |
+| `milestones` | `repo` | `repos(name)` | RESTRICT |
+| `issues` | `repo` | `repos(name)` | RESTRICT |
+| `issues` | `milestone, repo` | `milestones(name, repo)` | RESTRICT |
+| `tasks` | `issue_id` | `issues(id)` | NO ACTION |
+| `tasks` | `repo` | `repos(name)` | RESTRICT |
+| `audit` | `issue_id` | `issues(id)` | NO ACTION |
+| `audit` | `repo` | `repos(name)` | RESTRICT |
+| `validation_attempts` | `task_id` | `tasks(id)` | NO ACTION |
+| `validation_attempts` | `repo` | `repos(name)` | RESTRICT |
+| `roundtables` | `issue_id` | `issues(id)` | NO ACTION |
+| `roundtable_votes` | `roundtable_id` | `roundtables(id)` | NO ACTION |
+| `discussions` | `issue_id` | `issues(id)` | NO ACTION |
+| `discussions` | `repo` | `repos(name)` | RESTRICT |
+| `agent_runs` | `task_id` | `tasks(id)` | NO ACTION |
+| `agent_runs` | `issue_id` | `issues(id)` | NO ACTION |
+| `agent_runs` | `repo` | `repos(name)` | RESTRICT |
+| `pr_review_runs` | `task_id` | `tasks(id)` | NO ACTION |
+| `discussions_embeddings` | `discussion_id` | `discussions(id)` | CASCADE |
+| `audit_embeddings` | `audit_id` | `audit(id)` | CASCADE |
+| `cheatcode_attachments` | `cheatcode_id` | `cheatcodes(id)` | CASCADE |
 
-## Soft references (no FK, by convention)
+## Search indexes
 
-`branch_id` is the **git-convention working branch name** (e.g. `feat/user-login`, `fix/null-crash`), enforced via `validateBranchId` in `tools/tasks.ts`. It doubles as the actual git branch SWE creates the worktree on. Tasks are uniquely keyed by `(issue_id, branch_id)` — see the `idx_tasks_issue_branch` UNIQUE INDEX below — so the same `feat/user-login` could in principle exist under two different issues without collision.
+FTS5 virtual tables over a content table. SQLite creates and maintains each one's shadow tables; the triggers keep the index in step with its content table.
+
+| FTS table | Content table | Indexed columns | Tokenizer | Shadow tables | Sync triggers |
+|---|---|---|---|---|---|
+| `discussions_fts` | `discussions.id` | `body` | `porter unicode61` | `discussions_fts_config`, `discussions_fts_data`, `discussions_fts_docsize`, `discussions_fts_idx` | `discussions_ai` (AFTER INSERT), `discussions_ad` (AFTER DELETE), `discussions_au` (AFTER UPDATE) |
+| `audit_fts` | `audit.id` | `summary`, `content_json` | `porter unicode61` | `audit_fts_config`, `audit_fts_data`, `audit_fts_docsize`, `audit_fts_idx` | `audit_ai` (AFTER INSERT), `audit_ad` (AFTER DELETE), `audit_au` (AFTER UPDATE) |
+
+## Indexes
+
+| Index | Table | Columns | Unique | Where |
+|---|---|---|---|---|
+| `idx_repo_remotes_primary` | `repo_remotes` | `repo, is_primary` |  |  |
+| `idx_issues_status` | `issues` | `status` |  |  |
+| `idx_issues_gh_iid` | `issues` | `gh_iid` |  |  |
+| `idx_tasks_issue_branch` | `tasks` | `issue_id, branch_id` | yes |  |
+| `idx_tasks_status` | `tasks` | `status` |  |  |
+| `idx_tasks_commit_sha` | `tasks` | `commit_sha` |  |  |
+| `idx_discussions_issue_created` | `discussions` | `issue_id, created_at` |  |  |
+| `idx_discussions_remote_comment` | `discussions` | `remote_comment_id` | yes | `remote_comment_id IS NOT NULL` |
+| `idx_agent_runs_task` | `agent_runs` | `task_id` |  |  |
+| `idx_agent_runs_issue` | `agent_runs` | `issue_id` |  |  |
+| `idx_agent_runs_open` | `agent_runs` | `agent_type` |  | `completed_at IS NULL` |
+| `idx_agent_runs_spawn` | `agent_runs` | `task_id, spawn_id` | yes | `spawn_id IS NOT NULL` |
+| `idx_agent_runs_session` | `agent_runs` | `session_id` |  | `session_id IS NOT NULL` |
+| `idx_audit_event_type` | `audit` | `event_type` |  |  |
+| `idx_audit_issue_branch` | `audit` | `issue_id, branch_id` |  |  |
+| `idx_pr_review_runs_task` | `pr_review_runs` | `task_id` |  |  |
+| `idx_discussions_embeddings_model` | `discussions_embeddings` | `model_id` |  |  |
+| `idx_audit_embeddings_model` | `audit_embeddings` | `model_id` |  |  |
+| `idx_cheatcode_attachments_cheatcode` | `cheatcode_attachments` | `cheatcode_id` |  |  |
+| _UNIQUE constraint_ | `validation_attempts` | `task_id, attempt_n` | yes | |
+| _UNIQUE constraint_ | `agents` | `name` | yes | |
+| _UNIQUE constraint_ | `pr_review_runs` | `pr_number, repo` | yes | |
+| _UNIQUE constraint_ | `cheatcodes` | `name, kind` | yes | |
+
+## Eval mode
+
+Applied from `mcp/trajectory-server/src/schema-eval.sql` only when `TMB_EVAL_MODE=1`; production DBs do not carry these tables.
+
+#### `debug_trajectory`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `session_id` | TEXT | NOT NULL |  |  |
+| `step_n` | INTEGER | NOT NULL |  |  |
+| `kind` | TEXT | NOT NULL |  |  |
+| `agent` | TEXT | nullable |  |  |
+| `tool_or_mcp_name` | TEXT | NOT NULL |  |  |
+| `args_json` | TEXT | NOT NULL | `'{}'` |  |
+| `result_json` | TEXT | NOT NULL | `'{}'` |  |
+| `is_error` | INTEGER | NOT NULL | `0` |  |
+| `tokens_in` | INTEGER | NOT NULL | `0` |  |
+| `tokens_out` | INTEGER | NOT NULL | `0` |  |
+| `latency_ms` | INTEGER | NOT NULL | `0` |  |
+| `created_at` | TEXT | NOT NULL | `(strftime('%Y-%m-%dT%H:%M:%fZ','now'))` |  |
+
+#### `eval_results`
+
+| Column | Type | Null | Default | Constraints |
+|---|---|---|---|---|
+| `id` | INTEGER | NOT NULL |  | PK AUTOINCREMENT |
+| `run_id` | TEXT | NOT NULL |  |  |
+| `flow_name` | TEXT | NOT NULL |  |  |
+| `scorer_name` | TEXT | NOT NULL |  |  |
+| `pass` | INTEGER | NOT NULL |  |  |
+| `value` | TEXT | nullable |  |  |
+| `explanation` | TEXT | nullable |  |  |
+| `metadata_json` | TEXT | NOT NULL | `'{}'` |  |
+| `arm` | TEXT | NOT NULL | `'control'` |  |
+| `scenario` | TEXT | nullable |  |  |
+| `created_at` | TEXT | NOT NULL | `(strftime('%Y-%m-%dT%H:%M:%fZ','now'))` |  |
+
+#### Eval-mode indexes
+
+| Index | Table | Columns | Unique | Where |
+|---|---|---|---|---|
+| `idx_debug_trajectory_session` | `debug_trajectory` | `session_id, step_n` |  |  |
+| `idx_eval_results_run` | `eval_results` | `run_id, scorer_name` |  |  |
+| `idx_eval_results_flow` | `eval_results` | `flow_name, created_at` |  |  |
+<!-- erd:generated:end -->
+
+## What the relationships mean
+
+- `tasks`, `audit`, `discussions`, `roundtables` → `issues.id`: every row belongs to one issue. Project-level audit and discussion rows use the schema-seeded system issue `-1`; a task never does (`task_provision` / `task_create_batch` refuse it with `system_issue_reserved`).
+- `discussions.remote_comment_id` (unique when non-NULL, `idx_discussions_remote_comment`) holds one discussion per persisted PR/MR comment: `pr_monitor_comments_get` writes each fetched comment through `insertDiscussion` as a `note` on the issue of the task that owns the PR (`pr_review_runs.task_id`, else the most recently updated task on the PR head branch; failed and escalated tasks are skipped, closed ones are not), keyed `<provider>:<pr_number>:<comment_id>` (`github:12:IC_kwDO…`, `gitlab:7:4410`), so a re-fetch of the same comment inserts nothing.
+- `roundtable_votes` → `roundtables.id`: one vote row per participant per roundtable.
+- `validation_attempts` → `tasks.id`: every pr-reviewer verdict belongs to one task.
+- `agent_runs` → `tasks.id` / `issues.id`: per-task and per-issue resource tracking.
+- `repo` on `issues`, `tasks`, `audit`, `discussions`, `validation_attempts`, `agent_runs` → `repos.name` (`ON DELETE RESTRICT`): populated at write time — `audit` and `discussions` from the parent issue's repo (an explicit `repo` wins; NULL for the system issue `-1`), `validation_attempts` from the task's repo else its issue's, `agent_runs` from the task's repo. `pr_review_runs.repo` holds the remote's host slug, not a `repos.name`, and carries no FK.
+- `milestones.repo` → `repos.name` and `issues.(milestone, repo)` → `milestones.(name, repo)` (`ON DELETE RESTRICT`): a milestone belongs to one repo, and an issue's milestone is scoped to the issue's repo; the composite FK is nullable, so an issue need not carry a milestone.
+- `repo_remotes.repo` → `repos.name` (`ON DELETE CASCADE ON UPDATE CASCADE`): a repo's git remotes go with the repo, and follow a rename.
+- `cheatcode_attachments.cheatcode_id` → `cheatcodes.id` (`ON DELETE CASCADE`): what an install wired, so `cheatcode_uninstall` reverses exactly it.
+- `discussions_embeddings` / `audit_embeddings` → `discussions.id` / `audit.id` (`ON DELETE CASCADE`): one embedding per source row.
+
+## Soft references (no declared FK)
+
+`branch_id` is the **git-convention working branch name** (e.g. `feat/user-login`, `fix/null-crash`), enforced via `validateBranchId` in `tools/tasks.ts`. It doubles as the actual git branch SWE creates the worktree on. Tasks are uniquely keyed by `(issue_id, branch_id)` — see the `idx_tasks_issue_branch` UNIQUE index under Indexes above — so the same `feat/user-login` could in principle exist under two different issues without collision.
 
 | From | Column | → To | Why no FK |
 |---|---|---|---|
 | `audit` | `branch_id` | `tasks.branch_id` | `branch_id` alone isn't unique in `tasks` — the UNIQUE constraint is composite `(issue_id, branch_id)`. A composite FK `(issue_id, branch_id)` would work in principle, but `audit.branch_id` is nullable (some events are issue-scoped, not task-scoped), and nullable composite FKs are awkward. Kept as a soft ref scoped by `audit.issue_id`. |
 | `tasks` | `parent_branch_id` | `tasks.branch_id` (same issue) | Self-reference within an issue. A composite self-FK `(issue_id, parent_branch_id) → (issue_id, branch_id)` is feasible but adds insert-order brittleness; kept soft. |
 
-## Registries (no relationships to workflow tables)
+## Table purposes
 
 | Table | Purpose |
 |---|---|
-| `cheatcodes` | Unified capability registry (#101). One row per capability, split by `origin`: `'builtin'` = plugin-shipped tmb_* skills (was the `skills` table; `source_url` NULL, `file_path` set); `'installed'` = cheatcodes acquired via the discover → vet → install pipeline (`source_url` set). `kind` is `skill|mcp|plugin`; `scope` is the placement enum `global|template|project-local`. CHECKs enforce the shape (skill rows carry `file_path`, installed rows carry `source_url`, builtin rows do not). The natural key is `UNIQUE (name, kind)` (schema v32): a plugin and the MCP server it bundles share a name (`linear` plugin → `linear` server), and both rows coexist. A plugin-bundled server discovered by `/scan` carries `source_url = 'mcp:<plugin>/<server>'`. |
-| `agents` | Agent registry: one row per backbone agent or consultant. `file_path` names the root the prompt file ships from — `plugin:` (relative to the installed plugin root: the backbone `agents/*.md` and the consultant `templates/agents/*.md` seeds) or `project:` (relative to the workspace root: `.claude/agents/<name>.md`) — enforced by a CHECK since schema v34, which dropped the old `scope` column. The backbone agents `swe` and `pr-reviewer` must be `plugin:`: a `project:` file of the same name would shadow the backbone, so `agent_register` refuses it. Registering a `project:` path for a `plugin:` consultant promotes the row. `agent_list` (filter `root`), `agent_register` and `agent_resolve` return each row's absolute `resolved_path`. |
+| `cheatcodes` | Unified capability registry (#101). One row per capability, split by `origin`: `'builtin'` = plugin-shipped tmb_* skills (`source_url` NULL, `file_path` set); `'marketplace'` = acquired from a registered Claude Code marketplace ref and `'external'` = acquired from a raw external repo URL, both through the discover → vet → install pipeline (`source_url` set). `kind` is `skill|mcp|plugin`; `scope` is the placement enum `global|template|project-local`. CHECKs enforce the shape (skill rows carry `file_path`, acquired rows carry `source_url`, builtin rows do not). `status` has no CHECK: builtin skills move `draft` → `pending_review` → `active` → `deprecated` through `skill_register` / `skill_promote`, installs move between `installed`, `active` and `broken` (see ENUMS). The natural key is `UNIQUE (name, kind)` (schema v32): a plugin and the MCP server it bundles share a name (`linear` plugin → `linear` server), and both rows coexist. A plugin-bundled server discovered by `/scan` carries `source_url = 'mcp:<plugin>/<server>'`. |
+| `agents` | Agent registry: one row per backbone agent or consultant. `file_path` names the root the prompt file ships from — `plugin:` (relative to the installed plugin root: the backbone `agents/*.md` and the consultant `templates/agents/*.md` seeds) or `project:` (relative to the workspace root: `.claude/agents/<name>.md`) — the schema CHECK (`file_path LIKE 'plugin:%' OR file_path LIKE 'project:%'`, schema v34) only tests the prefix, and SQLite's `LIKE` ignores case. The tools are the strict layer: `agent_register` / `agent_resolve` accept only a lower-case `plugin:` or `project:` marker followed by a non-empty path and refuse anything else with `invalid_file_path`. The backbone agents `swe` and `pr-reviewer` must be `plugin:`: a `project:` file of the same name would shadow the backbone, so `agent_register` refuses it. Registering a `project:` path for a `plugin:` consultant promotes the row. `agent_list` (filter `root`), `agent_register` and `agent_resolve` return each row's absolute `resolved_path`. |
 | `cheatcode_attachments` | One row per artifact an install wired (plugin manifest, MCP registration, proposed skill-frontmatter PR). FK to `cheatcodes.id` ON DELETE CASCADE so `cheatcode_uninstall` reverses exactly what was installed. |
 | `repos` | One row per discovered git repo under the session dir. Written by `scan_run` (the `/scan` slash command's MCP backend). Workspace-pattern projects (multiple inner repos under a non-git workspace dir) are first-class. `name` is the primary key seven tables reference `ON DELETE RESTRICT` — `milestones`, `issues`, `tasks`, `audit`, `validation_attempts`, `discussions`, `agent_runs` — plus `repo_remotes` `ON DELETE CASCADE`, and the world model keys every `Directory` node on it; `pr_review_runs.repo` holds the remote's host slug, not a name. The name changes only through `repo_rename` (bro), which moves the row, all seven children and its `repo_remotes` rows, the `pr_review_runs` slug and the kuzu nodes in one transaction checked by `foreign_key_check` and records `repo_renamed`. `scan_run` never renames: a discovered repo whose canonical path or primary remote URL matches a row it did not rediscover is returned in `rename_candidates` with a `repo_rename_detected` audit row, and no second row is inserted. Carries per-repo policy (`target_branch`, `branching_model`, `protected_branches`; the remotes are its `repo_remotes` rows) — this row is the **sole source of truth** (#980): guards resolve policy path-keyed from the matched `repos` row for the command's git toplevel, and unregistered repos are no-op'd. `repo_remotes` is kept in sync with each repo's actual git remotes by `scan_run` (#979). There is no global `plugin_config` fallback. See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md). |
-| `repo_remotes` | A repo's git remotes, one row per `(repo, name)` (schema v35, GH 1225; replaced the `repos.remotes` JSON column). `scan_run` and `onboard_apply` write them through `upsertRepoRemotes` (`src/repos/remotes.ts`), which replaces the set: vanished remotes go, the rest keep their `created_at`. `provider` comes from the URL host (`github`, `gitlab`, else `other`); `is_primary` marks `origin`, else the first remote. Every reader goes through one accessor per language — `repoRemotes` / `primaryRemote` in TS (issue sync, milestone sync, `pr_monitor`, `repo_rename`, `onboard_state_get`), `tmb_repo_remotes` in `scripts/hooks/lib/resolve-repo.sh` for hooks — and tool results still expose the list as `[{name, provider, url}]`, primary first. |
+| `repo_remotes` | A repo's git remotes, one row per `(repo, name)` (schema v35, GH 1225). `scan_run` and `onboard_apply` write them through `upsertRepoRemotes` (`src/repos/remotes.ts`), which replaces the set: vanished remotes go, the rest keep their `created_at`. `provider` comes from the URL host (`github`, `gitlab`, else `other`); `is_primary` marks `origin`, else the first remote. Every reader goes through one accessor per language — `repoRemotes` / `primaryRemote` in TS (issue sync, milestone sync, `pr_monitor`, `repo_rename`, `onboard_state_get`), `tmb_repo_remotes` in `scripts/hooks/lib/resolve-repo.sh` for hooks — and tool results still expose the list as `[{name, provider, url}]`, primary first. |
 | `milestones` | One row per GitHub-style milestone, scoped per repo (schema v23, #155). Primary key is the composite `(name, repo)` and `repo` FKs `repos.name` (ON DELETE RESTRICT), so the same milestone name lives independently under each repo. `state` is `open`/`closed`. `issues.milestone` is a nullable composite FK `(milestone, repo) → (name, repo)`; rows are reconciled from the remote and seeded (`v<next-patch>`) by `scan_run`, upserted by an explicit `issue_create` milestone, and closed by `milestone_close` or the remote. |
 | _(world model)_ | Lives in the sibling kuzu graph DB at `<project>/.claude/tmb/world-model.kuzu/`, not in this SQLite file. Directory nodes + CONTAINS edges, populated by `scan_run` via `src/graph-db.ts`. See `docs/architecture/WORLD_MODEL.md`. |
-| `plugin_config` | KV for workspace-global plugin settings only: `issue_sync`, the issue label taxonomies, the `onboarded` marker, `pr_review_bots`, `model_prices` (USD per 1M tokens per model, for `task_stats.cost_estimate`), and the onboard answers `headless_enforcement` / `sandbox_enforcement` (with `sandbox_settings`, the record of what TMB wrote into the project's sandbox block). The repo-scoped policy fields (`target_branch`, `branching_model`, `protected_branches`, `remotes`) are NOT here — they live on the `repos` row (#980, see `repos` above / [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md)). See `mcp/trajectory-server/docs/CONFIG_KEYS.md` for the canonical key list. |
-| `plugin_meta` | Schema + plugin version. Current `schema_version=35`. `plugin_version` is seeded as `'0.0.0'` and synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — so the row always reflects the running plugin version without a migration. |
+| `plugin_config` | KV for workspace-global plugin settings only: `issue_sync`, the issue label taxonomies, the `onboarded` marker, `pr_review_bots`, `model_prices` (USD per 1M tokens per model, for `task_stats.cost_estimate`), and the onboard answers `headless_enforcement` / `sandbox_enforcement` (with `sandbox_settings`, the record of what TMB wrote into the project's sandbox block). The repo-scoped policy (`target_branch`, `branching_model`, `protected_branches` on the `repos` row, and the repo's `repo_remotes` rows) is NOT here (#980, see `repos` above / [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md)). See [`CONFIG_KEYS.md`](../reference/CONFIG_KEYS.md) for the canonical key list. |
+| `plugin_meta` | Schema + plugin version; `schema_version` is the version at the top of this page. `plugin_version` is seeded as `'0.0.0'` and synced dynamically from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` on every `TrajectoryDB` construction — so the row always reflects the running plugin version without a migration. |
 | `agent_runs` | One row per metered run of an agent on a task, covering the time window `[started_at, completed_at)`. Bro rows open at task creation and are metered by the `bro-turn-usage.sh` Stop hook; swe rows open at the swe's `task_brief` and are metered by the `swe-atomic-close.sh` SubagentStop hook. The four token columns are NULL until measured; `usage_source` records where measured values came from (`transcript`, `subagent_stop`) or `unmeasured`. `spawn_id` identifies the measured spawn (one row per task + spawn); `session_id` ties the run to the CC session that owns it — stamped at open when bro passes `session_id` to `task_provision` / `task_create_batch` / `task_retry`, else claimed by the Stop hook (audited as `agent_runs_claimed`). The total is computed, not stored (`tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens`). `bro_atomic_close` and a terminal `task_update_status` (`failed`, `escalated`, `closed`) close every open row of the task; `task_recover` closes rows left open on already-terminal tasks. Schema v33 adds four audit columns: `root_dir` (where the run may write — the project for bro rows, the task worktree for swe rows; read by the `containment-guard` hook), `model` (the dominant `message.model` of the run, written by the metering hooks), `host` (`claude`/`codex`) and `exit_reason` (stamped by whoever closes the row; see ENUMS). `task_stats` prices rows by `plugin_config.model_prices` (`{"<model>": {input, output, cache_read, cache_creation}}` USD per 1M tokens, seeded `{}`) into `cost_estimate`, with unpriced rows' tokens reported as `unpriced_tokens`. |
 | `pr_review_runs` | Per-PR monitor incremental-polling cursor (`last_fetched_at`, `last_comment_id`) — cursor-only since v29. Used by `/monitor` flow — `pr_monitor_comments_get` reads the cursor on entry and upserts it on exit so the next call only fetches new comments; no cursor is kept when no repo slug resolves. Table-level `UNIQUE (pr_number, repo)` with `CHECK (pr_number > 0)` and `CHECK (repo <> '')`. `task_id` links the PR to its task, which is how `pr_monitor_comments_get` finds the issue that carries the PR's comments. |
 | `debug_trajectory` | Deterministic-trajectory capture (only when `TMB_DEBUG_TRAJECTORY=1`). Used by L5 scoring. |
 | `eval_results` | Per-scorer results for L5/A-B prompt-eval runs. One row per (run_id, flow_name, scorer_name). |
 | `discussions_embeddings` | Embedding cache for `discussions` rows — one BLOB per discussion, keyed by `discussion_id` + `model_id`. Populated on write (`insertDiscussion`); rows written outside the server are embedded by the boot-time backfill and by a lazy tick (up to 50 rows) at the start of every `discussion_search`. Used by the `discussion_search` semantic path. |
 | `audit_embeddings` | Embedding cache for `audit` rows — one BLOB per audit event. Populated on write (`insertAudit`, the single server audit write path); rows written outside the server are embedded by the boot-time backfill and by a lazy tick (up to 50 rows) at the start of every `audit_search`. Used by the `audit_search` semantic path. |
-
-## Indexes
-
-- `idx_tasks_issue_branch` — `UNIQUE(issue_id, branch_id)`. Each issue has one task per git branch name; this is also the lookup index for "does this task exist?" checks. Two issues may legitimately have the same `branch_id` (e.g. both have a `feat/user-login` task).
-- `idx_tasks_status` — `(status)`. Status-filtered task scans (hooks, first-actionable).
-- `idx_tasks_commit_sha` — `(commit_sha)`. Commit → task lookups.
-- `idx_issues_status` — `(status)`. Open-issue scans.
-- `idx_issues_gh_iid` — `(gh_iid)`. GitHub issue number → local issue lookups.
-- `idx_discussions_issue_created` — `(issue_id, created_at)`. Feeds the chronological discussion view.
-- `idx_discussions_remote_comment` — `UNIQUE(remote_comment_id) WHERE remote_comment_id IS NOT NULL`. One discussion per persisted PR/MR comment: `pr_monitor_comments_get` writes each fetched comment through `insertDiscussion` as a `note` on the issue of the task that owns the PR (`pr_review_runs.task_id`, else the most recently updated task on the PR head branch; failed and escalated tasks are skipped, closed ones are not), keyed `<provider>:<pr_number>:<comment_id>` (`github:12:IC_kwDO…`, `gitlab:7:4410`), so a re-fetch of the same comment inserts nothing.
-- `validation_attempts` — `UNIQUE(task_id, attempt_n)`. One row per (task, attempt).
-- `idx_agent_runs_task` — `(task_id)`. Fast per-task resource lookup.
-- `idx_agent_runs_issue` — `(issue_id)`. Fast per-issue resource rollup.
-- `idx_agent_runs_open` — `(agent_type) WHERE completed_at IS NULL`. Partial index over open runs.
-- `idx_agent_runs_spawn` — `UNIQUE(task_id, spawn_id) WHERE spawn_id IS NOT NULL`. One row per measured spawn.
-- `idx_agent_runs_session` — `(session_id) WHERE session_id IS NOT NULL`. Resolve a session's own run.
-- `pr_review_runs` — `UNIQUE(pr_number, repo)`. One cursor per monitored PR.
-- `idx_pr_review_runs_task` — `(task_id)`. PR cursor → task lookups.
-- `idx_debug_trajectory_session` — `(session_id, step_n)`. Ordered trajectory replay.
-- `idx_eval_results_run` — `(run_id, scorer_name)`. Per-run scorer aggregation.
-- `idx_eval_results_flow` — `(flow_name, created_at)`. Historical pass-rate trend queries.
 
 ## How agents use this
 
@@ -357,7 +727,7 @@ The decision chain (Human → bro → SWE, with pr-reviewer as push gate) is str
 
 ## Data contracts
 
-The schema says what a row may hold; the data contracts say what the rows TMB writes over time must look like. One declarative list, `DATA_CONTRACTS` in `mcp/trajectory-server/src/data-contracts.ts`, drives three readers: the bro-only, read-only `trajectory_doctor` tool (`record: true` adds one `trajectory_doctor_run` audit row), the SessionStart prescan banner (`Trajectory DB: healthy` / `N contract violation(s) [ids] — run trajectory_doctor` / `unchecked (timeout)`, from the generated `scripts/hooks/lib/data-contracts.json`, never healthy on a timeout or read error), and the L5/L6 gate (`scripts/maintenance/trajectory-doctor.sh` against the run's DB; an error-severity violation fails the run). Each contract is one SELECT returning a number plus an expected comparison, and names the `min_schema` (`plugin_meta.schema_version`) of the columns it reads; a report is unhealthy when an `error` contract fails or cannot run. The doctor never migrates: the script opens the DB file on a query-only connection, and a contract whose `min_schema` is above the DB's version is reported `unchecked (schema vN < vM — start the trajectory server to migrate)` (script exit 2; `--record` refuses below the server's schema version).
+The schema says what a row may hold; the data contracts say what the rows TMB writes over time must look like. One declarative list, `DATA_CONTRACTS` in `mcp/trajectory-server/src/data-contracts.ts`, drives three readers: the bro-only, read-only `trajectory_doctor` tool (`record: true` adds one `trajectory_doctor_run` audit row), the SessionStart prescan banner (`Trajectory DB: healthy` / `N contract violation(s) [ids] — run trajectory_doctor` / `unchecked (timeout)` / `unchecked (schema vN < vM — start the trajectory server to migrate)`, from the generated `scripts/hooks/lib/data-contracts.json`, never healthy on a timeout, a read error, or a stored `schema_version` below the contracts' version), and the L5/L6 gate (`scripts/maintenance/trajectory-doctor.sh` against the run's DB; an error-severity violation fails the run). Each contract is one SELECT returning a number plus an expected comparison, and names the `min_schema` (`plugin_meta.schema_version`) of the columns it reads; a report is unhealthy when an `error` contract fails or cannot run. The doctor never migrates: the script opens the DB file on a query-only connection, and a contract whose `min_schema` is above the DB's version is reported `unchecked (schema vN < vM — start the trajectory server to migrate)` (script exit 2; `--record` refuses below the server's schema version).
 
 | Contract id | Severity | Holds when |
 |---|---|---|
@@ -378,7 +748,7 @@ The schema says what a row may hold; the data contracts say what the rows TMB wr
 | `populated_agent_runs_exit_reason` | warn | NULL rate over completed rows started in the last 30 days ≤ 0.05 |
 | `populated_tasks_prompt_bearing` | warn | NULL rate over tasks created in the last 30 days = 0 |
 
-Columns added in v29–v33 that stay NULL by design are declared in `NULLABLE_COLUMNS` with a reason and get no contract: `discussions.remote_comment_id` (set only on discussions ingested from a PR/MR comment) and `agent_runs.spawn_id` (swe rows only). A new contract is a new entry in `DATA_CONTRACTS` with a violating and a passing fixture in `src/test/trajectory-doctor.test.ts`; regenerate the hook copy with `node scripts/maintenance/emit-data-contracts.mjs` (the unit suite fails while it is stale).
+Columns added in v29–v33 that stay NULL by design are declared in `NULLABLE_COLUMNS` with a reason and get no contract: `discussions.remote_comment_id` (set only on discussions ingested from a PR/MR comment) and `agent_runs.spawn_id` (swe rows only). A new contract is a new entry in `DATA_CONTRACTS` with a violating and a passing fixture in `src/test/trajectory-doctor.test.ts`; `npm run build` in `mcp/trajectory-server/` regenerates the hook copy through `scripts/maintenance/emit-data-contracts.mjs` (the unit suite fails while it is stale).
 
 ## Schema migration policy
 

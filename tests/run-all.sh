@@ -54,6 +54,11 @@ run_step "L1 lint: bundle whitespace preserves string constants"  bash "$HERE/l1
 run_step "L1 lint: GH labels match LABELS.md"         bash "$HERE/l1-lint/labels-stable.sh"
 run_step "L1 lint: shipped skills match builtin seed"  bash "$HERE/l1-lint/skill-catalog-sync.sh"
 run_step "L1 lint: ENUMs.md vs code parity"           bash "$HERE/l1-lint/enums-stable.sh"
+run_step "L1 lint: ENUMS.md event table + audit-events.txt generated fresh"  bash "$HERE/l1-lint/enums-doc-fresh.sh"
+run_step "L1 lint: ERD.md generated from schema.sql"  bash "$HERE/l1-lint/erd-doc-fresh.sh"
+run_step "L1 lint: CONFIG_KEYS.md generated from code" bash "$HERE/l1-lint/config-keys-doc-fresh.sh"
+run_step "L1 lint: tool docs list every family + tool" bash "$HERE/l1-lint/tool-families-documented.sh"
+run_step "L1 lint: REFERENCE.md hook rows are real, wired hooks" bash "$HERE/l1-lint/hooks-doc-fresh.sh"
 run_step "L1 lint: no negative directives in prompts" bash "$HERE/l1-lint/no-negative-directives.sh"
 run_step "L1 lint: issue_sync test must mock spawn"   bash "$HERE/l1-lint/issue-sync-test-isolation.sh"
 run_step "L1 lint: no audit_append without from_node" bash "$HERE/l1-lint/no-audit-log-without-from-node.sh"
@@ -85,6 +90,21 @@ run_step "L1 lint: no writes under the home directory" bash "$HERE/l1-lint/no-ho
 run_step "L1 lint: no datetime('now') in scripts"     bash "$HERE/l1-lint/no-datetime-now-in-hooks.sh"
 run_step "L1 lint: no secrets in tracked source"    bash "$HERE/l1-lint/no-secrets-in-source.sh"
 run_step "L1 lint: main-source-guard + CODEOWNERS present" bash "$HERE/l1-lint/main-guard-files-present.sh"
+run_step "L1 lint: no filesystem writes at module load" bash "$HERE/l1-lint/no-module-load-writes.sh"
+run_step "L1 lint: hook tests that source assert.sh call summarize" bash "$HERE/l1-lint/test-summarize-present.sh"
+
+# Every tests/l1-lint/*.sh has a run_step line above.
+l1_lints_all_wired() {
+  local lint missing=0
+  for lint in "$HERE"/l1-lint/*.sh; do
+    if ! grep -qF "l1-lint/$(basename "$lint")\"" "$HERE/run-all.sh"; then
+      echo "  ✗ tests/l1-lint/$(basename "$lint") has no run_step in tests/run-all.sh" >&2
+      missing=1
+    fi
+  done
+  return "$missing"
+}
+run_step "L1 self-check: every tests/l1-lint/*.sh runs here" l1_lints_all_wired
 
 # ----- L1-adjacent: benchmark selftest (fast, deterministic) ------------
 

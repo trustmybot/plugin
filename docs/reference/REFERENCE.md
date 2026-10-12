@@ -15,15 +15,16 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 
 - **Prompt-engineering guide (authoring agent prompts)** — [`PROMPT_ENGINEERING.md`](../prompt-engineering/PROMPT_ENGINEERING.md)
 - **Agent layer model + override rules** — [`architecture/RESPONSIBILITIES.md`](../architecture/RESPONSIBILITIES.md)
-- **plugin_config keys** — `mcp/trajectory-server/docs/CONFIG_KEYS.md`
+- **plugin_config keys** — [`CONFIG_KEYS.md`](./CONFIG_KEYS.md)
 - **Full architecture** — `docs/architecture/FLOWS.md`
 
 ## MCP tools (full list)
 
-67 tools across these groups (full schema in `mcp/trajectory-server/src/tools/`):
+73 tools across these groups (full schema in `mcp/trajectory-server/src/tools/`):
 
-- **issues**: `issue_create`, `issue_get`, `issue_list`, `issue_close`, `issue_link`, `issue_update_description`, `issue_resume`, `issue_get_phase`, `issue_sync_retry`
-- **tasks**: `task_get`, `task_update_status`, `task_first_actionable`
+- **issues**: `issue_create`, `issue_get`, `issue_list`, `issue_close`, `issue_link`, `issue_update_description`, `issue_resume`, `issue_get_phase`, `issue_sync_retry`, `issue_adopt_remote`
+- **milestones**: `milestone_close`
+- **tasks**: `task_create_batch`, `task_get`, `task_update_status`, `task_first_actionable`
 - **stats**: `task_stats`
 - **discussions**: `discussion_append` (verified_human gate when author='human'), `discussion_list`, `discussion_search`, `issue_get_with_discussions`
 - **roundtable**: `roundtable_create`, `roundtable_vote`, `roundtable_close`, `roundtable_close_with_decisions`, `roundtable_finalize_decisions`, `roundtable_summarize` (state machine: collecting → awaiting_human → closed | skipped)
@@ -33,12 +34,15 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **onboard**: `onboard_state_get`, `onboard_get_questions`, `onboard_apply`
 - **config**: `config_get`, `config_list`, `config_set`
 - **scan**: `scan_run`, `repos_list`
+- **repos**: `repo_rename`
 - **reports**: `issue_report_md`, `issue_snapshot_md`, `branch_report_md`
 - **cheatcodes** (unified skill/agent registry): `cheatcode_list`, `cheatcode_search`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_approve`, `cheatcode_vet`, `cheatcode_uninstall`
 - **skills** (builtin rows in the `cheatcodes` registry): `skill_register`, `skill_promote`
 - **agents**: `agent_list`, `agent_register`, `agent_resolve`
 - **composites**: `intent_start`, `branch_id_propose`, `task_provision`, `task_brief`, `task_retry`, `task_recover`, `task_reopen`, `task_update_spec`, `bro_atomic_close`, `bro_verification_fail_record`, `pr_monitor_worktree`, `worktree_commits_fetch`
 - **audit**: `audit_append`, `audit_list`, `audit_search`
+- **metering backfill**: `agent_runs_backfill`
+- **data contracts**: `trajectory_doctor`
 
 ## Slash commands
 
@@ -81,6 +85,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `ensure-kuzu-installed.sh` | SessionStart | Lazy-install kuzu native binary for the world-model graph DB (first session after plugin install/update) |
 | `substrate-preflight.sh` | SessionStart | Verify the trajectory DB + world-model substrates are reachable before the session proceeds |
 | `cheatcode-healthcheck.sh` | SessionStart | Check the cheatcodes registry is consistent on boot |
+| `orphan-scan.sh` | SessionStart | Report this project's stale trajectory DBs, duplicate server procs and unpinned caches left by upgrades (cleans only when opted in) |
 | `activation-routine.sh` | UserPromptSubmit | Pre-fetch onboarded marker + pending issue for bro banner; HALT + recovery pointer when the MCP server is not running |
 | `session-log-capture.sh` | UserPromptSubmit | Track current cc.log for diagnostics |
 | `prompt-intent-hints.sh` | UserPromptSubmit | Route intent phrases (concerns / push / resume / reonboard / ADR / consultant / search-grounding) to the right guidance |
@@ -97,10 +102,12 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `agent-spawn-dispatch.sh` | PreToolUse Agent | Dispatcher for the spawn gates: `require-task-spec.sh`, `require-feature-branch-active.sh`, `pr-reviewer-no-worktree.sh`, `pr-reviewer-spawn-prompt-shape.sh`, `pr-reviewer-after-atomic-close.sh`, then prepares the worktree via `ensure-swe-worktree.sh` |
 | `swe-brief-gate.sh` | PreToolUse trajectory-server + Edit/Write | SWE must have fetched its task brief before touching state or files |
 | `swe-verification-gate.sh` | PreToolUse task_update_status | Gate the SWE close transition on verification |
+| `reviewer-identity-observe.sh` | PreToolUse validation_record | Record the calling pr-reviewer's `session_id` and `agent_id` (`reviewer_identity_observed`) so `validation_record` stamps the reviewer's identity; observe-only, fails closed only when the trajectory DB is unavailable |
 | `cheatcode-install-approval.sh` | PreToolUse cheatcode_install | Require Human approval before installing a cheatcode |
 | `askuserquestion-length-lint.sh` | PreToolUse AskUserQuestion | Cap label/description lengths |
 | `roundtable-auq-shape.sh` | PreToolUse AskUserQuestion | Validate AUQ shape during roundtable awaiting_human |
 | `no-source-edit-from-main.sh` | PreToolUse Edit/Write | Bro can't edit source from main checkout |
+| `containment-guard.sh` | PreToolUse Write/Edit/MultiEdit/NotebookEdit/Bash | Deny a write outside the run's root — the swe's task worktree (`agent_runs.root_dir`), else the project |
 | `swe-scope-fence.sh` | PreToolUse Edit/Write | Note (never deny) an SWE edit outside the task's `files[]`, once per path; scope is judged at close by `bro_atomic_close` |
 | `naming-lint.sh` | PreToolUse Edit/Write | Enforce kebab/snake/Pascal naming conventions per language |
 | `code-quality-lint.sh` | PreToolUse Edit/Write | Catch mechanical quality patterns (bare except, mutable defaults, etc.) |
@@ -110,7 +117,6 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `post-task-close-rescan.sh` | PostToolUse bro_atomic_close | Background /scan to refresh the world model after close |
 | `post-atomic-close-readme.sh` | PostToolUse bro_atomic_close | Refresh directory README summaries after close |
 | `post-task-create-spawn-hint.sh` | PostToolUse task-create (batch insert path) | Remind bro to spawn SWE after a task is provisioned |
-| `post-pr-comments-persist.sh` | PostToolUse pr_monitor_comments_get | Auto-persist returned PR comments as discussion rows |
 | `attribution-footer.sh` | PostToolUse Bash | Append co-author / session attribution to commits |
 | `clean-merged-branch.sh` | PostToolUse Bash | Prune local branches once their PR merges |
 | `close-issue-on-merge.sh` | PostToolUse Bash | Close the local issue when its PR merges |
@@ -119,4 +125,4 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `consultant-persistence-gate.sh` | SubagentStop | Persist a consultant subagent's output before it exits |
 | `worktree-create.sh` | WorktreeCreate | Enforce worktree-creation rules |
 
-## Schema state — see ERD.md for full table list (schema v28)
+## Schema state — see [ERD.md](../architecture/ERD.md) for the full table list

@@ -330,6 +330,11 @@ schema_db
 sqlite3 "$SCHEMA_DB" "UPDATE plugin_meta SET schema_version = 29 WHERE id = 1; ALTER TABLE agent_runs RENAME COLUMN session_id TO session_id_v29;"
 assert_eq "Trajectory DB:     unchecked (schema v29 < v33 — start the trajectory server to migrate)" "$(doctor_line)" "schema banner"
 
+test_case "doctor banner: an older schema with every contract column present still names the gap, never healthy"
+schema_db
+sqlite3 "$SCHEMA_DB" "UPDATE plugin_meta SET schema_version = 30 WHERE id = 1;"
+assert_eq "Trajectory DB:     unchecked (schema v30 < v$(jq -r .schema_version "$PLUGIN_ROOT/scripts/hooks/lib/data-contracts.json") — start the trajectory server to migrate)" "$(doctor_line)" "schema banner with all columns"
+
 test_case "doctor banner: a DB the contracts cannot read reports unchecked, never healthy"
 reset_db "$DB"
 NO_SCHEMA_LINE=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>/dev/null) | jq -r '.hookSpecificOutput.additionalContext' | grep '^Trajectory DB:' || true)

@@ -35,8 +35,8 @@ Bro's `activation-routine.sh` UserPromptSubmit hook reads `plugin_config('onboar
 
 | Shape | Round 2 questions | Persisted |
 |---|---|---|
-| Local-only | (none — github-flow defaulted silently) | global `plugin_config('onboarded')` + `issue_sync='off'`; per-repo `repos` rows get `branching_model`, derived `target_branch`, `protected_branches`, `remotes=[]` |
-| Remote-tracked | Branching, PR target, Remote (multiSelect) | + each repo row's `remotes` array, then a Round 3 for the global `issue_sync` |
+| Local-only | (none — github-flow defaulted silently) | global `plugin_config('onboarded')` + `issue_sync='off'`; per-repo `repos` rows get `branching_model`, derived `target_branch`, `protected_branches`; each repo's `repo_remotes` rows are cleared |
+| Remote-tracked | Branching, PR target, Remote (multiSelect) | + each repo's `repo_remotes` rows replaced with its git remotes (`upsertRepoRemotes`: one row per remote, `provider` from the URL host, `origin` primary), then a Round 3 for the global `issue_sync` |
 
 A **silent probe** (origin URL, gh/glab installed/authed) pre-selects defaults so most questions become 1-tap confirms. Local re-onboard adds the Branching question with a `Keep` option so the user can change models without first switching shape.
 

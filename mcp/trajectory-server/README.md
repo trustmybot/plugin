@@ -12,7 +12,7 @@ node dist/index.js
 
 (The plugin spawns this automatically via `.mcp.json` — manual run is only needed for isolated testing.)
 
-The build also writes `scripts/hooks/lib/audit-events.txt` (via `scripts/maintenance/gen-enums-doc.mjs --txt`): the closed `audit.event_type` set from `src/audit-events.ts`, one `event<TAB>writers` line per event, that the hooks validate against. `writers` names who may author each event; `audit_append` refuses a caller whose role is not listed (`audit_event_not_writable_by_role`) and records `from_node` as the caller. After adding an event type, run `node scripts/maintenance/gen-enums-doc.mjs` from the plugin root to regenerate the `audit.event_type` table in `docs/contributing/ENUMS.md`.
+The build also writes `scripts/hooks/lib/audit-events.txt` (via `scripts/maintenance/gen-enums-doc.mjs --txt`): the closed `audit.event_type` set from `src/audit-events.ts`, one `event<TAB>writers` line per event, that the hooks validate against. `writers` names who may author each event; `audit_append` refuses a caller whose role is not listed (`audit_event_not_writable_by_role`) and records `from_node` as the caller. After adding an event type, run `node scripts/maintenance/gen-enums-doc.mjs` from the plugin root to regenerate the `audit.event_type` table in `docs/contributing/ENUMS.md`. The build also regenerates `scripts/hooks/lib/data-contracts.json` (the SessionStart banner's copy of the data contracts) via `scripts/maintenance/emit-data-contracts.mjs`. After a schema change, run `node scripts/maintenance/gen-erd-doc.mjs` to regenerate `docs/architecture/ERD.md`; after adding a `plugin_config` key, give it a `KEYS` entry in `scripts/maintenance/gen-config-keys-doc.mjs` and run that script to regenerate [`docs/reference/CONFIG_KEYS.md`](../../docs/reference/CONFIG_KEYS.md).
 
 The Codex entry exposes an immutable 15-tool adapter registry: 13 local Bro planning tools plus `agent_materialization_get` and `agent_materialization_set`. Every call requires an explicit Git worktree root with `.tmb/` already ignored and no tracked `.tmb/` files. Planning state stays beneath `<project>/.tmb/tmb/`.
 
@@ -57,16 +57,21 @@ Tools are registered in `src/tools/index.ts`, grouped by domain:
 
 | Family | File | Example tools |
 |---|---|---|
-| Issues | `tools/issues.ts` | `issue_create`, `issue_get`, `issue_resume`, `issue_close`, `issue_snapshot_md` |
+| Issues | `tools/issues.ts` | `issue_create`, `issue_get`, `issue_list`, `issue_resume`, `issue_close`, `issue_link`, `issue_adopt_remote` |
 | Milestones | `tools/milestones.ts` | `milestone_close` (reconcile + seed run inside `scan_run`) |
-| Tasks | `tools/tasks.ts` | `task_get`, `task_update_status`, `task_first_actionable` |
+| Tasks | `tools/tasks.ts` | `task_create_batch`, `task_get`, `task_update_status`, `task_first_actionable` |
 | Task composites | `tools/composites.ts` | `task_provision`, `task_brief`, `task_retry`, `task_recover`, `task_reopen` (bro: closed/failed/escalated/running → running, widen fences, recreate the worktree), `task_update_spec` (bro: replace files/verification/spec_body of a live task), `bro_atomic_close` |
-| Discussions | `tools/discussions.ts` | `discussion_append`, `discussion_list` |
-| Audit | `tools/audit.ts` | `audit_append`, `audit_list` |
+| Discussions | `tools/discussions.ts` | `discussion_append`, `discussion_list`, `discussion_search`, `issue_get_with_discussions` |
+| Audit | `tools/audit.ts` | `audit_append`, `audit_list`, `audit_search` |
 | Validation | `tools/validation.ts` | `validation_record`, `validation_history` |
 | Skills (builtin rows in the unified `cheatcodes` registry, #101) | `tools/skills.ts` | `skill_register` (takes `scope`), `skill_promote` |
 | Agents | `tools/agents.ts` | `agent_register`, `agent_list` (filter `root`), `agent_resolve` (bro) — `file_path` is `plugin:<path>` or `project:<path>`; rows carry `resolved_path` |
-| Reports | `tools/reports.ts` | `issue_report_md` |
+| Reports | `tools/reports.ts` | `issue_report_md`, `issue_snapshot_md` |
+| Branch report | `tools/branch_report_md.ts` | `branch_report_md` |
+| Stats | `tools/stats.ts` | `task_stats` (token/duration aggregate per task; `cost_estimate` from `plugin_config.model_prices`) |
+| Roundtable | `tools/roundtable.ts` | `roundtable_create`, `roundtable_vote`, `roundtable_summarize`, `roundtable_finalize_decisions`, `roundtable_close`, `roundtable_close_with_decisions` |
+| PR monitor | `tools/pr_monitor.ts` | `pr_monitor_comments_get`, `pr_monitor_runs_list` |
+| Cheatcodes | `tools/cheatcode.ts` | `cheatcode_search`, `cheatcode_vet`, `cheatcode_approve`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_uninstall`, `cheatcode_list` |
 | Config | `tools/config.ts` | `config_get`, `config_set`, `config_list` |
 | Onboard | `tools/onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` |
 | Scan (workspace + repos) | `tools/scan.ts` | `scan_run` (forks `scripts/scan.sh` for deterministic discovery; returns `rename_candidates`), `repos_list` |

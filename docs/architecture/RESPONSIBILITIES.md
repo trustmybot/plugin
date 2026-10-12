@@ -54,7 +54,7 @@ Source: `CLAUDE.md` (no `agents/bro.md` — bro is a persona on main Claude).
    - V1 — files match the spec's `## Files`
    - V2 — re-run the spec's `## Verification` commands inside the worktree
    - V3 — each `## Success Criteria` bullet visibly met by the diff
-8. `bro_atomic_close` MCP composite — single transaction: `bro_verification_pass` audit + `last_verified_sha` advance + status `closed` + optional issue close. The post-close hook (`post-task-close-rescan.sh`) backgrounds a fresh `scan_run` so the world model refreshes automatically.
+8. `bro_atomic_close` MCP composite — single transaction: a `bro_verification_pass` audit row (`task_id`, `commit_sha`) + the task set `closed` at that `commit_sha` + its open `agent_runs` rows closed `completed` + optional issue close (only when no task is live and every closed task is reviewed, else `issue_left_open`). The post-close hook (`post-task-close-rescan.sh`) backgrounds a fresh `scan_run` so the world model refreshes automatically.
 
 ### Server-enforced privileges (Layer 1)
 

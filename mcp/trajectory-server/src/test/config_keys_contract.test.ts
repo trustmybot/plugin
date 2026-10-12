@@ -8,7 +8,7 @@ import { configTools } from '../tools/config.js';
 
 const docsPath = join(
   dirname(fileURLToPath(import.meta.url)),
-  '../../docs/CONFIG_KEYS.md',
+  '../../../../docs/reference/CONFIG_KEYS.md',
 );
 
 const docContent = readFileSync(docsPath, 'utf8');
@@ -30,14 +30,14 @@ async function call(
 }
 
 describe('config_keys_contract', () => {
-  it('docs/CONFIG_KEYS.md names all registered keys', () => {
+  it('docs/reference/CONFIG_KEYS.md names all registered keys', () => {
     assert.ok(docContent.includes('branching_model'), 'branching_model missing from docs');
     assert.ok(docContent.includes('pr_target'), 'pr_target missing from docs');
     assert.ok(docContent.includes('protected_branches'), 'protected_branches missing from docs');
     assert.ok(docContent.includes('issue_sync'), 'issue_sync missing from docs');
   });
 
-  it('docs/CONFIG_KEYS.md names all three branching_model values', () => {
+  it('docs/reference/CONFIG_KEYS.md names all three branching_model values', () => {
     assert.ok(docContent.includes('github-flow'), 'github-flow missing from docs');
     assert.ok(docContent.includes('gitflow'), 'gitflow missing from docs');
     assert.ok(docContent.includes('custom'), 'custom missing from docs');
