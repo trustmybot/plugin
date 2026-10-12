@@ -5,10 +5,13 @@
 # agent_runs row (rework after task_reopen); a running task whose swe run is
 # still open is denied with that run named.
 # Spec contract: a task whose files[] touches schema.sql, db.ts or a migrations
-# path, or whose spec_body adds a column/tool/field, needs a Writer: + Populated:
-# line pair or a Nullable: line in spec_body, unless bro has already recorded a
-# spec_shape_gate_waived audit row for the task (content_json task_id = <N>,
-# gate = spec_shape, reason >= 10 chars). This hook only reads.
+# path, or whose spec_body adds a column/tool/field/table (matched case-blind with
+# any whitespace, '-' or '_' between the words), needs a Writer: + Populated: line
+# pair or a Nullable: line in spec_body, each with a value, unless a
+# spec_shape_gate_waived audit row exists for the task with from_node = 'bro'
+# (content_json task_id = <N>, gate = spec_shape, reason >= 10 chars). The row is
+# written through audit_append, which swe cannot call; the hook accepts only a
+# bro-authored row. This hook only reads.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -76,27 +79,29 @@ if [ "${BODY_LEN:-0}" -eq 0 ]; then
   exit 0
 fi
 
-NEEDS_CONTRACT=$(tmb_gate_read "$DB" "SELECT CASE WHEN EXISTS (
-    SELECT 1 FROM json_each(CASE WHEN json_valid(COALESCE(files, '')) THEN files ELSE '[]' END)
-     WHERE value LIKE '%schema.sql' OR value = 'db.ts' OR value LIKE '%/db.ts'
-        OR value LIKE 'migrations%' OR value LIKE '%/migrations%')
-  OR spec_body LIKE '%ADD COLUMN%' OR spec_body LIKE '%new column%'
-  OR spec_body LIKE '%new tool%' OR spec_body LIKE '%new field%'
-  THEN 1 ELSE 0 END FROM tasks WHERE id = ${SAFE_TASK_ID};")
-if [ "$NEEDS_CONTRACT" = "__ERR__" ]; then
+SPEC=$(tmb_gate_read "$DB" "SELECT json_object('body', COALESCE(spec_body, ''),
+    'files', CASE WHEN json_valid(COALESCE(files, '')) THEN json(files) ELSE json('[]') END)
+  FROM tasks WHERE id = ${SAFE_TASK_ID};")
+if [ "$SPEC" = "__ERR__" ]; then
   tmb_deny_db_unavailable require-task-spec
   exit 0
 fi
-[ "$NEEDS_CONTRACT" = "1" ] || exit 0
+if ! SPEC_BODY=$(printf '%s' "$SPEC" | jq -r '.body // ""') \
+  || ! SPEC_FILES=$(printf '%s' "$SPEC" | jq -r '(.files // []) | if type == "array" then .[] | strings else empty end'); then
+  tmb_deny_db_unavailable require-task-spec
+  exit 0
+fi
 
-SPEC_BODY=$(tmb_gate_read "$DB" "SELECT spec_body FROM tasks WHERE id = ${SAFE_TASK_ID};")
-if [ "$SPEC_BODY" = "__ERR__" ]; then
-  tmb_deny_db_unavailable require-task-spec
-  exit 0
-fi
+needs_contract() {
+  printf '%s\n' "$SPEC_FILES" | grep -iqE '(schema\.sql$|(^|/)db\.ts$|(^|/)migrations)' && return 0
+  printf '%s' "$SPEC_BODY" | tr '\n\r\t' '   ' | grep -iqE '(add[[:space:]]+column|new[[:space:]_-]+(column|tool|field|table))'
+}
+needs_contract || exit 0
 
 has_line() {
-  printf '%s\n' "$SPEC_BODY" | grep -qE "^[[:space:]>*+-]*\`?$1:"
+  printf '%s\n' "$SPEC_BODY" \
+    | sed -nE "s/^[[:space:]>*+-]*([0-9]+[.)][[:space:]]+)?[\`*_]*$1:[\`*_]*(.*)\$/\2/p" \
+    | grep -qE '[^[:space:]`*_]'
 }
 
 has_line Nullable && exit 0
@@ -106,7 +111,7 @@ has_line Populated || MISSING="${MISSING:+$MISSING and }Populated:"
 [ -z "$MISSING" ] && exit 0
 
 WAIVED=$(tmb_gate_read "$DB" "SELECT count(*) FROM audit
-  WHERE event_type = 'spec_shape_gate_waived' AND json_valid(content_json)
+  WHERE event_type = 'spec_shape_gate_waived' AND from_node = 'bro' AND json_valid(content_json)
     AND CAST(json_extract(content_json, '\$.task_id') AS INTEGER) = ${SAFE_TASK_ID}
     AND json_extract(content_json, '\$.gate') = 'spec_shape'
     AND length(trim(COALESCE(json_extract(content_json, '\$.reason'), ''))) >= 10;")
@@ -119,5 +124,5 @@ fi
 TASK_REF=$(tmb_gate_read "$DB" "SELECT COALESCE(issue_id, '<issue>') || '|' || COALESCE(branch_id, '<branch>') FROM tasks WHERE id = ${SAFE_TASK_ID};")
 case "$TASK_REF" in __ERR__|'') TASK_REF='<issue>|<branch>' ;; esac
 
-jq -nc --arg id "$TASK_ID" --arg missing "$MISSING" --arg issue "${TASK_REF%%|*}" --arg branch "${TASK_REF#*|}" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: task_id="+$id+" adds a column, field, tool or migration, and its spec_body is missing a "+$missing+" line. Under ## Success Criteria, name each new item with `Writer: <tool/hook/function>` and `Populated: <verification[] command proving a non-null sample or count > 0>`, or `Nullable: <reason>`; fix it with task_update_spec. To waive, bro first records audit_append(event_type=\"spec_shape_gate_waived\", from_node=\"bro\", issue_id="+$issue+", branch_id=\"" + $branch + "\", summary=<why>, content_json={\"task_id\":"+$id+",\"gate\":\"spec_shape\",\"reason\":\"<why, >= 10 chars>\"}) and then respawns.")}}'
+jq -nc --arg id "$TASK_ID" --arg missing "$MISSING" --arg issue "${TASK_REF%%|*}" --arg branch "${TASK_REF#*|}" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: task_id="+$id+" adds a column, field, tool, table or migration, and its spec_body is missing a "+$missing+" line. Under ## Success Criteria, name each new item with `Writer: <tool/hook/function>` and `Populated: <verification[] command proving a non-null sample or count > 0>`, or `Nullable: <reason>`; fix it with task_update_spec. To waive, bro first records audit_append(event_type=\"spec_shape_gate_waived\", from_node=\"bro\", issue_id="+$issue+", branch_id=\"" + $branch + "\", summary=<why>, content_json={\"task_id\":"+$id+",\"gate\":\"spec_shape\",\"reason\":\"<why, >= 10 chars>\"}) and then respawns.")}}'
 exit 0

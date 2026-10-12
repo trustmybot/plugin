@@ -4,11 +4,13 @@
 #   bash tests/lib/assert-sql.sh <db> "<sql>" <expected> [--op eq|ge|le]
 #   bash tests/lib/assert-sql.sh --self-test
 #
-# Runs <sql> read-only against <db> (point it at a cp of the reference data),
+# Runs <sql> read-only against a private snapshot of <db> (and its -wal, folded
+# in), so <db> itself is never opened; point it at a cp of the reference data.
 # compares the single value it returns to <expected> and prints one line.
 #   eq  string equality (default)
 #   ge  numeric: result >= expected
 #   le  numeric: result <= expected
+# A NULL result or no rows fails under every op ("got NULL or no rows").
 # Exit 0 = pass, 1 = mismatch, 2 = usage error, missing DB, or SQL error.
 set -uo pipefail
 
@@ -40,14 +42,22 @@ assert_sql() {
   fi
   command -v sqlite3 >/dev/null 2>&1 || { echo "assert-sql: ERROR sqlite3 not on PATH"; return 2; }
 
-  local out err
-  err=$(mktemp)
-  if ! out=$(sqlite3 -readonly -bail "$db" "$sql" 2>"$err"); then
-    echo "assert-sql: ERROR query failed: $(head -1 "$err")"
-    rm -f "$err"
+  local out snap rc=0
+  snap=$(mktemp -d)
+  cp "$db" "$snap/ref.db" && { [ ! -f "$db-wal" ] || cp "$db-wal" "$snap/ref.db-wal"; } \
+    && sqlite3 "$snap/ref.db" "PRAGMA journal_mode=DELETE;" >/dev/null 2>"$snap/err" \
+    && out=$(sqlite3 -readonly -bail "$snap/ref.db" "$sql" 2>"$snap/err") || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "assert-sql: ERROR query failed: $(head -1 "$snap/err" 2>/dev/null)"
+    rm -rf "$snap"
     return 2
   fi
-  rm -f "$err"
+  rm -rf "$snap"
+
+  if [ -z "$out" ]; then
+    echo "assert-sql: FAIL got NULL or no rows, want $op '$expected': $sql"
+    return 1
+  fi
 
   if [ "$(printf '%s' "$out" | grep -c '')" -gt 1 ]; then
     echo "assert-sql: FAIL expected a single value, got $(printf '%s\n' "$out" | grep -c '') rows: $sql"
@@ -108,8 +118,37 @@ self_test() {
   expect 1 "ge mismatch" "$db" "SELECT count(*) FROM t" 5 --op ge
   expect 1 "le mismatch" "$db" "SELECT count(*) FROM t" 2 --op le
   expect 1 "more than one row" "$db" "SELECT id FROM t" 1
+  local op
+  for op in eq ge le; do
+    expect 1 "NULL result fails ($op)" "$db" "SELECT v FROM t WHERE id = 3" 0 --op "$op"
+    expect 1 "no rows fails ($op)" "$db" "SELECT v FROM t WHERE id = 99" 0 --op "$op"
+  done
+  expect 1 "NULL result fails against an empty expectation" "$db" "SELECT v FROM t WHERE id = 3" ""
+  if [[ "$(bash "$self" "$db" "SELECT v FROM t WHERE id = 3" 0 2>&1)" == *"got NULL or no rows"* ]]; then
+    echo "PASS NULL result is named"
+  else
+    echo "FAIL NULL result is not named"
+    failures=$((failures + 1))
+  fi
+  if [[ "$(bash "$self" "$db" "SELECT v FROM t WHERE id = 99" 0 --op ge 2>&1)" == *"got NULL or no rows"* ]]; then
+    echo "PASS no-row result is named"
+  else
+    echo "FAIL no-row result is not named"
+    failures=$((failures + 1))
+  fi
   expect 2 "missing DB" "$dir/absent.db" "SELECT 1" 1
   expect 2 "bad op" "$db" "SELECT 1" 1 --op gt
+
+  local wal="$dir/wal.db"
+  sqlite3 "$wal" "PRAGMA journal_mode=WAL; CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('w');" >/dev/null
+  rm -f "$wal-shm" "$wal-wal"
+  expect 0 "WAL-mode copy without -shm is readable" "$wal" "SELECT v FROM t" w
+  if [ ! -e "$wal-shm" ] && [ ! -e "$wal-wal" ]; then
+    echo "PASS WAL-mode copy left without -shm/-wal"
+  else
+    echo "FAIL WAL-mode copy grew a -shm/-wal"
+    failures=$((failures + 1))
+  fi
 
   touch -t 202001010000 "$db"
   before=$(mtime "$db")

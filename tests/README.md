@@ -281,11 +281,11 @@ Assertion helpers (`tests/lib/assert.sh`):
 A dry run or smoke test belongs in a task's `verification[]` as a command that exits non-zero when its expectation fails, so the verification gate and pr-reviewer re-run it. Point it at a `cp` of the reference data, not the live trajectory DB:
 
 ```bash
-cp .claude/tmb/trajectory.db /tmp/ref.db
-bash tests/lib/assert-sql.sh /tmp/ref.db "SELECT count(*) FROM tasks WHERE ended_at IS NOT NULL" 1 --op ge
+mkdir -p .claude/tmb/tmp && cp .claude/tmb/trajectory.db .claude/tmb/tmp/ref.db
+bash tests/lib/assert-sql.sh .claude/tmb/tmp/ref.db "SELECT count(*) FROM tasks WHERE status = 'closed'" 1 --op ge
 ```
 
-`assert-sql.sh <db> "<sql>" <expected> [--op eq|ge|le]` opens the DB read-only (`sqlite3 -readonly`), requires the query to return a single value, and compares it to `<expected>`: `eq` (default) as strings, `ge` / `le` numerically. It prints one `PASS` / `FAIL` line and exits 0 on a match, 1 on a mismatch, 2 on a usage error, a missing DB or a SQL error (a write statement fails here too). `bash tests/lib/assert-sql.sh --self-test` covers eq/ge/le, mismatches, a missing DB and the read-only guarantee (the DB's mtime is unchanged). A spec's `Populated:` line is usually one of these commands.
+`assert-sql.sh <db> "<sql>" <expected> [--op eq|ge|le]` queries a private snapshot of the DB with `sqlite3 -readonly`, so the file you name is never opened (copy `trajectory.db-wal` alongside as `ref.db-wal` when it exists and its rows are folded in too), requires the query to return a single value, and compares it to `<expected>`: `eq` (default) as strings, `ge` / `le` numerically. It prints one `PASS` / `FAIL` line and exits 0 on a match, 1 on a mismatch or a NULL / no-row result (`got NULL or no rows`, under every op), 2 on a usage error, a missing DB or a SQL error (a write statement fails here too). `bash tests/lib/assert-sql.sh --self-test` covers eq/ge/le, mismatches, NULL and no-row results, a WAL-mode copy without `-shm`, a missing DB and the read-only guarantee (the DB's mtime is unchanged). A spec's `Populated:` line is usually one of these commands.
 
 ## L5/L6 sandbox
 

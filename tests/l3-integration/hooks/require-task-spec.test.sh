@@ -4,7 +4,7 @@
 # task_id=<N> whose row in tasks table is pending, or running with no open swe
 # agent_runs row, AND has a non-empty spec_body. A schema-touching or
 # column-adding task also needs Writer: + Populated: lines or a Nullable: line,
-# unless bro recorded a spec_shape_gate_waived audit row for the task. See plugin CHANGELOG for history.
+# unless a spec_shape_gate_waived audit row with from_node = 'bro' exists for the task. See plugin CHANGELOG for history.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -63,6 +63,24 @@ INSERT INTO tasks VALUES (24, 'pending', '## Success Criteria
 INSERT INTO tasks VALUES (25, 'pending', 'Add a new column ended_at.
 ## Success Criteria
 Writer: bro_atomic_close', '["src/handlers.ts"]', 1, 'feat/col5');
+INSERT INTO tasks VALUES (26, 'pending', 'Touch the loader.', '["mcp/trajectory-server/src/DB.ts"]', 1, 'feat/dodge1');
+INSERT INTO tasks VALUES (27, 'pending', 'ADD  COLUMN ended_at to tasks.', '["src/handlers.ts"]', 1, 'feat/dodge2');
+INSERT INTO tasks VALUES (28, 'pending', 'ADD' || char(10) || 'COLUMN ended_at to tasks.', '["src/handlers.ts"]', 1, 'feat/dodge3');
+INSERT INTO tasks VALUES (29, 'pending', 'Add a new' || char(9) || 'field to the result.', '["src/handlers.ts"]', 1, 'feat/dodge4');
+INSERT INTO tasks VALUES (30, 'pending', 'Add a new-column for metering.', '["src/handlers.ts"]', 1, 'feat/dodge5');
+INSERT INTO tasks VALUES (31, 'pending', 'Ship it.', '["db/Migrations/040.sql"]', 1, 'feat/dodge6');
+INSERT INTO tasks VALUES (32, 'pending', '## Success Criteria
+1. Writer: task_update_status
+2. Populated: bash tests/lib/assert-sql.sh db.copy "SELECT count(*) FROM tasks" 1 --op ge', '["src/schema.sql"]', 1, 'feat/num');
+INSERT INTO tasks VALUES (33, 'pending', '## Success Criteria
+- Writer: task_update_status
+- Populated: bash tests/lib/assert-sql.sh db.copy "SELECT count(*) FROM tasks" 1 --op ge', '["src/schema.sql"]', 1, 'feat/bullet');
+INSERT INTO tasks VALUES (34, 'pending', '## Success Criteria
+- Writer:
+- Populated: bash tests/lib/assert-sql.sh db.copy "SELECT count(*) FROM tasks" 1 --op ge', '["src/schema.sql"]', 1, 'feat/empty');
+INSERT INTO tasks VALUES (35, 'pending', '## Success Criteria
+- `Writer: `
+- Nullable:', '["src/schema.sql"]', 1, 'feat/empty2');
 SQL
 
 swe_input() {
@@ -171,6 +189,31 @@ out=$(run_hook "$(swe_input 'task_id=25 please do the thing')")
 assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
 assert_contains "$out" "missing a Populated: line" "reason names the missing Populated: line"
 
+for dodge in "26:files[] names DB.ts" "27:ADD  COLUMN" "28:ADD<newline>COLUMN" "29:new<tab>field" "30:new-column" "31:files[] names Migrations/"; do
+  test_case "spec-shape trigger is whitespace- and case-proof: ${dodge#*:} without the lines is blocked"
+  out=$(run_hook "$(swe_input "task_id=${dodge%%:*} please do the thing")")
+  assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
+  assert_contains "$out" "missing a Writer: and Populated: line" "reason names the missing lines"
+done
+
+test_case "numbered-list Writer:/Populated: lines pass silently"
+out=$(run_hook "$(swe_input 'task_id=32 please do the thing')")
+assert_eq "" "$out" "silent pass"
+
+test_case "bulleted Writer:/Populated: lines pass silently"
+out=$(run_hook "$(swe_input 'task_id=33 please do the thing')")
+assert_eq "" "$out" "silent pass"
+
+test_case "an empty Writer: value does not count"
+out=$(run_hook "$(swe_input 'task_id=34 please do the thing')")
+assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
+assert_contains "$out" "missing a Writer: line" "reason names the empty Writer: line"
+
+test_case "an empty Nullable: value and a backticked empty Writer: do not count"
+out=$(run_hook "$(swe_input 'task_id=35 please do the thing')")
+assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
+assert_contains "$out" "missing a Writer: and Populated: line" "reason names both lines"
+
 test_case "the deny tells bro the audit_append waiver call for this task"
 out=$(run_hook "$(swe_input 'task_id=23 please do the thing')")
 assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny before any waiver"
@@ -184,6 +227,12 @@ sqlite3 "$DB" "
     (1, 'bro', 'spec_shape_gate_waived', 'other task', '{\"task_id\":20,\"gate\":\"spec_shape\",\"reason\":\"column dropped next task\"}'),
     (1, 'bro', 'spec_shape_gate_waived', 'batch waiver', '{\"task_id\":23,\"reason\":\"column dropped next task\"}'),
     (1, 'bro', 'spec_shape_gate_waived', 'short', '{\"task_id\":23,\"gate\":\"spec_shape\",\"reason\":\"short\"}');"
+out=$(run_hook "$(swe_input 'task_id=23 please do the thing')")
+assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
+
+test_case "an otherwise valid waiver row written by pr-reviewer does not allow"
+sqlite3 "$DB" "INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json) VALUES
+  (1, 'feat/col4', 'pr-reviewer', 'spec_shape_gate_waived', 'waive', '{\"task_id\":\"23\",\"gate\":\"spec_shape\",\"reason\":\"column is dropped again in the next task\"}');"
 out=$(run_hook "$(swe_input 'task_id=23 please do the thing')")
 assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
 
