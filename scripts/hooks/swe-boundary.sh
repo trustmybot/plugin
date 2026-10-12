@@ -106,6 +106,10 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
     esac
   }
 
+  _SWE_CWD=$(tmb_payload_cwd "$INPUT")
+  _SWE_ROOT=$(_wt_of "$_SWE_CWD")
+  [ -n "$_SWE_ROOT" ] || _SWE_ROOT="${CLAUDE_PROJECT_DIR:-}"
+
   SURFACE_PATH=""
   SURFACE_ANCHOR=""
   ROOT_CLAUDE_MD=""
@@ -128,7 +132,7 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
       SURFACE_ANCHOR="${_wt:+$_wpath}"
     fi
     if [ -n "$_wt" ]; then FENCE_PATHS+=("$_wpath"); fi
-  done < <(tmb_cmd_write_paths "$CMD" "$(tmb_payload_cwd "$INPUT")")
+  done < <(tmb_cmd_write_paths "$CMD" "$_SWE_CWD" "" "$_SWE_ROOT")
 
   if [ -n "$ROOT_CLAUDE_MD" ]; then
     jq -nc --arg r "$(claude_md_reason "$ROOT_CLAUDE_MD")" \
@@ -162,6 +166,11 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
     fi
   fi
   if [ -n "$SURFACE_PATH" ]; then
+    if [ "$_PB_ALLOWED" != "yes" ] && [ "${SURFACE_PATH%%[*?[]*}" != "$SURFACE_PATH" ]; then
+      jq -nc --arg r "BLOCKED: a loop or glob over $(dirname "${SURFACE_PATH%%[*?[]*}x") reaches prompt-surface paths (${SURFACE_PATH}); scope the listing below agents/, skills/, commands/, templates/ and rules/, exclude them in the source (-not -path '*/agents/*', --glob '!agents/**', ':!agents'), or inline the paths. Sanctioned route for intentional prompt edits: a prompt_bearing=1 task." \
+        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
+      exit 0
+    fi
     if [ "$_PB_ALLOWED" != "yes" ]; then
       jq -nc --arg r "BLOCKED: SWE may not write prompt-surface files via Bash ($(tmb_cmd_write_shapes)). Target: ${SURFACE_PATH}. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed." \
         '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'

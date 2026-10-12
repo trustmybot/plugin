@@ -64,9 +64,10 @@
 #     - `?` (ambiguous) when <cwd> is a repo with linked worktrees — the
 #       statement may run in any of them, so a guard that needs its branch
 #       must deny with tmb_deny_ambiguous_git_target;
-#     - `-` (unknown) when the path is behind a variable, `cd -`, or popd.
+#     - `-` (unknown) when the path is behind a variable, or after popd;
+#       `cd -` returns to the dir before the preceding cd (unknown without one).
 #
-# tmb_cmd_write_paths <command> [<cwd>] [raw]
+# tmb_cmd_write_paths <command> [<cwd>] [raw] [<root>]
 #   Every path the command writes, one per line, statement by statement
 #   (bash -c / eval bodies included): tmb_cmd_write_targets of the statement,
 #   every file of an in-place `sed -i` / `perl -i`, the sources a mv / git mv
@@ -83,8 +84,22 @@
 #   $VAR, ${VAR} and ${VAR:-def} in a path resolve from assignments earlier in
 #   the same command (VAR=value and export VAR=value statements, for loops,
 #   one level of nesting; every value a variable may hold is printed), else
-#   the default, else $PWD as the statement's own dir (cwd or a preceding cd)
-#   and the host's HOME / TMPDIR / CLAUDE_PROJECT_DIR / TMB_MODEL_CACHE_DIR.
+#   the default, else $PWD as the statement's own dir (cwd or a preceding cd),
+#   $OLDPWD, within the && chain of a cd, as the dir before that cd (`cd -`
+#   swaps the two; unresolvable elsewhere, since a failed cd leaves the
+#   shell's own $OLDPWD) and the host's HOME / TMPDIR /
+#   CLAUDE_PROJECT_DIR / TMB_MODEL_CACHE_DIR; ${VAR%suffix} strips a literal
+#   suffix. A loop variable (`for VAR in $(…)`, `src | while read VAR`,
+#   `while read VAR; do …; done < <(src)`) fed by one find, ls, git ls-files,
+#   git diff --name-only, rg --files or fd whose every listed-from path (its
+#   literal path arguments, else the dir it runs in; git -C composes) is
+#   inside <root> holds each listed path and `<path>/*` (`*` for names
+#   printed relative to the dir they are used in; `<path>/<pattern>` for a
+#   -name / --glob pattern that can name a root prompt file; `<path>/*.md` under a prompt-surface dir, and
+#   `<path>/<dir>/*.md` / `<path>/CLAUDE.md` when a recursive lister starts
+#   above a prompt-surface dir of <root> it does not exclude), so
+#   "$VAR", "$VAR.bak", "${VAR%.sh}.out" and "$VAR/x" are judged where the
+#   listed files lie; any other source, or no <root>, leaves it unresolvable.
 #   A VAR=value prefix does not reach its own command's words, as in the
 #   shell: `HOME=/x cat > "$HOME/f"` is judged on the host's $HOME/f. A path that still holds a variable (one never set
 #   here, set by read, or built by $( ) / backticks) prints
@@ -445,10 +460,74 @@ tmb_cmd_decode() {
 # With `assign`, a statement made only of VAR=value words is printed with the
 # dir token `=<dir-token>`, and an unquoted $( ) or backtick leaves `$()` (encoded) where
 # it stood, so a value or path built from a command reads as unresolvable.
+# Also with `assign`: every dir token carries \022<old-dir-token>, the dir
+# before the most recent cd (`-` when none; the base token may carry one too),
+# and a loop variable's source is attached as a word \022<dir-token>\022<word>
+# \022<word>… — to `for VAR in $(cmd …)` (after its `$()`) and to the `read` of
+# `src | while read VAR` / `while read VAR; do …; done < <(src)` — when that
+# source is one simple command (see _tmb_cmd_loop_source).
 _tmb_cmd_statements_enc() {
   local cmd="${1:-}" base="${2:-@}" depth="${3:-0}" assign="${4:-}"
   local dir stmt inner
   tmb_cmd_strip_literals "$cmd" keep | awk -v base="$base" -v home="${HOME:-}" -v assign="$assign" '
+    function closepar(pos,   k, d, ch, m) {
+      d = 0; m = length(buf)
+      for (k = pos; k <= m; k++) {
+        ch = substr(buf, k, 1)
+        if (ch == "(") d++
+        else if (ch == ")") { d--; if (d == 0) return k }
+      }
+      return 0
+    }
+    function srcmark(body, dir) {
+      if (body ~ /[;&|()`\n]/ || index(body, qo) || index(body, qc)) return ""
+      gsub(/[ \t]+/, sep, body)
+      sub("^" sep, "", body); sub(sep "$", "", body)
+      if (body == "") return ""
+      return sep dir sep body
+    }
+    function forsrc(pos,   j, k) {
+      if (stmt !~ /^[ \t]*(((do|then|else|elif|\{|!)[ \t]+)*)for[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+in[ \t]+\$$/) return ""
+      j = closepar(pos)
+      if (!j) return ""
+      k = j + 1
+      while (substr(buf, k, 1) ~ /[ \t]/) k++
+      if (k <= length(buf) && substr(buf, k, 1) !~ /[;\n]/) return ""
+      return srcmark(substr(buf, pos + 1, j - pos - 1), cur)
+    }
+    function donesrc(pos,   k, ch, w, depth, atcmd, pd, m, j) {
+      depth = 0; atcmd = 1; pd = 0; k = pos; m = length(buf)
+      while (k <= m) {
+        ch = substr(buf, k, 1)
+        if (ch ~ /[ \t]/) { k++; continue }
+        if (ch ~ /[;\n&|`]/ || ch == qo || ch == qc) { atcmd = 1; k++; continue }
+        if (ch == "(") { pd++; atcmd = 1; k++; continue }
+        if (ch == ")") { if (--pd < 0) return ""; atcmd = 0; k++; continue }
+        if (ch ~ /[<>]/) { atcmd = 0; k++; continue }
+        w = ""
+        while (k <= m) {
+          ch = substr(buf, k, 1)
+          if (ch ~ /[ \t;\n&|()<>`]/ || ch == qo || ch == qc) break
+          w = w ch; k++
+        }
+        if (atcmd && w == "do") { depth++; continue }
+        if (atcmd && w == "done") {
+          if (--depth < 0) return ""
+          if (depth > 0) { atcmd = 0; continue }
+          while (substr(buf, k, 1) ~ /[ \t]/) k++
+          if (substr(buf, k, 1) != "<") return ""
+          k++
+          while (substr(buf, k, 1) ~ /[ \t]/) k++
+          if (substr(buf, k, 2) != "<(") return "!"
+          j = closepar(k + 1)
+          if (!j) return "!"
+          w = srcmark(substr(buf, k + 2, j - k - 2), cur)
+          return (w == "") ? "!" : w
+        }
+        atcmd = (atcmd && w ~ /^(then|else|elif|if|while|until|!|\{|\}|time)$/) ? 1 : 0
+      }
+      return ""
+    }
     function norm(p,   n, parts, out, k, m, lead) {
       lead = ""
       if (substr(p, 1, 1) == "@") { lead = "@"; p = substr(p, 2) }
@@ -472,21 +551,28 @@ _tmb_cmd_statements_enc() {
       if (d == "-") return "-"
       return norm(d "/" p)
     }
-    function flush(   n, w, k, first, a0, d, p, out) {
+    function flush(   n, w, k, first, a0, d, p, out, o, t, waspiped, sawwhile, mk, chained) {
+      chained = (fsep == "&&"); fsep = ""
       n = split(stmt, w, /[ \t]+/)
       stmt = ""
       first = 1; asg = ""
+      waspiped = piped; piped = 0; lastout = ""; lastdir = cur; sawwhile = 0
       while (first <= n) {
         if (w[first] == "") { first++; continue }
+        if (w[first] == "while") sawwhile = 1
         if (w[first] ~ /^(\{|\}|!|if|then|else|elif|do|while|until|time|exec|command|nohup|sudo|env|fi|done|esac)$/) { first++; continue }
         if (w[first] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { asg = asg (asg == "" ? "" : " ") w[first]; first++; continue }
         break
       }
-      if (first > n) { if (assign && asg != "") printf "=%s\t%s\n", cur, asg; return }
+      if (first > n) {
+        if (assign && asg != "") { printf "=%s\t%s\n", cur (assign ? sep old : ""), asg; if (!chained) old = "-" }
+        return
+      }
       a0 = w[first]
       out = a0
       for (k = first + 1; k <= n; k++) if (w[k] != "") out = out " " w[k]
-      d = cur
+      lastout = out
+      d = cur; o = old
       if (a0 == "cd" || a0 == "pushd") {
         p = ""
         for (k = first + 1; k <= n; k++) {
@@ -494,10 +580,15 @@ _tmb_cmd_statements_enc() {
           if (w[k] ~ /^-[LPe@]+$/) continue
           p = w[k]; break
         }
-        if (p == "" || p == "-") cur = "-"
-        else cur = resolve(cur, p)
+        if (p == "-" && a0 == "cd") { t = cur; cur = old; old = t }
+        else if (p == "" || p == "-") { old = cur; cur = "-" }
+        else { old = cur; cur = resolve(cur, p) }
       } else if (a0 == "popd") {
-        cur = "-"
+        old = cur; cur = "-"
+      } else if (assign && a0 == "read") {
+        mk = sawwhile ? donesrc(i) : ""
+        if (mk == "" && waspiped) mk = pipesrc
+        if (mk != "" && mk != "!") out = out " " mk
       } else if (a0 == "git") {
         for (k = first + 1; k <= n; k++) {
           if (w[k] == "") continue
@@ -507,7 +598,8 @@ _tmb_cmd_statements_enc() {
           break
         }
       }
-      printf "%s\t%s\n", d, out
+      printf "%s\t%s\n", d (assign ? sep o : ""), out
+      if (!chained) old = "-"
     }
     function rawword(t,   k, m, ch, out, x) {
       out = ""; m = length(t)
@@ -522,7 +614,9 @@ _tmb_cmd_statements_enc() {
       return out
     }
     BEGIN {
-      cur = base; sp = 0; bt = 0; stmt = ""; qsp = 0
+      sep = sprintf("%c", 18); old = "-"
+      if (index(base, sep)) { old = substr(base, index(base, sep) + 1); base = substr(base, 1, index(base, sep) - 1) }
+      cur = base; sp = 0; bt = 0; stmt = ""; qsp = 0; piped = 0; pipesrc = ""
       qo = sprintf("%c", 7); qc = sprintf("%c", 8)
       for (k = 1; k <= 12; k++) enc[k] = sprintf("%c", k < 7 ? k : k + 7)
     }
@@ -533,39 +627,42 @@ _tmb_cmd_statements_enc() {
         c = substr(buf, i, 1)
         nx = substr(buf, i + 1, 1)
         if (c == qo) {
-          qsp++; qstmt[qsp] = stmt; qcur[qsp] = cur; qstart[qsp] = i + 1; qsps[qsp] = sp
+          qsp++; qstmt[qsp] = stmt; qcur[qsp] = cur; qold[qsp] = old; qstart[qsp] = i + 1; qsps[qsp] = sp
           stmt = ""; continue
         }
         if (c == qc) {
           if (qsp == 0) continue
           flush()
           stmt = qstmt[qsp] "$" enc[8] rawword(substr(buf, qstart[qsp], i - qstart[qsp])) enc[9]
-          cur = qcur[qsp]; sp = qsps[qsp]; qsp--
+          cur = qcur[qsp]; old = qold[qsp]; sp = qsps[qsp]; qsp--
           continue
         }
         if (c == "\n" || c == ";") { flush(); continue }
         if (c == "&") {
           if (nx == ">" || substr(buf, i - 1, 1) == ">") { stmt = stmt c; continue }
-          if (nx == "&") i++
+          if (nx == "&") { i++; fsep = "&&" }
           flush(); continue
         }
         if (c == "|") {
           if (substr(buf, i - 1, 1) == ">") { stmt = stmt c; continue }
-          if (nx == "|" || nx == "&") i++
-          flush(); continue
+          p1 = (nx != "|" && nx != "&")
+          if (!p1) i++
+          flush()
+          if (assign && p1) { piped = 1; pipesrc = (lastout != "") ? srcmark(lastout, lastdir) : "" }
+          continue
         }
         if (c == "(") {
           if (substr(stmt, length(stmt), 1) ~ /[$<>]/) {
-            if (assign && substr(stmt, length(stmt), 1) == "$") stmt = stmt enc[8] enc[9]
+            if (assign && substr(stmt, length(stmt), 1) == "$") stmt = stmt enc[8] enc[9] forsrc(i)
             else stmt = substr(stmt, 1, length(stmt) - 1)
           }
-          flush(); stack[++sp] = cur; continue
+          flush(); ostack[sp + 1] = old; stack[++sp] = cur; continue
         }
-        if (c == ")") { flush(); if (sp > 0) cur = stack[sp--]; continue }
+        if (c == ")") { flush(); if (sp > 0) { old = ostack[sp]; cur = stack[sp--] }; continue }
         if (c == "`") {
           if (assign && !bt) stmt = stmt "$" enc[8] enc[9]
           flush()
-          if (bt) { bt = 0; if (sp > 0) cur = stack[sp--] } else { bt = 1; stack[++sp] = cur }
+          if (bt) { bt = 0; if (sp > 0) { old = ostack[sp]; cur = stack[sp--] } } else { bt = 1; ostack[sp + 1] = old; stack[++sp] = cur }
           continue
         }
         stmt = stmt c
@@ -1010,7 +1107,8 @@ _tmb_cmd_join() {
 }
 
 tmb_cmd_write_paths() {
-  local _TMB_CMD_VARS="" _TMB_CMD_RAWJOIN="" _TMB_CMD_PWD=""
+  local _TMB_CMD_VARS="" _TMB_CMD_RAWJOIN="" _TMB_CMD_PWD="" _TMB_CMD_OLDTOK="-"
+  local _TMB_CMD_CWD="${2:-}" _TMB_CMD_ROOT="${4:-}" _TMB_CMD_ROOTC=""
   [ "${3:-}" = "raw" ] && _TMB_CMD_RAWJOIN=1
   _tmb_cmd_write_paths_in "${1:-}" "${2:-}" "@" 0
   return 0
@@ -1051,13 +1149,17 @@ _tmb_cmd_heredoc_align() {
 # assignments accumulate in the caller-scoped _TMB_CMD_VARS.
 _tmb_cmd_write_paths_in() {
   local cmd="${1:-}" cwd="${2:-}" base="${3:-@}" depth="${4:-0}"
-  local listing bodies="" dir stmt p inner kind idx=0 w prog b_idx b_body
+  local listing bodies="" dir stmt p inner kind idx=0 w prog b_idx b_body old
   local -a words progs
-  local _TMB_CMD_VARS="${_TMB_CMD_VARS:-}"
+  local _TMB_CMD_VARS="${_TMB_CMD_VARS:-}" _TMB_CMD_OLDTOK="-"
   listing=$(_tmb_cmd_statements_enc "$cmd" "$base" 3 assign)
   case "$cmd" in *'<<'*) bodies=$(_tmb_cmd_heredoc_align "$cmd" "$listing") ;; esac
   while IFS="$(printf '\t')" read -r dir stmt; do
     idx=$((idx + 1))
+    old="${dir#*$'\022'}"
+    [ "$old" != "$dir" ] || old="-"
+    dir="${dir%%$'\022'*}"
+    _TMB_CMD_OLDTOK="$old"
     read -r -a words <<< "$stmt"
     [ "${#words[@]}" -gt 0 ] || continue
     if [ "${dir#=}" != "$dir" ]; then
@@ -1068,7 +1170,7 @@ _tmb_cmd_write_paths_in() {
     if [ "$depth" -lt 3 ]; then
       inner=$(_tmb_cmd_inner "$stmt")
       if [ -n "$inner" ]; then
-        _tmb_cmd_write_paths_in "$(tmb_cmd_decode "$inner")" "$cwd" "$dir" $((depth + 1))
+        _tmb_cmd_write_paths_in "$(tmb_cmd_decode "$inner")" "$cwd" "$dir"$'\022'"$old" $((depth + 1))
         continue
       fi
     fi
@@ -1090,7 +1192,7 @@ _tmb_cmd_write_paths_in() {
       done <<< "$bodies"
       for prog in ${progs[@]+"${progs[@]}"}; do
         if [ "$kind" = "sh" ]; then
-          [ "$depth" -lt 3 ] && _tmb_cmd_write_paths_in "$prog" "$cwd" "$dir" $((depth + 1))
+          [ "$depth" -lt 3 ] && _tmb_cmd_write_paths_in "$prog" "$cwd" "$dir"$'\022'"$old" $((depth + 1))
         else
           while IFS= read -r p; do
             [ -n "$p" ] && _tmb_cmd_emit "$dir" "$p" "$cwd"
@@ -1146,10 +1248,12 @@ _tmb_cmd_var_set() {
 
 # _tmb_cmd_track_vars <encoded-statement-words…>
 # The assignments a statement makes for the statements after it: export /
-# declare / typeset / local / readonly NAME=value, a for loop's words, and
-# read / printf -v (values the guard cannot know).
+# declare / typeset / local / readonly NAME=value, a for loop's words (or its
+# $( ) source, _tmb_cmd_loop_source), the variable of a `read` fed by a source
+# the listing attached, and read / printf -v (values the guard cannot know).
 _tmb_cmd_track_vars() {
-  local w tab
+  local w tab mk="" skip=0
+  local -a names=()
   tab="$(printf '\t')"
   case "${1##*/}" in
     export|declare|typeset|local|readonly)
@@ -1162,6 +1266,12 @@ _tmb_cmd_track_vars() {
       if [ "${3:-}" = "in" ]; then
         local name="${2:-}"
         shift 3
+        case "$#:${1:-}" in
+          1:'$'$'\017\020\022'*)
+            _tmb_cmd_loop_source "$name" "${1#?$'\017\020'}" || _TMB_CMD_VARS="${_TMB_CMD_VARS}${name}${tab}"$'\001'$'\n'
+            return 0
+            ;;
+        esac
         for w in "$@"; do _tmb_cmd_var_set "$name" "$(tmb_cmd_decode "$w")"; done
       else
         _TMB_CMD_VARS="${_TMB_CMD_VARS}${2:-}${tab}"$'\001'$'\n'
@@ -1170,14 +1280,320 @@ _tmb_cmd_track_vars() {
     read)
       shift
       for w in "$@"; do
-        case "$w" in [A-Za-z_]*) _TMB_CMD_VARS="${_TMB_CMD_VARS}${w}${tab}"$'\001'$'\n' ;; esac
+        if [ "$skip" = 1 ]; then skip=0; continue; fi
+        case "$w" in
+          $'\022'*) mk="$w" ;;
+          -d) skip=1 ;;
+          -r|-e) ;;
+          -*) mk="!" ;;
+          [A-Za-z_]*) names+=("$w") ;;
+        esac
       done
+      if [ "${#names[@]}" = 1 ] && [ -n "$mk" ] && [ "$mk" != "!" ] && _tmb_cmd_loop_source "${names[0]}" "$mk"; then return 0; fi
+      for w in ${names[@]+"${names[@]}"}; do _TMB_CMD_VARS="${_TMB_CMD_VARS}${w}${tab}"$'\001'$'\n'; done
       ;;
     printf)
       [ "${2:-}" = "-v" ] && _TMB_CMD_VARS="${_TMB_CMD_VARS}${3:-}${tab}"$'\001'$'\n'
       ;;
   esac
   return 0
+}
+
+# _tmb_cmd_loop_source <name> <source-mark>
+# Records the values of a loop variable fed by one path-listing command
+# (\022<dir-token>\022<word>\022<word>…, from _tmb_cmd_statements_enc), when
+# that command is find, ls, git ls-files, git diff --name-only, rg --files or
+# fd and every path it lists from (its literal path arguments, else the dir it
+# runs in; git -C composes) is inside the run root _TMB_CMD_ROOT. The values
+# are each listed path itself and a glob under it (`<path>`, `<path>/*`; `*`
+# for names printed relative to the dir they are used in), `<path>/<pattern>`
+# for a -name / --glob pattern that can name CLAUDE.md / CODEX.md / CURSOR.md /
+# GEMINI.md, `<path>/*.md` when the path lies in a
+# prompt-surface dir, and `<path>/<surface-dir>/*.md` (`<path>/CLAUDE.md` for
+# the root's own) when a recursive lister starts above a prompt-surface dir
+# of the root whose whole subtree the source does not exclude
+# (_tmb_cmd_excl_covers) and its pattern can match there (-iname / --iglob
+# case-insensitively), so a
+# write through the variable is judged where its listed files lie and
+# reaches the prompt-surface rule. Non-zero, nothing recorded, for any other
+# source.
+_tmb_cmd_loop_source() {
+  local name="${1:-}" m="${2#$'\022'}" dirtok dir="" cmd w k=0 n gdir="" sub="" ok=0 listed=0 v p bound pat rel d hit v2
+  local -a words=() args=() paths=() vals=() exp=() pats=() excl=() prune=()
+  [ -n "${_TMB_CMD_ROOT:-}" ] || return 1
+  case "$name" in ''|[0-9]*|*[!A-Za-z0-9_]*) return 1 ;; esac
+  dirtok="${m%%$'\022'*}"
+  m="${m#"$dirtok"}"
+  m=$(tmb_cmd_decode "${m#$'\022'}")
+  case "$dirtok" in
+    /*) dir="$dirtok" ;;
+    @) dir="${_TMB_CMD_CWD:-}" ;;
+    @/*) [ -n "${_TMB_CMD_CWD:-}" ] && dir="${_TMB_CMD_CWD%/}/${dirtok#@/}" ;;
+    *) dir="" ;;
+  esac
+  [ -n "$dir" ] || return 1
+  IFS=$'\022' read -r -a words <<< "$m"
+  for ((k = 1; k < ${#words[@]}; k++)); do
+    w="${words[$k]}"
+    case "$w" in
+      '2>/dev/null') continue ;;
+      '2>') [ "${words[$((k + 1))]:-}" = /dev/null ] || return 1; k=$((k + 1)); continue ;;
+      *'<'*|*'>'*|*'`'*) return 1 ;;
+    esac
+    args+=("$w")
+  done
+  n=${#args[@]}
+  k=0
+  cmd="${words[0]##*/}"
+  case "$cmd" in
+    find)
+      while [ "$k" -lt "$n" ]; do
+        case "${args[$k]}" in
+          -L) return 1 ;;
+          -H|-P|-O*) k=$((k + 1)) ;;
+          -D) k=$((k + 2)) ;;
+          --) k=$((k + 1)); break ;;
+          *) break ;;
+        esac
+      done
+      while [ "$k" -lt "$n" ]; do
+        case "${args[$k]}" in -*|'('|'!'|,) break ;; esac
+        paths+=("${args[$k]}"); k=$((k + 1))
+      done
+      while [ "$k" -lt "$n" ]; do
+        w="${args[$k]}"
+        k=$((k + 1))
+        case "$w" in
+          -exec*|-ok*|-printf|-fprint*|-fls|-ls|-follow) return 1 ;;
+          -name) pats+=("s:${args[$k]:-}"); k=$((k + 1)) ;;
+          -iname) pats+=("i:${args[$k]:-}"); k=$((k + 1)) ;;
+          -regex|-iregex) pats+=("r:${args[$k]:-}"); k=$((k + 1)) ;;
+          -not|'!')
+            case "${args[$k]:-}" in
+              -path|-wholename) excl+=("P:${args[$((k + 1))]:-}"); k=$((k + 2)) ;;
+              -name) excl+=("N:${args[$((k + 1))]:-}"); k=$((k + 2)) ;;
+            esac
+            ;;
+          -path|-wholename|-ipath)
+            [ "${args[$((k + 1))]:-}" = -prune ] && prune+=("R:${args[$k]:-}")
+            k=$((k + 1))
+            ;;
+          -o|-or) ok=1 ;;
+        esac
+      done
+      [ "$ok" = 0 ] || excl=()
+      excl+=(${prune[@]+"${prune[@]}"})
+      ok=0
+      [ "${#paths[@]}" -gt 0 ] || paths=(.)
+      ;;
+    ls)
+      for w in ${args[@]+"${args[@]}"}; do
+        case "$w" in
+          --) ;;
+          --*) return 1 ;;
+          -*) case "${w#-}" in *[!1AaBCdFfhimpRrSstuUvXx]*) return 1 ;; esac ;;
+          *) paths+=("$w") ;;
+        esac
+      done
+      [ "${#paths[@]}" -gt 0 ] || paths=(.)
+      listed=1
+      ;;
+    git)
+      gdir="$dir"
+      while [ "$k" -lt "$n" ]; do
+        case "${args[$k]}" in
+          -C)
+            p="${args[$((k + 1))]:-}"
+            case "$p" in /*) gdir="$p" ;; '') return 1 ;; *) gdir="${gdir%/}/$p" ;; esac
+            k=$((k + 2))
+            ;;
+          -c) k=$((k + 2)) ;;
+          -*) k=$((k + 1)) ;;
+          *) break ;;
+        esac
+      done
+      sub="${args[$k]:-}"
+      k=$((k + 1))
+      case "$sub" in ls-files|diff) ;; *) return 1 ;; esac
+      for w in ${args[@]+"${args[@]:$k}"}; do
+        case "$w" in
+          --name-only) ok=1 ;;
+          --format*|--full-name|--output*|--src-prefix*|--dst-prefix*) return 1 ;;
+          -*) ;;
+          ':!'*|':^'*) excl+=("G:${w#:?}") ;;
+          ':(exclude)'*) excl+=("G:${w#:(exclude)}") ;;
+          :*) return 1 ;;
+          *) case "$w" in /*) paths+=("$w") ;; *) paths+=("${gdir%/}/$w") ;; esac ;;
+        esac
+      done
+      [ "$sub" = ls-files ] || [ "$ok" = 1 ] || return 1
+      [ "${#paths[@]}" -gt 0 ] || paths=("$gdir")
+      vals=('*')
+      ;;
+    rg)
+      while [ "$k" -lt "$n" ]; do
+        w="${args[$k]}"
+        k=$((k + 1))
+        case "$w" in
+          --files) ok=1 ;;
+          -L|--follow|--path-separator*|--pre|--pre=*) return 1 ;;
+          -g|--glob|--iglob)
+            case "$w:${args[$k]:-}" in
+              --iglob:'!'*) ;;
+              *:'!'*) excl+=("Q:${args[$k]#!}") ;;
+              --iglob:*) pats+=("i:${args[$k]:-}") ;;
+              *) pats+=("s:${args[$k]:-}") ;;
+            esac
+            k=$((k + 1))
+            ;;
+          -i|--ignore-case|--glob-case-insensitive) sub=i ;;
+          -t|--type|-T|--type-not|--type-add|-j|--threads|-d|--max-depth|--max-filesize|--ignore-file|--sort|--sortr|-E|--encoding) k=$((k + 1)) ;;
+          -*) ;;
+          *) paths+=("$w") ;;
+        esac
+      done
+      [ "$ok" = 1 ] || return 1
+      if [ "$sub" = i ]; then
+        for ((k = 0; k < ${#pats[@]}; k++)); do pats[$k]="i:${pats[$k]#?:}"; done
+        excl=()
+      fi
+      ;;
+    fd|fdfind)
+      while [ "$k" -lt "$n" ]; do
+        w="${args[$k]}"
+        k=$((k + 1))
+        case "$w" in
+          -x|--exec|-X|--exec-batch|--format*|--path-separator*|-L|--follow|-l|--list-details|--base-directory*) return 1 ;;
+          --search-path) paths+=("${args[$k]:-}"); k=$((k + 1)) ;;
+          -E|--exclude) excl+=("F:${args[$k]:-}"); k=$((k + 1)) ;;
+          -e|--extension|-t|--type|-d|--max-depth|--min-depth|--exact-depth|-S|--size|--changed-within|--changed-before|-o|--owner|-j|--threads|--max-results|-c|--color|--ignore-file|--and) k=$((k + 1)) ;;
+          -*) ;;
+          *) if [ "$ok" = 0 ]; then ok=1; else paths+=("$w"); fi ;;
+        esac
+      done
+      ;;
+    *) return 1 ;;
+  esac
+  [ -n "$_TMB_CMD_ROOTC" ] || _TMB_CMD_ROOTC=$(tmb_path_canonical "$_TMB_CMD_ROOT")
+  bound="$_TMB_CMD_ROOTC"
+  if [ "$cmd" = git ]; then
+    bound=$(tmb_path_canonical "$gdir")
+    case "$bound/" in "${_TMB_CMD_ROOTC%/}/"*) ;; *) return 1 ;; esac
+  fi
+  [ "${#paths[@]}" -gt 0 ] || paths=(.)
+  for p in "${paths[@]}"; do
+    _tmb_cmd_expand "$p" || return 1
+    exp=("${_TMB_CMD_EXP[@]}")
+    for v in "${exp[@]}"; do
+      case "$v" in \~) v="${HOME:-}" ;; \~/*) v="${HOME:-}/${v#\~/}" ;; esac
+      case "$v" in /*) w="$v" ;; *) w="${dir%/}/$v" ;; esac
+      case "$w" in *[*?[]*) w="${w%%[*?[]*}"; w="${w%/*}"; [ -n "$w" ] || w=/ ;; esac
+      w=$(tmb_path_canonical "$w")
+      case "$w/" in "${bound%/}/"*) ;; *) return 1 ;; esac
+      w="${w#"${_TMB_CMD_ROOTC%/}"}"
+      if tmb_is_prompt_surface_path "${w%/}/x.md"; then
+        if [ "$cmd" = git ]; then vals+=("${p%/}/*.md"); else vals+=("${v%/}/*.md"); fi
+      elif [ "$cmd" != ls ]; then
+        rel="${w#/}"
+        for d in agents skills commands templates rules .claude/agents CLAUDE.md; do
+          case "$d" in
+            CLAUDE.md) [ -z "$rel" ] && [ -f "${_TMB_CMD_ROOTC%/}/$d" ] || continue ;;
+            *) [ -d "${_TMB_CMD_ROOTC%/}/$d" ] || continue
+               [ -z "$rel" ] || [ "${d#"$rel"/}" != "$d" ] || continue ;;
+          esac
+          hit=0
+          for pat in ${excl[@]+"${excl[@]}"}; do
+            if _tmb_cmd_excl_covers "$pat" "$d" "${d#"$rel"/}" "$v"; then hit=1; fi
+          done
+          [ "$hit" = 0 ] || continue
+          if [ "${#pats[@]}" -gt 0 ]; then
+            hit=0
+            for pat in "${pats[@]}"; do
+              for v2 in x.md SKILL.md CLAUDE.md; do
+                [ "$d" = CLAUDE.md ] && [ "$v2" != CLAUDE.md ] && continue
+                if _tmb_cmd_pat_matches "$pat" "$v2"; then hit=1; fi
+              done
+            done
+            [ "$hit" = 1 ] || continue
+          fi
+          case "$d" in CLAUDE.md) w="$d" ;; *) w="${d#"$rel"/}/*.md" ;; esac
+          if [ "$cmd" = git ]; then vals+=("${p%/}/$w"); else vals+=("${v%/}/$w"); fi
+        done
+      fi
+      [ "$cmd" = git ] && continue
+      vals+=("$v" "${v%/}/*")
+      for pat in ${pats[@]+"${pats[@]}"}; do
+        case "${pat#?:}" in ''|*/*|'!'*) continue ;; esac
+        for v2 in CLAUDE.md CODEX.md CURSOR.md GEMINI.md; do
+          if _tmb_cmd_pat_matches "$pat" "$v2"; then vals+=("${v%/}/${pat#?:}"); break; fi
+        done
+      done
+    done
+  done
+  [ "$listed" = 1 ] && vals+=('*')
+  m=$'\n'
+  for v in "${vals[@]}"; do
+    case "$m" in *$'\n'"$v"$'\n'*) ;; *) m="$m$v"$'\n' ;; esac
+  done
+  m="${m#$'\n'}"
+  k=0
+  while IFS= read -r v; do k=$((k + 1)); done <<< "${m%$'\n'}"
+  [ "$k" -le 16 ] || return 1
+  while IFS= read -r v; do _TMB_CMD_VARS="${_TMB_CMD_VARS}${name}"$'\t'"${v}"$'\n'; done <<< "${m%$'\n'}"
+  return 0
+}
+
+# _tmb_cmd_pat_matches <kind:pattern> <name>
+# Whether a lister's name pattern can match <name>: `s:` a glob, `i:` a glob
+# compared case-insensitively, `r:` a regex (assumed to match).
+_tmb_cmd_pat_matches() {
+  local pat="${1#?:}" rc=1 was=""
+  case "$1" in
+    r:*) return 0 ;;
+    i:*)
+      shopt -q nocasematch && was=1
+      shopt -s nocasematch
+      # shellcheck disable=SC2254 # the pattern is the source's own glob
+      case "$2" in $pat) rc=0 ;; esac
+      [ -n "$was" ] || shopt -u nocasematch
+      return "$rc"
+      ;;
+  esac
+  # shellcheck disable=SC2254 # the pattern is the source's own glob
+  case "$2" in $pat) return 0 ;; esac
+  return 1
+}
+
+# _tmb_cmd_excl_covers <kind:pattern> <surface> <surface-below-listing> <listed-path>
+# Whether a lister's exclusion leaves out the whole prompt-surface subtree
+# <surface> (a dir of the root, or CLAUDE.md): find -not -path '<dir>/*' or
+# '<dir>/**' and -path '<dir>' -prune (<dir> as */name, ./sub, <listed>/sub or
+# <root>/sub), -not -name CLAUDE.md, a :!sub git pathspec, fd -E sub and rg
+# --glob '!sub' / '!sub/**'. A deeper path covers nothing.
+_tmb_cmd_excl_covers() {
+  local e="${1#?:}" d="$2" sub="$3" l="${4%/}" b="${2##*/}" r
+  case "$1" in
+    N:*) [ "$d" = CLAUDE.md ] && [ "$e" = CLAUDE.md ]; return ;;
+    P:*)
+      case "$e" in
+        */\*\*) r="${e%/\*\*}" ;;
+        */\*) r="${e%/\*}" ;;
+        *) [ "$d" = CLAUDE.md ] || return 1; r="$e" ;;
+      esac
+      ;;
+    R:*) r="$e" ;;
+    G:*)
+      r="${e%/}"; r="${r%/\*\*}"; r="${r%/\*}"
+      [ "$r" = "$d" ]; return
+      ;;
+    F:*|Q:*)
+      r="${e%/}"; r="${r%/\*\*}"
+      [ "$r" = "$d" ] || [ "$r" = "**/$b" ] || { [ "$r" = "$b" ] && [ "${r#*/}" = "$r" ]; }; return
+      ;;
+    *) return 1 ;;
+  esac
+  [ "$r" = "*/$b" ] || [ "$r" = "**/$b" ] || [ "$r" = "$l/$sub" ] || [ "$r" = "./$sub" ] || \
+    [ "$r" = "${_TMB_CMD_ROOT%/}/$d" ] || [ "$r" = "${_TMB_CMD_ROOTC%/}/$d" ]
 }
 
 # _tmb_cmd_var_get <name>
@@ -1204,12 +1620,14 @@ _tmb_cmd_dir_path() {
 
 # _tmb_cmd_env_var <name>
 # The value of a variable the command did not set: $PWD is the statement's
-# own dir (_TMB_CMD_PWD); HOME, TMPDIR, CLAUDE_PROJECT_DIR and
-# TMB_MODEL_CACHE_DIR (with its default) are the host's.
+# own dir (_TMB_CMD_PWD), $OLDPWD the dir before the most recent cd in this
+# command (_TMB_CMD_OLDTOK; unknown without one); HOME, TMPDIR,
+# CLAUDE_PROJECT_DIR and TMB_MODEL_CACHE_DIR (with its default) are the host's.
 _tmb_cmd_env_var() {
   local v=""
   case "${1:-}" in
     PWD) v="${_TMB_CMD_PWD:-}" ;;
+    OLDPWD) v=$(_tmb_cmd_dir_path "${_TMB_CMD_OLDTOK:--}" "${_TMB_CMD_CWD:-}") ;;
     HOME) v="${HOME:-}" ;;
     TMPDIR) v="${TMPDIR:-}" ;;
     CLAUDE_PROJECT_DIR) v="${CLAUDE_PROJECT_DIR:-}" ;;
@@ -1221,12 +1639,13 @@ _tmb_cmd_env_var() {
 
 # _tmb_cmd_expand <word>
 # Expands $VAR, ${VAR}, ${VAR:-def} / ${VAR-def} / ${VAR:=def} / ${VAR=def}
+# and ${VAR%suffix} / ${VAR%%suffix} (a literal suffix: letters, digits, . _ -)
 # from _TMB_CMD_VARS (else the default, else _tmb_cmd_env_var) into the
 # array _TMB_CMD_EXP (every combination of values, at most 16). Non-zero,
 # with the variable in _TMB_CMD_UNRES, when one cannot be resolved; a $( ) or
 # backtick is `$()`.
 _tmb_cmd_expand() {
-  local rest="${1:-}" lit name op def vals v a k
+  local rest="${1:-}" lit name op def vals v a k cut
   local -a acc=("") nxt
   _TMB_CMD_EXP=()
   _TMB_CMD_UNRES=""
@@ -1238,7 +1657,7 @@ _tmb_cmd_expand() {
     lit="${rest%%[\$\`]*}"
     rest="${rest#"$lit"}"
     for ((k = 0; k < ${#acc[@]}; k++)); do acc[$k]="${acc[$k]}${lit}"; done
-    op=""; def=""
+    op=""; def=""; cut=""
     case "$rest" in
       '`'*|'$('*) _TMB_CMD_UNRES='$()'; return 1 ;;
       '${'*)
@@ -1253,6 +1672,10 @@ _tmb_cmd_expand() {
           '') ;;
           :-*|:=*) def="${op#??}"; op=def ;;
           -*|=*) def="${op#?}"; op=def ;;
+          %*)
+            cut="${op#%}"; cut="${cut#%}"; op=""
+            case "$cut" in ''|*[!A-Za-z0-9._-]*) _TMB_CMD_UNRES="$name"; return 1 ;; esac
+            ;;
           *) _TMB_CMD_UNRES="$name"; return 1 ;;
         esac
         ;;
@@ -1279,7 +1702,7 @@ _tmb_cmd_expand() {
     fi
     nxt=()
     for a in "${acc[@]}"; do
-      while IFS= read -r v; do nxt+=("$a$v"); done <<< "$vals"
+      while IFS= read -r v; do nxt+=("$a${v%"$cut"}"); done <<< "$vals"
     done
     if [ "${#nxt[@]}" -gt 16 ]; then _TMB_CMD_UNRES="$name"; return 1; fi
     acc=("${nxt[@]}")
