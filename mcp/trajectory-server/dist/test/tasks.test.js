@@ -1418,6 +1418,58 @@ describe('taskTools', () => {
         assert.ok(auditRow !== undefined, 'spec_shape_gate_waived audit row must be written when waived');
         db.close();
     });
+    it('task_create_batch waive_spec_shape: one per-task row in the require-task-spec shape on the task\'s issue, no batch-level row', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const reason = 'placeholder tasks — no Writer/Populated lines needed';
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+            waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+            waive_spec_shape: true, waive_spec_shape_reason: reason,
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [
+                { branch_id: 'feat/waived-a', description: 'a', spec_body: 'placeholder' },
+                { branch_id: 'feat/waived-b', description: 'b', spec_body: 'placeholder' },
+                { branch_id: 'feat/waived-c', description: 'c', spec_body: 'placeholder' },
+            ],
+        });
+        assert.ok(!result.isError, JSON.stringify(parseResult(result)));
+        const created = parseBatch(result);
+        assert.equal(created.length, 3);
+        const rows = db.all("SELECT issue_id, branch_id, from_node, content_json FROM audit WHERE event_type = 'spec_shape_gate_waived' ORDER BY id");
+        assert.equal(rows.length, 3, 'one row per created task, no batch-level row');
+        rows.forEach((row, i) => {
+            const task = created[i];
+            assert.equal(row.issue_id, issueId);
+            assert.equal(row.branch_id, task['branch_id']);
+            assert.equal(row.from_node, 'bro');
+            assert.deepEqual(JSON.parse(row.content_json), {
+                task_id: task['id'], gate: 'spec_shape', reason, waived_by: 'bro', source: 'task_create_batch',
+            });
+        });
+        db.close();
+    });
+    it('task_create_batch without waive_spec_shape writes no spec_shape_gate_waived row', async () => {
+        const db = tempDB();
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'not under test',
+            waive_intent_gate: true, waive_intent_gate_reason: 'not under test',
+            waive_decision_gate: true, waive_decision_gate_reason: 'not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{ branch_id: 'feat/unwaived', description: 'u', spec_body: '## Success Criteria\n- works' }],
+        });
+        assert.ok(!result.isError, JSON.stringify(parseResult(result)));
+        assert.equal(db.get("SELECT COUNT(*) AS c FROM audit WHERE event_type = 'spec_shape_gate_waived'").c, 0);
+        db.close();
+    });
     it('task_create_batch spec-shape gate: still accepts a spec that includes ## Files/## Verification (backward-compat)', async () => {
         const db = tempDB();
         const issueId = await createIssue(db);

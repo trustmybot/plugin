@@ -24249,7 +24249,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "scan_discovered_repair", writers: ["server"], description: "The v32 migration deleted `scan_discovered` rows whose `(name, kind)` has no `cheatcodes` row; filed under the system issue `-1` by `system`; `content_json` carries `deleted`" },
   { type: "scope_gate_waived", writers: ["bro"], description: "`bro_atomic_close(waive_scope_gate: true)` accepted the task's changed paths outside its `files[]` with a `scope_waiver_reason`; `content_json` carries `skill`, `task_id`, `commit_sha`, `accepted_paths`, `reason`, `base_moved`, `recorded_base`, `merge_base`. `task_create_batch(waive_scope_gate: true)` writes one when it skips its question gate, `content_json` carrying `waive_scope_gate_reason`, `tasks_created`" },
   { type: "skill_creator_blocked", writers: ["bro"], description: "`tmb_skill-creator` halted before writing the skill (no Human approval); written by bro via `audit_append`", reserved: true },
-  { type: "spec_shape_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_spec_shape`; `require-task-spec` reads a bro-written row as the spawn waiver; `content_json` carries the waiver reason" },
+  { type: "spec_shape_gate_waived", writers: ["bro"], description: "A task's spec-shape waiver, one row per task on its issue with from_node `bro`; `task_create_batch` and `task_provision` called with `waive_spec_shape` write one for every task they create, and bro records one for an existing task through `audit_append`; `content_json` carries `task_id`, `gate` (`spec_shape`), `reason`, `waived_by` (`bro`), `source` (`task_create_batch`, `task_provision`, or absent for `audit_append`); `require-task-spec` reads it as the spawn waiver" },
   { type: "swe_brief_fetched", writers: ["hook"], description: "`swe-brief-gate` recorded that a SWE fetched its `task_brief`; the brief gate and `bro-turn-usage` read it" },
   { type: "sync_skipped", writers: ["bro"], description: "Issue sync skipped a remote write because `issue_sync` is off; `content_json` carries `issue_id`, `reason`" },
   { type: "task_escalated_by_issue_close", writers: ["bro"], description: "`issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason`" },
@@ -27596,6 +27596,17 @@ function wrapHandler4(fn) {
     }
   };
 }
+function insertSpecShapeWaiver(db2, task, reason, source, createdAt) {
+  insertAudit(db2, {
+    issue_id: task.issue_id,
+    branch_id: task.branch_id,
+    from_node: "bro",
+    event_type: "spec_shape_gate_waived",
+    summary: reason.slice(0, 200),
+    content_json: JSON.stringify({ task_id: task.task_id, gate: "spec_shape", reason, waived_by: "bro", source }),
+    created_at: createdAt
+  });
+}
 function taskTools(db2, runContext = claudeRunContext(db2)) {
   const definitions = [
     {
@@ -27692,7 +27703,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
           },
           waive_spec_shape: {
             type: "boolean",
-            description: "Bypass the spec-section shape gate (## Success Criteria, \u2264200 lines)."
+            description: "Bypass the spec-section shape gate (## Success Criteria, \u2264200 lines). Writes one spec_shape_gate_waived row per created task, which also opens the require-task-spec spawn gate for it."
           },
           waive_spec_shape_reason: {
             type: "string",
@@ -28163,15 +28174,9 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
           });
         }
         if (specShapeWaived) {
-          insertAudit(db2, {
-            issue_id: issueId,
-            branch_id: firstBranch,
-            from_node: agentFromNode,
-            event_type: "spec_shape_gate_waived",
-            summary: specShapeWaiverReason.slice(0, 200),
-            content_json: JSON.stringify({ waive_spec_shape_reason: specShapeWaiverReason, tasks_created: results.length }),
-            created_at: now
-          });
+          for (const r of results) {
+            insertSpecShapeWaiver(db2, { issue_id: r.issue_id, branch_id: r.branch_id, task_id: r.id }, specShapeWaiverReason, "task_create_batch", now);
+          }
         }
         return results;
       });
@@ -31361,6 +31366,14 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             type: "string",
             description: "Required when waive_registry_gate is true (min 10 chars): why the gate is unnecessary."
           },
+          waive_spec_shape: {
+            type: "boolean",
+            description: "Record a spec_shape_gate_waived row for the task, which opens the require-task-spec spawn gate (Writer:/Populated: lines) for it."
+          },
+          waive_spec_shape_reason: {
+            type: "string",
+            description: "Required when waive_spec_shape is true (min 10 chars): why the spec needs no Writer:/Populated: lines."
+          },
           task: {
             type: "object",
             description: "The single task spec.",
@@ -31516,6 +31529,11 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         }
         const promptBearing = typeof task.prompt_bearing === "number" && task.prompt_bearing === 1 ? 1 : 0;
         const slug = branchId.replace(/^[^/]+\//, "");
+        const specShapeWaived = args["waive_spec_shape"] === true;
+        const specShapeWaiverReason = args["waive_spec_shape_reason"] ?? "";
+        if (specShapeWaived && (typeof specShapeWaiverReason !== "string" || specShapeWaiverReason.trim().length < 10)) {
+          return err15("waive_spec_shape_reason must be a string \u226510 chars.");
+        }
         const registryGateWaived = args["waive_registry_gate"] === true;
         const registryGateWaiverReason = args["waive_registry_gate_reason"] ?? "";
         if (registryGateWaived) {
@@ -31679,6 +31697,9 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
               content_json: JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: 1 }),
               created_at: now
             });
+          }
+          if (specShapeWaived) {
+            insertSpecShapeWaiver(db2, { issue_id: issueId, branch_id: branchId, task_id: row.id }, specShapeWaiverReason, "task_provision", now);
           }
           return { task_id: row.id };
         });
@@ -36729,6 +36750,10 @@ var hoursAgo = (hours) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${hours} hours'
 var ts = (column) => `strftime('%Y-%m-%dT%H:%M:%fZ', ${column})`;
 var auditTaskId = (alias) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.task_id') END`;
 var auditCommitSha = (alias) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.commit_sha') END`;
+var SPEC_SHAPE_WAIVER_NAMES_NO_TASK = (alias) => `${alias}.event_type = 'spec_shape_gate_waived'
+               AND NOT EXISTS (SELECT 1 FROM tasks t
+                                WHERE t.id = CAST(${auditTaskId(alias)} AS INTEGER)
+                                  AND CAST(CAST(${auditTaskId(alias)} AS INTEGER) AS TEXT) = CAST(${auditTaskId(alias)} AS TEXT))`;
 var REVIEW_GRACE_HOURS_DEFAULT = 24;
 var runMatchesTaskCommit = (run, task) => `${run}.task_id = ${task}.id AND substr(${run}.commit_sha, 1, length(${task}.commit_sha)) = ${task}.commit_sha`;
 var V36_RECORDING_SINCE = `(SELECT MIN(${ts("started_at")}) FROM verification_runs)`;
@@ -36856,6 +36881,17 @@ function buildDataContracts(documentedEventTypes) {
       sample_sql: `SELECT ${auditTaskId("a")} AS task_id, ${auditCommitSha("a")} AS commit_sha, COUNT(*) AS n FROM audit a
              WHERE a.event_type = 'verification_gate_waived'
              GROUP BY ${auditTaskId("a")}, COALESCE(${auditCommitSha("a")}, '') HAVING COUNT(*) > 1 ORDER BY n DESC LIMIT 5`
+    },
+    {
+      id: "spec_shape_waived_rows_name_a_task",
+      severity: "warn",
+      description: "every spec_shape_gate_waived row names an existing task: content_json.task_id is a positive integer (or its decimal string) matching a tasks row, the only shape require-task-spec reads as a spawn waiver",
+      sql: `SELECT COUNT(*) FROM audit a
+             WHERE ${SPEC_SHAPE_WAIVER_NAMES_NO_TASK("a")}`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT a.id, a.issue_id, a.from_node, a.created_at, a.content_json FROM audit a
+             WHERE ${SPEC_SHAPE_WAIVER_NAMES_NO_TASK("a")}
+             ORDER BY a.id DESC LIMIT 5`
     },
     {
       id: "no_unconsumed_reviewer_observations",

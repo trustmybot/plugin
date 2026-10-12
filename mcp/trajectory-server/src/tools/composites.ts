@@ -4,7 +4,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
-import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES } from './tasks.js';
+import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES, insertSpecShapeWaiver } from './tasks.js';
 import { insertDiscussion } from './discussions.js';
 import { insertAudit } from './audit.js';
 import {
@@ -796,6 +796,16 @@ export function compositeTools(
             description:
               'Required when waive_registry_gate is true (min 10 chars): why the gate is unnecessary.',
           },
+          waive_spec_shape: {
+            type: 'boolean',
+            description:
+              'Record a spec_shape_gate_waived row for the task, which opens the require-task-spec spawn gate (Writer:/Populated: lines) for it.',
+          },
+          waive_spec_shape_reason: {
+            type: 'string',
+            description:
+              'Required when waive_spec_shape is true (min 10 chars): why the spec needs no Writer:/Populated: lines.',
+          },
           task: {
             type: 'object',
             description: 'The single task spec.',
@@ -961,6 +971,12 @@ export function compositeTools(
           typeof task.prompt_bearing === 'number' && task.prompt_bearing === 1 ? 1 : 0;
 
         const slug = branchId.replace(/^[^/]+\//, '');
+
+        const specShapeWaived = args['waive_spec_shape'] === true;
+        const specShapeWaiverReason = (args['waive_spec_shape_reason'] ?? '') as string;
+        if (specShapeWaived && (typeof specShapeWaiverReason !== 'string' || specShapeWaiverReason.trim().length < 10)) {
+          return err('waive_spec_shape_reason must be a string ≥10 chars.');
+        }
 
         // --- World-model-cold registry gate (MCP-level enforcement) ---
         // /scan must have run at least once before bro can provision a task, so
@@ -1192,6 +1208,10 @@ export function compositeTools(
               content_json: JSON.stringify({ waive_registry_gate_reason: registryGateWaiverReason, tasks_created: 1 }),
               created_at: now,
             });
+          }
+
+          if (specShapeWaived) {
+            insertSpecShapeWaiver(db, { issue_id: issueId, branch_id: branchId, task_id: row.id }, specShapeWaiverReason, 'task_provision', now);
           }
 
           return { task_id: row.id };

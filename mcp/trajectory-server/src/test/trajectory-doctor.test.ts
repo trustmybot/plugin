@@ -186,6 +186,21 @@ const FIXTURES: Record<string, { violate?: (db: TrajectoryDB) => void; pass: (db
       seedAudit(db, 'verification_gate_waived', { task_id: 8 });
     },
   },
+  spec_shape_waived_rows_name_a_task: {
+    violate: (db) => {
+      const task = seedTask(db, seedIssue(db), 'pending');
+      seedAudit(db, 'spec_shape_gate_waived', { task_id: task, gate: 'spec_shape', reason: 'placeholder task, no spec needed' });
+      seedAudit(db, 'spec_shape_gate_waived', { waive_spec_shape_reason: 'legacy batch-level waiver row', tasks_created: 2 });
+    },
+    pass: (db) => {
+      const issue = seedIssue(db);
+      const asInt = seedTask(db, issue, 'pending');
+      const asText = seedTask(db, issue, 'pending');
+      seedAudit(db, 'spec_shape_gate_waived', { task_id: asInt, gate: 'spec_shape', reason: 'placeholder task, no spec needed', waived_by: 'bro', source: 'task_create_batch' });
+      seedAudit(db, 'spec_shape_gate_waived', { task_id: String(asText), gate: 'spec_shape', reason: 'manual audit_append waiver row' });
+      seedAudit(db, 'scope_gate_waived', { waive_scope_gate_reason: 'not a spec-shape row', tasks_created: 1 });
+    },
+  },
   no_unconsumed_reviewer_observations: {
     violate: (db) => {
       seedAudit(db, 'reviewer_identity_observed', { task_id: 7, attempt_n: 1, agent_id: 'reviewer0agent01', consumed: 0 }, iso(-2 * HOUR), 'hook:reviewer-identity-observe');

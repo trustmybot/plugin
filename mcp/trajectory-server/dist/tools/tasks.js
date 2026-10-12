@@ -182,6 +182,19 @@ function wrapHandler(fn) {
         }
     };
 }
+// One spec_shape_gate_waived row per task, in the shape require-task-spec.sh
+// reads to open the SWE spawn gate (from_node 'bro', $.task_id, $.gate, $.reason).
+export function insertSpecShapeWaiver(db, task, reason, source, createdAt) {
+    insertAudit(db, {
+        issue_id: task.issue_id,
+        branch_id: task.branch_id,
+        from_node: 'bro',
+        event_type: 'spec_shape_gate_waived',
+        summary: reason.slice(0, 200),
+        content_json: JSON.stringify({ task_id: task.task_id, gate: 'spec_shape', reason, waived_by: 'bro', source }),
+        created_at: createdAt,
+    });
+}
 export function taskTools(db, runContext = claudeRunContext(db)) {
     const definitions = [
         {
@@ -278,7 +291,7 @@ export function taskTools(db, runContext = claudeRunContext(db)) {
                     },
                     waive_spec_shape: {
                         type: 'boolean',
-                        description: 'Bypass the spec-section shape gate (## Success Criteria, ≤200 lines).',
+                        description: 'Bypass the spec-section shape gate (## Success Criteria, ≤200 lines). Writes one spec_shape_gate_waived row per created task, which also opens the require-task-spec spawn gate for it.',
                     },
                     waive_spec_shape_reason: {
                         type: 'string',
@@ -833,15 +846,9 @@ export function taskTools(db, runContext = claudeRunContext(db)) {
                     });
                 }
                 if (specShapeWaived) {
-                    insertAudit(db, {
-                        issue_id: issueId,
-                        branch_id: firstBranch,
-                        from_node: agentFromNode,
-                        event_type: 'spec_shape_gate_waived',
-                        summary: specShapeWaiverReason.slice(0, 200),
-                        content_json: JSON.stringify({ waive_spec_shape_reason: specShapeWaiverReason, tasks_created: results.length }),
-                        created_at: now,
-                    });
+                    for (const r of results) {
+                        insertSpecShapeWaiver(db, { issue_id: r.issue_id, branch_id: r.branch_id, task_id: r.id }, specShapeWaiverReason, 'task_create_batch', now);
+                    }
                 }
                 return results;
             });
