@@ -265,6 +265,8 @@ bash scripts/release.sh
 - `mcp/trajectory-server/package.json`
 - `bun.lock` (workspace `version`)
 
+It also assembles `## Unreleased` and the `changelog.d/` fragments into the release's `## vX.Y.Z — YYYY-MM-DD` section of `CHANGELOG.md` and deletes the fragments (`--dry-run` prints the section first; see `docs/contributing/CHANGELOG_AND_REBASES.md`).
+
 The Claude MCP entry derives the version from its package manifest. The Codex entry derives it from the installed `.codex-plugin/plugin.json`. The synchronized bump keeps both handshakes aligned without a hardcoded runtime version.
 
 ### Bumping the schema
@@ -275,7 +277,7 @@ When a schema change is breaking (drops a `NOT NULL` column, removes a table, et
 2. Update the `plugin_meta` seed in `mcp/trajectory-server/src/schema.sql` to match.
 3. Add a `migrateVnToVn+1(db)` function with the SQLite recipe (`CREATE TABLE _new`; copy; `DROP`; `RENAME`).
 4. Add an L2 case to `mcp/trajectory-server/src/test/schema-upgrade.test.ts` with a fixture at the previous version + assertions on the upgraded shape.
-5. Update `CHANGELOG.md` with the migration details + the dropped column / table.
+5. Add a `changelog.d/` fragment with the migration details + the dropped column / table.
 
 ### Testing the migration end-to-end through Claude Code
 
