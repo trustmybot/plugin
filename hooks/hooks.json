@@ -86,7 +86,8 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh containment-guard",
-            "timeout": 5
+            "timeout": 5,
+            "onFailure": "block"
           }
         ]
       },
@@ -96,32 +97,38 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh git-guards",
-            "timeout": 11
+            "timeout": 11,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh git-push-guard",
-            "timeout": 6
+            "timeout": 6,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-boundary",
-            "timeout": 6
+            "timeout": 6,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh no-worktree-branch-create",
-            "timeout": 6
+            "timeout": 6,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh stay-on-base-guard",
-            "timeout": 6
+            "timeout": 6,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh branch-up-to-date-with-remote",
-            "timeout": 16
+            "timeout": 16,
+            "onFailure": "block"
           },
           {
             "type": "command",
@@ -131,12 +138,14 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh no-remote-auth-guard",
-            "timeout": 6
+            "timeout": 6,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh remote-id-guard",
-            "timeout": 6
+            "timeout": 6,
+            "onFailure": "block"
           }
         ]
       },
@@ -146,7 +155,8 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh agent-spawn-dispatch",
-            "timeout": 16
+            "timeout": 16,
+            "onFailure": "block"
           }
         ]
       },
@@ -156,7 +166,8 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-brief-gate",
-            "timeout": 6
+            "timeout": 6,
+            "onFailure": "block"
           }
         ]
       },
@@ -166,7 +177,8 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-verification-gate",
-            "timeout": 961
+            "timeout": 961,
+            "onFailure": "block"
           }
         ]
       },
@@ -176,7 +188,8 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh cheatcode-install-approval",
-            "timeout": 6
+            "timeout": 6,
+            "onFailure": "block"
           }
         ]
       },
@@ -201,22 +214,26 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-brief-gate",
-            "timeout": 6
+            "timeout": 6,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh no-source-edit-from-main",
-            "timeout": 6
+            "timeout": 6,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-boundary",
-            "timeout": 6
+            "timeout": 6,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh swe-scope-fence",
-            "timeout": 6
+            "timeout": 6,
+            "onFailure": "block"
           },
           {
             "type": "command",
@@ -342,7 +359,8 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh consultant-persistence-gate",
-            "timeout": 6
+            "timeout": 6,
+            "onFailure": "block"
           }
         ]
       }

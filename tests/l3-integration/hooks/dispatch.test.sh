@@ -19,6 +19,9 @@
 #     - two project installs → newest, stderr notice naming both
 #   Missing gate: invalid name or gate script in no install → rc 1 + stderr;
 #     resolved install lacking the gate → dispatcher's own copy, logged
+#   Fail closed: a gate registered "onFailure": "block" that dies or is missing
+#     → deny (PreToolUse) or decision block (other events), exit 0; an
+#     observe-only hook keeps its exit code and output
 #   Shim: marker for the session → yield; foreign project → yield
 #   Symlinked project dir and its real path → one lock, one shim project
 #   Parity: every PreToolUse gate in hooks.json gives the same stdout + exit
@@ -50,7 +53,13 @@ make_install() {
   cat > "$root/hooks/hooks.json" <<'EOF'
 {"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[
   {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-deny","timeout":6},
-  {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-allow","timeout":6}]}]}}
+  {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-allow","timeout":6},
+  {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-gate-dies","timeout":6,"onFailure":"block"},
+  {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-gate-dies-deny","timeout":6,"onFailure":"block"},
+  {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-gate-gone","timeout":6,"onFailure":"block"},
+  {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-observe-dies","timeout":6}]}],
+"SubagentStop":[{"matcher":"","hooks":[
+  {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-gate-dies","timeout":6,"onFailure":"block"}]}]}}
 EOF
   cat > "$root/scripts/hooks/fx-deny.sh" <<EOF
 #!/usr/bin/env bash
@@ -73,6 +82,20 @@ echo "$label" >> "$RUNS"
 echo "fx blocked" >&2
 exit 2
 EOF
+  cat > "$root/scripts/hooks/fx-gate-dies.sh" <<EOF
+#!/usr/bin/env bash
+cat >/dev/null
+echo "$label" >> "$RUNS"
+echo "partial output"
+exit 1
+EOF
+  cat > "$root/scripts/hooks/fx-gate-dies-deny.sh" <<EOF
+#!/usr/bin/env bash
+cat >/dev/null
+echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"fx own deny"}}'
+exit 1
+EOF
+  cp "$root/scripts/hooks/fx-gate-dies.sh" "$root/scripts/hooks/fx-observe-dies.sh"
   chmod +x "$root/scripts/hooks/"*.sh
 }
 
@@ -351,6 +374,59 @@ mkdir -p "$PROJ/.claude/tmb/sessions"
 out=$(CLAUDE_PROJECT_DIR="$LINK" TMB_SHIM_PROJECT="$PROJ" dispatch "$A" fx-deny "$(payload "ls s5" tu-s5)" --shim)
 assert_eq "" "$out" "marker found through the symlinked project dir"
 rm -f "$PROJ/.claude/tmb/sessions/s-1.plugin-hooks" "$LINK"
+
+# ===========================================================================
+# fail_closed_cases <project dir> <label> — a gate registered with
+# "onFailure": "block" never ends without a decision; other hooks keep theirs.
+is_deny() { printf '%s' "$1" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; }
+fail_closed_cases() {
+  local proj="$1" label="$2" rc out err
+  test_case "fail-closed ($label): gate exits 1 without JSON → dispatcher denies, exit 0"
+  reset_runs
+  rc=0
+  out=$(CLAUDE_PROJECT_DIR="$proj" dispatch "$A" fx-gate-dies "$(payload "ls fc1-$label" tu-fc1)" 2>"$TMP/err") || rc=$?
+  assert_eq "0" "$rc" "exit 0 so the decision is read"
+  is_deny "$out" && _pass || _fail "no deny JSON: $out"
+  assert_contains "$out" "fx-gate-dies exited 1" "reason names the gate and exit code"
+  assert_contains "$(cat "$TMP/err")" "failing closed" "stderr line"
+  assert_eq "1" "$(runs)" "gate ran"
+
+  test_case "fail-closed ($label): gate prints its own deny then exits 1 → its deny, exit 0"
+  rc=0
+  out=$(CLAUDE_PROJECT_DIR="$proj" dispatch "$A" fx-gate-dies-deny "$(payload "ls fc2-$label" tu-fc2)" 2>/dev/null) || rc=$?
+  assert_eq "0" "$rc" "exit 0"
+  assert_contains "$out" "fx own deny" "the gate's own deny kept"
+
+  test_case "fail-closed ($label): gate script missing → dispatcher denies"
+  rc=0
+  out=$(CLAUDE_PROJECT_DIR="$proj" dispatch "$A" fx-gate-gone "$(payload "ls fc3-$label" tu-fc3)" 2>"$TMP/err") || rc=$?
+  assert_eq "0" "$rc" "exit 0"
+  is_deny "$out" && _pass || _fail "no deny JSON: $out"
+  assert_contains "$(cat "$TMP/err")" "no gate fx-gate-gone.sh" "stderr names the missing script"
+
+  test_case "fail-closed ($label): SubagentStop gate dies → decision block"
+  out=$(CLAUDE_PROJECT_DIR="$proj" dispatch "$A" fx-gate-dies '{"hook_event_name":"SubagentStop","session_id":"s-1","agent_id":"ag-'"$label"'"}' 2>/dev/null) || true
+  assert_eq "block" "$(printf '%s' "$out" | jq -r '.decision' 2>/dev/null)" "decision block for a non-tool event"
+
+  test_case "fail-closed ($label): observe-only hook exits 1 → exit 1 and its output, no deny"
+  reset_runs
+  rc=0
+  out=$(CLAUDE_PROJECT_DIR="$proj" dispatch "$A" fx-observe-dies "$(payload "ls fc4-$label" tu-fc4)" 2>/dev/null) || rc=$?
+  assert_eq "1" "$rc" "exit code kept (Claude Code continues)"
+  assert_eq "partial output" "$out" "output passed through"
+  assert_eq "1" "$(runs)" "hook ran"
+}
+fail_closed_cases "$PROJ" locked
+fail_closed_cases "$TMP/bare" unlocked
+[ ! -e "$TMP/bare/.claude" ] && _pass || _fail "fail-closed path wrote into a non-TMB project"
+
+test_case "fail-closed: a duplicate of a dead gate replays the dispatcher's deny"
+reset_runs
+P=$(payload "ls fc5" tu-fc5)
+dispatch "$A" fx-gate-dies "$P" >/dev/null 2>&1
+out=$(dispatch "$A" fx-gate-dies "$P" 2>/dev/null)
+is_deny "$out" && _pass || _fail "duplicate did not replay the deny: $out"
+assert_eq "1" "$(runs)" "gate ran once"
 
 # ===========================================================================
 test_case "parity: every PreToolUse gate gives the same result through the dispatcher"
