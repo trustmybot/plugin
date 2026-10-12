@@ -6,7 +6,7 @@ Top-level shell + Node entry scripts that the plugin's hooks, MCP tools, and Hum
 
 | Script | Purpose |
 |---|---|
-| `scan.sh` | Deterministic project scanner. Walks the session dir for git repos, enumerates each repo's tracked files, computes md5 + size + last-commit SHA per file, and emits a single JSON document. Forked by the `scan_run` MCP tool to feed the world model. |
+| `scan.sh` | Deterministic project scanner. Walks the session dir for git repos, enumerates each repo's tracked files, computes md5 + size + last-commit SHA per file, and emits a single JSON document. Forked by the `scan_run` MCP tool to feed the world model. Its plugin inventory comes from `claude plugin list --json`; under `TMB_FORBID_LIVE_SYNC=1` it never spawns `claude` and reads that JSON from the file `TMB_SCAN_PLUGIN_JSON` names, else reports `plugin_inventory.status: unavailable` with a note. |
 | `cheatcode-search.sh` | Discovers + ranks candidate Claude Code cheatcodes (skills, MCP/toolkits, plugins) for a capability query from reputable registries. |
 | `cheatcode-vet.sh` | Gathers reputation + security-surface signals for one candidate and emits a deterministic trust-tier classification. |
 | `cheatcode-install.sh` | Installs one approved cheatcode via the marketplace path and reports what was wired. |
