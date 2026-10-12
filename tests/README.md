@@ -144,7 +144,8 @@ The 15 chain steps live in `tests/l5-l6/rows/` — the SAME directory L5 runs ag
 ```bash
 # Chained run — walks all 15 chain rows against a cumulative trajectory DB.
 # Each row fires a fresh `claude -p`; DB continuity drives the chain.
-# Per-step logs land at ~/.claude/tmb/l6-chain-runs/<run-id>/.
+# Per-step logs land at $L6C_RUNS_DIR/<run-id>/ (default ~/.claude/tmb/l6-chain-runs/<run-id>/);
+# the chain runs in the project <run-dir>/project/ (run-l6-chain.sh RUNS_ROOT).
 # See tests/l5-l6/l6-chain/README.md.
 bash tests/l5-l6/run-l6-chain.sh                  # full chain
 bash tests/l5-l6/run-l6-chain.sh --from 7         # resume from row 7

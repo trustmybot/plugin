@@ -5,12 +5,18 @@
 # the doctrine, OR removes a canonical label without updating LABELS.md.
 #
 # Skipped automatically if `gh` is unavailable or unauthenticated (lets
-# the lint pass on dev machines without GH access; CI always has gh).
+# the lint pass on dev machines without GH access; CI always has gh), and
+# when TMB_L1_OFFLINE=1 (run-all.sh's L1 step: no forge calls).
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DOC="$ROOT/docs/contributing/LABELS.md"
+
+if [ "${TMB_L1_OFFLINE:-0}" = "1" ]; then
+  echo "  ⊘ skip: TMB_L1_OFFLINE=1"
+  exit 0
+fi
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "  ⊘ skip: gh CLI not installed"

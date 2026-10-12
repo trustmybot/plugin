@@ -9,16 +9,27 @@ import path from 'node:path';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIST = path.resolve(HERE, '../../../mcp/trajectory-server/dist/index.js');
 
+// A server logs under its TMPDIR; each server gets its own, removed when the
+// client closes, so the suite leaves nothing in the runner's TMPDIR.
+export function serverEnv(base = process.env, dbPath = ':memory:') {
+  const dir = mkdtempSync(path.join(tmpdir(), 'tmb-l3-server-'));
+  return {
+    env: { ...base, TRAJECTORY_DB_PATH: dbPath, TMPDIR: dir },
+    cleanup() { rmSync(dir, { recursive: true, force: true }); },
+  };
+}
+
 // startClient({ fileDb: true }) backs the server with a temp-dir DB file
 // instead of :memory:, so the test can write rows only a hook writes (see
 // seedReviewerObservation); close() removes the dir.
 export async function startClient({ env, dbPath: requestedDbPath = ':memory:', fileDb = false } = {}) {
   const dbDir = fileDb ? mkdtempSync(path.join(tmpdir(), 'tmb-l3-db-')) : null;
   const dbPath = dbDir ? path.join(dbDir, 'trajectory.db') : requestedDbPath;
+  const server = serverEnv(env ?? process.env, dbPath);
   const transport = new StdioClientTransport({
     command: env ? process.execPath : 'node',
     args: [SERVER_DIST],
-    env: { ...(env ?? process.env), TRAJECTORY_DB_PATH: dbPath },
+    env: server.env,
   });
 
   const client = new Client({ name: 'tmb-integration-test', version: '1.0' }, { capabilities: {} });
@@ -45,6 +56,7 @@ export async function startClient({ env, dbPath: requestedDbPath = ':memory:', f
     async close() {
       await client.close();
       if (dbDir) rmSync(dbDir, { recursive: true, force: true });
+      server.cleanup();
     },
   };
 }

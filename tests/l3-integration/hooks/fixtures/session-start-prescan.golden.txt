@@ -9,4 +9,4 @@ Open issues: __VOLATILE__
 Pending tasks: __VOLATILE__
 Last 5 commits: __VOLATILE__
 ================================================
-world model was cold — a deterministic scan is running in the background; re-read world_model_get before planning
+world model is cold — run /scan before planning so world_model_get has a project map

@@ -111,7 +111,7 @@ PAYLOAD=$(jq -cn '{prompt:"Should we move from JSON to SQLite as the CLI scales?
 BEFORE=$(sqlite3 "$WALK_DB" "SELECT COUNT(*) FROM audit WHERE event_type='consultant_spawn_nudged';")
 (
   cd "$CHILD_DIR" || exit 1
-  printf '%s' "$PAYLOAD" | TMB_DISABLE_CONSULTANT_HINT=0 bash "$HOOK" >/dev/null 2>&1 || true
+  printf '%s' "$PAYLOAD" | env -u CLAUDE_PROJECT_DIR TMB_DISABLE_CONSULTANT_HINT=0 bash "$HOOK" >/dev/null 2>&1 || true
 )
 AFTER=$(sqlite3 "$WALK_DB" "SELECT COUNT(*) FROM audit WHERE event_type='consultant_spawn_nudged';")
 rm -rf "$WALK_ROOT"

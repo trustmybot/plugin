@@ -25,7 +25,11 @@ trap 'rm -rf "$TMPDIR"' EXIT
 DB="$TMPDIR/trajectory.db"
 export TRAJECTORY_DB_PATH="$DB"
 
-WT_ROOT="$TMPDIR/repo/.claude/worktrees"
+# Every case resolves against this fixture's project; only the walk-up cases
+# below drop CLAUDE_PROJECT_DIR, so no case reads the ambient value.
+export CLAUDE_PROJECT_DIR="$TMPDIR/repo"
+
+WT_ROOT="$CLAUDE_PROJECT_DIR/.claude/worktrees"
 WORKTREE="$WT_ROOT/my-feature"
 mkdir -p "$WORKTREE"
 
@@ -721,7 +725,7 @@ done
 # A stale legacy ~/.claude/tmb/trajectory.db (old schema, no prompt_bearing
 # column) up-tree from the hook's cwd must be treated as UNRESOLVED, not
 # queried-and-defaulted-to-0. The hook resolves the live DB instead.
-# These cases do NOT set TRAJECTORY_DB_PATH (that override bypasses walk-up);
+# These cases unset TRAJECTORY_DB_PATH and CLAUDE_PROJECT_DIR (either bypasses walk-up);
 # they exercise the cwd walk-up + sentinel resolution directly.
 # ===========================================================================
 

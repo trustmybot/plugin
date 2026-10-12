@@ -106,11 +106,14 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
   });
   assert.equal(closed.ok, true);
 
-  // 7. bro closes the issue (idempotent — the composite already closed it as the last task)
+  // 7. bro closes the issue. pr-reviewer runs at the push gate, not per task, so
+  // the closed task has no verdict yet: the close carries an explicit review waiver.
   const issueClosed = await call(client, 'issue_close', {
     agent: 'bro', issue_id: issueId,
+    waive_review: true,
+    waive_review_reason: 'simple task: pr-reviewer runs at the push gate, not at task close',
   });
-  assert.equal(issueClosed.ok, true);
+  assert.equal(issueClosed.ok, true, JSON.stringify(issueClosed));
 
   // 8. Final state: issue closed, task closed with commit_sha, no validation rows yet
   const finalIssue = await call(client, 'issue_get', { agent: 'bro', issue_id: issueId });
@@ -125,4 +128,7 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
   assert.equal(audit.ok, true);
   assert.ok(audit.data.some(e => e.event_type === 'planning_complete'),
     'planning_complete event must land in audit');
+  const waived = audit.data.filter(e => e.event_type === 'review_gate_waived');
+  assert.equal(waived.length, 1, 'one review_gate_waived row for the unreviewed task');
+  assert.equal(waived[0].from_node, 'bro');
 });

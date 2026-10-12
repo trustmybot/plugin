@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startClient, call } from './harness.mjs';
+import { startClient, call, serverEnv } from './harness.mjs';
 
 const SLASH_HOOK = fileURLToPath(new URL('../../../scripts/hooks/roundtable-slash-detect.sh', import.meta.url));
 
@@ -244,14 +244,15 @@ import path from 'node:path';
 async function startClientUnseeded() {
   const HERE = path.dirname(fileURLToPath(import.meta.url));
   const SERVER_DIST = path.resolve(HERE, '../../../mcp/trajectory-server/dist/index.js');
+  const server = serverEnv();
   const transport = new StdioClientTransport({
     command: 'node',
     args: [SERVER_DIST],
-    env: { ...process.env, TRAJECTORY_DB_PATH: ':memory:' },
+    env: server.env,
   });
   const client = new Client({ name: 'tmb-gate-test', version: '1.0' }, { capabilities: {} });
   await client.connect(transport);
-  return { client, async close() { await client.close(); } };
+  return { client, async close() { await client.close(); server.cleanup(); } };
 }
 
 test('task_create_batch — registry_cold_gate rejects when no deep_scan_completed audit exists', async (t) => {
