@@ -58,6 +58,7 @@ run_step "L1 lint: ENUMS.md event table + audit-events.txt generated fresh"  bas
 run_step "L1 lint: ERD.md generated from schema.sql"  bash "$HERE/l1-lint/erd-doc-fresh.sh"
 run_step "L1 lint: CONFIG_KEYS.md generated from code" bash "$HERE/l1-lint/config-keys-doc-fresh.sh"
 run_step "L1 lint: tool docs list every family + tool" bash "$HERE/l1-lint/tool-families-documented.sh"
+run_step "L1 lint: REFERENCE.md hook rows are real, wired hooks" bash "$HERE/l1-lint/hooks-doc-fresh.sh"
 run_step "L1 lint: no negative directives in prompts" bash "$HERE/l1-lint/no-negative-directives.sh"
 run_step "L1 lint: issue_sync test must mock spawn"   bash "$HERE/l1-lint/issue-sync-test-isolation.sh"
 run_step "L1 lint: no audit_append without from_node" bash "$HERE/l1-lint/no-audit-log-without-from-node.sh"

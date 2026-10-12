@@ -114,7 +114,6 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `post-task-close-rescan.sh` | PostToolUse bro_atomic_close | Background /scan to refresh the world model after close |
 | `post-atomic-close-readme.sh` | PostToolUse bro_atomic_close | Refresh directory README summaries after close |
 | `post-task-create-spawn-hint.sh` | PostToolUse task-create (batch insert path) | Remind bro to spawn SWE after a task is provisioned |
-| `post-pr-comments-persist.sh` | PostToolUse pr_monitor_comments_get | Auto-persist returned PR comments as discussion rows |
 | `attribution-footer.sh` | PostToolUse Bash | Append co-author / session attribution to commits |
 | `clean-merged-branch.sh` | PostToolUse Bash | Prune local branches once their PR merges |
 | `close-issue-on-merge.sh` | PostToolUse Bash | Close the local issue when its PR merges |
