@@ -17,6 +17,10 @@
 #   - a legacy 'mcp:<server>' row → rewritten to 'mcp:<plugin>/<server>', blank
 #     plugin version filled, no audit; a new bundled server inherits the
 #     parent plugin's trust_tier
+#   - test flags (TMB_FORBID_LIVE_SYNC=1 / TMB_TEST_RUN_ID): no or a missing
+#     TRAJECTORY_DB_PATH → exit 2 (no walk-up); MCP servers come from
+#     TMB_SCAN_MCP_JSON, never ~/.claude.json; absent → mcp_inventory
+#     unavailable. Unflagged, ~/.claude.json is still read (mcp_inventory home).
 #
 # All state lives under a mktemp sandbox (per #810); TRAJECTORY_DB_PATH pins
 # the DB so the real plugin DB is never touched. assert_not_in_plugin_repo
@@ -234,6 +238,52 @@ assert_eq "marketplace|mcp:tmb/helper|active|helper MCP server bundled by tmb|1.
 test_case "only the new server is audited"
 assert_eq "1" "$(discovered_total)" "scan_discovered count (legacy)"
 assert_eq "1" "$(audit_count 'helper')" "helper audit count"
+
+# ---------------------------------------------------------------------------
+# Cases 8-11 — test flags pin the DB and fixture the ~/.claude.json fallback.
+# ---------------------------------------------------------------------------
+printf '{"mcpServers": {"home-server": {"command": "x"}}}' > "$TMPDIR/home/.claude.json"
+printf '{"fixture-server": {"command": "node"}}' > "$TMPDIR/mcp-servers.json"
+REQUIRED_MSG='scan: TRAJECTORY_DB_PATH is required under TMB_FORBID_LIVE_SYNC/TMB_TEST_RUN_ID (walk-up discovery disabled)'
+
+# run_flagged <env assignments...> — runs scan.sh from inside the workspace
+# (whose .claude/tmb/trajectory.db a walk-up would find); prints
+# "<exit>|<stderr>" on line 1 and stdout after it.
+run_flagged() {
+  local out err rc=0
+  err=$(mktemp "$TMPDIR/err.XXXXXX")
+  out=$(cd "$WS" && env -i HOME="$TMPDIR/home" PATH="$NOCLAUDE_BIN" "$@" bash "$SCAN" "$WS" 2>"$err") || rc=$?
+  printf '%s|%s\n%s' "$rc" "$(cat "$err")" "$out"
+}
+
+for flag in TMB_FORBID_LIVE_SYNC=1 TMB_TEST_RUN_ID=tmb-l3-scan; do
+  test_case "$flag, TRAJECTORY_DB_PATH unset: exit 2, no walk-up"
+  assert_eq "2|$REQUIRED_MSG" "$(run_flagged "$flag" | head -1)" "unset path ($flag)"
+
+  test_case "$flag, TRAJECTORY_DB_PATH missing: exit 2"
+  assert_eq "2|$REQUIRED_MSG" "$(run_flagged "$flag" TRAJECTORY_DB_PATH="$TMPDIR/nope/trajectory.db" | head -1)" "missing path ($flag)"
+done
+
+seed_db
+OUT=$(run_flagged TMB_TEST_RUN_ID=tmb-l3-scan TRAJECTORY_DB_PATH="$DB" TMB_SCAN_MCP_JSON="$TMPDIR/mcp-servers.json")
+test_case "flagged with TMB_SCAN_MCP_JSON: fixture server registered, ~/.claude.json unread"
+assert_eq "0|" "$(printf '%s' "$OUT" | head -1)" "flagged fixture exit"
+assert_eq '{"status":"fixture","note":""}' "$(printf '%s' "$OUT" | tail -n +2 | jq -c '.mcp_inventory')" "mcp_inventory fixture"
+assert_eq "external|mcp:fixture-server|active|" "$(cc_row fixture-server mcp)" "fixture-server row"
+assert_eq "0" "$(cc_count home-server mcp)" "home-server not read"
+
+seed_db
+OUT=$(run_flagged TMB_FORBID_LIVE_SYNC=1 TRAJECTORY_DB_PATH="$DB")
+test_case "flagged without TMB_SCAN_MCP_JSON: mcp_inventory unavailable, nothing registered"
+assert_eq "unavailable" "$(printf '%s' "$OUT" | tail -n +2 | jq -r '.mcp_inventory.status')" "mcp_inventory unavailable"
+assert_contains "$(printf '%s' "$OUT" | tail -n +2 | jq -r '.mcp_inventory.note')" "no readable TMB_SCAN_MCP_JSON" "mcp_inventory note"
+assert_eq "0" "$(cc_count home-server mcp)" "home-server not read (no fixture)"
+
+seed_db
+OUT=$(run_flagged TRAJECTORY_DB_PATH="$DB")
+test_case "unflagged: ~/.claude.json still read"
+assert_eq "home" "$(printf '%s' "$OUT" | tail -n +2 | jq -r '.mcp_inventory.status')" "mcp_inventory home"
+assert_eq "external|mcp:home-server|active|" "$(cc_row home-server mcp)" "home-server row"
 
 summarize
 printf "PASS scan-resource-discovery\n"

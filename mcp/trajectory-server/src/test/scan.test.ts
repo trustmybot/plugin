@@ -4,15 +4,16 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, renameSync, realpathSync, readFileSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { tempDB } from './helpers.js';
+import { pinScanEnv, tempDB, type ScanEnvPin } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
 import { scanTools, runScanWithScript, upsertDiscoveredCheatcode } from '../tools/scan.js';
 import { renameRepo } from '../tools/repos.js';
 import { remotesView, repoRemotes } from '../repos/remotes.js';
 
-// scan.sh never spawns `claude` here: TMB_FORBID_LIVE_SYNC=1 points its plugin
-// inventory at a fixture file, and TRAJECTORY_DB_PATH names a missing DB so
-// resource discovery writes nowhere unless a test supplies its own DB.
+// scan.sh never spawns `claude` here: pinScanEnv sets TMB_FORBID_LIVE_SYNC=1 and
+// points TRAJECTORY_DB_PATH at an empty DB (no cheatcodes table) so resource
+// discovery writes nowhere unless a test supplies its own DB; the plugin
+// inventory comes from a fixture file.
 const PLUGIN_LIST_FIXTURE = [
   {
     id: 'alpha@tmb-test-market',
@@ -23,19 +24,19 @@ const PLUGIN_LIST_FIXTURE = [
   },
   { id: 'beta@tmb-test-market', version: '0.3.1', enabled: false, description: 'Beta test plugin' },
 ];
-const SCAN_ENV_KEYS = ['TMB_FORBID_LIVE_SYNC', 'TMB_SCAN_PLUGIN_JSON', 'TRAJECTORY_DB_PATH', 'PATH'] as const;
+const SCAN_ENV_KEYS = ['TMB_SCAN_PLUGIN_JSON', 'PATH'] as const;
 const savedScanEnv: Record<string, string | undefined> = {};
 let fixtureDir = '';
 let pluginListFixture = '';
+let scanPin: ScanEnvPin;
 
 before(() => {
   for (const k of SCAN_ENV_KEYS) savedScanEnv[k] = process.env[k];
+  scanPin = pinScanEnv();
   fixtureDir = mkdtempSync(join(tmpdir(), 'scan-plugin-fixture-'));
   pluginListFixture = join(fixtureDir, 'claude-plugin-list.json');
   writeFileSync(pluginListFixture, JSON.stringify(PLUGIN_LIST_FIXTURE));
-  process.env['TMB_FORBID_LIVE_SYNC'] = '1';
   process.env['TMB_SCAN_PLUGIN_JSON'] = pluginListFixture;
-  process.env['TRAJECTORY_DB_PATH'] = join(fixtureDir, 'no-trajectory.db');
 });
 
 after(() => {
@@ -43,6 +44,7 @@ after(() => {
     if (savedScanEnv[k] === undefined) delete process.env[k];
     else process.env[k] = savedScanEnv[k];
   }
+  scanPin.restore();
   rmSync(fixtureDir, { recursive: true, force: true });
 });
 
@@ -794,7 +796,7 @@ describe('scan_run plugin inventory under TMB_FORBID_LIVE_SYNC=1', () => {
       ).map((row) => ({ ...row }));
       assert.deepEqual(servers, [{ name: 'alpha-server', source_url: 'mcp:alpha/alpha-server' }]);
     } finally {
-      process.env['TRAJECTORY_DB_PATH'] = join(fixtureDir, 'no-trajectory.db');
+      process.env['TRAJECTORY_DB_PATH'] = scanPin.dbPath;
       db.close();
       rmSync(ws, { recursive: true, force: true });
     }
@@ -824,9 +826,135 @@ describe('scan_run plugin inventory under TMB_FORBID_LIVE_SYNC=1', () => {
       )!.summary;
       assert.match(summary, /; plugins unavailable: TMB_FORBID_LIVE_SYNC=1/);
     } finally {
-      process.env['TRAJECTORY_DB_PATH'] = join(fixtureDir, 'no-trajectory.db');
+      process.env['TRAJECTORY_DB_PATH'] = scanPin.dbPath;
       process.env['PATH'] = savedScanEnv['PATH'];
       process.env['TMB_SCAN_PLUGIN_JSON'] = pluginListFixture;
+      db.close();
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('scan.sh under the test flags: pinned DB, MCP fixture', () => {
+  const scanSh = new URL('../../../../scripts/scan.sh', import.meta.url).pathname;
+
+  function runScanSh(cwd: string, env: NodeJS.ProcessEnv): { status: number; stderr: string } {
+    try {
+      execFileSync('bash', [scanSh, cwd], { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      return { status: 0, stderr: '' };
+    } catch (e: unknown) {
+      const se = e as { status?: number; stderr?: string };
+      return { status: se.status ?? -1, stderr: se.stderr ?? '' };
+    }
+  }
+
+  function flaggedEnv(overrides: Record<string, string | undefined>): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    delete env['TMB_FORBID_LIVE_SYNC'];
+    delete env['TMB_TEST_RUN_ID'];
+    delete env['TRAJECTORY_DB_PATH'];
+    delete env['CLAUDE_PROJECT_DIR'];
+    for (const [k, v] of Object.entries(overrides)) {
+      if (v === undefined) delete env[k];
+      else env[k] = v;
+    }
+    return env;
+  }
+
+  const REQUIRED = /scan: TRAJECTORY_DB_PATH is required under TMB_FORBID_LIVE_SYNC\/TMB_TEST_RUN_ID \(walk-up discovery disabled\)/;
+
+  it('exits 2 with the message when TRAJECTORY_DB_PATH is unset or missing under either flag', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-flag-nodb-'));
+    try {
+      for (const flag of [{ TMB_FORBID_LIVE_SYNC: '1' }, { TMB_TEST_RUN_ID: 'tmb-unit-1' }]) {
+        const unset = runScanSh(ws, flaggedEnv(flag));
+        assert.equal(unset.status, 2, JSON.stringify(flag));
+        assert.match(unset.stderr, REQUIRED);
+        const missing = runScanSh(ws, flaggedEnv({ ...flag, TRAJECTORY_DB_PATH: join(ws, 'nope', 'trajectory.db') }));
+        assert.equal(missing.status, 2, JSON.stringify(flag));
+        assert.match(missing.stderr, REQUIRED);
+      }
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('runs when TRAJECTORY_DB_PATH names an existing file', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-flag-db-'));
+    try {
+      const r = runScanSh(ws, flaggedEnv({ TMB_TEST_RUN_ID: 'tmb-unit-2', TRAJECTORY_DB_PATH: scanPin.dbPath }));
+      assert.equal(r.status, 0, r.stderr);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  function withFileDb(prefix: string): { ws: string; dbPath: string; db: TrajectoryDB } {
+    const ws = mkdtempSync(join(tmpdir(), prefix));
+    mkRepo(ws, 'r', { 'README.md': 'r\n' });
+    const dbDir = join(ws, '.claude', 'tmb');
+    mkdirSync(dbDir, { recursive: true });
+    const dbPath = join(dbDir, 'trajectory.db');
+    return { ws, dbPath, db: new TrajectoryDB(dbPath) };
+  }
+
+  function mcpRows(db: TrajectoryDB): Array<{ name: string; origin: string; source_url: string }> {
+    return db.all<{ name: string; origin: string; source_url: string }>(
+      "SELECT name, origin, source_url FROM cheatcodes WHERE kind = 'mcp' AND origin = 'external' ORDER BY name",
+    ).map((row) => ({ ...row }));
+  }
+
+  it('ingests the TMB_SCAN_MCP_JSON fixture and never reads ~/.claude.json', async () => {
+    const { ws, dbPath, db } = withFileDb('scan-mcp-fixture-ws-');
+    const home = join(ws, 'home');
+    mkdirSync(home);
+    writeFileSync(join(home, '.claude.json'), JSON.stringify({ mcpServers: { 'home-only-server': { command: 'x' } } }));
+    const mcpFixture = join(ws, 'mcp-servers.json');
+    writeFileSync(mcpFixture, JSON.stringify({ 'fixture-mcp': { command: 'node' } }));
+    const savedHome = process.env['HOME'];
+    process.env['HOME'] = home;
+    process.env['TRAJECTORY_DB_PATH'] = dbPath;
+    process.env['TMB_SCAN_MCP_JSON'] = mcpFixture;
+    try {
+      const r = await call(scanTools(db, null, dbPath).handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
+      assert.deepEqual(parse(r)['mcp_inventory'], { status: 'fixture', note: '' });
+      assert.deepEqual(mcpRows(db), [{ name: 'fixture-mcp', origin: 'external', source_url: 'mcp:fixture-mcp' }]);
+    } finally {
+      if (savedHome === undefined) delete process.env['HOME'];
+      else process.env['HOME'] = savedHome;
+      process.env['TRAJECTORY_DB_PATH'] = scanPin.dbPath;
+      process.env['TMB_SCAN_MCP_JSON'] = scanPin.mcpJsonPath;
+      db.close();
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('records mcp_inventory unavailable when no TMB_SCAN_MCP_JSON is set', async () => {
+    const { ws, dbPath, db } = withFileDb('scan-mcp-nofixture-ws-');
+    const home = join(ws, 'home');
+    mkdirSync(home);
+    writeFileSync(join(home, '.claude.json'), JSON.stringify({ mcpServers: { 'home-only-server': { command: 'x' } } }));
+    const savedHome = process.env['HOME'];
+    process.env['HOME'] = home;
+    process.env['TRAJECTORY_DB_PATH'] = dbPath;
+    delete process.env['TMB_SCAN_MCP_JSON'];
+    try {
+      const r = await call(scanTools(db, null, dbPath).handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
+      const inventory = parse(r)['mcp_inventory'] as { status: string; note: string };
+      assert.equal(inventory.status, 'unavailable');
+      assert.match(inventory.note, /no readable TMB_SCAN_MCP_JSON/);
+      assert.deepEqual(mcpRows(db), []);
+      const summary = db.get<{ summary: string }>(
+        "SELECT summary FROM audit WHERE event_type = 'deep_scan_completed' ORDER BY id DESC LIMIT 1",
+      )!.summary;
+      assert.match(summary, /; mcp servers unavailable: TMB_FORBID_LIVE_SYNC\/TMB_TEST_RUN_ID set/);
+    } finally {
+      if (savedHome === undefined) delete process.env['HOME'];
+      else process.env['HOME'] = savedHome;
+      process.env['TRAJECTORY_DB_PATH'] = scanPin.dbPath;
+      process.env['TMB_SCAN_MCP_JSON'] = scanPin.mcpJsonPath;
       db.close();
       rmSync(ws, { recursive: true, force: true });
     }

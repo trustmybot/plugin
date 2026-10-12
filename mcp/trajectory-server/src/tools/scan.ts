@@ -36,6 +36,7 @@ interface ScanOutput {
   repos: ScanRepo[];
   files: ScanFile[];
   plugin_inventory?: { status: string; note: string };
+  mcp_inventory?: { status: string; note: string };
 }
 
 function ok(data: unknown): CallToolResult {
@@ -838,11 +839,15 @@ export function scanTools(
           const pluginNote = pluginInventory?.status === 'unavailable'
             ? `; plugins unavailable: ${pluginInventory.note}`
             : '';
+          const mcpInventory = out.mcp_inventory ?? null;
+          const mcpNote = mcpInventory?.status === 'unavailable'
+            ? `; mcp servers unavailable: ${mcpInventory.note}`
+            : '';
           insertAudit(db, {
             issue_id: -1,
             from_node: 'bro',
             event_type: 'deep_scan_completed',
-            summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} — source=${source}${structuralChange ? ', structural-change' : ''}${pluginNote}`,
+            summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} — source=${source}${structuralChange ? ', structural-change' : ''}${pluginNote}${mcpNote}`,
             content_json: JSON.stringify({
               ...stats,
               session_dir: out.session_dir,
@@ -861,6 +866,7 @@ export function scanTools(
             source,
             structural_change: structuralChange,
             plugin_inventory: pluginInventory,
+            mcp_inventory: mcpInventory,
             ...stats,
           });
         } finally {

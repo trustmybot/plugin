@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
 
 // tempDB returns an in-memory DB. By default it pre-seeds a
@@ -40,4 +43,41 @@ export function seedReviewerObservation(
     [issueId, content],
   );
   return Number(res.lastInsertRowid);
+}
+
+export interface ScanEnvPin {
+  dbPath: string;
+  mcpJsonPath: string;
+  restore(): void;
+}
+
+const SCAN_PIN_KEYS = ['TMB_FORBID_LIVE_SYNC', 'TRAJECTORY_DB_PATH', 'TMB_SCAN_MCP_JSON'] as const;
+
+// pinScanEnv is the one way a test that forks scripts/scan.sh (directly or via
+// scan_run) reaches a DB: it sets TMB_FORBID_LIVE_SYNC=1, points
+// TRAJECTORY_DB_PATH at an empty per-file temp DB and TMB_SCAN_MCP_JSON at an
+// empty mcpServers fixture, so scan.sh never walks up to the project's live
+// trajectory DB nor reads ~/.claude.json. Child processes inherit the pin.
+export function pinScanEnv(): ScanEnvPin {
+  const saved: Record<string, string | undefined> = {};
+  for (const k of SCAN_PIN_KEYS) saved[k] = process.env[k];
+  const dir = mkdtempSync(join(tmpdir(), 'tmb-scan-pin-'));
+  const dbPath = join(dir, 'trajectory.db');
+  const mcpJsonPath = join(dir, 'mcp-servers.json');
+  writeFileSync(dbPath, '');
+  writeFileSync(mcpJsonPath, '{}');
+  process.env['TMB_FORBID_LIVE_SYNC'] = '1';
+  process.env['TRAJECTORY_DB_PATH'] = dbPath;
+  process.env['TMB_SCAN_MCP_JSON'] = mcpJsonPath;
+  return {
+    dbPath,
+    mcpJsonPath,
+    restore() {
+      for (const k of SCAN_PIN_KEYS) {
+        if (saved[k] === undefined) delete process.env[k];
+        else process.env[k] = saved[k];
+      }
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
 }

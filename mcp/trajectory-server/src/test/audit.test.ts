@@ -1,11 +1,11 @@
-import { describe, it, before } from 'node:test';
+import { after, describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TrajectoryDB } from '../db.js';
-import { seedReviewerObservation, tempDB } from './helpers.js';
+import { pinScanEnv, seedReviewerObservation, tempDB } from './helpers.js';
 import { auditTools, insertAudit } from '../tools/audit.js';
 import { discussionTools, insertDiscussion } from '../tools/discussions.js';
 import { issueTools } from '../tools/issues.js';
@@ -16,6 +16,9 @@ import { cheatcodeTools } from '../tools/cheatcode.js';
 import { scanTools } from '../tools/scan.js';
 import { backfillMissing } from '../embeddings/backfill.js';
 import { embed } from '../embeddings/model.js';
+
+const scanPin = pinScanEnv();
+after(() => scanPin.restore());
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Handlers = Record<string, (args: Record<string, unknown>) => Promise<unknown>>;

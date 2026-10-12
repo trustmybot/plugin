@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildTree, worldModelTools } from '../tools/world_model.js';
 import { WorldModelGraph, GraphHolder } from '../graph-db.js';
@@ -6,7 +6,9 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { tempDB } from './helpers.js';
+import { pinScanEnv, tempDB } from './helpers.js';
+const scanPin = pinScanEnv();
+after(() => scanPin.restore());
 // Helper to detect whether kuzu is loadable in this environment.
 function kuzuAvailable() {
     try {

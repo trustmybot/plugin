@@ -1,16 +1,18 @@
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { tempDB } from './helpers.js';
+import { pinScanEnv, tempDB } from './helpers.js';
 import { scanTools } from '../tools/scan.js';
 import { configTools } from '../tools/config.js';
 import { issueTools } from '../tools/issues.js';
 import { compositeTools } from '../tools/composites.js';
 import { milestoneTools, nextPatchMilestone, syncRepoMilestones } from '../tools/milestones.js';
 import { upsertRepoRemotes } from '../repos/remotes.js';
+const scanPin = pinScanEnv();
+after(() => scanPin.restore());
 const VALID_LABELS = ['Bug', 'Priority: High'];
 const GH_REMOTE = 'https://github.com/acme/app.git';
 function parse(r) {

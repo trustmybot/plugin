@@ -1,12 +1,14 @@
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { tempDB } from './helpers.js';
+import { pinScanEnv, tempDB } from './helpers.js';
 import { isKuzuLockError, WorldModelGraph, GraphHolder } from '../graph-db.js';
 import { scanTools } from '../tools/scan.js';
+const scanPin = pinScanEnv();
+after(() => scanPin.restore());
 function parse(r) {
     return JSON.parse(r.content[0].text);
 }

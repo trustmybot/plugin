@@ -14,6 +14,10 @@ Two exceptions, each declared once:
 | Embedding model cache, `TMB_MODEL_CACHE_DIR` (default `HF_HOME`, else `~/.cache/huggingface`) | A shared, re-downloadable model cache; per-project copies would cost gigabytes | The only path outside the project the lint allows |
 | [`scripts/maintenance/heal-mcp-cache.sh`](../../scripts/maintenance/heal-mcp-cache.sh) | A Human-run repair tool whose job is fixing Claude Code's own plugin config | [`tests/l1-lint/no-home-writes.allowlist`](../../tests/l1-lint/no-home-writes.allowlist); never a hook, never the server |
 
+## Test runs never reach the project's trajectory DB
+
+`scripts/scan.sh` finds its DB through `TRAJECTORY_DB_PATH`, else by walking up from the current directory, so a test run from any checkout inside the project would resolve the project's live `.claude/tmb/trajectory.db` and record fixture plugins and MCP servers into it. Under the test flags (`TMB_FORBID_LIVE_SYNC=1` or a set `TMB_TEST_RUN_ID`) it walks nowhere: `TRAJECTORY_DB_PATH` must name an existing file, else it exits 2 with `scan: TRAJECTORY_DB_PATH is required under TMB_FORBID_LIVE_SYNC/TMB_TEST_RUN_ID (walk-up discovery disabled)`, and it reads MCP servers from the `TMB_SCAN_MCP_JSON` fixture instead of `~/.claude.json` (`mcp_inventory.status: unavailable` without one). Unit tests that fork scan.sh pin both through `pinScanEnv` in `mcp/trajectory-server/src/test/helpers.ts`; [`tests/l1-lint/no-unpinned-scan-in-tests.sh`](../../tests/l1-lint/no-unpinned-scan-in-tests.sh) fails a test file that references `scan.sh`, `scan_run` or `project_scan` without the pin. Rows a past run left behind are reported by the `no_fixture_rows_in_inventory` data contract (`trajectory_doctor`), never deleted by an agent: the Human decides.
+
 ## Where every artifact lives
 
 Paths are relative to the project root; `<state>` is `.claude/<plugin>/` (Claude Code) or `.tmb/<plugin>/` (Codex).
@@ -96,6 +100,7 @@ The keys are `sandbox.enabled` and `sandbox.filesystem.allowWrite` (siblings `de
 | Check | What it fails on |
 |---|---|
 | [`tests/l1-lint/no-home-writes.sh`](../../tests/l1-lint/no-home-writes.sh) | Any write under the home directory from `scripts/`, `skills/*/scripts/` or the server |
+| [`tests/l1-lint/no-unpinned-scan-in-tests.sh`](../../tests/l1-lint/no-unpinned-scan-in-tests.sh) | A unit test file under `mcp/trajectory-server/src/test/` that references `scan.sh`, `scan_run` or `project_scan` without `TRAJECTORY_DB_PATH` or `pinScanEnv` |
 | [`tests/l1-lint/hooks-via-dispatcher.sh`](../../tests/l1-lint/hooks-via-dispatcher.sh) | A hooks.json command that is not `dispatch.sh <gate>` (or a chain), or a gate script that is missing or not executable |
 | [`tests/l1-lint/hook-onfailure.sh`](../../tests/l1-lint/hook-onfailure.sh) | A deny-capable hooks.json registration without `"onFailure": "block"`, or a deny-capable gate that allows silently without jq (warns on an observe-only one that carries the key) |
 | L3 runners (`tests/l3-integration/hooks/run.sh`, `tests/l3-integration/mcp/run.sh`) | Anything left in the empty temp `HOME` they run under |

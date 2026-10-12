@@ -11,12 +11,15 @@
 #     "scanned_at": "<ISO timestamp>",
 #     "repos":  [ { name, path, file_count } ],
 #     "files":  [ { repo, path, size_bytes, content_md5, last_commit_sha } ],
-#     "plugin_inventory": { status, note }
+#     "plugin_inventory": { status, note },
+#     "mcp_inventory": { status, note }
 #   }
 #
 # plugin_inventory.status: cli (read from `claude plugin list --json`),
 # fixture (read from TMB_SCAN_PLUGIN_JSON), unavailable (no plugin list; note
 # says why) or skipped (no trajectory DB with a cheatcodes table to record into).
+# mcp_inventory.status: home (read from ~/.claude.json mcpServers), fixture
+# (read from TMB_SCAN_MCP_JSON), unavailable (note says why) or skipped (as above).
 #
 # Determinism rules (per the user's design):
 #   - Drift detection is md5-only. No git diff. last_commit_sha is metadata,
@@ -39,11 +42,27 @@
 #                           from TMB_SCAN_PLUGIN_JSON, else it is unavailable.
 #   TMB_SCAN_PLUGIN_JSON    path to a file holding `claude plugin list --json`
 #                           output; read only under TMB_FORBID_LIVE_SYNC=1.
+#   TMB_SCAN_MCP_JSON       path to a file holding an `mcpServers` object (the
+#                           shape of ~/.claude.json's `.mcpServers`); read in
+#                           place of ~/.claude.json under the test flags.
 #   TMB_SCAN_DISCOVERY_TIMEOUT  seconds allowed for `claude plugin list` (4).
+#
+# Test flags: TMB_FORBID_LIVE_SYNC=1 or a set TMB_TEST_RUN_ID. Under either,
+# TRAJECTORY_DB_PATH must name an existing file (no walk-up DB discovery; exit
+# 2 otherwise) and ~/.claude.json is never read.
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+SCAN_TEST_MODE=0
+if [ "${TMB_FORBID_LIVE_SYNC:-}" = "1" ] || [ -n "${TMB_TEST_RUN_ID:-}" ]; then
+  SCAN_TEST_MODE=1
+  if [ -z "${TRAJECTORY_DB_PATH:-}" ] || [ ! -f "$TRAJECTORY_DB_PATH" ]; then
+    echo 'scan: TRAJECTORY_DB_PATH is required under TMB_FORBID_LIVE_SYNC/TMB_TEST_RUN_ID (walk-up discovery disabled)' >&2
+    exit 2
+  fi
+fi
 
 SESSION_DIR="${1:-$PWD}"
 SESSION_DIR=$(cd "$SESSION_DIR" 2>/dev/null && pwd)
@@ -259,10 +278,12 @@ done < <(discover_repos)
 # yields origin=marketplace with source_url=<the ref>. A plugin's enabled flag
 # maps to status (enabled→active, else installed).
 #
-# Non-load-bearing: it only sets plugin_inventory on stdout (the world-model JSON is
+# Non-load-bearing: it only sets plugin_inventory + mcp_inventory on stdout (the world-model JSON is
 # unchanged) and never fails the scan — every step is guarded and best-effort.
 PLUGIN_INVENTORY_STATUS=skipped
 PLUGIN_INVENTORY_NOTE="no trajectory DB with a cheatcodes table"
+MCP_INVENTORY_STATUS=skipped
+MCP_INVENTORY_NOTE="no trajectory DB with a cheatcodes table"
 discover_resources() {
   local lib="$SCRIPT_DIR/hooks/lib/query-task.sh"
   [ -f "$lib" ] || return 0
@@ -452,12 +473,36 @@ $audit_sql" >/dev/null || return 0
       | (.mcpServers? // {} | keys[]?) | [ $p, ., $v ] | join("\u001f")' 2>/dev/null)
   fi
 
-  # mcp fallback — ~/.claude.json mcpServers keys (covers a stale/absent CLI).
-  if [ -f "$HOME/.claude.json" ]; then
+  # mcp fallback — the mcpServers object of ~/.claude.json (covers a
+  # stale/absent CLI); under the test flags, of TMB_SCAN_MCP_JSON instead.
+  local mcp_servers="" mcp_source="" mcp_note=""
+  if [ "$SCAN_TEST_MODE" = "1" ]; then
+    if [ -n "${TMB_SCAN_MCP_JSON:-}" ] && [ -r "$TMB_SCAN_MCP_JSON" ]; then
+      mcp_servers=$(cat "$TMB_SCAN_MCP_JSON")
+      mcp_source=fixture
+    else
+      mcp_note="TMB_FORBID_LIVE_SYNC/TMB_TEST_RUN_ID set and no readable TMB_SCAN_MCP_JSON: ~/.claude.json skipped"
+    fi
+  elif [ -f "$HOME/.claude.json" ]; then
+    mcp_servers=$(jq -c '.mcpServers // {}' "$HOME/.claude.json" 2>/dev/null || true)
+    mcp_source=home
+  else
+    mcp_note="no ~/.claude.json"
+  fi
+  if [ -n "$mcp_source" ] && ! printf '%s' "$mcp_servers" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    mcp_note="$mcp_source mcpServers is not a JSON object"
+    mcp_source=""
+  fi
+  if [ -z "$mcp_source" ]; then
+    MCP_INVENTORY_STATUS=unavailable
+    MCP_INVENTORY_NOTE="$mcp_note"
+  else
+    MCP_INVENTORY_STATUS="$mcp_source"
+    MCP_INVENTORY_NOTE=""
     local jkey
     while IFS= read -r jkey; do
       [ -n "$jkey" ] && _register mcp "$jkey" "" external "mcp:$jkey" active
-    done < <(jq -r '.mcpServers // {} | keys[]' "$HOME/.claude.json" 2>/dev/null || true)
+    done < <(printf '%s' "$mcp_servers" | jq -r 'keys[]' 2>/dev/null || true)
   fi
 
   return 0
@@ -474,4 +519,6 @@ jq -n \
   --slurpfile files "$files_jsonl" \
   --arg plugin_status "$PLUGIN_INVENTORY_STATUS" \
   --arg plugin_note "$PLUGIN_INVENTORY_NOTE" \
-  '{session_dir:$session_dir,scanned_at:$scanned_at,repos:$repos,files:$files,plugin_inventory:{status:$plugin_status,note:$plugin_note}}'
+  --arg mcp_status "$MCP_INVENTORY_STATUS" \
+  --arg mcp_note "$MCP_INVENTORY_NOTE" \
+  '{session_dir:$session_dir,scanned_at:$scanned_at,repos:$repos,files:$files,plugin_inventory:{status:$plugin_status,note:$plugin_note},mcp_inventory:{status:$mcp_status,note:$mcp_note}}'

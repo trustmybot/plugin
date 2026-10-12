@@ -34590,11 +34590,13 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
           const structuralChange = detectStructuralChange(db2, out.repos, topDirs);
           const pluginInventory = out.plugin_inventory ?? null;
           const pluginNote = pluginInventory?.status === "unavailable" ? `; plugins unavailable: ${pluginInventory.note}` : "";
+          const mcpInventory = out.mcp_inventory ?? null;
+          const mcpNote = mcpInventory?.status === "unavailable" ? `; mcp servers unavailable: ${mcpInventory.note}` : "";
           insertAudit(db2, {
             issue_id: -1,
             from_node: "bro",
             event_type: "deep_scan_completed",
-            summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} \u2014 source=${source}${structuralChange ? ", structural-change" : ""}${pluginNote}`,
+            summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} \u2014 source=${source}${structuralChange ? ", structural-change" : ""}${pluginNote}${mcpNote}`,
             content_json: JSON.stringify({
               ...stats,
               session_dir: out.session_dir,
@@ -34612,6 +34614,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
             source,
             structural_change: structuralChange,
             plugin_inventory: pluginInventory,
+            mcp_inventory: mcpInventory,
             ...stats
           });
         } finally {
@@ -36769,6 +36772,10 @@ var UNCONSUMED_STALE_OBSERVATION = (alias) => `${alias}.event_type = 'reviewer_i
                AND COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.consumed') END, 0) = 0
                AND COALESCE(CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.superseded') END, 0) = 0`;
 var LIVE_TASK_STATUSES2 = "'pending','running','needs_validation','completed'";
+var FIXTURE_INVENTORY_ROW = (alias) => `${alias}.kind IN ('plugin','mcp')
+               AND (${alias}.name IN ('alpha','beta','alpha-server')
+                    OR ${alias}.name GLOB 'fixture-*' OR ${alias}.name GLOB 'test-plugin*'
+                    OR COALESCE(${alias}.source_url, '') LIKE '%@tmb-test-market')`;
 var POPULATED_COLUMNS = [
   { table: "agent_runs", column: "session_id", created_column: "started_at", floor: 0.2, min_schema: 30 },
   { table: "agent_runs", column: "usage_source", created_column: "started_at", scope: "completed_at IS NOT NULL", scope_label: "completed rows", floor: 0.05, min_schema: 30 },
@@ -36948,6 +36955,17 @@ function buildDataContracts(documentedEventTypes) {
       sample_sql: `SELECT id, task_id, commit_sha, source, started_at FROM verification_runs
              WHERE finished_at IS NULL AND ${ts("started_at")} < ${hoursAgo(2)}
              ORDER BY id DESC LIMIT 5`
+    },
+    {
+      id: "no_fixture_rows_in_inventory",
+      severity: "warn",
+      description: "no plugin or MCP-server cheatcodes row carries a scan test-fixture name (alpha, beta, alpha-server, fixture-*, test-plugin*, or a <name>@tmb-test-market ref): such a row means a test's scan.sh run reached this DB; report only \u2014 agents never delete these rows, the Human decides",
+      sql: `SELECT COUNT(*) FROM cheatcodes c
+             WHERE ${FIXTURE_INVENTORY_ROW("c")}`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT c.id, c.name, c.kind, c.source_url, c.created_at FROM cheatcodes c
+             WHERE ${FIXTURE_INVENTORY_ROW("c")}
+             ORDER BY c.id DESC LIMIT 5`
     },
     ...POPULATED_COLUMNS.map(populatedContract),
     {
