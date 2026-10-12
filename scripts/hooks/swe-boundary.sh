@@ -16,6 +16,8 @@
 #       Bash: a written path on the prompt surface        → DENY (unless prompt_bearing=1)
 #   (f) Bash: a written path inside the worktree but outside the task's
 #       files[] dirs                                      → NOTE (additionalContext, once per path)
+#   (g) Bash: a write target behind a variable the command does not set
+#                                                         → DENY (unless prompt_bearing=1)
 #
 # Bash writes are judged by the same rules as Edit/Write: every path a
 # statement writes (tmb_cmd_write_paths in lib/cmd-analysis.sh, the one list
@@ -27,7 +29,9 @@
 #
 # SWE context = the agent identity (tmb_agent_role in lib/cmd-analysis.sh) is
 # swe. A path never decides the role. Bash rules judge the command's
-# executable statements only: heredoc bodies and quoted text are data.
+# executable statements only: data heredocs and quoted text are data; a
+# program fed to an interpreter through a heredoc is analysed for the paths it
+# writes, and a variable set earlier in the same command is resolved.
 #
 # Fires on: PreToolUse — matcher: Bash|Edit|Write|MultiEdit|NotebookEdit
 set -euo pipefail
@@ -105,9 +109,16 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
   SURFACE_PATH=""
   SURFACE_ANCHOR=""
   ROOT_CLAUDE_MD=""
+  UNRESOLVED_TARGET=""
   FENCE_PATHS=()
   while IFS= read -r _wpath; do
     [ -n "$_wpath" ] || continue
+    case "$_wpath" in
+      UNRESOLVED:*)
+        [ -n "$UNRESOLVED_TARGET" ] || UNRESOLVED_TARGET="${_wpath#UNRESOLVED:*:}"
+        continue
+        ;;
+    esac
     _wt=$(_wt_of "$_wpath")
     _rel="${_wpath#"$_wt"/}"
     if [ -z "$_wt" ] || [ "$_rel" = "$_wpath" ]; then _wt=""; _rel="$_wpath"; fi
@@ -126,17 +137,18 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
   fi
 
   _DB=""
-  if [ -n "$SURFACE_PATH" ] || [ "${#FENCE_PATHS[@]}" -gt 0 ]; then
+  if [ -n "$SURFACE_PATH" ] || [ -n "$UNRESOLVED_TARGET" ] || [ "${#FENCE_PATHS[@]}" -gt 0 ]; then
     _DB=$(tmb_db_path || true)
   fi
-  if [ -n "$SURFACE_PATH" ] && [ "$(tmb_db_state)" = "error" ]; then
+  if { [ -n "$SURFACE_PATH" ] || [ -n "$UNRESOLVED_TARGET" ]; } && [ "$(tmb_db_state)" = "error" ]; then
     tmb_deny_db_unavailable swe-boundary
     exit 0
   fi
 
-  # (e) Lifts when the resolved task has prompt_bearing=1.
-  if [ -n "$SURFACE_PATH" ]; then
-    _PB_ALLOWED=""
+  # (e), (g) Lift when the resolved task has prompt_bearing=1.
+  _PB_ALLOWED=""
+  if [ -n "$SURFACE_PATH" ] || [ -n "$UNRESOLVED_TARGET" ]; then
+    [ -n "$SURFACE_ANCHOR" ] || SURFACE_ANCHOR="$(tmb_payload_cwd "$INPUT")/"
     _PB_TASK_ID=$(tmb_resolve_task_id_for_target "$SURFACE_ANCHOR" "$INPUT" "$_DB")
     if [ -n "$_PB_TASK_ID" ] && [ -n "$_DB" ] && tmb_have_sqlite; then
       _PB_VAL=$(tmb_gate_read "$_DB" "
@@ -148,11 +160,19 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
       fi
       if [ "${_PB_VAL:-0}" = "1" ]; then _PB_ALLOWED="yes"; fi
     fi
+  fi
+  if [ -n "$SURFACE_PATH" ]; then
     if [ "$_PB_ALLOWED" != "yes" ]; then
       jq -nc --arg r "BLOCKED: SWE may not write prompt-surface files via Bash ($(tmb_cmd_write_shapes)). Target: ${SURFACE_PATH}. Sanctioned routes: use a prompt_bearing=1 task for intentional prompt edits, or pr_monitor_worktree for reviewer experiments. Reads (cat/grep/sed -n) are always allowed." \
         '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
       exit 0
     fi
+  fi
+
+  if [ -n "$UNRESOLVED_TARGET" ] && [ "$_PB_ALLOWED" != "yes" ]; then
+    jq -nc --arg r "BLOCKED: write target \"${UNRESOLVED_TARGET}\" depends on a variable the guard cannot resolve in this command; inline the path or set the variable in the same command." \
+      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
+    exit 0
   fi
 
   # (f) files[] note, per worktree a written path lies in. Never denies.

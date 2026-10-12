@@ -15,6 +15,8 @@
 #   - root-level file listed → only that exact file is in scope
 #   - tests/ path in scope when files[] includes a tests/ parent
 #   - the hook source carries no deny
+#   - a path a heredoc program writes is noted by swe-boundary.sh through the
+#     same classifier
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -190,6 +192,16 @@ test_case "non-edit-tool: Bash is ignored (swe-boundary.sh notes Bash writes)"
 bash_input=$(jq -n '{"tool_name":"Bash","agent_type":"swe","tool_input":{"command":"echo x > elsewhere/y.ts"}}')
 out=$(run_hook "$WT_A" "$bash_input")
 assert_eq "$out" "" "Bash produces no output here"
+
+test_case "GH 1279: a path a heredoc program writes outside files[] is noted once (swe-boundary.sh, same classifier)"
+BOUNDARY_HOOK="$PLUGIN_ROOT/scripts/hooks/swe-boundary.sh"
+heredoc_cmd=$(printf '%s\n' "python3 - <<'EOF'" "open('src/heredoc_out.py', 'w').write('x')" 'EOF')
+bash_input=$(jq -n --arg c "$heredoc_cmd" '{"tool_name":"Bash","agent_type":"swe","tool_input":{"command":$c}}')
+out=$( (cd "$WT_A" && echo "$bash_input" | bash "$BOUNDARY_HOOK" 2>&1) || true)
+assert_not_contains "$out" "$DENY" "the note never denies"
+assert_contains "$out" "src/heredoc_out.py is outside this task's files[] (scripts/hooks, tests/l3-integration/hooks)" "the extracted path is noted"
+out=$( (cd "$WT_A" && echo "$bash_input" | bash "$BOUNDARY_HOOK" 2>&1) || true)
+assert_not_contains "$out" "outside this task" "noted once per path"
 
 test_case "DB read error: silent, never a deny"
 out=$( (cd "$WT_A" && echo "$(make_edit_input "src/db-error.ts")" | TRAJECTORY_DB_PATH="$TMPDIR/not-a-db/trajectory.db" bash "$HOOK" 2>&1) || true)

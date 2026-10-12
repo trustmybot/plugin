@@ -3,9 +3,10 @@
 # Library: the SWE scope classifier — a task's typed files[] as a dir list.
 # Sourced (not exec'd) after query-task.sh. No set -e here — libs must not
 # mutate caller shell options. Used by swe-scope-fence.sh (Edit/Write) and
-# swe-boundary.sh (every path a Bash command writes) to note, never deny, a
-# write outside files[]; scope is judged at close by bro_atomic_close on the
-# task's own diff.
+# swe-boundary.sh (every path a Bash command writes, as tmb_cmd_write_paths
+# reports it: a program fed to an interpreter through a heredoc included, a
+# data heredoc never) to note, never deny, a write outside files[]; scope is
+# judged at close by bro_atomic_close on the task's own diff.
 #
 # tmb_scope_fence_load <db> <task_id>
 #   Reads the task's typed `files` column (JSON array) into TMB_FENCE_DIRS and

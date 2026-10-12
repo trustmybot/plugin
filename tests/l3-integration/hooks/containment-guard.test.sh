@@ -95,12 +95,13 @@ assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd 'mkdir "$TMB_M
 
 test_case "Bash: write positions outside the root → deny"
 for cmd in 'cp a.txt /tmp/b.txt' 'echo x | tee -a /tmp/log' 'rm -rf /tmp/foo*' 'git worktree add /tmp/wt feat/x' \
-           'git clone https://example.test/r.git /tmp/clone' 'touch $HOME/f' 'mkdir -p ${HOME}/d' 'mv x ../../outside'; do
+           'git clone https://example.test/r.git /tmp/clone' 'touch $HOME/f' 'mkdir -p ${HOME}/d' 'mv x ../../outside' \
+           'touch "$UNRESOLVED/x"'; do
   assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$cmd")")")" "$cmd"
 done
 
 test_case "Bash: write positions inside the root and devices → allow"
-for cmd in 'cp a.txt b.txt' 'ls 2>/dev/null >> out.log' 'echo x 2>&1 | tee out' 'rm -rf build/' 'touch "$UNRESOLVED/x"'; do
+for cmd in 'cp a.txt b.txt' 'ls 2>/dev/null >> out.log' 'echo x 2>&1 | tee out' 'rm -rf build/'; do
   assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$cmd")")")" "$cmd"
 done
 
@@ -148,7 +149,47 @@ assert_eq "deny" "$(decision "$(run "$WT" "pr-reviewer" Write "$(write "$HOME/.c
 
 test_case "every denial wrote an audit row"
 assert_eq "$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='containment_denied';")" "$(denials)" "all rows from hook:containment-guard"
-assert_eq "26" "$(denials)" "one row per denial above"
+assert_eq "27" "$(denials)" "one row per denial above"
+
+test_case "GH 1279: a program fed to an interpreter through a heredoc is judged"
+NODE_OUT=$(printf '%s\n' "node <<'EOF'" "require('fs').writeFileSync('/tmp/tmb-cg-x', 'y')" 'EOF')
+OUT=$(run "$PROJECT" "" Bash "$(bash_cmd "$NODE_OUT")")
+assert_eq "deny" "$(decision "$OUT")" "bro node heredoc writing /tmp outside the root"
+assert_contains "$OUT" "/tmp/tmb-cg-x" "the reason names the program's path"
+NODE_IN=$(printf '%s\n' "node <<'EOF'" "require('fs').writeFileSync('src/x.js', 'y')" 'EOF')
+assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "$NODE_IN")")")" "bro node heredoc writing inside the root"
+PY_OUT=$(printf '%s\n' "python3 - <<'EOF'" "open('/etc/tmb-cg', 'w').write('x')" 'EOF')
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$PY_OUT")")")" "swe python heredoc writing outside its worktree"
+SH_OUT=$(printf '%s\n' "sh <<'EOF'" 'echo x > /tmp/tmb-cg-sh' 'EOF')
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$SH_OUT")")")" "swe sh heredoc redirecting outside its worktree"
+DATA=$(printf '%s\n' "cat > notes.py <<'EOF'" "open('/etc/passwd', 'w')" 'EOF')
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$DATA")")")" "a data heredoc is never scanned"
+
+test_case "GH 1279: variable-held write targets"
+OUT=$(run "$PROJECT" "" Bash "$(bash_cmd 'cat > "$UNKNOWN/f"')")
+assert_eq "deny" "$(decision "$OUT")" "bro \$UNKNOWN/f"
+assert_contains "$OUT" 'write target \"$UNKNOWN/f\" depends on a variable the guard cannot resolve in this command' "the reason names the variable"
+assert_eq "deny" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'OUT=/etc/tmb-cg; cat > "$OUT"')")")" "a variable set to a path outside the root"
+assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "OUT=$PROJECT/notes.txt; cat > \"\$OUT\"")")")" "a variable set to a path inside the root"
+assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'D=build; mkdir -p "$D/out"')")")" "a relative variable resolves against the cwd"
+assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'touch "build/$UNKNOWN"')")")" "the literal dir before an unknown variable is inside the root"
+assert_eq "deny" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'touch "/tmp/tmb-cg/$UNKNOWN"')")")" "the literal dir before an unknown variable is outside the root"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd 'OUT=$(mktemp); cat > "$OUT"')")")" "a value built by \$( ) is unresolvable"
+
+test_case "GH 1279: \$PWD is the statement's own dir"
+assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'echo x > "$PWD/out"')")")" "bro from inside the root"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd 'echo x > "$PWD/out"')")")" "swe from inside its worktree"
+mkdir -p "$PROJECT/x"
+assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "cd $PROJECT/x && echo y > \"\$PWD/f\"")")")" "cd <root>/x && echo y > \$PWD/f"
+OUT=$(run "$PROJECT" "" Bash "$(bash_cmd 'cd /tmp/tmb-cg-pwd && echo y > "$PWD/f"')")
+assert_eq "deny" "$(decision "$OUT")" "\$PWD after a cd outside the root"
+assert_contains "$OUT" "/tmp/tmb-cg-pwd/f is outside" "denied as the real path"
+OUTSIDE_CWD="$SANDBOX/outside-cwd"
+mkdir -p "$OUTSIDE_CWD"
+OUT=$(run "$OUTSIDE_CWD" "" Bash "$(bash_cmd 'echo x > "$PWD/out"')")
+assert_eq "deny" "$(decision "$OUT")" "from a cwd outside the root"
+assert_contains "$OUT" "$OUTSIDE_CWD" "denied as the real path"
+assert_eq "deny" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'HOME=/inside cat > "$HOME/.bashrc"')")")" "a HOME= prefix: judged on the real ~/.bashrc"
 
 test_case "un-onboarded project → allow"
 BARE="$SANDBOX/bare"
