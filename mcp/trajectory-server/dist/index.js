@@ -96,7 +96,7 @@ var require_code = __commonJS({
     }
     exports._ = _;
     var plus = new _Code("+");
-    function str(strs, ...args) {
+    function str2(strs, ...args) {
       const expr = [safeStringify(strs[0])];
       let i = 0;
       while (i < args.length) {
@@ -107,7 +107,7 @@ var require_code = __commonJS({
       optimize(expr);
       return new _Code(expr);
     }
-    exports.str = str;
+    exports.str = str2;
     function addCodeArg(code, arg) {
       if (arg instanceof _Code)
         code.push(...arg._items);
@@ -150,7 +150,7 @@ var require_code = __commonJS({
       return;
     }
     function strConcat(c1, c2) {
-      return c2.emptyStr() ? c1 : c1.emptyStr() ? c2 : str`${c1}${c2}`;
+      return c2.emptyStr() ? c1 : c1.emptyStr() ? c2 : str2`${c1}${c2}`;
     }
     exports.strConcat = strConcat;
     function interpolate(x) {
@@ -1112,22 +1112,22 @@ var require_util = __commonJS({
       return (0, codegen_1._)`${topSchemaRef}${schemaPath}${(0, codegen_1.getProperty)(keyword)}`;
     }
     exports.schemaRefOrVal = schemaRefOrVal;
-    function unescapeFragment(str) {
-      return unescapeJsonPointer(decodeURIComponent(str));
+    function unescapeFragment(str2) {
+      return unescapeJsonPointer(decodeURIComponent(str2));
     }
     exports.unescapeFragment = unescapeFragment;
-    function escapeFragment(str) {
-      return encodeURIComponent(escapeJsonPointer(str));
+    function escapeFragment(str2) {
+      return encodeURIComponent(escapeJsonPointer(str2));
     }
     exports.escapeFragment = escapeFragment;
-    function escapeJsonPointer(str) {
-      if (typeof str == "number")
-        return `${str}`;
-      return str.replace(/~/g, "~0").replace(/\//g, "~1");
+    function escapeJsonPointer(str2) {
+      if (typeof str2 == "number")
+        return `${str2}`;
+      return str2.replace(/~/g, "~0").replace(/\//g, "~1");
     }
     exports.escapeJsonPointer = escapeJsonPointer;
-    function unescapeJsonPointer(str) {
-      return str.replace(/~1/g, "/").replace(/~0/g, "~");
+    function unescapeJsonPointer(str2) {
+      return str2.replace(/~1/g, "/").replace(/~0/g, "~");
     }
     exports.unescapeJsonPointer = unescapeJsonPointer;
     function eachItem(xs, f) {
@@ -2152,8 +2152,8 @@ var require_json_schema_traverse = __commonJS({
         post(schema, jsonPtr, rootSchema, parentJsonPtr, parentKeyword, parentSchema, keyIndex);
       }
     }
-    function escapeJsonPtr(str) {
-      return str.replace(/~/g, "~0").replace(/\//g, "~1");
+    function escapeJsonPtr(str2) {
+      return str2.replace(/~/g, "~0").replace(/\//g, "~1");
     }
   }
 });
@@ -3214,10 +3214,10 @@ var require_utils = __commonJS({
         return { host, isIPV6: false };
       }
     }
-    function findToken(str, token) {
+    function findToken(str2, token) {
       let ind = 0;
-      for (let i = 0; i < str.length; i++) {
-        if (str[i] === token) ind++;
+      for (let i = 0; i < str2.length; i++) {
+        if (str2[i] === token) ind++;
       }
       return ind;
     }
@@ -3870,7 +3870,7 @@ var require_core = __commonJS({
     var util_1 = require_util();
     var $dataRefSchema = require_data();
     var uri_1 = require_uri();
-    var defaultRegExp = (str, flags) => new RegExp(str, flags);
+    var defaultRegExp = (str2, flags) => new RegExp(str2, flags);
     defaultRegExp.code = "new RegExp";
     var META_IGNORE_OPTIONS = ["removeAdditional", "useDefaults", "coerceTypes"];
     var EXT_SCOPE_NAMES = /* @__PURE__ */ new Set([
@@ -4665,16 +4665,16 @@ var require_ucs2length = __commonJS({
   "node_modules/.bun/ajv@8.20.0/node_modules/ajv/dist/runtime/ucs2length.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    function ucs2length(str) {
-      const len = str.length;
+    function ucs2length(str2) {
+      const len = str2.length;
       let length = 0;
       let pos = 0;
       let value;
       while (pos < len) {
         length++;
-        value = str.charCodeAt(pos++);
+        value = str2.charCodeAt(pos++);
         if (value >= 55296 && value <= 56319 && pos < len) {
-          value = str.charCodeAt(pos);
+          value = str2.charCodeAt(pos);
           if ((value & 64512) === 56320)
             pos++;
         }
@@ -6557,8 +6557,8 @@ var require_formats = __commonJS({
     }
     var DATE = /^(\d\d\d\d)-(\d\d)-(\d\d)$/;
     var DAYS = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    function date4(str) {
-      const matches = DATE.exec(str);
+    function date4(str2) {
+      const matches = DATE.exec(str2);
       if (!matches)
         return false;
       const year = +matches[1];
@@ -6577,8 +6577,8 @@ var require_formats = __commonJS({
     }
     var TIME = /^(\d\d):(\d\d):(\d\d(?:\.\d+)?)(z|([+-])(\d\d)(?::?(\d\d))?)?$/i;
     function getTime(strictTimeZone) {
-      return function time3(str) {
-        const matches = TIME.exec(str);
+      return function time3(str2) {
+        const matches = TIME.exec(str2);
         if (!matches)
           return false;
         const hr = +matches[1];
@@ -6624,8 +6624,8 @@ var require_formats = __commonJS({
     var DATE_TIME_SEPARATOR = /t|\s/i;
     function getDateTime(strictTimeZone) {
       const time3 = getTime(strictTimeZone);
-      return function date_time(str) {
-        const dateTime = str.split(DATE_TIME_SEPARATOR);
+      return function date_time(str2) {
+        const dateTime = str2.split(DATE_TIME_SEPARATOR);
         return dateTime.length === 2 && date4(dateTime[0]) && time3(dateTime[1]);
       };
     }
@@ -6650,13 +6650,13 @@ var require_formats = __commonJS({
     }
     var NOT_URI_FRAGMENT = /\/|:/;
     var URI = /^(?:[a-z][a-z0-9+\-.]*:)(?:\/?\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:]|%[0-9a-f]{2})*@)?(?:\[(?:(?:(?:(?:[0-9a-f]{1,4}:){6}|::(?:[0-9a-f]{1,4}:){5}|(?:[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){4}|(?:(?:[0-9a-f]{1,4}:){0,1}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){3}|(?:(?:[0-9a-f]{1,4}:){0,2}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){2}|(?:(?:[0-9a-f]{1,4}:){0,3}[0-9a-f]{1,4})?::[0-9a-f]{1,4}:|(?:(?:[0-9a-f]{1,4}:){0,4}[0-9a-f]{1,4})?::)(?:[0-9a-f]{1,4}:[0-9a-f]{1,4}|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?))|(?:(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4})?::[0-9a-f]{1,4}|(?:(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{1,4})?::)|[Vv][0-9a-f]+\.[a-z0-9\-._~!$&'()*+,;=:]+)\]|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)|(?:[a-z0-9\-._~!$&'()*+,;=]|%[0-9a-f]{2})*)(?::\d*)?(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*|\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)?|(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)(?:\?(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?(?:#(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?$/i;
-    function uri(str) {
-      return NOT_URI_FRAGMENT.test(str) && URI.test(str);
+    function uri(str2) {
+      return NOT_URI_FRAGMENT.test(str2) && URI.test(str2);
     }
     var BYTE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/gm;
-    function byte(str) {
+    function byte(str2) {
       BYTE.lastIndex = 0;
-      return BYTE.test(str);
+      return BYTE.test(str2);
     }
     var MIN_INT32 = -(2 ** 31);
     var MAX_INT32 = 2 ** 31 - 1;
@@ -6670,11 +6670,11 @@ var require_formats = __commonJS({
       return true;
     }
     var Z_ANCHOR = /[^\\]\\Z/;
-    function regex(str) {
-      if (Z_ANCHOR.test(str))
+    function regex(str2) {
+      if (Z_ANCHOR.test(str2))
         return false;
       try {
-        new RegExp(str);
+        new RegExp(str2);
         return true;
       } catch (e) {
         return false;
@@ -6799,7 +6799,7 @@ var require_dist = __commonJS({
 
 // src/index.ts
 import path from "node:path";
-import { mkdirSync as mkdirSync8, readFileSync as readFileSync9 } from "node:fs";
+import { mkdirSync as mkdirSync8, readFileSync as readFileSync10 } from "node:fs";
 import { performance as performance3 } from "node:perf_hooks";
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
@@ -10945,14 +10945,14 @@ function promiseAllObject(promisesObj) {
 }
 function randomString(length = 10) {
   const chars = "abcdefghijklmnopqrstuvwxyz";
-  let str = "";
+  let str2 = "";
   for (let i = 0; i < length; i++) {
-    str += chars[Math.floor(Math.random() * chars.length)];
+    str2 += chars[Math.floor(Math.random() * chars.length)];
   }
-  return str;
+  return str2;
 }
-function esc(str) {
-  return JSON.stringify(str);
+function esc(str2) {
+  return JSON.stringify(str2);
 }
 function slugify(input) {
   return input.toLowerCase().trim().replace(/[^\w\s-]/g, "").replace(/[\s_-]+/g, "-").replace(/^-+|-+$/g, "");
@@ -11052,8 +11052,8 @@ var getParsedType2 = (data) => {
 };
 var propertyKeyTypes = /* @__PURE__ */ new Set(["string", "number", "symbol"]);
 var primitiveTypes = /* @__PURE__ */ new Set(["string", "number", "bigint", "boolean", "symbol", "undefined"]);
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function escapeRegex(str2) {
+  return str2.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 function clone(inst, def, params) {
   const cl = new inst._zod.constr(def ?? inst._zod.def);
@@ -34165,17 +34165,17 @@ function deriveDirectoryEntries(out) {
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames) {
   const leaf = dirPath === "" ? "(repo root)" : basename3(dirPath);
-  const join15 = (names) => {
+  const join16 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
   };
   const parts = [];
   if (fileNames.length > 0) {
-    parts.push(`${fileNames.length} file${fileNames.length === 1 ? "" : "s"} (${join15(fileNames.slice().sort())})`);
+    parts.push(`${fileNames.length} file${fileNames.length === 1 ? "" : "s"} (${join16(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts.push(`subdirs: ${join15(subdirNames.slice().sort())}`);
+    parts.push(`subdirs: ${join16(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts.length > 0 ? parts.join("; ") : "empty directory"}`;
 }
@@ -36599,7 +36599,87 @@ function agentRunsBackfillTools(db2, dbPath2) {
 // src/tools/trajectory-doctor.ts
 import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
 
+// src/utils/plugin-installs.ts
+import { readFileSync as readFileSync9, realpathSync as realpathSync5 } from "node:fs";
+import { join as join15 } from "node:path";
+function claudeConfigDir(env) {
+  return env["CLAUDE_CONFIG_DIR"] || join15(env["HOME"] || "", ".claude");
+}
+function installedPluginsJsonPath(env = process.env) {
+  return env["TMB_INSTALLED_JSON"] || join15(claudeConfigDir(env), "plugins", "installed_plugins.json");
+}
+function canonicalDir(dir) {
+  try {
+    return realpathSync5(dir);
+  } catch {
+    return dir;
+  }
+}
+function readJsonObject(path2) {
+  try {
+    const parsed = JSON.parse(readFileSync9(path2, "utf8"));
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function enabledMap(project, env) {
+  const files = [
+    join15(claudeConfigDir(env), "settings.json"),
+    join15(project, ".claude", "settings.json"),
+    join15(project, ".claude", "settings.local.json")
+  ];
+  const merged = {};
+  for (const file2 of files) {
+    const plugins = readJsonObject(file2)?.["enabledPlugins"];
+    if (plugins !== null && typeof plugins === "object" && !Array.isArray(plugins)) Object.assign(merged, plugins);
+  }
+  return merged;
+}
+var str = (v) => typeof v === "string" && v !== "" ? v : null;
+function enabledPluginCopies(env = process.env) {
+  const projectRoot = resolveClaudeProjectRoot(env);
+  if (projectRoot === null) return { skipped: "CLAUDE_PROJECT_DIR is unset" };
+  const registryPath = installedPluginsJsonPath(env);
+  const registry2 = readJsonObject(registryPath);
+  if (registry2 === null) return { skipped: `cannot read ${registryPath}` };
+  const project = canonicalDir(projectRoot);
+  const enabled = enabledMap(project, env);
+  const prefix = `${resolveClaudePluginName(env)}@`;
+  const plugins = registry2["plugins"];
+  const copies = [];
+  if (plugins === null || typeof plugins !== "object") return { copies };
+  for (const [key, entries] of Object.entries(plugins)) {
+    if (!key.startsWith(prefix) || enabled[key] !== true || !Array.isArray(entries)) continue;
+    let chosen = null;
+    for (const raw of entries) {
+      if (raw === null || typeof raw !== "object") continue;
+      const e = raw;
+      const scope = str(e["scope"]) ?? "user";
+      let rank = 1;
+      if (scope === "project" || scope === "local") {
+        const projectPath = str(e["projectPath"]);
+        if (projectPath === null || canonicalDir(projectPath) !== project) continue;
+        rank = 0;
+      }
+      if (chosen !== null && chosen.rank <= rank) continue;
+      chosen = {
+        rank,
+        copy: { key, marketplace: key.slice(prefix.length), version: str(e["version"]), install_path: str(e["installPath"]), scope }
+      };
+    }
+    if (chosen !== null) copies.push(chosen.copy);
+  }
+  copies.sort((a, b) => a.marketplace.localeCompare(b.marketplace));
+  return { copies };
+}
+
 // src/data-contracts.ts
+function singleTmbPluginEnabled(env) {
+  const result = enabledPluginCopies(env);
+  if ("skipped" in result) return { skipped: result.skipped };
+  return { actual: result.copies.length, sample: result.copies.map((c) => ({ ...c })) };
+}
 var daysAgo = (days) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${days} days')`;
 var ts = (column) => `strftime('%Y-%m-%dT%H:%M:%fZ', ${column})`;
 var auditTaskId = (alias) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.task_id') END`;
@@ -36765,6 +36845,14 @@ function buildDataContracts(documentedEventTypes) {
       expect: { op: "=", value: 0 },
       sample_sql: `SELECT i.id AS issue_id, t.id AS task_id, t.status FROM issues i JOIN tasks t ON t.issue_id = i.id
              WHERE i.status = 'closed' AND t.status IN (${LIVE_TASK_STATUSES2}) ORDER BY i.id DESC, t.id LIMIT 5`
+    },
+    {
+      source: "files",
+      id: "single_tmb_plugin_enabled",
+      severity: "error",
+      description: "at most one enabled copy of this plugin applies to CLAUDE_PROJECT_DIR (installed_plugins.json + enabledPlugins in the project settings.local.json / settings.json and the user settings.json, read-only); Claude Code registers the hooks of only one copy per manifest name, so a second copy silently drops TMB's gates \u2014 run /plugin and disable the extra copy. Skipped when CLAUDE_PROJECT_DIR is unset or installed_plugins.json is unreadable",
+      expect: { op: "<=", value: 1 },
+      check: singleTmbPluginEnabled
     }
   ];
 }
@@ -36839,6 +36927,24 @@ function runDataContracts(reader, contracts, opts = {}) {
     skipped: []
   };
   for (const contract of contracts) {
+    if (contract.source === "files") {
+      const result = contract.check(opts.env ?? process.env);
+      if ("skipped" in result) {
+        report.skipped.push({ id: contract.id, reason: result.skipped });
+        continue;
+      }
+      if (contractHolds(result.actual, contract.expect)) continue;
+      report.violations.push({
+        id: contract.id,
+        severity: contract.severity,
+        description: contract.description,
+        actual: result.actual,
+        expected: contract.expect,
+        sample: result.sample
+      });
+      if (contract.severity === "error") report.healthy = false;
+      continue;
+    }
     if (stored !== null && (contract.min_schema ?? 0) > stored) {
       report.skipped.push({ id: contract.id, reason: schemaTooOldReason(stored, contract.min_schema) });
       if (contract.severity === "error") report.healthy = false;
@@ -37123,7 +37229,7 @@ function readPackageVersion() {
   try {
     const here = path.dirname(new URL(import.meta.url).pathname);
     const pkgPath = path.join(here, "..", "package.json");
-    const pkg = JSON.parse(readFileSync9(pkgPath, "utf8"));
+    const pkg = JSON.parse(readFileSync10(pkgPath, "utf8"));
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch {
     return "0.0.0";

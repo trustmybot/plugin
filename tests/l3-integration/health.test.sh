@@ -9,7 +9,8 @@
 # This test drives health.sh against self-contained fixtures (a temp DB seeded
 # with plugin_meta/tasks/repos/plugin_config, a fake mcp-server.log, a fake
 # cache tree) and asserts the right PASS/FAIL + remediation per scenario across
-# all 7 checks, including the three kuzu sub-diagnoses:
+# all 7 checks, plus the duplicate-plugin warning, including the three kuzu
+# sub-diagnoses:
 #   - lock-contention   (another process holds the single-writer lock)
 #   - postinstall-skip   (native binding not installed)
 #   - missing-graph      (graph file gone → /scan)
@@ -454,6 +455,36 @@ printf '{"kind":"graph_db_open_failed","error_message":"Could not set lock on fi
 out=$(run_health)
 rem=$(remediation_after "$out" "FAIL  world-model")
 assert_not_contains "$rem" "/reload-plugins" "world-model remediation never mentions /reload-plugins"
+
+# ============================================================================
+# duplicate-plugin warning — two enabled copies: WARN naming both, exit 0
+# ============================================================================
+test_case "duplicate-plugin: two enabled copies warn, naming both; exit code unchanged"
+reset_scenario duplicate-plugin
+mkdir -p "$ROOT/.claude"
+printf '{"plugins":{"tmb@trustmybot-dev":[{"scope":"local","projectPath":"%s","installPath":"/c/dev","version":"1.0.3"}],"tmb@trustmybot-rc":[{"scope":"local","projectPath":"%s","installPath":"/c/rc","version":"1.0.2-rc.3"}]}}' "$ROOT" "$ROOT" > "$ROOT/installed.json"
+echo '{"enabledPlugins":{"tmb@trustmybot-dev":true,"tmb@trustmybot-rc":true}}' > "$ROOT/.claude/settings.local.json"
+dup_health() {
+  env -i PATH="$PATH" HOME="$SANDBOX/home" \
+    TRAJECTORY_DB_PATH="$F_DB" TMB_HEALTH_SERVER_LOG="$F_LOG" \
+    TMB_HEALTH_CACHE_DIR="$F_CACHE" TMB_HEALTH_INTENDED_VERSION="$F_INTENDED" \
+    TMB_HEALTH_PGREP_COUNT="1" TMB_HEALTH_INSTALLED_JSON="$ROOT/installed.json" \
+    CLAUDE_PROJECT_DIR="$ROOT" bash "$HEALTH" 2>&1
+}
+set +e
+out=$(dup_health)
+rc=$?
+set -e
+assert_contains "$out" "WARN  duplicate-plugin: 2 enabled tmb copies" "WARN line"
+assert_contains "$out" "trustmybot-dev@1.0.3, trustmybot-rc@1.0.2-rc.3" "names both copies"
+assert_contains "$out" "Run /plugin and disable the extra copy" "remedy"
+assert_contains "$out" "== all checks passed ==" "a warning is not a failed check"
+assert_exit_code 0 "$rc" "exit code unchanged"
+
+test_case "duplicate-plugin: one enabled copy prints nothing"
+echo '{"enabledPlugins":{"tmb@trustmybot-dev":true,"tmb@trustmybot-rc":false}}' > "$ROOT/.claude/settings.local.json"
+out=$(dup_health || true)
+assert_not_contains "$out" "WARN  duplicate-plugin" "no warning"
 
 # ============================================================================
 # Exit-code contract

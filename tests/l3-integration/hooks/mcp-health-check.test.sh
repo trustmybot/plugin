@@ -10,6 +10,10 @@
 #   8. install notices from installed_plugins.json, once per session:
 #      user + project → "user-scope ... ignored"; user only → "--scope project"
 #      recommended; project only → silent
+#   9. duplicate enabled copies (installed_plugins.json + settings.local.json):
+#      one enabled → silent; two enabled for this project → warning naming both;
+#      two installed, one disabled → silent; user + project entry of one
+#      marketplace → no duplicate warning; unreadable files → silent, no error
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -132,6 +136,61 @@ printf '{"version":2,"plugins":{"tmb@mp-dev":[%s]}}\n' "$(project_entry)" > "$TM
 out=$(run_hook '{"hook_event_name":"SessionStart","session_id":"inst-4"}')
 assert_eq "" "$out" "silent"
 rm -f "$TMB_INSTALLED_JSON"
+
+LOCAL_SETTINGS="$PROJECT/.claude/settings.local.json"
+local_entry() { printf '{"scope":"local","projectPath":"%s","installPath":"%s/cache/%s/tmb/%s","version":"%s"}' "$PROJECT" "$TMP" "$1" "$2" "$2"; }
+two_local_installs() {
+  printf '{"version":2,"plugins":{"tmb@trustmybot-dev":[%s],"tmb@trustmybot-rc":[%s]}}\n' \
+    "$(local_entry trustmybot-dev 1.0.3)" "$(local_entry trustmybot-rc 1.0.2-rc.3)" > "$TMB_INSTALLED_JSON"
+}
+
+test_case "duplicate copies: one enabled copy is silent"
+reset 1
+printf '{"version":2,"plugins":{"tmb@trustmybot-dev":[%s]}}\n' "$(local_entry trustmybot-dev 1.0.3)" > "$TMB_INSTALLED_JSON"
+echo '{"enabledPlugins":{"tmb@trustmybot-dev":true}}' > "$LOCAL_SETTINGS"
+out=$(run_hook '{"hook_event_name":"SessionStart","session_id":"dup-1"}')
+assert_eq "" "$out" "silent"
+
+test_case "duplicate copies: two enabled for this project warn, naming both and the remedy"
+reset 1
+two_local_installs
+echo '{"enabledPlugins":{"tmb@trustmybot-dev":true,"tmb@trustmybot-rc":true}}' > "$LOCAL_SETTINGS"
+out=$(run_hook '{"hook_event_name":"SessionStart","session_id":"dup-2"}')
+ctx=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext')
+assert_contains "$ctx" "2 copies of the tmb plugin are enabled for this project (trustmybot-dev@1.0.3, trustmybot-rc@1.0.2-rc.3)" "names both copies"
+assert_contains "$ctx" "registers the hooks of only one of them" "names the failure mode"
+assert_contains "$ctx" "run /plugin and disable the extra copy" "names the remedy"
+
+test_case "duplicate copies: two installed, one disabled is silent"
+reset 1
+two_local_installs
+echo '{"enabledPlugins":{"tmb@trustmybot-dev":true,"tmb@trustmybot-rc":false}}' > "$LOCAL_SETTINGS"
+out=$(run_hook '{"hook_event_name":"SessionStart","session_id":"dup-3"}')
+assert_eq "" "$out" "silent"
+
+test_case "duplicate copies: a user and a project entry of one marketplace are one copy"
+reset 1
+printf '{"version":2,"plugins":{"tmb@mp-dev":[%s,%s]}}\n' "$(user_entry)" "$(project_entry)" > "$TMB_INSTALLED_JSON"
+echo '{"enabledPlugins":{"tmb@mp-dev":true}}' > "$LOCAL_SETTINGS"
+out=$(run_hook '{"hook_event_name":"SessionStart","session_id":"dup-4"}')
+assert_not_contains "$out" "copies of the tmb plugin" "no duplicate warning"
+
+test_case "duplicate copies: unreadable files are silent, with no error"
+reset 1
+two_local_installs
+echo '{"enabledPlugins":' > "$LOCAL_SETTINGS"
+err=$(printf '%s' '{"hook_event_name":"SessionStart","session_id":"dup-5"}' | bash "$HOOK" 2>&1 >/dev/null || true)
+out=$(run_hook '{"hook_event_name":"SessionStart","session_id":"dup-6"}')
+assert_eq "" "$out" "invalid settings.local.json: silent"
+assert_eq "" "$err" "invalid settings.local.json: no stderr"
+echo '{"enabledPlugins":{"tmb@trustmybot-dev":true,"tmb@trustmybot-rc":true}}' > "$LOCAL_SETTINGS"
+chmod 000 "$TMB_INSTALLED_JSON"
+err=$(printf '%s' '{"hook_event_name":"SessionStart","session_id":"dup-7"}' | bash "$HOOK" 2>&1 >/dev/null || true)
+out=$(run_hook '{"hook_event_name":"SessionStart","session_id":"dup-8"}')
+assert_eq "" "$out" "unreadable installed_plugins.json: silent"
+assert_eq "" "$err" "unreadable installed_plugins.json: no stderr"
+chmod 600 "$TMB_INSTALLED_JSON"
+rm -f "$TMB_INSTALLED_JSON" "$LOCAL_SETTINGS"
 
 test_case "unknown event: no JSON"
 reset 0

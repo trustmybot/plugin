@@ -15,7 +15,7 @@ FAIL=0
 check() {
   local label="$1"
   local pattern="$2"
-  if ! grep -v '^\s*--' "$SCHEMA" | grep -qF "$pattern"; then
+  if ! grep -v '^\s*--' "$SCHEMA" | grep -F "$pattern" >/dev/null; then
     printf 'rag-schema-invariants: MISSING — %s\n  expected: %s\n' "$label" "$pattern" >&2
     FAIL=1
   fi

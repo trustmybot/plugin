@@ -2,7 +2,7 @@
 # Tests for scripts/hooks/session-start-prescan.sh.
 # Covers: output is valid JSON, additionalContext is emitted, cache-friendly
 # ordering, cold-session auto-scan launch, bypass env, and the warm / stale /
-# cold world-model banner.
+# cold world-model banner, and the duplicate-plugin line.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,6 +25,8 @@ cleanup_sidecar_check() {
 trap cleanup_sidecar_check EXIT
 
 DB="$TMPDIR/trajectory.db"
+# Never read the real Claude Code install registry.
+export TMB_INSTALLED_JSON="$TMPDIR/installed_plugins.json"
 
 # ---- fixture workspace --------------------------------------------------
 # A hermetic git repo with benign commits.  Every hook invocation must run
@@ -340,5 +342,48 @@ reset_db "$DB"
 NO_SCHEMA_LINE=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>/dev/null) | jq -r '.hookSpecificOutput.additionalContext' | grep '^Trajectory DB:' || true)
 assert_not_contains "$NO_SCHEMA_LINE" "healthy" "no healthy banner on read errors"
 assert_contains "$NO_SCHEMA_LINE" "unchecked" "read errors leave contracts unchecked"
+
+# ---- Duplicate enabled plugin copies ----
+# Fixture pairs: installed_plugins.json + the project's settings.local.json.
+DUP_HOME="$TMPDIR/dup-home"
+mkdir -p "$DUP_HOME" "$FIXTURE_WS/.claude"
+LOCAL_SETTINGS="$FIXTURE_WS/.claude/settings.local.json"
+dup_entry() { printf '{"scope":"%s","projectPath":"%s","installPath":"/cache/%s","version":"%s"}' "$1" "$FIXTURE_WS" "$2" "$2"; }
+dup_run() {
+  (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$SCHEMA_DB" TMB_SKIP_AUTO_PRESCAN=1 HOME="$DUP_HOME" CLAUDE_PROJECT_DIR="$FIXTURE_WS" bash "$HOOK" 2>"$TMPDIR/dup.err") || true
+}
+dup_line() { dup_run | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null | grep '^Plugin:' || true; }
+schema_db
+
+test_case "duplicate plugin: one enabled copy is silent"
+printf '{"plugins":{"tmb@trustmybot-dev":[%s]}}' "$(dup_entry local 1.0.3)" > "$TMB_INSTALLED_JSON"
+echo '{"enabledPlugins":{"tmb@trustmybot-dev":true}}' > "$LOCAL_SETTINGS"
+assert_eq "" "$(dup_line)" "no Plugin line"
+
+test_case "duplicate plugin: two enabled copies for this project add one line naming both"
+printf '{"plugins":{"tmb@trustmybot-dev":[%s],"tmb@trustmybot-rc":[%s]}}' "$(dup_entry local 1.0.3)" "$(dup_entry project 1.0.2-rc.3)" > "$TMB_INSTALLED_JSON"
+echo '{"enabledPlugins":{"tmb@trustmybot-dev":true,"tmb@trustmybot-rc":true}}' > "$LOCAL_SETTINGS"
+assert_eq "Plugin: duplicate tmb copies enabled (trustmybot-dev, trustmybot-rc) — hooks from one are dropped; run /plugin" "$(dup_line)" "Plugin line"
+
+test_case "duplicate plugin: two installed, one disabled is silent"
+echo '{"enabledPlugins":{"tmb@trustmybot-dev":true,"tmb@trustmybot-rc":false}}' > "$LOCAL_SETTINGS"
+assert_eq "" "$(dup_line)" "no Plugin line"
+
+test_case "duplicate plugin: a user and a project entry of one marketplace are one copy"
+printf '{"plugins":{"tmb@trustmybot-dev":[%s,%s]}}' "$(dup_entry user 1.0.1)" "$(dup_entry local 1.0.3)" > "$TMB_INSTALLED_JSON"
+echo '{"enabledPlugins":{"tmb@trustmybot-dev":true}}' > "$LOCAL_SETTINGS"
+assert_eq "" "$(dup_line)" "no Plugin line"
+
+test_case "duplicate plugin: unreadable files are silent with no error"
+printf '{"plugins":{"tmb@trustmybot-dev":[%s],"tmb@trustmybot-rc":[%s]}}' "$(dup_entry local 1.0.3)" "$(dup_entry local 1.0.2-rc.3)" > "$TMB_INSTALLED_JSON"
+echo '{"enabledPlugins":' > "$LOCAL_SETTINGS"
+assert_eq "" "$(dup_line)" "invalid settings.local.json: no Plugin line"
+assert_eq "" "$(cat "$TMPDIR/dup.err")" "invalid settings.local.json: no stderr"
+echo '{"enabledPlugins":{"tmb@trustmybot-dev":true,"tmb@trustmybot-rc":true}}' > "$LOCAL_SETTINGS"
+chmod 000 "$TMB_INSTALLED_JSON"
+assert_eq "" "$(dup_line)" "unreadable installed_plugins.json: no Plugin line"
+assert_eq "" "$(cat "$TMPDIR/dup.err")" "unreadable installed_plugins.json: no stderr"
+chmod 600 "$TMB_INSTALLED_JSON"
+rm -f "$TMB_INSTALLED_JSON" "$LOCAL_SETTINGS"
 
 summarize

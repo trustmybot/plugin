@@ -1,21 +1,22 @@
-import { describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tempDB } from './helpers.js';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { SCHEMA_V28_SQL } from './fixtures/schema-v28.js';
-import { DATA_CONTRACTS, DATA_CONTRACTS_SCHEMA_VERSION, NULLABLE_COLUMNS, dataContractsJson } from '../data-contracts.js';
+import { DATA_CONTRACTS, DATA_CONTRACTS_SCHEMA_VERSION, NULLABLE_COLUMNS, dataContractsJson, isSqlContract } from '../data-contracts.js';
 import { AUDIT_EVENT_TYPES } from '../audit-events.js';
 import { checkTrajectoryDbFile, runDataContracts, trajectoryDbReader, trajectoryDoctorTools } from '../tools/trajectory-doctor.js';
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 const iso = (offsetMs = 0) => new Date(Date.now() + offsetMs).toISOString();
+const DB_CONTRACTS = DATA_CONTRACTS.filter(isSqlContract);
 function contract(id) {
-    const c = DATA_CONTRACTS.find((k) => k.id === id);
+    const c = DB_CONTRACTS.find((k) => k.id === id);
     assert.ok(c, `contract ${id} exists`);
     return c;
 }
@@ -225,15 +226,15 @@ const FIXTURES = {
 describe('data contracts', () => {
     it('a fresh DB is healthy with no violations', () => {
         const db = tempDB();
-        const report = runDataContracts(trajectoryDbReader(db), DATA_CONTRACTS, { env: {} });
+        const report = runDataContracts(trajectoryDbReader(db), DB_CONTRACTS, { env: {} });
         assert.deepEqual(report.violations, []);
         assert.deepEqual(report.skipped, []);
         assert.equal(report.healthy, true);
     });
-    it('every contract has a violating and a passing fixture', () => {
-        assert.deepEqual(Object.keys(FIXTURES).sort(), DATA_CONTRACTS.map((c) => c.id).sort());
+    it('every DB contract has a violating and a passing fixture', () => {
+        assert.deepEqual(Object.keys(FIXTURES).sort(), DB_CONTRACTS.map((c) => c.id).sort());
     });
-    for (const c of DATA_CONTRACTS) {
+    for (const c of DB_CONTRACTS) {
         it(`${c.id}: violating fixture fails, passing fixture holds`, () => {
             const fx = FIXTURES[c.id];
             if (!fx.violate) {
@@ -293,10 +294,10 @@ describe('data contracts', () => {
     it('skips contracts that need a newer schema than the DB has, and the error ones make it unhealthy', () => {
         const db = tempDB();
         db.run('UPDATE plugin_meta SET schema_version = 29 WHERE id = 1');
-        const report = runDataContracts(trajectoryDbReader(db), DATA_CONTRACTS, { env: {} });
+        const report = runDataContracts(trajectoryDbReader(db), DB_CONTRACTS, { env: {} });
         const skipped = new Set(report.skipped.map((s) => s.id));
         assert.deepEqual(report.schema, { stored: 29, required: DATA_CONTRACTS_SCHEMA_VERSION, current: false });
-        for (const c of DATA_CONTRACTS)
+        for (const c of DB_CONTRACTS)
             assert.equal(skipped.has(c.id), (c.min_schema ?? 0) > 29, c.id);
         assert.match(report.skipped[0].reason, /^schema v29 < v3\d — start the trajectory server to migrate$/);
         assert.equal(report.healthy, false, 'swe_runs_metered (error) could not run');
@@ -396,9 +397,123 @@ describe('data contracts', () => {
         const here = dirname(fileURLToPath(import.meta.url));
         const committed = readFileSync(join(here, '..', '..', '..', '..', 'scripts', 'hooks', 'lib', 'data-contracts.json'), 'utf8');
         assert.equal(committed, dataContractsJson(), 'stale — run: node scripts/maintenance/emit-data-contracts.mjs');
+        const ids = JSON.parse(committed).contracts.map((c) => c.id);
+        assert.deepEqual(ids, DB_CONTRACTS.map((c) => c.id), 'the hook copy holds the DB contracts only');
+    });
+});
+describe('single_tmb_plugin_enabled', () => {
+    const fileContract = DATA_CONTRACTS.find((c) => c.id === 'single_tmb_plugin_enabled');
+    const entry = (scope, version, projectPath) => ({
+        scope,
+        version,
+        installPath: `/cache/${version}`,
+        ...(projectPath ? { projectPath } : {}),
+    });
+    function fixture(plugins, settings) {
+        const dir = mkdtempSync(join(tmpdir(), 'tmb-dup-'));
+        const project = join(dir, 'project');
+        const home = join(dir, 'home');
+        mkdirSync(join(project, '.claude'), { recursive: true });
+        mkdirSync(join(home, '.claude'), { recursive: true });
+        writeFileSync(join(dir, 'installed_plugins.json'), JSON.stringify({ version: 2, plugins }));
+        if (settings.local)
+            writeFileSync(join(project, '.claude', 'settings.local.json'), JSON.stringify({ enabledPlugins: settings.local }));
+        if (settings.project)
+            writeFileSync(join(project, '.claude', 'settings.json'), JSON.stringify({ enabledPlugins: settings.project }));
+        if (settings.user)
+            writeFileSync(join(home, '.claude', 'settings.json'), JSON.stringify({ enabledPlugins: settings.user }));
+        return { env: { CLAUDE_PROJECT_DIR: project, HOME: home, TMB_INSTALLED_JSON: join(dir, 'installed_plugins.json') }, project, dir };
+    }
+    function run(env) {
+        return runDataContracts(trajectoryDbReader(tempDB()), [fileContract], { env });
+    }
+    it('is an error-severity file contract', () => {
+        assert.equal(fileContract.severity, 'error');
+        assert.equal(fileContract.source, 'files');
+    });
+    it('one enabled copy holds', () => {
+        const fx = fixture({ 'tmb@trustmybot-dev': [entry('user', '1.0.2')] }, { user: { 'tmb@trustmybot-dev': true } });
+        try {
+            const report = run(fx.env);
+            assert.deepEqual(report.violations, []);
+            assert.deepEqual(report.skipped, []);
+            assert.equal(report.healthy, true);
+        }
+        finally {
+            rmSync(fx.dir, { recursive: true, force: true });
+        }
+    });
+    it('two enabled copies for the project are an error naming both', () => {
+        const fx = fixture({ 'tmb@trustmybot-dev': [entry('user', '1.0.2')], 'tmb@trustmybot-rc': [] }, { user: { 'tmb@trustmybot-dev': true }, local: { 'tmb@trustmybot-rc': true } });
+        try {
+            writeFileSync(fx.env['TMB_INSTALLED_JSON'], JSON.stringify({ plugins: { 'tmb@trustmybot-dev': [entry('user', '1.0.2')], 'tmb@trustmybot-rc': [entry('local', '1.0.3-rc.1', fx.project)] } }));
+            const report = run(fx.env);
+            assert.equal(report.healthy, false);
+            const v = report.violations[0];
+            assert.equal(v.id, 'single_tmb_plugin_enabled');
+            assert.equal(v.actual, 2);
+            assert.deepEqual(v.sample.map((s) => `${s['marketplace']}@${s['version']}`), ['trustmybot-dev@1.0.2', 'trustmybot-rc@1.0.3-rc.1']);
+        }
+        finally {
+            rmSync(fx.dir, { recursive: true, force: true });
+        }
+    });
+    it('a copy disabled in settings.local.json does not count', () => {
+        const fx = fixture({ 'tmb@trustmybot-dev': [entry('user', '1.0.2')], 'tmb@trustmybot-rc': [entry('user', '1.0.3')] }, { user: { 'tmb@trustmybot-dev': true, 'tmb@trustmybot-rc': true }, local: { 'tmb@trustmybot-rc': false } });
+        try {
+            assert.deepEqual(run(fx.env).violations, []);
+        }
+        finally {
+            rmSync(fx.dir, { recursive: true, force: true });
+        }
+    });
+    it('a user-scope and a project-scope entry of one marketplace are one copy', () => {
+        const fx = fixture({}, { project: { 'tmb@trustmybot-dev': true } });
+        try {
+            writeFileSync(fx.env['TMB_INSTALLED_JSON'], JSON.stringify({ plugins: { 'tmb@trustmybot-dev': [entry('user', '1.0.1'), entry('project', '1.0.2', fx.project)] } }));
+            assert.deepEqual(run(fx.env).violations, []);
+        }
+        finally {
+            rmSync(fx.dir, { recursive: true, force: true });
+        }
+    });
+    it('a project entry for another project does not count', () => {
+        const fx = fixture({ 'tmb@trustmybot-dev': [entry('user', '1.0.2')], 'tmb@trustmybot-rc': [entry('local', '1.0.3', '/elsewhere')] }, { user: { 'tmb@trustmybot-dev': true, 'tmb@trustmybot-rc': true } });
+        try {
+            assert.deepEqual(run(fx.env).violations, []);
+        }
+        finally {
+            rmSync(fx.dir, { recursive: true, force: true });
+        }
+    });
+    it('is skipped with a reason, healthy, when CLAUDE_PROJECT_DIR is unset', () => {
+        const report = run({});
+        assert.deepEqual(report.skipped, [{ id: 'single_tmb_plugin_enabled', reason: 'CLAUDE_PROJECT_DIR is unset' }]);
+        assert.equal(report.healthy, true);
+    });
+    it('is skipped with a reason when installed_plugins.json is unreadable', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'tmb-dup-'));
+        try {
+            const missing = join(dir, 'missing.json');
+            const report = run({ CLAUDE_PROJECT_DIR: dir, TMB_INSTALLED_JSON: missing });
+            assert.deepEqual(report.skipped, [{ id: 'single_tmb_plugin_enabled', reason: `cannot read ${missing}` }]);
+            assert.deepEqual(report.violations, []);
+        }
+        finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
     });
 });
 describe('trajectory_doctor tool', () => {
+    let projectDir;
+    before(() => {
+        projectDir = process.env['CLAUDE_PROJECT_DIR'];
+        delete process.env['CLAUDE_PROJECT_DIR'];
+    });
+    after(() => {
+        if (projectDir !== undefined)
+            process.env['CLAUDE_PROJECT_DIR'] = projectDir;
+    });
     async function call(db, args) {
         return (await trajectoryDoctorTools(db).handlers['trajectory_doctor'](args));
     }

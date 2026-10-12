@@ -15,6 +15,8 @@ SKIP_AUTO_PRESCAN="${TMB_SKIP_AUTO_PRESCAN:-0}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
+# shellcheck source=scripts/hooks/lib/resolve-install.sh
+. "$SCRIPT_DIR/lib/resolve-install.sh"
 
 DB_PATH=$(tmb_db_path_advisory session-start-prescan) || exit 0
 command -v sqlite3 >/dev/null 2>&1 || exit 0
@@ -209,6 +211,11 @@ $COLD_NOTE"
 # the older one is still running.
 [ -n "$NEWER_CACHED_VERSION" ] && COLD_SUFFIX="${COLD_SUFFIX}
 newer plugin version ${NEWER_CACHED_VERSION} is installed but ${PLUGIN_VERSION} is still running — restart Claude Code (or reconnect the trajectory-server via /mcp) to apply"
+
+# Duplicate enabled copies of this plugin: Claude Code keeps one copy's hooks.
+DUP_INSTALLS=$(tmb_duplicate_installs "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null || true)
+[ -n "$DUP_INSTALLS" ] && COLD_SUFFIX="${COLD_SUFFIX}
+Plugin: duplicate $(_tmb_install_plugin_name) copies enabled ($(printf '%s\n' "$DUP_INSTALLS" | cut -f1 | paste -sd, - | sed 's/,/, /g')) — hooks from one are dropped; run /plugin"
 
 PLUGIN_VERSION_LINE="(unknown)"
 [ -n "$PLUGIN_VERSION" ] && PLUGIN_VERSION_LINE="$PLUGIN_VERSION"

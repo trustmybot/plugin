@@ -17,6 +17,10 @@
 #   6. stale-state        — orphaned worktrees / pending|running tasks?
 #   7. hook-cache-drift   — running hooks load from the cache, not the dev checkout?
 #
+# Plus one warning, printed only when it applies and never counted as a FAIL:
+#   duplicate-plugin — more than one enabled copy of this plugin applies to the
+#   project; Claude Code registers the hooks of only one of them.
+#
 # LOAD-BEARING REMEDIATION RULE
 # ----------------------------
 # NEVER recommend `/reload-plugins` for an MCP-SERVER-STATE failure
@@ -41,6 +45,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/hooks/lib/query-task.sh"
 # shellcheck source=scripts/hooks/lib/resolve-workspace.sh
 . "$SCRIPT_DIR/hooks/lib/resolve-workspace.sh"
+# shellcheck source=scripts/hooks/lib/resolve-install.sh
+. "$SCRIPT_DIR/hooks/lib/resolve-install.sh"
 
 PLUGIN_NAME="tmb"
 if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" ]; then
@@ -375,6 +381,19 @@ else
     "Your edits to hooks/skills/agents/commands are NOT live until the cache updates." \
     "After /plugin update brings the cache to your version, run /reload-plugins to load the new hook/skill/agent/command definitions." \
     "(/reload-plugins is the RIGHT tool here — these are definition files, not the MCP server.)"
+fi
+
+# ===========================================================================
+# duplicate-plugin (warning) — more than one enabled copy for this project
+# ===========================================================================
+DUP_PROJECT="${CLAUDE_PROJECT_DIR:-${WS_ROOT:-$PWD}}"
+DUP_INSTALLS=$(TMB_INSTALLED_JSON="$INSTALLED_JSON" tmb_duplicate_installs "$DUP_PROJECT" 2>/dev/null || true)
+if [ -n "$DUP_INSTALLS" ]; then
+  printf 'WARN  duplicate-plugin: %s enabled %s copies for %s: %s\n' \
+    "$(printf '%s\n' "$DUP_INSTALLS" | grep -c .)" "$PLUGIN_NAME" "$DUP_PROJECT" "$(tmb_duplicate_installs_names "$DUP_INSTALLS")"
+  remediate \
+    "Claude Code registers the hooks of only one of them (which one is not documented) and skips the other's with a note under /plugin Errors — TMB's gates may be missing while its MCP tools still work." \
+    "Run /plugin and disable the extra copy, then restart Claude Code."
 fi
 
 printf '\n'

@@ -124,6 +124,10 @@ v1.0.0 is the first stable release. Upgrading from any v0.10.x rc is a normal ch
 
 ## Failure modes
 
+### Two enabled TMB copies — gates silently missing
+
+Installing a second channel without removing the first (`tmb@trustmybot-dev` and `tmb@trustmybot-rc` both enabled for one project, at any mix of user, project and local scope) leaves two enabled plugins with the manifest name `tmb`. Claude Code registers the `hooks/hooks.json` of only one of them and skips the other's with a note under `/plugin` → Errors; which copy it keeps is not documented. MCP tools can keep working while the skipped copy's gates never fire. TMB detects it from `~/.claude/plugins/installed_plugins.json` plus the `enabledPlugins` maps in the project's `.claude/settings.local.json`, `.claude/settings.json` and the user `settings.json` (file reads only; a user-scope and a project-scope entry of one marketplace count as one copy) in three places: the SessionStart banner (`mcp-health-check.sh` warning and a `Plugin: duplicate tmb copies enabled (…)` line from the prescan), `scripts/health.sh` (`WARN  duplicate-plugin`, exit code unchanged) and the error-severity `trajectory_doctor` contract `single_tmb_plugin_enabled`. Fix: run `/plugin`, disable or uninstall the extra copy, then restart Claude Code.
+
 ### MCP server disabled via CC's per-project state (rare, hard to detect)
 
 If your trajectory-server stopped working in ONE project but works fine in others, CC may have stored a per-project `disabledMcpServers` flag in `~/.claude.json`. This survives plugin re-enables, full CC restarts, and even `rm -rf .claude/`.
