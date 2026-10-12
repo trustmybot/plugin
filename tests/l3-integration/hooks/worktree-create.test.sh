@@ -323,4 +323,40 @@ else
   _fail "expected fix/330-subdir to point at worktree HEAD ($MR_SWE_HEAD); got $MR_BRANCH_TIP"
 fi
 
+# --- tmb-regen merge driver (GH 1277) ----------------------------------------
+GA_REPO="$TMPDIR/gattr"
+mkdir -p "$GA_REPO"
+git init -q -b main "$GA_REPO"
+git -C "$GA_REPO" config user.email t@t.io && git -C "$GA_REPO" config user.name t
+printf 'dist/** merge=tmb-regen\n' > "$GA_REPO/.gitattributes"
+git -C "$GA_REPO" add . && git -C "$GA_REPO" commit -qm init
+GA_DB="$GA_REPO/.claude/tmb/trajectory.db"
+mkdir -p "$(dirname "$GA_DB")"
+GA_ROOT=$(git -C "$GA_REPO" rev-parse --show-toplevel)
+sqlite3 "$GA_DB" "
+  CREATE TABLE tasks (id INTEGER PRIMARY KEY, branch_id TEXT NOT NULL, status TEXT, repo TEXT);
+  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL, protected_branches TEXT);
+  INSERT INTO repos (name, path) VALUES ('gattr', '$GA_ROOT');
+  INSERT INTO tasks (id, branch_id, status, repo) VALUES (1, 'feat/1277-driver', 'pending', 'gattr');
+"
+git -C "$GA_REPO" branch feat/1277-driver HEAD
+
+test_case "GH 1277: worktree creation installs the tmb-regen merge driver into the repo's .git/config"
+ga_path=$(echo "$(input_event 'feat/1277-driver')" | TRAJECTORY_DB_PATH="$GA_DB" bash "$HOOK" 2>/dev/null)
+assert_eq "$GA_ROOT/.claude/worktrees/1277-driver" "$ga_path" "worktree created at the repo-rooted path"
+ga_driver=$(git config -f "$(git -C "$GA_REPO" rev-parse --absolute-git-dir)/config" --get merge.tmb-regen.driver || true)
+assert_contains "$ga_driver" 'regen-generated.sh' ".git/config carries merge.tmb-regen.driver"
+ga_name=$(git config -f "$(git -C "$GA_REPO" rev-parse --absolute-git-dir)/config" --get merge.tmb-regen.name || true)
+if [ -n "$ga_name" ]; then _pass; else _fail ".git/config has no merge.tmb-regen.name"; fi
+wt_driver=$(git -C "$ga_path" config --get merge.tmb-regen.driver || true)
+assert_eq "$ga_driver" "$wt_driver" "the worktree sees the driver"
+
+test_case "GH 1277: the driver is never written to the global git config"
+global_driver=$(git config --global --get merge.tmb-regen.driver 2>/dev/null || true)
+assert_eq "" "$global_driver" "no global merge.tmb-regen.driver"
+
+test_case "GH 1277: a repo whose .gitattributes never names tmb-regen gets no driver"
+inner_driver=$(git config -f "$(git -C "$INNER_REPO" rev-parse --absolute-git-dir)/config" --get merge.tmb-regen.driver || true)
+assert_eq "" "$inner_driver" "inner repo config untouched"
+
 summarize

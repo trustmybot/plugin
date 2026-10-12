@@ -64,7 +64,7 @@ Lint: `naming-lint.sh`, `code-quality-lint.sh`, `debug-trajectory.sh`.
 `cleanup-worktree-on-task-close.sh`, `post-task-close-rescan.sh`, `post-atomic-close-readme.sh`, `post-task-create-spawn-hint.sh`, `roundtable-cleanup-postcheck.sh`, `attribution-footer.sh`.
 
 ### Stop / SubagentStop / WorktreeCreate
-`bro-turn-usage.sh` (Stop), `swe-atomic-close.sh` + `consultant-persistence-gate.sh` (SubagentStop), `worktree-create.sh` (WorktreeCreate).
+`bro-turn-usage.sh` (Stop), `swe-atomic-close.sh` + `consultant-persistence-gate.sh` (SubagentStop), `worktree-create.sh` (WorktreeCreate). `worktree-create.sh` also runs `scripts/maintenance/install-merge-driver.sh` for the repo whenever its `.gitattributes` names `merge=tmb-regen`, so every swe worktree rebases across the generated artefacts without conflicts.
 
 #### Metering — `agent_runs` by time window
 Each `agent_runs` row covers `[started_at, completed_at)` of one agent's run on one task, and every token column is a per-message sum over the row's window (messages grouped by id, so content-block lines count once); the server opens and closes the rows (task creation / `task_brief` open them with `root_dir` and `host`, `bro_atomic_close`, a terminal `task_update_status` and `task_recover` close them with an `exit_reason`), the hooks only measure — tokens plus the run's dominant `model` (the transcript model with the most tokens in the window).
