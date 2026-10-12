@@ -122,7 +122,7 @@ Batch in one response:
 
 | Hook | When | Effect |
 |---|---|---|
-| `require-task-spec.sh` | PreToolUse Agent | Deny SWE spawn without valid `task_id` referencing a `pending` task (or a `running` one with no live swe run) with non-empty spec; a schema-touching or column-adding spec also needs `Writer:` + `Populated:` lines or a `Nullable:` line (waived by a `spec_shape_gate_waived` audit row with `from_node = 'bro'`) |
+| `require-task-spec.sh` | PreToolUse Agent | Deny SWE spawn without valid `task_id` referencing a `pending` task (or a `running` one with no live swe run) with non-empty spec; a schema-touching or column-adding spec also needs `Writer:` + `Populated:` lines or a `Nullable:` line (waived by a `spec_shape_gate_waived` audit row with `from_node = 'bro'` naming the task in `content_json.task_id`, written per task by `task_create_batch` / `task_provision` with `waive_spec_shape` or by bro through `audit_append`) |
 | `git-guards.sh`, `git-push-guard.sh` | PreToolUse Bash | PR/MR must target `pr_target` (git/gh/glab); local merge/rebase/cherry-pick denied in the main checkout (integration via PRs only); no force-push to protected branches. Push blocked without a signed `validation_attempts` row (`git-push-guard.sh`). |
 | `no-worktree-branch-create.sh` | PreToolUse Bash | Deny `git worktree add -b/-B/--detach` |
 | `branch-up-to-date-with-remote.sh` | PreToolUse Bash | Deny SWE attaching worktree to a stale branch |

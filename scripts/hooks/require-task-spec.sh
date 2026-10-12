@@ -9,10 +9,11 @@
 # any whitespace, including non-breaking and other Unicode spaces, '-' or '_'
 # between the words), needs a Writer: + Populated: line
 # pair or a Nullable: line in spec_body, each with a value, unless a
-# spec_shape_gate_waived audit row exists for the task with from_node = 'bro'
-# (content_json task_id = <N>, gate = spec_shape, reason >= 10 chars). The row is
-# written through audit_append, which swe cannot call; the hook accepts only
-# rows with from_node = 'bro'. This hook only reads.
+# spec_shape_gate_waived audit row names the task: from_node = 'bro',
+# content_json {task_id: <N> (integer or numeric string), gate: 'spec_shape',
+# reason: >= 10 chars}. task_create_batch / task_provision write one such row per
+# task when called with waive_spec_shape; bro may also write it via audit_append,
+# which swe cannot call. This hook only reads.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

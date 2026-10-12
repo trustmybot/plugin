@@ -4,7 +4,9 @@
 # task_id=<N> whose row in tasks table is pending, or running with no open swe
 # agent_runs row, AND has a non-empty spec_body. A schema-touching or
 # column-adding task also needs Writer: + Populated: lines or a Nullable: line,
-# unless a spec_shape_gate_waived audit row with from_node = 'bro' exists for the task. See plugin CHANGELOG for history.
+# unless a spec_shape_gate_waived audit row with from_node = 'bro' names the task
+# (written per task by task_create_batch / task_provision with waive_spec_shape,
+# or by bro through audit_append). See plugin CHANGELOG for history.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -250,5 +252,68 @@ assert_eq "$before" "$after" "no audit row written by the hook"
 test_case "non-schema task without the lines passes silently"
 out=$(run_hook "$(swe_input 'task_id=24 please do the thing')")
 assert_eq "" "$out" "silent pass"
+
+# Real server writers against a real trajectory DB: the rows task_create_batch
+# and audit_append write are the rows the hook reads.
+SERVER_DB="$TMPDIR/server.db"
+SERVER_IDS=$(TRAJECTORY_DB_PATH="$SERVER_DB" DIST="$PLUGIN_ROOT/mcp/trajectory-server/dist" node --experimental-sqlite --no-warnings --input-type=module -e '
+const dist = process.env.DIST;
+const { TrajectoryDB } = await import(`${dist}/db.js`);
+const { taskTools } = await import(`${dist}/tools/tasks.js`);
+const { auditTools } = await import(`${dist}/tools/audit.js`);
+const { resetEmbeddingModelForTests } = await import(`${dist}/embeddings/model.js`);
+resetEmbeddingModelForTests(() => new Promise(() => {}));
+const db = new TrajectoryDB(process.env.TRAJECTORY_DB_PATH);
+db.run("INSERT INTO issues (objective, status, created_at, updated_at) VALUES (?, ?, ?, ?)", ["spec waiver", "open", new Date().toISOString(), new Date().toISOString()]);
+const issueId = db.get("SELECT MAX(id) AS id FROM issues").id;
+const spec = "Add a new column ended_at to tasks.\n## Success Criteria\n- the column exists";
+const gates = {
+  waive_scope_gate: true, waive_scope_gate_reason: "not under test here",
+  waive_branch_gate: true, waive_branch_gate_reason: "not under test here",
+  waive_intent_gate: true, waive_intent_gate_reason: "not under test here",
+  waive_decision_gate: true, waive_decision_gate_reason: "not under test here",
+  waive_registry_gate: true, waive_registry_gate_reason: "not under test here",
+};
+const batch = async (extra, branches) => {
+  const r = await taskTools(db).handlers.task_create_batch({
+    agent: "bro", issue_id: String(issueId), ...gates, ...extra,
+    tasks: branches.map((b) => ({ branch_id: b, description: b, spec_body: spec })),
+  });
+  if (r.isError) throw new Error(r.content[0].text);
+  const out = JSON.parse(r.content[0].text);
+  return (out.tasks ?? out).map((t) => t.id);
+};
+const waived = await batch({ waive_spec_shape: true, waive_spec_shape_reason: "column lands with its writer in the next task" }, ["feat/w-a", "feat/w-b"]);
+const [plain, manual] = await batch({}, ["feat/plain", "feat/manual"]);
+const a = await auditTools(db).handlers.audit_append({
+  agent: "bro", issue_id: issueId, branch_id: "feat/manual", from_node: "bro",
+  event_type: "spec_shape_gate_waived", summary: "manual waiver",
+  content_json: JSON.stringify({ task_id: manual, gate: "spec_shape", reason: "column lands with its writer in the next task" }),
+});
+if (a.isError) throw new Error(a.content[0].text);
+db.close();
+console.log([...waived, plain, manual].join(" "));
+process.exit(0);
+')
+read -r WAIVED_A WAIVED_B PLAIN_ID MANUAL_ID <<< "$SERVER_IDS"
+# No server holds the closed DB open, so leave WAL mode: a -readonly open of a
+# WAL database without its -shm file cannot read.
+sqlite3 "$SERVER_DB" "PRAGMA journal_mode=DELETE;" >/dev/null
+
+test_case "task_create_batch(waive_spec_shape) opens the gate for every task it created with no second write"
+for id in "$WAIVED_A" "$WAIVED_B"; do
+  out=$(run_hook_env "$(swe_input "task_id=$id please do the thing")" "TRAJECTORY_DB_PATH" "$SERVER_DB")
+  assert_eq "" "$out" "task $id spawns without a manual audit row"
+done
+assert_eq "2" "$(sqlite3 "$SERVER_DB" "SELECT count(*) FROM audit WHERE event_type = 'spec_shape_gate_waived' AND json_extract(content_json, '\$.source') = 'task_create_batch';")" "one row per waived task"
+
+test_case "a task created without the waiver and missing Writer:/Populated: is still denied"
+out=$(run_hook_env "$(swe_input "task_id=$PLAIN_ID please do the thing")" "TRAJECTORY_DB_PATH" "$SERVER_DB")
+assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
+assert_contains "$out" "missing a Writer: and Populated: line" "reason names the missing lines"
+
+test_case "a manual audit_append waiver row still opens the gate"
+out=$(run_hook_env "$(swe_input "task_id=$MANUAL_ID please do the thing")" "TRAJECTORY_DB_PATH" "$SERVER_DB")
+assert_eq "" "$out" "manual waiver passes silently"
 
 summarize

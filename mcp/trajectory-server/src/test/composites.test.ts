@@ -1971,6 +1971,47 @@ describe('task_provision (#157)', () => {
     }
   });
 
+  it('waive_spec_shape writes one per-task spec_shape_gate_waived row in the require-task-spec shape; none without it; a short reason writes nothing', async () => {
+    const { ws, repoRoot, git } = makeRepo();
+    try {
+      const db = tempDB();
+      seedIssue(db, repoRoot);
+      const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+      const provision = (branch_id: string, extra: Record<string, unknown>) =>
+        call(composites.handlers, 'task_provision', {
+          agent: 'bro', issue_id: 1, branch_id, decision_body: 'Chosen approach: waive the spec shape.',
+          task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app' },
+          ...extra,
+        });
+      const waivers = () => db.all<{ issue_id: number; branch_id: string; from_node: string; content_json: string }>(
+        `SELECT issue_id, branch_id, from_node, content_json FROM audit WHERE event_type = 'spec_shape_gate_waived' ORDER BY id`,
+      );
+
+      const plain = parse(await provision('feat/no-waiver', {}));
+      assert.equal(typeof plain['task_id'], 'number');
+      assert.equal(waivers().length, 0, 'no row without waive_spec_shape');
+
+      const waived = parse(await provision('feat/waived', { waive_spec_shape: true, waive_spec_shape_reason: 'spec names no new column' }));
+      const rows = waivers();
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0]!.issue_id, 1);
+      assert.equal(rows[0]!.branch_id, 'feat/waived');
+      assert.equal(rows[0]!.from_node, 'bro');
+      assert.deepEqual(JSON.parse(rows[0]!.content_json), {
+        task_id: waived['task_id'], gate: 'spec_shape', reason: 'spec names no new column', waived_by: 'bro', source: 'task_provision',
+      });
+
+      const short = await provision('feat/short-reason', { waive_spec_shape: true, waive_spec_shape_reason: 'short' });
+      assert.equal(short.isError, true);
+      assert.match(String(parse(short)['error']), /waive_spec_shape_reason/);
+      assert.equal(waivers().length, 1);
+      assert.throws(() => git(repoRoot, 'rev-parse', '--verify', 'refs/heads/feat/short-reason'), 'no branch ref');
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
   it('stamps the bro row with session_id when passed, NULL when omitted, and rejects an invalid one writing nothing', async () => {
     const { ws, repoRoot, git } = makeRepo();
     try {
