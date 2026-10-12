@@ -119,6 +119,12 @@ describe('issue_close: refuse or cascade', () => {
 
   it('cascade escalates live tasks, closes their runs issue_closed, audits each, then closes remote once after local', async () => {
     const db = tempDB();
+    db.run(`INSERT INTO repos (name, path, remotes) VALUES ('app', '/tmp/app', ?)`, [
+      JSON.stringify([{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }]),
+    ]);
+    db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"auto"')`);
+    const savedEnv = process.env.TMB_DISABLE_REMOTE_SYNC;
+    delete process.env.TMB_DISABLE_REMOTE_SYNC;
     const issue = seedIssue(db, 77);
     const pending = seedTask(db, issue, 'pending');
     const running = seedTask(db, issue, 'running');
@@ -167,6 +173,8 @@ describe('issue_close: refuse or cascade', () => {
     const closes = spawns.filter((s) => s.args[0] === 'issue' && s.args[1] === 'close');
     assert.equal(closes.length, 1, 'remote close called once');
     assert.equal(closes[0]!.issueStatusAtSpawn, 'closed', 'remote close runs after the local close committed');
+    if (savedEnv === undefined) delete process.env.TMB_DISABLE_REMOTE_SYNC;
+    else process.env.TMB_DISABLE_REMOTE_SYNC = savedEnv;
     db.close();
   });
 

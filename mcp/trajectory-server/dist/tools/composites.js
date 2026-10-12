@@ -1753,10 +1753,10 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             // GitHub/GitLab issue open (#277). Runs after the local transaction
             // commits because the sync spawns gh/glab (async, can't sit inside the
             // synchronous db.transaction).
-            if (result.issue_closed) {
-                await syncIssueCloseRemotes(db, dbPath, task.issue_id, args['_spawnFn']);
-            }
-            return ok(result);
+            const remote = result.issue_closed
+                ? await syncIssueCloseRemotes(db, dbPath, task.issue_id, args['_spawnFn'])
+                : undefined;
+            return ok(remote ? { ...result, remote } : result);
         })),
         task_recover: requireRoles('task_recover', ['bro'], wrap(async (args) => {
             const taskArg = args['task_id'];
@@ -1826,9 +1826,9 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 });
                 return closeTaskInTx(db, task, commitSha, verificationSummary, now, closeIssueIfLast, 'task_recover');
             });
-            if (result.issue_closed) {
-                await syncIssueCloseRemotes(db, dbPath, task.issue_id, args['_spawnFn']);
-            }
+            const remote = result.issue_closed
+                ? await syncIssueCloseRemotes(db, dbPath, task.issue_id, args['_spawnFn'])
+                : undefined;
             return ok({
                 recovered: true,
                 action: 'closed',
@@ -1837,6 +1837,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 issue_closed: result.issue_closed,
                 review_gate_bypassed: result.review_gate_bypassed,
                 ...(result.issue_left_open ? { issue_left_open: result.issue_left_open } : {}),
+                ...(remote ? { remote } : {}),
                 ...sweepResult,
             });
         })),

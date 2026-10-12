@@ -475,7 +475,13 @@ describe('bro_atomic_close', () => {
         mkdirSync(join(ws, '.claude', 'tmb'), { recursive: true });
         const dbPath = join(ws, '.claude', 'tmb', 'trajectory.db');
         const db = tempDB();
-        db.run(`INSERT INTO repos (name, path) VALUES ('app', ?)`, [repoRoot]);
+        db.run(`INSERT INTO repos (name, path, remotes) VALUES ('app', ?, ?)`, [
+            repoRoot,
+            JSON.stringify([{ name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' }]),
+        ]);
+        db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"auto"')`);
+        const savedEnv = process.env.TMB_DISABLE_REMOTE_SYNC;
+        delete process.env.TMB_DISABLE_REMOTE_SYNC;
         const issues = issueTools(db, dbPath);
         const tasks = taskTools(db);
         const composites = compositeTools(db, dbPath);
@@ -522,8 +528,13 @@ describe('bro_atomic_close', () => {
             assert.ok(closeCall, `expected a remote 'issue close' spawn; got ${JSON.stringify(spawnCalls)}`);
             assert.equal(closeCall.cmd, 'gh', 'github remote closes via gh');
             assert.ok(closeCall.args.includes('42'), 'remote close must target gh_iid 42');
+            assert.deepEqual(parse(r)['remote']['synced'], true);
         }
         finally {
+            if (savedEnv === undefined)
+                delete process.env.TMB_DISABLE_REMOTE_SYNC;
+            else
+                process.env.TMB_DISABLE_REMOTE_SYNC = savedEnv;
             db.close();
             rmSync(ws, { recursive: true, force: true });
         }

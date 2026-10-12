@@ -1,7 +1,7 @@
 import { resolveRepoForSync } from '../utils/repo-paths.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
-import { resolveBackend, detectPreferred } from '../sync/backend.js';
+import { resolveBackend, detectPreferred, remoteSyncGate } from '../sync/backend.js';
 import { syncIssueCreate, syncIssueClose, isSyncFailure, repoSlugFromRemoteUrl, verifyRemoteIssue } from '../sync/issue_sync.js';
 import { serverLog } from '../logger.js';
 import { insertAudit } from './audit.js';
@@ -264,33 +264,57 @@ async function verifyAdoptionRemote(db, issueRepo, remoteBackendArg, remoteIid, 
 }
 // Fire the remote (GitHub/GitLab) issue-close for whatever remotes the row is
 // linked to. The local `issues.status='closed'` UPDATE is the caller's
-// responsibility — this is only the remote-sync half. Sync failures are logged,
-// never thrown: a remote hiccup must not fail the local close. Shared by
-// `issue_close` and `bro_atomic_close` so the composite can't drift the remote
-// open while closing locally (#277).
+// responsibility — this is only the remote-sync half, and every remote close
+// goes through `remoteSyncGate`: a gated-off close spawns nothing and leaves one
+// `issue_close_remote_skipped` audit row. Sync failures are logged, never
+// thrown: a remote hiccup must not fail the local close. Shared by
+// `issue_close`, `bro_atomic_close` and `task_recover`.
 export async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
     const remoteRow = db.get(`SELECT gh_iid, gl_iid, repo FROM issues WHERE id = ?`, [issueId]);
+    const targets = [];
+    if (remoteRow?.gh_iid != null) {
+        targets.push({ remote_kind: 'github', remote_iid: remoteRow.gh_iid, closed: false });
+    }
+    if (remoteRow?.gl_iid != null) {
+        targets.push({ remote_kind: 'gitlab', remote_iid: remoteRow.gl_iid, closed: false });
+    }
+    if (targets.length === 0)
+        return { synced: false, remotes: [] };
     // Issue-scoped sync (#155/#146): resolve cwd + per-backend repo slug from the
     // issue's repo. When unresolvable, fall back to no explicit cwd/slug — a
     // best-effort close must not throw (the local close already happened).
     const closeCtx = resolveIssueSyncContext(db, remoteRow?.repo ?? null);
-    const closeCwd = closeCtx?.cwd;
-    const closeTargets = [];
-    if (remoteRow?.gh_iid != null) {
-        closeTargets.push({ remote_iid: remoteRow.gh_iid, remote_kind: 'github' });
+    const gate = remoteSyncGate(db, {
+        repoRemotes: closeCtx
+            ? { github: closeCtx.remoteFor('gh') !== null, gitlab: closeCtx.remoteFor('glab') !== null }
+            : null,
+        spawnFn: spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: 'utf8' }) : undefined,
+    });
+    if (!gate.enabled) {
+        const reason = gate.reason ?? 'no_backend';
+        insertAudit(db, {
+            issue_id: issueId,
+            from_node: 'trajectory-server',
+            event_type: 'issue_close_remote_skipped',
+            summary: `issue ${issueId} closed locally; remote close skipped (${reason})`,
+            content_json: JSON.stringify({
+                reason,
+                remotes: targets.map(({ remote_kind, remote_iid }) => ({ remote_kind, remote_iid })),
+            }),
+            created_at: nowISO(),
+        });
+        return { synced: false, skipped: reason, remotes: targets };
     }
-    if (remoteRow?.gl_iid != null) {
-        closeTargets.push({ remote_iid: remoteRow.gl_iid, remote_kind: 'gitlab' });
-    }
-    for (const target of closeTargets) {
+    for (const target of targets) {
         const closeSlug = closeCtx?.remoteFor(target.remote_kind === 'github' ? 'gh' : 'glab')?.slug ?? undefined;
         const closeResult = await syncIssueClose({
             remote_iid: target.remote_iid,
             remote_kind: target.remote_kind,
-            _cwd: closeCwd,
+            _cwd: closeCtx?.cwd,
             _repoSlug: closeSlug,
             _spawnFn: spawnFn,
         });
+        target.closed = closeResult.ok;
         if (!closeResult.ok) {
             serverLog({
                 event: 'issue_close_sync_failed',
@@ -304,6 +328,7 @@ export async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
             });
         }
     }
+    return { synced: targets.every((t) => t.closed), remotes: targets };
 }
 export function issueTools(db, dbPath = '', options = {}) {
     const definitions = [
@@ -902,12 +927,13 @@ export function issueTools(db, dbPath = '', options = {}) {
                 escalateLiveTasksForIssueClose(db, live, cascadeReason, now);
                 markIssueClosed(db, issueId, now);
             });
-            await syncIssueCloseRemotes(db, dbPath, issueId, args['_spawnFn']);
+            const remote = await syncIssueCloseRemotes(db, dbPath, issueId, args['_spawnFn']);
             const updated = db.get('SELECT * FROM issues WHERE id = ?', [issueId]);
             return ok({
                 ...decodeIssue(updated),
                 tasks_escalated: live.map((t) => t.id),
                 review_waived_tasks: waiveReview ? unreviewed.map((t) => t.id) : [],
+                remote,
             });
         })),
         issue_get_phase: wrapHandler(async (args) => {
