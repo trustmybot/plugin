@@ -279,7 +279,7 @@ export function taskTools(
                   type: 'array',
                   items: { type: 'string' },
                   description:
-                    'Authoritative allowlist of paths SWE may edit for this task, read by the swe-scope-fence hook; an empty/omitted array disables scope enforcement.',
+                    "The task's expected scope at directory granularity (e.g. 'scripts/hooks/', 'CHANGELOG.md'). Writes outside it are allowed with a note to the swe; bro_atomic_close refuses on changed paths outside it until bro accepts them.",
                 },
                 verification: {
                   type: 'array',

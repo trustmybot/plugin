@@ -132,7 +132,7 @@ test('Flow 09c — Bro task-gate uses audit_append(bro_verification_pass), not v
     task_id: taskId,
     commit_sha: 'abc1234',
     verification_summary: 'V1 files match. V2 verification commands passed. V3 success criteria met.',
-    waive_scope_gate: true,
+    waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
   });
   assert.equal(closed.ok, true);
 

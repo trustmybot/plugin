@@ -19,7 +19,7 @@ Both failures are impossible against a typed array: `files: string[]` and `verif
 
 ## Ratified decisions (#65)
 
-1. **Typed columns.** `tasks.files` and `tasks.verification` are `TEXT` columns holding JSON arrays, defaulting to `'[]'`. `files[]` is the scope-fence allowlist; `verification[]` is the command list the verification gate runs.
+1. **Typed columns.** `tasks.files` and `tasks.verification` are `TEXT` columns holding JSON arrays, defaulting to `'[]'`. `files[]` is the task's expected scope at directory granularity, judged at close; `verification[]` is the command list the verification gate runs.
 2. **Flat schema, no combinators.** The `task_create_batch` per-task schema exposes `files` / `verification` as plain `array` of `string`. No `oneOf` / `allOf` / `anyOf` — flat schemas keep the MCP boundary legible to the model and to the validator.
 3. **Validate at the MCP boundary.** Bad shape is rejected at write time with a named error (`typed_field_violation`) so the model can retry. When present, each field must be a **non-empty array of non-empty strings**. Omitting a field is allowed and means "no enforcement" for that hook.
 4. **Hooks read columns, not markdown.** `swe-scope-fence.sh` reads `tasks.files`; `swe-verification-gate.sh` reads `tasks.verification`. The `## Files` / `## Verification` awk/sed scraping is deleted.
@@ -29,7 +29,7 @@ Both failures are impossible against a typed array: `files: string[]` and `verif
 
 | Field | Type (column) | Type (API) | Read by | Empty → |
 |---|---|---|---|---|
-| `files` | `TEXT` JSON array, default `'[]'` | `files?: string[]` | `swe-scope-fence.sh` | scope fence skips with a warning |
+| `files` | `TEXT` JSON array, default `'[]'` | `files?: string[]` | `swe-scope-fence.sh`, `swe-boundary.sh`, `bro_atomic_close` | no edit-time notes; every changed path is an extra at close |
 | `verification` | `TEXT` JSON array, default `'[]'` | `verification?: string[]` | `swe-verification-gate.sh` | verification gate skips with a warning |
 
 Write-time validation (`task_create_batch`, before any side effect):
@@ -40,7 +40,7 @@ Write-time validation (`task_create_batch`, before any side effect):
 
 Enforcement semantics:
 
-- `swe-scope-fence.sh` builds its dir allowlist from `files[]` (each path contributes its containing directory; a root-level file is allowed exactly; a `tests/` parent allows any `tests/` path). An edit outside the allowlist is denied with the allowed dirs + recovery instructions.
+- `files[]` names directories: a trailing slash names the directory itself, a nested path contributes its containing directory, a root-level file covers itself, and any `tests/` entry covers all of `tests/`. `lib/scope-fence.sh` and `bro_atomic_close` apply the same rule. An edit outside it is allowed; `swe-scope-fence.sh` (Edit/Write) and `swe-boundary.sh` (Bash) add a once-per-path note asking the swe to report it. `bro_atomic_close` diffs the task's own commits (from the merge-base with `origin/<pr_target>`) against `files[]` and refuses on extras, listed by surface, until bro reverts them or accepts them with `waive_scope_gate` + `scope_waiver_reason`.
 - `swe-verification-gate.sh` runs each `verification[]` entry verbatim as a shell command in the task's worktree, bounded by `TMB_VERIFICATION_TIMEOUT_S` (default 240s total). A non-zero exit denies the completion; a timeout denies with a timeout message. A `>=10` char `waive_verification_gate_reason` bypasses with an audit row.
 
 ## Clean break — no markdown fallback

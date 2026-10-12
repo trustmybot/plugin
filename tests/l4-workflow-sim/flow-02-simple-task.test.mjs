@@ -102,7 +102,7 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
     commit_sha: 'aaaaaaa1111111111111111111111111111aaaaa',
     verification_summary: 'V1 files match. V2 verification commands passed. V3 success criteria met.',
     close_issue_if_last_task: true,
-    waive_scope_gate: true,
+    waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
   });
   assert.equal(closed.ok, true);
 

@@ -5,9 +5,12 @@
 # (a) git push from SWE context → DENY
 # (b) gh/glab MUTATING subcommands from SWE context → DENY (reads allowed)
 # (c) Edit/Write target outside assigned worktree → DENY
-# (d) Edit/Write to prompt-surface paths → DENY (unless prompt_bearing=1)
-# (e) Bash-written prompt-surface path → DENY (unless prompt_bearing=1)
-# (f) Bash-written path outside the task's files[] dirs → DENY (scope fence)
+# (d) Edit/Write to CLAUDE.md at the worktree root → DENY (always);
+#     to other prompt-surface paths → DENY (unless prompt_bearing=1)
+# (e) Bash-written CLAUDE.md at the worktree root → DENY (always);
+#     other prompt-surface paths → DENY (unless prompt_bearing=1)
+# (f) Bash-written path outside the task's files[] dirs → ALLOWED with a
+#     once-per-path additionalContext note
 #
 # Negative cases (bro context) prove bro is NOT blocked.
 set -euo pipefail
@@ -407,9 +410,19 @@ test_case "(e) SWE redirect > to agents/swe.md with prompt_bearing=1 (transcript
 out=$(run_hook_swe_pwd "$(make_bash_with_transcript swe 'echo "content" > agents/swe.md' 11)" "$NONWT_DIR")
 assert_not_contains "$out" '"permissionDecision":"deny"' "prompt_bearing=1 task should allow Bash write to prompt surface"
 
-test_case "(e) SWE sed -i on CLAUDE.md via slug fallback (prompt_bearing=1): ALLOWED"
+test_case "(e) SWE sed -i on the root CLAUDE.md on a prompt_bearing=1 task: DENIED (always)"
 out=$(cd "$WT_PROMPT" && echo "$(make_bash_input swe "sed -i 's/old/new/' CLAUDE.md")" | bash "$HOOK" 2>&1 || true)
-assert_not_contains "$out" '"permissionDecision":"deny"' "slug fallback prompt_bearing=1 should allow sed -i on CLAUDE.md"
+assert_contains "$out" '"permissionDecision":"deny"' "prompt_bearing does not lift the root CLAUDE.md deny"
+assert_contains "$out" "Human-owned" "the CLAUDE.md reason"
+
+test_case "(d) SWE Edit of the root CLAUDE.md on a prompt_bearing=1 task: DENIED (always)"
+out=$(cd "$WT_PROMPT" && echo "$(make_edit_input swe "$WT_PROMPT/CLAUDE.md")" | bash "$HOOK" 2>&1 || true)
+assert_contains "$out" '"permissionDecision":"deny"' "prompt_bearing does not lift the root CLAUDE.md deny for Edit"
+assert_contains "$out" "Human-owned" "the CLAUDE.md reason"
+
+test_case "(d) SWE Edit of a nested docs/CLAUDE.md on a prompt_bearing=1 task: ALLOWED"
+out=$(cd "$WT_PROMPT" && echo "$(make_edit_input swe "$WT_PROMPT/docs/CLAUDE.md")" | bash "$HOOK" 2>&1 || true)
+assert_not_contains "$out" '"permissionDecision":"deny"' "only the repo-root CLAUDE.md is always denied"
 
 test_case "(e) SWE redirect > to agents/swe.md via slug fallback (prompt_bearing=0): DENIED"
 out=$(cd "$WORKTREE" && echo "$(make_bash_input swe 'echo x > agents/swe.md')" | bash "$HOOK" 2>&1 || true)
@@ -539,7 +552,6 @@ WT_PB="$WT_ROOT/shape-prompt"
 mkdir -p "$WT_PLAIN" "$WT_PB"
 
 SURFACE='skills/tmb_audit/SKILL.md'
-OUT_OF_FENCE='scripts/hooks/x.sh'
 IN_FENCE='src/index.ts'
 
 # shape_write <shape> <target>: the shape writing <target>.
@@ -602,10 +614,12 @@ for shape in '>' '>>' heredoc tee 'tee -a' 'sed -i' 'perl -i' cp mv install rsyn
   out=$(run_in "$WT_PB" "$(shape_write "$shape" "$SURFACE")")
   assert_not_contains "$out" '"permissionDecision":"deny"' "prompt_bearing=1 lifts the surface rule for $shape"
 
-  test_case "GH 1272 [$shape] write outside files[] ($OUT_OF_FENCE): DENIED"
+  OUT_OF_FENCE="scripts/hooks/x-$(printf '%s' "$shape" | cksum | cut -d' ' -f1).sh"
+  test_case "GH 1295 [$shape] write outside files[] ($OUT_OF_FENCE): ALLOWED with a note"
   out=$(run_in "$WT_PLAIN" "$(shape_write "$shape" "$OUT_OF_FENCE")")
-  assert_contains "$out" '"permissionDecision":"deny"' "an out-of-fence write via $shape is denied"
-  assert_contains "$out" "BLOCKED (scope fence): '$OUT_OF_FENCE'" "the scope-fence reason names the path"
+  assert_not_contains "$out" '"permissionDecision":"deny"' "an out-of-fence write via $shape is allowed"
+  assert_contains "$out" "$OUT_OF_FENCE is outside this task's files[]" "the note names the path"
+  assert_contains "$out" "additionalContext" "the note is additionalContext"
 
   test_case "GH 1272 [$shape] write inside files[] ($IN_FENCE): ALLOWED"
   out=$(run_in "$WT_PLAIN" "$(shape_write "$shape" "$IN_FENCE")")
@@ -652,8 +666,8 @@ assert_not_contains "$out" '"permissionDecision":"deny"' "src/index.ts via cd st
 test_case "GH 1272 bash -c and a second statement are judged"
 out=$(run_in "$WT_PLAIN" "bash -c 'echo x > $SURFACE'")
 assert_contains "$out" "prompt-surface" "a bash -c body is a statement"
-out=$(run_in "$WT_PLAIN" "echo ok > $IN_FENCE && echo x > $OUT_OF_FENCE")
-assert_contains "$out" "BLOCKED (scope fence)" "every statement's paths are judged"
+out=$(run_in "$WT_PLAIN" "echo ok > $IN_FENCE && echo x > docs/second-statement.md")
+assert_contains "$out" "docs/second-statement.md is outside this task's files[]" "every statement's paths are judged"
 
 test_case "GH 1272 interpreter write mode with the path in argv"
 out=$(run_in "$WT_PLAIN" "python3 -c \"import sys; open(sys.argv[1],'w').write('x')\" $SURFACE")
@@ -667,9 +681,27 @@ test_case "GH 1272 writes outside the worktree are not fenced (/dev/null, /tmp)"
 out=$(run_in "$WT_PLAIN" 'ls 2>/dev/null > /tmp/swe-boundary-out.txt')
 assert_not_contains "$out" '"permissionDecision":"deny"' "the fence covers the worktree only"
 
-test_case "GH 1272 task with empty files[]: fence skipped"
-out=$(run_in "$WORKTREE" "echo x > $OUT_OF_FENCE")
+test_case "GH 1272 task with empty files[]: no note"
+out=$(run_in "$WORKTREE" "echo x > scripts/hooks/empty-files.sh")
 assert_not_contains "$out" '"permissionDecision":"deny"' "no typed files[] means no fence, as for Edit"
+assert_not_contains "$out" "outside this task's files[]" "no typed files[] means no note"
+
+test_case "GH 1295 ordinary out-of-fence write inside the worktree: ALLOWED, noted once per path"
+out=$(run_in "$WT_PLAIN" 'echo x > docs/once.md')
+assert_not_contains "$out" '"permissionDecision":"deny"' "an ordinary out-of-fence path is allowed"
+assert_contains "$out" "docs/once.md is outside this task's files[] (myskills, notes, src)" "the note lists files[] dirs"
+assert_contains "$out" "list it and why in your report" "the note asks for the report entry"
+out=$(run_in "$WT_PLAIN" 'echo y >> docs/once.md')
+assert_not_contains "$out" "outside this task's files[]" "the second write to the same path is silent"
+assert_eq "$([ -d "$TMPDIR/locks/scope-notes/20" ] && echo yes)" "yes" "the marker lives under the state dir's locks/"
+
+test_case "GH 1295 Edit outside the worktree and prompt surface on a non-bearing task stay DENIED"
+out=$(cd "$WT_PLAIN" && echo "$(make_edit_input swe '/tmp/elsewhere.ts')" | bash "$HOOK" 2>&1 || true)
+assert_contains "$out" "outside the worktree" "outside-worktree Edit is denied"
+out=$(cd "$WT_PLAIN" && echo "$(make_edit_input swe "$WT_PLAIN/$SURFACE")" | bash "$HOOK" 2>&1 || true)
+assert_contains "$out" "prompt-surface" "prompt-surface Edit on a non-bearing task is denied"
+out=$(run_in "$WT_PLAIN" 'echo x > CLAUDE.md')
+assert_contains "$out" "Human-owned" "a Bash write to the root CLAUDE.md is denied"
 
 test_case "GH 1272 Edit/Write and Bash share one surface predicate"
 out=$(cd "$WT_PLAIN" && echo "$(make_edit_input swe "$WT_PLAIN/rules/style.md")" | bash "$HOOK" 2>&1 || true)

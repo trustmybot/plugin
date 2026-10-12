@@ -56,7 +56,7 @@ test('Flow 6 — push gate: bro closes → unsigned commits → pr-reviewer sign
     await call(client, 'bro_atomic_close', {
       agent: 'bro', task_id: id, commit_sha: sha,
       verification_summary: 'V1/V2/V3 verified; closing pre-push.',
-      waive_scope_gate: true,
+      waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
     });
   }
 
@@ -135,7 +135,7 @@ test('Flow 6 fail-path — pr-reviewer FAIL verdict triggers retry signal in nex
     agent: 'bro', task_id: taskId,
     commit_sha: 'ccc3333333333333333333333333333333333333',
     verification_summary: 'V1/V2/V3 verified; closing pre-push.',
-    waive_scope_gate: true,
+    waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
   });
 
   // attempt 1: FAIL

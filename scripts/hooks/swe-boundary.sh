@@ -10,17 +10,20 @@
 #   (a) Bash: git push from SWE context                  → DENY
 #   (b) Bash: gh/glab MUTATING subcommands               → DENY (read-only gh allowed)
 #   (c) Edit/Write: target outside assigned worktree      → DENY
-#   (d) Edit/Write: prompt-surface paths                  → DENY (unless prompt_bearing=1)
-#   (e) Bash: a written path on the prompt surface        → DENY (unless prompt_bearing=1)
+#   (d) Edit/Write: CLAUDE.md at the worktree root        → DENY (always)
+#       Edit/Write: prompt-surface paths                  → DENY (unless prompt_bearing=1)
+#   (e) Bash: a written CLAUDE.md at the worktree root    → DENY (always)
+#       Bash: a written path on the prompt surface        → DENY (unless prompt_bearing=1)
 #   (f) Bash: a written path inside the worktree but outside the task's
-#       files[] dirs                                      → DENY (scope fence)
+#       files[] dirs                                      → NOTE (additionalContext, once per path)
 #
 # Bash writes are judged by the same rules as Edit/Write: every path a
 # statement writes (tmb_cmd_write_paths in lib/cmd-analysis.sh, the one list
 # of write shapes, resolved against the statement's own cd / git -C dir) goes
 # through the prompt-surface predicate (tmb_is_prompt_surface_path) and the
-# scope fence (lib/scope-fence.sh, shared with swe-scope-fence.sh). Reads and
-# read inputs of a write never fire.
+# files[] classifier (lib/scope-fence.sh, shared with swe-scope-fence.sh).
+# Scope itself is judged at close: bro_atomic_close diffs the task's own
+# commits against files[]. Reads and read inputs of a write never fire.
 #
 # SWE context = the agent identity (tmb_agent_role in lib/cmd-analysis.sh) is
 # swe. A path never decides the role. Bash rules judge the command's
@@ -38,6 +41,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/scope-fence.sh"
 
 INPUT=$(cat)
+
+claude_md_reason() {
+  printf 'BLOCKED: SWE may not edit CLAUDE.md at the repo root (Human-owned; prompt_bearing does not lift this). Target: %s. Propose the change in your report; the Human applies it.' "$1"
+}
 
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null || true)
 
@@ -97,12 +104,14 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
 
   SURFACE_PATH=""
   SURFACE_ANCHOR=""
+  ROOT_CLAUDE_MD=""
   FENCE_PATHS=()
   while IFS= read -r _wpath; do
     [ -n "$_wpath" ] || continue
     _wt=$(_wt_of "$_wpath")
     _rel="${_wpath#"$_wt"/}"
     if [ -z "$_wt" ] || [ "$_rel" = "$_wpath" ]; then _wt=""; _rel="$_wpath"; fi
+    if [ -n "$_wt" ] && [ "$_rel" = "CLAUDE.md" ]; then ROOT_CLAUDE_MD="$_wpath"; fi
     if [ -z "$SURFACE_PATH" ] && tmb_is_prompt_surface_path "$_rel"; then
       SURFACE_PATH="$_wpath"
       SURFACE_ANCHOR="${_wt:+$_wpath}"
@@ -110,12 +119,19 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
     if [ -n "$_wt" ]; then FENCE_PATHS+=("$_wpath"); fi
   done < <(tmb_cmd_write_paths "$CMD" "$(tmb_payload_cwd "$INPUT")")
 
+  if [ -n "$ROOT_CLAUDE_MD" ]; then
+    jq -nc --arg r "$(claude_md_reason "$ROOT_CLAUDE_MD")" \
+      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
+    exit 0
+  fi
+
+  _DB=""
   if [ -n "$SURFACE_PATH" ] || [ "${#FENCE_PATHS[@]}" -gt 0 ]; then
     _DB=$(tmb_db_path || true)
-    if [ "$(tmb_db_state)" = "error" ]; then
-      tmb_deny_db_unavailable swe-boundary
-      exit 0
-    fi
+  fi
+  if [ -n "$SURFACE_PATH" ] && [ "$(tmb_db_state)" = "error" ]; then
+    tmb_deny_db_unavailable swe-boundary
+    exit 0
   fi
 
   # (e) Lifts when the resolved task has prompt_bearing=1.
@@ -139,27 +155,29 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
     fi
   fi
 
-  # (f) Scope fence, per worktree a written path lies in.
+  # (f) files[] note, per worktree a written path lies in. Never denies.
   if [ "${#FENCE_PATHS[@]}" -gt 0 ] && [ -n "$_DB" ] && tmb_have_sqlite; then
     _FENCE_WT=""
+    _FENCE_TASK=""
+    _NOTES=""
     for _wpath in "${FENCE_PATHS[@]}"; do
       _wt=$(_wt_of "$_wpath")
       if [ "$_wt" != "$_FENCE_WT" ]; then
         _FENCE_WT="$_wt"
-        tmb_scope_fence_load "$_DB" "$(tmb_resolve_task_id_for_target "$_wpath" "$INPUT" "$_DB")"
-        if [ "$TMB_FENCE_STATE" = "error" ]; then
-          tmb_deny_db_unavailable swe-boundary
-          exit 0
-        fi
+        _FENCE_TASK=$(tmb_resolve_task_id_for_target "$_wpath" "$INPUT" "$_DB")
+        tmb_scope_fence_load "$_DB" "$_FENCE_TASK"
       fi
       [ "$TMB_FENCE_STATE" = "ok" ] || continue
       _rel="${_wpath#"$_wt"/}"
       if tmb_scope_fence_allows "$_rel"; then continue; fi
-      jq -nc --arg r "$(tmb_scope_fence_reason "$_rel")" \
-        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
-      exit 0
+      _note=$(tmb_scope_fence_note "$_FENCE_TASK" "$_rel")
+      [ -n "$_note" ] && _NOTES="${_NOTES:+$_NOTES; }$_note"
     done
+    if [ -n "$_NOTES" ]; then
+      jq -nc --arg c "TMB: $_NOTES" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":$c}}'
+    fi
   fi
+  exit 0
 fi
 
 # ---- Rules (c) and (d): Edit/Write fence ------------------------------------
@@ -199,11 +217,17 @@ if [ -n "$WORKTREE_ROOT" ]; then
   esac
 fi
 
-# ---- Rule (d): prompt-surface paths ----------------------------------------
-# Deny edits to the prompt surface (tmb_is_prompt_surface_path) from SWE
-# context — unless the task row has prompt_bearing=1.
+# ---- Rule (d): CLAUDE.md and prompt-surface paths --------------------------
+# Deny CLAUDE.md at the worktree root always; deny the rest of the prompt
+# surface (tmb_is_prompt_surface_path) from SWE context unless the task row
+# has prompt_bearing=1.
 _WT_D=$(tmb_worktree_root_for_target "$TARGET")
 _SUBJECT="${TARGET#"$_WT_D"/}"
+if [ -n "$_WT_D" ] && [ "$_SUBJECT" = "CLAUDE.md" ]; then
+  jq -nc --arg r "$(claude_md_reason "$TARGET")" \
+    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
+  exit 0
+fi
 IS_PROMPT_SURFACE=""
 tmb_is_prompt_surface_path "$_SUBJECT" && IS_PROMPT_SURFACE="yes"
 

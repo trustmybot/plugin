@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 # Tests for scripts/hooks/swe-scope-fence.sh
 #
-# Hook contract: deny edits outside the task's typed files[] dirs in SWE
-# worktrees. The hook reads the typed `files` column (JSON array, Typed Rails
-# #673).
+# Hook contract: never deny. An Edit/Write in an SWE worktree to a path
+# outside the task's typed files[] dirs gets an additionalContext note
+# "<path> is outside this task's files[] (<dirs>); list it and why in your
+# report" — once per path per task. Scope is judged at close.
 #
 # Scenarios:
-#   - in-scope edit (path under an allowed dir) → passes
-#   - out-of-scope edit → denied with allowed dirs + recovery message
-#   - no-task (worktree slug not in DB) → passes (fail open)
-#   - empty typed files[] → passes (skip with advisory)
-#   - dir-granularity: file listed → its directory is the allowed scope
-#   - root-level file listed → only that exact file is allowed (no dir promotion)
-#   - tests/ path always allowed when files[] includes a tests/ parent
-#   - non-worktree PWD → passes (hook is not in SWE worktree context)
+#   - in-scope edit (path under a listed dir) → silent
+#   - out-of-scope edit → allowed, note names the path and the listed dirs
+#   - the same path again → silent (deduped per task); another task → noted
+#   - no-task, empty files[], non-worktree PWD, non-Edit tool → silent
+#   - dir-granularity: file listed → its directory is the scope
+#   - root-level file listed → only that exact file is in scope
+#   - tests/ path in scope when files[] includes a tests/ parent
+#   - the hook source carries no deny
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -90,162 +91,112 @@ make_write_input() {
   }'
 }
 
+DENY='"permissionDecision":"deny"'
+
 # ===========================================================================
-# In-scope edits pass
+# In-scope edits are silent
 # ===========================================================================
 
-test_case "in-scope: file directly in an allowed dir passes"
+test_case "in-scope: file directly in a listed dir is silent"
 out=$(run_hook "$WT_A" "$(make_edit_input "scripts/hooks/my-hook.sh")")
-assert_not_contains "$out" '"permissionDecision":"deny"' "in-scope edit should pass"
+assert_not_contains "$out" "$DENY" "in-scope edit is allowed"
+assert_not_contains "$out" "outside this task" "in-scope edit carries no note"
 
-test_case "in-scope: file nested under an allowed dir passes"
+test_case "in-scope: file nested under a listed dir is silent"
 out=$(run_hook "$WT_A" "$(make_edit_input "scripts/hooks/subdir/helper.sh")")
-assert_not_contains "$out" '"permissionDecision":"deny"' "nested file under allowed dir should pass"
+assert_not_contains "$out" "outside this task" "nested file under a listed dir carries no note"
 
-test_case "in-scope: test file in allowed tests dir passes"
-out=$(run_hook "$WT_A" "$(make_edit_input "tests/l3-integration/hooks/my-hook.test.sh")")
-assert_not_contains "$out" '"permissionDecision":"deny"' "test file under allowed dir should pass"
-
-test_case "in-scope: Write tool (not just Edit) passes"
+test_case "in-scope: Write tool (not just Edit) is silent"
 out=$(run_hook "$WT_A" "$(make_write_input "scripts/hooks/new-file.sh")")
-assert_not_contains "$out" '"permissionDecision":"deny"' "Write in-scope should pass"
+assert_not_contains "$out" "outside this task" "Write in scope carries no note"
+
+test_case "tests/: a tests/ sibling is in scope when files[] lists a tests/ path"
+out=$(run_hook "$WT_A" "$(make_edit_input "tests/l3-integration/hooks/other.test.sh")")
+assert_not_contains "$out" "outside this task" "tests/ sibling carries no note"
 
 # ===========================================================================
-# Out-of-scope edits are denied
+# Out-of-scope edits are allowed with a once-per-path note
 # ===========================================================================
 
-test_case "out-of-scope: edit to unrelated dir is denied"
+test_case "out-of-scope: Edit to an unrelated dir is allowed with a note"
 out=$(run_hook "$WT_A" "$(make_edit_input "src/api/handler.ts")")
-assert_contains "$out" '"permissionDecision":"deny"' "out-of-scope edit should be denied"
+assert_not_contains "$out" "$DENY" "out-of-scope edit is allowed"
+assert_contains "$out" "additionalContext" "the note is additionalContext"
+assert_contains "$out" "src/api/handler.ts is outside this task's files[] (scripts/hooks, tests/l3-integration/hooks); list it and why in your report" "the note names the path and the listed dirs"
 
-test_case "out-of-scope: deny message names the allowed dirs"
+test_case "out-of-scope: the same path again is silent"
 out=$(run_hook "$WT_A" "$(make_edit_input "src/api/handler.ts")")
-assert_contains "$out" "scripts/hooks" "deny should name allowed dirs"
-assert_contains "$out" "tests/l3-integration/hooks" "deny should name test dir"
+assert_not_contains "$out" "outside this task" "a path is noted once per task"
+out=$(run_hook "$WT_A" "$(make_write_input "$WT_A/src/api/handler.ts")")
+assert_not_contains "$out" "outside this task" "the absolute form of the same path is the same path"
 
-test_case "out-of-scope: deny message includes recovery instructions"
-out=$(run_hook "$WT_A" "$(make_edit_input "hooks/hooks.json")")
-assert_contains "$out" "bro" "deny message should mention asking bro"
-assert_contains "$out" "follow-up task" "deny message should mention follow-up task"
-
-test_case "out-of-scope: Write to unrelated file is denied"
-out=$(run_hook "$WT_A" "$(make_write_input "docs/README.md")")
-assert_contains "$out" '"permissionDecision":"deny"' "out-of-scope Write should be denied"
-
-test_case "out-of-scope: multi-dir task, edit outside any listed dir denied"
+test_case "out-of-scope: another task notes the same path afresh"
 out=$(run_hook "$WT_B" "$(make_edit_input "scripts/hooks/something.sh")")
-assert_contains "$out" '"permissionDecision":"deny"' "edit outside all listed dirs should be denied"
+assert_contains "$out" "scripts/hooks/something.sh is outside this task's files[]" "first write of this path for task beta"
+out=$(run_hook "$WT_A" "$(make_edit_input "docs/README.md")")
+assert_contains "$out" "docs/README.md is outside this task's files[]" "a new path for task alpha is noted"
+assert_eq "$([ -d "$TMPDIR/locks/scope-notes/1" ] && [ -d "$TMPDIR/locks/scope-notes/2" ] && echo yes)" "yes" "markers live per task under the state dir's locks/"
 
 # ===========================================================================
 # Dir-granularity: file listed → directory is the scope
 # ===========================================================================
 
-test_case "dir-granularity: sibling file in same dir as listed file passes"
-out=$(run_hook "$WT_A" "$(make_edit_input "scripts/hooks/another-hook.sh")")
-assert_not_contains "$out" '"permissionDecision":"deny"' "sibling in same dir should pass"
-
-test_case "dir-granularity: multi-dir spec — src/api/other.ts passes (same dir as listed)"
+test_case "dir-granularity: multi-dir spec — src/api/other.ts is in scope"
 out=$(run_hook "$WT_B" "$(make_edit_input "src/api/other.ts")")
-assert_not_contains "$out" '"permissionDecision":"deny"' "sibling in listed dir should pass"
+assert_not_contains "$out" "outside this task" "sibling in a listed dir carries no note"
 
-test_case "dir-granularity: multi-dir spec — src/lib/other.ts passes"
-out=$(run_hook "$WT_B" "$(make_edit_input "src/lib/other.ts")")
-assert_not_contains "$out" '"permissionDecision":"deny"' "file in listed dir should pass"
+test_case "root-file: the exact root file is in scope, another root file is noted"
+WT_ROOTFILE="$WT_ROOT/task-rootfile"
+mkdir -p "$WT_ROOTFILE"
+out=$(run_hook "$WT_ROOTFILE" "$(make_edit_input "Makefile")")
+assert_not_contains "$out" "outside this task" "the listed root file carries no note"
+out=$(run_hook "$WT_ROOTFILE" "$(make_edit_input "package.json")")
+assert_contains "$out" "package.json is outside this task's files[] (Makefile)" "another root file is noted"
+
+test_case "trailing-slash: token 'tests/' covers tests/, notes the rest"
+WT_TRAILINGSLASH="$WT_ROOT/task-trailingslash"
+mkdir -p "$WT_TRAILINGSLASH"
+out=$(run_hook "$WT_TRAILINGSLASH" "$(make_edit_input "tests/l3-integration/hooks/x.test.sh")")
+assert_not_contains "$out" "outside this task" "tests/ is in scope"
+out=$(run_hook "$WT_TRAILINGSLASH" "$(make_edit_input "src/api/handler.ts")")
+assert_contains "$out" "src/api/handler.ts is outside this task's files[] (tests)" "a path outside tests/ is noted"
 
 # ===========================================================================
-# tests/ paths always allowed when files[] lists a tests/ parent
-# ===========================================================================
-
-test_case "tests-always-allowed: tests/ sibling passes when tests/ parent listed"
-out=$(run_hook "$WT_A" "$(make_edit_input "tests/l3-integration/hooks/other.test.sh")")
-assert_not_contains "$out" '"permissionDecision":"deny"' "tests/ sibling under listed tests/ dir should pass"
-
-# ===========================================================================
-# No-task (worktree slug not in DB) → fail open
+# Silent cases
 # ===========================================================================
 
 WT_UNKNOWN="$WT_ROOT/no-such-task"
-mkdir -p "$WT_UNKNOWN"
-
-test_case "no-task: unknown worktree slug passes (fail open)"
-out=$(run_hook "$WT_UNKNOWN" "$(make_edit_input "anything/file.ts")")
-assert_not_contains "$out" '"permissionDecision":"deny"' "unknown task should fail open"
-
-# ===========================================================================
-# Empty typed files[] → skip enforcement (clean break, no markdown fallback)
-# ===========================================================================
-
 WT_NOFILES="$WT_ROOT/task-nofiles"
-mkdir -p "$WT_NOFILES"
-
-test_case "empty-files: task with empty typed files[] passes (skip with advisory)"
-out=$(run_hook "$WT_NOFILES" "$(make_edit_input "anything/file.ts")")
-assert_not_contains "$out" '"permissionDecision":"deny"' "empty typed files[] should skip enforcement"
-
-test_case "empty-files: skip emits advisory additionalContext (no spec_body fallback)"
-out=$(run_hook "$WT_NOFILES" "$(make_edit_input "anything/file.ts")")
-assert_contains "$out" "no typed files" "advisory should mention missing typed files[] field"
-
-# ===========================================================================
-# Root-level file listed → exact path only (no dir promotion)
-# ===========================================================================
-
-WT_ROOTFILE="$WT_ROOT/task-rootfile"
-mkdir -p "$WT_ROOTFILE"
-
-test_case "root-file: editing the exact root file passes"
-out=$(run_hook "$WT_ROOTFILE" "$(make_edit_input "Makefile")")
-assert_not_contains "$out" '"permissionDecision":"deny"' "editing the exact root file should pass"
-
-test_case "root-file: editing a different root file is denied"
-out=$(run_hook "$WT_ROOTFILE" "$(make_edit_input "package.json")")
-assert_contains "$out" '"permissionDecision":"deny"' "editing a different root file should be denied"
-
-# ===========================================================================
-# Trailing-slash files[] token → normalized to the dir (no '.' collapse)
-# ===========================================================================
-
-WT_TRAILINGSLASH="$WT_ROOT/task-trailingslash"
-mkdir -p "$WT_TRAILINGSLASH"
-
-test_case "trailing-slash: token 'tests/' allows an in-scope edit under tests/"
-out=$(run_hook "$WT_TRAILINGSLASH" "$(make_edit_input "tests/l3-integration/hooks/x.test.sh")")
-assert_not_contains "$out" '"permissionDecision":"deny"' "trailing-slash 'tests/' should resolve to dir 'tests' and allow in-scope edits"
-
-test_case "trailing-slash: token 'tests/' still denies an out-of-scope edit"
-out=$(run_hook "$WT_TRAILINGSLASH" "$(make_edit_input "src/api/handler.ts")")
-assert_contains "$out" '"permissionDecision":"deny"' "trailing-slash 'tests/' should still deny edits outside tests/"
-
-# ===========================================================================
-# Non-worktree PWD → hook is inactive (not in SWE worktree context)
-# ===========================================================================
-
 NON_WT_DIR="$TMPDIR/non-worktree"
-mkdir -p "$NON_WT_DIR"
+mkdir -p "$WT_UNKNOWN" "$WT_NOFILES" "$NON_WT_DIR"
 
-test_case "non-worktree: hook passes through when PWD is not a worktree (relative target)"
+test_case "no-task: unknown worktree slug is silent"
+out=$(run_hook "$WT_UNKNOWN" "$(make_edit_input "anything/file.ts")")
+assert_eq "$out" "" "no output without a task row"
+
+test_case "empty-files: task with empty typed files[] is silent"
+out=$(run_hook "$WT_NOFILES" "$(make_edit_input "anything/file.ts")")
+assert_eq "$out" "" "no output without files[]"
+
+test_case "non-worktree: relative target with PWD outside a worktree is silent"
 out=$( (cd "$NON_WT_DIR" && echo "$(make_edit_input "anything/file.ts")" | bash "$HOOK" 2>&1) || true)
-assert_not_contains "$out" '"permissionDecision":"deny"' "non-worktree PWD + relative target should not be blocked"
+assert_eq "$out" "" "no worktree, no note"
 
-# ===========================================================================
-# Worktree derived from the TARGET when PWD is outside any worktree (#597)
-# ===========================================================================
+test_case "target-derived: absolute out-of-scope target resolves the worktree from the target (#597)"
+out=$( (cd "$NON_WT_DIR" && echo "$(make_edit_input "$WT_A/lib/x.ts")" | bash "$HOOK" 2>&1) || true)
+assert_contains "$out" "lib/x.ts is outside this task's files[]" "the worktree comes from the target"
 
-test_case "target-derived: absolute in-scope target resolves the worktree from PWD-outside: passes"
-out=$( (cd "$NON_WT_DIR" && echo "$(make_edit_input "$WT_A/scripts/hooks/my-hook.sh")" | bash "$HOOK" 2>&1) || true)
-assert_not_contains "$out" '"permissionDecision":"deny"' "in-scope absolute target should pass even when PWD is outside a worktree"
-
-test_case "target-derived: absolute out-of-scope target resolves the worktree from PWD-outside: denied"
-out=$( (cd "$NON_WT_DIR" && echo "$(make_edit_input "$WT_A/src/api/handler.ts")" | bash "$HOOK" 2>&1) || true)
-assert_contains "$out" '"permissionDecision":"deny"' "out-of-scope absolute target should be denied even when PWD is outside a worktree"
-
-# ===========================================================================
-# Non-Edit/Write tools are ignored
-# ===========================================================================
-
-test_case "non-edit-tool: Bash tool is ignored"
-bash_input=$(jq -n '{"tool_name":"Bash","agent_type":"swe","tool_input":{"command":"ls"}}')
+test_case "non-edit-tool: Bash is ignored (swe-boundary.sh notes Bash writes)"
+bash_input=$(jq -n '{"tool_name":"Bash","agent_type":"swe","tool_input":{"command":"echo x > elsewhere/y.ts"}}')
 out=$(run_hook "$WT_A" "$bash_input")
-assert_not_contains "$out" '"permissionDecision":"deny"' "Bash tool should not be blocked by scope fence"
+assert_eq "$out" "" "Bash produces no output here"
+
+test_case "DB read error: silent, never a deny"
+out=$( (cd "$WT_A" && echo "$(make_edit_input "src/db-error.ts")" | TRAJECTORY_DB_PATH="$TMPDIR/not-a-db/trajectory.db" bash "$HOOK" 2>&1) || true)
+assert_not_contains "$out" "$DENY" "a DB error never denies"
+
+test_case "source: the hook carries no deny"
+assert_not_contains "$(grep -v '^[[:space:]]*#' "$HOOK")" "permissionDecision" "swe-scope-fence.sh never decides"
+assert_not_contains "$(grep -v '^[[:space:]]*#' "$HOOK")" "tmb_deny_db_unavailable" "swe-scope-fence.sh never fails closed"
 
 summarize
