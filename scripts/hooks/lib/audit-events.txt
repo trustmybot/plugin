@@ -25,6 +25,7 @@ issue_adopted
 issue_auto_close_deferred
 issue_auto_close_remote_skipped
 issue_auto_closed_on_merge
+issue_close_remote_skipped
 issue_linked
 mcp_unavailable_fallback_invoked
 milestone_closed

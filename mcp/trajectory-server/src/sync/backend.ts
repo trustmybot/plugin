@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
+import type { TrajectoryDB } from '../db.js';
 
 export interface BackendAvailability {
   gh: boolean;
@@ -73,17 +74,18 @@ export interface RepoRemoteProviders {
   gitlab: boolean;
 }
 
+function remoteSyncEnvDisabled(): boolean {
+  const v = process.env.TMB_DISABLE_REMOTE_SYNC;
+  return v === '1' || v?.toLowerCase() === 'true';
+}
+
 export function resolveBackend(
   configValue: string,
   repoRemotes?: RepoRemoteProviders | null,
   hasSpawnFn = false,
   availability?: BackendAvailability,
 ): 'gh' | 'glab' | 'both' | 'off' | null {
-  if (
-    !hasSpawnFn &&
-    (process.env.TMB_DISABLE_REMOTE_SYNC === '1' ||
-      process.env.TMB_DISABLE_REMOTE_SYNC?.toLowerCase() === 'true')
-  ) {
+  if (!hasSpawnFn && remoteSyncEnvDisabled()) {
     return null;
   }
 
@@ -102,4 +104,42 @@ export function resolveBackend(
   if (ghUsable) return 'gh';
   if (glUsable) return 'glab';
   return null;
+}
+
+export type RemoteSyncGateReason = 'issue_sync_off' | 'env_disabled' | 'no_backend';
+
+export interface RemoteSyncGate {
+  enabled: boolean;
+  reason?: RemoteSyncGateReason;
+}
+
+function readIssueSyncConfig(db: TrajectoryDB): string {
+  const row = db.get<{ value_json: string }>(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
+  if (!row) return 'off';
+  try {
+    return String(JSON.parse(row.value_json));
+  } catch {
+    return 'off';
+  }
+}
+
+// The one kill-switch every server-side remote write consults. The env var wins
+// over everything, including an injected spawn: a disabled workspace reaches no
+// remote. `repoRemotes` is the issue repo's configured providers; `spawnFn`,
+// when injected, also answers the gh/glab availability probe of 'auto'.
+export function remoteSyncGate(
+  db: TrajectoryDB,
+  opts: {
+    repoRemotes?: RepoRemoteProviders | null;
+    spawnFn?: (cmd: string, args: string[]) => { status: number | null };
+  } = {},
+): RemoteSyncGate {
+  if (remoteSyncEnvDisabled()) return { enabled: false, reason: 'env_disabled' };
+  const config = readIssueSyncConfig(db);
+  if (config === 'off') return { enabled: false, reason: 'issue_sync_off' };
+  const explicit = config === 'gh' || config === 'glab' || config === 'both';
+  const availability = explicit ? undefined : detectAvailable(opts.spawnFn);
+  const backend = resolveBackend(config, opts.repoRemotes ?? null, true, availability);
+  if (backend === null || backend === 'off') return { enabled: false, reason: 'no_backend' };
+  return { enabled: true };
 }

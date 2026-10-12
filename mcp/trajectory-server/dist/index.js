@@ -23990,6 +23990,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "issue_auto_close_deferred", description: "`close-issue-on-merge` left an issue named by a merged PR's closing-ref open because other tasks of it are still live; `content_json` carries `blocking_task_ids`, `gh_iid`" },
   { type: "issue_auto_close_remote_skipped", description: "`close-issue-on-merge` closed an issue locally but not its GitHub twin because issue sync is off (`plugin_config.issue_sync` unset or `off`, or `TMB_DISABLE_REMOTE_SYNC` set); `content_json` carries `gh_iid`, `reason`" },
   { type: "issue_auto_closed_on_merge", description: "`close-issue-on-merge` closed a local issue named by a merged PR's closing-ref; `content_json` carries `gh_iid`" },
+  { type: "issue_close_remote_skipped", description: "`issue_close`, `bro_atomic_close` or `task_recover` closed an issue locally but no linked remote because the remote-sync gate is off: `reason` is `issue_sync_off` (`plugin_config.issue_sync` unset or `off`), `env_disabled` (`TMB_DISABLE_REMOTE_SYNC` set) or `no_backend` (no usable gh/glab for the issue repo's remotes); `content_json` carries `reason`, `remotes`" },
   { type: "issue_linked", description: "`issue_link` bound a local issue to a remote issue; `content_json` carries `issue_id`, `backend`, `iid`, `forced`" },
   { type: "mcp_unavailable_fallback_invoked", description: "The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1`" },
   { type: "milestone_closed", description: "`milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed`" },
@@ -24955,8 +24956,12 @@ function detectPreferred() {
     return null;
   }
 }
+function remoteSyncEnvDisabled() {
+  const v = process.env.TMB_DISABLE_REMOTE_SYNC;
+  return v === "1" || v?.toLowerCase() === "true";
+}
 function resolveBackend(configValue, repoRemotes, hasSpawnFn = false, availability) {
-  if (!hasSpawnFn && (process.env.TMB_DISABLE_REMOTE_SYNC === "1" || process.env.TMB_DISABLE_REMOTE_SYNC?.toLowerCase() === "true")) {
+  if (!hasSpawnFn && remoteSyncEnvDisabled()) {
     return null;
   }
   if (configValue === "off") return "off";
@@ -24970,6 +24975,25 @@ function resolveBackend(configValue, repoRemotes, hasSpawnFn = false, availabili
   if (ghUsable) return "gh";
   if (glUsable) return "glab";
   return null;
+}
+function readIssueSyncConfig(db2) {
+  const row = db2.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
+  if (!row) return "off";
+  try {
+    return String(JSON.parse(row.value_json));
+  } catch {
+    return "off";
+  }
+}
+function remoteSyncGate(db2, opts = {}) {
+  if (remoteSyncEnvDisabled()) return { enabled: false, reason: "env_disabled" };
+  const config2 = readIssueSyncConfig(db2);
+  if (config2 === "off") return { enabled: false, reason: "issue_sync_off" };
+  const explicit = config2 === "gh" || config2 === "glab" || config2 === "both";
+  const availability = explicit ? void 0 : detectAvailable(opts.spawnFn);
+  const backend = resolveBackend(config2, opts.repoRemotes ?? null, true, availability);
+  if (backend === null || backend === "off") return { enabled: false, reason: "no_backend" };
+  return { enabled: true };
 }
 
 // src/sync/issue_sync.ts
@@ -25848,24 +25872,44 @@ async function syncIssueCloseRemotes(db2, dbPath2, issueId, spawnFn) {
     `SELECT gh_iid, gl_iid, repo FROM issues WHERE id = ?`,
     [issueId]
   );
-  const closeCtx = resolveIssueSyncContext(db2, remoteRow?.repo ?? null);
-  const closeCwd = closeCtx?.cwd;
-  const closeTargets = [];
+  const targets = [];
   if (remoteRow?.gh_iid != null) {
-    closeTargets.push({ remote_iid: remoteRow.gh_iid, remote_kind: "github" });
+    targets.push({ remote_kind: "github", remote_iid: remoteRow.gh_iid, closed: false });
   }
   if (remoteRow?.gl_iid != null) {
-    closeTargets.push({ remote_iid: remoteRow.gl_iid, remote_kind: "gitlab" });
+    targets.push({ remote_kind: "gitlab", remote_iid: remoteRow.gl_iid, closed: false });
   }
-  for (const target of closeTargets) {
+  if (targets.length === 0) return { synced: false, remotes: [] };
+  const closeCtx = resolveIssueSyncContext(db2, remoteRow?.repo ?? null);
+  const gate = remoteSyncGate(db2, {
+    repoRemotes: closeCtx ? { github: closeCtx.remoteFor("gh") !== null, gitlab: closeCtx.remoteFor("glab") !== null } : null,
+    spawnFn: spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: "utf8" }) : void 0
+  });
+  if (!gate.enabled) {
+    const reason = gate.reason ?? "no_backend";
+    insertAudit(db2, {
+      issue_id: issueId,
+      from_node: "trajectory-server",
+      event_type: "issue_close_remote_skipped",
+      summary: `issue ${issueId} closed locally; remote close skipped (${reason})`,
+      content_json: JSON.stringify({
+        reason,
+        remotes: targets.map(({ remote_kind, remote_iid }) => ({ remote_kind, remote_iid }))
+      }),
+      created_at: nowISO()
+    });
+    return { synced: false, skipped: reason, remotes: targets };
+  }
+  for (const target of targets) {
     const closeSlug = closeCtx?.remoteFor(target.remote_kind === "github" ? "gh" : "glab")?.slug ?? void 0;
     const closeResult = await syncIssueClose({
       remote_iid: target.remote_iid,
       remote_kind: target.remote_kind,
-      _cwd: closeCwd,
+      _cwd: closeCtx?.cwd,
       _repoSlug: closeSlug,
       _spawnFn: spawnFn
     });
+    target.closed = closeResult.ok;
     if (!closeResult.ok) {
       serverLog({
         event: "issue_close_sync_failed",
@@ -25879,6 +25923,7 @@ async function syncIssueCloseRemotes(db2, dbPath2, issueId, spawnFn) {
       });
     }
   }
+  return { synced: targets.every((t) => t.closed), remotes: targets };
 }
 function issueTools(db2, dbPath2 = "", options = {}) {
   const definitions = [
@@ -26438,12 +26483,13 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         escalateLiveTasksForIssueClose(db2, live, cascadeReason, now);
         markIssueClosed(db2, issueId, now);
       });
-      await syncIssueCloseRemotes(db2, dbPath2, issueId, args["_spawnFn"]);
+      const remote = await syncIssueCloseRemotes(db2, dbPath2, issueId, args["_spawnFn"]);
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       return ok3({
         ...decodeIssue(updated),
         tasks_escalated: live.map((t) => t.id),
-        review_waived_tasks: waiveReview ? unreviewed.map((t) => t.id) : []
+        review_waived_tasks: waiveReview ? unreviewed.map((t) => t.id) : [],
+        remote
       });
     })),
     issue_get_phase: wrapHandler3(async (args) => {
@@ -31952,10 +31998,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             ...closed.issue_left_open ? { issue_left_open: closed.issue_left_open } : {}
           };
         });
-        if (result.issue_closed) {
-          await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args["_spawnFn"]);
-        }
-        return ok15(result);
+        const remote = result.issue_closed ? await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args["_spawnFn"]) : void 0;
+        return ok15(remote ? { ...result, remote } : result);
       })
     ),
     task_recover: requireRoles(
@@ -32018,9 +32062,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           });
           return closeTaskInTx(db2, task, commitSha, verificationSummary, now, closeIssueIfLast, "task_recover");
         });
-        if (result.issue_closed) {
-          await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args["_spawnFn"]);
-        }
+        const remote = result.issue_closed ? await syncIssueCloseRemotes(db2, dbPath2, task.issue_id, args["_spawnFn"]) : void 0;
         return ok15({
           recovered: true,
           action: "closed",
@@ -32029,6 +32071,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           issue_closed: result.issue_closed,
           review_gate_bypassed: result.review_gate_bypassed,
           ...result.issue_left_open ? { issue_left_open: result.issue_left_open } : {},
+          ...remote ? { remote } : {},
           ...sweepResult
         });
       })

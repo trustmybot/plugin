@@ -2115,11 +2115,11 @@ export function compositeTools(
         // GitHub/GitLab issue open (#277). Runs after the local transaction
         // commits because the sync spawns gh/glab (async, can't sit inside the
         // synchronous db.transaction).
-        if (result.issue_closed) {
-          await syncIssueCloseRemotes(db, dbPath, task.issue_id, args['_spawnFn'] as SpawnFn | undefined);
-        }
+        const remote = result.issue_closed
+          ? await syncIssueCloseRemotes(db, dbPath, task.issue_id, args['_spawnFn'] as SpawnFn | undefined)
+          : undefined;
 
-        return ok(result);
+        return ok(remote ? { ...result, remote } : result);
       }),
     ),
 
@@ -2209,9 +2209,9 @@ export function compositeTools(
           return closeTaskInTx(db, task, commitSha!, verificationSummary, now, closeIssueIfLast, 'task_recover');
         });
 
-        if (result.issue_closed) {
-          await syncIssueCloseRemotes(db, dbPath, task.issue_id, args['_spawnFn'] as SpawnFn | undefined);
-        }
+        const remote = result.issue_closed
+          ? await syncIssueCloseRemotes(db, dbPath, task.issue_id, args['_spawnFn'] as SpawnFn | undefined)
+          : undefined;
 
         return ok({
           recovered: true,
@@ -2221,6 +2221,7 @@ export function compositeTools(
           issue_closed: result.issue_closed,
           review_gate_bypassed: result.review_gate_bypassed,
           ...(result.issue_left_open ? { issue_left_open: result.issue_left_open } : {}),
+          ...(remote ? { remote } : {}),
           ...sweepResult,
         });
       }),
