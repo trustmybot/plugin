@@ -131,11 +131,25 @@ ${SAFE_MARKER}"
 }
 
 # tmb_fallback_audit_append <issue_id> <branch_id> <from_node> <event_type> <summary> <content> <agent>
+# Refuses (fails closed) like audit_append: an event outside audit-events.txt,
+# an event whose writers exclude the caller's role (audit_event_not_writable_by_role),
+# a missing or unreadable list, or a from_node naming anyone but <agent>
+# (an empty from_node records <agent>).
 tmb_fallback_audit_append() {
   local issue_id="$1" branch_id="$2" from_node="$3" event_type="$4" summary="$5" content="$6" agent="$7"
   local db; db=$(_tmb_require_db) || return 1
   tmb_have_sqlite || { echo "sqlite3-fallback: sqlite3 unavailable" >&2; return 1; }
   _tmb_fallback_check_role audit_append "$agent" || return 1
+  local writer="$agent"
+  case "$agent" in
+    bro|swe|pr-reviewer) ;;
+    *) writer=consultant ;;
+  esac
+  tmb_audit_writer_check sqlite3-fallback "$event_type" "$writer" || return 1
+  if [ -n "$from_node" ] && [ "$from_node" != "$agent" ]; then
+    echo "sqlite3-fallback: from_node '$from_node' does not match the calling agent '$agent'" >&2; return 1
+  fi
+  from_node="$agent"
   local SAFE_IID SAFE_AUDIT SAFE_MARKER
   case "$issue_id" in
     -1) SAFE_IID="-1" ;;

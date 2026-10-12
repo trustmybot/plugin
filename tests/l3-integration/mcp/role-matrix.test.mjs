@@ -367,3 +367,41 @@ test('agent_resolve — bro only; agent_register/agent_list speak plugin:/projec
   const project = await call(client, 'agent_list', { agent: 'bro', root: 'project' });
   assert.deepEqual(project.data.agents.map((a) => a.name), ['legal-reviewer']);
 });
+
+// audit_append admits a caller only for events whose writers list its role,
+// and records from_node as that caller.
+test('audit_append — per-event writers decide who may write; from_node is the caller', async (t) => {
+  const { client, close } = await startClient();
+  t.after(async () => { await close(); });
+
+  const bro = await call(client, 'audit_append', {
+    agent: 'bro', issue_id: '-1', event_type: 'scope_gate_waived', summary: 'bro waiver',
+  });
+  assert.equal(bro.ok, true, JSON.stringify(bro));
+  assert.equal(bro.data.from_node, 'bro');
+
+  for (const agent of ['pr-reviewer', 'swe', 'architect']) {
+    const res = await call(client, 'audit_append', {
+      agent, issue_id: '-1', from_node: 'bro', event_type: 'scope_gate_waived', summary: 'forged waiver',
+    });
+    assert.equal(res.ok, false, `${agent} must not write scope_gate_waived`);
+    assert.equal(res.error?.error, 'audit_event_not_writable_by_role');
+    assert.deepEqual(res.error?.allowed_writers, ['bro']);
+  }
+
+  const spoof = await call(client, 'audit_append', {
+    agent: 'bro', issue_id: '-1', from_node: 'hook:swe-verification-gate', event_type: 'scope_gate_waived', summary: 'x',
+  });
+  assert.equal(spoof.ok, false, 'from_node other than the caller is refused');
+
+  const hookOnly = await call(client, 'audit_append', {
+    agent: 'bro', issue_id: '-1', event_type: 'verification_gate_waived', summary: 'x',
+  });
+  assert.equal(hookOnly.error?.error, 'audit_event_not_writable_by_role');
+
+  const reviewer = await call(client, 'audit_append', {
+    agent: 'pr-reviewer', issue_id: '-1', event_type: 'mcp_unavailable_fallback_invoked', summary: 'fallback',
+  });
+  assert.equal(reviewer.ok, true, JSON.stringify(reviewer));
+  assert.equal(reviewer.data.from_node, 'pr-reviewer');
+});

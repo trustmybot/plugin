@@ -45,10 +45,10 @@ function seedTask(db: TrajectoryDB, issueId: number, status: string, updatedAt =
   return db.get<{ id: number }>('SELECT MAX(id) AS id FROM tasks')!.id;
 }
 
-function seedAudit(db: TrajectoryDB, eventType: string, content: Record<string, unknown> = {}, createdAt = iso()): void {
+function seedAudit(db: TrajectoryDB, eventType: string, content: Record<string, unknown> = {}, createdAt = iso(), fromNode = 'bro'): void {
   db.run(
-    `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (-1, 'bro', ?, 's', ?, ?)`,
-    [eventType, JSON.stringify(content), createdAt],
+    `INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES (-1, ?, ?, 's', ?, ?)`,
+    [fromNode, eventType, JSON.stringify(content), createdAt],
   );
 }
 
@@ -134,6 +134,8 @@ const FIXTURES: Record<string, { violate?: (db: TrajectoryDB) => void; pass: (db
       seedAudit(db, 'review_gate_bypassed', { task_id: bypassed, commit_sha: 'abc1234' });
       const waived = seedTask(db, issue, 'closed', iso(-25 * HOUR));
       seedAudit(db, 'review_gate_waived', { task_id: waived });
+      const mergeBypassed = seedTask(db, issue, 'closed', iso(-25 * HOUR));
+      seedAudit(db, 'review_gate_bypassed', { task_id: mergeBypassed }, iso(), 'hook:close-issue-on-merge');
       seedTask(db, issue, 'closed', iso(-31 * DAY));
     },
   },
@@ -268,6 +270,20 @@ describe('data contracts', () => {
       assert.equal(violated(good, c.id), false, `${c.id} should hold`);
     });
   }
+
+  it('closed_tasks_reviewed does not count a review_gate_waived row bro did not write', () => {
+    const db = tempDB();
+    const task = seedTask(db, seedIssue(db), 'closed', iso(-25 * HOUR));
+    seedAudit(db, 'review_gate_waived', { task_id: task }, iso(), 'pr-reviewer');
+    assert.equal(violated(db, 'closed_tasks_reviewed'), true);
+  });
+
+  it('closed_tasks_reviewed does not count a review_gate_bypassed row from another hook', () => {
+    const db = tempDB();
+    const task = seedTask(db, seedIssue(db), 'closed', iso(-25 * HOUR));
+    seedAudit(db, 'review_gate_bypassed', { task_id: task }, iso(), 'hook:other-hook');
+    assert.equal(violated(db, 'closed_tasks_reviewed'), true);
+  });
 
   it('no_stale_running reads TMB_STALE_RUNNING_HOURS', () => {
     const db = tempDB();

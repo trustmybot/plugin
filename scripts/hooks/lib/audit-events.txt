@@ -1,63 +1,63 @@
-agent_runs_capture_skipped
-agent_runs_backfilled
-agent_runs_claimed
-branch_gate_waived
-branch_id_proposed
-bro_verification_fail
-bro_verification_pass
-cheatcode_activate
-cheatcode_approved
-cheatcode_healthcheck
-cheatcode_install
-cheatcode_installed
-cheatcode_search
-cheatcode_uninstalled
-cheatcode_vet
-config_changed
-consultant_spawn_nudged
-containment_denied
-decision_gate_waived
-deep_scan_completed
-embeddings_degraded
-embeddings_recovered
-intent_gate_waived
-issue_adopted
-issue_auto_close_deferred
-issue_auto_close_remote_skipped
-issue_auto_closed_on_merge
-issue_close_remote_skipped
-issue_linked
-mcp_unavailable_fallback_invoked
-milestone_closed
-milestone_reconcile_failed
-milestone_seed_skipped
-milestone_seeded
-milestones_reconciled
-planning_complete
-readme_staleness_surfaced
-registry_gate_waived
-repo_rename_detected
-repo_renamed
-review_gate_bypassed
-review_gate_waived
-roundtable_slash_invoked
-roundtable_summary
-scan_discovered
-scan_discovered_repair
-scope_gate_waived
-skill_creator_blocked
-spec_shape_gate_waived
-swe_brief_fetched
-sync_skipped
-task_escalated_by_issue_close
-task_escalated_repair
-task_recovered
-task_reopened
-task_retry_attempted
-task_spec_amended
-task_stale_swept
-tmb_agent_created
-tmb_branch_autocreated
-tmb_skill_created
-trajectory_doctor_run
-verification_gate_waived
+agent_runs_capture_skipped	hook
+agent_runs_backfilled	bro
+agent_runs_claimed	hook
+branch_gate_waived	bro
+branch_id_proposed	bro
+bro_verification_fail	bro
+bro_verification_pass	bro
+cheatcode_activate	bro
+cheatcode_approved	bro
+cheatcode_healthcheck	hook
+cheatcode_install	bro
+cheatcode_installed	bro
+cheatcode_search	bro
+cheatcode_uninstalled	bro
+cheatcode_vet	bro
+config_changed	bro
+consultant_spawn_nudged	hook
+containment_denied	hook
+decision_gate_waived	bro
+deep_scan_completed	bro
+embeddings_degraded	server
+embeddings_recovered	server
+intent_gate_waived	bro
+issue_adopted	bro
+issue_auto_close_deferred	hook
+issue_auto_close_remote_skipped	hook
+issue_auto_closed_on_merge	hook
+issue_close_remote_skipped	server
+issue_linked	bro
+mcp_unavailable_fallback_invoked	bro,swe,pr-reviewer,consultant
+milestone_closed	bro
+milestone_reconcile_failed	bro
+milestone_seed_skipped	bro
+milestone_seeded	bro
+milestones_reconciled	bro
+planning_complete	bro
+readme_staleness_surfaced	hook
+registry_gate_waived	bro
+repo_rename_detected	bro
+repo_renamed	bro
+review_gate_bypassed	bro,hook
+review_gate_waived	bro
+roundtable_slash_invoked	hook
+roundtable_summary	bro
+scan_discovered	server,hook
+scan_discovered_repair	server
+scope_gate_waived	bro
+skill_creator_blocked	bro
+spec_shape_gate_waived	bro
+swe_brief_fetched	hook
+sync_skipped	bro
+task_escalated_by_issue_close	bro
+task_escalated_repair	server
+task_recovered	bro
+task_reopened	bro
+task_retry_attempted	bro
+task_spec_amended	bro
+task_stale_swept	bro
+tmb_agent_created	server,bro
+tmb_branch_autocreated	bro
+tmb_skill_created	bro
+trajectory_doctor_run	bro
+verification_gate_waived	hook

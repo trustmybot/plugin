@@ -288,33 +288,20 @@ describe('audit_append requireRoles guard', () => {
     db.close();
   });
 
-  it('audit_append accepts swe', async () => {
+  it('audit_append refuses swe and a consultant on a bro-only event', async () => {
     const db = tempDB();
     const issueId = await createIssueId(db);
     const tools = auditTools(db);
-    const result = await call(tools.handlers, 'audit_append', {
-      agent: 'swe',
-      issue_id: String(issueId),
-      from_node: 'swe',
-      event_type: 'planning_complete',
-      summary: 'test summary',
-    });
-    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
-    db.close();
-  });
-
-  it('audit_append accepts consultant', async () => {
-    const db = tempDB();
-    const issueId = await createIssueId(db);
-    const tools = auditTools(db);
-    const result = await call(tools.handlers, 'audit_append', {
-      agent: 'architect',
-      issue_id: String(issueId),
-      from_node: 'architect',
-      event_type: 'planning_complete',
-      summary: 'test summary',
-    });
-    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+    for (const agent of ['swe', 'architect']) {
+      const result = await call(tools.handlers, 'audit_append', {
+        agent,
+        issue_id: String(issueId),
+        event_type: 'planning_complete',
+        summary: 'test summary',
+      });
+      assert.ok(result.isError, `Expected ${agent} to be refused`);
+      assert.equal(parseResult(result).error, 'audit_event_not_writable_by_role');
+    }
     db.close();
   });
 

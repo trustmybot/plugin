@@ -2,7 +2,7 @@
 # Lint: the artifacts generated from mcp/trajectory-server/src/audit-events.ts
 # are current — the audit.event_type table in docs/contributing/ENUMS.md
 # (between its generated markers) and scripts/hooks/lib/audit-events.txt, the
-# list hooks validate against. Reads the compiled dist/audit-events.js, which
+# `event<TAB>writers` list hooks validate against. Reads the compiled dist/audit-events.js, which
 # dist-fresh.sh keeps in step with src/.
 #
 # Every run first self-tests: a copy with one doc row dropped, and a copy with
@@ -30,7 +30,7 @@ if node "$GEN" --check --root "$TMP/doc" 2>"$TMP/doc.err" || ! grep -q 'docs/con
   self_ok=1
 fi
 stage txt
-sed -i.bak '/^planning_complete$/d' "$TMP/txt/scripts/hooks/lib/audit-events.txt"
+sed -i.bak '/^planning_complete[[:space:]]/d' "$TMP/txt/scripts/hooks/lib/audit-events.txt"
 if node "$GEN" --check --root "$TMP/txt" 2>"$TMP/txt.err" || ! grep -q 'audit-events.txt' "$TMP/txt.err"; then
   echo "  ✗ self-test: a txt missing an event should fail naming audit-events.txt" >&2
   self_ok=1

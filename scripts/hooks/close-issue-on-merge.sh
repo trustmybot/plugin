@@ -5,7 +5,7 @@
 #   - tasks on the merged head branch that are still live → closed, their open
 #     agent_runs closed exit_reason='completed';
 #   - every task on that branch with no passing pr-reviewer verdict for its
-#     current commit (and no recorded bypass/waiver) → one review_gate_bypassed
+#     current commit (and no bro-authored waiver or recorded bypass) → one review_gate_bypassed
 #     audit row: the merge happened, the trajectory says the gate was skipped;
 #   - each issue the PR resolves through an EXPLICIT closing-ref
 #     (`gh pr view --json closingIssuesReferences,body,headRefName` plus a
@@ -47,7 +47,9 @@ _CIM_HAS_PASS="EXISTS (SELECT 1 FROM validation_attempts va
         AND json_extract(a.content_json, '\$.task_id') = t.id
         AND json_extract(a.content_json, '\$.commit_sha') = t.commit_sha))"
 _CIM_SKIP_RECORDED="EXISTS (SELECT 1 FROM audit g
-  WHERE g.event_type IN ('review_gate_bypassed', 'review_gate_waived') AND json_valid(g.content_json)
+  WHERE ((g.event_type = 'review_gate_waived' AND g.from_node = 'bro')
+      OR (g.event_type = 'review_gate_bypassed' AND g.from_node IN ('bro', 'hook:close-issue-on-merge')))
+    AND json_valid(g.content_json)
     AND json_extract(g.content_json, '\$.task_id') = t.id
     AND COALESCE(json_extract(g.content_json, '\$.commit_sha'), '') = COALESCE(t.commit_sha, ''))"
 

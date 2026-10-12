@@ -12,7 +12,7 @@ node dist/index.js
 
 (The plugin spawns this automatically via `.mcp.json` — manual run is only needed for isolated testing.)
 
-The build also writes `scripts/hooks/lib/audit-events.txt` (via `scripts/maintenance/gen-enums-doc.mjs --txt`): the closed `audit.event_type` set from `src/audit-events.ts` that the hooks validate against. After adding an event type, run `node scripts/maintenance/gen-enums-doc.mjs` from the plugin root to regenerate the `audit.event_type` table in `docs/contributing/ENUMS.md`.
+The build also writes `scripts/hooks/lib/audit-events.txt` (via `scripts/maintenance/gen-enums-doc.mjs --txt`): the closed `audit.event_type` set from `src/audit-events.ts`, one `event<TAB>writers` line per event, that the hooks validate against. `writers` names who may author each event; `audit_append` refuses a caller whose role is not listed (`audit_event_not_writable_by_role`) and records `from_node` as the caller. After adding an event type, run `node scripts/maintenance/gen-enums-doc.mjs` from the plugin root to regenerate the `audit.event_type` table in `docs/contributing/ENUMS.md`.
 
 The Codex entry exposes an immutable 15-tool adapter registry: 13 local Bro planning tools plus `agent_materialization_get` and `agent_materialization_set`. Every call requires an explicit Git worktree root with `.tmb/` already ignored and no tracked `.tmb/` files. Planning state stays beneath `<project>/.tmb/tmb/`.
 

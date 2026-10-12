@@ -23963,73 +23963,80 @@ async function startBackfill(db2) {
 
 // src/audit-events.ts
 var AUDIT_EVENT_TYPES = [
-  { type: "agent_runs_capture_skipped", description: "`swe-atomic-close` could not bind a SWE spawn to a task (no `task_id=<N>` in the spawn transcript, or no such task) and wrote no `agent_runs` row; filed under the system issue `-1`; `content_json` carries `reason`, `transcript`, `spawn_id`, `task_id`" },
-  { type: "agent_runs_backfilled", description: "`agent_runs_backfill` (dry_run false) recovered `agent_runs` rows from archived Claude Code transcripts; one row per run on the system issue `-1`, from_node `bro`; `content_json` is the report: `transcripts_dir`, `transcripts_seen`, `sessions_seen`, `bound`, `unbound` (`count`, `first` \u2014 up to 20 `{path, reason}`), `rows_inserted`, `rows_updated`, `rows_skipped_measured`, `tokens_total_added`" },
-  { type: "agent_runs_claimed", description: "`bro-turn-usage` claimed bro `agent_runs` rows opened without a `session_id` for its session (one row per claim, on the rows' issue when they share one, else the system issue `-1`); `content_json` carries `run_ids`, `session_id`" },
-  { type: "branch_gate_waived", description: "`task_create_batch` ran with `waive_branch_gate`; `content_json` carries the waiver reason" },
-  { type: "branch_id_proposed", description: "`intent_start` proposed the issue's feature branch; `content_json` carries `branch_id`, `objective`; the scope and branch gates read it" },
-  { type: "bro_verification_fail", description: "Bro task-gate found a V1/V2/V3 check that failed" },
-  { type: "bro_verification_pass", description: "Bro task-gate V1/V2/V3 all passed; `content_json` carries `task_id`, `commit_sha`" },
-  { type: "cheatcode_activate", description: "`cheatcode_activate` confirmed or failed a cheatcode's load; `content_json` carries the resulting status" },
-  { type: "cheatcode_approved", description: "`cheatcode_approve` recorded the Human's install approval; the `cheatcode-install-approval` hook reads it" },
-  { type: "cheatcode_healthcheck", description: "`cheatcode-healthcheck` moved a cheatcode's status (e.g. `active` \u2192 `broken`); filed under the system issue `-1`" },
-  { type: "cheatcode_install", description: "`cheatcode_install` ran the install script; `content_json` carries `method` and the script outcome" },
-  { type: "cheatcode_installed", description: "`cheatcode_install` registered the installed cheatcode row; `content_json` carries `cheatcode_id`" },
-  { type: "cheatcode_search", description: "`cheatcode_search` finished; `content_json` carries `query`, `kind`, `candidate_count`, and `top` ranked candidates" },
-  { type: "cheatcode_uninstalled", description: "`cheatcode_uninstall` removed a cheatcode" },
-  { type: "cheatcode_vet", description: "`cheatcode_vet` classified a candidate; `content_json` carries `trust_tier` and the vet signals" },
-  { type: "config_changed", description: "An agent changed a `plugin_config` key through `/onboard`; written by bro via `audit_append`", reserved: true },
-  { type: "consultant_spawn_nudged", description: "`prompt-intent-hints` emitted the consultant-spawn nudge; filed under the system issue `-1`" },
-  { type: "containment_denied", description: "`containment-guard` denied a write outside the run's root (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `root`, `task_id`" },
-  { type: "decision_gate_waived", description: "`task_create_batch` ran with `waive_decision_gate`; `content_json` carries the waiver reason" },
-  { type: "deep_scan_completed", description: "`scan_run` finished; `content_json` carries `source`, `structural_change`, `repos_seen`, `top_dirs`" },
-  { type: "embeddings_degraded", description: "The embedding model entered the degraded state \u2014 it could not load, or `TMB_EMBED_FAIL_THRESHOLD` (default 5) consecutive embed calls failed \u2014 so semantic search falls back to FTS until a timed re-attempt (1 min, 5 min, then every 10 min) succeeds; one row per degraded episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `reason`, `consecutive_failures`" },
-  { type: "embeddings_recovered", description: "A re-attempt brought the degraded embedding model back; one row per episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `degraded_since`, `reason`, `retries`" },
-  { type: "intent_gate_waived", description: "`task_create_batch` ran with `waive_intent_gate`; `content_json` carries the waiver reason" },
-  { type: "issue_adopted", description: "`issue_create` or `issue_adopt_remote` adopted an existing remote issue as the local issue's twin; `content_json` carries `issue_id`, `backend`, `remote_iid`" },
-  { type: "issue_auto_close_deferred", description: "`close-issue-on-merge` left an issue named by a merged PR's closing-ref open because other tasks of it are still live; `content_json` carries `blocking_task_ids`, `gh_iid`" },
-  { type: "issue_auto_close_remote_skipped", description: "`close-issue-on-merge` closed an issue locally but not its GitHub twin because issue sync is off (`plugin_config.issue_sync` unset or `off`, or `TMB_DISABLE_REMOTE_SYNC` set); `content_json` carries `gh_iid`, `reason`" },
-  { type: "issue_auto_closed_on_merge", description: "`close-issue-on-merge` closed a local issue named by a merged PR's closing-ref; `content_json` carries `gh_iid`" },
-  { type: "issue_close_remote_skipped", description: "`issue_close`, `bro_atomic_close` or `task_recover` closed an issue locally but no linked remote because the remote-sync gate is off: `reason` is `issue_sync_off` (`plugin_config.issue_sync` unset or `off`), `env_disabled` (`TMB_DISABLE_REMOTE_SYNC` set) or `no_backend` (no usable gh/glab for the issue repo's remotes); `content_json` carries `reason`, `remotes`" },
-  { type: "issue_linked", description: "`issue_link` bound a local issue to a remote issue; `content_json` carries `issue_id`, `backend`, `iid`, `forced`" },
-  { type: "mcp_unavailable_fallback_invoked", description: "The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1`" },
-  { type: "milestone_closed", description: "`milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed`" },
-  { type: "milestone_reconcile_failed", description: "`scan_run` could not read a repo's remote milestones; `content_json` carries `repo`, `backend`, `reason` (the scan still succeeds)" },
-  { type: "milestone_seed_skipped", description: "`scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`)" },
-  { type: "milestone_seeded", description: "`scan_run` seeded `v<next-patch>` for a repo with no milestones; `content_json` carries `name`, `repo`, `source`, `remote_created`" },
-  { type: "milestones_reconciled", description: "`scan_run` imported a repo's remote milestones; `content_json` carries `imported`, `closed`, `repo`" },
-  { type: "planning_complete", description: "Bro finished planning: batched `task_create_batch` + SWE spawn" },
-  { type: "readme_staleness_surfaced", description: "`post-atomic-close-readme` surfaced READMEs a closed task may have left stale" },
-  { type: "registry_gate_waived", description: "`task_create_batch` ran with `waive_registry_gate`; `content_json` carries the waiver reason" },
-  { type: "repo_rename_detected", description: "`scan_run` found a discovered repo whose canonical path or primary remote URL matches an existing row under another name; no second row is inserted and the old row is kept until `repo_rename`; filed under the system issue `-1` by `bro`; `content_json` carries `old`, `new`, `by` (`path` or `remote`)" },
-  { type: "repo_renamed", description: "`repo_rename` moved a repo to a new name: the `repos` row, its FK children, `pr_review_runs` host slugs and the world-model nodes; filed under the system issue `-1` by `bro` with `repo` = the new name; `content_json` carries `old`, `new`, `reason`, `rows_by_table`, `graph` (`rekeyed`, or `deferred` when kuzu was unavailable or failed \u2014 the next `scan_run` rebuilds), `graph_nodes`, and `graph_error` when the re-key failed" },
-  { type: "review_gate_bypassed", description: "A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing pr-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`" },
-  { type: "review_gate_waived", description: "`issue_close(waive_review: true)` closed an issue over a closed task with no passing pr-reviewer verdict for its current commit; one row per such task; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason`" },
-  { type: "roundtable_slash_invoked", description: "`roundtable-slash-detect` saw the Human type `/roundtable`; `roundtable_create` consumes the row" },
-  { type: "roundtable_summary", description: "Bro recorded a roundtable's outcome summary via `audit_append`; `roundtable-cleanup-postcheck` requires it", reserved: true },
-  { type: "scan_discovered", description: "A scan registered a newly discovered cheatcode (`scan_run`, or `scan.sh` as `hook:scan`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `origin`, `source`" },
-  { type: "scan_discovered_repair", description: "The v32 migration deleted `scan_discovered` rows whose `(name, kind)` has no `cheatcodes` row; filed under the system issue `-1` by `system`; `content_json` carries `deleted`" },
-  { type: "scope_gate_waived", description: "Bro waived the scope gate with an explicit reason" },
-  { type: "skill_creator_blocked", description: "`tmb_skill-creator` halted before writing the skill (no Human approval); written by bro via `audit_append`", reserved: true },
-  { type: "spec_shape_gate_waived", description: "`task_create_batch` ran with `waive_spec_shape`; `content_json` carries the waiver reason" },
-  { type: "swe_brief_fetched", description: "`swe-brief-gate` recorded that a SWE fetched its `task_brief`; the brief gate and `bro-turn-usage` read it" },
-  { type: "sync_skipped", description: "Issue sync skipped a remote write because `issue_sync` is off; `content_json` carries `issue_id`, `reason`" },
-  { type: "task_escalated_by_issue_close", description: "`issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason`" },
-  { type: "task_escalated_repair", description: "The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` and closed its open `agent_runs` rows as `issue_closed`; written by `system`; `content_json` carries `task_id`, `issue_id`, `from_status`" },
-  { type: "task_recovered", description: "`task_recover` closed a task stuck in `running`/`completed` at its commit; `content_json` carries `task_id`, `commit_sha`, `prior_status`" },
-  { type: "task_reopened", description: "`task_reopen` moved a `closed` / `failed` / `escalated` / `running` task back to `running` for rework; `content_json` carries `task_id`, `from_status`, `reason`, `files_add`, `verification_add`" },
-  { type: "task_retry_attempted", description: "`task_retry` created a retry task for a failed one; `content_json` carries `failed_task_id`, `new_task_id`, `new_branch_id`" },
-  { type: "task_spec_amended", description: "`task_update_spec` replaced a live task's `files` / `verification` / `spec_body`; `content_json` carries `task_id`, `status`, `reason`, `changes`" },
-  { type: "task_stale_swept", description: "`task_recover` moved a `running` task with no open swe `agent_runs` row and no update for `TMB_STALE_RUNNING_HOURS` (default 6) to `failed` and closed its open runs as `swept_stale`; `content_json` carries `task_id`, `from_status`, `last_updated_at`, `stale_after_hours`" },
-  { type: "tmb_agent_created", description: "`agent_register` registered a project-local consultant; `content_json` carries `name`, `mode`, `agent_id`" },
-  { type: "tmb_branch_autocreated", description: "`task_create_batch` created the task's feature branch ref" },
-  { type: "tmb_skill_created", description: "`tmb_skill-creator` landed a new skill; written by bro via `audit_append`", reserved: true },
-  { type: "trajectory_doctor_run", description: "`trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`), `embeddings` (the server's `embeddingStatus()`: `state`, `since`, `reason`, `consecutive_failures`, `next_retry_at`)" },
-  { type: "verification_gate_waived", description: "`swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason`" }
+  { type: "agent_runs_capture_skipped", writers: ["hook"], description: "`swe-atomic-close` could not bind a SWE spawn to a task (no `task_id=<N>` in the spawn transcript, or no such task) and wrote no `agent_runs` row; filed under the system issue `-1`; `content_json` carries `reason`, `transcript`, `spawn_id`, `task_id`" },
+  { type: "agent_runs_backfilled", writers: ["bro"], description: "`agent_runs_backfill` (dry_run false) recovered `agent_runs` rows from archived Claude Code transcripts; one row per run on the system issue `-1`, from_node `bro`; `content_json` is the report: `transcripts_dir`, `transcripts_seen`, `sessions_seen`, `bound`, `unbound` (`count`, `first` \u2014 up to 20 `{path, reason}`), `rows_inserted`, `rows_updated`, `rows_skipped_measured`, `tokens_total_added`" },
+  { type: "agent_runs_claimed", writers: ["hook"], description: "`bro-turn-usage` claimed bro `agent_runs` rows opened without a `session_id` for its session (one row per claim, on the rows' issue when they share one, else the system issue `-1`); `content_json` carries `run_ids`, `session_id`" },
+  { type: "branch_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_branch_gate`; `content_json` carries the waiver reason" },
+  { type: "branch_id_proposed", writers: ["bro"], description: "`intent_start` proposed the issue's feature branch; `content_json` carries `branch_id`, `objective`; the scope and branch gates read it" },
+  { type: "bro_verification_fail", writers: ["bro"], description: "Bro task-gate found a V1/V2/V3 check that failed" },
+  { type: "bro_verification_pass", writers: ["bro"], description: "Bro task-gate V1/V2/V3 all passed; `content_json` carries `task_id`, `commit_sha`" },
+  { type: "cheatcode_activate", writers: ["bro"], description: "`cheatcode_activate` confirmed or failed a cheatcode's load; `content_json` carries the resulting status" },
+  { type: "cheatcode_approved", writers: ["bro"], description: "`cheatcode_approve` recorded the Human's install approval; the `cheatcode-install-approval` hook reads it" },
+  { type: "cheatcode_healthcheck", writers: ["hook"], description: "`cheatcode-healthcheck` moved a cheatcode's status (e.g. `active` \u2192 `broken`); filed under the system issue `-1`" },
+  { type: "cheatcode_install", writers: ["bro"], description: "`cheatcode_install` ran the install script; `content_json` carries `method` and the script outcome" },
+  { type: "cheatcode_installed", writers: ["bro"], description: "`cheatcode_install` registered the installed cheatcode row; `content_json` carries `cheatcode_id`" },
+  { type: "cheatcode_search", writers: ["bro"], description: "`cheatcode_search` finished; `content_json` carries `query`, `kind`, `candidate_count`, and `top` ranked candidates" },
+  { type: "cheatcode_uninstalled", writers: ["bro"], description: "`cheatcode_uninstall` removed a cheatcode" },
+  { type: "cheatcode_vet", writers: ["bro"], description: "`cheatcode_vet` classified a candidate; `content_json` carries `trust_tier` and the vet signals" },
+  { type: "config_changed", writers: ["bro"], description: "An agent changed a `plugin_config` key through `/onboard`; written by bro via `audit_append`", reserved: true },
+  { type: "consultant_spawn_nudged", writers: ["hook"], description: "`prompt-intent-hints` emitted the consultant-spawn nudge; filed under the system issue `-1`" },
+  { type: "containment_denied", writers: ["hook"], description: "`containment-guard` denied a write outside the run's root (on the task's issue, else the system issue `-1`); `content_json` carries `tool`, `path`, `root`, `task_id`" },
+  { type: "decision_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_decision_gate`; `content_json` carries the waiver reason" },
+  { type: "deep_scan_completed", writers: ["bro"], description: "`scan_run` finished; `content_json` carries `source`, `structural_change`, `repos_seen`, `top_dirs`" },
+  { type: "embeddings_degraded", writers: ["server"], description: "The embedding model entered the degraded state \u2014 it could not load, or `TMB_EMBED_FAIL_THRESHOLD` (default 5) consecutive embed calls failed \u2014 so semantic search falls back to FTS until a timed re-attempt (1 min, 5 min, then every 10 min) succeeds; one row per degraded episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `reason`, `consecutive_failures`" },
+  { type: "embeddings_recovered", writers: ["server"], description: "A re-attempt brought the degraded embedding model back; one row per episode on the system issue `-1`, from_node `trajectory-server`; `content_json` carries `degraded_since`, `reason`, `retries`" },
+  { type: "intent_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_intent_gate`; `content_json` carries the waiver reason" },
+  { type: "issue_adopted", writers: ["bro"], description: "`issue_create` or `issue_adopt_remote` adopted an existing remote issue as the local issue's twin; `content_json` carries `issue_id`, `backend`, `remote_iid`" },
+  { type: "issue_auto_close_deferred", writers: ["hook"], description: "`close-issue-on-merge` left an issue named by a merged PR's closing-ref open because other tasks of it are still live; `content_json` carries `blocking_task_ids`, `gh_iid`" },
+  { type: "issue_auto_close_remote_skipped", writers: ["hook"], description: "`close-issue-on-merge` closed an issue locally but not its GitHub twin because issue sync is off (`plugin_config.issue_sync` unset or `off`, or `TMB_DISABLE_REMOTE_SYNC` set); `content_json` carries `gh_iid`, `reason`" },
+  { type: "issue_auto_closed_on_merge", writers: ["hook"], description: "`close-issue-on-merge` closed a local issue named by a merged PR's closing-ref; `content_json` carries `gh_iid`" },
+  { type: "issue_close_remote_skipped", writers: ["server"], description: "`issue_close`, `bro_atomic_close` or `task_recover` closed an issue locally but no linked remote because the remote-sync gate is off: `reason` is `issue_sync_off` (`plugin_config.issue_sync` unset or `off`), `env_disabled` (`TMB_DISABLE_REMOTE_SYNC` set) or `no_backend` (no usable gh/glab for the issue repo's remotes); `content_json` carries `reason`, `remotes`" },
+  { type: "issue_linked", writers: ["bro"], description: "`issue_link` bound a local issue to a remote issue; `content_json` carries `issue_id`, `backend`, `iid`, `forced`" },
+  { type: "mcp_unavailable_fallback_invoked", writers: ["bro", "swe", "pr-reviewer", "consultant"], description: "The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1`" },
+  { type: "milestone_closed", writers: ["bro"], description: "`milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed`" },
+  { type: "milestone_reconcile_failed", writers: ["bro"], description: "`scan_run` could not read a repo's remote milestones; `content_json` carries `repo`, `backend`, `reason` (the scan still succeeds)" },
+  { type: "milestone_seed_skipped", writers: ["bro"], description: "`scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`)" },
+  { type: "milestone_seeded", writers: ["bro"], description: "`scan_run` seeded `v<next-patch>` for a repo with no milestones; `content_json` carries `name`, `repo`, `source`, `remote_created`" },
+  { type: "milestones_reconciled", writers: ["bro"], description: "`scan_run` imported a repo's remote milestones; `content_json` carries `imported`, `closed`, `repo`" },
+  { type: "planning_complete", writers: ["bro"], description: "Bro finished planning: batched `task_create_batch` + SWE spawn" },
+  { type: "readme_staleness_surfaced", writers: ["hook"], description: "`post-atomic-close-readme` surfaced READMEs a closed task may have left stale" },
+  { type: "registry_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_registry_gate`; `content_json` carries the waiver reason" },
+  { type: "repo_rename_detected", writers: ["bro"], description: "`scan_run` found a discovered repo whose canonical path or primary remote URL matches an existing row under another name; no second row is inserted and the old row is kept until `repo_rename`; filed under the system issue `-1` by `bro`; `content_json` carries `old`, `new`, `by` (`path` or `remote`)" },
+  { type: "repo_renamed", writers: ["bro"], description: "`repo_rename` moved a repo to a new name: the `repos` row, its FK children, `pr_review_runs` host slugs and the world-model nodes; filed under the system issue `-1` by `bro` with `repo` = the new name; `content_json` carries `old`, `new`, `reason`, `rows_by_table`, `graph` (`rekeyed`, or `deferred` when kuzu was unavailable or failed \u2014 the next `scan_run` rebuilds), `graph_nodes`, and `graph_error` when the re-key failed" },
+  { type: "review_gate_bypassed", writers: ["bro", "hook"], description: "A task reached `closed` by a path other than `bro_atomic_close` (`close-issue-on-merge`, `task_recover`, `task_update_status`) with no passing pr-reviewer verdict for its current commit; the task still closes. At most one row per task and commit (none when a `review_gate_waived` row already names them); `content_json` carries `task_id`, `commit_sha`, `closed_by`. A verdict counts as passing when `verdict = 'pass'` and its `created_at` is at or after the earliest `bro_verification_pass` row naming the task and its current `commit_sha`" },
+  { type: "review_gate_waived", writers: ["bro"], description: "`issue_close(waive_review: true)` closed an issue over a closed task with no passing pr-reviewer verdict for its current commit; one row per such task; `content_json` carries `skill`, `task_id`, `commit_sha`, `waive_review_reason`" },
+  { type: "roundtable_slash_invoked", writers: ["hook"], description: "`roundtable-slash-detect` saw the Human type `/roundtable`; `roundtable_create` consumes the row" },
+  { type: "roundtable_summary", writers: ["bro"], description: "Bro recorded a roundtable's outcome summary via `audit_append`; `roundtable-cleanup-postcheck` requires it", reserved: true },
+  { type: "scan_discovered", writers: ["server", "hook"], description: "A scan registered a newly discovered cheatcode (`scan_run`, or `scan.sh` as `hook:scan`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `origin`, `source`" },
+  { type: "scan_discovered_repair", writers: ["server"], description: "The v32 migration deleted `scan_discovered` rows whose `(name, kind)` has no `cheatcodes` row; filed under the system issue `-1` by `system`; `content_json` carries `deleted`" },
+  { type: "scope_gate_waived", writers: ["bro"], description: "Bro waived the scope gate with an explicit reason" },
+  { type: "skill_creator_blocked", writers: ["bro"], description: "`tmb_skill-creator` halted before writing the skill (no Human approval); written by bro via `audit_append`", reserved: true },
+  { type: "spec_shape_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_spec_shape`; `require-task-spec` reads a bro-written row as the spawn waiver; `content_json` carries the waiver reason" },
+  { type: "swe_brief_fetched", writers: ["hook"], description: "`swe-brief-gate` recorded that a SWE fetched its `task_brief`; the brief gate and `bro-turn-usage` read it" },
+  { type: "sync_skipped", writers: ["bro"], description: "Issue sync skipped a remote write because `issue_sync` is off; `content_json` carries `issue_id`, `reason`" },
+  { type: "task_escalated_by_issue_close", writers: ["bro"], description: "`issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason`" },
+  { type: "task_escalated_repair", writers: ["server"], description: "The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` and closed its open `agent_runs` rows as `issue_closed`; written by `system`; `content_json` carries `task_id`, `issue_id`, `from_status`" },
+  { type: "task_recovered", writers: ["bro"], description: "`task_recover` closed a task stuck in `running`/`completed` at its commit; `content_json` carries `task_id`, `commit_sha`, `prior_status`" },
+  { type: "task_reopened", writers: ["bro"], description: "`task_reopen` moved a `closed` / `failed` / `escalated` / `running` task back to `running` for rework; `content_json` carries `task_id`, `from_status`, `reason`, `files_add`, `verification_add`" },
+  { type: "task_retry_attempted", writers: ["bro"], description: "`task_retry` created a retry task for a failed one; `content_json` carries `failed_task_id`, `new_task_id`, `new_branch_id`" },
+  { type: "task_spec_amended", writers: ["bro"], description: "`task_update_spec` replaced a live task's `files` / `verification` / `spec_body`; `content_json` carries `task_id`, `status`, `reason`, `changes`" },
+  { type: "task_stale_swept", writers: ["bro"], description: "`task_recover` moved a `running` task with no open swe `agent_runs` row and no update for `TMB_STALE_RUNNING_HOURS` (default 6) to `failed` and closed its open runs as `swept_stale`; `content_json` carries `task_id`, `from_status`, `last_updated_at`, `stale_after_hours`" },
+  { type: "tmb_agent_created", writers: ["server", "bro"], description: "`agent_register` registered a project-local consultant; `content_json` carries `name`, `mode`, `agent_id`" },
+  { type: "tmb_branch_autocreated", writers: ["bro"], description: "`task_create_batch` created the task's feature branch ref" },
+  { type: "tmb_skill_created", writers: ["bro"], description: "`tmb_skill-creator` landed a new skill; written by bro via `audit_append`", reserved: true },
+  { type: "trajectory_doctor_run", writers: ["bro"], description: "`trajectory_doctor(record: true)` checked the trajectory DB against its data contracts (`mcp/trajectory-server/src/data-contracts.ts`); filed under the system issue `-1` by `bro`; `content_json` is the report: `healthy`, `checked_at`, `schema` (`stored`, `required`, `current`), `violations` (`id`, `severity`, `description`, `actual`, `expected`, `sample`), `skipped` (`id`, `reason`), `embeddings` (the server's `embeddingStatus()`: `state`, `since`, `reason`, `consecutive_failures`, `next_retry_at`)" },
+  { type: "verification_gate_waived", writers: ["hook"], description: "`swe-verification-gate` honoured a SWE's `waive_verification_gate_reason`; at most one row per task and commit; `content_json` carries `task_id`, `commit_sha`, `waiver_reason`" }
 ];
 var KNOWN = new Set(AUDIT_EVENT_TYPES.map((e) => e.type));
+var WRITERS = new Map(AUDIT_EVENT_TYPES.map((e) => [e.type, e.writers]));
 function isAuditEventType(value) {
   return typeof value === "string" && KNOWN.has(value);
+}
+function auditEventWriters(type) {
+  return WRITERS.get(type) ?? [];
+}
+function isAuditEventWritableBy(type, writer) {
+  return auditEventWriters(type).includes(writer);
 }
 function assertAuditEventType(value) {
   if (isAuditEventType(value)) return value;
@@ -24047,6 +24054,22 @@ function err(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
+  };
+}
+function writerRefused(eventType, role) {
+  return {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          error: "audit_event_not_writable_by_role",
+          event_type: eventType,
+          caller_role: role,
+          allowed_writers: auditEventWriters(eventType)
+        })
+      }
+    ]
   };
 }
 function requireArg(args, name) {
@@ -24077,8 +24100,20 @@ function encodeCursor(row) {
 function resolveIssueRepo(db2, issueId) {
   return db2.get("SELECT repo FROM issues WHERE id = ?", [issueId])?.repo ?? null;
 }
+var AuditWriterError = class extends Error {
+  constructor(eventType, writer) {
+    super(
+      `audit_event_not_writable_by_role: '${writer}' may not write '${eventType}' (writers: ${auditEventWriters(eventType).join(", ")})`
+    );
+    this.eventType = eventType;
+    this.writer = writer;
+  }
+};
 function insertAudit(db2, entry) {
   assertAuditEventType(entry.event_type);
+  if (entry.writer !== void 0 && !isAuditEventWritableBy(entry.event_type, entry.writer)) {
+    throw new AuditWriterError(entry.event_type, entry.writer);
+  }
   const contentJson = entry.content_json ?? "{}";
   const repo = entry.repo ?? resolveIssueRepo(db2, entry.issue_id);
   const res = db2.run(
@@ -24137,19 +24172,19 @@ function auditTools(db2) {
     },
     {
       name: "audit_append",
-      description: "Insert an audit lifecycle event. event_type must be in its closed enum (unknown values are rejected); event_type and summary are required.",
+      description: "Insert an audit lifecycle event. event_type must be in its closed enum and list the calling role among its writers (else audit_event_not_writable_by_role); from_node is set to the calling agent.",
       inputSchema: {
         type: "object",
         properties: {
           agent: { type: "string" },
           issue_id: { type: "string" },
           branch_id: { type: "string" },
-          from_node: { type: "string" },
+          from_node: { type: "string", description: "Optional. Recorded as the calling agent; any other value is refused." },
           event_type: { type: "string", enum: AUDIT_EVENT_TYPES.map((e) => e.type), description: "Required. Lifecycle event identifier from the closed audit event set (e.g. planning_complete)." },
           summary: { type: "string", description: "Required. One-line human-readable summary." },
           content_json: { type: "string", description: "Optional. JSON string with structured event payload, max 1 MB." }
         },
-        required: ["agent", "issue_id", "from_node", "event_type", "summary"]
+        required: ["agent", "issue_id", "event_type", "summary"]
       }
     },
     {
@@ -24290,10 +24325,10 @@ function auditTools(db2) {
       return ok(response);
     }),
     audit_append: requireRoles("audit_append", ["bro", "swe", "pr-reviewer", "consultant"], wrapHandler(async (args) => {
-      requireArg(args, "agent");
+      const agentName = String(requireArg(args, "agent")).toLowerCase();
+      const role = normalizeAgent(agentName);
+      const fromNode = role === "consultant" ? agentName : role;
       const issueId = requireArg(args, "issue_id");
-      requireArg(args, "from_node");
-      const fromNode = args["from_node"];
       const branchId = args["branch_id"] ?? null;
       const now = nowISO();
       requireArg(args, "event_type");
@@ -24301,6 +24336,13 @@ function auditTools(db2) {
       const eventType = args["event_type"];
       if (!isAuditEventType(eventType)) {
         return err(`unknown audit event_type '${String(eventType)}'. Allowed: ${AUDIT_EVENT_TYPES.map((e) => e.type).join(", ")}`);
+      }
+      if (!isAuditEventWritableBy(eventType, role)) {
+        return writerRefused(eventType, role);
+      }
+      const claimedFrom = args["from_node"];
+      if (claimedFrom !== void 0 && claimedFrom !== null && claimedFrom !== fromNode) {
+        return err(`from_node '${String(claimedFrom)}' does not match the calling agent; audit_append records from_node '${fromNode}' itself (omit from_node)`);
       }
       const summary = args["summary"];
       const contentJson = args["content_json"] ?? "{}";
@@ -24315,7 +24357,8 @@ function auditTools(db2) {
         event_type: eventType,
         summary,
         content_json: contentJson,
-        created_at: now
+        created_at: now,
+        writer: role
       });
       return ok(db2.get("SELECT * FROM audit WHERE id = ?", [id]));
     })),
@@ -25565,8 +25608,11 @@ var HAS_PASS_SQL = `EXISTS (SELECT 1 FROM validation_attempts va
       WHERE a.event_type = 'bro_verification_pass' AND json_valid(a.content_json)
         AND json_extract(a.content_json, '$.task_id') = t.id
         AND json_extract(a.content_json, '$.commit_sha') = t.commit_sha))`;
+var reviewSkipAuthoredSql = (alias) => `((${alias}.event_type = 'review_gate_waived' AND ${alias}.from_node = 'bro')
+      OR (${alias}.event_type = 'review_gate_bypassed' AND ${alias}.from_node IN ('bro', 'hook:close-issue-on-merge')))`;
 var GATE_SKIP_RECORDED_SQL = `EXISTS (SELECT 1 FROM audit g
-  WHERE g.event_type IN ('review_gate_bypassed', 'review_gate_waived') AND json_valid(g.content_json)
+  WHERE ${reviewSkipAuthoredSql("g")}
+    AND json_valid(g.content_json)
     AND json_extract(g.content_json, '$.task_id') = t.id
     AND COALESCE(json_extract(g.content_json, '$.commit_sha'), '') = COALESCE(t.commit_sha, ''))`;
 function liveTasksOfIssue(db2, issueId) {
@@ -36269,19 +36315,19 @@ function buildDataContracts(documentedEventTypes) {
     {
       id: "closed_tasks_reviewed",
       severity: "error",
-      description: "tasks closed in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago have a passing pr-reviewer verdict or a review_gate_bypassed/review_gate_waived row (bro_atomic_close closes before pr-reviewer runs; tasks has no closed_at, so the close time is updated_at)",
+      description: "tasks closed in the last 30 days and more than TMB_REVIEW_GRACE_HOURS (default 24) ago have a passing pr-reviewer verdict, a bro-written review_gate_waived row, or a review_gate_bypassed row from bro or hook:close-issue-on-merge (bro_atomic_close closes before pr-reviewer runs; tasks has no closed_at, so the close time is updated_at)",
       sql: `SELECT COUNT(*) FROM tasks t
              WHERE t.status = 'closed' AND ${ts("t.updated_at")} >= ${daysAgo(30)}
                AND ${ts("t.updated_at")} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')
                AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass')
-               AND NOT EXISTS (SELECT 1 FROM audit a WHERE a.event_type IN ('review_gate_bypassed','review_gate_waived')
+               AND NOT EXISTS (SELECT 1 FROM audit a WHERE ${reviewSkipAuthoredSql("a")}
                                 AND ${auditTaskId("a")} = t.id)`,
       expect: { op: "=", value: 0 },
       sample_sql: `SELECT t.id, t.issue_id, t.branch_id, t.updated_at FROM tasks t
              WHERE t.status = 'closed' AND ${ts("t.updated_at")} >= ${daysAgo(30)}
                AND ${ts("t.updated_at")} < strftime('%Y-%m-%dT%H:%M:%fZ','now', '-' || :grace_hours || ' hours')
                AND NOT EXISTS (SELECT 1 FROM validation_attempts v WHERE v.task_id = t.id AND v.verdict = 'pass')
-               AND NOT EXISTS (SELECT 1 FROM audit a WHERE a.event_type IN ('review_gate_bypassed','review_gate_waived')
+               AND NOT EXISTS (SELECT 1 FROM audit a WHERE ${reviewSkipAuthoredSql("a")}
                                 AND ${auditTaskId("a")} = t.id)
              ORDER BY t.id DESC LIMIT 5`,
       params: [{ name: "grace_hours", env: "TMB_REVIEW_GRACE_HOURS", default: REVIEW_GRACE_HOURS_DEFAULT }]
