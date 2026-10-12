@@ -26,17 +26,18 @@ tmb_test_sandbox_init() {
   unset SSH_AUTH_SOCK SSH_AGENT_PID 2>/dev/null || true
   unset NPM_TOKEN AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY 2>/dev/null || true
 
+  local sandbox_home="$scratch/_home"
   export TMB_SANDBOX_ORIG_HOME="$HOME"
-  export HOME="$scratch/_home"
-  mkdir -p "$HOME"
-  cat > "$HOME/.gitconfig" <<'GITCFG'
+  export HOME="$sandbox_home"
+  mkdir -p "$sandbox_home"
+  cat > "$sandbox_home/.gitconfig" <<'GITCFG'
 [user]
   name = TMB Test
   email = test@tmb.invalid
 [init]
   defaultBranch = main
 GITCFG
-  mkdir -p "$HOME/.ssh"
+  mkdir -p "$sandbox_home/.ssh"
 
   TMB_TEST_REMOTE="$(dirname "$scratch")/$(basename "$scratch")_remote.git"
   export TMB_TEST_REMOTE

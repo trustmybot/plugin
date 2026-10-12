@@ -148,7 +148,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: l6-chain-runs-${{ github.run_id }}
-          path: ~/.claude/tmb/l6-chain-runs/
+          path: ${{ github.workspace }}/.claude/tmb/l6-chain-runs/
           if-no-files-found: warn
           retention-days: 14
 

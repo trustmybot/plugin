@@ -116,6 +116,10 @@ bro can run the same thing with the `agent_runs_backfill` tool (`dry_run` defaul
 
 Run the backfill when no swe or pr-reviewer spawn is active; otherwise the live SubagentStop hook keys the in-flight spawn by its agent id and a second row appears for it.
 
+### Upgrading into v1.0.3 — L6 chain runs move into the project
+
+`tests/l5-l6/run-l6-chain.sh` now writes its runs to `<project>/.claude/tmb/l6-chain-runs/` (or `L6C_RUNS_DIR`) and L5 preserves trajectories under `<project>/.claude/tmb/l5-trajectories/`. Runs from earlier versions stay under `~/.claude/tmb/l6-chain-runs/` and `~/.claude/tmb/l5-trajectories/` until you remove them; auto-resume reads only the new location, so start the first chain after upgrading with `--fresh` or `--from 1`.
+
 ### Upgrading into v1.0.0 (first stable)
 
 v1.0.0 is the first stable release. Upgrading from any v0.10.x rc is a normal channel update — nothing special to do. The schema migrations apply on server start exactly as described above.

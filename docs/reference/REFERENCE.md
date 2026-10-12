@@ -63,7 +63,8 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 - `mcp-health.log` — SessionStart MCP sample + SubagentStop hook diagnostics
 - `issue-sync.log` — `issue_sync_active` warnings + sync errors
 - `sql.log` — SQL trace (when enabled)
-- `~/.claude/tmb/l5-trajectories/<flow>/<run_id>/` — trajectory.jsonl + trajectory.db preserved per flow run (written by `l5_preserve_trajectory` in flow-helpers.sh)
+- `<project>/.claude/tmb/l5-trajectories/<flow>/<run_id>/` — trajectory.jsonl + trajectory.db preserved per flow run (written by `l5_preserve_trajectory` in flow-helpers.sh)
+- `<project>/.claude/tmb/l6-chain-runs/<run-id>/` — L6 chain runs (`tests/l5-l6/run-l6-chain.sh`; `L6C_RUNS_DIR` overrides)
 
 ## Env vars
 
