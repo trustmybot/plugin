@@ -146,6 +146,18 @@ assert_contains "$REASON" "verification failed" "deny must carry a non-empty per
 HAS_DENY_REASON=$(printf '%s' "$out" | jq -r 'if (.hookSpecificOutput | has("denyReason")) then "yes" else "no" end' 2>/dev/null || echo "no")
 assert_eq "no" "$HAS_DENY_REASON" "deny must not carry a denyReason key"
 
+# ---- Failing verification: deny forwards the FAIL lines before the tail ------
+# A failing L3 run names its failing file early and then prints a long summary;
+# the tail alone would drop the file name, so matching lines are forwarded too.
+test_case "failing verification: deny reason names the failing file from FAIL lines beyond the tail"
+mkdir -p "$WT_ROOT/l3-fail"
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, repo, status, spec_body, verification) VALUES (5, 1, 'feat/l3-fail', 'plugin', 'pending', '', '[\"echo FAIL x.test.sh; for i in \$(seq 1 40); do echo filler \$i; done; exit 1\"]');"
+out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 5)")
+REASON=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>/dev/null || true)
+assert_contains "$REASON" "FAIL x.test.sh" "deny reason should forward the FAIL line"
+assert_contains "$REASON" "Failure lines" "deny reason should label the forwarded failure lines"
+assert_contains "$REASON" "filler 40" "deny reason should still carry the output tail"
+
 # ---- Multi-command verification that passes: allowed ------------------------
 test_case "SWE completing task with multi-command verification (all pass): allowed"
 out=$(cd "$REPO_DIR" && run_hook "$(make_input swe completed 4)")

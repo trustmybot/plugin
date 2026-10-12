@@ -202,6 +202,7 @@ run_verification() {
 
   FAILED_CMD=""
   FAILED_OUTPUT=""
+  FAILED_MATCHES=""
 
   # Each entry of the typed verification[] array is a clean shell command string
   # (Typed Rails #673) — no markdown bullets/backticks/blockquotes to strip. Run
@@ -230,18 +231,21 @@ run_verification() {
         exit 0
       fi
       FAILED_CMD="$CMD"
-      FAILED_OUTPUT=$(echo "$CMD_OUTPUT" | tail -20)
+      FAILED_MATCHES=$(printf '%s\n' "$CMD_OUTPUT" | grep -E 'FAIL|failed|Error|❌' | head -15)
+      FAILED_OUTPUT=$(printf '%s\n' "$CMD_OUTPUT" | tail -20)
       break
     }
 
   done <<< "$VERIFICATION_BLOCK"
 
   if [ -n "$FAILED_CMD" ]; then
-    jq -nc --arg cmd "$FAILED_CMD" --arg out "$FAILED_OUTPUT" '
+    jq -nc --arg cmd "$FAILED_CMD" --arg out "$FAILED_OUTPUT" --arg hits "$FAILED_MATCHES" '
       {"hookSpecificOutput":{
         "hookEventName":"PreToolUse",
         "permissionDecision":"deny",
-        "permissionDecisionReason":("BLOCKED: verification failed.\nFailing command: " + $cmd + "\n\nOutput (last 20 lines):\n" + $out)
+        "permissionDecisionReason":("BLOCKED: verification failed.\nFailing command: " + $cmd
+          + (if $hits == "" then "" else "\n\nFailure lines (max 15):\n" + $hits end)
+          + "\n\nOutput (last 20 lines):\n" + $out)
       }}
     '
     exit 0

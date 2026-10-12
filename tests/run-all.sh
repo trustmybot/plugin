@@ -82,6 +82,8 @@ run_step "L1 lint: no direct sqlite3 writes in scripts" bash "$HERE/l1-lint/no-d
 run_step "L1 lint: one trajectory-DB path rule (no private copies)" bash "$HERE/l1-lint/no-private-db-path.sh"
 run_step "L1 lint: no writes under the home directory (self-test)" bash "$HERE/l1-lint/no-home-writes.sh" --self-test
 run_step "L1 lint: no writes under the home directory" bash "$HERE/l1-lint/no-home-writes.sh"
+run_step "L1 lint: no hard-coded /tmp writes (self-test)" bash "$HERE/l1-lint/no-tmp-writes.sh" --self-test
+run_step "L1 lint: no hard-coded /tmp writes" bash "$HERE/l1-lint/no-tmp-writes.sh"
 run_step "L1 lint: no datetime('now') in scripts"     bash "$HERE/l1-lint/no-datetime-now-in-hooks.sh"
 run_step "L1 lint: no secrets in tracked source"    bash "$HERE/l1-lint/no-secrets-in-source.sh"
 run_step "L1 lint: main-source-guard + CODEOWNERS present" bash "$HERE/l1-lint/main-guard-files-present.sh"
@@ -104,7 +106,9 @@ fi
 # Runs the MCP unit suite with loud-fail gh/glab PATH stubs and
 # TMB_FORBID_LIVE_SYNC=1. Reuses the already-built dist/ — no second build.
 # Stubs append to a sentinel file on invocation; a 0-byte sentinel means the
-# suite completed without making any live CLI calls (B5 incident guard).
+# suite completed without making any live CLI calls (B5 incident guard). A
+# `claude` stub exits 0 with a one-line marker, so no unit test reaches the
+# real CLI (which writes ~/.claude.json).
 printf "\n=== L2 stubbed-PATH: MCP unit suite with live-CLI stubs (reuses dist/) ===\n"
 _stub_dir=$(mktemp -d)
 _sentinel="$_stub_dir/live-cli-sentinel"
@@ -118,6 +122,12 @@ exit 97
 STUB
   chmod +x "$_stub_dir/$_cli"
 done
+cat > "$_stub_dir/claude" <<'STUB'
+#!/usr/bin/env bash
+echo "tmb test-stub: claude $*"
+exit 0
+STUB
+chmod +x "$_stub_dir/claude"
 _stub_pass=0
 if (
   export PATH="$_stub_dir:$PATH"

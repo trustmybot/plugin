@@ -75,7 +75,7 @@ PAYLOAD='{"prompt":"/roundtable walk-up test"}'
 COUNT_BEFORE=$(sqlite3 "$WALK_DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_slash_invoked';")
 (
   cd "$CHILD_DIR" || exit 1
-  echo "$PAYLOAD" | bash "$HOOK" 2>&1 || true
+  echo "$PAYLOAD" | env -u CLAUDE_PROJECT_DIR bash "$HOOK" 2>&1 || true
 )
 COUNT_AFTER=$(sqlite3 "$WALK_DB" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_slash_invoked';")
 assert_eq "$((COUNT_BEFORE + 1))" "$COUNT_AFTER" "walk-up must find the DB and insert the row"
