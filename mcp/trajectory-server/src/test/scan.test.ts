@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, renameSync, realpathSync, readFileSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { pinScanEnv, tempDB, type ScanEnvPin } from './helpers.js';
+import { pinScanEnv, runGraphScript, tempDB, type ScanEnvPin } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
 import { scanTools, runScanWithScript, upsertDiscoveredCheatcode } from '../tools/scan.js';
 import { renameRepo } from '../tools/repos.js';
@@ -956,6 +956,124 @@ describe('scan.sh under the test flags: pinned DB, MCP fixture', () => {
       process.env['TRAJECTORY_DB_PATH'] = scanPin.dbPath;
       process.env['TMB_SCAN_MCP_JSON'] = scanPin.mcpJsonPath;
       db.close();
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('scan_run — File nodes with hash-keyed purposes', () => {
+  it('upserts File nodes + HAS_FILE edges, re-extracts only changed files, keeps swe purposes, prunes deleted files', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-files-'));
+    try {
+      const repoRoot = mkRepo(ws, 'app', {
+        'package.json': '{"name":"app","description":"Fixture app for the scanner."}\n',
+        'src/a.ts': '// Parses inbound webhook payloads.\nexport const a = 1;\n',
+        'src/b.py': '"""Retry queue for failed jobs."""\n',
+        'src/notes.txt': 'plain notes\n',
+        'src/blob.ts': 'abc\u0000def',
+        'docs/guide.md': '# Guide\n\nHow to run the app. More.\n',
+      });
+      const out = runGraphScript(`
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tempDB } from '$DIST/test/helpers.js';
+import { WorldModelGraph, GraphHolder } from '$DIST/graph-db.js';
+import { scanTools } from '$DIST/tools/scan.js';
+
+const ws = ${JSON.stringify(ws)};
+const repoRoot = ${JSON.stringify(repoRoot)};
+const db = tempDB();
+const graph = new WorldModelGraph(ws + '/world-model.kuzu');
+const tools = scanTools(db, GraphHolder.fixed(graph), ':memory:');
+const git = (...a) => execFileSync('git', ['-C', repoRoot, ...a], { encoding: 'utf8' });
+const md5 = (rel) => createHash('md5').update(readFileSync(repoRoot + '/' + rel)).digest('hex');
+const snapshot = () => Object.fromEntries(graph.allFilesForRepo('app').map((f) => [f.path, f]));
+
+const r1 = await tools.handlers.scan_run({ agent: 'bro', session_dir: ws });
+if (r1.isError) { console.log(JSON.stringify({ error: r1.content[0].text })); process.exit(0); }
+const tracked = git('ls-files').trim().split('\\n');
+const first = snapshot();
+const linked = [...graph.filePathsWithDirectory('app')].sort();
+const expectedMd5 = Object.fromEntries(tracked.map((p) => ['app/' + p, md5(p)]));
+const srcSummary = graph.allDirectoriesForRepo('app').find((d) => d.path === 'src').summary;
+const rootSummary = graph.allDirectoriesForRepo('app').find((d) => d.path === '').summary;
+const stats1 = JSON.parse(r1.content[0].text);
+
+graph.upsertFile({ ...first['app/src/b.py'], purpose: 'Hand-written by swe.', purpose_source: 'swe' });
+await new Promise((r) => setTimeout(r, 5));
+writeFileSync(repoRoot + '/src/a.ts', '// Validates inbound webhook signatures.\\nexport const a = 2;\\n');
+writeFileSync(repoRoot + '/src/b.py', '"""Retry queue, now with backoff."""\\n');
+rmSync(repoRoot + '/docs/guide.md');
+git('add', '-A');
+git('commit', '-qm', 'change');
+
+const r2 = await tools.handlers.scan_run({ agent: 'bro', session_dir: ws });
+if (r2.isError) { console.log(JSON.stringify({ error: r2.content[0].text })); process.exit(0); }
+const second = snapshot();
+const stats2 = JSON.parse(r2.content[0].text);
+const md5After = { a: md5('src/a.ts'), b: md5('src/b.py') };
+graph.close();
+db.close();
+console.log(JSON.stringify({ tracked, first, linked, expectedMd5, srcSummary, rootSummary, stats1, second, stats2, md5After }));
+`);
+      assert.equal(out['error'], undefined, `scan failed: ${String(out['error'])}`);
+      const tracked = out['tracked'] as string[];
+      const first = out['first'] as Record<string, Record<string, unknown>>;
+      const second = out['second'] as Record<string, Record<string, unknown>>;
+      const expectedMd5 = out['expectedMd5'] as Record<string, string>;
+
+      assert.deepEqual(Object.keys(first).sort(), tracked.map((p) => `app/${p}`).sort(), 'one File node per tracked file');
+      for (const [path, md5] of Object.entries(expectedMd5)) {
+        assert.equal(first[path]!['content_md5'], md5, `${path} carries scan.sh's content_md5`);
+      }
+      assert.deepEqual(out['linked'], Object.keys(first).sort(), 'every File has a HAS_FILE edge');
+      assert.equal(first['app/src/a.ts']!['dir'], 'src');
+      assert.equal(first['app/src/a.ts']!['purpose'], 'Parses inbound webhook payloads.');
+      assert.equal(first['app/src/a.ts']!['purpose_source'], 'comment');
+      assert.equal(first['app/package.json']!['purpose_source'], 'manifest');
+      assert.equal(first['app/docs/guide.md']!['purpose_source'], 'heading');
+      assert.equal(first['app/src/blob.ts']!['purpose_source'], 'none', 'binary head → none');
+      assert.equal(first['app/src/notes.txt']!['purpose_source'], 'none');
+      assert.equal((out['stats1'] as Record<string, unknown>)['files_extracted'], tracked.length);
+
+      const srcSummary = out['srcSummary'] as string;
+      assert.match(srcSummary, /^src\/ — 4 files; /, 'structural summary leads with the file count');
+      assert.ok(srcSummary.includes('a.ts: Parses inbound webhook payloads.'), srcSummary);
+      assert.ok(srcSummary.includes('b.py: Retry queue for failed jobs.'), srcSummary);
+      assert.match(
+        srcSummary,
+        /^src\/ — 4 files; <untrusted-content source="file-purpose"> a\.ts: [^\n]*; b\.py: [^\n]* <\/untrusted-content>$/,
+        'the purpose roll-up is framed once, on one line, after the count prefix',
+      );
+      assert.equal(
+        out['rootSummary'],
+        '(repo root)/ — 1 file; <untrusted-content source="file-purpose"> package.json: Fixture app for the scanner. </untrusted-content>; subdirs: docs, src',
+        'the subdirs suffix stays outside the frame',
+      );
+      for (const node of Object.values(first)) {
+        assert.ok(!String(node['purpose']).includes('untrusted-content'), `${String(node['path'])}: stored purpose is unframed`);
+      }
+
+      const stats2 = out['stats2'] as Record<string, unknown>;
+      assert.equal(stats2['files_extracted'], 1, 'only the changed non-swe file is re-extracted');
+      assert.equal(stats2['files_upserted'], 2, 'a.ts re-extracted + b.py facts refreshed');
+      assert.equal(stats2['files_retired'], 1);
+
+      assert.equal(second['app/src/a.ts']!['purpose'], 'Validates inbound webhook signatures.');
+      assert.notEqual(second['app/src/a.ts']!['updated_at'], first['app/src/a.ts']!['updated_at']);
+      for (const path of ['app/package.json', 'app/src/notes.txt', 'app/src/blob.ts']) {
+        assert.deepEqual(second[path], first[path], `${path} is untouched (updated_at kept)`);
+      }
+
+      const md5After = out['md5After'] as { a: string; b: string };
+      assert.equal(second['app/src/a.ts']!['content_md5'], md5After.a);
+      assert.equal(second['app/src/b.py']!['purpose'], 'Hand-written by swe.', 'swe purpose survives a content change');
+      assert.equal(second['app/src/b.py']!['purpose_source'], 'swe');
+      assert.equal(second['app/src/b.py']!['content_md5'], md5After.b, 'swe row still tracks the new md5');
+
+      assert.equal(second['app/docs/guide.md'], undefined, 'deleted file node removed');
+    } finally {
       rmSync(ws, { recursive: true, force: true });
     }
   });

@@ -1,8 +1,8 @@
 // World-model graph DB wrapper — kuzu native bindings via the official
 // 'kuzu' npm package. See ADR 0002.
 //
-// The graph stores bro's project mental model: Directory nodes today,
-// File + Symbol + IMPORTS + CALLS edges in follow-up slices. Lives in
+// The graph stores bro's project mental model: Directory nodes linked by
+// CONTAINS, File nodes hung off their directory by HAS_FILE. Lives in
 // a sibling file to trajectory.db. Standard DBs use world-model.kuzu; custom
 // DB names get a one-to-one <db-basename>.world-model.kuzu graph directory.
 //
@@ -32,6 +32,20 @@ function sleepSync(ms) {
     // server's sync open path without pulling in async plumbing.
     const sab = new Int32Array(new SharedArrayBuffer(4));
     Atomics.wait(sab, 0, 0, ms);
+}
+const FILE_COLUMNS = 'f.path, f.repo, f.dir, f.purpose, f.purpose_source, f.content_md5, f.size_bytes, f.last_commit_sha, f.updated_at';
+function toFileNode(r) {
+    return {
+        path: String(r['f.path'] ?? ''),
+        repo: String(r['f.repo'] ?? ''),
+        dir: String(r['f.dir'] ?? ''),
+        purpose: String(r['f.purpose'] ?? ''),
+        purpose_source: String(r['f.purpose_source'] ?? 'none'),
+        content_md5: String(r['f.content_md5'] ?? ''),
+        size_bytes: Number(r['f.size_bytes'] ?? 0),
+        last_commit_sha: String(r['f.last_commit_sha'] ?? ''),
+        updated_at: String(r['f.updated_at'] ?? ''),
+    };
 }
 export class WorldModelGraph {
     db;
@@ -108,6 +122,128 @@ export class WorldModelGraph {
         PRIMARY KEY (key)
       )`);
         this.conn.querySync(`CREATE REL TABLE IF NOT EXISTS CONTAINS (FROM Directory TO Directory)`);
+        this.conn.querySync(`CREATE NODE TABLE IF NOT EXISTS File (
+        path STRING,
+        repo STRING,
+        dir STRING,
+        purpose STRING,
+        purpose_source STRING,
+        content_md5 STRING,
+        size_bytes INT64,
+        last_commit_sha STRING,
+        updated_at STRING,
+        PRIMARY KEY (path)
+      )`);
+        this.conn.querySync(`CREATE REL TABLE IF NOT EXISTS HAS_FILE (FROM Directory TO File)`);
+    }
+    tableNames() {
+        const result = single(this.conn.querySync('CALL show_tables() RETURN name'));
+        const names = [];
+        try {
+            while (result.hasNext()) {
+                names.push(String(result.getNextSync()['name'] ?? ''));
+            }
+        }
+        finally {
+            result.close();
+        }
+        return names.sort();
+    }
+    rows(query, params) {
+        const stmt = this.conn.prepareSync(query);
+        const result = single(this.conn.executeSync(stmt, params));
+        const rows = [];
+        try {
+            while (result.hasNext())
+                rows.push(result.getNextSync());
+        }
+        finally {
+            result.close();
+        }
+        return rows;
+    }
+    // Run fn inside one kuzu write transaction; a throw rolls the batch back.
+    transaction(fn) {
+        this.conn.querySync('BEGIN TRANSACTION');
+        try {
+            const out = fn();
+            this.conn.querySync('COMMIT');
+            return out;
+        }
+        catch (e) {
+            try {
+                this.conn.querySync('ROLLBACK');
+            }
+            catch {
+                // The original error wins.
+            }
+            throw e;
+        }
+    }
+    // File keys are '<repo>/<repo-relative path>'; repo names are directory
+    // basenames, so the first '/' always separates the two.
+    static fileKey(repo, relPath) {
+        return `${repo}/${relPath}`;
+    }
+    static relativeFilePath(node) {
+        return node.path.startsWith(`${node.repo}/`) ? node.path.slice(node.repo.length + 1) : node.path;
+    }
+    upsertFileStmt = null;
+    upsertHasFileStmt = null;
+    upsertFile(node) {
+        this.upsertFileStmt ??= this.conn.prepareSync(`MERGE (f:File {path: $path})
+       SET f.repo = $repo,
+           f.dir = $dir,
+           f.purpose = $purpose,
+           f.purpose_source = $purpose_source,
+           f.content_md5 = $content_md5,
+           f.size_bytes = $size_bytes,
+           f.last_commit_sha = $last_commit_sha,
+           f.updated_at = $updated_at`);
+        this.conn.executeSync(this.upsertFileStmt, { ...node });
+    }
+    upsertHasFile(repo, dir, filePath) {
+        this.upsertHasFileStmt ??= this.conn.prepareSync(`MATCH (d:Directory {key: $dirKey}), (f:File {path: $filePath})
+       MERGE (d)-[:HAS_FILE]->(f)`);
+        this.conn.executeSync(this.upsertHasFileStmt, { dirKey: WorldModelGraph.dirKey(repo, dir), filePath });
+    }
+    allFilesForRepo(repo) {
+        return this.rows(`MATCH (f:File {repo: $repo}) RETURN ${FILE_COLUMNS}`, { repo }).map(toFileNode);
+    }
+    filesForDirectory(repo, dir) {
+        return this.rows(`MATCH (f:File {repo: $repo, dir: $dir}) RETURN ${FILE_COLUMNS} ORDER BY f.path`, { repo, dir }).map(toFileNode);
+    }
+    filePathsWithDirectory(repo) {
+        const rows = this.rows(`MATCH (:Directory)-[:HAS_FILE]->(f:File {repo: $repo}) RETURN f.path`, { repo });
+        return new Set(rows.map((r) => String(r['f.path'] ?? '')));
+    }
+    pruneFiles(repo, keepPaths) {
+        const stale = this.allFilesForRepo(repo).filter((f) => !keepPaths.has(f.path));
+        if (stale.length === 0)
+            return 0;
+        const stmt = this.conn.prepareSync(`MATCH (f:File {path: $path}) DETACH DELETE f`);
+        for (const f of stale)
+            this.conn.executeSync(stmt, { path: f.path });
+        return stale.length;
+    }
+    fileCoverage(repo) {
+        const rows = this.rows(`MATCH (f:File {repo: $repo})
+       RETURN f.purpose_source AS source, COUNT(*) AS n, SUM(CASE WHEN f.purpose <> '' THEN 1 ELSE 0 END) AS with_purpose`, { repo });
+        const coverage = { files: 0, with_purpose: 0, by_source: {} };
+        for (const r of rows) {
+            const n = Number(r['n'] ?? 0);
+            coverage.files += n;
+            coverage.with_purpose += Number(r['with_purpose'] ?? 0);
+            coverage.by_source[String(r['source'] ?? 'none')] = n;
+        }
+        return coverage;
+    }
+    keywordSearchFiles(repo, query, k) {
+        return this.rows(`MATCH (f:File {repo: $repo})
+       WHERE lower(f.purpose) CONTAINS $needle OR lower(f.path) CONTAINS $needle
+       RETURN ${FILE_COLUMNS}
+       ORDER BY f.path
+       LIMIT $k`, { repo, needle: query.toLowerCase(), k }).map((r) => ({ ...toFileNode(r), score: 1.0 }));
     }
     static dirKey(repo, path) {
         // JSON tuple so a ':' (or any delimiter) in repo/path can't collide. (#282)
@@ -160,6 +296,7 @@ export class WorldModelGraph {
         if (nodes.length === 0)
             return 0;
         const edges = this.containsEdgesForRepo(oldRepo);
+        const files = this.allFilesForRepo(oldRepo);
         this.conn.querySync('BEGIN TRANSACTION');
         try {
             for (const n of nodes) {
@@ -175,6 +312,13 @@ export class WorldModelGraph {
             }
             for (const e of edges) {
                 this.upsertContains({ repo: newRepo, path: e.parent }, { repo: newRepo, path: e.child });
+            }
+            const delFiles = this.conn.prepareSync(`MATCH (f:File {repo: $repo}) DETACH DELETE f`);
+            this.conn.executeSync(delFiles, { repo: oldRepo });
+            for (const f of files) {
+                const path = WorldModelGraph.fileKey(newRepo, WorldModelGraph.relativeFilePath(f));
+                this.upsertFile({ ...f, path, repo: newRepo });
+                this.upsertHasFile(newRepo, f.dir, path);
             }
             const del = this.conn.prepareSync(`MATCH (d:Directory {repo: $repo}) DETACH DELETE d`);
             this.conn.executeSync(del, { repo: oldRepo });

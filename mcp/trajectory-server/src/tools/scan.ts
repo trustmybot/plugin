@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync, writeFileSync, unlinkSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, readSync, realpathSync, writeFileSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
@@ -8,7 +8,8 @@ import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
 import { WorldModelGraph } from '../graph-db.js';
-import type { GraphHolder } from '../graph-db.js';
+import type { FileNode, GraphHolder } from '../graph-db.js';
+import { extractPurpose, isPurposeCandidate, PURPOSE_HEAD_BYTES } from '../file-purpose.js';
 import { classifyUrl, type Provider } from '../utils/classify-url.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 import { serverLog } from '../logger.js';
@@ -22,6 +23,8 @@ interface ScanFile {
   repo: string;
   path: string;
   content_md5: string;
+  size_bytes?: number;
+  last_commit_sha?: string;
 }
 
 interface ScanRepo {
@@ -204,6 +207,12 @@ export function detectStructuralChange(
 const README_CANDIDATES = ['README.md', 'readme.md', 'README.rst', 'readme.rst'];
 const README_MAX_BYTES = 1024;
 const STRUCTURAL_LIST_MAX = 8;
+const STRUCTURAL_PURPOSES_MAX = 5;
+
+interface NamedPurpose {
+  name: string;
+  purpose: string;
+}
 
 interface DirEntry {
   repo: string;
@@ -256,6 +265,7 @@ function buildStructuralSummary(
   dirPath: string,
   fileNames: string[],
   subdirNames: string[],
+  filePurposes: NamedPurpose[] = [],
 ): string {
   const leaf = dirPath === '' ? '(repo root)' : basename(dirPath);
   const join = (names: string[]): string => {
@@ -264,8 +274,18 @@ function buildStructuralSummary(
     return extra > 0 ? `${shown}, +${extra} more` : shown;
   };
   const parts: string[] = [];
-  if (fileNames.length > 0) {
-    parts.push(`${fileNames.length} file${fileNames.length === 1 ? '' : 's'} (${join(fileNames.slice().sort())})`);
+  const fileCount = `${fileNames.length} file${fileNames.length === 1 ? '' : 's'}`;
+  if (filePurposes.length > 0) {
+    const shown = filePurposes
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, STRUCTURAL_PURPOSES_MAX)
+      .map((f) => `${f.name}: ${f.purpose}`);
+    // One line, so the depth-2 first-line trim in world_model_get keeps the
+    // whole frame.
+    parts.push(fileCount, frameUntrusted('file-purpose', shown.join('; ')).replace(/\n/g, ' '));
+  } else if (fileNames.length > 0) {
+    parts.push(`${fileCount} (${join(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
     parts.push(`subdirs: ${join(subdirNames.slice().sort())}`);
@@ -295,6 +315,7 @@ function persistDirectoriesGraph(
   graph: WorldModelGraph,
   out: ScanOutput,
   now: string,
+  purposesByDir: Map<string, NamedPurpose[]> = new Map(),
 ): { dirs_upserted: number; dirs_readme_summarized: number; dirs_structural_summarized: number } {
   const repoPaths = new Map<string, string>();
   for (const r of out.repos) repoPaths.set(r.name, r.path);
@@ -324,7 +345,12 @@ function persistDirectoriesGraph(
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary
-      ?? buildStructuralSummary(entry.path, entry.file_names, subdirNames);
+      ?? buildStructuralSummary(
+        entry.path,
+        entry.file_names,
+        subdirNames,
+        purposesByDir.get(`${entry.repo} ${entry.path}`) ?? [],
+      );
 
     graph.upsertDirectory({
       repo: entry.repo,
@@ -349,6 +375,109 @@ function persistDirectoriesGraph(
   }
 
   return { dirs_upserted, dirs_readme_summarized, dirs_structural_summarized };
+}
+
+export function readFileHead(absPath: string): string {
+  let fd: number | null = null;
+  try {
+    fd = openSync(absPath, 'r');
+    const buf = Buffer.alloc(PURPOSE_HEAD_BYTES);
+    const n = readSync(fd, buf, 0, PURPOSE_HEAD_BYTES, 0);
+    return buf.subarray(0, n).toString('utf8');
+  } catch {
+    return '';
+  } finally {
+    if (fd !== null) closeSync(fd);
+  }
+}
+
+function fileDir(relPath: string): string {
+  const i = relPath.lastIndexOf('/');
+  return i >= 0 ? relPath.slice(0, i) : '';
+}
+
+interface FilePlan {
+  nodes: FileNode[];
+  writes: FileNode[];
+  extracted: number;
+}
+
+// Hash-keyed File plan: an unchanged content_md5 keeps the stored row as is; a
+// changed or new file is re-extracted from its first PURPOSE_HEAD_BYTES; a
+// purpose an swe wrote (purpose_source='swe') survives a content change.
+function planFiles(graph: WorldModelGraph, out: ScanOutput, now: string): FilePlan {
+  const repoPaths = new Map(out.repos.map((r) => [r.name, r.path]));
+  const existing = new Map<string, FileNode>();
+  for (const r of out.repos) {
+    for (const f of graph.allFilesForRepo(r.name)) existing.set(f.path, f);
+  }
+  const plan: FilePlan = { nodes: [], writes: [], extracted: 0 };
+  for (const f of out.files) {
+    const repoPath = repoPaths.get(f.repo);
+    if (!repoPath) continue;
+    const path = WorldModelGraph.fileKey(f.repo, f.path);
+    const prev = existing.get(path);
+    const md5 = f.content_md5 ?? '';
+    if (prev && md5 !== '' && prev.content_md5 === md5) {
+      plan.nodes.push(prev);
+      continue;
+    }
+    const facts = {
+      path,
+      repo: f.repo,
+      dir: fileDir(f.path),
+      content_md5: md5,
+      size_bytes: Number(f.size_bytes ?? 0),
+      last_commit_sha: f.last_commit_sha ?? '',
+      updated_at: now,
+    };
+    let node: FileNode;
+    if (prev?.purpose_source === 'swe') {
+      node = { ...facts, purpose: prev.purpose, purpose_source: prev.purpose_source };
+    } else {
+      const extracted = isPurposeCandidate(f.path)
+        ? extractPurpose(f.path, readFileHead(join(repoPath, f.path)))
+        : { purpose: '', source: 'none' as const };
+      node = { ...facts, purpose: extracted.purpose, purpose_source: extracted.source };
+      plan.extracted++;
+    }
+    plan.nodes.push(node);
+    plan.writes.push(node);
+  }
+  return plan;
+}
+
+function purposesByDirectory(nodes: FileNode[]): Map<string, NamedPurpose[]> {
+  const byDir = new Map<string, NamedPurpose[]>();
+  for (const n of nodes) {
+    if (!n.purpose) continue;
+    const key = `${n.repo} ${n.dir}`;
+    const entry = { name: basename(WorldModelGraph.relativeFilePath(n)), purpose: n.purpose };
+    const list = byDir.get(key);
+    if (list) list.push(entry);
+    else byDir.set(key, [entry]);
+  }
+  return byDir;
+}
+
+function persistFilesGraph(
+  graph: WorldModelGraph,
+  out: ScanOutput,
+  plan: FilePlan,
+): { files_upserted: number; files_retired: number } {
+  let files_retired = 0;
+  graph.transaction(() => {
+    for (const n of plan.writes) graph.upsertFile(n);
+    for (const r of out.repos) {
+      const linked = graph.filePathsWithDirectory(r.name);
+      for (const n of plan.nodes) {
+        if (n.repo === r.name && !linked.has(n.path)) graph.upsertHasFile(n.repo, n.dir, n.path);
+      }
+      const keep = new Set(plan.nodes.filter((n) => n.repo === r.name).map((n) => n.path));
+      files_retired += graph.pruneFiles(r.name, keep);
+    }
+  });
+  return { files_upserted: plan.writes.length, files_retired };
 }
 
 interface RepoRemote {
@@ -451,10 +580,8 @@ function detectRenames(
   return candidates;
 }
 
-// Persist repos[] + directories[] from a scan output. Transactional.
-// File-level state lives entirely in the directories rows (file_count) and
-// the world model. Per-file md5/summary state was retired in schema v7
-// (ADR 0001) — leaf-zoom now happens via explicit Read on demand.
+// Persist repos[] to SQLite (transactional) and Directory + File nodes to the
+// kuzu world model.
 // sessionDir is used to scope repo retirement: repos in the DB whose path
 // falls under sessionDir but are absent from this scan's result are retired.
 function persistScan(
@@ -470,6 +597,9 @@ function persistScan(
   dirs_retired: number;
   dirs_readme_summarized: number;
   dirs_structural_summarized: number;
+  files_upserted: number;
+  files_extracted: number;
+  files_retired: number;
   rename_candidates: RenameCandidate[];
 } {
   const now = nowISO();
@@ -550,11 +680,16 @@ function persistScan(
     }
   });
 
+  let files_upserted = 0;
+  let files_extracted = 0;
+  let files_retired = 0;
+
   // Retire kuzu nodes for repos actually removed above (prune all their dirs).
   if (graph) {
     for (const r of retired) {
       const n = graph.pruneDirectories(r.name, new Set());
       dirs_retired += n;
+      files_retired += graph.pruneFiles(r.name, new Set());
     }
   }
 
@@ -562,7 +697,9 @@ function persistScan(
   let dirs_readme_summarized = 0;
   let dirs_structural_summarized = 0;
   if (graph) {
-    const stats = persistDirectoriesGraph(graph, persisted, now);
+    const plan = planFiles(graph, persisted, now);
+    files_extracted = plan.extracted;
+    const stats = persistDirectoriesGraph(graph, persisted, now, purposesByDirectory(plan.nodes));
     dirs_upserted = stats.dirs_upserted;
     dirs_readme_summarized = stats.dirs_readme_summarized;
     dirs_structural_summarized = stats.dirs_structural_summarized;
@@ -578,6 +715,10 @@ function persistScan(
       }
       graph.pruneDirectories(r.name, keepKeys);
     }
+
+    const fileStats = persistFilesGraph(graph, persisted, plan);
+    files_upserted = fileStats.files_upserted;
+    files_retired += fileStats.files_retired;
   }
 
   return {
@@ -588,6 +729,9 @@ function persistScan(
     dirs_retired,
     dirs_readme_summarized,
     dirs_structural_summarized,
+    files_upserted,
+    files_extracted,
+    files_retired,
     rename_candidates,
   };
 }
@@ -718,7 +862,7 @@ export function scanTools(
     {
       name: 'scan_run',
       description:
-        "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory nodes + CONTAINS edges to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. A renamed repo lands in rename_candidates for repo_rename, never as a second row. Hard timeout: 10 minutes.",
+        "Run a deterministic project scan: discovers git repos under the session dir, enumerates tracked files (.gitignore-aware), and writes Directory + File nodes to the kuzu world model. Directory summaries come from README.md (summary_source='readme') or a structural fallback (summary_source='structural'). Emits a deep_scan_completed audit event with source and structural_change fields. A renamed repo lands in rename_candidates for repo_rename, never as a second row. Hard timeout: 10 minutes.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -847,7 +991,7 @@ export function scanTools(
             issue_id: -1,
             from_node: 'bro',
             event_type: 'deep_scan_completed',
-            summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired} — source=${source}${structuralChange ? ', structural-change' : ''}${pluginNote}${mcpNote}`,
+            summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired}; files upserted ${stats.files_upserted} (${stats.files_extracted} extracted), retired ${stats.files_retired} — source=${source}${structuralChange ? ', structural-change' : ''}${pluginNote}${mcpNote}`,
             content_json: JSON.stringify({
               ...stats,
               session_dir: out.session_dir,
