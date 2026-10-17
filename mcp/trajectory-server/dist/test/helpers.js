@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
@@ -63,5 +64,33 @@ export function pinScanEnv() {
             rmSync(dir, { recursive: true, force: true });
         },
     };
+}
+// runGraphScript runs an ES-module body in a child node process (kuzu's native
+// destructor can segfault at exit on Node 24/macOS, which must not fail the
+// parent suite). `$DIST` in the body is replaced with the dist/ root; the body
+// reports by printing one JSON line, which is parsed and returned.
+export function runGraphScript(body, timeoutMs = 60000) {
+    const distRoot = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
+    const script = body.split('$DIST').join(distRoot);
+    let stdout = '';
+    try {
+        stdout = execFileSync(process.execPath, ['--experimental-sqlite', '--input-type=module'], {
+            input: script,
+            encoding: 'utf8',
+            timeout: timeoutMs,
+            env: process.env,
+        });
+    }
+    catch (e) {
+        const se = e;
+        stdout = se.stdout ?? '';
+        if (!stdout.trim()) {
+            throw new Error(`graph script failed (exit ${se.status}): ${se.stderr?.slice(0, 1500) ?? ''}`);
+        }
+    }
+    const line = stdout.trim().split('\n').reverse().find((l) => l.startsWith('{'));
+    if (!line)
+        throw new Error(`graph script printed no JSON: ${stdout.slice(0, 500)}`);
+    return JSON.parse(line);
 }
 //# sourceMappingURL=helpers.js.map

@@ -1,7 +1,8 @@
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
-import type { DirectoryNode, GraphHolder } from '../graph-db.js';
+import { WorldModelGraph } from '../graph-db.js';
+import type { DirectoryNode, FileNode, GraphHolder } from '../graph-db.js';
 import { resolveSoleRepo } from '../utils/repo-paths.js';
 import { spawnSync } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -127,6 +128,47 @@ interface TreeNode {
   summary_updated_at: string | null;
   file_count: number;
   children: TreeNode[];
+  files?: FileView[];
+}
+
+interface FileView {
+  path: string;
+  purpose: string;
+  purpose_source: string;
+  content_md5: string;
+}
+
+function fileView(f: FileNode): FileView {
+  return {
+    path: WorldModelGraph.relativeFilePath(f),
+    purpose: f.purpose,
+    purpose_source: f.purpose_source,
+    content_md5: f.content_md5,
+  };
+}
+
+function dirResult(h: DirectoryNode & { score: number }): Record<string, unknown> {
+  return {
+    kind: 'dir',
+    repo: h.repo,
+    path: h.path,
+    summary: h.summary,
+    summary_source: h.summary_source,
+    file_count: h.file_count,
+    score: h.score,
+  };
+}
+
+function fileResult(h: FileNode & { score: number }): Record<string, unknown> {
+  return {
+    kind: 'file',
+    repo: h.repo,
+    path: WorldModelGraph.relativeFilePath(h),
+    dir: h.dir,
+    purpose: h.purpose,
+    purpose_source: h.purpose_source,
+    score: h.score,
+  };
 }
 
 function ok(data: unknown): CallToolResult {
@@ -219,7 +261,7 @@ export function worldModelTools(db: TrajectoryDB, graphHolder: GraphHolder | nul
     {
       name: 'world_model_get',
       description:
-        "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. Also returns unmerged_work: closed-task branch tips not yet merged into the repo's target branch. Primary navigation surface for code-touching cold starts.",
+        "Return the world model as an annotated directory tree. Each node carries a README-sourced summary (summary_source='readme') or structural fallback. Depth-1+ summaries are truncated to the first line. Returns truncated:true when the tree exceeds 500 nodes. A non-root path adds files[] (purposes); the root adds coverage. Also returns unmerged_work: closed-task branch tips not yet merged into the repo's target branch. Primary navigation surface for code-touching cold starts.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -246,7 +288,7 @@ export function worldModelTools(db: TrajectoryDB, graphHolder: GraphHolder | nul
     {
       name: 'world_model_search',
       description:
-        "Search the world model by summary + path match. Returns top-K dir summaries with their paths. Default mode is hybrid; falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' questions — cheaper than world_model_get.",
+        "Search dir summaries + file purposes by keyword/path. Returns top-K hits tagged kind 'dir'|'file'. Default mode is hybrid; falls back to keyword with warning: 'semantic_unavailable'. Use for 'where does X live' questions — cheaper than world_model_get.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -322,9 +364,11 @@ export function worldModelTools(db: TrajectoryDB, graphHolder: GraphHolder | nul
         }
 
         const truncated = nodeCounter.count >= WORLD_MODEL_GET_MAX_NODES;
+        if (path !== '') tree.files = graph.filesForDirectory(repo, path).map(fileView);
         return ok({
           repo,
           root: tree,
+          ...(path === '' ? { coverage: graph.fileCoverage(repo) } : {}),
           ...(truncated ? { truncated: true } : {}),
           ...(unmerged.warning ? { warning: unmerged.warning } : {}),
           unmerged_work: unmerged.unmerged_work,
@@ -359,22 +403,18 @@ export function worldModelTools(db: TrajectoryDB, graphHolder: GraphHolder | nul
           return ok({ results: [], total_matched: 0, warning: 'world-model-unavailable', mode });
         }
 
-        // Keyword: substring match over summary + path. Score is constant
+        // Keyword: substring match over dir summary + path and file purpose +
+        // path, directories first. Score is constant
         // until kuzu's FTS extension lands (follow-up post-v0.7).
         // Semantic: requires kuzu's vector extension — also follow-up.
         // Hybrid: falls back to keyword + 'semantic_unavailable' warning.
-        const hits = graph.keywordSearchDirectories(repo, query, k);
+        const dirHits = graph.keywordSearchDirectories(repo, query, k).map(dirResult);
+        const fileHits = graph.keywordSearchFiles(repo, query, k).map(fileResult);
+        const hits = [...dirHits, ...fileHits].slice(0, k);
 
         if (mode === 'keyword') {
           return ok({
-            results: hits.map((h) => ({
-              repo: h.repo,
-              path: h.path,
-              summary: h.summary,
-              summary_source: h.summary_source,
-              file_count: h.file_count,
-              score: h.score,
-            })),
+            results: hits,
             total_matched: hits.length,
             mode: 'keyword',
           });
@@ -391,14 +431,7 @@ export function worldModelTools(db: TrajectoryDB, graphHolder: GraphHolder | nul
 
         // hybrid — return keyword results with semantic_unavailable warning
         return ok({
-          results: hits.map((h) => ({
-            repo: h.repo,
-            path: h.path,
-            summary: h.summary,
-            summary_source: h.summary_source,
-            file_count: h.file_count,
-            score: h.score,
-          })),
+          results: hits,
           total_matched: hits.length,
           warning: 'semantic_unavailable',
           mode: 'hybrid',

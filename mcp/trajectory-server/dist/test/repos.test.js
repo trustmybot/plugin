@@ -250,9 +250,12 @@ const gNew = JSON.parse((await wm({ agent: 'bro', repo: 'app2', depth: null })).
 const gOld = JSON.parse((await wm({ agent: 'bro', repo: 'app', depth: null })).content[0].text);
 const keys = graph.allDirectoriesForRepo('app2').map((n) => n.key);
 const api = gNew.root?.children?.find((c) => c.path === 'src')?.children?.some((c) => c.path === 'src/api') ?? false;
+const files = graph.allFilesForRepo('app2').map((f) => f.path).sort();
+const linkedFiles = [...graph.filePathsWithDirectory('app2')].sort();
+const oldFiles = graph.allFilesForRepo('app').length;
 graph.close();
 db.close();
-console.log(JSON.stringify({ ok: true, before, renameError: r.isError ?? false, out, newRoot: gNew.root !== null, api, oldWarning: gOld.warning, oldRoot: gOld.root, keys }));
+console.log(JSON.stringify({ ok: true, before, renameError: r.isError ?? false, out, newRoot: gNew.root !== null, api, oldWarning: gOld.warning, oldRoot: gOld.root, keys, files, linkedFiles, oldFiles }));
 `;
             let stdout = '';
             try {
@@ -280,6 +283,9 @@ console.log(JSON.stringify({ ok: true, before, renameError: r.isError ?? false, 
             assert.equal(res.oldWarning, 'world-model-empty', 'world_model_get(app) is empty');
             assert.equal(res.oldRoot, null);
             assert.ok(res.keys.every((k) => k === WorldModelGraph.dirKey('app2', JSON.parse(k)[1])), 'keys recomputed with dirKey');
+            assert.deepEqual(res.files, ['app2/README.md', 'app2/src/api/h.ts'], 'File nodes re-keyed under the new repo');
+            assert.deepEqual(res.linkedFiles, res.files, 'HAS_FILE edges re-linked under the new repo');
+            assert.equal(res.oldFiles, 0, 'no File nodes left under the old repo');
         }
         finally {
             rmSync(ws, { recursive: true, force: true });
