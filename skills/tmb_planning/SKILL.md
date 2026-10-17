@@ -51,6 +51,16 @@ Pass the typed machine contract on each swe-executed task:
 
 - `files: string[]` — the surfaces the task is expected to touch, at directory granularity (`mcp/trajectory-server/src/`, `scripts/hooks/`, `tests/`, `docs/`, `changelog.d/`). The swe may edit other paths inside its worktree and reports each one with a reason; you judge them at close.
 - `verification: string[]` — the gate's list: runnable bash commands, one per entry, commands only. Each entry holds a command and nothing else — reasoning about what the command proves lives in `## Description`.
+- `effort` — the swe's effort level, by this rule:
+
+| Effort | When |
+|---|---|
+| `medium` | Default |
+| `high` | The task touches hooks or guards (`hooks/`, `scripts/hooks/`), trajectory-server write paths (`mcp/trajectory-server/src/`), or is prompt-bearing (`prompt_bearing: 1`) |
+| `high` | Any rework spawn after a reviewer FAIL — pass `effort` on the retry |
+| `low` | Consultants and lookups |
+
+swe executes a spec bro already pinned, so medium is the executor default; high is for surfaces where a miss fails open.
 
 The `spec_body` markdown carries the prose bro and swe reason from. Its sections are `## Description, ## Success Criteria, ## Out of Scope, ## Commit` — when the scope outgrows one spec, split into multiple tasks linked by `parent_branch_id`:
 
@@ -88,6 +98,7 @@ Then spawn SWE with the `task_id` it returned. The swe runs the tests for what i
 The Agent PreToolUse gates enforce a spawn contract:
 
 - The spawn prompt MUST contain the literal `task_id=<N>` from the `task_provision` response — a bare `task_id 5` without `=` fails the gate.
+- The Agent call carries `effort` equal to the task's effort; the spawn gate denies a mismatch.
 - The task must be `pending` (or `running` with no live SWE run) with a non-empty `spec_body` — `task_provision` guarantees this.
 - The branch and worktree are created by `task_provision` — don't pre-create the branch or `EnterWorktree` manually.
 
