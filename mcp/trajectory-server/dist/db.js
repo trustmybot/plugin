@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logger.js';
 import { assertSafeProjectWritePath, resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
-export const TARGET_SCHEMA_VERSION = 36;
+export const TARGET_SCHEMA_VERSION = 37;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -490,6 +490,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 36 && toVersion >= 36) {
         migrateV35toV36(db);
+    }
+    if (fromVersion < 37 && toVersion >= 37) {
+        migrateV36toV37(db);
     }
 }
 function hasColumn(db, table, column) {
@@ -1995,6 +1998,31 @@ function migrateV35toV36(db) {
       PRIMARY KEY (run_id, ordinal)
     );
   `);
+}
+// v36→v37: typed effort (GH 1349). tasks.effort (low|medium|high, NOT NULL
+// DEFAULT 'medium') is the effort swe runs the task at; agent_runs.effort
+// (nullable) records the effort a run was spawned at. Existing task rows take
+// 'medium'; existing runs stay NULL. A re-run is a no-op.
+function migrateV36toV37(db) {
+    db.exec('BEGIN');
+    try {
+        if (tableExists(db, 'tasks') && !hasColumn(db, 'tasks', 'effort')) {
+            db.exec("ALTER TABLE tasks ADD COLUMN effort TEXT NOT NULL DEFAULT 'medium' CHECK (effort IN ('low','medium','high'))");
+        }
+        if (tableExists(db, 'agent_runs') && !hasColumn(db, 'agent_runs', 'effort')) {
+            db.exec("ALTER TABLE agent_runs ADD COLUMN effort TEXT CHECK (effort IN ('low','medium','high'))");
+        }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
 }
 // v22→v23: the repos-centric schema (#155). repos(name) becomes the FK hub.
 //

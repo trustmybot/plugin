@@ -74,7 +74,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 
 ## Hooks (SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / Stop / SubagentStop / WorktreeCreate)
 
-52 hook scripts under `scripts/hooks/`, wired via `hooks/hooks.json`. The six PreToolUse-Agent gates run through a single `agent-spawn-dispatch.sh` dispatcher rather than as separate registrations. The trajectory-server gates are one registration, `dispatch.sh trajectory-gates`: `agent-arg-matches-caller.sh`, `swe-brief-gate.sh`, then the tool's own gate, in that order, stopping at the first deny.
+56 hook scripts under `scripts/hooks/`, wired via `hooks/hooks.json`. The six PreToolUse-Agent gates run through a single `agent-spawn-dispatch.sh` dispatcher rather than as separate registrations. The trajectory-server gates are one registration, `dispatch.sh trajectory-gates`: `agent-arg-matches-caller.sh`, `swe-brief-gate.sh`, then the tool's own gate, in that order, stopping at the first deny.
 
 | Hook | Trigger | Purpose |
 |---|---|---|
@@ -100,7 +100,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `commit-msg-lint.sh` | PreToolUse Bash | Enforce conventional-commit subject format |
 | `no-remote-auth-guard.sh` | PreToolUse Bash | Block interactive remote-auth flows (gh/glab login) |
 | `remote-id-guard.sh` | PreToolUse Bash | Guard remote-identity / repo-creation operations |
-| `agent-spawn-dispatch.sh` | PreToolUse Agent | Dispatcher for the spawn gates: `require-task-spec.sh`, `require-feature-branch-active.sh`, `pr-reviewer-no-worktree.sh`, `pr-reviewer-spawn-prompt-shape.sh`, `pr-reviewer-after-atomic-close.sh`, then prepares the worktree via `ensure-swe-worktree.sh` |
+| `agent-spawn-dispatch.sh` | PreToolUse Agent | Dispatcher for the spawn gates: `require-task-spec.sh`, `require-spawn-effort.sh`, `require-feature-branch-active.sh`, `pr-reviewer-no-worktree.sh`, `pr-reviewer-spawn-prompt-shape.sh`, `pr-reviewer-after-atomic-close.sh`, then prepares the worktree via `ensure-swe-worktree.sh` |
 | `agent-arg-matches-caller.sh` | PreToolUse trajectory-server | Deny a call whose `agent` argument names another role than the caller (the payload's `agent_type`, or bro for the main session) and audit `agent_arg_mismatch`; a missing `agent` is allowed and the decision never depends on the trajectory DB |
 | `swe-brief-gate.sh` | PreToolUse trajectory-server + Edit/Write | SWE must have fetched its task brief before touching state or files |
 | `swe-verification-gate.sh` | PreToolUse trajectory-server (task_update_status) | Gate the SWE close transition on verification |
@@ -123,7 +123,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `clean-merged-branch.sh` | PostToolUse Bash | Prune local branches once their PR merges |
 | `close-issue-on-merge.sh` | PostToolUse Bash | Close the local issue when its PR merges |
 | `bro-turn-usage.sh` | Stop | Capture bro's per-turn token/cost usage |
-| `swe-atomic-close.sh` | SubagentStop | Auto-close pending SWE task; capture agent_runs metrics |
+| `swe-atomic-close.sh` | SubagentStop | Auto-close pending SWE task; capture swe and pr-reviewer agent_runs metrics and effort |
 | `consultant-persistence-gate.sh` | SubagentStop | Persist a consultant subagent's output before it exits |
 | `worktree-create.sh` | WorktreeCreate | Enforce worktree-creation rules |
 

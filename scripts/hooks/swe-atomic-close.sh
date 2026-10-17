@@ -1,19 +1,26 @@
 #!/usr/bin/env bash
-# SubagentStop hook — atomic-close safety net + per-spawn metering for SWE.
+# SubagentStop hook — atomic-close safety net + per-spawn metering for SWE,
+# and per-spawn metering for pr-reviewer.
 #
 # Task binding: the `task_id=<N>` in the spawn prompt (tmb_task_id_from_transcript),
-# for a task in any status. A transcript with no task id, or an id with no task
-# row, writes one agent_runs_capture_skipped audit row and stops — the hook never
-# guesses a task.
+# for a task in any status. A swe transcript with no task id, or an id with no
+# task row, writes one agent_runs_capture_skipped audit row and stops — the hook
+# never guesses a task. An unbound pr-reviewer spawn stops silently.
 #
 # Fires on: SubagentStop
 # Target: <1s wall time.
 #
-# Decision matrix (status side-effects):
+# Decision matrix (status side-effects, swe only):
 #   pending + HAS_COMMITS=true  → status='completed' + commit_sha
 #   pending + HAS_COMMITS=false → additionalContext warning to bro
 #   any other status            → metrics only, status unchanged
-#   subagent_type != swe        → silent exit 0
+#   subagent_type pr-reviewer   → metrics only
+#   any other subagent_type     → silent exit 0
+#
+# Effort: a swe row copies tasks.effort of its task; a pr-reviewer row takes
+# plugin_config.reviewer_effort (tmb_effort_defaults; high when unset). A
+# pr-reviewer row is keyed by spawn_id alone, with root_dir the project root
+# and exit_reason completed.
 #
 # Metering: the spawn's totals and dominant model from its transcript land on
 # one agent_runs row (host claude, root_dir the task worktree when unset,
@@ -112,9 +119,9 @@ jq -cn --arg ts "$ENTRY_TS" --argjson keys "$ENTRY_KEYS" --arg agent "$ENTRY_AGE
   '{ts:$ts,kind:"swe-atomic-close-entry",keys:$keys,agent_type_resolved:$agent}' \
   >> "$_LOG_FILE" 2>/dev/null || true
 
-# Only act on SWE subagent stops.
+# Only act on swe and pr-reviewer subagent stops.
 AGENT_TYPE=$(tmb_normalize_role "$(echo "$INPUT" | jq -r '.agent_type // .subagent_type // .tool_input.subagent_type // empty' 2>/dev/null || true)")
-if [ "$AGENT_TYPE" != "swe" ]; then
+if [ "$AGENT_TYPE" != "swe" ] && [ "$AGENT_TYPE" != "pr-reviewer" ]; then
   exit 0
 fi
 
@@ -138,6 +145,7 @@ if [ -n "$TRANSCRIPT_TASK_ID" ]; then
 fi
 
 if [ -z "$ROW" ]; then
+  [ "$AGENT_TYPE" = "swe" ] || exit 0
   SKIP_REASON="no task_id=<N> in the spawn transcript"
   [ -n "$TRANSCRIPT_TASK_ID" ] && SKIP_REASON="spawn transcript names task_id=${TRANSCRIPT_TASK_ID}, which has no task row"
   SKIP_JSON=$(jq -cn --arg tr "$TRANSCRIPT_PATH" --arg sp "$SPAWN_ID" --arg tid "$TRANSCRIPT_TASK_ID" --arg why "$SKIP_REASON" \
@@ -155,6 +163,69 @@ BRANCH=$(echo "$ROW" | cut -d'|' -f3)
 PARENT_BRANCH=$(echo "$ROW" | cut -d'|' -f4)
 TASK_REPO=$(echo "$ROW" | cut -d'|' -f5)
 ISSUE_ID=$(echo "$ROW" | cut -d'|' -f6)
+
+ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+# Per-spawn metrics into agent_runs. A failed write is logged, never fatal.
+STATS=$(tmb_parse_transcript_stats "$TRANSCRIPT_PATH")
+IFS='|' read -r TOKENS_IN TOKENS_OUT TOOL_USES DURATION_MS CACHE_READ_TOKENS CACHE_CREATION_TOKENS FIRST_TS MODEL <<< "$STATS"
+jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" --arg tr "$TRANSCRIPT_PATH" --arg stats "$STATS" \
+  '{ts:$ts,kind:"agent-runs-stats-parsed",task_id:$tid,stats:$stats,transcript:$tr}' \
+  >> "$_LOG_FILE" 2>/dev/null || true
+
+SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
+SAFE_ISSUE_ID=$(tmb_sql_int "$ISSUE_ID"); SAFE_ISSUE_ID=${SAFE_ISSUE_ID:-NULL}
+SAFE_TOKENS_IN=$(tmb_sql_int "$TOKENS_IN"); SAFE_TOKENS_IN=${SAFE_TOKENS_IN:-0}
+SAFE_TOKENS_OUT=$(tmb_sql_int "$TOKENS_OUT"); SAFE_TOKENS_OUT=${SAFE_TOKENS_OUT:-0}
+SAFE_CACHE_READ_TOKENS=$(tmb_sql_int "$CACHE_READ_TOKENS"); SAFE_CACHE_READ_TOKENS=${SAFE_CACHE_READ_TOKENS:-0}
+SAFE_CACHE_CREATION_TOKENS=$(tmb_sql_int "$CACHE_CREATION_TOKENS"); SAFE_CACHE_CREATION_TOKENS=${SAFE_CACHE_CREATION_TOKENS:-0}
+SAFE_TOOL_USES=$(tmb_sql_int "$TOOL_USES"); SAFE_TOOL_USES=${SAFE_TOOL_USES:-0}
+SAFE_DURATION_MS=$(tmb_sql_int "$DURATION_MS"); SAFE_DURATION_MS=${SAFE_DURATION_MS:-0}
+SAFE_SPAWN_ID=$(tmb_sql_quote "$SPAWN_ID")
+SAFE_NOW=$(tmb_sql_quote "$(tmb_now_iso)")
+SAFE_FIRST_TS=$(tmb_sql_quote "${FIRST_TS:-$(tmb_now_iso)}")
+SAFE_SESSION_SQL="NULL"
+[ -n "$SESSION_ID" ] && SAFE_SESSION_SQL="'$(tmb_sql_quote "$SESSION_ID")'"
+SAFE_MODEL_SQL="NULL"
+[ -n "${MODEL:-}" ] && SAFE_MODEL_SQL="'$(tmb_sql_quote "$MODEL")'"
+
+# pr-reviewer: one metering row per spawn, effort = reviewer_effort; no task
+# status side effects.
+if [ "$AGENT_TYPE" = "pr-reviewer" ]; then
+  REVIEWER_EFFORT_SQL="NULL"
+  EFFORT_DEFAULTS=$(tmb_effort_defaults "$DB")
+  case "${EFFORT_DEFAULTS#*|}" in
+    low|medium|high) REVIEWER_EFFORT_SQL="'${EFFORT_DEFAULTS#*|}'" ;;
+  esac
+  SAFE_PROJECT_ROOT=$(tmb_sql_quote "$(cd "$(dirname "$DB")/../.." 2>/dev/null && pwd -P)")
+  if ! tmb_db_write "$DB" "
+UPDATE agent_runs
+   SET tokens_in = ${SAFE_TOKENS_IN},
+       tokens_out = ${SAFE_TOKENS_OUT},
+       cache_read_tokens = ${SAFE_CACHE_READ_TOKENS},
+       cache_creation_tokens = ${SAFE_CACHE_CREATION_TOKENS},
+       tool_uses = ${SAFE_TOOL_USES},
+       duration_ms = ${SAFE_DURATION_MS},
+       completed_at = '${SAFE_NOW}',
+       session_id = COALESCE(${SAFE_SESSION_SQL}, session_id),
+       usage_source = 'subagent_stop',
+       model = COALESCE(${SAFE_MODEL_SQL}, model),
+       effort = COALESCE(effort, ${REVIEWER_EFFORT_SQL})
+ WHERE task_id = ${SAFE_TASK_ID} AND agent_type = 'pr-reviewer' AND spawn_id = '${SAFE_SPAWN_ID}';
+INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, cache_read_tokens,
+                        cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at,
+                        repo, spawn_id, session_id, usage_source, model, host, root_dir, exit_reason, effort)
+SELECT ${SAFE_TASK_ID}, ${SAFE_ISSUE_ID}, 'pr-reviewer', ${SAFE_TOKENS_IN}, ${SAFE_TOKENS_OUT}, ${SAFE_CACHE_READ_TOKENS},
+       ${SAFE_CACHE_CREATION_TOKENS}, ${SAFE_TOOL_USES}, ${SAFE_DURATION_MS}, '${SAFE_FIRST_TS}', '${SAFE_NOW}',
+       (SELECT repo FROM tasks WHERE id = ${SAFE_TASK_ID}), '${SAFE_SPAWN_ID}', ${SAFE_SESSION_SQL}, 'subagent_stop',
+       ${SAFE_MODEL_SQL}, 'claude', '${SAFE_PROJECT_ROOT}', 'completed', ${REVIEWER_EFFORT_SQL}
+ WHERE (SELECT changes()) = 0;"; then
+    jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
+      '{ts:$ts,kind:"agent-runs-write-failed",task_id:$tid,agent_type:"pr-reviewer"}' \
+      >> "$_LOG_FILE" 2>/dev/null || true
+  fi
+  exit 0
+fi
 
 # Resolve REPO_ROOT for worktree path:
 #   1. If task has a repo and repos.path resolves, use it (multi-repo workspace).
@@ -178,6 +249,8 @@ SLUG="${BRANCH##*/}"
 # the worktree lives at <repoRoot>/.claude/worktrees/<slug>. REPO_ROOT was
 # resolved above from tasks.repo → repos.path (single-repo: repo == workspace).
 WT_PATH="${REPO_ROOT}/.claude/worktrees/${SLUG}"
+
+SAFE_ROOT_DIR=$(tmb_sql_quote "$WT_PATH")
 
 # Read the SWE's worktree HEAD.
 WT_HEAD=$(git -C "$WT_PATH" rev-parse HEAD 2>/dev/null || true)
@@ -252,7 +325,6 @@ else
   fi
 fi
 
-ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 DECISION=""
 CONTEXT=""
 
@@ -275,30 +347,6 @@ else
   # Any other status (running, failed, needs_validation, completed, ...): metrics only.
   DECISION="metrics-only"
 fi
-
-# Per-spawn metrics into agent_runs. A failed write is logged, never fatal.
-STATS=$(tmb_parse_transcript_stats "$TRANSCRIPT_PATH")
-IFS='|' read -r TOKENS_IN TOKENS_OUT TOOL_USES DURATION_MS CACHE_READ_TOKENS CACHE_CREATION_TOKENS FIRST_TS MODEL <<< "$STATS"
-jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" --arg tr "$TRANSCRIPT_PATH" --arg stats "$STATS" \
-  '{ts:$ts,kind:"agent-runs-stats-parsed",task_id:$tid,stats:$stats,transcript:$tr}' \
-  >> "$_LOG_FILE" 2>/dev/null || true
-
-SAFE_TASK_ID=$(tmb_sql_int "$TASK_ID")
-SAFE_ISSUE_ID=$(tmb_sql_int "$ISSUE_ID"); SAFE_ISSUE_ID=${SAFE_ISSUE_ID:-NULL}
-SAFE_TOKENS_IN=$(tmb_sql_int "$TOKENS_IN"); SAFE_TOKENS_IN=${SAFE_TOKENS_IN:-0}
-SAFE_TOKENS_OUT=$(tmb_sql_int "$TOKENS_OUT"); SAFE_TOKENS_OUT=${SAFE_TOKENS_OUT:-0}
-SAFE_CACHE_READ_TOKENS=$(tmb_sql_int "$CACHE_READ_TOKENS"); SAFE_CACHE_READ_TOKENS=${SAFE_CACHE_READ_TOKENS:-0}
-SAFE_CACHE_CREATION_TOKENS=$(tmb_sql_int "$CACHE_CREATION_TOKENS"); SAFE_CACHE_CREATION_TOKENS=${SAFE_CACHE_CREATION_TOKENS:-0}
-SAFE_TOOL_USES=$(tmb_sql_int "$TOOL_USES"); SAFE_TOOL_USES=${SAFE_TOOL_USES:-0}
-SAFE_DURATION_MS=$(tmb_sql_int "$DURATION_MS"); SAFE_DURATION_MS=${SAFE_DURATION_MS:-0}
-SAFE_SPAWN_ID=$(tmb_sql_quote "$SPAWN_ID")
-SAFE_NOW=$(tmb_sql_quote "$(tmb_now_iso)")
-SAFE_FIRST_TS=$(tmb_sql_quote "${FIRST_TS:-$(tmb_now_iso)}")
-SAFE_SESSION_SQL="NULL"
-[ -n "$SESSION_ID" ] && SAFE_SESSION_SQL="'$(tmb_sql_quote "$SESSION_ID")'"
-SAFE_MODEL_SQL="NULL"
-[ -n "${MODEL:-}" ] && SAFE_MODEL_SQL="'$(tmb_sql_quote "$MODEL")'"
-SAFE_ROOT_DIR=$(tmb_sql_quote "$WT_PATH")
 
 # exit_reason of the spawn's row: what the task looks like once the spawn ended.
 case "$DECISION:$TASK_STATUS" in
@@ -326,7 +374,8 @@ UPDATE agent_runs
        model = COALESCE(${SAFE_MODEL_SQL}, model),
        host = COALESCE(host, 'claude'),
        root_dir = COALESCE(root_dir, '${SAFE_ROOT_DIR}'),
-       exit_reason = COALESCE(exit_reason, '${EXIT_REASON}')
+       exit_reason = COALESCE(exit_reason, '${EXIT_REASON}'),
+       effort = COALESCE(effort, (SELECT effort FROM tasks WHERE id = ${SAFE_TASK_ID}))
  WHERE id = (
    SELECT id FROM agent_runs
     WHERE task_id = ${SAFE_TASK_ID}
@@ -338,11 +387,11 @@ UPDATE agent_runs
     LIMIT 1);
 INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, cache_read_tokens,
                         cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at,
-                        repo, spawn_id, session_id, usage_source, model, host, root_dir, exit_reason)
+                        repo, spawn_id, session_id, usage_source, model, host, root_dir, exit_reason, effort)
 SELECT ${SAFE_TASK_ID}, ${SAFE_ISSUE_ID}, 'swe', ${SAFE_TOKENS_IN}, ${SAFE_TOKENS_OUT}, ${SAFE_CACHE_READ_TOKENS},
        ${SAFE_CACHE_CREATION_TOKENS}, ${SAFE_TOOL_USES}, ${SAFE_DURATION_MS}, '${SAFE_FIRST_TS}', '${SAFE_NOW}',
        (SELECT repo FROM tasks WHERE id = ${SAFE_TASK_ID}), '${SAFE_SPAWN_ID}', ${SAFE_SESSION_SQL}, 'subagent_stop',
-       ${SAFE_MODEL_SQL}, 'claude', '${SAFE_ROOT_DIR}', '${EXIT_REASON}'
+       ${SAFE_MODEL_SQL}, 'claude', '${SAFE_ROOT_DIR}', '${EXIT_REASON}', (SELECT effort FROM tasks WHERE id = ${SAFE_TASK_ID})
  WHERE (SELECT changes()) = 0;"; then
   jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
     '{ts:$ts,kind:"agent-runs-write-failed",task_id:$tid}' \

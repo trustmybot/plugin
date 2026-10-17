@@ -1,13 +1,15 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { tempDB } from './helpers.js';
 import { taskTools } from '../tools/tasks.js';
 import { issueTools } from '../tools/issues.js';
 import { auditTools } from '../tools/audit.js';
+import { compositeTools } from '../tools/composites.js';
+import { configTools, resolveEffortDefaults } from '../tools/config.js';
 // Each git fixture is its OWN sandbox under the OS temp dir — never inside the
 // plugin tree / ambient cwd — so no git op can ever drift onto the caller's
 // branch. `dir` is the absolute sandbox; every git op below targets it via
@@ -1716,6 +1718,169 @@ describe('taskTools', () => {
         }
         finally {
             rmSync(nonGitDir, { recursive: true, force: true });
+        }
+    });
+});
+describe('effort (GH 1349)', () => {
+    const SPEC = ['## Description', 'do the thing', '', '## Success Criteria', '- works'].join('\n');
+    const WAIVERS = {
+        waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+        waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test',
+        waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test',
+        waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+    };
+    // A project dir holding a git repo `app` with an origin/main ref, registered
+    // as the sole repo, plus one open issue.
+    function setup() {
+        const ws = mkdtempSync(join(tmpdir(), 'tmb-effort-'));
+        const repoRoot = join(ws, 'app');
+        mkdirSync(repoRoot, { recursive: true });
+        const git = (...a) => execFileSync('git', ['-C', repoRoot, ...a], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+        git('init', '-q', '-b', 'main');
+        git('config', 'user.email', 't@t.t');
+        git('config', 'user.name', 't');
+        writeFileSync(join(repoRoot, 'a.txt'), 'one\n');
+        git('add', '.');
+        git('commit', '-q', '-m', 'base');
+        git('update-ref', 'refs/remotes/origin/main', git('rev-parse', 'HEAD'));
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path, target_branch) VALUES ('app', ?, 'main')`, [repoRoot]);
+        db.run(`INSERT INTO issues (id, objective, description, status, created_at, updated_at)
+            VALUES (1, 'o', 'd', 'open', datetime('now'), datetime('now'))`);
+        const composites = compositeTools(db, join(ws, '.claude', 'tmb', 'trajectory.db'));
+        const config = configTools(db);
+        return { ws, db, composites, config, cleanup: () => { db.close(); rmSync(ws, { recursive: true, force: true }); } };
+    }
+    async function provision(handlers, branchId, effort) {
+        return call(handlers, 'task_provision', {
+            agent: 'bro', issue_id: 1, branch_id: branchId, decision_body: 'Chosen approach: effort fixture.',
+            task: { description: 'd', spec_body: SPEC, files: ['src/x.ts'], verification: ['true'], repo: 'app', ...(effort === undefined ? {} : { effort }) },
+        });
+    }
+    const effortOf = (db, id) => db.get('SELECT effort FROM tasks WHERE id = ?', [id]).effort;
+    it('task_provision stores swe_default_effort when effort is omitted: medium unset, low once configured', async () => {
+        const { db, composites, config, cleanup } = setup();
+        try {
+            const first = parseResult(await provision(composites.handlers, 'feat/default-effort'));
+            assert.equal(first.effort, 'medium', 'the spawn-ready shape names the effort');
+            assert.equal(effortOf(db, first.task_id), 'medium');
+            const set = await call(config.handlers, 'config_set', { agent: 'bro', key: 'swe_default_effort', value: 'low' });
+            assert.ok(!set.isError, JSON.stringify(parseResult(set)));
+            const second = parseResult(await provision(composites.handlers, 'feat/configured-effort'));
+            assert.equal(effortOf(db, second.task_id), 'low');
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it("task_provision stores an explicit effort; effort:'max' is a typed_field_violation and writes nothing", async () => {
+        const { db, composites, cleanup } = setup();
+        try {
+            const high = parseResult(await provision(composites.handlers, 'feat/high-effort', 'high'));
+            assert.equal(effortOf(db, high.task_id), 'high');
+            const bad = await provision(composites.handlers, 'feat/max-effort', 'max');
+            assert.equal(bad.isError, true);
+            assert.match(String(parseResult(bad).error), /^typed_field_violation: task\.effort must be one of low, medium, high/);
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM tasks WHERE branch_id = 'feat/max-effort'`).c, 0);
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('task_create_batch applies the same default, explicit value and typed_field_violation; task_get returns effort', async () => {
+        const { db, config, cleanup } = setup();
+        try {
+            const tools = taskTools(db);
+            const created = parseBatch(await call(tools.handlers, 'task_create_batch', {
+                ...WAIVERS, agent: 'bro', issue_id: '1',
+                tasks: [
+                    { branch_id: 'feat/batch-default', description: 'd' },
+                    { branch_id: 'feat/batch-high', description: 'd', effort: 'high' },
+                ],
+            }));
+            assert.deepEqual(created.map((t) => t.effort), ['medium', 'high']);
+            assert.equal(effortOf(db, created[0].id), 'medium');
+            assert.equal(effortOf(db, created[1].id), 'high');
+            const got = parseResult(await call(tools.handlers, 'task_get', { agent: 'bro', task_id: String(created[1].id) }));
+            assert.equal(got.effort, 'high');
+            await call(config.handlers, 'config_set', { agent: 'bro', key: 'swe_default_effort', value: 'low' });
+            const low = parseBatch(await call(tools.handlers, 'task_create_batch', {
+                ...WAIVERS, agent: 'bro', issue_id: '1', tasks: [{ branch_id: 'feat/batch-low', description: 'd' }],
+            }));
+            assert.equal(effortOf(db, low[0].id), 'low');
+            const bad = await call(tools.handlers, 'task_create_batch', {
+                ...WAIVERS, agent: 'bro', issue_id: '1', tasks: [{ branch_id: 'feat/batch-max', description: 'd', effort: 'max' }],
+            });
+            assert.equal(bad.isError, true);
+            assert.match(JSON.stringify(parseResult(bad)), /typed_field_violation: task branch_id='feat\/batch-max' — 'effort' must be one of low, medium, high/);
+            assert.equal(db.get(`SELECT COUNT(*) AS c FROM tasks WHERE branch_id = 'feat/batch-max'`).c, 0);
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('config_set validates both effort keys; resolveEffortDefaults reads medium/high when unset', async () => {
+        const { db, config, cleanup } = setup();
+        try {
+            assert.deepEqual(resolveEffortDefaults(db), { swe: 'medium', reviewer: 'high' });
+            for (const key of ['swe_default_effort', 'reviewer_effort']) {
+                const bad = await call(config.handlers, 'config_set', { agent: 'bro', key, value: 'max' });
+                assert.equal(bad.isError, true, key);
+                assert.match(String(parseResult(bad).error), new RegExp(`typed_field_violation: config key "${key}" must be one of low, medium, high`));
+            }
+            await call(config.handlers, 'config_set', { agent: 'bro', key: 'reviewer_effort', value: 'medium' });
+            assert.deepEqual(resolveEffortDefaults(db), { swe: 'medium', reviewer: 'medium' });
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it('task_reopen raises effort with one task_effort_raised row; an unchanged effort writes none', async () => {
+        const { db, composites, cleanup } = setup();
+        try {
+            const id = parseResult(await provision(composites.handlers, 'fix/rework-effort')).task_id;
+            db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [id]);
+            const r = await call(composites.handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'review failed', effort: 'high' });
+            assert.ok(!r.isError, JSON.stringify(parseResult(r)));
+            assert.equal(parseResult(r).effort, 'high');
+            assert.equal(effortOf(db, id), 'high');
+            const raised = () => db.all(`SELECT content_json, from_node FROM audit WHERE event_type = 'task_effort_raised'`);
+            assert.equal(raised().length, 1);
+            assert.deepEqual(JSON.parse(raised()[0].content_json), { task_id: id, from: 'medium', to: 'high' });
+            assert.equal(raised()[0].from_node, 'bro');
+            await call(composites.handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'again', effort: 'high' });
+            assert.equal(raised().length, 1, 'same effort: no new row');
+            const bad = await call(composites.handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'x', effort: 'max' });
+            assert.equal(bad.isError, true);
+            assert.match(String(parseResult(bad).error), /^typed_field_violation: effort must be one of low, medium, high/);
+        }
+        finally {
+            cleanup();
+        }
+    });
+    it("task_retry inherits the failed task's effort or raises it, auditing the raise; task_brief returns effort", async () => {
+        const { db, composites, cleanup } = setup();
+        try {
+            const id = parseResult(await provision(composites.handlers, 'fix/retry-effort', 'low')).task_id;
+            db.run(`UPDATE tasks SET status = 'failed' WHERE id = ?`, [id]);
+            const inherit = parseResult(await call(composites.handlers, 'task_retry', {
+                agent: 'bro', failed_task_id: String(id), new_branch_id: 'fix/retry-effort-v2', corrected_spec_body: SPEC,
+                retry_rationale: 'inherit', description: 'd',
+            }));
+            assert.equal(effortOf(db, inherit.task_id), 'low');
+            const raised = parseResult(await call(composites.handlers, 'task_retry', {
+                agent: 'bro', failed_task_id: String(id), new_branch_id: 'fix/retry-effort-v3', corrected_spec_body: SPEC,
+                retry_rationale: 'raise', description: 'd', effort: 'high',
+            }));
+            assert.equal(raised.effort, 'high');
+            assert.equal(effortOf(db, raised.task_id), 'high');
+            const rows = db.all(`SELECT content_json FROM audit WHERE event_type = 'task_effort_raised'`);
+            assert.deepEqual(rows.map((r) => JSON.parse(r.content_json)), [{ task_id: raised.task_id, from: 'low', to: 'high', failed_task_id: id }]);
+            const brief = parseResult(await call(composites.handlers, 'task_brief', { agent: 'bro', task_id: raised.task_id }));
+            assert.equal(brief.effort, 'high');
+        }
+        finally {
+            cleanup();
         }
     });
 });

@@ -21417,7 +21417,7 @@ function upsertRepoRemotes(db, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 36;
+var TARGET_SCHEMA_VERSION = 37;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
 }
@@ -21821,6 +21821,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 36 && toVersion >= 36) {
     migrateV35toV36(db);
+  }
+  if (fromVersion < 37 && toVersion >= 37) {
+    migrateV36toV37(db);
   }
 }
 function hasColumn(db, table, column) {
@@ -23244,6 +23247,24 @@ function migrateV35toV36(db) {
       PRIMARY KEY (run_id, ordinal)
     );
   `);
+}
+function migrateV36toV37(db) {
+  db.exec("BEGIN");
+  try {
+    if (tableExists(db, "tasks") && !hasColumn(db, "tasks", "effort")) {
+      db.exec("ALTER TABLE tasks ADD COLUMN effort TEXT NOT NULL DEFAULT 'medium' CHECK (effort IN ('low','medium','high'))");
+    }
+    if (tableExists(db, "agent_runs") && !hasColumn(db, "agent_runs", "effort")) {
+      db.exec("ALTER TABLE agent_runs ADD COLUMN effort TEXT CHECK (effort IN ('low','medium','high'))");
+    }
+    db.exec("COMMIT");
+  } catch (err5) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+    }
+    throw err5;
+  }
 }
 function migrateV22toV23(db) {
   const soleRepo = () => {
@@ -25850,6 +25871,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "spec_shape_gate_waived", writers: ["bro"], description: "A task's spec-shape waiver, one row per task on its issue with from_node `bro`; `task_create_batch` and `task_provision` called with `waive_spec_shape` write one for every task they create, and bro records one for an existing task through `audit_append`; `content_json` carries `task_id`, `gate` (`spec_shape`), `reason`, `waived_by` (`bro`), `source` (`task_create_batch`, `task_provision`, or absent for `audit_append`); `require-task-spec` reads it as the spawn waiver" },
   { type: "swe_brief_fetched", writers: ["hook"], description: "`swe-brief-gate` recorded that a SWE fetched its `task_brief`; the brief gate and `bro-turn-usage` read it" },
   { type: "sync_skipped", writers: ["bro"], description: "Issue sync skipped a remote write because `issue_sync` is off; `content_json` carries `issue_id`, `reason`" },
+  { type: "task_effort_raised", writers: ["bro"], description: "`task_reopen` or `task_retry` called with an `effort` above the task's (for `task_retry`, the failed task's) raised the effort swe runs it at; one row per raise on the task's issue; `content_json` carries `task_id`, `from`, `to`, and `failed_task_id` from `task_retry`" },
   { type: "task_escalated_by_issue_close", writers: ["bro"], description: "`issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason`" },
   { type: "task_escalated_repair", writers: ["server"], description: "The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` and closed its open `agent_runs` rows as `issue_closed`; written by `system`; `content_json` carries `task_id`, `issue_id`, `from_status`" },
   { type: "task_recovered", writers: ["bro"], description: "`task_recover` closed a task stuck in `running`/`completed` at its commit; `content_json` carries `task_id`, `commit_sha`, `prior_status`" },
@@ -26375,6 +26397,23 @@ function discussionTools(db) {
 
 // src/tools/config.ts
 var KEY_REGEX = /^[a-z][a-z0-9_.-]{0,63}$/i;
+var EFFORT_LEVELS = ["low", "medium", "high"];
+var SWE_DEFAULT_EFFORT_KEY = "swe_default_effort";
+var REVIEWER_EFFORT_KEY = "reviewer_effort";
+var EFFORT_DEFAULTS = {
+  [SWE_DEFAULT_EFFORT_KEY]: "medium",
+  [REVIEWER_EFFORT_KEY]: "high"
+};
+function isEffort(value) {
+  return typeof value === "string" && EFFORT_LEVELS.includes(value);
+}
+function validateKnownConfigValue(key, value) {
+  if (Object.hasOwn(EFFORT_DEFAULTS, key) && !isEffort(value)) {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(value)}.`
+    );
+  }
+}
 function storedConfigParseErrorPrefix(key) {
   return `config key ${JSON.stringify(key)}: stored value is not valid JSON`;
 }
@@ -26426,6 +26465,7 @@ function serializeConfigValue(key, rawValue) {
   if (rawValue === void 0 || rawValue === null) {
     throw new Error("Missing required arg: value");
   }
+  validateKnownConfigValue(key, rawValue);
   if (typeof rawValue === "string") {
     const trimmed = rawValue.trim();
     if (trimmed.startsWith("[") && trimmed.endsWith("]") || trimmed.startsWith("{") && trimmed.endsWith("}")) {

@@ -31,12 +31,14 @@ Both failures are impossible against a typed array: `files: string[]` and `verif
 |---|---|---|---|---|
 | `files` | `TEXT` JSON array, default `'[]'` | `files?: string[]` | `swe-scope-fence.sh`, `swe-boundary.sh`, `bro_atomic_close` | no edit-time notes; every changed path is an extra at close |
 | `verification` | `TEXT` JSON array, default `'[]'` | `verification?: string[]` | `swe-verification-gate.sh` | verification gate skips with a warning |
+| `effort` | `TEXT NOT NULL DEFAULT 'medium'`, `CHECK (effort IN ('low','medium','high'))` | `effort?: 'low' \| 'medium' \| 'high'` (`task_create_batch`, `task_provision`; `task_reopen` / `task_retry` may raise it) | `require-spawn-effort.sh` (the swe Agent call must pass it), `swe-atomic-close.sh` (copies it onto the swe `agent_runs.effort`) | `plugin_config.swe_default_effort`, `medium` when unset |
 
 Write-time validation (`task_create_batch`, before any side effect):
 
 - A field that is present but **not an array** → `typed_field_violation`.
 - A field that is present but an **empty array** → `typed_field_violation` (omit the field to disable the hook; don't pass `[]`).
 - Any array element that is **not a non-empty string** → `typed_field_violation`.
+- An `effort` that is present but not `low`, `medium` or `high` → `typed_field_violation` (also on `task_provision`, `task_reopen`, `task_retry`).
 
 Enforcement semantics:
 

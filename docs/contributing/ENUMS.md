@@ -177,6 +177,7 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `spec_shape_gate_waived` | `bro` | A task's spec-shape waiver, one row per task on its issue with from_node `bro`; `task_create_batch` and `task_provision` called with `waive_spec_shape` write one for every task they create, and bro records one for an existing task through `audit_append`; `content_json` carries `task_id`, `gate` (`spec_shape`), `reason`, `waived_by` (`bro`), `source` (`task_create_batch`, `task_provision`, or absent for `audit_append`); `require-task-spec` reads it as the spawn waiver |
 | `swe_brief_fetched` | `hook` | `swe-brief-gate` recorded that a SWE fetched its `task_brief`; the brief gate and `bro-turn-usage` read it |
 | `sync_skipped` | `bro` | Issue sync skipped a remote write because `issue_sync` is off; `content_json` carries `issue_id`, `reason` |
+| `task_effort_raised` | `bro` | `task_reopen` or `task_retry` called with an `effort` above the task's (for `task_retry`, the failed task's) raised the effort swe runs it at; one row per raise on the task's issue; `content_json` carries `task_id`, `from`, `to`, and `failed_task_id` from `task_retry` |
 | `task_escalated_by_issue_close` | `bro` | `issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason` |
 | `task_escalated_repair` | `server` | The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` and closed its open `agent_runs` rows as `issue_closed`; written by `system`; `content_json` carries `task_id`, `issue_id`, `from_status` |
 | `task_recovered` | `bro` | `task_recover` closed a task stuck in `running`/`completed` at its commit; `content_json` carries `task_id`, `commit_sha`, `prior_status` |
@@ -256,14 +257,14 @@ No `CHECK` constraint — runtime reconciliation to `active`/`broken` is the hea
 
 ### `plugin_meta.schema_version` — DB schema version (integer)
 
-Currently `34`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration step in `db.ts:runMigrations`.
+Currently `37`. Bumped on any breaking schema change. **NOT free-form** — every increment requires a migration step in `db.ts:runMigrations`.
 
 ### `agent_runs.usage_source` — where a run's token values came from
 
 | Value | Meaning |
 |---|---|
 | `transcript` | Measured by the bro Stop hook from the session transcript (bro rows) |
-| `subagent_stop` | Measured by the SubagentStop hook from the spawn's transcript (swe rows) |
+| `subagent_stop` | Measured by the SubagentStop hook from the spawn's transcript (swe and pr-reviewer rows) |
 | `unmeasured` | The run closed without a measurement; the four token columns are NULL |
 | `backfill` | Recreated after the fact from an archived transcript by `agent_runs_backfill` / `scripts/maintenance/backfill-agent-runs.sh` (not a live hook); never written over a `transcript` / `subagent_stop` row |
 
@@ -286,7 +287,7 @@ Currently `34`. Bumped on any breaking schema change. **NOT free-form** — ever
 
 | Value | Set by |
 |---|---|
-| `completed` | `bro_atomic_close`; `close-issue-on-merge` closing a merged task; a SubagentStop whose task is completed/closed |
+| `completed` | `bro_atomic_close`; `close-issue-on-merge` closing a merged task; a swe SubagentStop whose task is completed/closed; every pr-reviewer SubagentStop |
 | `failed` | `task_update_status` → `failed`; a SubagentStop whose task is still pending/running |
 | `escalated` | `task_update_status` → `escalated` |
 | `swept_orphan` | `task_recover` sweeping a never-measured row; `task_brief` closing an earlier spawn's open swe row (older than 10 min); v33 backfill of an `unmeasured` row |
@@ -294,6 +295,20 @@ Currently `34`. Bumped on any breaking schema change. **NOT free-form** — ever
 | `issue_closed` | The row's issue was closed under it (the v33 GH 1212 repair; `issue_close(cascade: true)`) |
 
 `CHECK`-enforced; NULL while the row is open (and on pre-v33 rows whose end is not derivable).
+
+### `tasks.effort` — the reasoning effort swe runs a task at
+
+| Value | Meaning |
+|---|---|
+| `low` | Least reasoning; for mechanical tasks |
+| `medium` | The default (`plugin_config.swe_default_effort` unset) |
+| `high` | Most reasoning; hooks, guards, MCP write paths, prompt-bearing tasks, rework |
+
+`CHECK`-enforced, `NOT NULL DEFAULT 'medium'`. Written by `task_create_batch` / `task_provision` (omitted → `plugin_config.swe_default_effort`); `task_reopen` / `task_retry` may change it and write `task_effort_raised` when they raise it. `require-spawn-effort.sh` denies a swe Agent call whose `effort` differs.
+
+### `agent_runs.effort` — the effort a run was spawned at
+
+Same values as `tasks.effort`. `CHECK`-enforced, nullable. `swe-atomic-close.sh` writes it at SubagentStop: a swe row copies its task's `tasks.effort`, a pr-reviewer row takes `plugin_config.reviewer_effort` (`high` when unset). NULL on other agent types and on runs recorded before schema v37.
 
 ### Timestamp format
 

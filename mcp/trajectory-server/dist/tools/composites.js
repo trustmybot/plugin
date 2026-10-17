@@ -15,6 +15,7 @@ import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolveSoleRepo } from '../utils/repo-paths.js';
 import { latestVerificationRun } from './verification-runs.js';
 import { resolve, dirname } from 'node:path';
+import { EFFORT_LEVELS, effortRank, isEffort, resolveEffortDefaults } from './config.js';
 const WORKTREE_TIMEOUT_MS = 60_000;
 // Extract the unique directories implied by a task's typed `files[]` array. Each
 // entry is a path; its dirname is the directory ('' = repo root). task_brief
@@ -26,6 +27,24 @@ export function filesToDirs(files) {
         dirs.add(slash >= 0 ? path.slice(0, slash) : '');
     }
     return [...dirs];
+}
+// One task_effort_raised row: a rework (task_reopen) or retry (task_retry)
+// raised the effort swe runs the task at.
+function insertEffortRaised(db, task, from, to, agent, now, failedTaskId) {
+    insertAudit(db, {
+        issue_id: task.issue_id,
+        branch_id: task.branch_id,
+        from_node: agent,
+        event_type: 'task_effort_raised',
+        summary: `Task ${task.task_id} effort raised: ${from} → ${to}`,
+        content_json: JSON.stringify({
+            task_id: task.task_id,
+            from,
+            to,
+            ...(failedTaskId !== undefined ? { failed_task_id: failedTaskId } : {}),
+        }),
+        created_at: now,
+    });
 }
 // Parse the tasks.files JSON column into a string[] (empty on null/malformed).
 export function parseTaskFiles(filesJson) {
@@ -487,6 +506,11 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                     },
                     title: { type: 'string' },
                     description: { type: 'string' },
+                    effort: {
+                        type: 'string',
+                        enum: [...EFFORT_LEVELS],
+                        description: "Optional effort for the retry task (e.g. 'high'); omit to inherit the failed task's effort.",
+                    },
                     session_id: RUN_SESSION_ID_SCHEMA,
                 },
                 required: [
@@ -645,7 +669,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
         },
         {
             name: 'task_provision',
-            description: "Bro's atomic planning composite — collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). Returns the spawn-ready shape {task_id, branch_id, repo, slug, worktree_path, git_setup, worktree_reused, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
+            description: "Bro's atomic planning composite — collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). Returns the spawn-ready shape {task_id, branch_id, repo, slug, effort, worktree_path, git_setup, worktree_reused, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -709,6 +733,11 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                                 type: 'number',
                                 description: 'Set to 1 when this task intentionally edits prompt-surface files. Default 0.',
                             },
+                            effort: {
+                                type: 'string',
+                                enum: [...EFFORT_LEVELS],
+                                description: 'Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted → plugin_config.swe_default_effort (medium when unset).',
+                            },
                         },
                         required: ['description', 'spec_body', 'files', 'verification'],
                     },
@@ -718,7 +747,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
         },
         {
             name: 'task_reopen',
-            description: "Rework a task in one call: moves a closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, opens a bro agent_runs row for the rework (reusing an open one; stamped with session_id when passed), and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
+            description: "Rework a task in one call: moves a closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, opens a bro agent_runs row for the rework (reusing an open one; stamped with session_id when passed), and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -734,6 +763,11 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                         type: 'array',
                         items: { type: 'string' },
                         description: 'Commands appended to the task verification[] list (duplicates ignored).',
+                    },
+                    effort: {
+                        type: 'string',
+                        enum: [...EFFORT_LEVELS],
+                        description: "Optional new effort for the rework (e.g. 'high'); omit to keep the task's effort.",
                     },
                     session_id: RUN_SESSION_ID_SCHEMA,
                 },
@@ -835,6 +869,10 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 repoValue = resolveSoleRepo(db)?.name ?? null;
             }
             const promptBearing = typeof task.prompt_bearing === 'number' && task.prompt_bearing === 1 ? 1 : 0;
+            if (task.effort !== undefined && task.effort !== null && !isEffort(task.effort)) {
+                return err(`typed_field_violation: task.effort must be one of ${EFFORT_LEVELS.join(', ')}, got ${JSON.stringify(task.effort)}.`);
+            }
+            const effort = isEffort(task.effort) ? task.effort : resolveEffortDefaults(db).swe;
             const slug = branchId.replace(/^[^/]+\//, '');
             const specShapeWaived = args['waive_spec_shape'] === true;
             const specShapeWaiverReason = (args['waive_spec_shape_reason'] ?? '');
@@ -1004,8 +1042,8 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 insertDiscussion(db, { issue_id: issueId, author: agent, kind: 'decision', body: decisionBody, created_at: now });
                 db.run(`INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`, [
+                status, spec_body, repo, prompt_bearing, files, verification, effort, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`, [
                     issueId,
                     branchId,
                     base,
@@ -1016,6 +1054,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                     promptBearing,
                     JSON.stringify(files),
                     JSON.stringify(verification),
+                    effort,
                     now,
                     now,
                 ]);
@@ -1070,6 +1109,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 branch_id: branchId,
                 repo: repoValue,
                 slug,
+                effort,
                 worktree_path: worktreePath,
                 git_setup: gitSetup,
                 worktree_reused: worktreeReused,
@@ -1088,7 +1128,11 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             const sessionId = parseRunSessionId(args['session_id']);
             const filesAdd = validateFenceAdditions(args['files_add'], 'files_add');
             const verificationAdd = validateFenceAdditions(args['verification_add'], 'verification_add');
-            const task = db.get(`SELECT t.id, t.issue_id, t.branch_id, t.status, t.files, t.verification, t.repo, i.status AS issue_status
+            const effortArg = args['effort'];
+            if (effortArg !== undefined && !isEffort(effortArg)) {
+                return err(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(', ')}, got ${JSON.stringify(effortArg)}.`);
+            }
+            const task = db.get(`SELECT t.id, t.issue_id, t.branch_id, t.status, t.files, t.verification, t.repo, t.effort, i.status AS issue_status
              FROM tasks t JOIN issues i ON i.id = t.issue_id WHERE t.id = ?`, [taskId]);
             if (!task)
                 return err(`task_reopen: task ${taskId} not found`);
@@ -1109,12 +1153,14 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             }
             const files = appendUnique(parseTaskFiles(task.files), filesAdd);
             const verification = appendUnique(parseTaskFiles(task.verification), verificationAdd);
+            const effort = isEffort(effortArg) ? effortArg : task.effort;
             const now = nowISO();
             db.transaction(() => {
-                db.run(`UPDATE tasks SET status = 'running', files = ?, verification = ?, completed_at = NULL, updated_at = ? WHERE id = ?`, [JSON.stringify(files), JSON.stringify(verification), now, taskId]);
+                db.run(`UPDATE tasks SET status = 'running', files = ?, verification = ?, effort = ?, completed_at = NULL, updated_at = ? WHERE id = ?`, [JSON.stringify(files), JSON.stringify(verification), effort, now, taskId]);
                 const fenceLines = [
                     filesAdd.length > 0 ? `files[] += ${filesAdd.join(', ')}` : null,
                     verificationAdd.length > 0 ? `verification[] += ${verificationAdd.join(' ; ')}` : null,
+                    effort !== task.effort ? `effort: ${task.effort} → ${effort}` : null,
                 ].filter((l) => l !== null);
                 insertDiscussion(db, {
                     issue_id: task.issue_id,
@@ -1138,6 +1184,9 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                     }),
                     created_at: now,
                 });
+                if (effortRank(effort) > effortRank(task.effort)) {
+                    insertEffortRaised(db, { issue_id: task.issue_id, branch_id: task.branch_id, task_id: taskId }, task.effort, effort, agent, now);
+                }
                 const openBro = db.get(`SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'bro' AND completed_at IS NULL LIMIT 1`, [taskId]);
                 if (!openBro)
                     openBroRun(db, { id: taskId, issue_id: task.issue_id, repo: task.repo }, now, runContext, sessionId);
@@ -1168,6 +1217,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 status: 'running',
                 files,
                 verification,
+                effort,
                 worktree_path: worktreePath,
                 worktree_recreated: worktreeRecreated,
                 ...(diagnostic ? { diagnostic } : {}),
@@ -1264,7 +1314,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             if (taskId === undefined || taskId === null)
                 return err('task_id is required');
             const task = db.get(`SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.verification, t.commit_sha, t.repo,
-                  i.objective
+                  t.effort, i.objective
              FROM tasks t JOIN issues i ON i.id = t.issue_id
             WHERE t.id = ? LIMIT 1`, [taskId]);
             if (!task)
@@ -1363,6 +1413,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 status: task.status,
                 commit_sha: task.commit_sha,
                 repo,
+                effort: task.effort,
                 spec_body: task.spec_body,
                 files: parseTaskFiles(task.files),
                 verification: parseTaskFiles(task.verification),
@@ -1397,6 +1448,10 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             const title = args['title'] ?? '';
             const repoOverride = args['repo'] ?? null;
             const sessionId = parseRunSessionId(args['session_id']);
+            const effortArg = args['effort'];
+            if (effortArg !== undefined && !isEffort(effortArg)) {
+                return err(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(', ')}, got ${JSON.stringify(effortArg)}.`);
+            }
             if (!BRANCH_ID_RE.test(newBranchId)) {
                 return err(`Invalid new_branch_id "${newBranchId}" — does not match conventional format.`);
             }
@@ -1415,7 +1470,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 }
             }
             const failed = db.get(`SELECT id, issue_id, branch_id, parent_branch_id, repo, status,
-                  files, verification, prompt_bearing
+                  files, verification, prompt_bearing, effort
              FROM tasks WHERE id = ? LIMIT 1`, [failedTaskId]);
             if (!failed)
                 return err(`No task with id=${failedTaskId}`);
@@ -1456,6 +1511,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                         `Use discussion_append(kind='question') to involve the Human before retrying further.`);
                 }
             }
+            const effort = isEffort(effortArg) ? effortArg : failed.effort;
             const now = nowISO();
             const result = db.transaction(() => {
                 insertDiscussion(db, {
@@ -1467,8 +1523,8 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 });
                 db.run(`INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`, [
+                status, spec_body, repo, prompt_bearing, files, verification, effort, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`, [
                     failed.issue_id,
                     newBranchId,
                     failed.parent_branch_id ?? failed.branch_id,
@@ -1479,6 +1535,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                     failed.prompt_bearing,
                     failed.files,
                     failed.verification,
+                    effort,
                     now,
                     now,
                 ]);
@@ -1501,9 +1558,12 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                     }),
                     created_at: now,
                 });
+                if (effortRank(effort) > effortRank(failed.effort)) {
+                    insertEffortRaised(db, { issue_id: failed.issue_id, branch_id: newBranchId, task_id: newTask.id }, failed.effort, effort, 'bro', now, failed.id);
+                }
                 return newTask;
             });
-            return ok({ task_id: result.id, branch_id: result.branch_id });
+            return ok({ task_id: result.id, branch_id: result.branch_id, effort });
         })),
         intent_start: requireRoles('intent_start', ['bro'], wrap(async (args) => {
             const objective = args['objective'];

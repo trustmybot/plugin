@@ -19,6 +19,48 @@ function wrapHandler(fn) {
     };
 }
 const KEY_REGEX = /^[a-z][a-z0-9_.-]{0,63}$/i;
+export const EFFORT_LEVELS = ['low', 'medium', 'high'];
+export const SWE_DEFAULT_EFFORT_KEY = 'swe_default_effort';
+export const REVIEWER_EFFORT_KEY = 'reviewer_effort';
+const EFFORT_DEFAULTS = {
+    [SWE_DEFAULT_EFFORT_KEY]: 'medium',
+    [REVIEWER_EFFORT_KEY]: 'high',
+};
+export function isEffort(value) {
+    return typeof value === 'string' && EFFORT_LEVELS.includes(value);
+}
+export function effortRank(value) {
+    return EFFORT_LEVELS.indexOf(value);
+}
+/**
+ * The effort a new swe task runs at when its creator names none, and the
+ * effort every pr-reviewer spawn runs at. An unset or unreadable key reads as
+ * its default (medium, high). The hooks' twin is tmb_effort_defaults in
+ * scripts/hooks/lib/query-task.sh.
+ */
+export function resolveEffortDefaults(db) {
+    const rows = db.all(`SELECT key, value_json FROM plugin_config WHERE key IN (?, ?)`, [SWE_DEFAULT_EFFORT_KEY, REVIEWER_EFFORT_KEY]);
+    const read = (key) => {
+        const row = rows.find((r) => r.key === key);
+        if (row) {
+            try {
+                const value = JSON.parse(row.value_json);
+                if (isEffort(value))
+                    return value;
+            }
+            catch {
+                // An unparseable stored value reads as the default.
+            }
+        }
+        return EFFORT_DEFAULTS[key];
+    };
+    return { swe: read(SWE_DEFAULT_EFFORT_KEY), reviewer: read(REVIEWER_EFFORT_KEY) };
+}
+function validateKnownConfigValue(key, value) {
+    if (Object.hasOwn(EFFORT_DEFAULTS, key) && !isEffort(value)) {
+        throw new Error(`typed_field_violation: config key ${JSON.stringify(key)} must be one of ${EFFORT_LEVELS.join(', ')}, got ${JSON.stringify(value)}.`);
+    }
+}
 export function storedConfigParseErrorPrefix(key) {
     return `config key ${JSON.stringify(key)}: stored value is not valid JSON`;
 }
@@ -69,6 +111,7 @@ function serializeConfigValue(key, rawValue) {
     if (rawValue === undefined || rawValue === null) {
         throw new Error('Missing required arg: value');
     }
+    validateKnownConfigValue(key, rawValue);
     if (typeof rawValue === 'string') {
         const trimmed = rawValue.trim();
         if ((trimmed.startsWith('[') && trimmed.endsWith(']')) ||

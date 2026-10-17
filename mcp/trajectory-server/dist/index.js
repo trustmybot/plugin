@@ -21248,7 +21248,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 36;
+var TARGET_SCHEMA_VERSION = 37;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
 }
@@ -21655,6 +21655,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 36 && toVersion >= 36) {
     migrateV35toV36(db2);
+  }
+  if (fromVersion < 37 && toVersion >= 37) {
+    migrateV36toV37(db2);
   }
 }
 function hasColumn(db2, table, column) {
@@ -23079,6 +23082,24 @@ function migrateV35toV36(db2) {
     );
   `);
 }
+function migrateV36toV37(db2) {
+  db2.exec("BEGIN");
+  try {
+    if (tableExists(db2, "tasks") && !hasColumn(db2, "tasks", "effort")) {
+      db2.exec("ALTER TABLE tasks ADD COLUMN effort TEXT NOT NULL DEFAULT 'medium' CHECK (effort IN ('low','medium','high'))");
+    }
+    if (tableExists(db2, "agent_runs") && !hasColumn(db2, "agent_runs", "effort")) {
+      db2.exec("ALTER TABLE agent_runs ADD COLUMN effort TEXT CHECK (effort IN ('low','medium','high'))");
+    }
+    db2.exec("COMMIT");
+  } catch (err20) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err20;
+  }
+}
 function migrateV22toV23(db2) {
   const soleRepo = () => {
     if (!tableExists(db2, "repos")) return null;
@@ -24254,6 +24275,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "spec_shape_gate_waived", writers: ["bro"], description: "A task's spec-shape waiver, one row per task on its issue with from_node `bro`; `task_create_batch` and `task_provision` called with `waive_spec_shape` write one for every task they create, and bro records one for an existing task through `audit_append`; `content_json` carries `task_id`, `gate` (`spec_shape`), `reason`, `waived_by` (`bro`), `source` (`task_create_batch`, `task_provision`, or absent for `audit_append`); `require-task-spec` reads it as the spawn waiver" },
   { type: "swe_brief_fetched", writers: ["hook"], description: "`swe-brief-gate` recorded that a SWE fetched its `task_brief`; the brief gate and `bro-turn-usage` read it" },
   { type: "sync_skipped", writers: ["bro"], description: "Issue sync skipped a remote write because `issue_sync` is off; `content_json` carries `issue_id`, `reason`" },
+  { type: "task_effort_raised", writers: ["bro"], description: "`task_reopen` or `task_retry` called with an `effort` above the task's (for `task_retry`, the failed task's) raised the effort swe runs it at; one row per raise on the task's issue; `content_json` carries `task_id`, `from`, `to`, and `failed_task_id` from `task_retry`" },
   { type: "task_escalated_by_issue_close", writers: ["bro"], description: "`issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason`" },
   { type: "task_escalated_repair", writers: ["server"], description: "The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` and closed its open `agent_runs` rows as `issue_closed`; written by `system`; `content_json` carries `task_id`, `issue_id`, `from_status`" },
   { type: "task_recovered", writers: ["bro"], description: "`task_recover` closed a task stuck in `running`/`completed` at its commit; `content_json` carries `task_id`, `commit_sha`, `prior_status`" },
@@ -27455,6 +27477,206 @@ function milestoneTools(db2) {
 // src/tools/tasks.ts
 import { spawnSync as spawnSync4 } from "node:child_process";
 import { resolve, dirname as dirname3 } from "node:path";
+
+// src/tools/config.ts
+function ok5(data) {
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
+}
+function err5(message2) {
+  return {
+    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
+    isError: true
+  };
+}
+function wrapHandler4(fn) {
+  return async (args) => {
+    try {
+      return await fn(args);
+    } catch (e) {
+      return err5(e.message);
+    }
+  };
+}
+var KEY_REGEX = /^[a-z][a-z0-9_.-]{0,63}$/i;
+var EFFORT_LEVELS = ["low", "medium", "high"];
+var SWE_DEFAULT_EFFORT_KEY = "swe_default_effort";
+var REVIEWER_EFFORT_KEY = "reviewer_effort";
+var EFFORT_DEFAULTS = {
+  [SWE_DEFAULT_EFFORT_KEY]: "medium",
+  [REVIEWER_EFFORT_KEY]: "high"
+};
+function isEffort(value) {
+  return typeof value === "string" && EFFORT_LEVELS.includes(value);
+}
+function effortRank(value) {
+  return EFFORT_LEVELS.indexOf(value);
+}
+function resolveEffortDefaults(db2) {
+  const rows = db2.all(
+    `SELECT key, value_json FROM plugin_config WHERE key IN (?, ?)`,
+    [SWE_DEFAULT_EFFORT_KEY, REVIEWER_EFFORT_KEY]
+  );
+  const read = (key) => {
+    const row = rows.find((r) => r.key === key);
+    if (row) {
+      try {
+        const value = JSON.parse(row.value_json);
+        if (isEffort(value)) return value;
+      } catch {
+      }
+    }
+    return EFFORT_DEFAULTS[key];
+  };
+  return { swe: read(SWE_DEFAULT_EFFORT_KEY), reviewer: read(REVIEWER_EFFORT_KEY) };
+}
+function validateKnownConfigValue(key, value) {
+  if (Object.hasOwn(EFFORT_DEFAULTS, key) && !isEffort(value)) {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(value)}.`
+    );
+  }
+}
+function storedConfigParseErrorPrefix(key) {
+  return `config key ${JSON.stringify(key)}: stored value is not valid JSON`;
+}
+function setConfigValues(db2, entries) {
+  const serialized = entries.map(({ key, value }) => ({
+    key,
+    valueJson: serializeConfigValue(key, value)
+  }));
+  db2.transaction(() => {
+    for (const { key, valueJson } of serialized) {
+      db2.run(
+        `INSERT INTO plugin_config (key, value_json)
+         VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
+        [key, valueJson]
+      );
+    }
+  });
+}
+function getConfigValues(db2, keys) {
+  if (keys.length === 0) return Object.freeze({});
+  const placeholders = keys.map(() => "?").join(", ");
+  const rows = db2.all(
+    `SELECT key, value_json
+     FROM plugin_config
+     WHERE key IN (${placeholders})`,
+    [...keys]
+  );
+  const result2 = Object.fromEntries(
+    keys.map((key) => [key, null])
+  );
+  for (const row of rows) {
+    try {
+      result2[row.key] = JSON.parse(row.value_json);
+    } catch {
+      throw new Error(
+        `${storedConfigParseErrorPrefix(row.key)} \u2014 raw: ${row.value_json.slice(0, 200)}`
+      );
+    }
+  }
+  return Object.freeze(result2);
+}
+function serializeConfigValue(key, rawValue) {
+  if (typeof key !== "string" || !KEY_REGEX.test(key)) {
+    throw new Error(
+      `Invalid config key ${JSON.stringify(key)}: must match /^[a-z][a-z0-9_.-]{0,63}$/i`
+    );
+  }
+  if (rawValue === void 0 || rawValue === null) {
+    throw new Error("Missing required arg: value");
+  }
+  validateKnownConfigValue(key, rawValue);
+  if (typeof rawValue === "string") {
+    const trimmed = rawValue.trim();
+    if (trimmed.startsWith("[") && trimmed.endsWith("]") || trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (typeof parsed === "object" && parsed !== null) {
+          throw new Error(
+            `config value for key=${JSON.stringify(key)} looks like a pre-serialized JSON ${Array.isArray(parsed) ? "array" : "object"} (passed as a string). Pass the raw value directly \u2014 e.g. value=["main"], not value="[\\"main\\"]". The server calls JSON.stringify() on whatever you pass; double-encoding it breaks downstream consumers that expect the original shape.`
+          );
+        }
+      } catch (error2) {
+        if (error2 instanceof SyntaxError) {
+        } else {
+          throw error2;
+        }
+      }
+    }
+  }
+  try {
+    return JSON.stringify(rawValue);
+  } catch {
+    throw new Error("config value not JSON-serializable");
+  }
+}
+function configTools(db2) {
+  const definitions = [
+    {
+      name: "config_set",
+      description: "Set a plugin config key to a JSON-serializable value.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          key: { type: "string", description: "Config key (1-64 chars, must match /^[a-z][a-z0-9_.-]{0,63}$/i)" },
+          value: { description: "Any JSON-serializable value" }
+        },
+        required: ["key", "value"]
+      }
+    },
+    {
+      name: "config_get",
+      description: "Get a plugin config value by key. Returns null if not set.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          key: { type: "string" }
+        },
+        required: ["key"]
+      }
+    },
+    {
+      name: "config_list",
+      description: "List all plugin config entries as a key\u2192value object.",
+      inputSchema: {
+        type: "object",
+        properties: {}
+      }
+    }
+  ];
+  const handlers = {
+    config_set: requireRoles("config_set", ["bro"], wrapHandler4(async (args) => {
+      const key = args["key"];
+      setConfigValues(db2, [{ key, value: args["value"] }]);
+      return ok5({ key });
+    })),
+    config_get: wrapHandler4(async (args) => {
+      const key = args["key"];
+      return ok5(getConfigValues(db2, [key])[key] ?? null);
+    }),
+    config_list: wrapHandler4(async () => {
+      const rows = db2.all(
+        `SELECT key, value_json FROM plugin_config ORDER BY key`
+      );
+      const result2 = {};
+      for (const row of rows) {
+        try {
+          result2[row.key] = JSON.parse(row.value_json);
+        } catch {
+          return err5(
+            `${storedConfigParseErrorPrefix(row.key)} \u2014 raw: ${row.value_json.slice(0, 200)}`
+          );
+        }
+      }
+      return ok5(result2);
+    })
+  };
+  return { definitions, handlers };
+}
+
+// src/tools/tasks.ts
 function taskFileDirs(filesJson) {
   const dirs = /* @__PURE__ */ new Set();
   if (!filesJson) return dirs;
@@ -27515,9 +27737,15 @@ function validateTypedRailsFields(t) {
     }
     return value;
   };
+  if (t.effort !== void 0 && t.effort !== null && !isEffort(t.effort)) {
+    throw new Error(
+      `typed_field_violation: task branch_id='${t.branch_id}' \u2014 'effort' must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(t.effort)}.`
+    );
+  }
   return {
     files: checkStringArray(t.files, "files"),
-    verification: checkStringArray(t.verification, "verification")
+    verification: checkStringArray(t.verification, "verification"),
+    effort: isEffort(t.effort) ? t.effort : void 0
   };
 }
 var SWE_ALLOWED_TARGET_STATUSES = /* @__PURE__ */ new Set(["running", "completed", "failed"]);
@@ -27574,10 +27802,10 @@ var BRO_TRANSITIONS = {
   escalated: /* @__PURE__ */ new Set(["pending", "running", "failed", "closed"]),
   closed: /* @__PURE__ */ new Set(["escalated"])
 };
-function ok5(data) {
+function ok6(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err5(message2) {
+function err6(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
@@ -27589,12 +27817,12 @@ function requireArg4(args, name) {
   }
   return args[name];
 }
-function wrapHandler4(fn) {
+function wrapHandler5(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err5(e.message);
+      return err6(e.message);
     }
   };
 }
@@ -27649,6 +27877,11 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
                   type: "array",
                   items: { type: "string" },
                   description: "Authoritative shell commands the swe-verification-gate hook runs in the worktree before SWE may complete the task; an empty/omitted array disables verification enforcement."
+                },
+                effort: {
+                  type: "string",
+                  enum: [...EFFORT_LEVELS],
+                  description: "Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted \u2192 plugin_config.swe_default_effort (medium when unset)."
                 }
               },
               required: ["branch_id", "description"]
@@ -27765,17 +27998,17 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
     }
   ];
   const handlers = {
-    task_create_batch: requireRoles("task_create_batch", ["bro"], wrapHandler4(async (args) => {
+    task_create_batch: requireRoles("task_create_batch", ["bro"], wrapHandler5(async (args) => {
       requireArg4(args, "agent");
       const issueId = requireArg4(args, "issue_id");
       requireArg4(args, "tasks");
       if (Number(issueId) === -1) {
-        return err5("system_issue_reserved: issue -1 is the system issue and carries audit rows only; create the task under a real issue.");
+        return err6("system_issue_reserved: issue -1 is the system issue and carries audit rows only; create the task under a real issue.");
       }
       const taskInputs = args["tasks"];
       const sessionId = parseRunSessionId(args["session_id"]);
       if (!Array.isArray(taskInputs) || taskInputs.length === 0) {
-        return ok5([]);
+        return ok6([]);
       }
       const waived = args["waive_scope_gate"] === true;
       const waiverReason = args["waive_scope_gate_reason"] ?? "";
@@ -27783,7 +28016,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
       const specShapeWaiverReason = args["waive_spec_shape_reason"] ?? "";
       if (specShapeWaived) {
         if (typeof specShapeWaiverReason !== "string" || specShapeWaiverReason.trim().length < 10) {
-          return err5("waive_spec_shape_reason must be a string \u226510 chars.");
+          return err6("waive_spec_shape_reason must be a string \u226510 chars.");
         }
       } else {
         const REQUIRED_H2 = ["## Success Criteria"];
@@ -27854,7 +28087,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
       const branchGateWaiverReason = args["waive_branch_gate_reason"] ?? "";
       if (branchGateWaived) {
         if (typeof branchGateWaiverReason !== "string" || branchGateWaiverReason.trim().length < 10) {
-          return err5("waive_branch_gate_reason must be a string \u226510 chars.");
+          return err6("waive_branch_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const proposed = db2.get(
@@ -27881,7 +28114,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
       const registryGateWaiverReason = args["waive_registry_gate_reason"] ?? "";
       if (registryGateWaived) {
         if (typeof registryGateWaiverReason !== "string" || registryGateWaiverReason.trim().length < 10) {
-          return err5("waive_registry_gate_reason must be a string \u226510 chars.");
+          return err6("waive_registry_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const scanRow = db2.get(
@@ -27906,7 +28139,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
       const intentGateWaiverReason = args["waive_intent_gate_reason"] ?? "";
       if (intentGateWaived) {
         if (typeof intentGateWaiverReason !== "string" || intentGateWaiverReason.trim().length < 10) {
-          return err5("waive_intent_gate_reason must be a string \u226510 chars.");
+          return err6("waive_intent_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const intentRow = db2.get(
@@ -27933,7 +28166,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
       const decisionGateWaiverReason = args["waive_decision_gate_reason"] ?? "";
       if (decisionGateWaived) {
         if (typeof decisionGateWaiverReason !== "string" || decisionGateWaiverReason.trim().length < 10) {
-          return err5("waive_decision_gate_reason must be a string \u226510 chars.");
+          return err6("waive_decision_gate_reason must be a string \u226510 chars.");
         }
       } else {
         const decisionRow = db2.get(
@@ -28015,6 +28248,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
           if (audit) autocreatedAudits.push(audit);
         }
       }
+      const effortDefaults = resolveEffortDefaults(db2);
       const inserted = db2.transaction(() => {
         const results = [];
         const now2 = nowISO();
@@ -28053,12 +28287,12 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
           }
           if (parentBranchId == null) parentBranchId = "main";
           const promptBearing = typeof t.prompt_bearing === "number" && t.prompt_bearing === 1 ? 1 : 0;
-          const { files: typedFiles, verification: typedVerification } = validateTypedRailsFields(t);
+          const { files: typedFiles, verification: typedVerification, effort } = validateTypedRailsFields(t);
           db2.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`,
+                status, spec_body, repo, prompt_bearing, files, verification, effort, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               issueId,
               t.branch_id,
@@ -28070,6 +28304,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
               promptBearing,
               JSON.stringify(typedFiles),
               JSON.stringify(typedVerification),
+              effort ?? effortDefaults.swe,
               now2,
               now2
             ]
@@ -28222,7 +28457,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
           }
         }
       }
-      return ok5({
+      return ok6({
         tasks: inserted.map((t) => ({
           id: t.id,
           issue_id: t.issue_id,
@@ -28231,13 +28466,14 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
           title: t.title,
           status: t.status,
           repo: t.repo,
-          prompt_bearing: t.prompt_bearing
+          prompt_bearing: t.prompt_bearing,
+          effort: t.effort
         })),
         parallel_groups: parallelGroups,
         overlapping_pairs: overlappingPairs
       });
     })),
-    task_get: wrapHandler4(async (args) => {
+    task_get: wrapHandler5(async (args) => {
       requireArg4(args, "agent");
       const taskId = requireArg4(args, "task_id");
       const task = db2.get("SELECT * FROM tasks WHERE id = ?", [taskId]);
@@ -28246,12 +28482,12 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
       }
       const includeSpec = args["include_spec_body"] === true;
       if (includeSpec) {
-        return ok5(task);
+        return ok6(task);
       }
       const { spec_body: _spec, description: _desc, ...thin } = task;
-      return ok5(thin);
+      return ok6(thin);
     }),
-    task_update_status: requireRoles("task_update_status", ["bro", "swe"], wrapHandler4(async (args) => {
+    task_update_status: requireRoles("task_update_status", ["bro", "swe"], wrapHandler5(async (args) => {
       requireArg4(args, "agent");
       const agent = normalizeAgent(args["agent"]);
       const taskId = requireArg4(args, "task_id");
@@ -28322,9 +28558,9 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
         }
       });
       const updated = db2.get("SELECT * FROM tasks WHERE id = ?", [taskId]);
-      return ok5(updated);
+      return ok6(updated);
     })),
-    task_first_actionable: wrapHandler4(async (args) => {
+    task_first_actionable: wrapHandler5(async (args) => {
       requireArg4(args, "agent");
       const issueId = requireArg4(args, "issue_id");
       const task = db2.get(
@@ -28334,7 +28570,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
          LIMIT 1`,
         [issueId]
       );
-      return ok5(task ?? null);
+      return ok6(task ?? null);
     })
   };
   return { definitions, handlers };
@@ -28369,10 +28605,10 @@ function latestVerificationRun(db2, taskId, startedBy) {
 
 // src/tools/validation.ts
 var VALID_VERDICTS = /* @__PURE__ */ new Set(["pass", "fail", "escalate"]);
-function ok6(data) {
+function ok7(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err6(message2) {
+function err7(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
@@ -28384,12 +28620,12 @@ function requireArg5(args, name) {
   }
   return args[name];
 }
-function wrapHandler5(fn) {
+function wrapHandler6(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err6(e.message);
+      return err7(e.message);
     }
   };
 }
@@ -28484,7 +28720,7 @@ function validationTools(db2) {
     }
   ];
   const handlers = {
-    validation_record: requireRoles("validation_record", ["pr-reviewer"], wrapHandler5(async (args) => {
+    validation_record: requireRoles("validation_record", ["pr-reviewer"], wrapHandler6(async (args) => {
       const agent = requireArg5(args, "agent");
       const taskId = coerceTaskId(requireArg5(args, "task_id"));
       requireArg5(args, "attempt_n");
@@ -28604,9 +28840,9 @@ function validationTools(db2) {
         `SELECT * FROM validation_attempts WHERE task_id = ? AND attempt_n = ?`,
         [taskId, attemptN]
       );
-      return ok6(row);
+      return ok7(row);
     })),
-    validation_history: wrapHandler5(async (args) => {
+    validation_history: wrapHandler6(async (args) => {
       const agent = normalizeAgent(args["agent"]);
       const taskId = coerceTaskId(requireArg5(args, "task_id"));
       const ownTaskIdRaw = args["own_task_id"];
@@ -28618,7 +28854,7 @@ function validationTools(db2) {
       if (fieldsArg !== void 0) {
         const unknown2 = fieldsArg.filter((f) => !ALLOWED_VALIDATION_FIELDS.has(f));
         if (unknown2.length > 0) {
-          return err6(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_VALIDATION_FIELDS].join(", ")}`);
+          return err7(`Unknown fields: ${unknown2.join(", ")}. Allowed: ${[...ALLOWED_VALIDATION_FIELDS].join(", ")}`);
         }
       }
       function projectRow(redacted) {
@@ -28633,7 +28869,7 @@ function validationTools(db2) {
           `SELECT * FROM validation_attempts WHERE task_id = ? ORDER BY attempt_n ASC`,
           [taskId]
         );
-        return ok6(rows2.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))));
+        return ok7(rows2.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))));
       }
       const limit = Math.min(Math.max(1, limitArg), 500);
       let cursorFilter = "";
@@ -28654,7 +28890,7 @@ function validationTools(db2) {
       const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
       const last = rows[rows.length - 1];
       const next_cursor = hasMore && last ? Buffer.from(JSON.stringify({ attempt_n: last.attempt_n })).toString("base64") : void 0;
-      return ok6({
+      return ok7({
         rows: rows.map((row) => projectRow(redactValidationRow(row, agent, { own_task_id: ownTaskId }))),
         next_cursor
       });
@@ -28674,10 +28910,10 @@ var VALID_STATUS_TRANSITIONS = /* @__PURE__ */ new Map([
 var VALID_TIER_TRANSITIONS = /* @__PURE__ */ new Map([
   ["agent", /* @__PURE__ */ new Set(["curated"])]
 ]);
-function ok7(data) {
+function ok8(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err7(message2) {
+function err8(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
@@ -28689,12 +28925,12 @@ function requireArg6(args, name) {
   }
   return args[name];
 }
-function wrapHandler6(fn) {
+function wrapHandler7(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err7(e.message);
+      return err8(e.message);
     }
   };
 }
@@ -28737,7 +28973,7 @@ function skillTools(db2) {
     }
   ];
   const handlers = {
-    skill_register: wrapHandler6(async (args) => {
+    skill_register: wrapHandler7(async (args) => {
       requireArg6(args, "agent");
       const name = requireArg6(args, "name");
       const description = requireArg6(args, "description");
@@ -28767,9 +29003,9 @@ function skillTools(db2) {
         [name, description, filePath, scope, trustTier, now2, now2, now2]
       );
       const row = db2.get("SELECT * FROM cheatcodes WHERE rowid = last_insert_rowid()");
-      return ok7(row);
+      return ok8(row);
     }),
-    skill_promote: wrapHandler6(async (args) => {
+    skill_promote: wrapHandler7(async (args) => {
       requireArg6(args, "agent");
       const name = requireArg6(args, "name");
       const fromStatus = requireArg6(args, "from_status");
@@ -28812,7 +29048,7 @@ function skillTools(db2) {
         `SELECT * FROM cheatcodes WHERE name = ? AND origin = 'builtin'`,
         [name]
       );
-      return ok7(updated);
+      return ok8(updated);
     })
   };
   return { definitions, handlers };
@@ -28822,10 +29058,10 @@ function skillTools(db2) {
 import { existsSync as existsSync3 } from "node:fs";
 import { dirname as dirname4, join as join8 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
-function ok8(data) {
+function ok9(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err8(message2) {
+function err9(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
@@ -28837,12 +29073,12 @@ function requireArg7(args, name) {
   }
   return args[name];
 }
-function wrapHandler7(fn) {
+function wrapHandler8(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err8(e.message);
+      return err9(e.message);
     }
   };
 }
@@ -28949,7 +29185,7 @@ function agentTools(db2, dbPath2 = "") {
     resolved_path: resolveMarkedPath(row.file_path, workspaceRoot)
   });
   const handlers = {
-    agent_list: wrapHandler7(async (args) => {
+    agent_list: wrapHandler8(async (args) => {
       requireArg7(args, "agent");
       const root = args["root"];
       if (root !== void 0 && !VALID_ROOTS.has(root)) {
@@ -28958,9 +29194,9 @@ function agentTools(db2, dbPath2 = "") {
         );
       }
       const rows = root ? db2.all("SELECT * FROM agents WHERE file_path LIKE ? ORDER BY name", [`${root}:%`]) : db2.all("SELECT * FROM agents ORDER BY name");
-      return ok8({ agents: rows.map(withResolvedPath) });
+      return ok9({ agents: rows.map(withResolvedPath) });
     }),
-    agent_register: wrapHandler7(async (args) => {
+    agent_register: wrapHandler8(async (args) => {
       requireArg7(args, "agent");
       const name = requireArg7(args, "name");
       const kind = requireArg7(args, "kind");
@@ -29009,12 +29245,12 @@ function agentTools(db2, dbPath2 = "") {
           content_json: contentJson
         });
       }
-      return ok8(row ? withResolvedPath(row) : row);
+      return ok9(row ? withResolvedPath(row) : row);
     }),
     agent_resolve: requireRoles(
       "agent_resolve",
       ["bro"],
-      wrapHandler7(async (args) => {
+      wrapHandler8(async (args) => {
         requireArg7(args, "agent");
         const name = requireArg7(args, "name");
         validateAgentName(name);
@@ -29022,14 +29258,14 @@ function agentTools(db2, dbPath2 = "") {
         const resolvedPath = resolveMarkedPath(filePath, workspaceRoot);
         const target = { file_path: filePath, resolved_path: resolvedPath };
         if (resolvedPath && existsSync3(resolvedPath)) {
-          return ok8({ mode: "collision", ...target });
+          return ok9({ mode: "collision", ...target });
         }
         const templatePath = join8(PLUGIN_ROOT, "templates", "agents", `${name}.md`);
         if (existsSync3(templatePath)) {
-          return ok8({ mode: "template-copy", source_path: templatePath, ...target });
+          return ok9({ mode: "template-copy", source_path: templatePath, ...target });
         }
         const scaffoldPath = join8(PLUGIN_ROOT, "templates", "agents", "template.md");
-        return ok8({ mode: "from-scratch", scaffold_path: scaffoldPath, ...target });
+        return ok9({ mode: "from-scratch", scaffold_path: scaffoldPath, ...target });
       })
     )
   };
@@ -29039,10 +29275,10 @@ function agentTools(db2, dbPath2 = "") {
 // src/tools/reports.ts
 import { mkdirSync as mkdirSync3, writeFileSync } from "node:fs";
 import { dirname as dirname5, resolve as resolve2, sep as sep3 } from "node:path";
-function ok9(data) {
+function ok10(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
-function err9(message2) {
+function err10(message2) {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
     isError: true
@@ -29054,12 +29290,12 @@ function requireArg8(args, name) {
   }
   return args[name];
 }
-function wrapHandler8(fn) {
+function wrapHandler9(fn) {
   return async (args) => {
     try {
       return await fn(args);
     } catch (e) {
-      return err9(e.message);
+      return err10(e.message);
     }
   };
 }
@@ -29100,7 +29336,7 @@ function reportTools(db2) {
     }
   ];
   const handlers = {
-    issue_report_md: wrapHandler8(async (args) => {
+    issue_report_md: wrapHandler9(async (args) => {
       requireArg8(args, "agent");
       const issueId = requireArg8(args, "issue_id");
       const mode = args["mode"] ?? "summary";
@@ -29152,7 +29388,7 @@ function reportTools(db2) {
             lines.push(`- **${e.created_at}** [${e.event_type}] \`${e.from_node}\`: ${e.summary}`);
           }
         }
-        return ok9({ markdown: lines.join("\n"), mode: "summary" });
+        return ok10({ markdown: lines.join("\n"), mode: "summary" });
       }
       const tasks = db2.all(
         `SELECT * FROM tasks WHERE issue_id = ? ORDER BY branch_id ASC`,
@@ -29210,9 +29446,9 @@ function reportTools(db2) {
         }
       }
       lines.push("");
-      return ok9({ markdown: lines.join("\n"), mode: "detail" });
+      return ok10({ markdown: lines.join("\n"), mode: "detail" });
     }),
-    issue_snapshot_md: requireRoles("issue_snapshot_md", ["bro", "pr-reviewer"], wrapHandler8(async (args) => {
+    issue_snapshot_md: requireRoles("issue_snapshot_md", ["bro", "pr-reviewer"], wrapHandler9(async (args) => {
       requireArg8(args, "agent");
       const issueId = requireArg8(args, "issue_id");
       const rawOutputPath = args["output_path"];
@@ -29301,167 +29537,8 @@ function reportTools(db2) {
       const markdown = lines.join("\n");
       mkdirSync3(dirname5(absPath), { recursive: true });
       writeFileSync(absPath, markdown, "utf8");
-      return ok9({ path: relOutputPath, bytes_written: Buffer.byteLength(markdown, "utf8") });
+      return ok10({ path: relOutputPath, bytes_written: Buffer.byteLength(markdown, "utf8") });
     }))
-  };
-  return { definitions, handlers };
-}
-
-// src/tools/config.ts
-function ok10(data) {
-  return { content: [{ type: "text", text: JSON.stringify(data) }] };
-}
-function err10(message2) {
-  return {
-    content: [{ type: "text", text: JSON.stringify({ error: message2 }) }],
-    isError: true
-  };
-}
-function wrapHandler9(fn) {
-  return async (args) => {
-    try {
-      return await fn(args);
-    } catch (e) {
-      return err10(e.message);
-    }
-  };
-}
-var KEY_REGEX = /^[a-z][a-z0-9_.-]{0,63}$/i;
-function storedConfigParseErrorPrefix(key) {
-  return `config key ${JSON.stringify(key)}: stored value is not valid JSON`;
-}
-function setConfigValues(db2, entries) {
-  const serialized = entries.map(({ key, value }) => ({
-    key,
-    valueJson: serializeConfigValue(key, value)
-  }));
-  db2.transaction(() => {
-    for (const { key, valueJson } of serialized) {
-      db2.run(
-        `INSERT INTO plugin_config (key, value_json)
-         VALUES (?, ?)
-         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
-        [key, valueJson]
-      );
-    }
-  });
-}
-function getConfigValues(db2, keys) {
-  if (keys.length === 0) return Object.freeze({});
-  const placeholders = keys.map(() => "?").join(", ");
-  const rows = db2.all(
-    `SELECT key, value_json
-     FROM plugin_config
-     WHERE key IN (${placeholders})`,
-    [...keys]
-  );
-  const result2 = Object.fromEntries(
-    keys.map((key) => [key, null])
-  );
-  for (const row of rows) {
-    try {
-      result2[row.key] = JSON.parse(row.value_json);
-    } catch {
-      throw new Error(
-        `${storedConfigParseErrorPrefix(row.key)} \u2014 raw: ${row.value_json.slice(0, 200)}`
-      );
-    }
-  }
-  return Object.freeze(result2);
-}
-function serializeConfigValue(key, rawValue) {
-  if (typeof key !== "string" || !KEY_REGEX.test(key)) {
-    throw new Error(
-      `Invalid config key ${JSON.stringify(key)}: must match /^[a-z][a-z0-9_.-]{0,63}$/i`
-    );
-  }
-  if (rawValue === void 0 || rawValue === null) {
-    throw new Error("Missing required arg: value");
-  }
-  if (typeof rawValue === "string") {
-    const trimmed = rawValue.trim();
-    if (trimmed.startsWith("[") && trimmed.endsWith("]") || trimmed.startsWith("{") && trimmed.endsWith("}")) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (typeof parsed === "object" && parsed !== null) {
-          throw new Error(
-            `config value for key=${JSON.stringify(key)} looks like a pre-serialized JSON ${Array.isArray(parsed) ? "array" : "object"} (passed as a string). Pass the raw value directly \u2014 e.g. value=["main"], not value="[\\"main\\"]". The server calls JSON.stringify() on whatever you pass; double-encoding it breaks downstream consumers that expect the original shape.`
-          );
-        }
-      } catch (error2) {
-        if (error2 instanceof SyntaxError) {
-        } else {
-          throw error2;
-        }
-      }
-    }
-  }
-  try {
-    return JSON.stringify(rawValue);
-  } catch {
-    throw new Error("config value not JSON-serializable");
-  }
-}
-function configTools(db2) {
-  const definitions = [
-    {
-      name: "config_set",
-      description: "Set a plugin config key to a JSON-serializable value.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          key: { type: "string", description: "Config key (1-64 chars, must match /^[a-z][a-z0-9_.-]{0,63}$/i)" },
-          value: { description: "Any JSON-serializable value" }
-        },
-        required: ["key", "value"]
-      }
-    },
-    {
-      name: "config_get",
-      description: "Get a plugin config value by key. Returns null if not set.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          key: { type: "string" }
-        },
-        required: ["key"]
-      }
-    },
-    {
-      name: "config_list",
-      description: "List all plugin config entries as a key\u2192value object.",
-      inputSchema: {
-        type: "object",
-        properties: {}
-      }
-    }
-  ];
-  const handlers = {
-    config_set: requireRoles("config_set", ["bro"], wrapHandler9(async (args) => {
-      const key = args["key"];
-      setConfigValues(db2, [{ key, value: args["value"] }]);
-      return ok10({ key });
-    })),
-    config_get: wrapHandler9(async (args) => {
-      const key = args["key"];
-      return ok10(getConfigValues(db2, [key])[key] ?? null);
-    }),
-    config_list: wrapHandler9(async () => {
-      const rows = db2.all(
-        `SELECT key, value_json FROM plugin_config ORDER BY key`
-      );
-      const result2 = {};
-      for (const row of rows) {
-        try {
-          result2[row.key] = JSON.parse(row.value_json);
-        } catch {
-          return err10(
-            `${storedConfigParseErrorPrefix(row.key)} \u2014 raw: ${row.value_json.slice(0, 200)}`
-          );
-        }
-      }
-      return ok10(result2);
-    })
   };
   return { definitions, handlers };
 }
@@ -30832,6 +30909,22 @@ function filesToDirs(files) {
   }
   return [...dirs];
 }
+function insertEffortRaised(db2, task, from, to, agent, now2, failedTaskId) {
+  insertAudit(db2, {
+    issue_id: task.issue_id,
+    branch_id: task.branch_id,
+    from_node: agent,
+    event_type: "task_effort_raised",
+    summary: `Task ${task.task_id} effort raised: ${from} \u2192 ${to}`,
+    content_json: JSON.stringify({
+      task_id: task.task_id,
+      from,
+      to,
+      ...failedTaskId !== void 0 ? { failed_task_id: failedTaskId } : {}
+    }),
+    created_at: now2
+  });
+}
 function parseTaskFiles(filesJson) {
   if (!filesJson) return [];
   try {
@@ -31197,6 +31290,11 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           },
           title: { type: "string" },
           description: { type: "string" },
+          effort: {
+            type: "string",
+            enum: [...EFFORT_LEVELS],
+            description: "Optional effort for the retry task (e.g. 'high'); omit to inherit the failed task's effort."
+          },
           session_id: RUN_SESSION_ID_SCHEMA
         },
         required: [
@@ -31340,7 +31438,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_provision",
-      description: "Bro's atomic planning composite \u2014 collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). Returns the spawn-ready shape {task_id, branch_id, repo, slug, worktree_path, git_setup, worktree_reused, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
+      description: "Bro's atomic planning composite \u2014 collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). Returns the spawn-ready shape {task_id, branch_id, repo, slug, effort, worktree_path, git_setup, worktree_reused, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
       inputSchema: {
         type: "object",
         properties: {
@@ -31403,6 +31501,11 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
               prompt_bearing: {
                 type: "number",
                 description: "Set to 1 when this task intentionally edits prompt-surface files. Default 0."
+              },
+              effort: {
+                type: "string",
+                enum: [...EFFORT_LEVELS],
+                description: "Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted \u2192 plugin_config.swe_default_effort (medium when unset)."
               }
             },
             required: ["description", "spec_body", "files", "verification"]
@@ -31413,7 +31516,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_reopen",
-      description: "Rework a task in one call: moves a closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, opens a bro agent_runs row for the rework (reusing an open one; stamped with session_id when passed), and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
+      description: "Rework a task in one call: moves a closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, opens a bro agent_runs row for the rework (reusing an open one; stamped with session_id when passed), and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
       inputSchema: {
         type: "object",
         properties: {
@@ -31429,6 +31532,11 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             type: "array",
             items: { type: "string" },
             description: "Commands appended to the task verification[] list (duplicates ignored)."
+          },
+          effort: {
+            type: "string",
+            enum: [...EFFORT_LEVELS],
+            description: "Optional new effort for the rework (e.g. 'high'); omit to keep the task's effort."
           },
           session_id: RUN_SESSION_ID_SCHEMA
         },
@@ -31530,6 +31638,12 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           repoValue = resolveSoleRepo(db2)?.name ?? null;
         }
         const promptBearing = typeof task.prompt_bearing === "number" && task.prompt_bearing === 1 ? 1 : 0;
+        if (task.effort !== void 0 && task.effort !== null && !isEffort(task.effort)) {
+          return err15(
+            `typed_field_violation: task.effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(task.effort)}.`
+          );
+        }
+        const effort = isEffort(task.effort) ? task.effort : resolveEffortDefaults(db2).swe;
         const slug = branchId.replace(/^[^/]+\//, "");
         const specShapeWaived = args["waive_spec_shape"] === true;
         const specShapeWaiverReason = args["waive_spec_shape_reason"] ?? "";
@@ -31658,8 +31772,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           db2.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`,
+                status, spec_body, repo, prompt_bearing, files, verification, effort, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               issueId,
               branchId,
@@ -31671,6 +31785,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
               promptBearing,
               JSON.stringify(files),
               JSON.stringify(verification),
+              effort,
               now2,
               now2
             ]
@@ -31720,6 +31835,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           branch_id: branchId,
           repo: repoValue,
           slug,
+          effort,
           worktree_path: worktreePath,
           git_setup: gitSetup,
           worktree_reused: worktreeReused,
@@ -31741,8 +31857,12 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const sessionId = parseRunSessionId(args["session_id"]);
         const filesAdd = validateFenceAdditions(args["files_add"], "files_add");
         const verificationAdd = validateFenceAdditions(args["verification_add"], "verification_add");
+        const effortArg = args["effort"];
+        if (effortArg !== void 0 && !isEffort(effortArg)) {
+          return err15(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(effortArg)}.`);
+        }
         const task = db2.get(
-          `SELECT t.id, t.issue_id, t.branch_id, t.status, t.files, t.verification, t.repo, i.status AS issue_status
+          `SELECT t.id, t.issue_id, t.branch_id, t.status, t.files, t.verification, t.repo, t.effort, i.status AS issue_status
              FROM tasks t JOIN issues i ON i.id = t.issue_id WHERE t.id = ?`,
           [taskId]
         );
@@ -31764,15 +31884,17 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         }
         const files = appendUnique(parseTaskFiles(task.files), filesAdd);
         const verification = appendUnique(parseTaskFiles(task.verification), verificationAdd);
+        const effort = isEffort(effortArg) ? effortArg : task.effort;
         const now2 = nowISO();
         db2.transaction(() => {
           db2.run(
-            `UPDATE tasks SET status = 'running', files = ?, verification = ?, completed_at = NULL, updated_at = ? WHERE id = ?`,
-            [JSON.stringify(files), JSON.stringify(verification), now2, taskId]
+            `UPDATE tasks SET status = 'running', files = ?, verification = ?, effort = ?, completed_at = NULL, updated_at = ? WHERE id = ?`,
+            [JSON.stringify(files), JSON.stringify(verification), effort, now2, taskId]
           );
           const fenceLines = [
             filesAdd.length > 0 ? `files[] += ${filesAdd.join(", ")}` : null,
-            verificationAdd.length > 0 ? `verification[] += ${verificationAdd.join(" ; ")}` : null
+            verificationAdd.length > 0 ? `verification[] += ${verificationAdd.join(" ; ")}` : null,
+            effort !== task.effort ? `effort: ${task.effort} \u2192 ${effort}` : null
           ].filter((l) => l !== null);
           insertDiscussion(db2, {
             issue_id: task.issue_id,
@@ -31796,6 +31918,9 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             }),
             created_at: now2
           });
+          if (effortRank(effort) > effortRank(task.effort)) {
+            insertEffortRaised(db2, { issue_id: task.issue_id, branch_id: task.branch_id, task_id: taskId }, task.effort, effort, agent, now2);
+          }
           const openBro = db2.get(
             `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'bro' AND completed_at IS NULL LIMIT 1`,
             [taskId]
@@ -31826,6 +31951,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           status: "running",
           files,
           verification,
+          effort,
           worktree_path: worktreePath,
           worktree_recreated: worktreeRecreated,
           ...diagnostic ? { diagnostic } : {}
@@ -31926,7 +32052,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         if (taskId === void 0 || taskId === null) return err15("task_id is required");
         const task = db2.get(
           `SELECT t.id, t.issue_id, t.branch_id, t.title, t.status, t.spec_body, t.files, t.verification, t.commit_sha, t.repo,
-                  i.objective
+                  t.effort, i.objective
              FROM tasks t JOIN issues i ON i.id = t.issue_id
             WHERE t.id = ? LIMIT 1`,
           [taskId]
@@ -32009,6 +32135,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           status: task.status,
           commit_sha: task.commit_sha,
           repo,
+          effort: task.effort,
           spec_body: task.spec_body,
           files: parseTaskFiles(task.files),
           verification: parseTaskFiles(task.verification),
@@ -32052,6 +32179,10 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const title = args["title"] ?? "";
         const repoOverride = args["repo"] ?? null;
         const sessionId = parseRunSessionId(args["session_id"]);
+        const effortArg = args["effort"];
+        if (effortArg !== void 0 && !isEffort(effortArg)) {
+          return err15(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(effortArg)}.`);
+        }
         if (!BRANCH_ID_RE.test(newBranchId)) {
           return err15(`Invalid new_branch_id "${newBranchId}" \u2014 does not match conventional format.`);
         }
@@ -32071,7 +32202,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         }
         const failed = db2.get(
           `SELECT id, issue_id, branch_id, parent_branch_id, repo, status,
-                  files, verification, prompt_bearing
+                  files, verification, prompt_bearing, effort
              FROM tasks WHERE id = ? LIMIT 1`,
           [failedTaskId]
         );
@@ -32107,6 +32238,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             );
           }
         }
+        const effort = isEffort(effortArg) ? effortArg : failed.effort;
         const now2 = nowISO();
         const result2 = db2.transaction(() => {
           insertDiscussion(db2, {
@@ -32119,8 +32251,8 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           db2.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`,
+                status, spec_body, repo, prompt_bearing, files, verification, effort, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               failed.issue_id,
               newBranchId,
@@ -32132,6 +32264,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
               failed.prompt_bearing,
               failed.files,
               failed.verification,
+              effort,
               now2,
               now2
             ]
@@ -32154,9 +32287,12 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             }),
             created_at: now2
           });
+          if (effortRank(effort) > effortRank(failed.effort)) {
+            insertEffortRaised(db2, { issue_id: failed.issue_id, branch_id: newBranchId, task_id: newTask.id }, failed.effort, effort, "bro", now2, failed.id);
+          }
           return newTask;
         });
-        return ok15({ task_id: result2.id, branch_id: result2.branch_id });
+        return ok15({ task_id: result2.id, branch_id: result2.branch_id, effort });
       })
     ),
     intent_start: requireRoles(
@@ -37454,7 +37590,19 @@ var POPULATED_COLUMNS = [
   { table: "agent_runs", column: "host", created_column: "started_at", floor: 0, min_schema: 33 },
   { table: "agent_runs", column: "root_dir", created_column: "started_at", floor: 0.05, min_schema: 33 },
   { table: "agent_runs", column: "exit_reason", created_column: "started_at", scope: "completed_at IS NOT NULL", scope_label: "completed rows", floor: 0.05, min_schema: 33 },
-  { table: "tasks", column: "prompt_bearing", created_column: "created_at", floor: 0, min_schema: 0 }
+  { table: "tasks", column: "prompt_bearing", created_column: "created_at", floor: 0, min_schema: 0 },
+  // The v37 migration keeps no applied-at timestamp, so the first run carrying
+  // an effort anchors the window: runs metered before v37 stay NULL by design.
+  {
+    table: "agent_runs",
+    column: "effort",
+    created_column: "started_at",
+    scope: `agent_type IN ('swe','pr-reviewer') AND usage_source = 'subagent_stop'
+               AND ${ts("started_at")} >= (SELECT MIN(${ts("started_at")}) FROM agent_runs WHERE effort IS NOT NULL)`,
+    scope_label: "SubagentStop-metered swe/pr-reviewer rows since the first run carrying an effort",
+    floor: 0.05,
+    min_schema: 37
+  }
 ];
 function populatedContract(c) {
   const where = [`${ts(c.created_column)} >= ${daysAgo(30)}`, ...c.scope ? [c.scope] : []].join(" AND ");

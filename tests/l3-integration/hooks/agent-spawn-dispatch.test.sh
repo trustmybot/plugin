@@ -2,10 +2,10 @@
 # Tests for scripts/hooks/agent-spawn-dispatch.sh
 #
 # Dispatcher contract:
-#   - Runs the five Agent-spawn gate hooks in order.
+#   - Runs the six Agent-spawn gate hooks in order.
 #   - Short-circuits on the first deny: emits that deny verbatim and exits.
 #   - On full pass: emits union of any additionalContext blocks (currently
-#     none of the five produce context, but the merge path is exercised).
+#     none of the six produce context, but the merge path is exercised).
 #   - A non-deny, non-context output from any hook is ignored.
 set -uo pipefail
 
@@ -37,6 +37,7 @@ setup_db() {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
     INSERT INTO issues (id) VALUES (1);
   "
   echo "$db"
@@ -96,7 +97,7 @@ test_case "pr-reviewer spawn with missing anchors is denied"
 TMPDIR=$(mktemp -d)
 db=$(setup_db "$TMPDIR")
 insert_task "$db" 5 "closed" "fix/5-pr" "## spec"
-payload=$(jq -n '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",prompt:"please review this PR"}}')
+payload=$(jq -n '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",effort:"high",prompt:"please review this PR"}}')
 out=$(TMB_SKIP_PR_REVIEWER_CLOSE_GATE=1 run_dispatcher "$payload" "$db")
 assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
 assert_contains "$out" "missing required anchors" "prompt-shape wording present"
@@ -125,7 +126,7 @@ assert_eq "" "$out" "silent pass — all six anchors present"
 test_case "pr-reviewer with isolation=worktree is denied before shape check (hook order preserved)"
 TMPDIR=$(mktemp -d)
 db=$(setup_db "$TMPDIR")
-payload=$(jq -n '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",isolation:"worktree",prompt:"review"}}')
+payload=$(jq -n '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",effort:"high",isolation:"worktree",prompt:"review"}}')
 out=$(run_dispatcher "$payload" "$db")
 assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
 assert_contains "$out" "must NOT run with isolation" "no-worktree wording present (fired before shape check)"
@@ -146,7 +147,8 @@ sqlite3 "$db" "
     spec_body TEXT NOT NULL DEFAULT '',
     repo TEXT,
     parent_branch_id TEXT,
-    files TEXT
+    files TEXT,
+    effort TEXT NOT NULL DEFAULT 'medium'
   );
   CREATE TABLE issues (
     id INTEGER PRIMARY KEY,
@@ -162,7 +164,7 @@ sqlite3 "$db" "
   INSERT INTO tasks (id, issue_id, branch_id, status, spec_body)
     VALUES (1, 1, 'fix/1-foo', 'pending', '## spec body');
 " >/dev/null
-payload=$(jq -n '{tool_name:"Agent",tool_input:{subagent_type:"swe",prompt:"task_id=1 worktree=/some/path You are SWE."}}')
+payload=$(jq -n '{tool_name:"Agent",tool_input:{subagent_type:"swe",effort:"medium",prompt:"task_id=1 worktree=/some/path You are SWE."}}')
 out=$(
   cd "$TMPDIR" || exit 1
   printf '%s' "$payload" | TRAJECTORY_DB_PATH="$db" bash "$DISPATCHER" 2>/dev/null || true
