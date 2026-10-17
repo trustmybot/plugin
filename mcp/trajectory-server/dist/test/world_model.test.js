@@ -458,6 +458,7 @@ const root = parse(await wm.world_model_get({ agent: 'bro', repo: 'app' }));
 const search = parse(await wm.world_model_search({ agent: 'bro', repo: 'app', query: 'quokka', mode: 'keyword' }));
 const hybrid = parse(await wm.world_model_search({ agent: 'bro', repo: 'app', query: 'lib' }));
 const all = graph.allFilesForRepo('app');
+const stored = Object.fromEntries(all.map((f) => [f.path, f.purpose]));
 const graphCounts = {
   files: all.length,
   with_purpose: all.filter((f) => f.purpose !== '').length,
@@ -465,13 +466,18 @@ const graphCounts = {
 };
 graph.close();
 db.close();
-console.log(JSON.stringify({ zoom, root, search, hybrid, graphCounts }));
+console.log(JSON.stringify({ zoom, root, search, hybrid, graphCounts, stored }));
 `);
             assert.equal(out['error'], undefined, `scan failed: ${String(out['error'])}`);
             const zoom = out['zoom'];
             assert.equal(zoom.root.path, 'src');
             assert.deepEqual(zoom.root.files, [
-                { path: 'src/a.ts', purpose: 'Parses inbound webhook payloads.', purpose_source: 'comment', content_md5: zoom.root.files[0]['content_md5'] },
+                {
+                    path: 'src/a.ts',
+                    purpose: '<untrusted-content source="file-purpose">\nParses inbound webhook payloads.\n</untrusted-content>',
+                    purpose_source: 'comment',
+                    content_md5: zoom.root.files[0]['content_md5'],
+                },
                 { path: 'src/b.ts', purpose: '', purpose_source: 'none', content_md5: zoom.root.files[1]['content_md5'] },
             ]);
             assert.match(String(zoom.root.files[0]['content_md5']), /^[0-9a-f]{32}$/);
@@ -486,7 +492,10 @@ console.log(JSON.stringify({ zoom, root, search, hybrid, graphCounts }));
             const search = out['search'];
             assert.equal(search.mode, 'keyword');
             assert.deepEqual(search.results.map((r) => [r['kind'], r['path']]), [['file', 'lib/zeta.ts']]);
-            assert.equal(search.results[0]['purpose'], 'Quokka handshake negotiator.');
+            assert.equal(search.results[0]['purpose'], '<untrusted-content source="file-purpose">\nQuokka handshake negotiator.\n</untrusted-content>', 'file hit purposes leave the server framed');
+            const stored = out['stored'];
+            assert.equal(stored['app/src/a.ts'], 'Parses inbound webhook payloads.', 'the graph keeps the raw purpose');
+            assert.equal(stored['app/lib/zeta.ts'], 'Quokka handshake negotiator.');
             const hybrid = out['hybrid'];
             assert.equal(hybrid.warning, 'semantic_unavailable');
             assert.deepEqual(hybrid.results.map((r) => [r['kind'], r['path']]), [['dir', 'lib'], ['file', 'lib/README.md'], ['file', 'lib/zeta.ts']], 'directories first, then files, each tagged with kind');

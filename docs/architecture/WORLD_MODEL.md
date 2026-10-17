@@ -47,7 +47,7 @@ Follow-up slices add `Symbol`, `IMPORTS`, `CALLS`, `DEFINES` nodes + edges for c
 - `content_md5` equal → leave the row untouched (purpose and `updated_at` preserved);
 - existing row has `purpose_source='swe'` and the md5 differs → refresh md5/size/sha/`updated_at`, keep `purpose` and `purpose_source`.
 
-File nodes whose path is gone from the repo's scan are deleted, and so are all File nodes of a repo that left the workspace; `repo_rename` re-keys them with the Directory nodes. The 4 KB head is the only file read; file bodies are never stored.
+File nodes whose path is gone from the repo's scan are deleted, and so are all File nodes of a repo that left the workspace; `repo_rename` re-keys them with the Directory nodes. The 4 KB head is the only file read; file bodies are never stored. The graph stores purposes raw; because they come from file contents, every read path wraps them in `<untrusted-content source="file-purpose">` delimiters (the same `frameUntrusted` framing README summaries get), so agents treat them as data.
 
 **Extraction rules** (pure, by extension or file name; whitespace collapsed, comment markers stripped, cut at the first sentence end or 200 characters):
 
@@ -61,7 +61,7 @@ File nodes whose path is gone from the repo's scan are deleted, and so are all F
 
 A NUL byte in the head (binary), an empty head, or no match yields `{purpose: '', source: 'none'}`.
 
-**Directories.** For each directory the scan checks disk for `<dir>/README.md` (or `readme.md` / `README.rst`); if present, content (truncated to ~1 KB) becomes the dir's `summary` with `summary_source='readme'`. Otherwise the scanner synthesizes a deterministic **structural** summary (`summary_source='structural'`): `<dir>/ — N files; <name>: <purpose>; …` with up to 5 file purposes sorted by name, or the immediate file names when no file has a purpose, then `subdirs: …` — so every node is non-empty and reachable by `world_model_search`, never `NULL`.
+**Directories.** For each directory the scan checks disk for `<dir>/README.md` (or `readme.md` / `README.rst`); if present, content (truncated to ~1 KB) becomes the dir's `summary` with `summary_source='readme'`. Otherwise the scanner synthesizes a deterministic **structural** summary (`summary_source='structural'`): `<dir>/ — N files; <untrusted-content source="file-purpose"> <name>: <purpose>; … </untrusted-content>` with up to 5 file purposes sorted by name, framed once on a single line so the depth-2 first-line trim keeps the whole frame, or the immediate file names when no file has a purpose, then `subdirs: …` — so every node is non-empty and reachable by `world_model_search`, never `NULL`.
 
 Re-running `scan_run` is summary-preserving via MERGE — existing nodes update structural fields and refresh README-derived summaries.
 
@@ -75,10 +75,10 @@ kuzu is **single-writer**: only one process may hold the database's write lock, 
 
 `world_model_get(repo, path, depth)` returns a directory tree. Implementation reads all Directory nodes for the repo from kuzu, then builds the tree in TypeScript by linking each node to its `parent_path`. Default `depth=2` (root + immediate children); `depth=null` returns the full subtree.
 
-- **Zoom-in** (`path` names a directory): the returned node also carries `files: [{path, purpose, purpose_source, content_md5}]` — that directory's own files, sorted by path, `path` repo-relative. Children never carry file arrays.
+- **Zoom-in** (`path` names a directory): the returned node also carries `files: [{path, purpose, purpose_source, content_md5}]` — that directory's own files, sorted by path, `path` repo-relative, each non-empty `purpose` framed as `file-purpose` untrusted content. Children never carry file arrays.
 - **Root call** (`path` omitted or `''`): the response adds `coverage: {files, with_purpose, by_source: {<purpose_source>: n}}` for the repo, so bro sees how much of the repo has a purpose. The default depth-2 tree carries no file arrays, so the cold-start call stays directory-sized.
 
-`world_model_search(query, mode='hybrid')` queries kuzu for directories whose `summary` or `path` matches the query and for files whose `purpose` or `path` matches it. Each result carries `kind: 'dir'` (with `summary`, `summary_source`, `file_count`) or `kind: 'file'` (with `dir`, `purpose`, `purpose_source`); directories come first, capped at `k` results overall.
+`world_model_search(query, mode='hybrid')` queries kuzu for directories whose `summary` or `path` matches the query and for files whose `purpose` or `path` matches it. Each result carries `kind: 'dir'` (with `summary`, `summary_source`, `file_count`) or `kind: 'file'` (with `dir`, a framed `purpose`, `purpose_source`); directories come first, capped at `k` results overall.
 
 | Mode | Behavior today | Follow-up |
 |---|---|---|

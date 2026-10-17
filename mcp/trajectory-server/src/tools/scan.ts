@@ -281,7 +281,9 @@ function buildStructuralSummary(
       .sort((a, b) => a.name.localeCompare(b.name))
       .slice(0, STRUCTURAL_PURPOSES_MAX)
       .map((f) => `${f.name}: ${f.purpose}`);
-    parts.push(fileCount, ...shown);
+    // One line, so the depth-2 first-line trim in world_model_get keeps the
+    // whole frame.
+    parts.push(fileCount, frameUntrusted('file-purpose', shown.join('; ')).replace(/\n/g, ' '));
   } else if (fileNames.length > 0) {
     parts.push(`${fileCount} (${join(fileNames.slice().sort())})`);
   }

@@ -7,6 +7,7 @@ import { resolveSoleRepo } from '../utils/repo-paths.js';
 import { spawnSync } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
+import { frameUntrusted } from '../utils/untrusted.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -138,10 +139,16 @@ interface FileView {
   content_md5: string;
 }
 
+// File purposes are extracted from file contents, so they leave the server
+// framed as untrusted data; the graph keeps them raw.
+function framedPurpose(purpose: string): string {
+  return purpose ? frameUntrusted('file-purpose', purpose) : '';
+}
+
 function fileView(f: FileNode): FileView {
   return {
     path: WorldModelGraph.relativeFilePath(f),
-    purpose: f.purpose,
+    purpose: framedPurpose(f.purpose),
     purpose_source: f.purpose_source,
     content_md5: f.content_md5,
   };
@@ -165,7 +172,7 @@ function fileResult(h: FileNode & { score: number }): Record<string, unknown> {
     repo: h.repo,
     path: WorldModelGraph.relativeFilePath(h),
     dir: h.dir,
-    purpose: h.purpose,
+    purpose: framedPurpose(h.purpose),
     purpose_source: h.purpose_source,
     score: h.score,
   };

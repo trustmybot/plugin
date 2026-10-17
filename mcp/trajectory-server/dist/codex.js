@@ -28862,7 +28862,7 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = 
   const fileCount = `${fileNames.length} file${fileNames.length === 1 ? "" : "s"}`;
   if (filePurposes.length > 0) {
     const shown = filePurposes.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STRUCTURAL_PURPOSES_MAX).map((f) => `${f.name}: ${f.purpose}`);
-    parts.push(fileCount, ...shown);
+    parts.push(fileCount, frameUntrusted("file-purpose", shown.join("; ")).replace(/\n/g, " "));
   } else if (fileNames.length > 0) {
     parts.push(`${fileCount} (${join10(fileNames.slice().sort())})`);
   }
@@ -29426,10 +29426,13 @@ function computeUnmergedWork(db, repo) {
   }
   return { unmerged_work };
 }
+function framedPurpose(purpose) {
+  return purpose ? frameUntrusted("file-purpose", purpose) : "";
+}
 function fileView(f) {
   return {
     path: WorldModelGraph.relativeFilePath(f),
-    purpose: f.purpose,
+    purpose: framedPurpose(f.purpose),
     purpose_source: f.purpose_source,
     content_md5: f.content_md5
   };
@@ -29451,7 +29454,7 @@ function fileResult(h) {
     repo: h.repo,
     path: WorldModelGraph.relativeFilePath(h),
     dir: h.dir,
-    purpose: h.purpose,
+    purpose: framedPurpose(h.purpose),
     purpose_source: h.purpose_source,
     score: h.score
   };

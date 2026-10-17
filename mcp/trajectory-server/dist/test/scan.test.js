@@ -886,6 +886,7 @@ const first = snapshot();
 const linked = [...graph.filePathsWithDirectory('app')].sort();
 const expectedMd5 = Object.fromEntries(tracked.map((p) => ['app/' + p, md5(p)]));
 const srcSummary = graph.allDirectoriesForRepo('app').find((d) => d.path === 'src').summary;
+const rootSummary = graph.allDirectoriesForRepo('app').find((d) => d.path === '').summary;
 const stats1 = JSON.parse(r1.content[0].text);
 
 graph.upsertFile({ ...first['app/src/b.py'], purpose: 'Hand-written by swe.', purpose_source: 'swe' });
@@ -903,7 +904,7 @@ const stats2 = JSON.parse(r2.content[0].text);
 const md5After = { a: md5('src/a.ts'), b: md5('src/b.py') };
 graph.close();
 db.close();
-console.log(JSON.stringify({ tracked, first, linked, expectedMd5, srcSummary, stats1, second, stats2, md5After }));
+console.log(JSON.stringify({ tracked, first, linked, expectedMd5, srcSummary, rootSummary, stats1, second, stats2, md5After }));
 `);
             assert.equal(out['error'], undefined, `scan failed: ${String(out['error'])}`);
             const tracked = out['tracked'];
@@ -927,6 +928,11 @@ console.log(JSON.stringify({ tracked, first, linked, expectedMd5, srcSummary, st
             assert.match(srcSummary, /^src\/ — 4 files; /, 'structural summary leads with the file count');
             assert.ok(srcSummary.includes('a.ts: Parses inbound webhook payloads.'), srcSummary);
             assert.ok(srcSummary.includes('b.py: Retry queue for failed jobs.'), srcSummary);
+            assert.match(srcSummary, /^src\/ — 4 files; <untrusted-content source="file-purpose"> a\.ts: [^\n]*; b\.py: [^\n]* <\/untrusted-content>$/, 'the purpose roll-up is framed once, on one line, after the count prefix');
+            assert.equal(out['rootSummary'], '(repo root)/ — 1 file; <untrusted-content source="file-purpose"> package.json: Fixture app for the scanner. </untrusted-content>; subdirs: docs, src', 'the subdirs suffix stays outside the frame');
+            for (const node of Object.values(first)) {
+                assert.ok(!String(node['purpose']).includes('untrusted-content'), `${String(node['path'])}: stored purpose is unframed`);
+            }
             const stats2 = out['stats2'];
             assert.equal(stats2['files_extracted'], 1, 'only the changed non-swe file is re-extracted');
             assert.equal(stats2['files_upserted'], 2, 'a.ts re-extracted + b.py facts refreshed');

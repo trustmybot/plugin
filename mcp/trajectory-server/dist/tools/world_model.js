@@ -4,6 +4,7 @@ import { resolveSoleRepo } from '../utils/repo-paths.js';
 import { spawnSync } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
+import { frameUntrusted } from '../utils/untrusted.js';
 const WORLD_MODEL_GET_MAX_NODES = 500;
 const UNMERGED_WORK_MAX_BRANCHES = 10;
 // Surface closed-task work living on un-merged feature branches (#1059). The
@@ -76,10 +77,15 @@ function computeUnmergedWork(db, repo) {
     }
     return { unmerged_work };
 }
+// File purposes are extracted from file contents, so they leave the server
+// framed as untrusted data; the graph keeps them raw.
+function framedPurpose(purpose) {
+    return purpose ? frameUntrusted('file-purpose', purpose) : '';
+}
 function fileView(f) {
     return {
         path: WorldModelGraph.relativeFilePath(f),
-        purpose: f.purpose,
+        purpose: framedPurpose(f.purpose),
         purpose_source: f.purpose_source,
         content_md5: f.content_md5,
     };
@@ -101,7 +107,7 @@ function fileResult(h) {
         repo: h.repo,
         path: WorldModelGraph.relativeFilePath(h),
         dir: h.dir,
-        purpose: h.purpose,
+        purpose: framedPurpose(h.purpose),
         purpose_source: h.purpose_source,
         score: h.score,
     };
