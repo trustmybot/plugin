@@ -53,8 +53,8 @@ function seedRun(db, o = {}) {
     const completedAt = o.completedAt === undefined ? iso() : o.completedAt;
     const tokens = o.tokens === undefined ? 100 : o.tokens;
     db.run(`INSERT INTO agent_runs (task_id, agent_type, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens,
-       started_at, completed_at, session_id, usage_source, model, host, root_dir, exit_reason)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+       started_at, completed_at, session_id, usage_source, model, host, root_dir, exit_reason, effort)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
         o.taskId ?? null,
         o.agentType ?? 'swe',
         tokens,
@@ -69,6 +69,7 @@ function seedRun(db, o = {}) {
         o.host === undefined ? 'claude' : o.host,
         o.rootDir === undefined ? '/w' : o.rootDir,
         o.exitReason === undefined ? (completedAt ? 'completed' : null) : o.exitReason,
+        o.effort === undefined ? 'medium' : o.effort,
     ]);
 }
 // One violating and one passing fixture per contract id.
@@ -247,6 +248,19 @@ const FIXTURES = {
         pass: (db) => {
             seedRun(db);
             seedRun(db, { completedAt: null });
+        },
+    },
+    populated_agent_runs_effort: {
+        violate: (db) => {
+            seedRun(db);
+            seedRun(db, { effort: null });
+        },
+        pass: (db) => {
+            seedRun(db, { effort: null, tokens: null, usageSource: 'backfill' });
+            seedRun(db, { agentType: 'bro', effort: null, usageSource: 'transcript' });
+            for (let i = 0; i < 20; i++)
+                seedRun(db);
+            seedRun(db, { effort: null });
         },
     },
     populated_tasks_prompt_bearing: {

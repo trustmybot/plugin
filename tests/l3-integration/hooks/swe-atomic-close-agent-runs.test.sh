@@ -10,6 +10,8 @@
 #   3. One row per spawn — the row task_brief opened is UPDATEd (started_at
 #      preserved); a re-fire with the same agent_id updates, never duplicates.
 #   4. Measures — every token column is a per-message sum (the bro-row units).
+#   5. Effort — a swe row carries its task's effort; a pr-reviewer spawn gets
+#      one metering row carrying plugin_config.reviewer_effort (high when unset).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -180,5 +182,52 @@ assert_eq "claude-big-9|claude|$(cd "$REPO" && pwd -P)/.claude/worktrees/task-14
   "model by tokens (<synthetic> ignored); root_dir = the task worktree; a completed task ends completed"
 assert_eq "failed" "$(sqlite3 "$DB" "SELECT exit_reason FROM agent_runs WHERE task_id=140;")" "a spawn that stops on a running task ends failed"
 assert_eq "claude" "$(sqlite3 "$DB" "SELECT DISTINCT host FROM agent_runs WHERE task_id IS NOT NULL;")" "every spawn row carries host claude"
+
+# ---- effort ------------------------------------------------------------------
+test_case "a swe row carries its task's effort"
+assert_eq "medium" "$(sqlite3 "$DB" "SELECT effort FROM agent_runs WHERE task_id=137;")" "task 137 defaults to medium"
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, effort, created_at, updated_at) VALUES (144, 1, 'fix/task-144', 'dev', 'd', 'completed', 'high', '$NOW', '$NOW');"
+T144="$TMPDIR/t144.jsonl"
+transcript 144 "$T144"
+run_hook "$(stop_input "$T144" agent-144)" >/dev/null
+assert_eq "swe|high" "$(sqlite3 "$DB" "SELECT agent_type, effort FROM agent_runs WHERE task_id=144;")" "the swe row copies tasks.effort high"
+
+# pr_stop_input <transcript> <agent_id>
+pr_stop_input() {
+  jq -n --arg tp "$1" --arg id "$2" \
+    '{agent_type: "tmb:pr-reviewer", agent_id: $id, session_id: "sess-1", agent_transcript_path: $tp, hook_event_name: "SubagentStop"}'
+}
+pr_runs() {
+  sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs WHERE task_id=$1 AND agent_type='pr-reviewer';"
+}
+
+test_case "a pr-reviewer spawn gets one metering row carrying reviewer_effort (high when unset)"
+TR1="$TMPDIR/tr1.jsonl"
+printf '%s\n' \
+  '{"type":"user","timestamp":"2026-06-16T19:50:00.000Z","message":{"role":"user","content":"task_id=144 commit_sha=abc1234 branch_id=fix/task-144 repo=plugin attempt_n=1 subagent_session_id=s"}}' \
+  '{"type":"assistant","timestamp":"2026-06-16T19:50:09.000Z","message":{"id":"r1","model":"claude-opus-9","usage":{"input_tokens":70,"output_tokens":7},"content":[]}}' \
+  > "$TR1"
+run_hook "$(pr_stop_input "$TR1" agent-rev-1)" >/dev/null
+assert_eq "1" "$(pr_runs 144)" "one pr-reviewer row"
+assert_eq "agent-rev-1|70|7|subagent_stop|claude-opus-9|claude|$(cd "$REPO" && pwd -P)|completed|high|2026-06-16T19:50:00.000Z" \
+  "$(sqlite3 "$DB" "SELECT spawn_id, tokens_in, tokens_out, usage_source, model, host, root_dir, exit_reason, effort, started_at FROM agent_runs WHERE task_id=144 AND agent_type='pr-reviewer';")" \
+  "metered, root_dir = the project root, effort = reviewer_effort default high"
+assert_eq "completed|" "$(sqlite3 "$DB" "SELECT status, COALESCE(commit_sha, '') FROM tasks WHERE id=144;")" "no task status side effect"
+
+test_case "a pr-reviewer re-fire updates its row in place"
+run_hook "$(pr_stop_input "$TR1" agent-rev-1)" >/dev/null
+assert_eq "1" "$(pr_runs 144)" "still one pr-reviewer row"
+
+test_case "a configured reviewer_effort lands on the next pr-reviewer row"
+sqlite3 "$DB" "INSERT INTO plugin_config (key, value_json) VALUES ('reviewer_effort', '\"medium\"') ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json;"
+run_hook "$(pr_stop_input "$TR1" agent-rev-2)" >/dev/null
+assert_eq "high
+medium" "$(sqlite3 "$DB" "SELECT effort FROM agent_runs WHERE task_id=144 AND agent_type='pr-reviewer' ORDER BY id;")" "the earlier row keeps high, the new one carries medium"
+
+test_case "an unbound pr-reviewer spawn writes nothing"
+TOTAL_BEFORE=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs;")
+run_hook "$(pr_stop_input "$TRANSCRIPT_NO_ID" agent-rev-noid)" >/dev/null
+assert_eq "$TOTAL_BEFORE" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs;")" "no agent_runs row"
+assert_eq "1" "$(skipped)" "no capture-skipped audit row for a pr-reviewer"
 
 summarize

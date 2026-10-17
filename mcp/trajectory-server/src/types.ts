@@ -77,6 +77,8 @@ export interface Task {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  /** Reasoning effort swe runs this task at: low | medium | high. */
+  effort: string;
 }
 
 export interface Discussion {
@@ -147,6 +149,8 @@ export interface TaskInput {
    * Persisted as a JSON array in tasks.verification.
    */
   verification?: string[];
+  /** low | medium | high; omitted → plugin_config.swe_default_effort (medium when unset). */
+  effort?: string;
 }
 
 /**
@@ -164,6 +168,8 @@ export interface TaskProvisionInput {
   repo?: string;
   /** Set to 1 when this task intentionally modifies prompt-surface files. Default 0. */
   prompt_bearing?: number;
+  /** low | medium | high; omitted → plugin_config.swe_default_effort (medium when unset). */
+  effort?: string;
 }
 
 export interface PluginConfigRow {

@@ -98,7 +98,13 @@ CREATE TABLE IF NOT EXISTS tasks (
     verification      TEXT    NOT NULL DEFAULT '[]',
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL,
-    completed_at      TEXT
+    completed_at      TEXT,
+    -- effort: the reasoning effort swe runs this task at. task_create_batch /
+    -- task_provision write it (omitted → plugin_config.swe_default_effort,
+    -- medium when unset); task_reopen / task_retry may raise it. The
+    -- require-spawn-effort hook denies a swe spawn whose Agent effort differs.
+    effort            TEXT    NOT NULL DEFAULT 'medium'
+                        CHECK (effort IN ('low','medium','high'))
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_issue_branch ON tasks(issue_id, branch_id);
@@ -260,7 +266,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 36, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 37, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
@@ -337,7 +343,12 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     root_dir             TEXT,
     model                TEXT,
     host                 TEXT CHECK (host IN ('claude','codex')),
-    exit_reason          TEXT CHECK (exit_reason IN ('completed','failed','escalated','swept_orphan','swept_stale','issue_closed'))
+    exit_reason          TEXT CHECK (exit_reason IN ('completed','failed','escalated','swept_orphan','swept_stale','issue_closed')),
+    -- effort: the reasoning effort the run was spawned at, written by
+    -- swe-atomic-close.sh at SubagentStop (swe: the task's effort; pr-reviewer:
+    -- plugin_config.reviewer_effort). NULL on other agent types and on runs
+    -- recorded before schema v37.
+    effort               TEXT CHECK (effort IN ('low','medium','high'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);

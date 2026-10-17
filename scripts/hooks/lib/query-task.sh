@@ -321,6 +321,23 @@ tmb_config_get() {
   "
 }
 
+# tmb_effort_defaults <db>
+# Prints "<swe_default_effort>|<reviewer_effort>" from plugin_config; an unset
+# key, or a value other than low|medium|high, reads as medium and high. Prints
+# __ERR__ when the read fails (tmb_gate_read), so a gate can fail closed. The
+# server's twin is resolveEffortDefaults in
+# mcp/trajectory-server/src/tools/config.ts. Never fails the caller.
+tmb_effort_defaults() {
+  tmb_gate_read "${1:-}" "SELECT
+    COALESCE((SELECT v FROM (SELECT CASE WHEN json_valid(value_json) THEN json_extract(value_json, '\$') END AS v
+                               FROM plugin_config WHERE key = 'swe_default_effort')
+               WHERE v IN ('low','medium','high')), 'medium')
+    || '|' ||
+    COALESCE((SELECT v FROM (SELECT CASE WHEN json_valid(value_json) THEN json_extract(value_json, '\$') END AS v
+                               FROM plugin_config WHERE key = 'reviewer_effort')
+               WHERE v IN ('low','medium','high')), 'high');"
+}
+
 # tmb_config_raw <key> [<db>]
 # Prints the raw value_json column for <key> without JSON extraction.
 # Prints empty string when: key missing, DB absent, sqlite3 unavailable, DB busy.

@@ -87,6 +87,20 @@ export const KEYS = [
     setBy: 'bro via `config_set`',
     effect: '`swe-verification-gate.sh` gives one run of a task\'s `verification[]` this many seconds of command time on the swe close (the run-record writes are budgeted apart), clamped to 1–1800; 0 or a non-integer falls back to 900 with a stderr warning. `TMB_VERIFICATION_TIMEOUT_S` overrides it (tests).',
   },
+  {
+    name: 'swe_default_effort',
+    type: 'string: `low` \\| `medium` \\| `high`',
+    defaultText: 'unset (read as `medium`)',
+    setBy: 'bro via `config_set` (any other value is refused)',
+    effect: 'The `tasks.effort` a task gets when `task_create_batch` / `task_provision` name none. `require-spawn-effort.sh` denies a swe spawn whose Agent `effort` differs from the task\'s; `swe-atomic-close.sh` copies the task\'s effort onto the swe `agent_runs` row.',
+  },
+  {
+    name: 'reviewer_effort',
+    type: 'string: `low` \\| `medium` \\| `high`',
+    defaultText: 'unset (read as `high`)',
+    setBy: 'bro via `config_set` (any other value is refused)',
+    effect: 'The effort every pr-reviewer spawn runs at: `require-spawn-effort.sh` denies a pr-reviewer spawn whose Agent `effort` differs; `swe-atomic-close.sh` records it on the pr-reviewer `agent_runs` row.',
+  },
 ];
 
 function stripSqlComments(sql) {

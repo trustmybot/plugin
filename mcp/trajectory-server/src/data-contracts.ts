@@ -180,6 +180,18 @@ const POPULATED_COLUMNS: readonly PopulatedColumn[] = [
   { table: 'agent_runs', column: 'root_dir', created_column: 'started_at', floor: 0.05, min_schema: 33 },
   { table: 'agent_runs', column: 'exit_reason', created_column: 'started_at', scope: 'completed_at IS NOT NULL', scope_label: 'completed rows', floor: 0.05, min_schema: 33 },
   { table: 'tasks', column: 'prompt_bearing', created_column: 'created_at', floor: 0, min_schema: 0 },
+  // The v37 migration keeps no applied-at timestamp, so the first run carrying
+  // an effort anchors the window: runs metered before v37 stay NULL by design.
+  {
+    table: 'agent_runs',
+    column: 'effort',
+    created_column: 'started_at',
+    scope: `agent_type IN ('swe','pr-reviewer') AND usage_source = 'subagent_stop'
+               AND ${ts('started_at')} >= (SELECT MIN(${ts('started_at')}) FROM agent_runs WHERE effort IS NOT NULL)`,
+    scope_label: 'SubagentStop-metered swe/pr-reviewer rows since the first run carrying an effort',
+    floor: 0.05,
+    min_schema: 37,
+  },
 ];
 
 function populatedContract(c: PopulatedColumn): SqlContract {

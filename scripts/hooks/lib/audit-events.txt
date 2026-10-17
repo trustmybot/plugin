@@ -53,6 +53,7 @@ skill_creator_blocked	bro
 spec_shape_gate_waived	bro
 swe_brief_fetched	hook
 sync_skipped	bro
+task_effort_raised	bro
 task_escalated_by_issue_close	bro
 task_escalated_repair	server
 task_recovered	bro

@@ -34,6 +34,59 @@ export interface ConfigValueInput {
 
 export type ConfigValues = Readonly<Record<string, unknown | null>>;
 
+export const EFFORT_LEVELS = ['low', 'medium', 'high'] as const;
+export type Effort = (typeof EFFORT_LEVELS)[number];
+
+export const SWE_DEFAULT_EFFORT_KEY = 'swe_default_effort';
+export const REVIEWER_EFFORT_KEY = 'reviewer_effort';
+
+const EFFORT_DEFAULTS: Readonly<Record<string, Effort>> = {
+  [SWE_DEFAULT_EFFORT_KEY]: 'medium',
+  [REVIEWER_EFFORT_KEY]: 'high',
+};
+
+export function isEffort(value: unknown): value is Effort {
+  return typeof value === 'string' && (EFFORT_LEVELS as readonly string[]).includes(value);
+}
+
+export function effortRank(value: Effort): number {
+  return EFFORT_LEVELS.indexOf(value);
+}
+
+/**
+ * The effort a new swe task runs at when its creator names none, and the
+ * effort every pr-reviewer spawn runs at. An unset or unreadable key reads as
+ * its default (medium, high). The hooks' twin is tmb_effort_defaults in
+ * scripts/hooks/lib/query-task.sh.
+ */
+export function resolveEffortDefaults(db: TrajectoryDB): { swe: Effort; reviewer: Effort } {
+  const rows = db.all<{ key: string; value_json: string }>(
+    `SELECT key, value_json FROM plugin_config WHERE key IN (?, ?)`,
+    [SWE_DEFAULT_EFFORT_KEY, REVIEWER_EFFORT_KEY],
+  );
+  const read = (key: string): Effort => {
+    const row = rows.find((r) => r.key === key);
+    if (row) {
+      try {
+        const value: unknown = JSON.parse(row.value_json);
+        if (isEffort(value)) return value;
+      } catch {
+        // An unparseable stored value reads as the default.
+      }
+    }
+    return EFFORT_DEFAULTS[key]!;
+  };
+  return { swe: read(SWE_DEFAULT_EFFORT_KEY), reviewer: read(REVIEWER_EFFORT_KEY) };
+}
+
+function validateKnownConfigValue(key: string, value: unknown): void {
+  if (Object.hasOwn(EFFORT_DEFAULTS, key) && !isEffort(value)) {
+    throw new Error(
+      `typed_field_violation: config key ${JSON.stringify(key)} must be one of ${EFFORT_LEVELS.join(', ')}, got ${JSON.stringify(value)}.`,
+    );
+  }
+}
+
 export function storedConfigParseErrorPrefix(key: string): string {
   return `config key ${JSON.stringify(key)}: stored value is not valid JSON`;
 }
@@ -104,6 +157,7 @@ function serializeConfigValue(key: unknown, rawValue: unknown): string {
   if (rawValue === undefined || rawValue === null) {
     throw new Error('Missing required arg: value');
   }
+  validateKnownConfigValue(key, rawValue);
   if (typeof rawValue === 'string') {
     const trimmed = rawValue.trim();
     if (

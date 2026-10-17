@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolve, dirname } from 'node:path';
 import { resolveSoleRepo } from '../utils/repo-paths.js';
+import { EFFORT_LEVELS, isEffort, resolveEffortDefaults } from './config.js';
 // Directories implied by a task's typed `files[]` array. Mirrors filesToDirs in
 // composites.ts — kept here to avoid a circular import (composites.ts imports
 // BRANCH_ID_RE from tasks.ts). `filesJson` is the tasks.files JSON column.
@@ -63,9 +64,11 @@ function validateParentBranchId(branchId) {
 }
 // Typed Rails (#673): validate the per-task files[]/verification[] fields at the
 // MCP boundary. Flat schema (no oneOf/allOf/anyOf): each field, when present,
-// must be a non-empty array of non-empty strings. Throws a named error so the
-// model can retry with a corrected shape. Returns the normalized arrays
-// (omitted/undefined → empty array, which disables the corresponding hook).
+// must be a non-empty array of non-empty strings, and effort one of
+// low|medium|high. Throws a named error so the model can retry with a
+// corrected shape. Returns the normalized arrays (omitted/undefined → empty
+// array, which disables the corresponding hook) and the effort (undefined when
+// omitted: the caller applies swe_default_effort).
 function validateTypedRailsFields(t) {
     const checkStringArray = (value, field) => {
         if (value === undefined || value === null)
@@ -83,9 +86,13 @@ function validateTypedRailsFields(t) {
         }
         return value;
     };
+    if (t.effort !== undefined && t.effort !== null && !isEffort(t.effort)) {
+        throw new Error(`typed_field_violation: task branch_id='${t.branch_id}' — 'effort' must be one of ${EFFORT_LEVELS.join(', ')}, got ${JSON.stringify(t.effort)}.`);
+    }
     return {
         files: checkStringArray(t.files, 'files'),
         verification: checkStringArray(t.verification, 'verification'),
+        effort: isEffort(t.effort) ? t.effort : undefined,
     };
 }
 // Allowed target statuses for swe. SWE may only set running, completed, or
@@ -235,6 +242,11 @@ export function taskTools(db, runContext = claudeRunContext(db)) {
                                     type: 'array',
                                     items: { type: 'string' },
                                     description: 'Authoritative shell commands the swe-verification-gate hook runs in the worktree before SWE may complete the task; an empty/omitted array disables verification enforcement.',
+                                },
+                                effort: {
+                                    type: 'string',
+                                    enum: [...EFFORT_LEVELS],
+                                    description: 'Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted → plugin_config.swe_default_effort (medium when unset).',
                                 },
                             },
                             required: ['branch_id', 'description'],
@@ -664,6 +676,7 @@ export function taskTools(db, runContext = claudeRunContext(db)) {
                         autocreatedAudits.push(audit);
                 }
             }
+            const effortDefaults = resolveEffortDefaults(db);
             const inserted = db.transaction(() => {
                 const results = [];
                 const now = nowISO();
@@ -713,11 +726,11 @@ export function taskTools(db, runContext = claudeRunContext(db)) {
                     if (parentBranchId == null)
                         parentBranchId = 'main';
                     const promptBearing = typeof t.prompt_bearing === 'number' && t.prompt_bearing === 1 ? 1 : 0;
-                    const { files: typedFiles, verification: typedVerification } = validateTypedRailsFields(t);
+                    const { files: typedFiles, verification: typedVerification, effort } = validateTypedRailsFields(t);
                     db.run(`INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
-                status, spec_body, repo, prompt_bearing, files, verification, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`, [
+                status, spec_body, repo, prompt_bearing, files, verification, effort, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`, [
                         issueId,
                         t.branch_id,
                         parentBranchId,
@@ -728,6 +741,7 @@ export function taskTools(db, runContext = claudeRunContext(db)) {
                         promptBearing,
                         JSON.stringify(typedFiles),
                         JSON.stringify(typedVerification),
+                        effort ?? effortDefaults.swe,
                         now,
                         now,
                     ]);
@@ -909,6 +923,7 @@ export function taskTools(db, runContext = claudeRunContext(db)) {
                     status: t.status,
                     repo: t.repo,
                     prompt_bearing: t.prompt_bearing,
+                    effort: t.effort,
                 })),
                 parallel_groups: parallelGroups,
                 overlapping_pairs: overlappingPairs,
