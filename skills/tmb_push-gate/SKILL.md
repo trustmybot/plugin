@@ -43,6 +43,7 @@ Read the verdict + `mcp_available` off each task's validation row via `validatio
 
 - All-pass → `git push origin <feature>`, then `gh pr create` / `glab mr create`, surface URL. After merge, run post-merge cleanup below.
 - Any fail → surface verbatim. AUQ: `"PR-reviewer failed on N task(s). Spawn SWE to fix, or abort the push?"` options: `[Spawn SWE to fix | Abort push]`.
+- Rework on a branch with an open PR → `git push origin <feature>`, then confirm `git rev-parse origin/<feature>` equals the local tip (`git rev-parse <feature>`) before telling the Human the PR is updated.
 
 ### Post-merge cleanup
 

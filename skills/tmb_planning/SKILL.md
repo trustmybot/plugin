@@ -25,6 +25,8 @@ With the world model in hand, before you commit to building — two quick questi
 
    The distinction is INSIDE vs ON the agent: a package is a dependency inside the code; a cheatcode is a capability added to an agent's toolkit.
 
+A reported defect gets reproduced on the target branch tip before you file or dispatch it. Record what you saw (reproduced, or already fixed and at which commit) in the issue with `discussion_append`.
+
 Record the reuse-vs-build call with `discussion_append(issue_id, author='bro', kind='decision', body='<reuse X / build because …>')`.
 
 Cheatcode reuse and codify take their own path — the `tmb_cheatcode` lifecycle or `tmb_skill-creator` — and do **not** proceed through the branch+spec+swe steps below. Feature reuse and from-scratch are both builds: they flow on to steps 3–6.
@@ -36,6 +38,8 @@ When a remote is configured, ask the Human which branch to base the new feature 
 Get a name from `branch_id_propose` (pass the Human's verbatim intent and a short objective), confirm it with the Human ("Proceed with branch_id X?"), then let the `intent_start` composite create the issue, log the intent, and record the planning note in one transaction. `task_provision` (§5) creates the git branch — don't create it here.
 
 ## 4. Author the spec
+
+When the work comes from an existing issue, read it with `issue_get_with_discussions`: its newest `kind='decision'` supersedes the issue description, and the spec follows that decision.
 
 Pick conservative defaults; name them in `## Description` Assumptions bullets. The repo wins: match what the project already uses before reaching for anything new.
 
@@ -50,7 +54,7 @@ Pick conservative defaults; name them in `## Description` Assumptions bullets. T
 Pass the typed machine contract on each swe-executed task:
 
 - `files: string[]` — the surfaces the task is expected to touch, at directory granularity and in the project's own layout: its source tree, its hooks or scripts, its tests, its docs, its changelog fragments where it keeps them. The swe may edit other paths inside its worktree and reports each one with a reason; you judge them at close.
-- `verification: string[]` — the gate's list: runnable bash commands, one per entry, commands only. Each entry holds a command and nothing else — reasoning about what the command proves lives in `## Description`.
+- `verification: string[]` — the gate's list: runnable bash commands, one per entry, commands only. Each entry holds a command and nothing else — reasoning about what the command proves lives in `## Description`. Dry-run each command before `task_provision` and prefer the repo's own test scripts or runner. Keep commands portable across BSD and GNU tools: `grep -c` on one file prints a bare count and exits 1 on zero matches, and BSD `wc -l` pads its count with spaces, so compare counts numerically with `test`.
 - `effort` — the swe's effort level, by this rule:
 
 | Effort | When |
