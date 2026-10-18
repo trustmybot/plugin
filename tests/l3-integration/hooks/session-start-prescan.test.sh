@@ -256,6 +256,55 @@ fi
 test_case "cold + TMB_SKIP_AUTO_PRESCAN=1: no background scan message"
 assert_not_contains "$SKIP_CTX" "scan is running in the background" "no background scan message when bypassed"
 
+# ---- cold source-file count: workspace root and empty tree ----
+
+test_case "cold workspace: source files are summed across registered repos on one line"
+kill_fixture_node
+reset_db "$DB"
+WS_ROOT="$TMPDIR/ws"
+mkdir -p "$WS_ROOT"
+for spec in "alpha:2" "beta:3"; do
+  repo_name="${spec%%:*}"
+  repo_files="${spec##*:}"
+  mkdir -p "$WS_ROOT/$repo_name"
+  git -C "$WS_ROOT/$repo_name" init -q
+  git -C "$WS_ROOT/$repo_name" config user.email "test@example.com"
+  git -C "$WS_ROOT/$repo_name" config user.name "Test"
+  for i in $(seq 1 "$repo_files"); do touch "$WS_ROOT/$repo_name/file$i.txt"; done
+  git -C "$WS_ROOT/$repo_name" add .
+  git -C "$WS_ROOT/$repo_name" commit -q -m "initial commit"
+  sqlite3 "$DB" "INSERT INTO repos (name, path, last_scanned_at) VALUES ('$repo_name', '$WS_ROOT/$repo_name', '2026-01-01T00:00:00Z');"
+done
+WS_OUT=$( (cd "$WS_ROOT" && env TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>/dev/null) || true)
+WS_CTX=$(echo "$WS_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
+assert_contains "$WS_CTX" "cold (no scan yet; 5 source files)" "workspace sum of 2 + 3 files"
+WS_WM_LINES=$(printf '%s\n' "$WS_CTX" | grep -c '^World model:' || true)
+assert_eq "1" "$WS_WM_LINES" "World model row starts once"
+assert_eq "Trajectory DB:" "$(printf '%s\n' "$WS_CTX" | grep -A1 '^World model:' | tail -1 | cut -c1-14)" "World model row is a single line"
+
+test_case "cold empty tree: a single 0 source files and no auto-scan"
+kill_fixture_node
+reset_db "$DB"
+EMPTY_REPO="$TMPDIR/empty-repo"
+mkdir -p "$EMPTY_REPO"
+git -C "$EMPTY_REPO" init -q
+rm -f "$INVOCATION_FLAG"
+EMPTY_OUT=$( (cd "$EMPTY_REPO" && env TRAJECTORY_DB_PATH="$DB" INVOCATION_FLAG="$INVOCATION_FLAG" TMB_SKIP_AUTO_PRESCAN=0 bash "$FAKE_HOOK" 2>/dev/null) || true)
+EMPTY_CTX=$(echo "$EMPTY_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
+assert_contains "$EMPTY_CTX" "cold (no scan yet; 0 source files)" "zero tracked files"
+EMPTY_ZERO_COUNT=$(printf '%s\n' "$EMPTY_CTX" | grep -o '0 source files' | wc -l | tr -d ' ')
+assert_eq "1" "$EMPTY_ZERO_COUNT" "0 source files appears exactly once"
+assert_eq "World model:       cold (no scan yet; 0 source files)" "$(printf '%s\n' "$EMPTY_CTX" | grep '^World model:')" "no doubled 0 in the World model row"
+assert_eq "Trajectory DB:" "$(printf '%s\n' "$EMPTY_CTX" | grep -A1 '^World model:' | tail -1 | cut -c1-14)" "World model row is a single line"
+assert_not_contains "$EMPTY_CTX" "scan is running in the background" "no auto-scan message on an empty tree"
+sleep 0.3
+if [ -f "$INVOCATION_FLAG" ]; then
+  _fail "invoker was called for an empty tree"
+else
+  _pass
+fi
+reset_db "$DB"
+
 # ---- warm session: recent scan, banner carries file count + age ----
 
 test_case "warm: context shows warm world model with file count and age"
