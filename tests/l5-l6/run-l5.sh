@@ -93,6 +93,10 @@ for row_dir in "$HERE/rows"/*/ "$HERE/rows"/*/*/; do
     continue
   fi
 
+  if l5_fixture_is_onboarded "$PROJECT"; then
+    l5_write_persona_block "$PROJECT"
+  fi
+
   if [ -f "$row_dir/setup-l5.sh" ]; then
     if ! bash "$row_dir/setup-l5.sh" "$PROJECT" "$row_dir"; then
       printf "  ✗ %s: setup-l5.sh failed\n" "$row_name"

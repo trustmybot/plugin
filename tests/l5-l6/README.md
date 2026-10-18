@@ -19,3 +19,5 @@ bash tests/l5-l6/run-l6-chain.sh           # full cumulative chain
 | [`lib/`](./lib/) | Shared shell helpers — flow/chain helpers, scorers, sandbox, stubs, timeout shim |
 | [`fixtures/`](./fixtures/) | SQL fixtures (`empty`, `onboarding-named`, `onboarding-anonymous`) that pre-seed the world-model-cold gate |
 | [`inspect-trajectory.sh`](./inspect-trajectory.sh) | Helper to inspect a run's trajectory DB |
+
+After seeding, `run-l5.sh` calls `l5_write_persona_block` (in [`lib/flow-helpers.sh`](./lib/flow-helpers.sh)) for fixtures whose DB says `onboarded=true`, writing the tmb persona block into the scratch project's `CLAUDE.md` the way `onboard_apply` does; the `empty` fixture stays without one. `lib/flow-helpers.test.sh` covers the helper.
