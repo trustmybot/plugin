@@ -132,7 +132,7 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `bro_verification_pass` | `bro` | Bro task-gate V1/V2/V3 all passed; `content_json` carries `task_id`, `commit_sha`, and from `bro_atomic_close` a `scope` record (`extras_accepted`, `base_moved`, `recorded_base`, `merge_base`) that `task_brief` reads |
 | `cheatcode_activate` | `bro` | `cheatcode_activate` confirmed or failed a cheatcode's load; `content_json` carries the resulting status |
 | `cheatcode_approved` | `bro` | `cheatcode_approve` recorded the Human's install approval; the `cheatcode-install-approval` hook reads it |
-| `cheatcode_healthcheck` | `hook` | `cheatcode-healthcheck` moved a cheatcode's status (e.g. `active` → `broken`); filed under the system issue `-1` |
+| `cheatcode_healthcheck` | `bro`, `server` | `cheatcode_reconcile` (bro) or the server startup reconcile (server) moved a cheatcode's status (e.g. `active` → `broken`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `from`, `to` |
 | `cheatcode_install` | `bro` | `cheatcode_install` ran the install script; `content_json` carries `method` and the script outcome |
 | `cheatcode_installed` | `bro` | `cheatcode_install` registered the installed cheatcode row; `content_json` carries `cheatcode_id` |
 | `cheatcode_search` | `bro` | `cheatcode_search` finished; `content_json` carries `query`, `kind`, `candidate_count`, and `top` ranked candidates |

@@ -71,7 +71,7 @@ Tools are registered in `src/tools/index.ts`, grouped by domain:
 | Stats | `tools/stats.ts` | `task_stats` (token/duration aggregate per task; `cost_estimate` from `plugin_config.model_prices`) |
 | Roundtable | `tools/roundtable.ts` | `roundtable_create`, `roundtable_vote`, `roundtable_summarize`, `roundtable_finalize_decisions`, `roundtable_close`, `roundtable_close_with_decisions` |
 | PR monitor | `tools/pr_monitor.ts` | `pr_monitor_comments_get`, `pr_monitor_runs_list` |
-| Cheatcodes | `tools/cheatcode.ts` | `cheatcode_search`, `cheatcode_vet`, `cheatcode_approve`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_uninstall`, `cheatcode_list` |
+| Cheatcodes | `tools/cheatcode.ts` | `cheatcode_search`, `cheatcode_vet`, `cheatcode_approve`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_uninstall`, `cheatcode_list`, `cheatcode_reconcile` |
 | Config | `tools/config.ts` | `config_get`, `config_set`, `config_list` |
 | Onboard | `tools/onboard.ts` | `onboard_state_get`, `onboard_get_questions`, `onboard_apply` |
 | Scan (workspace + repos) | `tools/scan.ts` | `scan_run` (forks `scripts/scan.sh` for deterministic discovery; returns `rename_candidates`), `repos_list` |

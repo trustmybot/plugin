@@ -6,6 +6,7 @@ import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
 import { outsideProject, projectRootFromDbPath } from './containment.js';
+import { reconcileNow } from './cheatcode-reconcile.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -765,6 +766,17 @@ export function cheatcodeTools(db) {
             },
         },
         {
+            name: 'cheatcode_reconcile',
+            description: 'Set every active/broken cheatcodes row to active or broken from the live runtime (skill file, mcp/plugin listings), auditing each change. Rows whose listing is unavailable are untouched.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    agent: { type: 'string' },
+                },
+                required: ['agent'],
+            },
+        },
+        {
             name: 'cheatcode_list',
             description: 'Read-only inspect of the installed cheatcode registry (the cheatcodes table) — every builtin + installed capability the project knows about, ordered by id. Returns id, name, kind, origin, source_url, version, trust_tier, scope, status, description per row. This is the inspect surface for "do the cheatcodes work / which cheatcodes are installed", distinct from the discovery pipeline (cheatcode_search → vet → install). Optionally filter by kind or status.',
             inputSchema: {
@@ -1168,6 +1180,7 @@ export function cheatcodeTools(db) {
                 reason: verdict.reason,
             });
         })),
+        cheatcode_reconcile: requireRoles('cheatcode_reconcile', ['bro'], wrap(async () => ok(await reconcileNow(db, { fromNode: 'bro', writer: 'bro' })))),
         cheatcode_list: requireRoles('cheatcode_list', ['bro'], wrap(async (args) => {
             const rawKind = args['kind']?.trim();
             const rawStatus = args['status']?.trim();

@@ -12,6 +12,7 @@ import { TrajectoryDB, nowISO, resolveDbPath } from './db.js';
 import { serverLog, serverLogSync } from './logger.js';
 import { startBackfill } from './embeddings/backfill.js';
 import { embed } from './embeddings/model.js';
+import { reconcileAtStartup } from './tools/cheatcode-reconcile.js';
 import { recordEmbeddingTransitions } from './embeddings/health.js';
 import { WorldModelGraph, resolveGraphDbPath, GraphHolder } from './graph-db.js';
 import { createShutdown, installShutdownHandlers } from './shutdown.js';
@@ -209,6 +210,7 @@ if (db.legacyNoPluginMeta) {
   );
 }
 
+void reconcileAtStartup(db);
 recordEmbeddingTransitions(db);
 embed('warmup').catch(() => {});
 startBackfill(db).catch((e) => console.error('[embeddings] startBackfill error:', e));

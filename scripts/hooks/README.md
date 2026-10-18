@@ -21,7 +21,7 @@ Every `hooks/hooks.json` command is `"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispat
 ## Grouped by lifecycle
 
 ### SessionStart — preflight
-`ensure-gitignore.sh`, `mcp-health-check.sh`, `deferred-tools-drift-warn.sh`, `plugin-hooks-marker.sh`, `session-start-prescan.sh`, `ensure-kuzu-installed.sh`, `substrate-preflight.sh`, `cheatcode-healthcheck.sh`, `orphan-scan.sh` — make sure the gitignore, MCP server, kuzu native binary, and required host binaries are in place before a session does real work, mark the session as running the plugin's own hooks (so the opt-in headless shim yields), warn about TMB-managed hooks left in `~/.claude/settings.json`, say once per session when a user-scope install is ignored for the project's (or recommend `--scope project` when only a user-scope install exists), and reconcile cheatcode statuses.
+`ensure-gitignore.sh`, `mcp-health-check.sh`, `deferred-tools-drift-warn.sh`, `plugin-hooks-marker.sh`, `session-start-prescan.sh`, `ensure-kuzu-installed.sh`, `substrate-preflight.sh`, `orphan-scan.sh` — make sure the gitignore, MCP server, kuzu native binary, and required host binaries are in place before a session does real work, mark the session as running the plugin's own hooks (so the opt-in headless shim yields), warn about TMB-managed hooks left in `~/.claude/settings.json`, and say once per session when a user-scope install is ignored for the project's (or recommend `--scope project` when only a user-scope install exists).
 
 Every file a hook writes lives under `<project>/.claude/<plugin>/` (logs, locks, session markers); nothing is written under `$HOME` (`tests/l1-lint/no-home-writes.sh`).
 
@@ -38,15 +38,15 @@ What it detects, current project only:
 
 **Safety gates.** Detection-first: the default mode reports only and deletes nothing. Cleanup is gated behind `TMB_ORPHAN_SCAN_CLEAN=1` (default OFF) and is limited to this project's provably-dead stale DBs, a confirmed stale duplicate proc on this project's live DB (with a `kill -0` liveness check), and globally-unused cache versions. It never removes the live DB, never touches another project's DB / proc / cache, and never removes a pinned version. The scan is idempotent and soft-fails. (Tests set `TMB_ORPHAN_SCAN_HOME` / `TMB_ORPHAN_SCAN_PROJECT_DIR` to sandbox HOME and project-root resolution.)
 
-#### `cheatcode-healthcheck.sh` — cheatcode status reconciliation
+#### Cheatcode status reconciliation (trajectory-server)
 
-Sets each `cheatcodes` row's `status` to `active` or `broken` from runtime evidence and writes a `cheatcode_healthcheck` audit row per change. Names always match exactly, never as a substring (`tmb` never matches `tmb-x`):
+The trajectory-server sets each `cheatcodes` row's `status` to `active` or `broken` from runtime evidence and writes a `cheatcode_healthcheck` audit row per change, once at every server start (in the background, so startup is not delayed) and on demand through bro's `cheatcode_reconcile` tool. Names always match exactly, never as a substring (`tmb` never matches `tmb-x`):
 - `skill` — `file_path` exists on disk.
 - `mcp` with `source_url` `mcp:<plugin>/<server>` (a plugin-bundled server, as `/scan` records it) — `claude plugin list --json` has an entry whose `id` before `@` is `<plugin>`, it is `enabled`, and its `mcpServers` has the key `<server>`.
 - any other `mcp` row — the name is a server name in `claude mcp list` or a `~/.claude.json` `mcpServers` key.
 - `plugin` — `claude plugin list --json` has an enabled entry whose `id` before `@` is the name.
 
-A row whose evidence source is unavailable (no `claude` CLI, an unparseable plugin list, no MCP listing) is left untouched. Bypass: `TMB_DISABLE_CHEATCODE_HEALTHCHECK=1`.
+Only `active` and `broken` rows are reconciled. A row whose evidence source is unavailable (no `claude` CLI, a timeout, an unparseable plugin list, no MCP listing) is left untouched. Each `claude` listing is fetched once per reconcile and bounded by `TMB_CHEATCODE_HEALTHCHECK_TIMEOUT` seconds (default 4). Bypass for the startup run: `TMB_DISABLE_CHEATCODE_HEALTHCHECK=1`.
 
 ### UserPromptSubmit — per-turn setup + routing
 `activation-routine.sh`, `session-log-capture.sh`, `prompt-intent-hints.sh`, `roundtable-slash-detect.sh` — inject identity/context (plus the HALT + recovery pointer when the trajectory-server is not running at the prompt, and `session_id=<id>` for bro's planning calls), log the turn, and route phrasing hints (onboarding nudges, roundtable detection). Harness turns — task/system notifications, subagent hand-backs, agent and cross-session messages — never fire a hint, record `/roundtable`, or activate bro mode by mentioning bro; hints match only the prompt's unquoted text.

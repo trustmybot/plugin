@@ -15,7 +15,7 @@ The MCP tool modules for the trajectory server — one TypeScript file per domai
 | Composites | `composites.ts` | multi-step orchestration helpers: `task_brief`, `task_provision`, `intent_start`, `branch_id_propose`, `bro_atomic_close`, `task_recover`, `bro_verification_fail_record`, `pr_monitor_worktree`, `worktree_commits_fetch`, `task_retry`, `task_reopen`, `task_update_spec` |
 | Agents | `agents.ts` | `agent_register`, `agent_list`, `agent_resolve` |
 | Skills | `skills.ts` | `skill_register`, `skill_promote` |
-| Cheatcodes | `cheatcode.ts` | `cheatcode_search`, `cheatcode_vet`, `cheatcode_approve`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_uninstall`, `cheatcode_list` |
+| Cheatcodes | `cheatcode.ts` | `cheatcode_search`, `cheatcode_vet`, `cheatcode_approve`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_uninstall`, `cheatcode_list`, `cheatcode_reconcile` |
 | Roundtable | `roundtable.ts` | `roundtable_create`, `roundtable_vote`, `roundtable_summarize`, `roundtable_finalize_decisions`, `roundtable_close`, `roundtable_close_with_decisions` |
 | PR monitor | `pr_monitor.ts` | `pr_monitor_comments_get`, `pr_monitor_runs_list` |
 | Reports | `reports.ts` | `issue_report_md`, `issue_snapshot_md` |

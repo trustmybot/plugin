@@ -33,7 +33,7 @@ export const AUDIT_EVENT_TYPES = [
   { type: 'bro_verification_pass', writers: ['bro'], description: 'Bro task-gate V1/V2/V3 all passed; `content_json` carries `task_id`, `commit_sha`, and from `bro_atomic_close` a `scope` record (`extras_accepted`, `base_moved`, `recorded_base`, `merge_base`) that `task_brief` reads' },
   { type: 'cheatcode_activate', writers: ['bro'], description: '`cheatcode_activate` confirmed or failed a cheatcode\'s load; `content_json` carries the resulting status' },
   { type: 'cheatcode_approved', writers: ['bro'], description: '`cheatcode_approve` recorded the Human\'s install approval; the `cheatcode-install-approval` hook reads it' },
-  { type: 'cheatcode_healthcheck', writers: ['hook'], description: '`cheatcode-healthcheck` moved a cheatcode\'s status (e.g. `active` → `broken`); filed under the system issue `-1`' },
+  { type: 'cheatcode_healthcheck', writers: ['bro', 'server'], description: '`cheatcode_reconcile` (bro) or the server startup reconcile (server) moved a cheatcode\'s status (e.g. `active` → `broken`); filed under the system issue `-1`; `content_json` carries `name`, `kind`, `from`, `to`' },
   { type: 'cheatcode_install', writers: ['bro'], description: '`cheatcode_install` ran the install script; `content_json` carries `method` and the script outcome' },
   { type: 'cheatcode_installed', writers: ['bro'], description: '`cheatcode_install` registered the installed cheatcode row; `content_json` carries `cheatcode_id`' },
   { type: 'cheatcode_search', writers: ['bro'], description: '`cheatcode_search` finished; `content_json` carries `query`, `kind`, `candidate_count`, and `top` ranked candidates' },
