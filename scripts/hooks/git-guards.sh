@@ -47,7 +47,7 @@ deny() {
 # repos row of <git_root> — the sole source of truth (#980). Returns 1 when the
 # repo is unresolved or unregistered: in a multi-repo workspace only a
 # registered product repo is guarded (#693); siblings no-op. A registered repo
-# without policy gets safe defaults (github-flow, main, [main,dev]) so
+# without policy gets safe defaults (github-flow, the repo's default branch as target and sole protected branch) so
 # protected-branch ops still deny.
 load_policy() {
   local root="$1" row raw=""
@@ -63,8 +63,10 @@ load_policy() {
     raw=$(printf '%s' "$row" | cut -d'|' -f3)
   fi
   [ -n "$BRANCHING_MODEL" ] || BRANCHING_MODEL="github-flow"
-  [ -n "$PR_TARGET" ] || PR_TARGET="main"
-  [ -n "$raw" ] || raw='["main","dev"]'
+  local default_branch
+  default_branch=$(tmb_repo_default_branch "$root")
+  [ -n "$PR_TARGET" ] || PR_TARGET="$default_branch"
+  [ -n "$raw" ] || raw=$(jq -nc --arg b "$default_branch" '[$b]')
   if ! printf '%s' "$raw" | jq -e 'type == "array"' >/dev/null 2>&1; then
     deny "BLOCKED: this repo's protected_branches is malformed JSON. Fix the repos row or re-run bro onboarding."
   fi

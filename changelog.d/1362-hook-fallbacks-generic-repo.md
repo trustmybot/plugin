@@ -1,0 +1,2 @@
+### Fixed
+- **Hook fallbacks follow your repository, not this one's layout** (GH 1362): `git-guards.sh` resolves the PR target and the default protected set from the repo's default branch instead of `main`/`dev`, `clean-merged-branch.sh` skips cleanup when no base branch resolves instead of guessing `dev`, and the user-scope install notice points at the installed plugin's `docs/reference/INSTALL.md`.

@@ -130,6 +130,11 @@ out=$(run_hook '{"hook_event_name":"SessionStart","session_id":"inst-3"}')
 ctx=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext')
 assert_contains "$ctx" "TMB installed at user scope; \`--scope project\` is recommended (see docs/reference/INSTALL.md)" "recommendation"
 
+test_case "user-scope install only: notice names the plugin-root INSTALL.md"
+out=$(CLAUDE_PLUGIN_ROOT="$TMP/plugin-root" run_hook '{"hook_event_name":"SessionStart","session_id":"inst-3b"}')
+ctx=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext')
+assert_contains "$ctx" "(see $TMP/plugin-root/docs/reference/INSTALL.md)" "plugin-root path"
+
 test_case "project install only: no notice"
 reset 1
 printf '{"version":2,"plugins":{"tmb@mp-dev":[%s]}}\n' "$(project_entry)" > "$TMB_INSTALLED_JSON"

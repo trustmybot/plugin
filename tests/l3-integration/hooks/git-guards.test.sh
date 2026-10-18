@@ -29,11 +29,12 @@ _fresh_dir=$(mktemp -d -t tmb-guards-fresh-XXXX)
 _fresh_home=$(mktemp -d -t tmb-guards-freshhome-XXXX)
 (
   cd "$_fresh_dir" || exit 1
-  git init -q -b feat/fresh
+  git init -q -b main
   git config user.email t@t.t
   git config user.name T
   echo init > README.md
   git add . && git commit -qm init
+  git switch -q -c feat/fresh
   # No .claude/tmb DB and no INSERT INTO repos — genuine fresh install.
 )
 out=$(cd "$_fresh_dir" && echo '{"tool_input":{"command":"git commit -m test"}}' \
@@ -619,11 +620,12 @@ setup_perrepo_protected() {
   dir=$(mktemp -d -t tmb-guards-perrepo-XXXX)
   (
     cd "$dir" || exit 1
-    git init -q -b release
+    git init -q -b main
     git config user.email t@t.t
     git config user.name T
     echo init > README.md
     git add . && git commit -qm init
+    git switch -q -c release
     mkdir -p .claude/tmb
     sqlite3 .claude/tmb/trajectory.db < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
     # Safe-default protected_branches is [main, dev] — does NOT cover the
@@ -695,6 +697,16 @@ test_case "#987: unconfigured registered repo — force-push to main DENIED (saf
 setup_unconfigured_registered_repo main
 out=$(run_hook_in_repo "git push -f origin main")
 assert_contains "$out" '"permissionDecision":"deny"' "unconfigured repo must deny force-push to default-protected main"
+cleanup_repo
+
+test_case "repos row without target: PR target resolves from origin/HEAD"
+setup_unconfigured_registered_repo main
+git -C "$REPO_PATH" branch trunk
+git -C "$REPO_PATH" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk
+out=$(run_hook_in_repo "gh pr create --base trunk --head feat/x")
+assert_not_contains "$out" '"permissionDecision":"deny"' "base equal to the origin/HEAD branch is the PR target"
+out=$(run_hook_in_repo "gh pr create --base main --head feat/x")
+assert_contains "$out" 'PRs must target trunk' "other base denied, naming the resolved target"
 cleanup_repo
 
 # ---- #15/H8: unresolved repo → NO-OP (don't enforce a guessed default policy) --
@@ -917,6 +929,7 @@ cleanup_repo
 
 test_case "#54: in-command checkout -b dev (protected name) is DENIED"
 setup_worktree_repo
+sqlite3 "$REPO_PATH/.claude/tmb/trajectory.db" "UPDATE repos SET protected_branches='[\"main\",\"dev\"]';"
 out=$(run_hook_in_repo "git clone https://example.com/x.git repo && cd repo && git checkout -b dev && git commit -m 'bump'")
 assert_contains "$out" '"permissionDecision":"deny"' "creating a protected branch name must still block the commit"
 cleanup_repo
@@ -953,6 +966,7 @@ cleanup_repo
 
 test_case "#58: laundering (checkout -b feat/x && commit && checkout dev && commit) is DENIED"
 setup_worktree_repo
+sqlite3 "$REPO_PATH/.claude/tmb/trajectory.db" "UPDATE repos SET protected_branches='[\"main\",\"dev\"]';"
 out=$(run_hook_in_repo "cd $REPO_PATH && git checkout -b feat/x && git commit -m a && git checkout dev && git commit -m b")
 assert_contains "$out" '"permissionDecision":"deny"' "a trailing commit landing on protected dev must be blocked even after a clean feature-branch commit"
 assert_contains "$out" "dev is a shared workflow base" "the deny names the protected landing branch"

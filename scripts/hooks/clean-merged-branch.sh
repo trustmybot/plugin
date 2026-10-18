@@ -19,9 +19,9 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/query-task.sh
+# shellcheck source=scripts/hooks/lib/query-task.sh
 . "$SCRIPT_DIR/lib/query-task.sh"
-# shellcheck source=lib/resolve-repo.sh
+# shellcheck source=scripts/hooks/lib/resolve-repo.sh
 . "$SCRIPT_DIR/lib/resolve-repo.sh"
 
 # When sourced (e.g. by a test exercising helpers), stop after defining them.
@@ -90,7 +90,7 @@ _clean_merged_branch_main() {
   # Determine the base branch to validate the merge against.
   local base
   base=$(_cmb_base_branch "$repo_root")
-  [ -n "$base" ] || base="dev"
+  [ -n "$base" ] || exit 0
   # The base must exist; never compare against a missing ref.
   git -C "$repo_root" rev-parse --verify --quiet "refs/heads/$base" >/dev/null 2>&1 || exit 0
   # Don't delete the base itself.
