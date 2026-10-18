@@ -30558,7 +30558,7 @@ import { spawnSync as spawnSync5 } from "node:child_process";
 // src/utils/untrusted.ts
 var UNTRUSTED_CLOSE = "</untrusted-content>";
 function frameUntrusted(source, content) {
-  const neutralized = content.split(UNTRUSTED_CLOSE).join("</ untrusted-content>");
+  const neutralized = content.replace(/<\s*\/\s*untrusted-content\s*>/gi, "</ untrusted-content>").replace(/<\s*untrusted-content(?=[\s>])[^>]*>/gi, "< untrusted-content>");
   return `<untrusted-content source="${source}">
 ${neutralized}
 ${UNTRUSTED_CLOSE}`;

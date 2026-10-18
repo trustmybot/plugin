@@ -12,7 +12,9 @@ export const UNTRUSTED_CLOSE = '</untrusted-content>';
 // marker embedded in the content is neutralized so the text cannot forge an
 // early close and "break out" of the fence.
 export function frameUntrusted(source, content) {
-    const neutralized = content.split(UNTRUSTED_CLOSE).join('</ untrusted-content>');
+    const neutralized = content
+        .replace(/<\s*\/\s*untrusted-content\s*>/gi, '</ untrusted-content>')
+        .replace(/<\s*untrusted-content(?=[\s>])[^>]*>/gi, '< untrusted-content>');
     return `<untrusted-content source="${source}">\n${neutralized}\n${UNTRUSTED_CLOSE}`;
 }
 //# sourceMappingURL=untrusted.js.map
