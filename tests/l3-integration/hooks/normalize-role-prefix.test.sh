@@ -19,9 +19,12 @@ sqlite3 "$DB_RTS" "
     id INTEGER PRIMARY KEY,
     status TEXT NOT NULL,
     spec_body TEXT,
-    files TEXT
+    files TEXT,
+    branch_id TEXT,
+    repo TEXT
   );
-  INSERT INTO tasks VALUES (1, 'pending', 'Do the thing.', NULL);
+  CREATE TABLE repos (name TEXT, path TEXT);
+  INSERT INTO tasks (id, status, spec_body, files) VALUES (1, 'pending', 'Do the thing.', NULL);
 "
 
 test_case "require-task-spec: tmb:swe prefix is treated as swe (blocked without task_id)"
