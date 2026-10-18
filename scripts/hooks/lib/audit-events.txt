@@ -28,6 +28,7 @@ issue_auto_close_remote_skipped	hook
 issue_auto_closed_on_merge	hook
 issue_close_remote_skipped	server
 issue_linked	bro
+issue_updated	bro
 mcp_unavailable_fallback_invoked	bro,swe,pr-reviewer,consultant
 milestone_closed	bro
 milestone_reconcile_failed	bro

@@ -25866,6 +25866,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "issue_auto_closed_on_merge", writers: ["hook"], description: "`close-issue-on-merge` closed a local issue named by a merged PR's closing-ref; `content_json` carries `gh_iid`" },
   { type: "issue_close_remote_skipped", writers: ["server"], description: "`issue_close`, `bro_atomic_close` or `task_recover` closed an issue locally but no linked remote because the remote-sync gate is off: `reason` is `issue_sync_off` (`plugin_config.issue_sync` unset or `off`), `env_disabled` (`TMB_DISABLE_REMOTE_SYNC` set) or `no_backend` (no usable gh/glab for the issue repo's remotes); `content_json` carries `reason`, `remotes`" },
   { type: "issue_linked", writers: ["bro"], description: "`issue_link` bound a local issue to a remote issue; `content_json` carries `issue_id`, `backend`, `iid`, `forced`" },
+  { type: "issue_updated", writers: ["bro"], description: "bro changed an issue's milestone, labels or objective after creation" },
   { type: "mcp_unavailable_fallback_invoked", writers: ["bro", "swe", "pr-reviewer", "consultant"], description: "The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1`" },
   { type: "milestone_closed", writers: ["bro"], description: "`milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed`" },
   { type: "milestone_reconcile_failed", writers: ["bro"], description: "`scan_run` could not read a repo's remote milestones; `content_json` carries `repo`, `backend`, `reason` (the scan still succeeds)" },
@@ -26769,6 +26770,31 @@ async function fetchRemoteLabelNames(backend, spawnFn, spawnOpts, repoSlug) {
     return null;
   }
 }
+function parseRemoteMetadata(stdout) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== "object") return null;
+  const m = parsed.milestone;
+  let milestone = null;
+  if (typeof m === "string" && m !== "") milestone = m;
+  else if (m && typeof m === "object" && typeof m.title === "string") {
+    milestone = m.title || null;
+  }
+  const labels = [];
+  if (Array.isArray(parsed.labels)) {
+    for (const l of parsed.labels) {
+      if (typeof l === "string") labels.push(l);
+      else if (l && typeof l === "object" && typeof l.name === "string") {
+        labels.push(l.name);
+      }
+    }
+  }
+  return { milestone, labels };
+}
 async function verifyRemoteIssue(backend, iid, opts = {}) {
   const spawnFn = opts.spawnFn ?? defaultSpawnFn;
   const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
@@ -26776,11 +26802,11 @@ async function verifyRemoteIssue(backend, iid, opts = {}) {
   try {
     let result2;
     if (backend === "gh") {
-      const args = ["issue", "view", String(iid), "--json", "number,title,state"];
+      const args = ["issue", "view", String(iid), "--json", "number,title,state,milestone,labels"];
       if (opts.repoSlug) args.push("--repo", opts.repoSlug);
       result2 = spawnFn("gh", args, spawnOpts);
     } else {
-      const args = ["issue", "view", String(iid)];
+      const args = ["issue", "view", String(iid), "--output", "json"];
       if (opts.repoSlug) args.push("-R", opts.repoSlug);
       result2 = spawnFn("glab", args, spawnOpts);
     }
@@ -26794,7 +26820,8 @@ async function verifyRemoteIssue(backend, iid, opts = {}) {
       }
       if (typeof parsed.number !== "number") return { ok: false, reason: "parse_failed" };
     }
-    return { ok: true };
+    const metadata = parseRemoteMetadata(result2.stdout);
+    return metadata ? { ok: true, ...metadata } : { ok: true };
   } catch {
     return { ok: false, reason: "spawn_error" };
   }
@@ -27044,6 +27071,39 @@ async function syncIssueClose(opts) {
     return { ok: false, reason: "spawn_error", message: message2 };
   }
 }
+async function syncIssueUpdate(backend, iid, fields, opts = {}) {
+  const spawnFn = opts.spawnFn ?? defaultSpawnFn;
+  const spawnOpts = { timeout: SUBPROCESS_TIMEOUT_MS, encoding: "utf8" };
+  if (opts.cwd) spawnOpts.cwd = opts.cwd;
+  const args = backend === "gh" ? ["issue", "edit", String(iid)] : ["issue", "update", String(iid)];
+  if (opts.repoSlug) args.push(backend === "gh" ? "--repo" : "-R", opts.repoSlug);
+  if (fields.milestone !== void 0) args.push(backend === "gh" ? "--milestone" : "-m", fields.milestone);
+  if (fields.labels) {
+    const addFlag = backend === "gh" ? "--add-label" : "--label";
+    const removeFlag = backend === "gh" ? "--remove-label" : "--unlabel";
+    for (const l of fields.labels.add) args.push(addFlag, l);
+    for (const l of fields.labels.remove) args.push(removeFlag, l);
+  }
+  if (fields.title !== void 0) args.push(backend === "gh" ? "--title" : "-t", fields.title);
+  try {
+    const result2 = spawnFn(backend, args, spawnOpts);
+    if (result2.status !== 0) {
+      syncLog({ event: "issue_update_failed", backend, remote_iid: iid, stderr: result2.stderr, exit_code: result2.status });
+      return {
+        ok: false,
+        reason: "non_zero_exit",
+        stderr: result2.stderr,
+        stdout: result2.stdout,
+        exit_code: result2.status ?? void 0
+      };
+    }
+    return { ok: true };
+  } catch (e) {
+    const message2 = e instanceof Error ? e.message : String(e);
+    syncLog({ event: "issue_update_error", backend, remote_iid: iid, error: message2 });
+    return { ok: false, reason: "spawn_error", message: message2 };
+  }
+}
 
 // src/tools/agent-runs.ts
 var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
@@ -27164,7 +27224,7 @@ function defaultSyncLabels(db) {
   if (priorityLabels.length > 0) labels.push(priorityLabels[0]);
   return labels;
 }
-function validateIssueLabels(db, labels, taxonomy) {
+function validateIssueLabels(db, labels, taxonomy, tool2 = "issue_create") {
   const { classification, priorityLabels } = taxonomy ?? resolveLabelTaxonomy(db);
   const classificationSet = new Set(classification);
   const prioritySet = new Set(priorityLabels);
@@ -27178,7 +27238,7 @@ function validateIssueLabels(db, labels, taxonomy) {
   if (!hasPriority) {
     missing.push(`a priority label (one of: ${priorityLabels.join(", ")})`);
   }
-  return `missing_required_labels: issue_create requires ${missing.join(" AND ")}. Got labels: [${labels.join(", ")}]`;
+  return `missing_required_labels: ${tool2} requires ${missing.join(" AND ")}. Got labels: [${labels.join(", ")}]`;
 }
 function ensureMilestoneRow(db, milestone, repo) {
   if (repo === null) return;
@@ -27304,7 +27364,7 @@ async function verifyAdoptionRemote(db, issueRepo, remoteBackendArg, remoteIid, 
       error: `remote_verify_failed: ${backend} issue #${remoteIid} not found or not viewable (${verify.reason ?? "unknown"})`
     };
   }
-  return { ok: true, backend };
+  return { ok: true, backend, milestone: verify.milestone ?? null, labels: verify.labels ?? [] };
 }
 async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
   const remoteRow = db.get(
@@ -27487,6 +27547,22 @@ function issueTools(db, dbPath = "", options = {}) {
           include_description: { type: "boolean", description: "Echo the full description in the result (default false). Architect + bro only." }
         },
         required: ["agent", "issue_id", "description"]
+      }
+    },
+    {
+      name: "issue_update",
+      description: "Change an issue's milestone, labels or objective after creation and mirror the change to the linked remote issue when issue sync is on. Bro only. At least one of milestone, labels, objective is required; labels are validated like issue_create (one classification + one priority) and replace the whole set; objective maps to the remote title.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
+          issue_id: { type: "string", description: "Issue ID as string" },
+          milestone: { type: "string", description: "Milestone name; its milestones row is created for the issue repo when missing" },
+          labels: { type: "array", items: { type: "string" }, description: "Full replacement label set; must include one classification and one priority label" },
+          objective: { type: "string", description: "New objective (the remote issue title)" },
+          include_description: { type: "boolean", description: "Echo the full description in the result (default false). Architect + bro only." }
+        },
+        required: ["agent", "issue_id"]
       }
     },
     {
@@ -28043,6 +28119,158 @@ function issueTools(db, dbPath = "", options = {}) {
       const updated = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       return ok2(redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }));
     })),
+    issue_update: requireRoles("issue_update", ["bro"], wrapHandler2(async (args) => {
+      const agent = normalizeAgent(args["agent"]);
+      const issueId = requireArg2(args, "issue_id");
+      const includeDescription = args["include_description"] ?? false;
+      const milestoneArg = args["milestone"];
+      const labelsArg = args["labels"];
+      const objectiveArg = args["objective"];
+      const spawnFn = args["_spawnFn"] ?? void 0;
+      const cwdOverride = args["_cwd"];
+      if (milestoneArg === void 0 && labelsArg === void 0 && objectiveArg === void 0) {
+        return err2("no_fields: pass at least one of milestone, labels, objective");
+      }
+      if (milestoneArg !== void 0 && milestoneArg === "") {
+        return err2("invalid_milestone: milestone must be a non-empty string");
+      }
+      if (objectiveArg !== void 0 && objectiveArg.trim() === "") {
+        return err2("invalid_objective: objective must be a non-empty string");
+      }
+      const row = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      if (!row) {
+        return err2(`not_found: issue ${issueId}`);
+      }
+      if (labelsArg !== void 0) {
+        const labelError = validateIssueLabels(db, labelsArg, options.labelTaxonomy, "issue_update");
+        if (labelError) return err2(labelError);
+      }
+      let previousLabels = [];
+      if (row.labels != null) {
+        try {
+          const parsed = JSON.parse(row.labels);
+          if (Array.isArray(parsed)) previousLabels = parsed.filter((l) => typeof l === "string");
+        } catch {
+          previousLabels = [];
+        }
+      }
+      const changed = [];
+      const before = {};
+      const after = {};
+      const sets = [];
+      const params = [];
+      if (milestoneArg !== void 0) {
+        ensureMilestoneRow(db, milestoneArg, row.repo);
+        changed.push("milestone");
+        before["milestone"] = row.milestone;
+        after["milestone"] = milestoneArg;
+        sets.push("milestone = ?");
+        params.push(milestoneArg);
+      }
+      if (labelsArg !== void 0) {
+        changed.push("labels");
+        before["labels"] = previousLabels;
+        after["labels"] = labelsArg;
+        sets.push("labels = ?");
+        params.push(JSON.stringify(labelsArg));
+      }
+      if (objectiveArg !== void 0) {
+        changed.push("objective");
+        before["objective"] = row.objective;
+        after["objective"] = objectiveArg;
+        sets.push("objective = ?");
+        params.push(objectiveArg);
+      }
+      const now2 = nowISO();
+      db.run(
+        `UPDATE issues SET ${sets.join(", ")}, updated_at = ? WHERE id = ?`,
+        [...params, now2, issueId]
+      );
+      insertAudit(db, {
+        issue_id: row.id,
+        from_node: "executor",
+        event_type: "issue_updated",
+        summary: `issue ${issueId} updated: ${changed.join(", ")}`,
+        content_json: JSON.stringify({ issue_id: issueId, changed, before, after }),
+        created_at: now2
+      });
+      let syncDiagnostic;
+      if (row.gh_iid == null && row.gl_iid == null) {
+        syncDiagnostic = { sync_skipped: true, reason: "no_remote_iid", hint: "The issue has no gh_iid/gl_iid; the change is local only." };
+      } else {
+        const syncConfigRow = db.get(
+          `SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`
+        );
+        const syncConfig = syncConfigRow ? JSON.parse(syncConfigRow.value_json) : "off";
+        if (syncConfig === "off") {
+          syncDiagnostic = { sync_skipped: true, reason: "issue_sync_off", hint: "The change is local only; enable issue_sync to mirror it." };
+        } else {
+          const syncCtx = resolveIssueSyncContext(db, row.repo);
+          const remoteProviders = syncCtx ? { github: syncCtx.remoteFor("gh") !== null, gitlab: syncCtx.remoteFor("glab") !== null } : null;
+          const backend = resolveBackend(syncConfig, remoteProviders, !!spawnFn);
+          if (backend === null || backend === "off") {
+            syncDiagnostic = { sync_skipped: true, reason: "no_remote_configured", hint: "The change is local only." };
+          } else if (syncCtx === null) {
+            syncDiagnostic = {
+              sync_failed: true,
+              reason: "unresolvable_repo",
+              repo: row.repo,
+              backend,
+              hint: row.repo ? `issue repo "${row.repo}" has no matching repos row \u2014 run /scan.` : "multiple repos registered and the issue has no repo."
+            };
+          } else {
+            const fields = {};
+            if (milestoneArg !== void 0) fields.milestone = milestoneArg;
+            if (labelsArg !== void 0) {
+              fields.labels = {
+                add: labelsArg.filter((l) => !previousLabels.includes(l)),
+                remove: previousLabels.filter((l) => !labelsArg.includes(l))
+              };
+            }
+            if (objectiveArg !== void 0) fields.title = objectiveArg;
+            const targets = [];
+            if ((backend === "gh" || backend === "both") && row.gh_iid != null) targets.push({ cli: "gh", iid: row.gh_iid });
+            if ((backend === "glab" || backend === "both") && row.gl_iid != null) targets.push({ cli: "glab", iid: row.gl_iid });
+            if (targets.length === 0) {
+              syncDiagnostic = { sync_skipped: true, reason: "no_remote_iid", backend, hint: "The issue has no remote iid for the resolved backend; the change is local only." };
+            } else {
+              const results = await Promise.all(targets.map(async (t) => ({
+                target: t,
+                result: await syncIssueUpdate(t.cli, t.iid, fields, {
+                  spawnFn,
+                  cwd: cwdOverride ?? syncCtx.cwd,
+                  repoSlug: syncCtx.remoteFor(t.cli)?.slug ?? void 0
+                })
+              })));
+              const failed = results.filter((r) => !r.result.ok);
+              if (failed.length === 0) {
+                syncDiagnostic = { synced: true, backends: targets.map((t) => t.cli) };
+              } else {
+                for (const f of failed) {
+                  serverLog({ event: "issue_sync_failed", issueId, backend: f.target.cli, reason: f.result.reason, exit_code: f.result.exit_code, stderr: f.result.stderr?.slice(0, 1024), message: f.result.message });
+                }
+                const first = failed[0];
+                syncDiagnostic = {
+                  sync_failed: true,
+                  reason: first.result.reason,
+                  backend: first.target.cli,
+                  failed_backends: failed.map((f) => f.target.cli),
+                  exit_code: first.result.exit_code,
+                  stderr: first.result.stderr?.slice(0, 4096),
+                  message: first.result.message,
+                  hint: "The local row is updated; run the underlying gh/glab edit manually to mirror it."
+                };
+              }
+            }
+          }
+        }
+      }
+      const updated = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      return ok2({
+        ...redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }),
+        _sync: syncDiagnostic
+      });
+    })),
     issue_sync_retry: requireRoles("issue_sync_retry", ["bro"], wrapHandler2(async (args) => {
       const issueId = requireArg2(args, "issue_id");
       const spawnFn = args["_spawnFn"] ?? void 0;
@@ -28263,13 +28491,29 @@ function issueTools(db, dbPath = "", options = {}) {
         `UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_kind = COALESCE(remote_kind, ?), repo = COALESCE(repo, ?), updated_at = ? WHERE id = ?`,
         [ghIid, glIid, adoption.backend, repoArg, now2, issueId]
       );
-      if (!idempotent) {
+      const copied = {};
+      const refreshed = db.get("SELECT * FROM issues WHERE id = ?", [issueId]);
+      if (adoption.milestone !== null && (refreshed.milestone === null || refreshed.milestone === "")) {
+        ensureMilestoneRow(db, adoption.milestone, refreshed.repo);
+        copied.milestone = adoption.milestone;
+      }
+      const localLabelsEmpty = refreshed.labels == null || refreshed.labels === "" || refreshed.labels === "[]";
+      if (adoption.labels.length > 0 && localLabelsEmpty) {
+        copied.labels = adoption.labels;
+      }
+      if (copied.milestone !== void 0) {
+        db.run("UPDATE issues SET milestone = ? WHERE id = ?", [copied.milestone, issueId]);
+      }
+      if (copied.labels !== void 0) {
+        db.run("UPDATE issues SET labels = ? WHERE id = ?", [JSON.stringify(copied.labels), issueId]);
+      }
+      if (!idempotent || copied.milestone !== void 0 || copied.labels !== void 0) {
         insertAudit(db, {
           issue_id: parseInt(issueId, 10),
           from_node: "executor",
           event_type: "issue_adopted",
           summary: `issue ${issueId} adopted ${adoption.backend} #${remoteIid}`,
-          content_json: JSON.stringify({ issue_id: issueId, backend: adoption.backend, remote_iid: remoteIid, at_create: false }),
+          content_json: JSON.stringify({ issue_id: issueId, backend: adoption.backend, remote_iid: remoteIid, at_create: false, ...copied.milestone !== void 0 ? { milestone: copied.milestone } : {}, ...copied.labels !== void 0 ? { labels: copied.labels } : {} }),
           created_at: now2
         });
       }
