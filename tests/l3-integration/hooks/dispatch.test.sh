@@ -631,7 +631,7 @@ assert_eq "" "$(ran)" "no gate ran"
 rm -f "$PROJ/.claude/tmb/sessions/s-c.plugin-hooks"
 
 # ===========================================================================
-test_case "chain (real gates): agent-arg denial keeps swe-brief-gate from writing its sentinel"
+test_case "chain (real gates): agent-arg denial stops the chain before swe-brief-gate; a matching call passes through without a hook-side sentinel write"
 RP="$TMP/real-proj"
 mkdir -p "$RP/.claude/tmb"
 RDB="$RP/.claude/tmb/trajectory.db"
@@ -650,7 +650,7 @@ assert_contains "$out" "pass agent='swe'" "agent-arg-matches-caller denied"
 assert_eq "0" "$(sentinels)" "no swe_brief_fetched sentinel"
 out=$(cd "$RP" && brief swe tu-r2 | CLAUDE_PROJECT_DIR="$RP" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" trajectory-gates 2>/dev/null)
 is_deny "$out" && _fail "matching agent denied: $out" || _pass
-assert_eq "1" "$(sentinels)" "the matching call reaches swe-brief-gate, which writes the sentinel"
+assert_eq "0" "$(sentinels)" "the chain reaches swe-brief-gate, which reads the sentinel and writes none (task_brief owns the write)"
 
 # ===========================================================================
 . "$HERE/fixtures/no-jq-path.sh"
