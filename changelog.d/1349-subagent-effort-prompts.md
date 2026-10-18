@@ -1,2 +1,0 @@
-### Changed
-- **swe and pr-reviewer run at a chosen effort level** (GH 1349): the swe agent defaults to `effort: medium` and pr-reviewer to `effort: high` in their frontmatter; `tmb_planning` picks each task's effort (medium by default, high for hooks, guards, trajectory-server write paths, prompt-bearing tasks and rework after a reviewer FAIL, low for consultants and lookups) and passes it on the swe spawn, and `tmb_push-gate` passes `reviewer_effort` (default high) on every pr-reviewer spawn.

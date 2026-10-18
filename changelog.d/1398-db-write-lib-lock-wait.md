@@ -1,2 +1,0 @@
-### Fixed
-- **`db-write-lib.test.sh` no longer flakes under load** (GH 1398): the locked-DB and run-budget cases waited at most 1 s (or a fixed 0.2 s) for their background lock holder, so a loaded machine asserted before the lock existed and reported `expected __ERR__, got 1`. Both cases now wait through `wait_for_lock` (up to 10 s, polling every 0.1 s) and, when the holder never takes the lock, fail with `fixture: lock holder never acquired the lock` instead of a misleading assertion.

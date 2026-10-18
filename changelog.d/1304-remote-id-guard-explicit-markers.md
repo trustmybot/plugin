@@ -1,2 +1,0 @@
-### Fixed
-- **Remote-bound text can now assert "this is already a remote id"** (GH 1304): the remote-id guard treats `GH-<n>`, `GL-<n>`, `remote:<n>` and `<owner>/<repo>#<n>` as explicit remote references and no longer blocks them, while a bare `#<n>` that collides with a local issue id is still denied. The deny reason now prints the local issue's title beside the remote mapping and names the markers, so you can confirm which issue you meant.

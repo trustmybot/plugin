@@ -1,2 +1,0 @@
-### Fixed
-- **A spawn during the upgrade window now says to restart Claude Code** (GH 1366): `require-spawn-effort` denied a swe spawn with the generic "trajectory DB unavailable" message when the DB predated the `tasks.effort` column, although the plugin was updated and the MCP server had not migrated the DB yet. The hook now detects the missing column and denies with the remedy: restart Claude Code so the server migrates the DB, then retry the spawn.
