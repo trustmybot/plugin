@@ -111,4 +111,36 @@ PLAIN_PROJECT=$(new_project onboarding-named)
 replay_hook "$PLAIN_PROJECT" "$(l5_compose_test_prompt "just a normal prompt")"
 assert_eq "0" "$(slash_rows "$PLAIN_PROJECT")" "slash rows"
 
+# --- deep_scan_completed deleters cascade audit_embeddings (GH 1460) ---
+embedded_scan_project() {
+  local project
+  project=$(new_project onboarding-named)
+  sqlite3 "$project/.claude/tmb/trajectory.db" \
+    "INSERT INTO audit_embeddings (audit_id, embedding, model_id, embedded_at)
+       SELECT id, X'00', 'test', datetime('now') FROM audit WHERE event_type = 'deep_scan_completed';"
+  printf '%s\n' "$project"
+}
+
+assert_scan_row_dropped_cleanly() {
+  local project="$1" db="$1/.claude/tmb/trajectory.db"
+  assert_eq "" "$(sqlite3 "$db" "PRAGMA foreign_key_check;")" "foreign_key_check output"
+  assert_eq "0" "$(sqlite3 "$db" "SELECT COUNT(*) FROM audit WHERE event_type = 'deep_scan_completed';")" "deep_scan_completed rows"
+}
+
+test_case "chain seed before-05: embedded deep_scan_completed row dropped without dangling FK rows"
+SEEDED=$(embedded_scan_project)
+assert_eq "1" "$(sqlite3 "$SEEDED/.claude/tmb/trajectory.db" "SELECT COUNT(*) FROM audit_embeddings;")" "embedding row before seed"
+sqlite3 "$SEEDED/.claude/tmb/trajectory.db" < "$PLUGIN_ROOT/tests/l5-l6/l6-chain/seeds/before-05-first-task-hits-gate.sql"
+assert_scan_row_dropped_cleanly "$SEEDED"
+
+for row_setup in \
+  "$PLUGIN_ROOT/tests/l5-l6/rows/05/05-first-task-hits-gate/setup-l5.sh" \
+  "$PLUGIN_ROOT/tests/l5-l6/rows/05/05.03-codebase-memory-cold-start/setup-l5.sh"; do
+  test_case "$(basename "$(dirname "$row_setup")") setup-l5: embedded deep_scan_completed row dropped without dangling FK rows"
+  ROW_PROJECT=$(embedded_scan_project)
+  bash "$row_setup" "$ROW_PROJECT" "$(dirname "$row_setup")" >/dev/null 2>&1
+  assert_scan_row_dropped_cleanly "$ROW_PROJECT"
+done
+# --- end deep_scan_completed deleters ---
+
 summarize
