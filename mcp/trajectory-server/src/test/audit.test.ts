@@ -487,6 +487,24 @@ describe('lazy embed backfill tick on search', () => {
     db.close();
   });
 
+  it('audit_search: hyphenated queries do not break FTS5 MATCH', async () => {
+    const db = tempDB();
+    const issueId = seedRepoIssue(db);
+    const auditId = insertAudit(db, {
+      issue_id: issueId, from_node: 'bro', event_type: 'planning_complete', summary: 'pr-reviewer verdict recorded',
+    });
+    for (const mode of ['keyword', 'hybrid']) {
+      const hit = await call(auditTools(db).handlers, 'audit_search', { agent: 'bro', query: 'pr-reviewer', mode, k: 20 });
+      assert.ok(!hit.isError, `${mode}: ${JSON.stringify(parse(hit))}`);
+      const ids = (parse(hit)['results'] as Array<{ id: number }>).map((x) => x.id);
+      assert.ok(ids.includes(auditId), `${mode}: expected row ${auditId} in ${JSON.stringify(ids)}`);
+
+      const bare = await call(auditTools(db).handlers, 'audit_search', { agent: 'bro', query: 'level', mode, k: 20 });
+      assert.ok(!bare.isError, `${mode} bare: ${JSON.stringify(parse(bare))}`);
+    }
+    db.close();
+  });
+
   it('discussion_search embeds un-embedded rows and returns them after one call', async () => {
     const db = tempDB();
     const issueId = seedRepoIssue(db);

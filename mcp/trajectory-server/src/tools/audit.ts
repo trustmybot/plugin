@@ -4,6 +4,7 @@ import { nowISO } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { auditEmbedText, embedAndStore, topKByCosine } from '../embeddings/store.js';
 import { backfillMissing } from '../embeddings/backfill.js';
+import { toFtsQuery, withFtsGuard } from '../fts-query.js';
 import {
   AUDIT_EVENT_TYPES,
   assertAuditEventType,
@@ -267,6 +268,8 @@ export function auditTools(db: TrajectoryDB): {
         score: number;
       };
 
+      const ftsQuery = toFtsQuery(query);
+
       const fetchFtsRows = (limitK: number): MatchRow[] => {
         const sql =
           'SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, ' +
@@ -279,7 +282,7 @@ export function auditTools(db: TrajectoryDB): {
           'AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))' +
           eventTypeFilter +
           ' ORDER BY bm25(audit_fts) ASC LIMIT ?';
-        return db.all<MatchRow>(sql, [query, issueId, issueId, ...eventTypeParams, limitK]);
+        return withFtsGuard(() => db.all<MatchRow>(sql, [ftsQuery, issueId, issueId, ...eventTypeParams, limitK]));
       };
 
       const fetchRowById = (id: number): MatchRow | undefined => {
@@ -300,7 +303,7 @@ export function auditTools(db: TrajectoryDB): {
           'WHERE audit_fts MATCH ? ' +
           'AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))' +
           eventTypeFilter;
-        const countRow = db.get<{ n: number }>(countSql, [query, issueId, issueId, ...eventTypeParams]);
+        const countRow = withFtsGuard(() => db.get<{ n: number }>(countSql, [ftsQuery, issueId, issueId, ...eventTypeParams]));
         const total_matched = countRow?.n ?? 0;
         const searchSql =
           'SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, ' +
@@ -313,7 +316,7 @@ export function auditTools(db: TrajectoryDB): {
           'AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))' +
           eventTypeFilter +
           ' ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC LIMIT ?';
-        const rows = db.all<MatchRow>(searchSql, [query, issueId, issueId, ...eventTypeParams, alpha, alpha, k]);
+        const rows = withFtsGuard(() => db.all<MatchRow>(searchSql, [ftsQuery, issueId, issueId, ...eventTypeParams, alpha, alpha, k]));
         return ok({
           results: rows.map((r) => ({
             id: r.id, issue_id: r.issue_id, branch_id: r.branch_id,
