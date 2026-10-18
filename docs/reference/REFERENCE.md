@@ -20,7 +20,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 
 ## MCP tools (full list)
 
-73 tools across these groups (full schema in `mcp/trajectory-server/src/tools/`):
+75 tools across these groups (full schema in `mcp/trajectory-server/src/tools/`):
 
 - **issues**: `issue_create`, `issue_get`, `issue_list`, `issue_close`, `issue_link`, `issue_update_description`, `issue_update`, `issue_resume`, `issue_get_phase`, `issue_sync_retry`, `issue_adopt_remote`. The write tools return the issue row without its description; `issue_create`, `issue_update_description`, `issue_link` and `issue_adopt_remote` take `include_description: true` to echo it (bro/architect, as on `issue_get`). `issue_adopt_remote` takes an optional `repo` (a `repos` row name) to verify against; a repo-less issue in a multi-repo workspace needs it (`repo_unresolved` otherwise), and a successful adoption backfills the issue's null repo and copies the remote's milestone and labels into columns that are empty locally. `issue_update` (bro) changes an issue's `milestone`, `labels` (a full replacement set, validated like `issue_create`) or `objective` after creation, writes an `issue_updated` audit row with before/after, and mirrors the change to the linked gh/glab issue when `issue_sync` is on; its `_sync` field reports whether the mirror ran.
 - **milestones**: `milestone_close`
@@ -36,7 +36,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 - **scan**: `scan_run`, `repos_list`
 - **repos**: `repo_rename`
 - **reports**: `issue_report_md`, `issue_snapshot_md`, `branch_report_md`
-- **cheatcodes** (unified skill/agent registry): `cheatcode_list`, `cheatcode_search`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_approve`, `cheatcode_vet`, `cheatcode_uninstall`
+- **cheatcodes** (unified skill/agent registry): `cheatcode_list`, `cheatcode_search`, `cheatcode_install`, `cheatcode_activate`, `cheatcode_approve`, `cheatcode_vet`, `cheatcode_uninstall`, `cheatcode_reconcile`
 - **skills** (builtin rows in the `cheatcodes` registry): `skill_register`, `skill_promote`
 - **agents**: `agent_list`, `agent_register`, `agent_resolve`
 - **composites**: `intent_start`, `branch_id_propose`, `task_provision`, `task_brief`, `task_retry`, `task_recover`, `task_reopen`, `task_update_spec`, `bro_atomic_close`, `bro_verification_fail_record`, `pr_monitor_worktree`, `worktree_commits_fetch`
@@ -85,7 +85,6 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `session-start-prescan.sh` | SessionStart | Inject project inventory (git state, stacks, world-model warmth) |
 | `ensure-kuzu-installed.sh` | SessionStart | Lazy-install kuzu native binary for the world-model graph DB (first session after plugin install/update) |
 | `substrate-preflight.sh` | SessionStart | Verify the trajectory DB + world-model substrates are reachable before the session proceeds |
-| `cheatcode-healthcheck.sh` | SessionStart | Check the cheatcodes registry is consistent on boot |
 | `orphan-scan.sh` | SessionStart | Report this project's stale trajectory DBs, duplicate server procs and unpinned caches left by upgrades (cleans only when opted in) |
 | `activation-routine.sh` | UserPromptSubmit | Pre-fetch onboarded marker + pending issue for bro banner; HALT + recovery pointer when the MCP server is not running |
 | `session-log-capture.sh` | UserPromptSubmit | Track current cc.log for diagnostics |

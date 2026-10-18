@@ -93,9 +93,9 @@ assert_eq "2" "$RC" "malformed hook:<name> exits 2"
 assert_eq "0" "$(count "SELECT COUNT(*) FROM audit WHERE event_type='probe_event';")" "rejected rows not written"
 
 test_case "tmb_audit_append accepts hook:<name> and quotes every value"
-tmb_audit_append "$DB" -1 '' "hook:x" cheatcode_healthcheck "it's quoted" '{"note":"it'"'"'s"}' 2>/dev/null && RC=0 || RC=$?
+tmb_audit_append "$DB" -1 '' "hook:x" containment_denied "it's quoted" '{"note":"it'"'"'s"}' 2>/dev/null && RC=0 || RC=$?
 assert_eq "0" "$RC" "hook:x accepted"
-ROW=$(count "SELECT from_node || '|' || summary || '|' || json_extract(content_json, '\$.note') || '|' || COALESCE(branch_id, 'NULL') || '|' || length(created_at) FROM audit WHERE event_type='cheatcode_healthcheck';")
+ROW=$(count "SELECT from_node || '|' || summary || '|' || json_extract(content_json, '\$.note') || '|' || COALESCE(branch_id, 'NULL') || '|' || length(created_at) FROM audit WHERE event_type='containment_denied';")
 assert_eq "hook:x|it's quoted|it's|NULL|24" "$ROW" "row values round-trip"
 
 test_case "tmb_audit_append writes repo from the parent issue"
@@ -136,7 +136,7 @@ assert_eq "2" "$RC" "hook-only event rejected for system"
 assert_eq "0" "$(count "SELECT COUNT(*) FROM audit WHERE event_type IN ('scope_gate_waived') OR (event_type = 'verification_gate_waived' AND from_node = 'system');")" "refused rows not written"
 
 test_case "tmb_audit_append names a missing audit-events.txt"
-ERR=$(_TMB_AUDIT_EVENTS_FILE="$TMPDIR_FIXTURE/missing/audit-events.txt" tmb_audit_append "$DB" -1 '' "hook:x" cheatcode_healthcheck "x" '{}' 2>&1 >/dev/null) && RC=0 || RC=$?
+ERR=$(_TMB_AUDIT_EVENTS_FILE="$TMPDIR_FIXTURE/missing/audit-events.txt" tmb_audit_append "$DB" -1 '' "hook:x" containment_denied "x" '{}' 2>&1 >/dev/null) && RC=0 || RC=$?
 assert_eq "2" "$RC" "missing list fails closed"
 assert_contains "$ERR" "audit event list missing or unreadable: $TMPDIR_FIXTURE/missing/audit-events.txt" "stderr names the condition and the path"
 

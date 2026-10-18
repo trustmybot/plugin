@@ -41,11 +41,6 @@
           },
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" cheatcode-healthcheck",
-            "timeout": 11
-          },
-          {
-            "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" orphan-scan",
             "timeout": 7
           }

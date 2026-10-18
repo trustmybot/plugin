@@ -8,7 +8,7 @@ bro_verification_fail	bro
 bro_verification_pass	bro
 cheatcode_activate	bro
 cheatcode_approved	bro
-cheatcode_healthcheck	hook
+cheatcode_healthcheck	bro,server
 cheatcode_install	bro
 cheatcode_installed	bro
 cheatcode_search	bro

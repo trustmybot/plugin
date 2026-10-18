@@ -1,0 +1,2 @@
+### Changed
+- **Cheatcode status is reconciled by the trajectory-server** (GH 1218): the SessionStart `cheatcode-healthcheck` hook is retired. The server now reconciles each active or broken cheatcode against the runtime once at every start, in the background, and bro can run it on demand with the new `cheatcode_reconcile` tool; `cheatcode_healthcheck` audit rows are written by `bro` and `server`.
