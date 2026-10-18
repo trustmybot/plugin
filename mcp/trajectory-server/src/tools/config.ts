@@ -79,7 +79,77 @@ export function resolveEffortDefaults(db: TrajectoryDB): { swe: Effort; reviewer
   return { swe: read(SWE_DEFAULT_EFFORT_KEY), reviewer: read(REVIEWER_EFFORT_KEY) };
 }
 
+export const HIGH_EFFORT_PATHS_KEY = 'high_effort_paths';
+
+/**
+ * The project-declared path prefixes whose files[] overlap raises a task's
+ * effort to high. Unset, unparseable or not a string[] reads as [].
+ */
+export function readHighEffortPaths(db: TrajectoryDB): string[] {
+  const row = db.get<{ value_json: string }>(
+    `SELECT value_json FROM plugin_config WHERE key = ?`,
+    [HIGH_EFFORT_PATHS_KEY],
+  );
+  if (!row) return [];
+  try {
+    const value: unknown = JSON.parse(row.value_json);
+    if (Array.isArray(value) && value.every((el) => typeof el === 'string')) return value as string[];
+  } catch {
+    // An unparseable stored value reads as unset.
+  }
+  return [];
+}
+
+function stripTrailingSlash(path: string): string {
+  return path.endsWith('/') ? path.slice(0, -1) : path;
+}
+
+function pathsOverlap(file: string, prefix: string): boolean {
+  const a = stripTrailingSlash(file);
+  const b = stripTrailingSlash(prefix);
+  return a === b || a.startsWith(b + '/') || b.startsWith(a + '/');
+}
+
+export type EffortReason = 'explicit' | 'default' | 'prompt_bearing' | 'high_effort_paths' | 'rework';
+
+export interface ComputeEffortInput {
+  readonly effort?: unknown;
+  readonly prompt_bearing: 0 | 1;
+  readonly files: readonly string[];
+  readonly rework?: boolean;
+  readonly current?: Effort;
+}
+
+/**
+ * The effort a swe task runs at: an explicit valid effort wins; otherwise the
+ * swe_default_effort (the task's current effort for a rework), raised to high
+ * for a prompt-bearing task, a files[] entry overlapping a high_effort_paths
+ * prefix, or a rework. The first matching reason is reported.
+ */
+export function computeEffort(
+  db: TrajectoryDB,
+  input: ComputeEffortInput,
+): { effort: Effort; reason: EffortReason } {
+  if (isEffort(input.effort)) return { effort: input.effort, reason: 'explicit' };
+  const base = input.rework && input.current ? input.current : resolveEffortDefaults(db).swe;
+  if (input.prompt_bearing === 1) return { effort: 'high', reason: 'prompt_bearing' };
+  const prefixes = readHighEffortPaths(db);
+  if (input.files.some((file) => prefixes.some((prefix) => pathsOverlap(file, prefix)))) {
+    return { effort: 'high', reason: 'high_effort_paths' };
+  }
+  if (input.rework) return { effort: 'high', reason: 'rework' };
+  return { effort: base, reason: 'default' };
+}
+
 function validateKnownConfigValue(key: string, value: unknown): void {
+  if (key === HIGH_EFFORT_PATHS_KEY) {
+    if (!Array.isArray(value) || value.some((el) => typeof el !== 'string' || el.trim().length === 0)) {
+      throw new Error(
+        `typed_field_violation: config key ${JSON.stringify(key)} must be an array of non-empty strings, got ${JSON.stringify(value)}.`,
+      );
+    }
+    return;
+  }
   if (Object.hasOwn(EFFORT_DEFAULTS, key) && !isEffort(value)) {
     throw new Error(
       `typed_field_violation: config key ${JSON.stringify(key)} must be one of ${EFFORT_LEVELS.join(', ')}, got ${JSON.stringify(value)}.`,

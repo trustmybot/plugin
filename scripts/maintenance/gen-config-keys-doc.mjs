@@ -95,6 +95,13 @@ export const KEYS = [
     effect: 'The `tasks.effort` a task gets when `task_create_batch` / `task_provision` name none. `require-spawn-effort.sh` denies a swe spawn whose Agent `effort` differs from the task\'s; `swe-atomic-close.sh` copies the task\'s effort onto the swe `agent_runs` row.',
   },
   {
+    name: 'high_effort_paths',
+    type: 'string[]: path prefixes',
+    defaultText: 'unset (read as `[]`)',
+    setBy: 'bro via `config_set` (anything but an array of non-empty strings is refused)',
+    effect: 'A files[] entry that equals or sits under (or contains) a listed prefix, with directory semantics, raises the `tasks.effort` a task gets to `high` when `task_create_batch` / `task_provision` name none; the other triggers are a prompt-bearing task and rework by `task_reopen` / `task_retry`, and an explicit `effort` always wins.',
+  },
+  {
     name: 'reviewer_effort',
     type: 'string: `low` \\| `medium` \\| `high`',
     defaultText: 'unset (read as `high`)',
