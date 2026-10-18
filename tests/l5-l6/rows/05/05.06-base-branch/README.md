@@ -20,6 +20,6 @@
 | Scorer | What it asserts |
 |---|---|
 | `outcome.sql` | ≥1 task; ≥1 task with `parent_branch_id='dev'`; 0 tasks with `parent_branch_id='main'` |
-| `tools-required.json` | `task_create_batch`, any of (`issue_create`, `intent_start`) |
+| `tools-required.json` | `task_create_batch`, `any_of` (`issue_create`, `intent_start`) |
 | `tools-forbidden.json` | `validation_record` |
 | `cost-budget.json` | 60K / 90s |
