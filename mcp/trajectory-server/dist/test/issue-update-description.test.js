@@ -33,8 +33,25 @@ describe('issue_update_description', () => {
         });
         assert.ok(!result.isError, `Expected no error, got: ${JSON.stringify(parseResult(result))}`);
         const updated = parseResult(result);
-        assert.equal(updated.description, 'updated full description with lots more content');
+        assert.ok(!('description' in updated), 'description is not echoed by default');
+        assert.equal(updated.objective, 'seed issue');
+        const stored = db.get('SELECT description FROM issues WHERE id = ?', [issue.id]);
+        assert.equal(stored?.description, 'updated full description with lots more content');
         assert.ok(updated.updated_at >= originalUpdatedAt, `updated_at should be >= original: ${updated.updated_at} vs ${originalUpdatedAt}`);
+        db.close();
+    });
+    it('include_description: true echoes the new description', async () => {
+        const db = tempDB();
+        const tools = issueTools(db);
+        const issue = await seedIssue(tools.handlers, 'original description');
+        const result = await call(tools.handlers, 'issue_update_description', {
+            agent: 'bro',
+            issue_id: String(issue.id),
+            description: 'opted-in body',
+            include_description: true,
+        });
+        assert.ok(!result.isError, `Expected no error, got: ${JSON.stringify(parseResult(result))}`);
+        assert.equal(parseResult(result).description, 'opted-in body');
         db.close();
     });
     it('missing issue — returns clear not_found error', async () => {
@@ -58,6 +75,7 @@ describe('issue_update_description', () => {
             agent: 'bro',
             issue_id: String(issue.id),
             description: '',
+            include_description: true,
         });
         assert.ok(!result.isError, `Expected no error, got: ${JSON.stringify(parseResult(result))}`);
         const updated = parseResult(result);
