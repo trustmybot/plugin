@@ -1,21 +1,21 @@
 // Flow 3 — Difficult Task (FLOWS.md §3)
 //
 // Trajectory: bro triages difficult → issue_create → discussion (intent + triage) →
-// LOOP { discussion(question) ↔ discussion(answer) } → discussion(decision) →
-// (bro writes ADR file — bash, NOT MCP, so out of scope here) →
-// task_create_batch (no waive_scope_gate; the Q+A *is* the scope-gate satisfaction) →
+// LOOP { discussion(question) ↔ discussion(answer) } →
+// task_provision (its decision_body is the decision discussion; bro writes the
+// ADR file from it — bash, NOT MCP, so out of scope here) →
 // SWE completes → bro closes.
 //
-// Asserts: scope-gate is satisfied by question rows (no waive needed),
-// the discussion thread is queryable in order, and the decision rows
-// are visible to issue_get_with_discussions for ADR generation.
+// Asserts: the Q+A thread and the task_provision decision are queryable in
+// order, the decision row is visible to issue_get_with_discussions for ADR
+// generation, and task creation without Q+A is still rejected by the scope gate.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startClient, call } from '../l3-integration/mcp/harness.mjs';
+import { startClient, startProjectClient, call } from '../l3-integration/mcp/harness.mjs';
 
-test('Flow 3 — difficult task: Q+A discussions satisfy scope gate; decision row drives ADR', async (t) => {
-  const { client, close } = await startClient();
+test('Flow 3 — difficult task: Q+A discussions precede task_provision; its decision_body drives ADR', async (t) => {
+  const { client, close, project } = await startProjectClient();
   t.after(async () => { await close(); });
 
   // 1. Issue
@@ -63,37 +63,28 @@ test('Flow 3 — difficult task: Q+A discussions satisfy scope gate; decision ro
   });
   assert.equal(a2.ok, true);
 
-  // 4. Decision row (the ADR seed)
-  const decision = await call(client, 'discussion_append', {
-    agent: 'bro', issue_id: issueId, author: 'bro', kind: 'decision',
-    body: 'Decision: RS256 + key rotation, force re-login on cutover. ADR-0042 will capture rationale.',
-  });
-  assert.equal(decision.ok, true);
-
-  // 5. Task creation — NO waive_scope_gate (the Q+A satisfies it).
-  // This is the structural difference from Flow 2: difficult triage MUST go
-  // through the Q+A scope gate.
-  const batch = await call(client, 'task_create_batch', {
+  // 4. Task creation through task_provision: its decision_body is the decision
+  // row (the ADR seed), written in the same call that creates the task, branch
+  // and worktree.
+  const provisioned = await call(client, 'task_provision', {
     agent: 'bro',
     issue_id: issueId,
-    waive_branch_gate: true,
-    waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
-    waive_intent_gate: true,
-    waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
-    waive_decision_gate: true,
-    waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
-    tasks: [{
-      branch_id: 'refactor/jwt-auth',
+    branch_id: 'refactor/jwt-auth',
+    decision_body: 'Decision: RS256 + key rotation, force re-login on cutover. ADR-0042 will capture rationale.',
+    task: {
       title: 'Replace session middleware with JWT (RS256)',
       description: 'Per ADR-0042: implement RS256, force re-login on cutover.',
       spec_body: '## Success Criteria\n- JWT validates RS256\n- old session code removed',
-    }],
+      files: ['auth/'],
+      verification: ['test -d auth'],
+      repo: project.name,
+    },
   });
-  assert.equal(batch.ok, true, `batch (no-waive): ${JSON.stringify(batch)}`);
-  const taskId = Array.isArray(batch.data) ? batch.data[0]?.id : batch.data.tasks?.[0]?.id;
+  assert.equal(provisioned.ok, true, `task_provision: ${JSON.stringify(provisioned)}`);
+  const taskId = provisioned.data.task_id;
   assert.ok(taskId);
 
-  // 6. Verify discussion thread is fully readable in order
+  // 5. Verify discussion thread is fully readable in order
   const list = await call(client, 'discussion_list', { agent: 'bro', issue_id: issueId });
   assert.equal(list.ok, true);
   const kinds = list.data.map(r => r.kind);
@@ -101,7 +92,7 @@ test('Flow 3 — difficult task: Q+A discussions satisfy scope gate; decision ro
     'intent', 'note', 'question', 'answer', 'question', 'answer', 'decision',
   ], `discussion order broke: ${JSON.stringify(kinds)}`);
 
-  // 7. Verify decision is queryable for ADR generation
+  // 6. Verify decision is queryable for ADR generation
   const withDiscussions = await call(client, 'issue_get_with_discussions', {
     agent: 'bro', issue_id: issueId,
   });

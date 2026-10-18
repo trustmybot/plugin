@@ -1,19 +1,22 @@
 // Flow 2 — Simple Task (FLOWS.md §2)
 //
 // Trajectory: bro triages simple → issue_create → discussion (intent + triage) →
-// task_create_batch + audit_append(planning_complete) → SWE returns
+// task_provision (decision + task + branch + worktree + planning_complete) →
+// SWE starts with task_brief, commits in the worktree, returns
 // (task_update_status='completed') → bro verifies (no validation row at task close;
-// pr-reviewer fires only at push gate) → bro flips task to 'closed' → issue_close.
+// pr-reviewer fires only at push gate) → bro_atomic_close → issue_close.
 //
 // Asserts the structural contract: state transitions, audit events, role
-// enforcement at each call. Direct-runs the MCP server, no Claude.
+// enforcement at each call, and the branch + worktree task_provision leaves on
+// disk. Direct-runs the MCP server against a temp git repo, no Claude.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startClient, call } from '../l3-integration/mcp/harness.mjs';
+import { existsSync } from 'node:fs';
+import { startProjectClient, call } from '../l3-integration/mcp/harness.mjs';
 
-test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per-task pr-reviewer)', async (t) => {
-  const { client, close } = await startClient();
+test('Flow 2 — simple task: bro provisions → swe briefs, commits, completes → bro closes (no per-task pr-reviewer)', async (t) => {
+  const { client, close, project } = await startProjectClient();
   t.after(async () => { await close(); });
 
   // 1. bro creates issue
@@ -39,51 +42,39 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
   });
   assert.equal(triage.ok, true);
 
-  // 3. bro authors task spec + emits planning_complete
-  const batch = await call(client, 'task_create_batch', {
+  // 3. bro plans with task_provision: decision + task + branch + worktree in one call
+  const provisioned = await call(client, 'task_provision', {
     agent: 'bro',
     issue_id: issueId,
-    waive_scope_gate: true,
-    waive_scope_gate_reason: 'simple-triage personal endpoint; defaults named in triage note (single file, stdlib router)',
-    waive_branch_gate: true,
-    waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
-    waive_intent_gate: true,
-    waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
-    waive_decision_gate: true,
-    waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
-    tasks: [{
-      branch_id: 'feat/hello',
+    branch_id: 'feat/hello',
+    decision_body: 'Chosen approach: one route file wired to 200 OK {msg:"hello"}; no architecture impact.',
+    task: {
       title: 'Add /hello endpoint',
       description: 'Wire /hello → 200 OK {msg:"hello"}.',
       spec_body: '## Success Criteria\n- 200 OK',
-    }],
+      files: ['hello.txt'],
+      verification: ['test -f hello.txt'],
+      repo: project.name,
+    },
   });
-  assert.equal(batch.ok, true, `task_create_batch: ${JSON.stringify(batch)}`);
-  // batch.data may be an array of created tasks OR {tasks: [...]} depending on API revision
-  const taskId = Array.isArray(batch.data) ? batch.data[0]?.id : batch.data.tasks?.[0]?.id;
-  assert.ok(taskId, `no task id returned: ${JSON.stringify(batch.data)}`);
+  assert.equal(provisioned.ok, true, `task_provision: ${JSON.stringify(provisioned)}`);
+  const taskId = provisioned.data.task_id;
+  assert.ok(taskId, `no task id returned: ${JSON.stringify(provisioned.data)}`);
+  assert.equal(provisioned.data.git_setup, 'created');
+  const worktreePath = provisioned.data.worktree_path;
+  assert.ok(existsSync(worktreePath), `worktree missing on disk: ${worktreePath}`);
+  assert.equal(project.git('rev-parse', '--verify', 'refs/heads/feat/hello').length, 40, 'branch ref feat/hello exists');
+  assert.match(project.git('worktree', 'list', '--porcelain'), /branch refs\/heads\/feat\/hello/);
 
-  const planning = await call(client, 'audit_append', {
-    agent: 'bro', issue_id: issueId, branch_id: 'feat/hello',
-    from_node: 'bro',
-    event_type: 'planning_complete', summary: 'Triage simple. Spec authored for task_id=' + taskId,
-  });
-  assert.equal(planning.ok, true, `audit_append: ${JSON.stringify(planning)}`);
+  // 4. SWE picks up the task: task_brief returns the spec
+  const brief = await call(client, 'task_brief', { agent: 'swe', task_id: taskId });
+  assert.equal(brief.ok, true, `task_brief: ${JSON.stringify(brief)}`);
+  assert.match(JSON.stringify(brief.data), /Success Criteria/);
 
-  // 4. SWE picks up the task: read spec → mark running
-  const taskRead = await call(client, 'task_get', { agent: 'swe', task_id: taskId, include_spec_body: true });
-  assert.equal(taskRead.ok, true);
-  assert.match(taskRead.data.spec_body, /Success Criteria/);
-
-  const running = await call(client, 'task_update_status', {
-    agent: 'swe', task_id: taskId, status: 'running',
-  });
-  assert.equal(running.ok, true);
-
-  // 5. SWE completes with commit_sha
+  // 5. SWE commits in the worktree and completes with that commit_sha
+  const sha = project.commitIn(worktreePath, 'hello.txt', 'hello\n', 'feat: add /hello');
   const completed = await call(client, 'task_update_status', {
-    agent: 'swe', task_id: taskId, status: 'completed',
-    commit_sha: 'aaaaaaa1111111111111111111111111111aaaaa',
+    agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha,
   });
   assert.equal(completed.ok, true, `swe→completed: ${JSON.stringify(completed)}`);
 
@@ -99,12 +90,12 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
 
   const closed = await call(client, 'bro_atomic_close', {
     agent: 'bro', task_id: taskId,
-    commit_sha: 'aaaaaaa1111111111111111111111111111aaaaa',
+    commit_sha: sha,
     verification_summary: 'V1 files match. V2 verification commands passed. V3 success criteria met.',
     close_issue_if_last_task: true,
     waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
   });
-  assert.equal(closed.ok, true);
+  assert.equal(closed.ok, true, `bro_atomic_close: ${JSON.stringify(closed)}`);
 
   // 7. bro closes the issue. pr-reviewer runs at the push gate, not per task, so
   // the closed task has no verdict yet: the close carries an explicit review waiver.
@@ -121,7 +112,7 @@ test('Flow 2 — simple task: bro plans → swe completes → bro closes (no per
 
   const finalTask = await call(client, 'task_get', { agent: 'bro', task_id: taskId });
   assert.equal(finalTask.data.status, 'closed');
-  assert.equal(finalTask.data.commit_sha, 'aaaaaaa1111111111111111111111111111aaaaa');
+  assert.equal(finalTask.data.commit_sha, sha);
 
   // audit event recorded
   const audit = await call(client, 'audit_list', { agent: 'bro', issue_id: issueId });
