@@ -17,7 +17,7 @@ POSTPROCESSOR="mcp/trajectory-server/scripts/postprocess-bundle.pl"
 for caller in \
   mcp/trajectory-server/package.json \
   tests/l1-lint/dist-fresh.sh; do
-  if ! rg -F 'scripts/postprocess-bundle.pl' "$caller" >/dev/null; then
+  if ! grep -F -q 'scripts/postprocess-bundle.pl' "$caller"; then
     fail "$caller must use the shared bundle postprocessor"
   fi
 done
