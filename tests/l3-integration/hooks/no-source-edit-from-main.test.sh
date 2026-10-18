@@ -63,6 +63,31 @@ run_hook() {
   echo "$1" | bash "$HOOK" 2>&1 || true
 }
 
+run_hook_in() {
+  (cd "$1" && echo "$2" | bash "$HOOK" 2>&1) || true
+}
+
+make_repo() {
+  mkdir -p "$1"
+  git init -q -b main "$1"
+  if [ -n "${2:-}" ]; then
+    mkdir -p "$1/.claude-plugin"
+    jq -n --arg n "$2" '{name: $n}' > "$1/.claude-plugin/plugin.json"
+  fi
+}
+
+FIXTURE_PLUGIN_ROOT="$TMPDIR/running-plugin"
+mkdir -p "$FIXTURE_PLUGIN_ROOT/.claude-plugin"
+echo '{"name":"fixture-plugin"}' > "$FIXTURE_PLUGIN_ROOT/.claude-plugin/plugin.json"
+export CLAUDE_PLUGIN_ROOT="$FIXTURE_PLUGIN_ROOT"
+
+PLUGIN_REPO_FIX="$TMPDIR/plugin-source-repo"
+USER_REPO_FIX="$TMPDIR/user-repo"
+OTHER_PLUGIN_REPO_FIX="$TMPDIR/other-plugin-repo"
+make_repo "$PLUGIN_REPO_FIX" fixture-plugin
+make_repo "$USER_REPO_FIX"
+make_repo "$OTHER_PLUGIN_REPO_FIX" some-other-plugin
+
 # ---- non-block paths ----
 
 test_case "non-Edit tool: silent pass"
@@ -136,7 +161,7 @@ out=$(run_hook "$(input 'Edit' 'docs/architecture/FILES.md' "$TRANSCRIPT_PLAIN")
 assert_eq "" "$out" "markdown allowed regardless of agent context"
 
 test_case "bro mode + hooks.json: BLOCK (enforcement surface)"
-out=$(run_hook "$(input 'Edit' 'hooks/hooks.json' "$TRANSCRIPT_BRO")")
+out=$(run_hook_in "$PLUGIN_REPO_FIX" "$(input 'Edit' 'hooks/hooks.json' "$TRANSCRIPT_BRO")")
 assert_contains "$out" '"permissionDecision":"deny"' "hooks.json denied from main checkout"
 assert_contains "$out" 'enforcement surfaces' "deny message cites enforcement-surface doctrine"
 
@@ -151,16 +176,16 @@ assert_eq "" "$out" "github workflows allowed"
 # ---- enforcement-surface deny-first precedes allowlist ----
 
 test_case "bro mode + scripts/hooks/foo.sh: BLOCK (enforcement surface)"
-out=$(run_hook "$(input 'Edit' 'scripts/hooks/foo.sh' "$TRANSCRIPT_BRO")")
+out=$(run_hook_in "$PLUGIN_REPO_FIX" "$(input 'Edit' 'scripts/hooks/foo.sh' "$TRANSCRIPT_BRO")")
 assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
 assert_contains "$out" 'enforcement surfaces' "deny message cites enforcement-surface doctrine"
 
 test_case "bro mode + scripts/hooks/readme.md: BLOCK (enforcement surface beats .md allowlist)"
-out=$(run_hook "$(input 'Edit' 'scripts/hooks/readme.md' "$TRANSCRIPT_BRO")")
+out=$(run_hook_in "$PLUGIN_REPO_FIX" "$(input 'Edit' 'scripts/hooks/readme.md' "$TRANSCRIPT_BRO")")
 assert_contains "$out" '"permissionDecision":"deny"' "hooks-path .md still denied — deny fires before allowlist"
 
 test_case "bro mode + nested hooks/hooks.json: BLOCK"
-out=$(run_hook "$(input 'Edit' 'some/path/hooks/hooks.json' "$TRANSCRIPT_BRO")")
+out=$(run_hook_in "$PLUGIN_REPO_FIX" "$(input 'Edit' 'some/path/hooks/hooks.json' "$TRANSCRIPT_BRO")")
 assert_contains "$out" '"permissionDecision":"deny"' "nested hooks.json denied from main checkout"
 
 # ---- worktree paths: SWE always allowed ----
@@ -354,13 +379,55 @@ out=$(run_hook "$(input 'Edit' 'src/foo.ts' '')")
 assert_contains "$out" '"permissionDecision":"deny"' "absent agent_type fails closed"
 
 test_case "agent_type=swe + scripts/hooks/foo.sh from main: DENIED (enforcement surface)"
-out=$(run_hook "$(input_with_agent 'Edit' 'scripts/hooks/foo.sh' 'swe')")
+out=$(run_hook_in "$PLUGIN_REPO_FIX" "$(input_with_agent 'Edit' 'scripts/hooks/foo.sh' 'swe')")
 assert_contains "$out" '"permissionDecision":"deny"' "swe cannot edit enforcement surfaces from main"
 assert_contains "$out" 'enforcement surfaces' "deny message cites enforcement-surface doctrine"
 
 test_case "agent_type=swe + hooks/hooks.json from main: DENIED (enforcement surface)"
-out=$(run_hook "$(input_with_agent 'Edit' 'hooks/hooks.json' 'swe')")
+out=$(run_hook_in "$PLUGIN_REPO_FIX" "$(input_with_agent 'Edit' 'hooks/hooks.json' 'swe')")
 assert_contains "$out" '"permissionDecision":"deny"' "swe cannot edit hooks.json from main"
+
+# ---- enforcement surface is scoped to the plugin's own source repo (GH 1362) ----
+
+test_case "plugin source repo + absolute scripts/hooks/foo.sh from main: BLOCK (enforcement surface)"
+out=$(run_hook "$(input 'Edit' "$PLUGIN_REPO_FIX/scripts/hooks/foo.sh" "$TRANSCRIPT_BRO")")
+assert_contains "$out" 'enforcement surfaces' "absolute target in the plugin repo hits the enforcement surface"
+
+test_case "user repo (no manifest) + scripts/hooks/x.sh, bro: generic source-edit deny, not enforcement surface"
+out=$(run_hook_in "$USER_REPO_FIX" "$(input_with_agent 'Edit' 'scripts/hooks/x.sh' 'bro')")
+assert_contains "$out" '"permissionDecision":"deny"' "bro still denied source edits in a user repo"
+assert_contains "$out" 'source edits from the main checkout are denied' "generic source-edit reason"
+assert_not_contains "$out" 'enforcement surfaces' "enforcement-surface reason not applied to a user repo"
+
+test_case "user repo (no manifest) + hooks/hooks.json, bro: generic source-edit deny"
+out=$(run_hook_in "$USER_REPO_FIX" "$(input_with_agent 'Edit' 'hooks/hooks.json' 'bro')")
+assert_contains "$out" 'source edits from the main checkout are denied' "generic source-edit reason"
+assert_not_contains "$out" 'enforcement surfaces' "enforcement-surface reason not applied to a user repo"
+
+test_case "user repo (no manifest) + scripts/hooks/x.sh, non-isolated swe: ALLOWED"
+out=$(run_hook_in "$USER_REPO_FIX" "$(input_with_agent 'Edit' 'scripts/hooks/x.sh' 'swe')")
+assert_eq "" "$out" "swe permit applies to a user repo's scripts/hooks/"
+
+test_case "user repo (no manifest) + scripts/hooks/README.md: ALLOWED as .md"
+out=$(run_hook_in "$USER_REPO_FIX" "$(input_with_agent 'Edit' 'scripts/hooks/README.md' 'bro')")
+assert_eq "" "$out" ".md allowlist applies to a user repo's scripts/hooks/"
+
+test_case "user repo (no manifest) + absolute scripts/hooks/x.sh, swe: ALLOWED"
+out=$(run_hook "$(input_with_agent 'Edit' "$USER_REPO_FIX/scripts/hooks/x.sh" 'swe')")
+assert_eq "" "$out" "absolute target in a user repo is not an enforcement surface"
+
+test_case "repo with a DIFFERENT plugin manifest name + scripts/hooks/x.sh, bro: treated as user repo"
+out=$(run_hook_in "$OTHER_PLUGIN_REPO_FIX" "$(input_with_agent 'Edit' 'scripts/hooks/x.sh' 'bro')")
+assert_contains "$out" 'source edits from the main checkout are denied' "generic source-edit reason"
+assert_not_contains "$out" 'enforcement surfaces' "a different plugin's repo is not the running plugin's source"
+
+test_case "repo with a DIFFERENT plugin manifest name + hooks/hooks.json, swe: ALLOWED"
+out=$(run_hook_in "$OTHER_PLUGIN_REPO_FIX" "$(input_with_agent 'Edit' 'hooks/hooks.json' 'swe')")
+assert_eq "" "$out" "swe permit applies when the manifest names another plugin"
+
+test_case "running plugin without a manifest: no repo counts as the plugin source"
+out=$(echo "$(input_with_agent 'Edit' 'scripts/hooks/x.sh' 'swe')" | (cd "$PLUGIN_REPO_FIX" && CLAUDE_PLUGIN_ROOT="$TMPDIR/no-such-plugin" bash "$HOOK" 2>&1) || true)
+assert_eq "" "$out" "unreadable running manifest means not the plugin repo"
 
 test_case "REGRESSION: worktree path edit + agent_type=swe: ALLOWED"
 out=$(run_hook "$(input_with_agent 'Edit' '.claude/worktrees/task-99/src/foo.ts' 'swe')")

@@ -12,8 +12,11 @@
 #   - Target is inside .claude/worktrees/<slug>/... (SWE legitimately edits source there)
 #   - Target is in allowlist (docs / configs that are fine to edit from main)
 #   - Normalized agent role == 'swe' (non-isolated SWE running in main checkout)
-#   Enforcement surfaces (scripts/hooks/, hooks/hooks.json) are ALWAYS denied from
-#   main, even for swe — they sit above the swe permit and are never re-opened.
+#   Enforcement surfaces (scripts/hooks/, hooks/hooks.json) of the plugin's own
+#   source repo (target git root has a .claude-plugin/plugin.json named like the
+#   running plugin) are ALWAYS denied from main, even for swe — they sit above
+#   the swe permit and are never re-opened. In any other repo those paths follow
+#   the ordinary rules.
 #   Managed-repo scope: in a multi-repo workspace Rule 1 only guards a REGISTERED
 #   product repo; absolute targets whose git-root is an unregistered sibling repo
 #   are allowed. A single-repo project's sole registered repo IS the root, so the
@@ -31,11 +34,11 @@
 set -uo pipefail
 
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# shellcheck source=scripts/hooks/lib/query-task.sh
+# shellcheck source=scripts/hooks/lib/query-task.sh disable=SC1091
 . "$PLUGIN_ROOT/scripts/hooks/lib/query-task.sh"
-# shellcheck source=scripts/hooks/lib/cmd-analysis.sh
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh disable=SC1091
 . "$PLUGIN_ROOT/scripts/hooks/lib/cmd-analysis.sh"
-# shellcheck source=scripts/hooks/lib/resolve-repo.sh
+# shellcheck source=scripts/hooks/lib/resolve-repo.sh disable=SC1091
 . "$PLUGIN_ROOT/scripts/hooks/lib/resolve-repo.sh"
 
 INPUT=$(cat)
@@ -151,20 +154,44 @@ case "$TARGET" in
     ;;
 esac
 
-# Enforcement surfaces: deny before any allowlist entry is evaluated.
-# No pattern — including *.md or docs/ — can re-open these paths from
-# the main checkout. Route all edits through a worktree (spawn SWE).
+# _target_is_plugin_source_repo: succeeds when the target's git root carries a
+# .claude-plugin/plugin.json whose name equals the running plugin's manifest name.
+# A missing or unreadable manifest on either side means "not the plugin repo".
+_target_is_plugin_source_repo() {
+  local running_manifest="${CLAUDE_PLUGIN_ROOT:-$PLUGIN_ROOT}/.claude-plugin/plugin.json"
+  local start git_root running_name repo_name
+  case "$TARGET" in
+    /*)
+      start=$(dirname "$TARGET")
+      while [ ! -d "$start" ] && [ "$start" != "/" ]; do start=$(dirname "$start"); done
+      ;;
+    *) start="$PWD" ;;
+  esac
+  git_root=$(tmb_repo_git_root "$start")
+  [ -n "$git_root" ] || return 1
+  [ -f "$running_manifest" ] && [ -f "$git_root/.claude-plugin/plugin.json" ] || return 1
+  running_name=$(jq -r '.name // empty' "$running_manifest" 2>/dev/null)
+  repo_name=$(jq -r '.name // empty' "$git_root/.claude-plugin/plugin.json" 2>/dev/null)
+  [ -n "$running_name" ] && [ "$running_name" = "$repo_name" ]
+}
+
+# Enforcement surfaces of the plugin's own source repo: deny before any
+# allowlist entry is evaluated. No pattern — including *.md or docs/ — can
+# re-open these paths from the main checkout. Route all edits through a
+# worktree (spawn SWE). Any other repo's scripts/hooks/ follows the ordinary rules.
 case "$TARGET" in
   */scripts/hooks/*|scripts/hooks/*|*/hooks/hooks.json|hooks/hooks.json)
-    REASON="BLOCKED: enforcement surfaces (scripts/hooks/ and hooks/hooks.json) are only editable through task worktrees — spawn an SWE task. Main-checkout edits to these paths are denied regardless of file type."
-    jq -nc --arg reason "$REASON" '{
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "deny",
-        permissionDecisionReason: $reason
-      }
-    }'
-    exit 0
+    if _target_is_plugin_source_repo; then
+      REASON="BLOCKED: enforcement surfaces (scripts/hooks/ and hooks/hooks.json) of the plugin's own source repo are only editable through task worktrees — spawn an SWE task. Main-checkout edits to these paths are denied regardless of file type."
+      jq -nc --arg reason "$REASON" '{
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: $reason
+        }
+      }'
+      exit 0
+    fi
     ;;
 esac
 
