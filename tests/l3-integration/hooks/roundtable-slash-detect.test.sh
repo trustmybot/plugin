@@ -65,7 +65,7 @@ assert_eq "0" "$COUNT" "a harness turn is not the Human typing /roundtable"
 
 test_case "/roundtable resolves DB via walk-up (no env var)"
 WALK_ROOT=$(mktemp -d -t tmb-rt-walk-XXXX)
-trap 'rm -rf "$WALK_ROOT"' EXIT
+trap 'rm -rf "$TMPDIR_RT" "$WALK_ROOT"' EXIT
 WALK_DB="$WALK_ROOT/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$WALK_DB")"
 sqlite3 "$WALK_DB" < "$SCHEMA" >/dev/null

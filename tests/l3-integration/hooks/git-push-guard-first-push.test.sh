@@ -184,9 +184,11 @@ db=$(setup_db "$REPO_PATH")
 set_pr_target "$db" "dev"
 insert_task "$db" 1 "$FEATURE_SHA"
 # Run from a DIFFERENT cwd; the cd prefix names the real repo.
-out=$( (cd "$(mktemp -d)" && echo "$(jq -cn --arg c "cd $REPO_PATH && git push -u origin feat/my-feature" '{tool_input:{command:$c}}')" | TRAJECTORY_DB_PATH="$db" bash "$HOOK" 2>&1 || true) )
+ELSEWHERE=$(mktemp -d "${TMPDIR:-/tmp}/tmb-first-push-elsewhere.XXXXXX")
+out=$( (cd "$ELSEWHERE" && echo "$(jq -cn --arg c "cd $REPO_PATH && git push -u origin feat/my-feature" '{tool_input:{command:$c}}')" | TRAJECTORY_DB_PATH="$db" bash "$HOOK" 2>&1 || true) )
 assert_contains "$out" '"permissionDecision":"deny"' "cd target must be resolved for the first-push base"
 assert_contains "$out" "task_id=1" "block message must list the unsigned task"
+rm -rf "$ELSEWHERE"
 cleanup
 
 # ----- target resolution without a repos row for this repo -----
