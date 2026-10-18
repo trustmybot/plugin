@@ -6,4 +6,5 @@
 -- This SQL mirrors what step 04's setup-l5.sh does in L5 isolation:
 -- "Drop the fixture-seeded deep_scan_completed audit row so the gate fires."
 
+DELETE FROM audit_embeddings WHERE audit_id IN (SELECT id FROM audit WHERE event_type = 'deep_scan_completed');
 DELETE FROM audit WHERE event_type = 'deep_scan_completed';

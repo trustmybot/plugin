@@ -12,7 +12,8 @@ SCENARIO_DIR="$2"
 # gate genuinely fires (the onboarding-named fixture seeds one; this row tests
 # the cold path, so it must start cold).
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" \
-  "DELETE FROM audit WHERE event_type='deep_scan_completed';" >/dev/null
+  "DELETE FROM audit_embeddings WHERE audit_id IN (SELECT id FROM audit WHERE event_type = 'deep_scan_completed');
+   DELETE FROM audit WHERE event_type='deep_scan_completed';" >/dev/null
 
 mkdir -p "$PROJECT/src"
 echo "# placeholder" > "$PROJECT/src/existing.py"
