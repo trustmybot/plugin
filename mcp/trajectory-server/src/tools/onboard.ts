@@ -14,7 +14,9 @@
 // rules live here, not in the skill.
 
 import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { SUBPROCESS_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
@@ -34,8 +36,24 @@ import {
   writeProjectSandbox,
   type SandboxRecord,
 } from './onboard-sandbox.js';
-import { resolvePluginRoot, syncProjectPersona, type PersonaResult } from './onboard-persona.js';
-import { insertAudit } from './audit.js';
+
+// Resolve the installed plugin's source root: prefer CLAUDE_PLUGIN_ROOT (must
+// have .claude-plugin/plugin.json), else walk up from this module until that
+// manifest is found — correct for both the tsc layout (dist/tools/onboard.js)
+// and the esbuild bundle (dist/index.js). Returns null if unresolvable so the
+// enforcement shim can skip gracefully.
+function resolvePluginRoot(): string | null {
+  const env = process.env['CLAUDE_PLUGIN_ROOT'];
+  if (env && existsSync(join(env, '.claude-plugin', 'plugin.json'))) return env;
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (;;) {
+    if (existsSync(join(dir, '.claude-plugin', 'plugin.json'))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -614,11 +632,6 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             description:
               "Optional. 'yes' writes Claude Code's Bash sandbox block (sandbox.enabled + filesystem.allowWrite = the project and the model cache) into the project's .claude/settings.local.json; 'no' removes what TMB wrote. Omit to keep the stored answer (default 'no').",
           },
-          persona: {
-            type: 'boolean',
-            description:
-              "Optional, default true. true writes the bro persona block (the plugin's CLAUDE.md between `<!-- tmb:persona start v<version> -->` / `<!-- tmb:persona end -->`) into the project's CLAUDE.md; false removes that block. Text outside the markers is never changed; skipped when the project root is the plugin root.",
-          },
           repo: {
             type: 'string',
             description:
@@ -794,6 +807,11 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
       'onboard_apply',
       ['bro'],
       wrapHandler(async (args) => {
+        if ('persona' in args) {
+          throw new Error(
+            "persona_input_removed: onboard_apply takes no 'persona' input — bro's persona loads from the plugin through its SessionStart and UserPromptSubmit hooks, and TMB never writes the project's CLAUDE.md",
+          );
+        }
         const shape = args['shape'] as 'local' | 'remote';
         if (shape !== 'local' && shape !== 'remote') {
           throw new Error(`shape must be 'local' or 'remote' (got '${shape}')`);
@@ -1087,33 +1105,9 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           sandbox = { reason: (e as Error).message };
         }
 
-        const personaEnabled = args['persona'] !== false;
-        let persona: PersonaResult;
-        try {
-          persona = syncProjectPersona({
-            pluginRoot: shimOptions().pluginRoot,
-            projectRoot: sandboxProjectRoot(),
-            enabled: personaEnabled,
-          });
-          if (persona.action === 'appended' || persona.action === 'replaced' || persona.action === 'removed') {
-            insertAudit(db, {
-              issue_id: -1,
-              from_node: 'bro',
-              event_type: 'persona_block_written',
-              summary: `Persona block ${persona.action} in ${persona.path}`,
-              content_json: JSON.stringify({ action: persona.action, version: persona.version }),
-              writer: 'bro',
-            });
-          }
-        } catch (e) {
-          const root = sandboxProjectRoot();
-          persona = { action: 'skipped', version: null, path: root ? join(root, 'CLAUDE.md') : null, reason: (e as Error).message };
-        }
-
         return ok({
           ok: true,
           ...(warning ? { warning } : {}),
-          persona,
           applied: {
             onboarded: true,
             branching_model,

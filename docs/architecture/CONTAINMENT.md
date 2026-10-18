@@ -28,14 +28,14 @@ Paths are relative to the project root; `<state>` is `.claude/<plugin>/` (Claude
 | `<state>/logs/` | MCP server, hooks | `mcp-server.log`, `sql.log`, `issue-sync.log`, `mcp-health.log`, per-session logs |
 | `<state>/sessions/<session_id>.plugin-hooks` | `plugin-hooks-marker.sh` (SessionStart) | 0-byte marker: this session runs the plugin's own hooks; pruned after 24 h |
 | `<state>/sessions/<session_id>.install-notice` | `mcp-health-check.sh` (SessionStart) | 0-byte marker: the install-scope notice was shown this session; pruned after 24 h |
+| `<state>/sessions/<session_id>.persona` (+ `.persona-notice`) | `session-start-persona.sh` (SessionStart), `user-prompt-persona.sh` (UserPromptSubmit) | 0-byte marker: bro's persona reached this session (or the notice that it could not); pruned after 24 h |
 | `<state>/locks/events/<key>/` | `scripts/hooks/dispatch.sh` | One gate execution per event: the holder's `result`, `stderr` and `rc`; pruned after 10 min |
 | `<state>/locks/scope-notes/<task>/<cksum>/` | `swe-scope-fence.sh`, `swe-boundary.sh` | Empty marker: the swe was told this path is outside its task's `files[]`, so the note shows once per path per task. Scope itself is judged at close by `bro_atomic_close` |
 | `<state>/locks/verify-<task>-<sha>/` | `swe-verification-gate.sh` | One verification run per (task, worktree HEAD) at a time; the run itself is recorded in the trajectory DB (`verification_runs`) |
 | `.claude/settings.local.json` (PreToolUse entries only) | `/onboard`, on Yes to headless enforcement | The opt-in headless shim, each entry stamped `_tmb_managed` + `_tmb_project` |
 | `<state>/resolve-hook.sh` | `/onboard`, on Yes to headless enforcement | The resolver the shim entries call |
-| `CLAUDE.md` (between `<!-- tmb:persona start v<version> -->` and `<!-- tmb:persona end -->`) | `/onboard` (`onboard_apply`) | The bro persona, copied from the plugin's `CLAUDE.md` |
 
-A user project's `CLAUDE.md` is written only by onboarding: `onboard_apply` appends, replaces or (with `persona: false`) removes the marked persona block, atomically and never outside the markers, and records each change as a `persona_block_written` audit row. No hook and no agent writes it. When the project root is the plugin root, the file is the persona source and onboarding leaves it alone.
+A user project's `CLAUDE.md` is never written: no hook, no agent and no tool writes, edits or removes anything in it. bro's persona reaches a session as injected context, from `session-start-persona.sh` (SessionStart) and, for a session with no persona marker, once from `user-prompt-persona.sh` (UserPromptSubmit); both read the plugin's `CLAUDE.md` and write only the session marker. `onboard_apply` takes no `persona` argument.
 
 ## One install, one dispatcher, one execution
 

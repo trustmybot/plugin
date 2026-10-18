@@ -104,9 +104,11 @@ sqlite3 <project>/.claude/tmb/trajectory.db \
 
 Both columns should match the version you just installed.
 
-### Upgrading into v1.0.3 — the bro persona moves into your CLAUDE.md
+### Upgrading into v1.1.0 — the bro persona loads from the plugin
 
-Claude Code does not load a plugin's `CLAUDE.md`, so before v1.0.3 bro's persona never reached a user project. After upgrading, run `/onboard` once: `onboard_apply` writes the plugin's `CLAUDE.md` into `<project>/CLAUDE.md` between `<!-- tmb:persona start v<version> -->` and `<!-- tmb:persona end -->`, leaving the rest of the file as it was. On every later upgrade the SessionStart prescan prints `Persona: tmb persona block is v<x>, plugin is v<y>; tell the Human that the Human can run /onboard to refresh it` and `trajectory_doctor` reports `persona_block_current`; re-running `/onboard` replaces only the marked block. `onboard_apply` with `persona: false` removes it. Commit the block with the rest of your `CLAUDE.md`, or keep it out of version control — TMB only reads the markers.
+Claude Code does not load a plugin's `CLAUDE.md`, so bro's persona reaches your sessions through two hooks: `session-start-persona.sh` injects the plugin's `CLAUDE.md` on startup, resume, `/clear` and compaction, and `user-prompt-persona.sh` injects it once on the first prompt of a session that has not had it yet. After installing or upgrading mid-session, run `/reload-plugins` or start a new session. TMB does not write, edit or remove anything in `<project>/CLAUDE.md`, and `onboard_apply` rejects a `persona` argument (`persona_input_removed`).
+
+An earlier release candidate's `/onboard` copied the persona into `<project>/CLAUDE.md` between `<!-- tmb:persona start v<version> -->` and `<!-- tmb:persona end -->`. TMB leaves that block where it is; the injected context notes that it is not needed, and you may delete the marked lines yourself.
 
 ### Upgrading into v1.0.3 — recover lost agent_runs
 
