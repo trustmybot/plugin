@@ -64,11 +64,9 @@ export function applyPersonaBlock(existing, block) {
             return { text: existing, action: 'unchanged' };
         return { text: existing.slice(0, span.start) + local + existing.slice(span.end), action: 'replaced' };
     }
-    let head = existing;
-    if (!head.endsWith(eol))
-        head += eol;
-    if (!head.endsWith(eol + eol))
-        head += eol;
+    if (!existing.endsWith(eol))
+        return { text: `${existing}${eol}${eol}${local}`, action: 'appended' };
+    const head = existing.endsWith(eol + eol) ? existing : existing + eol;
     return { text: `${head}${local}${eol}`, action: 'appended' };
 }
 export function removePersonaBlock(text) {
@@ -78,10 +76,14 @@ export function removePersonaBlock(text) {
     const eol = eolOf(text);
     let before = text.slice(0, span.start);
     let after = text.slice(span.end);
-    if (after.startsWith(eol))
+    const endedWithEol = after.startsWith(eol);
+    if (endedWithEol)
         after = after.slice(eol.length);
-    if (after.length === 0 && before.endsWith(eol + eol))
+    if (after.length === 0 && before.endsWith(eol + eol)) {
         before = before.slice(0, before.length - eol.length);
+        if (!endedWithEol)
+            before = before.slice(0, before.length - eol.length);
+    }
     return { text: before + after, action: 'removed' };
 }
 //# sourceMappingURL=persona-block.js.map

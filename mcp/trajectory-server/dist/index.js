@@ -33079,7 +33079,7 @@ function removeProjectSandbox(opts) {
 }
 
 // src/tools/onboard-persona.ts
-import { chmodSync as chmodSync2, existsSync as existsSync7, readFileSync as readFileSync6, realpathSync as realpathSync4, renameSync, statSync as statSync3, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
+import { chmodSync as chmodSync2, existsSync as existsSync7, lstatSync as lstatSync4, readFileSync as readFileSync6, realpathSync as realpathSync4, renameSync, statSync as statSync3, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
 import { dirname as dirname9, join as join11 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
@@ -33134,9 +33134,8 @@ function applyPersonaBlock(existing, block) {
     if (existing.slice(span.start, span.end) === local) return { text: existing, action: "unchanged" };
     return { text: existing.slice(0, span.start) + local + existing.slice(span.end), action: "replaced" };
   }
-  let head = existing;
-  if (!head.endsWith(eol)) head += eol;
-  if (!head.endsWith(eol + eol)) head += eol;
+  if (!existing.endsWith(eol)) return { text: `${existing}${eol}${eol}${local}`, action: "appended" };
+  const head = existing.endsWith(eol + eol) ? existing : existing + eol;
   return { text: `${head}${local}${eol}`, action: "appended" };
 }
 function removePersonaBlock(text) {
@@ -33145,8 +33144,12 @@ function removePersonaBlock(text) {
   const eol = eolOf(text);
   let before = text.slice(0, span.start);
   let after = text.slice(span.end);
-  if (after.startsWith(eol)) after = after.slice(eol.length);
-  if (after.length === 0 && before.endsWith(eol + eol)) before = before.slice(0, before.length - eol.length);
+  const endedWithEol = after.startsWith(eol);
+  if (endedWithEol) after = after.slice(eol.length);
+  if (after.length === 0 && before.endsWith(eol + eol)) {
+    before = before.slice(0, before.length - eol.length);
+    if (!endedWithEol) before = before.slice(0, before.length - eol.length);
+  }
   return { text: before + after, action: "removed" };
 }
 
@@ -33207,7 +33210,10 @@ function syncProjectPersona(opts) {
   if (pluginRoot && isPluginRoot(projectRoot, pluginRoot)) {
     return { action: "skipped_source", version: "version" in source ? source.version : null, path: path2 };
   }
-  const existing = existsSync7(path2) ? readFileSync6(path2, "utf8") : null;
+  const entry = lstatSync4(path2, { throwIfNoEntry: false });
+  if (entry?.isSymbolicLink()) return { action: "skipped", version: null, path: path2, reason: "CLAUDE.md is a symlink; not rewritten" };
+  if (entry && (entry.mode & 128) === 0) return { action: "skipped", version: null, path: path2, reason: "CLAUDE.md is read-only; not rewritten" };
+  const existing = entry ? readFileSync6(path2, "utf8") : null;
   if (!enabled) {
     if (existing === null) return { action: "unchanged", version: null, path: path2 };
     const removedVersion = personaBlockVersion(existing);
