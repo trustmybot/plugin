@@ -4,6 +4,9 @@
 # A spawn is allowed on a pending task, or on a running task with no open swe
 # agent_runs row (rework after task_reopen); a running task whose swe run is
 # still open is denied with that run named.
+# A pending task also needs its branch checked out in a linked worktree of the
+# task's repo (task_reopen creates it); a repo path that is not a git work tree
+# is not gated.
 # Spec contract: a task whose files[] touches schema.sql, db.ts or a migrations
 # path, or whose spec_body adds a column/tool/field/table (matched case-blind with
 # any whitespace, including non-breaking and other Unicode spaces, '-' or '_'
@@ -79,6 +82,40 @@ fi
 if [ "${BODY_LEN:-0}" -eq 0 ]; then
   jq -nc --arg id "$TASK_ID" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: task_id="+$id+" has empty spec_body. bro must populate spec_body via task_create_batch before SWE can execute.")}}'
   exit 0
+fi
+
+if [ "$STATUS" = "pending" ]; then
+  WT=$(tmb_gate_read "$DB" "SELECT json_object('branch', COALESCE(t.branch_id, ''),
+      'path', COALESCE((SELECT path FROM repos WHERE name = t.repo), CASE WHEN COALESCE(t.repo, '') = '' AND (SELECT COUNT(*) FROM repos) = 1 THEN (SELECT path FROM repos LIMIT 1) END, ''))
+    FROM tasks t WHERE t.id = ${SAFE_TASK_ID};")
+  if [ "$WT" = "__ERR__" ]; then
+    tmb_deny_db_unavailable require-task-spec
+    exit 0
+  fi
+  if ! WT_BRANCH=$(printf '%s' "$WT" | jq -r '.branch // ""') || ! WT_REPO=$(printf '%s' "$WT" | jq -r '.path // ""'); then
+    tmb_deny_db_unavailable require-task-spec
+    exit 0
+  fi
+  case "$WT_REPO" in
+    '') WT_REPO="${CLAUDE_PROJECT_DIR:-}" ;;
+    /*) ;;
+    *) WT_REPO="$(dirname "$DB")/$WT_REPO" ;;
+  esac
+  if [ -n "$WT_REPO" ] && [ -n "$WT_BRANCH" ] \
+    && [ "$(git -C "$WT_REPO" rev-parse --is-inside-work-tree 2>/dev/null)" = "true" ]; then
+    WT_STATE=$(git -C "$WT_REPO" worktree list --porcelain 2>/dev/null | awk -v ref="branch refs/heads/$WT_BRANCH" '
+      BEGIN { entry = 0 }
+      /^worktree / { entry++ }
+      $0 == ref { if (entry == 1) main = 1; else linked = 1 }
+      END { print (linked ? "linked" : (main ? "main" : "none")) }')
+    if [ "$WT_STATE" != "linked" ]; then
+      WT_EXPECTED="${WT_REPO%/}/.claude/worktrees/${WT_BRANCH#*/}"
+      WT_SWITCH=""
+      [ "$WT_STATE" = "main" ] && WT_SWITCH=" The main checkout currently has $WT_BRANCH checked out; switch the main checkout back to its base branch first (git cannot attach a branch that is checked out elsewhere)."
+      jq -nc --arg id "$TASK_ID" --arg branch "$WT_BRANCH" --arg path "$WT_EXPECTED" --arg switch "$WT_SWITCH" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: task_id="+$id+" is pending and branch "+$branch+" has no linked worktree (expected "+$path+")."+$switch+" Call task_reopen(task_id="+$id+", reason=\"<why>\") to create the worktree, then respawn swe.")}}'
+      exit 0
+    fi
+  fi
 fi
 
 SPEC=$(tmb_gate_read "$DB" "SELECT json_object('body', COALESCE(spec_body, ''),
