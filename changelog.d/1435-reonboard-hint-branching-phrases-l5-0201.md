@@ -1,0 +1,2 @@
+### Fixed
+- **Reonboard hint fires for branching-model and PR-target asks** (GH 1435): the reonboard-intent hint matched only remote-setup and issue-tracker phrases, so "switch to gitflow" never got the `onboard_state_get` first action; it now matches branching-model and PR-target change phrases, and L5 row 02.01 asserts `onboard_state_get` was called with `branching_model` unchanged and no `config_changed` event instead of an `audit_append` no doctrine requests.
