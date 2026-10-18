@@ -21,3 +21,15 @@ bash tests/l5-l6/run-l6-chain.sh           # full cumulative chain
 | [`inspect-trajectory.sh`](./inspect-trajectory.sh) | Helper to inspect a run's trajectory DB |
 
 After seeding, `run-l5.sh` calls `l5_write_persona_block` (in [`lib/flow-helpers.sh`](./lib/flow-helpers.sh)) for fixtures whose DB says `onboarded=true`, writing the tmb persona block into the scratch project's `CLAUDE.md` the way `onboard_apply` does; the `empty` fixture stays without one. `lib/flow-helpers.test.sh` covers the helper.
+
+## When a row fails
+
+- **Fix at the trigger.** When a row flips, localize what triggers it (fixture text, seeded DB state, deny-message text, the row's own prompt) and fix there. Never tune the shared TEST MODE preamble for one row: it reaches every row. A deny remedy an agent runs verbatim must be correct for the repo it names.
+- **Local runs.** Set `TMB_MCP_PID_OVERRIDE=99999999` when any trajectory-server process runs on the host, because the drift hook pgreps host-wide.
+- **Classify from the run dir, not the summary table.** Read `<run-dir>/step-*/scorers.txt`, the tail of `bro-response.txt` and the token counts:
+
+| Class | Signature | Action |
+|---|---|---|
+| Network kill | tokens ~0, connection error | Rerun |
+| Judgment flake | passes at the same SHA elsewhere | Make the go-path deterministic |
+| Regression | reproduces every run, green at the last rc | Fix |

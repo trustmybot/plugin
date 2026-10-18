@@ -37,6 +37,10 @@ Paths are relative to the project root; `<state>` is `.claude/<plugin>/` (Claude
 
 A user project's `CLAUDE.md` is written only by onboarding: `onboard_apply` appends, replaces or (with `persona: false`) removes the marked persona block, atomically and never outside the markers, and records each change as a `persona_block_written` audit row. No hook and no agent writes it. When the project root is the plugin root, the file is the persona source and onboarding leaves it alone.
 
+## No context or effort settings
+
+TMB never writes Claude Code's context or effort settings (`autoCompactWindow`, `model`, `effortLevel`) into the user's project or user settings. Token savings come from TMB's own design, not from changing how the user's Claude Code runs.
+
 ## One install, one dispatcher, one execution
 
 A hook can be registered more than once for the same event: a project install beside a user-scope one, two channels, the headless shim beside the plugin's own hooks. Three rules keep that from running a gate twice or at two versions.
