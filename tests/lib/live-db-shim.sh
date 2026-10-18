@@ -31,12 +31,18 @@ live_db_shim_protected() {
   checkout="$(cd "$1" && pwd -P)"
   common="$(git -C "$checkout" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
   main=""
-  [ -n "$common" ] && main="$(cd "$(dirname "$common")" 2>/dev/null && pwd -P || true)"
+  if [ -n "$common" ]; then
+    main="$(cd "$(dirname "$common")" 2>/dev/null && pwd -P || true)"
+  fi
   parent_top="$(git -C "$(dirname "$checkout")" rev-parse --show-toplevel 2>/dev/null || true)"
   {
     _live_db_shim_ancestors "$checkout"
-    [ -n "$main" ] && _live_db_shim_ancestors "$main"
-    [ -n "$parent_top" ] && printf '%s\n' "$parent_top"
+    if [ -n "$main" ]; then
+      _live_db_shim_ancestors "$main"
+    fi
+    if [ -n "$parent_top" ]; then
+      printf '%s\n' "$parent_top"
+    fi
   } | awk '!seen[$0]++' | while IFS= read -r dir; do
     [ "$dir" = "/" ] && dir=""
     printf '%s/.claude/tmb\n' "$dir"

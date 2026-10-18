@@ -154,6 +154,7 @@ run_step "L1 lint: no writes under the home directory (self-test)" bash "$HERE/l
 run_step "L1 lint: no writes under the home directory" bash "$HERE/l1-lint/no-home-writes.sh"
 run_step "L1 lint: no hard-coded /tmp writes (self-test)" bash "$HERE/l1-lint/no-tmp-writes.sh" --self-test
 run_step "L1 lint: no hard-coded /tmp writes" bash "$HERE/l1-lint/no-tmp-writes.sh"
+run_step "L1 lint: live-db shim survives a plain parent directory" bash "$HERE/l1-lint/live-db-shim-parent-layout.sh"
 run_step "L1 lint: no datetime('now') in scripts"     bash "$HERE/l1-lint/no-datetime-now-in-hooks.sh"
 run_step "L1 lint: no secrets in tracked source"    bash "$HERE/l1-lint/no-secrets-in-source.sh"
 run_step "L1 lint: main-source-guard + CODEOWNERS present" bash "$HERE/l1-lint/main-guard-files-present.sh"
