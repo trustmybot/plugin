@@ -476,7 +476,7 @@ if [ "${TMB_DISABLE_RESUME_HINT:-0}" != "1" ]; then
 
 Required workflow:
 1. Call \`task_get(task_id=${task_id})\` to load the spec.
-2. \`git switch ${branch_id}\` (or create from main if missing) and spawn SWE via \`Agent(subagent_type='swe')\` with the existing task_id.
+2. If the task has no worktree yet, call \`task_reopen(task_id=${task_id}, reason=\"resume planned task\")\`, which creates it; then spawn SWE via \`Agent(subagent_type='swe')\` with \`task_id=${task_id}\` in the prompt. Leave the main checkout on its current branch.
 3. Do NOT call \`issue_create\` or \`task_create_batch\` — replanning is forbidden when planning_complete already exists for this work."
         emit_context "$CTX"
       fi
