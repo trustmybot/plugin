@@ -130,6 +130,28 @@ assert_eq "${OPENED_ID}|2026-06-16T19:30:01.000Z|agent-142|40|4|subagent_stop" \
   "same row, started_at kept, metrics + spawn_id written"
 assert_eq "1" "$(sqlite3 "$DB" "SELECT completed_at IS NOT NULL FROM agent_runs WHERE task_id=142;")" "row closed"
 
+test_case "a resumed spawn's duplicate unkeyed swe row is marked unmeasured, the metered row untouched"
+sqlite3 "$DB" "
+  INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at) VALUES
+    (150, 1, 'fix/task-150', 'dev', 'd', 'failed', '$NOW', '$NOW'),
+    (151, 1, 'fix/task-151', 'dev', 'd', 'running', '$NOW', '$NOW');
+  INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, completed_at) VALUES
+    (150, 1, 'swe', '2026-06-16T19:30:01.000Z', '2026-06-16T19:30:02.000Z'),
+    (150, 1, 'swe', '2026-06-16T19:30:03.000Z', NULL);
+  INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, completed_at) VALUES
+    (151, 1, 'swe', '2026-06-16T19:30:03.000Z', NULL);
+"
+T150="$TMPDIR/t150.jsonl"
+transcript 150 "$T150"
+run_hook "$(stop_input "$T150" agent-150)" >/dev/null
+assert_eq "2" "$(runs 150)" "no third row"
+assert_eq "1|40|4" "$(sqlite3 "$DB" "SELECT COUNT(*), MAX(tokens_in), MAX(tokens_out) FROM agent_runs WHERE task_id=150 AND usage_source='subagent_stop';")" "exactly one row carries the transcript sums"
+assert_eq "unmeasured|swept_orphan|1" \
+  "$(sqlite3 "$DB" "SELECT usage_source, exit_reason, completed_at IS NOT NULL FROM agent_runs WHERE task_id=150 AND COALESCE(usage_source, '') <> 'subagent_stop';")" \
+  "the other row is unmeasured, swept_orphan, closed"
+assert_eq "|0" "$(sqlite3 "$DB" "SELECT COALESCE(usage_source, ''), completed_at IS NOT NULL FROM agent_runs WHERE task_id=151;")" "sibling task row unchanged"
+assert_eq "0" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs WHERE task_id=150 AND completed_at IS NOT NULL AND (usage_source IS NULL OR usage_source <> 'unmeasured') AND COALESCE(tokens_in, 0)=0 AND COALESCE(tokens_out, 0)=0 AND COALESCE(cache_read_tokens, 0)=0 AND COALESCE(cache_creation_tokens, 0)=0;")" "swe_runs_metered predicate returns 0"
+
 test_case "a row already closed by a terminal status update still takes the spawn's metrics"
 sqlite3 "$DB" "INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, completed_at) VALUES (141, 1, 'swe', '2026-06-16T19:30:01.000Z', '2026-06-16T19:30:03.000Z');"
 T141="$TMPDIR/t141.jsonl"

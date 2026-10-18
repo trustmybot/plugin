@@ -357,7 +357,12 @@ esac
 
 # One transaction: UPDATE this spawn's row — the one already keyed by spawn_id,
 # else the unkeyed swe row task_brief opened inside this spawn — and INSERT a
-# complete row only when nothing was updated.
+# complete row only when nothing was updated. A spawn resumed after a terminal
+# task_update_status re-calls task_brief, which opens a second unkeyed row once
+# closeOpenRunsForTask has closed the first; the hook can meter only one row, so
+# a final statement marks every other zero-token unkeyed swe row of this task
+# from the spawn's window unmeasured, keeping the swe_runs_metered doctor
+# contract clean.
 if ! tmb_db_write "$DB" "
 UPDATE agent_runs
    SET tokens_in = ${SAFE_TOKENS_IN},
@@ -392,7 +397,18 @@ SELECT ${SAFE_TASK_ID}, ${SAFE_ISSUE_ID}, 'swe', ${SAFE_TOKENS_IN}, ${SAFE_TOKEN
        ${SAFE_CACHE_CREATION_TOKENS}, ${SAFE_TOOL_USES}, ${SAFE_DURATION_MS}, '${SAFE_FIRST_TS}', '${SAFE_NOW}',
        (SELECT repo FROM tasks WHERE id = ${SAFE_TASK_ID}), '${SAFE_SPAWN_ID}', ${SAFE_SESSION_SQL}, 'subagent_stop',
        ${SAFE_MODEL_SQL}, 'claude', '${SAFE_ROOT_DIR}', '${EXIT_REASON}', (SELECT effort FROM tasks WHERE id = ${SAFE_TASK_ID})
- WHERE (SELECT changes()) = 0;"; then
+ WHERE (SELECT changes()) = 0;
+UPDATE agent_runs
+   SET usage_source = 'unmeasured',
+       exit_reason = COALESCE(exit_reason, 'swept_orphan'),
+       completed_at = COALESCE(completed_at, '${SAFE_NOW}')
+ WHERE task_id = ${SAFE_TASK_ID}
+   AND agent_type = 'swe'
+   AND spawn_id IS NULL
+   AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0
+   AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0
+   AND started_at >= strftime('%Y-%m-%dT%H:%M:%fZ', '${SAFE_FIRST_TS}', '-2 seconds')
+   AND COALESCE(usage_source, '') <> 'subagent_stop';"; then
   jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
     '{ts:$ts,kind:"agent-runs-write-failed",task_id:$tid}' \
     >> "$_LOG_FILE" 2>/dev/null || true
