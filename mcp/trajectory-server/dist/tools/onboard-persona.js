@@ -4,8 +4,9 @@
 // copies the plugin's CLAUDE.md body into <project>/CLAUDE.md between the
 // managed markers of persona-block.ts. When the project root is the plugin root
 // (the TMB repo itself) that file IS the source and is never rewritten. Writes
-// are atomic (temp file + rename) and keep the file's mode.
-import { chmodSync, existsSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+// are atomic (temp file + rename) and keep the file's mode; a symlinked or
+// read-only CLAUDE.md is skipped, never replaced.
+import { chmodSync, existsSync, lstatSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyPersonaBlock, personaBlockVersion, removePersonaBlock, renderPersonaBlock, } from '../persona-block.js';
@@ -84,7 +85,12 @@ export function syncProjectPersona(opts) {
     if (pluginRoot && isPluginRoot(projectRoot, pluginRoot)) {
         return { action: 'skipped_source', version: 'version' in source ? source.version : null, path };
     }
-    const existing = existsSync(path) ? readFileSync(path, 'utf8') : null;
+    const entry = lstatSync(path, { throwIfNoEntry: false });
+    if (entry?.isSymbolicLink())
+        return { action: 'skipped', version: null, path, reason: 'CLAUDE.md is a symlink; not rewritten' };
+    if (entry && (entry.mode & 0o200) === 0)
+        return { action: 'skipped', version: null, path, reason: 'CLAUDE.md is read-only; not rewritten' };
+    const existing = entry ? readFileSync(path, 'utf8') : null;
     if (!enabled) {
         if (existing === null)
             return { action: 'unchanged', version: null, path };
