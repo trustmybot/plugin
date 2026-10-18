@@ -1,82 +1,121 @@
 // Flow 8 — SWE Retry / Escalation (FLOWS.md §8)
 //
-// Trajectory: pr-reviewer fails task → bro re-spawns SWE with feedback →
-// SWE attempts again → pr-reviewer signs off OR fails again → repeat up to 3 →
+// Trajectory: pr-reviewer fails task → bro reworks it with task_reopen (same
+// branch, same worktree) → SWE commits again and completes → bro_atomic_close →
+// pr-reviewer signs off OR fails again → repeat up to 3 →
 // at 3 fails, bro flips status to 'escalated' and surfaces to Human.
 //
-// Asserts: validation_attempts UNIQUE(task_id, attempt_n) is enforced,
-// each attempt is a separate row, and 'escalated' is a valid terminal status.
+// Asserts: task_reopen moves the task to running in its existing worktree and
+// writes a task_reopened audit row, validation_attempts UNIQUE(task_id, attempt_n)
+// is enforced, each attempt is a separate row, and 'escalated' is a valid terminal status.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startClient, call, seedReviewerObservation } from '../l3-integration/mcp/harness.mjs';
+import { startProjectClient, call, seedReviewerObservation } from '../l3-integration/mcp/harness.mjs';
 
-async function setupClosedTask(client, branch, sha) {
-  const issue = await call(client, 'issue_create', { agent: 'bro', objective: 'X', description: 'd', labels: ['Feature', 'Priority: Medium'] });
-  const issueId = issue.data.id;
-  const batch = await call(client, 'task_create_batch', {
-    agent: 'bro', issue_id: issueId,
-    waive_scope_gate: true,
-    waive_scope_gate_reason: 'simple-triage retry-test scaffolding; defaults applied for synthetic test',
-    waive_branch_gate: true,
-    waive_branch_gate_reason: 'workflow-sim test; branch gate not under test in this flow',
-    waive_intent_gate: true,
-    waive_intent_gate_reason: 'workflow-sim test; intent gate not under test in this flow',
-    waive_decision_gate: true,
-    waive_decision_gate_reason: 'workflow-sim test; triage gate not under test in this flow',
-    tasks: [{ branch_id: branch, title: 't', description: 'd', spec_body: '## Success Criteria\n- bug fixed' }],
-  });
-  const taskId = Array.isArray(batch.data) ? batch.data[0]?.id : batch.data.tasks?.[0]?.id;
-  await call(client, 'task_update_status', {
+async function completeAndClose(client, project, taskId, worktreePath, file) {
+  const brief = await call(client, 'task_brief', { agent: 'swe', task_id: taskId });
+  assert.equal(brief.ok, true, `task_brief: ${JSON.stringify(brief)}`);
+  const sha = project.commitIn(worktreePath, file, `${file}\n`, `work ${file}`);
+  const completed = await call(client, 'task_update_status', {
     agent: 'swe', task_id: taskId, status: 'completed', commit_sha: sha,
   });
-  await call(client, 'bro_atomic_close', {
+  assert.equal(completed.ok, true, `swe→completed: ${JSON.stringify(completed)}`);
+  const closed = await call(client, 'bro_atomic_close', {
     agent: 'bro', task_id: taskId, commit_sha: sha,
     verification_summary: 'V1/V2/V3 verified; closing.',
     waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test',
   });
-  return { taskId, issueId };
+  assert.equal(closed.ok, true, `bro_atomic_close: ${JSON.stringify(closed)}`);
+  return sha;
 }
 
-test('Flow 8 — retry loop: 2 fails then a pass, history preserves all attempts', async (t) => {
-  const { client, close, dbPath } = await startClient({ fileDb: true });
+async function setupClosedTask(client, project, branch) {
+  const issue = await call(client, 'issue_create', { agent: 'bro', objective: 'X', description: 'd', labels: ['Feature', 'Priority: Medium'] });
+  const issueId = issue.data.id;
+  const provisioned = await call(client, 'task_provision', {
+    agent: 'bro', issue_id: issueId, branch_id: branch,
+    decision_body: `Chosen approach for ${branch}: fix the bug at its source.`,
+    task: {
+      title: 't',
+      description: 'd',
+      spec_body: '## Success Criteria\n- bug fixed',
+      files: ['work-1.txt', 'work-2.txt', 'work-3.txt'],
+      verification: ['test -f work-1.txt'],
+      repo: project.name,
+    },
+  });
+  assert.equal(provisioned.ok, true, `task_provision: ${JSON.stringify(provisioned)}`);
+  const taskId = provisioned.data.task_id;
+  const worktreePath = provisioned.data.worktree_path;
+  await completeAndClose(client, project, taskId, worktreePath, 'work-1.txt');
+  return { taskId, issueId, worktreePath };
+}
+
+async function reworkAndClose(client, project, { taskId, issueId, worktreePath }, attemptN, reason) {
+  const reopened = await call(client, 'task_reopen', { agent: 'bro', task_id: taskId, reason });
+  assert.equal(reopened.ok, true, `task_reopen: ${JSON.stringify(reopened)}`);
+  assert.equal(reopened.data.status, 'running');
+  assert.equal(reopened.data.from_status, 'closed');
+  assert.equal(reopened.data.worktree_path, worktreePath, 'rework reuses the same worktree path');
+  assert.equal(reopened.data.worktree_recreated, false, 'the existing worktree is reused, not recreated');
+
+  const running = await call(client, 'task_get', { agent: 'bro', task_id: taskId });
+  assert.equal(running.data.status, 'running');
+
+  const audit = await call(client, 'audit_list', { agent: 'bro', issue_id: issueId });
+  const reopenRows = audit.data.filter(e => e.event_type === 'task_reopened');
+  assert.equal(reopenRows.length, attemptN, 'one task_reopened audit row per rework');
+  assert.match(JSON.stringify(reopenRows.at(-1)), new RegExp(reason));
+
+  return completeAndClose(client, project, taskId, worktreePath, `work-${attemptN + 1}.txt`);
+}
+
+test('Flow 8 — retry loop: fail, task_reopen rework in the same worktree, then pass; history preserves both attempts', async (t) => {
+  const { client, close, dbPath, project } = await startProjectClient();
   t.after(async () => { await close(); });
 
-  const { taskId, issueId } = await setupClosedTask(client, 'fix/retry', 'ddd4444444444444444444444444444444444444');
+  const task = await setupClosedTask(client, project, 'fix/retry');
+  const { taskId } = task;
 
-  for (let n = 1; n <= 2; n++) {
-    seedReviewerObservation(dbPath, taskId, n);
-    const r = await call(client, 'validation_record', {
-      agent: 'pr-reviewer', task_id: taskId, attempt_n: n, verdict: 'fail', mcp_available: true,
-      feedback: `Attempt ${n}: still has the bug.`,
-      subagent_session_id: `flow08-retry-session-${n}`,
-    });
-    assert.equal(r.ok, true, `attempt ${n} fail: ${JSON.stringify(r)}`);
-  }
-
-  // attempt 3: pass
-  seedReviewerObservation(dbPath, taskId, 3);
-  const pass = await call(client, 'validation_record', {
-    agent: 'pr-reviewer', task_id: taskId, attempt_n: 3, verdict: 'pass', mcp_available: true,
-    feedback: 'Fixed; LGTM.',
-    subagent_session_id: 'flow08-retry-session-3',
+  seedReviewerObservation(dbPath, taskId, 1);
+  const fail = await call(client, 'validation_record', {
+    agent: 'pr-reviewer', task_id: taskId, attempt_n: 1, verdict: 'fail', mcp_available: true,
+    feedback: 'Attempt 1: still has the bug.',
+    subagent_session_id: 'flow08-retry-session-1',
   });
-  assert.equal(pass.ok, true);
+  assert.equal(fail.ok, true, `attempt 1 fail: ${JSON.stringify(fail)}`);
+
+  const firstSha = project.git('rev-parse', 'refs/heads/fix/retry');
+  const secondSha = await reworkAndClose(client, project, task, 1, 'reviewer found the bug still present');
+  assert.notEqual(secondSha, firstSha, 'rework adds a second commit on the same branch');
+  assert.equal(project.git('rev-parse', 'refs/heads/fix/retry'), secondSha);
+
+  const closedAgain = await call(client, 'task_get', { agent: 'bro', task_id: taskId });
+  assert.equal(closedAgain.data.status, 'closed');
+  assert.equal(closedAgain.data.commit_sha, secondSha);
+
+  seedReviewerObservation(dbPath, taskId, 2);
+  const pass = await call(client, 'validation_record', {
+    agent: 'pr-reviewer', task_id: taskId, attempt_n: 2, verdict: 'pass', mcp_available: true,
+    feedback: 'Fixed; LGTM.',
+    subagent_session_id: 'flow08-retry-session-2',
+  });
+  assert.equal(pass.ok, true, `attempt 2 pass: ${JSON.stringify(pass)}`);
 
   const history = await call(client, 'validation_history', { agent: 'bro', task_id: taskId });
   assert.equal(history.ok, true);
-  assert.equal(history.data.length, 3);
   assert.deepEqual(
     history.data.map(r => `${r.attempt_n}:${r.verdict}`),
-    ['1:fail', '2:fail', '3:pass'],
+    ['1:fail', '2:pass'],
   );
 });
 
 test('Flow 8 — UNIQUE(task_id, attempt_n) yields upsert semantics: latest verdict wins', async (t) => {
-  const { client, close, dbPath } = await startClient({ fileDb: true });
+  const { client, close, dbPath, project } = await startProjectClient();
   t.after(async () => { await close(); });
 
-  const { taskId, issueId } = await setupClosedTask(client, 'fix/dup', 'eee5555555555555555555555555555555555555');
+  const { taskId } = await setupClosedTask(client, project, 'fix/dup');
 
   // attempt 1: pass
   seedReviewerObservation(dbPath, taskId, 1);
@@ -102,10 +141,11 @@ test('Flow 8 — UNIQUE(task_id, attempt_n) yields upsert semantics: latest verd
 });
 
 test('Flow 8 — bro escalates after 3 fails by flipping status to escalated', async (t) => {
-  const { client, close, dbPath } = await startClient({ fileDb: true });
+  const { client, close, dbPath, project } = await startProjectClient();
   t.after(async () => { await close(); });
 
-  const { taskId, issueId } = await setupClosedTask(client, 'fix/esc', 'fff6666666666666666666666666666666666666');
+  const task = await setupClosedTask(client, project, 'fix/esc');
+  const { taskId, issueId } = task;
 
   for (let n = 1; n <= 3; n++) {
     seedReviewerObservation(dbPath, taskId, n);
@@ -115,6 +155,7 @@ test('Flow 8 — bro escalates after 3 fails by flipping status to escalated', a
       subagent_session_id: `flow08-escalate-session-${n}`,
     });
     assert.equal(r.ok, true);
+    if (n < 3) await reworkAndClose(client, project, task, n, `attempt ${n} still broken`);
   }
 
   // Bro records the escalation note (uses the issueId returned from setup —
@@ -133,4 +174,7 @@ test('Flow 8 — bro escalates after 3 fails by flipping status to escalated', a
 
   const finalTask = await call(client, 'task_get', { agent: 'bro', task_id: taskId });
   assert.equal(finalTask.data.status, 'escalated');
+
+  const history = await call(client, 'validation_history', { agent: 'bro', task_id: taskId });
+  assert.equal(history.data.length, 3, 'all three failed attempts are preserved');
 });
