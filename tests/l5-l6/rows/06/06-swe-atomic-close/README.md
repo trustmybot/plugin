@@ -24,7 +24,7 @@ Two production bug classes captured:
 
 | Scorer | Asserts |
 |---|---|
-| `outcome.sql` | `tasks` ≥1; **no** tasks at `pending`; `agent_runs` ≥1 with non-null `task_id` |
+| `outcome.sql` | `tasks` ≥1; **no** tasks at `pending`; `agent_runs` ≥1 with non-null `task_id`; ≥1 completed `swe` run, and none missing `effort`/`model`/`root_dir` |
 | `outcome-coherence.json` | `tasks`: `>=1`; `tasks WHERE status='pending'`: `=0`; `agent_runs`: `>=1`; `agent_runs WHERE task_id IS NOT NULL`: `>=1` |
 | `tools-required.json` | `Agent`, `bro_atomic_close` |
 | `cost-budget.json` | Soft 200K / 900s |
