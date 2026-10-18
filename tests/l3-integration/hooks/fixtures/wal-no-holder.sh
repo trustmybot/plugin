@@ -8,8 +8,11 @@
 #   <db> sits under <project_root>. The hook's normal decision for <input>
 #   contains <expect> (skipped when empty) and never <forbid>, a string a
 #   failed (empty) read would produce. Asserts:
-#     1. no holder: the gate decides normally (not "unavailable") and reads
-#        without -readonly, which cannot open the DB;
+#     1. no holder: the gate decides normally (not "unavailable"). Where
+#        sqlite3 -readonly cannot open a WAL DB with no -shm (macOS Apple
+#        sqlite 3.51) the read runs without -readonly. Where it can (Linux
+#        sqlite 3.45) the fallback is not exercised: the case asserts a read
+#        ran and prints a note;
 #     2. -shm/-wal from that read sit beside <db>; HOME and TMPDIR stay empty;
 #     3. a holder open: the gate decides normally, sqlite3 starts -readonly
 #        and no read runs without it;
@@ -55,7 +58,7 @@ wal_run() {
 
 wal_gate_cases() {
   local label="$1" hook="$2" db="$3" proj="$4" input="$5" expect="$6" forbid="$7" cwd="${8:-$PWD}"
-  local work bin log home tmp out strays dir
+  local work bin log home tmp out strays dir readonly_opens
   work=$(mktemp -d)
   bin="$work/bin" log="$work/sqlite3.log" home="$work/home" tmp="$work/tmp"
   mkdir -p "$home" "$tmp"
@@ -63,15 +66,21 @@ wal_gate_cases() {
 
   test_case "$label: WAL DB with no holder → the gate reads it and decides normally"
   wal_detach "$db"
+  readonly_opens=0
   if "$WAL_REAL_SQLITE3" -readonly "$db" "SELECT 1;" >/dev/null 2>&1; then
-    _fail "precondition: sqlite3 -readonly opened a WAL DB with no -shm"
+    readonly_opens=1
   fi
   : > "$log"
   out=$(wal_run "$hook" "$input" "$db" "$bin" "$home" "$tmp" "$cwd")
   assert_not_contains "$out" "trajectory DB unavailable" "no holder is not an unavailable DB"
   [ -z "$expect" ] || assert_contains "$out" "$expect" "the gate's normal decision"
   assert_not_contains "$out" "$forbid" "no read came back empty"
-  assert_contains "$(cat "$log")" "-cmd" "the read ran without -readonly"
+  if [ "$readonly_opens" = 1 ]; then
+    if [ -s "$log" ]; then _pass; else _fail "no sqlite3 invocation was logged"; fi
+    echo "  note: sqlite3 -readonly opens a detached WAL DB on this platform; -cmd fallback not exercised"
+  else
+    assert_contains "$(cat "$log")" "-cmd" "the read ran without -readonly"
+  fi
 
   test_case "$label: the no-holder read leaves -shm/-wal beside the DB, nothing under HOME or TMPDIR"
   strays=$(find "$proj" \( -name '*-shm' -o -name '*-wal' \) ! -path "$db-shm" ! -path "$db-wal"; find "$home" "$tmp" -mindepth 1)
