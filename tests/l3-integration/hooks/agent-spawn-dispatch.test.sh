@@ -82,26 +82,26 @@ run_dispatcher() {
 # ----- tests: first-deny short-circuit (require-task-spec) ------------------
 
 test_case "swe spawn without task_id is denied with require-task-spec wording"
-TMPDIR=$(mktemp -d)
-db=$(setup_db "$TMPDIR")
+WORK=$(mktemp -d)
+db=$(setup_db "$WORK")
 insert_task "$db" 1 "pending" "fix/1-foo" "## spec"
 payload=$(jq -n '{tool_name:"Agent",tool_input:{subagent_type:"swe",prompt:"do the thing"}}')
 out=$(run_dispatcher "$payload" "$db")
 assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
 assert_contains "$out" "SWE spawn requires task_id" "require-task-spec wording present"
-rm -rf "$TMPDIR"
+rm -rf "$WORK"
 
 # ----- tests: first-deny short-circuit (pr-reviewer-spawn-prompt-shape) -----
 
 test_case "pr-reviewer spawn with missing anchors is denied"
-TMPDIR=$(mktemp -d)
-db=$(setup_db "$TMPDIR")
+WORK=$(mktemp -d)
+db=$(setup_db "$WORK")
 insert_task "$db" 5 "closed" "fix/5-pr" "## spec"
 payload=$(jq -n '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",effort:"high",prompt:"please review this PR"}}')
 out=$(TMB_SKIP_PR_REVIEWER_CLOSE_GATE=1 run_dispatcher "$payload" "$db")
 assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
 assert_contains "$out" "missing required anchors" "prompt-shape wording present"
-rm -rf "$TMPDIR"
+rm -rf "$WORK"
 
 # ----- tests: shape hook enforces attempt_n + subagent_session_id anchors ----
 
@@ -124,20 +124,20 @@ assert_eq "" "$out" "silent pass — all six anchors present"
 # ----- tests: pr-reviewer-no-worktree short-circuits before shape check -----
 
 test_case "pr-reviewer with isolation=worktree is denied before shape check (hook order preserved)"
-TMPDIR=$(mktemp -d)
-db=$(setup_db "$TMPDIR")
+WORK=$(mktemp -d)
+db=$(setup_db "$WORK")
 payload=$(jq -n '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",effort:"high",isolation:"worktree",prompt:"review"}}')
 out=$(run_dispatcher "$payload" "$db")
 assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
 assert_contains "$out" "must NOT run with isolation" "no-worktree wording present (fired before shape check)"
-rm -rf "$TMPDIR"
+rm -rf "$WORK"
 
 # ----- tests: clean swe spawn passes silently --------------------------------
 
 test_case "clean swe spawn with valid task_id and existing branch passes silently"
-TMPDIR=$(mktemp -d)
-setup_repo "$TMPDIR" "dev" "fix/1-foo"
-db="$TMPDIR/trajectory.db"
+WORK=$(mktemp -d)
+setup_repo "$WORK" "dev" "fix/1-foo"
+db="$WORK/trajectory.db"
 sqlite3 "$db" "
   CREATE TABLE tasks (
     id INTEGER PRIMARY KEY,
@@ -159,18 +159,18 @@ sqlite3 "$db" "
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE TABLE repos (name TEXT, path TEXT);
-  INSERT INTO repos (name, path) VALUES ('fixture', '$TMPDIR');
+  INSERT INTO repos (name, path) VALUES ('fixture', '$WORK');
   INSERT INTO issues (id) VALUES (1);
   INSERT INTO tasks (id, issue_id, branch_id, status, spec_body)
     VALUES (1, 1, 'fix/1-foo', 'pending', '## spec body');
 " >/dev/null
 payload=$(jq -n '{tool_name:"Agent",tool_input:{subagent_type:"swe",effort:"medium",prompt:"task_id=1 worktree=/some/path You are SWE."}}')
 out=$(
-  cd "$TMPDIR" || exit 1
+  cd "$WORK" || exit 1
   printf '%s' "$payload" | TRAJECTORY_DB_PATH="$db" bash "$DISPATCHER" 2>/dev/null || true
 )
 assert_eq "" "$out" "silent pass — no deny, no context"
-rm -rf "$TMPDIR"
+rm -rf "$WORK"
 
 # ----- tests: non-Agent tool is a no-op ------------------------------------
 
@@ -185,8 +185,8 @@ test_case "context union: real dispatcher merges additionalContext from gate hoo
 # Drive the REAL dispatcher (copied verbatim) against stub gate hooks named
 # exactly as the dispatcher expects. SCRIPT_DIR resolves to the temp dir, so the
 # shipped union logic is exercised — no reimplemented dispatcher.
-TMPDIR=$(mktemp -d)
-STUB_HOOKS_DIR="$TMPDIR/hooks"
+WORK=$(mktemp -d)
+STUB_HOOKS_DIR="$WORK/hooks"
 mkdir -p "$STUB_HOOKS_DIR"
 cp "$DISPATCHER" "$STUB_HOOKS_DIR/agent-spawn-dispatch.sh"
 
@@ -206,13 +206,13 @@ out=$(printf '{}' | bash "$STUB_HOOKS_DIR/agent-spawn-dispatch.sh" 2>/dev/null |
 assert_contains "$out" "part-A" "first context part present"
 assert_contains "$out" "part-B" "second context part present"
 assert_contains "$out" "additionalContext" "result wrapped in additionalContext"
-rm -rf "$TMPDIR"
+rm -rf "$WORK"
 
 # ----- tests: deny short-circuits context collection -----------------------
 
 test_case "deny in first gate short-circuits real dispatcher; later context not emitted"
-TMPDIR=$(mktemp -d)
-STUB_HOOKS_DIR="$TMPDIR/hooks"
+WORK=$(mktemp -d)
+STUB_HOOKS_DIR="$WORK/hooks"
 mkdir -p "$STUB_HOOKS_DIR"
 cp "$DISPATCHER" "$STUB_HOOKS_DIR/agent-spawn-dispatch.sh"
 
@@ -231,6 +231,6 @@ out=$(printf '{}' | bash "$STUB_HOOKS_DIR/agent-spawn-dispatch.sh" 2>/dev/null |
 assert_contains "$out" '"permissionDecision":"deny"' "deny present"
 assert_contains "$out" "first hook denied" "deny reason from first hook"
 assert_not_contains "$out" "should-not-appear" "later gate context not emitted"
-rm -rf "$TMPDIR"
+rm -rf "$WORK"
 
 summarize
