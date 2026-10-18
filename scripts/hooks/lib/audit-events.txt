@@ -53,7 +53,7 @@ scan_discovered_repair	server
 scope_gate_waived	bro
 skill_creator_blocked	bro
 spec_shape_gate_waived	bro
-swe_brief_fetched	hook
+swe_brief_fetched	swe
 sync_skipped	bro
 task_effort_raised	bro
 task_escalated_by_issue_close	bro

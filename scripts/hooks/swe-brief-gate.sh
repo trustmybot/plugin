@@ -4,8 +4,8 @@
 # CC's PreToolUse hook contract does NOT support updatedInput (prompt mutation).
 # The deterministic fallback: block SWE from calling any trajectory-server MCP
 # tool other than task_brief — AND from calling Edit/Write/NotebookEdit — until
-# task_brief has been called for that task. When task_brief fires, write an
-# audit sentinel 'swe_brief_fetched' so subsequent calls are allowed.
+# task_brief has been called for that task. The task_brief handler writes the
+# audit sentinel 'swe_brief_fetched'; this hook only reads it.
 #
 # Fires on: PreToolUse — matchers:
 #   mcp__.*trajectory-server__.*   (original MCP gate)
@@ -21,7 +21,7 @@
 #
 # Decision logic (both matchers share the same sentinel check):
 #   1. Non-SWE caller             → allow (pass-through)
-#   2. Tool is task_brief          → write sentinel if not yet set, then allow
+#   2. Tool is task_brief          → allow (the handler writes the sentinel)
 #   3. Sentinel exists             → allow (brief already fetched for this task)
 #   4. No sentinel + blocked tool  → DENY with recovery instruction
 #
@@ -106,22 +106,6 @@ if [ -z "$IS_TASK_BRIEF" ] && [ -z "$IS_BLOCKED_MUTATION" ] && [ -z "$IS_MCP_TRA
 fi
 
 if [ "$IS_TASK_BRIEF" = "yes" ]; then
-  # Write sentinel on first task_brief call for this task.
-  ALREADY=$(tmb_sqlite_ro "$DB" "
-    SELECT COUNT(*) FROM audit
-     WHERE event_type = 'swe_brief_fetched'
-       AND json_extract(content_json, '\$.task_id') = ${TASK_ID}
-    LIMIT 1;
-  " 2>/dev/null || echo "0")
-  if [ "${ALREADY:-0}" -eq 0 ]; then
-    TASK_ROW=$(tmb_sqlite_ro "$DB" "SELECT COALESCE(issue_id, -1) || '|' || COALESCE(branch_id, '') FROM tasks WHERE id = ${TASK_ID} LIMIT 1;")
-    if [ -n "$TASK_ROW" ] && ! tmb_audit_append "$DB" "${TASK_ROW%%|*}" "${TASK_ROW#*|}" "hook:swe-brief-gate" "swe_brief_fetched" \
-        "SWE fetched task_brief for task_id=${TASK_ID}" \
-        "{\"task_id\":${TASK_ID},\"agent_type\":\"swe\"}"; then
-      jq -nc --arg ctx "TMB: the swe_brief_fetched sentinel for task_id=${TASK_ID} could not be recorded (trajectory DB write failed). If the next Edit/Write or trajectory-server call is denied, call task_brief(agent='swe', task_id=${TASK_ID}) again." \
-        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":$ctx}}'
-    fi
-  fi
   exit 0
 fi
 
