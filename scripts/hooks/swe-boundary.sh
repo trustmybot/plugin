@@ -5,7 +5,7 @@
 # This is a tripwire for obvious write-forms, not a Bash sandbox. When in
 # doubt, the hook passes — precision beats recall here.
 #
-# Six rules, all for an SWE identity (SWE_CTX):
+# Eight rules, all for an SWE identity (SWE_CTX):
 #
 #   (a) Bash: git push from SWE context                  → DENY
 #   (b) Bash: gh/glab MUTATING subcommands               → DENY (read-only gh allowed)
@@ -18,6 +18,8 @@
 #       files[] dirs                                      → NOTE (additionalContext, once per path)
 #   (g) Bash: a write target behind a variable the command does not set
 #                                                         → DENY (unless prompt_bearing=1)
+#   (h) Edit/Write: a path a PreToolUse Bash gate denied a write to earlier in
+#       the session (dispatch.sh keeps the record)        → ALLOW, audit hook_block_bypassed
 #
 # Bash writes are judged by the same rules as Edit/Write: every path a
 # statement writes (tmb_cmd_write_paths in lib/cmd-analysis.sh, the one list
@@ -209,6 +211,51 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
   exit 0
 fi
 
+# ---- Rule (h): Edit/Write after a Bash deny on the same path ----------------
+# bypass_check — the allow path of an Edit/Write. When dispatch.sh recorded a
+# Bash deny of a write to this path in this session within
+# TMB_BYPASS_WINDOW_MIN minutes (default 10), appends a hook_block_bypassed
+# audit row, removes the record and prints an additionalContext reminder. The
+# write stays allowed; no DB, session or record means no output.
+bypass_check() {
+  local session state record window gate denied_at now abs db task issue rel content summary ctx
+  session=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+  case "$session" in ''|*/*|.*) return 0 ;; esac
+  state=$(tmb_state_dir 2>/dev/null) || return 0
+  case "$TARGET" in
+    /*) abs="$TARGET" ;;
+    *)  abs="$(tmb_payload_cwd "$INPUT")/$TARGET" ;;
+  esac
+  record="$(tmb_path_canonical "$state")/locks/boundary-denies/$session/$(tmb_path_digest "$abs")"
+  [ -f "$record" ] || return 0
+  gate=$(sed -n 1p "$record" 2>/dev/null || true)
+  denied_at=$(sed -n 2p "$record" 2>/dev/null || true)
+  case "$denied_at" in ''|*[!0-9]*) rm -f "$record"; return 0 ;; esac
+  window="${TMB_BYPASS_WINDOW_MIN:-10}"
+  case "$window" in ''|*[!0-9]*|0) window=10 ;; esac
+  now=$(date +%s)
+  if [ $((now - denied_at)) -gt $((window * 60)) ]; then rm -f "$record"; return 0; fi
+  db=$(tmb_db_path 2>/dev/null || true)
+  [ -n "$db" ] && tmb_have_sqlite || return 0
+  # shellcheck source=scripts/hooks/lib/db-write.sh
+  . "$SCRIPT_DIR/lib/db-write.sh"
+  task=$(tmb_resolve_task_id_for_target "$TARGET" "$INPUT" "$db")
+  issue=-1
+  if [ -n "$task" ]; then
+    issue=$(tmb_sql_int "$(tmb_sqlite_ro "$db" "SELECT issue_id FROM tasks WHERE id = ${task};" 2>/dev/null || true)")
+    [ -n "$issue" ] || issue=-1
+  fi
+  rel="$TARGET"
+  [ -n "$_WT_D" ] && rel="${TARGET#"$_WT_D"/}"
+  content=$(jq -cn --arg tool "$TOOL_NAME" --arg path "$TARGET" --arg gate "$gate" --argjson at "$denied_at" --arg sid "$session" --arg tid "$task" \
+    '{tool:$tool, path:$path, denied_gate:$gate, denied_at:$at, session_id:$sid, task_id:(if $tid == "" then null else ($tid | tonumber) end)}')
+  summary="$TOOL_NAME to $rel after $gate denied a Bash write to it"
+  tmb_audit_append "$db" "$issue" '' "hook:swe-boundary" "hook_block_bypassed" "$summary" "$content" || return 0
+  rm -f "$record"
+  ctx="TMB: $TOOL_NAME to $TARGET follows a $gate Bash deny in this session; recorded as hook_block_bypassed. A hook block is a hard stop: report it to bro instead of rewriting the file with another tool."
+  jq -nc --arg c "$ctx" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":$c}}'
+}
+
 # ---- Rules (c) and (d): Edit/Write fence ------------------------------------
 case "$TOOL_NAME" in
   Edit|Write|MultiEdit|NotebookEdit) ;;
@@ -280,6 +327,7 @@ if [ "$IS_PROMPT_SURFACE" = "yes" ]; then
         exit 0
       fi
       if [ "${PROMPT_BEARING:-0}" = "1" ]; then
+        bypass_check
         exit 0
       fi
     fi
@@ -290,4 +338,5 @@ if [ "$IS_PROMPT_SURFACE" = "yes" ]; then
   exit 0
 fi
 
+bypass_check
 exit 0

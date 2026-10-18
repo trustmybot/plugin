@@ -461,6 +461,23 @@ tmb_path_canonical() {
   printf '%s%s\n' "$cur" "$tail"
 }
 
+# tmb_path_digest <absolute-path>
+# The sha256 of the path's canonical form (tmb_path_canonical): the file name
+# of its record under <state>/locks/boundary-denies/<session_id>/, written by
+# dispatch.sh for a path a denied Bash command writes and read by
+# swe-boundary.sh when an Edit/Write names the same path.
+tmb_path_digest() {
+  local canon
+  canon=$(tmb_path_canonical "${1:-}")
+  if command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$canon" | shasum -a 256 | cut -d' ' -f1
+  elif command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$canon" | sha256sum | cut -d' ' -f1
+  else
+    printf '%s' "$canon" | openssl dgst -sha256 -r | cut -d' ' -f1
+  fi
+}
+
 tmb_cmd_decode() {
   printf '%s' "${1:-}" | tr '\001\002\003\004\005\006\016\017\020\021\023' ' \t<>|;&()`\n'
 }

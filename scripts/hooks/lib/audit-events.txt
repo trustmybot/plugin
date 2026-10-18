@@ -21,6 +21,7 @@ decision_gate_waived	bro
 deep_scan_completed	bro
 embeddings_degraded	server
 embeddings_recovered	server
+hook_block_bypassed	hook
 intent_gate_waived	bro
 issue_adopted	bro
 issue_auto_close_deferred	hook
