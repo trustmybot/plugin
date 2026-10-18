@@ -228,6 +228,7 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
     {
       id: 'event_type_documented',
       severity: 'error',
+      min_schema: 38,
       description: 'every audit.event_type is in the documented event set',
       sql: `SELECT COUNT(*) FROM audit WHERE event_type NOT IN (${events})`,
       expect: { op: '=', value: 0 },
