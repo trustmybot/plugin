@@ -321,6 +321,14 @@ mkdir -p "$WT_UNKNOWN"
 out=$(cd "$WT_UNKNOWN" && echo "$(make_edit_no_transcript swe "$WT_UNKNOWN/agents/swe.md")" | bash "$HOOK" 2>&1 || true)
 assert_contains "$out" '"permissionDecision":"deny"' "no matching task slug should deny prompt-surface edit"
 
+test_case "(d/anchor) SWE edit <worktree>/src/agents/notes.md on a non-prompt_bearing task: ALLOWED"
+out=$(run_hook_swe "$(make_edit_with_transcript swe "$WORKTREE/src/agents/notes.md" 10)")
+assert_not_contains "$out" '"permissionDecision":"deny"' "a nested agents/ dir is not prompt surface"
+
+test_case "(d/anchor) SWE edit <worktree>/agents/notes.md on a non-prompt_bearing task: DENIED"
+out=$(run_hook_swe "$(make_edit_with_transcript swe "$WORKTREE/agents/notes.md" 10)")
+assert_contains "$out" '"permissionDecision":"deny"' "a root agents/ dir is prompt surface"
+
 # ===========================================================================
 # Rule (d) — failed-status + absolute target + PWD NOT in worktree (#597)
 # The regression: a prompt_bearing=1 task whose row is `failed`, edited via an

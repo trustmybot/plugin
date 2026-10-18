@@ -126,12 +126,15 @@
 #   The write shapes tmb_cmd_write_paths recognizes, for deny texts
 #   (tmb_cmd_write_shapes prints them comma-joined).
 #
-# tmb_is_prompt_surface_path <path>
-#   Exit 0 when <path> (repo-relative, or absolute) is on the prompt surface:
-#   CLAUDE.md / CODEX.md / CURSOR.md / GEMINI.md anywhere, or a .md under an
-#   agents/, skills/, commands/, templates/ or rules/ directory (.claude/agents/
-#   included). Directory names match at a path boundary: skills/x.md is a
-#   surface, myskills/x.md is not.
+# tmb_is_prompt_surface_path <path> [root]
+#   Exit 0 when <path> is on the prompt surface: CLAUDE.md / CODEX.md / CURSOR.md /
+#   GEMINI.md anywhere, or a .md whose root-relative path starts with agents/,
+#   skills/, commands/, templates/, rules/ or .claude/{agents,skills,commands,rules}/
+#   (src/agents/x.md and myskills/x.md are not surface). A relative <path> is already
+#   root-relative; an absolute one is cut at [root], else at its enclosing
+#   .claude/worktrees/<name> worktree or main git root. When no root resolves
+#   the match is unanchored (a directory name at any depth), so nothing is lost
+#   outside a repo.
 #
 # tmb_git_commit_message <command>
 #   Prints the message of the first `git commit` statement as its real argv
@@ -903,10 +906,52 @@ tmb_cmd_write_shapes() {
   printf '%s' "$out"
 }
 
+# _tmb_surface_root <absolute-path>
+# Prints the repo root of an absolute path: the enclosing .claude/worktrees/<name>
+# worktree, else the main git root of the nearest existing ancestor; nothing when
+# neither resolves.
+_tmb_surface_root() {
+  local p="$1" dir
+  case "$p" in
+    */.claude/worktrees/*)
+      printf '%s' "$p" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|'
+      return 0
+      ;;
+  esac
+  dir="${p%/*}"
+  while [ -n "$dir" ] && [ ! -d "$dir" ]; do dir="${dir%/*}"; done
+  [ -n "$dir" ] || dir=/
+  declare -F tmb_repo_git_root >/dev/null 2>&1 || {
+    # shellcheck source=scripts/hooks/lib/resolve-repo.sh disable=SC1091
+    . "$(dirname "${BASH_SOURCE[0]}")/resolve-repo.sh"
+  }
+  tmb_repo_git_root "$dir"
+}
+
 tmb_is_prompt_surface_path() {
-  case "${1##*/}" in CLAUDE.md|CODEX.md|CURSOR.md|GEMINI.md) return 0 ;; esac
-  case "/${1#/}" in
-    */agents/*.md|*/skills/*.md|*/commands/*.md|*/templates/*.md|*/rules/*.md) return 0 ;;
+  local p="$1" root="${2:-}" rel="" abs
+  case "${p##*/}" in CLAUDE.md|CODEX.md|CURSOR.md|GEMINI.md) return 0 ;; esac
+  case "$p" in
+    /*)
+      abs=$(tmb_path_canonical "$p")
+      [ -n "$root" ] || root=$(_tmb_surface_root "$abs")
+      if [ -n "$root" ]; then
+        root=$(tmb_path_canonical "$root")
+        case "$abs" in "${root%/}"/*) rel="${abs#"${root%/}"/}" ;; esac
+      fi
+      ;;
+    *) rel="${p#./}" ;;
+  esac
+  if [ -z "$rel" ]; then
+    case "$p" in *.md) ;; *) return 1 ;; esac
+    case "/${p#/}" in
+      */agents/*|*/skills/*|*/commands/*|*/templates/*|*/rules/*) return 0 ;;
+    esac
+    return 1
+  fi
+  case "$rel" in
+    agents/*.md|skills/*.md|commands/*.md|templates/*.md|rules/*.md) return 0 ;;
+    .claude/agents/*.md|.claude/skills/*.md|.claude/commands/*.md|.claude/rules/*.md) return 0 ;;
   esac
   return 1
 }
@@ -1674,7 +1719,7 @@ _tmb_cmd_lister_bind() {
       w=$(tmb_path_canonical "$w")
       case "$w/" in "${bound%/}/"*) ;; *) return 1 ;; esac
       w="${w#"${_TMB_CMD_ROOTC%/}"}"
-      if tmb_is_prompt_surface_path "${w%/}/x.md"; then
+      if tmb_is_prompt_surface_path "${_TMB_CMD_ROOTC%/}${w%/}/x.md" "$_TMB_CMD_ROOTC"; then
         if [ "$cmd" = git ]; then vals+=("${p%/}/*.md"); else vals+=("${v%/}/*.md"); fi
       elif [ "$cmd" != ls ]; then
         rel="${w#/}"
