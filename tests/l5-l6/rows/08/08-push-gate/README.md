@@ -15,7 +15,7 @@ The bug class this catches: a regression that drops the MCP-availability signal.
 
 ## Pre-state
 
-`onboarding-named` fixture + a pre-seeded `needs_validation` task on `feat/seed-todo` with a real commit (set up by `setup-l5.sh`).
+`onboarding-named` fixture + a pre-seeded `needs_validation` task on `feat/seed-todo` with a real commit (set up by `setup-l5.sh`). The seeded task carries `repo`, typed `files[]`/`verification[]` and a finished gate verification run for its commit, so pr-reviewer reviews a task that passed the close gate.
 
 ## Turns
 
