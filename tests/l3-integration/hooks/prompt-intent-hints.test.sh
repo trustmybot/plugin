@@ -428,6 +428,8 @@ assert_not_contains "$out" "resume-intent hint" "quoted report text is not resum
 test_case "GH 1199: unquoted 'keep going' → resume hint"
 out=$(run_hook_db "keep going")
 assert_contains "$out" "resume-intent hint" "unquoted resume intent fires"
+assert_contains "$out" "task_reopen(task_id=2" "resume hint routes the pending task through task_reopen"
+assert_not_contains "$out" "git switch" "resume hint never switches the main checkout"
 
 sqlite3 "$HINT_DB" "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('onboarded', 'true');" >/dev/null
 
