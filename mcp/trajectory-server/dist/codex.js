@@ -25814,6 +25814,26 @@ async function backfillMissing(db, table, limit = 50, onRow) {
   return rows.length;
 }
 
+// src/fts-query.ts
+function toFtsQuery(raw) {
+  const tokens = Array.from(
+    raw.matchAll(/"([^"]*)"|\S+/g),
+    (m) => (m[1] ?? m[0].replace(/^"+|"+$/g, "")).trim()
+  ).filter((token) => token.length > 0).map((token) => `"${token.replace(/"/g, '""')}"`);
+  return tokens.length > 0 ? tokens.join(" ") : '""';
+}
+function withFtsGuard(run) {
+  try {
+    return run();
+  } catch (e) {
+    const message2 = e instanceof Error ? e.message : String(e);
+    if (/fts5|no such column/i.test(message2)) {
+      throw new Error(`fts_query_invalid: ${message2}`);
+    }
+    throw e;
+  }
+}
+
 // src/audit-events.ts
 var AUDIT_EVENT_TYPES = [
   { type: "agent_arg_mismatch", writers: ["hook"], description: "`agent-arg-matches-caller` denied a trajectory-server call whose `agent` argument named another role than the caller (the payload's `agent_type`, or bro for the main session); one row per denial on the task's issue when `tool_input` carries a `task_id`, else the system issue `-1`, from_node `hook:agent-arg-matches-caller`; `content_json` carries `tool`, `given`, `actual`, `task_id`. `audit_append` refuses this event" },
@@ -26116,7 +26136,8 @@ function discussionTools(db) {
       const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
       const alpha = Math.min(1, Math.max(0, args["recency_alpha"] ?? 0.3));
       await backfillMissing(db, "discussions");
-      const fetchFtsRows = (limitK) => db.all(
+      const ftsQuery = toFtsQuery(query);
+      const fetchFtsRows = (limitK) => withFtsGuard(() => db.all(
         `SELECT
              d.id, d.issue_id, d.kind, d.author, d.created_at,
              snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
@@ -26129,8 +26150,8 @@ function discussionTools(db) {
              AND (? IS NULL OR d.kind = ?)
            ORDER BY bm25(discussions_fts) ASC
            LIMIT ?`,
-        [query, issueId, issueId, kind, kind, limitK]
-      );
+        [ftsQuery, issueId, issueId, kind, kind, limitK]
+      ));
       const fetchRowById = (id) => db.get(
         `SELECT d.id, d.issue_id, d.kind, d.author, d.created_at,
                   '' AS snippet,
@@ -26143,17 +26164,17 @@ function discussionTools(db) {
         [id, issueId, issueId, kind, kind]
       );
       if (mode === "keyword") {
-        const countRow = db.get(
+        const countRow = withFtsGuard(() => db.get(
           `SELECT COUNT(*) AS n
            FROM discussions_fts
            JOIN discussions d ON d.id = discussions_fts.rowid
            WHERE discussions_fts MATCH ?
              AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
              AND (? IS NULL OR d.kind = ?)`,
-          [query, issueId, issueId, kind, kind]
-        );
+          [ftsQuery, issueId, issueId, kind, kind]
+        ));
         const total_matched = countRow?.n ?? 0;
-        const rows = db.all(
+        const rows = withFtsGuard(() => db.all(
           `SELECT
              d.id, d.issue_id, d.kind, d.author, d.created_at,
              snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
@@ -26166,8 +26187,8 @@ function discussionTools(db) {
              AND (? IS NULL OR d.kind = ?)
            ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC
            LIMIT ?`,
-          [query, issueId, issueId, kind, kind, alpha, alpha, k]
-        );
+          [ftsQuery, issueId, issueId, kind, kind, alpha, alpha, k]
+        ));
         return ok({
           results: rows.map((r) => ({
             id: r.id,

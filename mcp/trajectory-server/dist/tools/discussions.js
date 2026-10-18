@@ -3,6 +3,7 @@ import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-s
 import { embedAndStore, topKByCosine } from '../embeddings/store.js';
 import { backfillMissing } from '../embeddings/backfill.js';
 import { resolveIssueRepo } from './audit.js';
+import { toFtsQuery, withFtsGuard } from '../fts-query.js';
 const ALLOWED_KINDS = new Set(['intent', 'question', 'answer', 'decision', 'note', 'analysis']);
 const MAX_BODY_BYTES = 65_536;
 function ok(data) {
@@ -166,7 +167,8 @@ export function discussionTools(db) {
             const k = Math.min(Math.max(1, args['k'] ?? 5), 20);
             const alpha = Math.min(1, Math.max(0, args['recency_alpha'] ?? 0.3));
             await backfillMissing(db, 'discussions');
-            const fetchFtsRows = (limitK) => db.all(`SELECT
+            const ftsQuery = toFtsQuery(query);
+            const fetchFtsRows = (limitK) => withFtsGuard(() => db.all(`SELECT
              d.id, d.issue_id, d.kind, d.author, d.created_at,
              snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
              bm25(discussions_fts) AS bm25_score,
@@ -177,7 +179,7 @@ export function discussionTools(db) {
              AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
              AND (? IS NULL OR d.kind = ?)
            ORDER BY bm25(discussions_fts) ASC
-           LIMIT ?`, [query, issueId, issueId, kind, kind, limitK]);
+           LIMIT ?`, [ftsQuery, issueId, issueId, kind, kind, limitK]));
             const fetchRowById = (id) => db.get(`SELECT d.id, d.issue_id, d.kind, d.author, d.created_at,
                   '' AS snippet,
                   0.0 AS bm25_score,
@@ -187,14 +189,14 @@ export function discussionTools(db) {
              AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
              AND (? IS NULL OR d.kind = ?)`, [id, issueId, issueId, kind, kind]);
             if (mode === 'keyword') {
-                const countRow = db.get(`SELECT COUNT(*) AS n
+                const countRow = withFtsGuard(() => db.get(`SELECT COUNT(*) AS n
            FROM discussions_fts
            JOIN discussions d ON d.id = discussions_fts.rowid
            WHERE discussions_fts MATCH ?
              AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
-             AND (? IS NULL OR d.kind = ?)`, [query, issueId, issueId, kind, kind]);
+             AND (? IS NULL OR d.kind = ?)`, [ftsQuery, issueId, issueId, kind, kind]));
                 const total_matched = countRow?.n ?? 0;
-                const rows = db.all(`SELECT
+                const rows = withFtsGuard(() => db.all(`SELECT
              d.id, d.issue_id, d.kind, d.author, d.created_at,
              snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
              bm25(discussions_fts) AS bm25_score,
@@ -205,7 +207,7 @@ export function discussionTools(db) {
              AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
              AND (? IS NULL OR d.kind = ?)
            ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC
-           LIMIT ?`, [query, issueId, issueId, kind, kind, alpha, alpha, k]);
+           LIMIT ?`, [ftsQuery, issueId, issueId, kind, kind, alpha, alpha, k]));
                 return ok({
                     results: rows.map((r) => ({
                         id: r.id,

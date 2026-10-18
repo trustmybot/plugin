@@ -2,6 +2,7 @@ import { nowISO } from '../db.js';
 import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { auditEmbedText, embedAndStore, topKByCosine } from '../embeddings/store.js';
 import { backfillMissing } from '../embeddings/backfill.js';
+import { toFtsQuery, withFtsGuard } from '../fts-query.js';
 import { AUDIT_EVENT_TYPES, assertAuditEventType, auditEventWriters, isAuditEventType, isAuditEventWritableBy, } from '../audit-events.js';
 const MAX_CONTENT_BYTES = 1_000_000;
 function ok(data) {
@@ -190,6 +191,7 @@ export function auditTools(db) {
                 eventTypeFilter = ' AND a.event_type IN (' + placeholders + ')';
                 eventTypeParams = eventTypes;
             }
+            const ftsQuery = toFtsQuery(query);
             const fetchFtsRows = (limitK) => {
                 const sql = 'SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, ' +
                     "snippet(audit_fts, 0, '[', ']', '...', 16) AS snippet, " +
@@ -201,7 +203,7 @@ export function auditTools(db) {
                     'AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))' +
                     eventTypeFilter +
                     ' ORDER BY bm25(audit_fts) ASC LIMIT ?';
-                return db.all(sql, [query, issueId, issueId, ...eventTypeParams, limitK]);
+                return withFtsGuard(() => db.all(sql, [ftsQuery, issueId, issueId, ...eventTypeParams, limitK]));
             };
             const fetchRowById = (id) => {
                 const sql = 'SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, ' +
@@ -218,7 +220,7 @@ export function auditTools(db) {
                     'WHERE audit_fts MATCH ? ' +
                     'AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))' +
                     eventTypeFilter;
-                const countRow = db.get(countSql, [query, issueId, issueId, ...eventTypeParams]);
+                const countRow = withFtsGuard(() => db.get(countSql, [ftsQuery, issueId, issueId, ...eventTypeParams]));
                 const total_matched = countRow?.n ?? 0;
                 const searchSql = 'SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, ' +
                     "snippet(audit_fts, 0, '[', ']', '...', 16) AS snippet, " +
@@ -230,7 +232,7 @@ export function auditTools(db) {
                     'AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))' +
                     eventTypeFilter +
                     ' ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC LIMIT ?';
-                const rows = db.all(searchSql, [query, issueId, issueId, ...eventTypeParams, alpha, alpha, k]);
+                const rows = withFtsGuard(() => db.all(searchSql, [ftsQuery, issueId, issueId, ...eventTypeParams, alpha, alpha, k]));
                 return ok({
                     results: rows.map((r) => ({
                         id: r.id, issue_id: r.issue_id, branch_id: r.branch_id,

@@ -24218,6 +24218,26 @@ async function startBackfill(db2) {
   })().catch((e) => console.error("[embeddings] backfill error:", e));
 }
 
+// src/fts-query.ts
+function toFtsQuery(raw) {
+  const tokens = Array.from(
+    raw.matchAll(/"([^"]*)"|\S+/g),
+    (m) => (m[1] ?? m[0].replace(/^"+|"+$/g, "")).trim()
+  ).filter((token) => token.length > 0).map((token) => `"${token.replace(/"/g, '""')}"`);
+  return tokens.length > 0 ? tokens.join(" ") : '""';
+}
+function withFtsGuard(run) {
+  try {
+    return run();
+  } catch (e) {
+    const message2 = e instanceof Error ? e.message : String(e);
+    if (/fts5|no such column/i.test(message2)) {
+      throw new Error(`fts_query_invalid: ${message2}`);
+    }
+    throw e;
+  }
+}
+
 // src/audit-events.ts
 var AUDIT_EVENT_TYPES = [
   { type: "agent_arg_mismatch", writers: ["hook"], description: "`agent-arg-matches-caller` denied a trajectory-server call whose `agent` argument named another role than the caller (the payload's `agent_type`, or bro for the main session); one row per denial on the task's issue when `tool_input` carries a `task_id`, else the system issue `-1`, from_node `hook:agent-arg-matches-caller`; `content_json` carries `tool`, `given`, `actual`, `task_id`. `audit_append` refuses this event" },
@@ -24489,9 +24509,10 @@ function auditTools(db2) {
         eventTypeFilter = " AND a.event_type IN (" + placeholders + ")";
         eventTypeParams = eventTypes;
       }
+      const ftsQuery = toFtsQuery(query);
       const fetchFtsRows = (limitK) => {
         const sql = "SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, snippet(audit_fts, 0, '[', ']', '...', 16) AS snippet, bm25(audit_fts) AS bm25_score, (julianday('now') - julianday(a.created_at)) AS age_days FROM audit_fts JOIN audit a ON a.id = audit_fts.rowid WHERE audit_fts MATCH ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter + " ORDER BY bm25(audit_fts) ASC LIMIT ?";
-        return db2.all(sql, [query, issueId, issueId, ...eventTypeParams, limitK]);
+        return withFtsGuard(() => db2.all(sql, [ftsQuery, issueId, issueId, ...eventTypeParams, limitK]));
       };
       const fetchRowById = (id) => {
         const sql = "SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, '' AS snippet, 0.0 AS bm25_score, (julianday('now') - julianday(a.created_at)) AS age_days FROM audit a WHERE a.id = ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter;
@@ -24499,10 +24520,10 @@ function auditTools(db2) {
       };
       if (mode === "keyword") {
         const countSql = "SELECT COUNT(*) AS n FROM audit_fts JOIN audit a ON a.id = audit_fts.rowid WHERE audit_fts MATCH ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter;
-        const countRow = db2.get(countSql, [query, issueId, issueId, ...eventTypeParams]);
+        const countRow = withFtsGuard(() => db2.get(countSql, [ftsQuery, issueId, issueId, ...eventTypeParams]));
         const total_matched = countRow?.n ?? 0;
         const searchSql = "SELECT a.id, a.issue_id, a.branch_id, a.from_node, a.event_type, a.summary, a.created_at, snippet(audit_fts, 0, '[', ']', '...', 16) AS snippet, bm25(audit_fts) AS bm25_score, (julianday('now') - julianday(a.created_at)) AS age_days FROM audit_fts JOIN audit a ON a.id = audit_fts.rowid WHERE audit_fts MATCH ? AND (? IS NULL OR a.issue_id = CAST(? AS INTEGER))" + eventTypeFilter + " ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC LIMIT ?";
-        const rows = db2.all(searchSql, [query, issueId, issueId, ...eventTypeParams, alpha, alpha, k]);
+        const rows = withFtsGuard(() => db2.all(searchSql, [ftsQuery, issueId, issueId, ...eventTypeParams, alpha, alpha, k]));
         return ok({
           results: rows.map((r) => ({
             id: r.id,
@@ -24856,7 +24877,8 @@ function discussionTools(db2) {
       const k = Math.min(Math.max(1, args["k"] ?? 5), 20);
       const alpha = Math.min(1, Math.max(0, args["recency_alpha"] ?? 0.3));
       await backfillMissing(db2, "discussions");
-      const fetchFtsRows = (limitK) => db2.all(
+      const ftsQuery = toFtsQuery(query);
+      const fetchFtsRows = (limitK) => withFtsGuard(() => db2.all(
         `SELECT
              d.id, d.issue_id, d.kind, d.author, d.created_at,
              snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
@@ -24869,8 +24891,8 @@ function discussionTools(db2) {
              AND (? IS NULL OR d.kind = ?)
            ORDER BY bm25(discussions_fts) ASC
            LIMIT ?`,
-        [query, issueId, issueId, kind, kind, limitK]
-      );
+        [ftsQuery, issueId, issueId, kind, kind, limitK]
+      ));
       const fetchRowById = (id) => db2.get(
         `SELECT d.id, d.issue_id, d.kind, d.author, d.created_at,
                   '' AS snippet,
@@ -24883,17 +24905,17 @@ function discussionTools(db2) {
         [id, issueId, issueId, kind, kind]
       );
       if (mode === "keyword") {
-        const countRow = db2.get(
+        const countRow = withFtsGuard(() => db2.get(
           `SELECT COUNT(*) AS n
            FROM discussions_fts
            JOIN discussions d ON d.id = discussions_fts.rowid
            WHERE discussions_fts MATCH ?
              AND (? IS NULL OR d.issue_id = CAST(? AS INTEGER))
              AND (? IS NULL OR d.kind = ?)`,
-          [query, issueId, issueId, kind, kind]
-        );
+          [ftsQuery, issueId, issueId, kind, kind]
+        ));
         const total_matched = countRow?.n ?? 0;
-        const rows = db2.all(
+        const rows = withFtsGuard(() => db2.all(
           `SELECT
              d.id, d.issue_id, d.kind, d.author, d.created_at,
              snippet(discussions_fts, 0, '[', ']', '...', 16) AS snippet,
@@ -24906,8 +24928,8 @@ function discussionTools(db2) {
              AND (? IS NULL OR d.kind = ?)
            ORDER BY (-bm25_score * (1 - ?) + exp(-age_days / 30.0) * ?) DESC
            LIMIT ?`,
-          [query, issueId, issueId, kind, kind, alpha, alpha, k]
-        );
+          [ftsQuery, issueId, issueId, kind, kind, alpha, alpha, k]
+        ));
         return ok2({
           results: rows.map((r) => ({
             id: r.id,
