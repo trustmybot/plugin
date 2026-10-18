@@ -99,7 +99,30 @@ PENDING_TASKS=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM tasks WHERE status IN (
 # SQLite. cold = no deep_scan_completed row (the registry-cold gate's signal);
 # otherwise the newest repos.last_scanned_at decides warm (< 7 days) vs stale.
 WORLD_MODEL_SCANNED=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM audit WHERE event_type='deep_scan_completed';" 2>/dev/null || echo 0)
-SOURCE_FILE_COUNT=$(git ls-files 2>/dev/null | grep -cvE '^(\.claude/|node_modules/|dist/|build/|\.git/)' || echo 0)
+
+tracked_source_count() {
+  local dir="$1"
+  git -C "$dir" ls-files 2>/dev/null | awk '!/^(\.claude\/|node_modules\/|dist\/|build\/|\.git\/)/ { n++ } END { print n + 0 }'
+}
+
+count_source_files() {
+  local repo_paths path total=0 n
+  repo_paths=$(tmb_sqlite_ro "$DB_PATH" "SELECT path FROM repos;" 2>/dev/null) || repo_paths=""
+  if [ -z "$repo_paths" ]; then
+    n=$(tracked_source_count .)
+    [[ "$n" =~ ^[0-9]+$ ]] && total=$n
+  else
+    while IFS= read -r path; do
+      [ -d "$path" ] || continue
+      n=$(tracked_source_count "$path")
+      [[ "$n" =~ ^[0-9]+$ ]] && total=$((total + n))
+    done <<<"$repo_paths"
+  fi
+  printf '%s' "$total"
+}
+
+SOURCE_FILE_COUNT=$(count_source_files 2>/dev/null) || SOURCE_FILE_COUNT=0
+[[ "$SOURCE_FILE_COUNT" =~ ^[0-9]+$ ]] || SOURCE_FILE_COUNT=0
 WORLD_MODEL_STALE_SECS=$((7 * 24 * 3600))
 SCAN_AGE_ROW=$(tmb_sqlite_ro "$DB_PATH" "SELECT CAST(strftime('%s','now') - strftime('%s', MAX(last_scanned_at)) AS INTEGER), COALESCE(SUM(file_count), 0) FROM repos;")
 SCAN_AGE_SECS="${SCAN_AGE_ROW%%|*}"
@@ -156,6 +179,7 @@ case "$DOCTOR_BUDGET_MS" in ''|*[!0-9]*) DOCTOR_BUDGET_MS=1500 ;; esac
 [ "$DOCTOR_BUDGET_MS" -gt 3000 ] && DOCTOR_BUDGET_MS=3000
 DOCTOR_STATE="unchecked (no contract list)"
 CONTRACT_IDS=$(jq -r '.contracts[].id' "$CONTRACTS_JSON" 2>/dev/null || true)
+# shellcheck disable=SC2016
 CONTRACT_SCRIPT_JQ='
   def num: (. // "") | tostring | select(test("^[0-9]+([.][0-9]+)?$")) | tonumber | select(. > 0);
   "SELECT \u0027__schema|\u0027 || COALESCE((SELECT schema_version FROM plugin_meta LIMIT 1), \u0027\u0027);",
