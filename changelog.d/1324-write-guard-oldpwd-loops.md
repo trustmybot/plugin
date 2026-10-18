@@ -1,3 +1,0 @@
-### Fixed
-
-- Write guards: `$OLDPWD` resolves, within the `&&` chain of a `cd`, to the directory before it (`cd -` handled), and a `for` / `while read` loop variable fed by an in-root glob or by `find`, `ls`, `git ls-files`, `git diff --name-only`, `rg --files` or `fd` listing only paths inside the run root is judged where the listed files lie, so bulk `sed -i` loops over the worktree pass for bro and swe again; out-of-root and unknown sources stay denied, `..` or a suffix on a listed root leaves it, a source under, or recursing from above, a prompt-surface dir it does not exclude reaches the prompt-surface rule (a non-`prompt_bearing` swe is told to scope or exclude the listing), and a write target with `..` after a glob component is denied (GH 1324).

@@ -1,2 +1,0 @@
-### Fixed
-- **Your project's own `scripts/hooks/` is no longer blocked as a TMB enforcement surface** (GH 1362): the main-checkout edit deny for `scripts/hooks/` and `hooks/hooks.json` now applies only inside the plugin's own source repository, identified by a `.claude-plugin/plugin.json` with the running plugin's name at the target's git root. In any other repo those paths follow the ordinary rules: `.md` files are allowed, a non-isolated swe may edit them, and bro gets the generic source-edit deny.

@@ -1,2 +1,0 @@
-### Fixed
-- **Prompt surfaces describe the user's project by surface class, not by this repository's layout** (GH 1362): `tmb_planning` sizes `files[]` and picks `effort` in terms of the project's own source tree, enforcement code and write path instead of `mcp/trajectory-server/src/`, `scripts/hooks/` and `changelog.d/`; `tmb_swe-checklist` and the responsibilities doc ask for the repo's own changelog convention and generated-files step instead of `changelog.d/<gh>-<slug>.md` and `scripts/maintenance/regen-generated.sh`, and name `code-quality-lint` as the plugin's hook.

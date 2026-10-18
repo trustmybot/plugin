@@ -1,2 +1,0 @@
-### Fixed
-- **`/onboard` no longer detaches a symlinked `CLAUDE.md` or overwrites a read-only one, and removing the persona block restores your text exactly** (GH 1339): the persona sync replaced a `CLAUDE.md` symlinked to `AGENTS.md` or a dotfiles repo with a regular file and rewrote a file with its write bit cleared, because the atomic rename ignores the target's mode. It now skips both, in the enable and the remove direction, and reports why. A block appended to text without a trailing newline no longer comes back with an extra newline after removal.
