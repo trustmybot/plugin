@@ -44,8 +44,8 @@ describe('applyPersonaBlock', () => {
     assert.ok(r.text.startsWith(human));
   });
 
-  it('file without a trailing newline gains exactly one blank line', () => {
-    assert.equal(applyPersonaBlock('# Mine', V1).text, `# Mine\n\n${V1}\n`);
+  it('file without a trailing newline gains exactly one blank line and ends without a newline', () => {
+    assert.equal(applyPersonaBlock('# Mine', V1).text, `# Mine\n\n${V1}`);
   });
 
   it('file already ending in a blank line gets no extra one', () => {
@@ -117,6 +117,18 @@ describe('removePersonaBlock', () => {
     const human = '# Mine\r\nLine two\r\n';
     assert.equal(removePersonaBlock(applyPersonaBlock(human, V1).text).text, human);
   });
+
+  for (const [name, human] of [
+    ['ending in a newline', '# Mine\n\nRules.\n'],
+    ['ending without a newline', '# Mine\n\nRules.'],
+    ['empty', ''],
+    ['CRLF', '# Mine\r\nLine two\r\n'],
+    ['CRLF without a trailing newline', '# Mine\r\nLine two'],
+  ] as const) {
+    it(`round trip restores human text ${name}`, () => {
+      assert.equal(removePersonaBlock(applyPersonaBlock(human, V1).text).text, human);
+    });
+  }
 
   it('no block: unchanged', () => {
     assert.deepEqual(removePersonaBlock('# Mine\n'), { text: '# Mine\n', action: 'unchanged' });
