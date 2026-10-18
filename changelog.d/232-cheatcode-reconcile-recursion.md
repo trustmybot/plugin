@@ -1,2 +1,0 @@
-### Fixed
-- **Trajectory-server startup no longer spawns an endless chain of `claude mcp list` and server processes** (GH 232): the cheatcode startup reconcile ran `claude mcp list`, which starts every configured MCP server to health-check it, and each trajectory-server it started ran the reconcile again. The probe now runs the claude CLI with `TMB_DISABLE_CHEATCODE_HEALTHCHECK=1`, so servers it starts skip their own reconcile and the chain stops after one level.
