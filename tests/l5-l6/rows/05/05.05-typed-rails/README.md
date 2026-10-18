@@ -23,6 +23,6 @@ bro's emission of non-empty typed fields lives in the `tmb_planning` skill (sibl
 | `outcome.sql` | ≥1 task; every task's `files` + `verification` are valid JSON arrays |
 | `outcome-coherence.json` | ≥1 task, ≥1 issue written |
 | `outcome-git.json` | base branch unchanged |
-| `tools-required.json` | `task_create_batch`, `issue_create` |
+| `tools-required.json` | `task_create_batch`, `any_of` (`issue_create`, `intent_start`) |
 | `tools-forbidden.json` | `validation_record` NOT called |
 | `cost-budget.json` | Soft 60K / 90s |
