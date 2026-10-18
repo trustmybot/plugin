@@ -121,9 +121,12 @@ fi
 # in a multi-repo workspace Rule 1 must only guard a REGISTERED product repo,
 # not its siblings. Resolve the target's git-root and enforce iff that root is a
 # `repos` row (matched by path); an absolute target whose git-root is an
-# unregistered sibling tree is outside Rule 1 scope (exit 0). A target with no
-# resolvable git-root (or a single-repo project whose sole repo IS the root) is
-# guarded as before — registration of the lone repo covers the whole tree.
+# unregistered sibling tree is outside Rule 1 scope (exit 0). An absolute target
+# whose existing directory sits inside no git repository (the session
+# scratchpad, a tmp dir) cannot be a registered-repo source edit and is also
+# outside scope (exit 0). A target whose parent directory is absent fails closed,
+# and a resolvable git-root that IS a `repos` row (including a single-repo
+# project whose sole repo is the root) is guarded as before.
 case "$TARGET" in
   /*)
     TARGET_DIR=$(dirname "$TARGET")
@@ -141,6 +144,8 @@ case "$TARGET" in
           exit 0
         fi
         [ "${REGISTERED:-0}" -gt 0 ] || exit 0   # unregistered sibling repo — outside Rule 1 scope
+      else
+        exit 0   # directory in no git repository — outside Rule 1 scope
       fi
     fi
     ;;

@@ -423,4 +423,17 @@ sqlite3 "$SR_DB" "INSERT INTO repos (name, path) VALUES ('$(basename "$SR_REAL")
 out=$(run_hook_db "$SR_DB" "$(input_with_agent 'Edit' "$SR_REAL/src/foo.ts" 'bro')")
 assert_contains "$out" '"permissionDecision":"deny"' "source under the single registered repo-at-root is guarded"
 
+test_case "absolute target in an existing directory inside no git repo (.html): ALLOWED"
+mkdir -p "$TMPDIR/scratchpad/compare"
+out=$(run_hook_db "$MANAGED_DB" "$(input 'Write' "$TMPDIR/scratchpad/compare/index.html" "$TRANSCRIPT_BRO")")
+assert_eq "" "$out" "scratchpad write outside every git repo is outside Rule 1 scope"
+
+test_case "absolute target in an existing directory inside no git repo (.ts): ALLOWED"
+out=$(run_hook_db "$MANAGED_DB" "$(input 'Write' "$TMPDIR/scratchpad/report.ts" "$TRANSCRIPT_BRO")")
+assert_eq "" "$out" "decision is location-based, not extension-based"
+
+test_case "absolute target whose parent directory is absent: BLOCK (fail-closed)"
+out=$(run_hook_db "$MANAGED_DB" "$(input 'Write' "$TMPDIR/missing-dir/x.ts" "$TRANSCRIPT_BRO")")
+assert_contains "$out" '"permissionDecision":"deny"' "absent parent directory still fails closed"
+
 summarize
