@@ -14,6 +14,9 @@
 #   (c) gh pr list (read) → no-op
 #   (d) missing DB → allow (fail-open)
 #   (e) bypass env set → allow
+#   (f) gh pr create --body 'Fixes GH-5' → allow (explicit remote marker)
+#   (g) --body 'see remote:5 and trustmybot/plugin#5' → allow
+#   (h) gh issue comment 9 --body 'GH-5 and #5' → deny; reason carries the local title and the marker hint
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,14 +38,15 @@ sqlite3 "$DB" "
   CREATE TABLE issues (
     id INTEGER PRIMARY KEY,
     gh_iid INTEGER,
-    gl_iid INTEGER
+    gl_iid INTEGER,
+    title TEXT
   );
-  INSERT INTO issues (id, gh_iid, gl_iid) VALUES
-    (5, 42, NULL),
-    (42, 42, NULL),
-    (7, NULL, 88),
-    (9, NULL, NULL),
-    (10, 50, 60);
+  INSERT INTO issues (id, gh_iid, gl_iid, title) VALUES
+    (5, 42, NULL, 'Local five | pipe title'),
+    (42, 42, NULL, 'Local forty-two'),
+    (7, NULL, 88, 'Local seven'),
+    (9, NULL, NULL, 'Local nine'),
+    (10, 50, 60, 'Local ten');
 "
 
 input_bash() {
@@ -152,6 +156,28 @@ test_case "(e) TMB_DISABLE_REMOTE_ID_GUARD=1: bypass (allow)"
 out_e=$(echo "$(input_bash "gh pr create --body 'Closes #5'")" | \
   TRAJECTORY_DB_PATH="$DB" TMB_DISABLE_REMOTE_ID_GUARD=1 bash "$HOOK" 2>/dev/null || true)
 assert_eq "" "$out_e" "bypass env honored"
+
+# ============================================================================
+# Cases (f)-(h) — explicit remote markers (GH 1304)
+# ============================================================================
+test_case "(f) GH-5 marker: allow (silent)"
+out_f=$(run_hook "$(input_bash "gh pr create --body 'Fixes GH-5'")")
+assert_eq "" "$out_f" "GH-<n> is an explicit remote id"
+
+test_case "(g) remote:5 and owner/repo#5 markers: allow (silent)"
+out_g=$(run_hook "$(input_bash "gh pr create --body 'see remote:5 and trustmybot/plugin#5'")")
+assert_eq "" "$out_g" "remote:<n> and owner/repo#<n> are explicit remote ids"
+
+test_case "(g) GL-5 marker: allow (silent)"
+out_g2=$(run_hook "$(input_bash "glab mr create --title x --description 'see gl-5'")")
+assert_eq "" "$out_g2" "GL-<n> is an explicit remote id"
+
+test_case "(h) GH-5 plus bare #5: deny, reason shows local title and marker hint"
+out_h8=$(run_hook "$(input_bash "gh issue comment 9 --body 'GH-5 and #5'")")
+assert_contains "$out_h8" '"permissionDecision":"deny"' "bare #5 still caught"
+assert_contains "$out_h8" "#5 → #42 (GitHub)" "mapping shown"
+assert_contains "$out_h8" "Local five | pipe title" "local title shown, pipe intact"
+assert_contains "$out_h8" "GH-<n>" "marker hint shown"
 
 # ============================================================================
 # GH 1196 — a remote-write named in a heredoc or quoted text is data
