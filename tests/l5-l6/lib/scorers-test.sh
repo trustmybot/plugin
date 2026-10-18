@@ -190,6 +190,30 @@ write_assistant_line "$P/trajectory.jsonl" "$T_BATCH" "toolu_y"
 l5_score_trajectory_required "$P" "test" "$FD" "run-tr5" >/dev/null 2>&1
 assert_exit 0 $? "string entry satisfied by subagent call → pass"
 
+echo "== trajectory_required: row 06 waives Agent + bro_atomic_close when step 5 already closed the task =="
+ROW06="$PLUGIN_ROOT/tests/l5-l6/rows/06/06-swe-atomic-close"
+P=$(mk_project) && FD=$(mk_flow_dir)
+cp "$ROW06/tools-required.json" "$FD/tools-required.json"
+write_assistant_line "$P/trajectory.jsonl" "$T_INTENT"
+l5_score_trajectory_required "$P" "test" "$FD" "run-tr6" >/dev/null 2>&1
+assert_exit 1 $? "no pre-step DB (L5 mode), neither tool called → fail"
+ROW06_OUT=$(l5_score_trajectory_required "$P" "test" "$FD" "run-tr6b" 2>&1)
+case "$ROW06_OUT" in
+  *Agent*bro_atomic_close*) PASS=$((PASS + 1)); echo "  PASS failure names both tools" ;;
+  *) FAIL=$((FAIL + 1)); echo "  FAIL failure names both tools — got: $ROW06_OUT" ;;
+esac
+cp "$P/.claude/tmb/trajectory.db" "$P/.claude/tmb/_l6_pre_step.db"
+sqlite3 "$P/.claude/tmb/_l6_pre_step.db" "INSERT INTO issues (id, objective, description, status, created_at, updated_at) VALUES (1, 'x', '', 'open', datetime('now'), datetime('now')); INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at) VALUES (1, 1, 'feat/pending', 'main', '', 'pending', datetime('now'), datetime('now'));"
+l5_score_trajectory_required "$P" "test" "$FD" "run-tr7" >/dev/null 2>&1
+assert_exit 1 $? "pre-step DB with only a pending task, neither tool called → fail"
+sqlite3 "$P/.claude/tmb/_l6_pre_step.db" "UPDATE tasks SET status = 'closed' WHERE id = 1;"
+l5_score_trajectory_required "$P" "test" "$FD" "run-tr8" >/dev/null 2>&1
+assert_exit 1 $? "pre-step DB with a closed task but no swe run, neither tool called → fail"
+sqlite3 "$P/.claude/tmb/_l6_pre_step.db" "INSERT INTO agent_runs (task_id, issue_id, agent_type) VALUES (1, 1, 'swe');"
+l5_score_trajectory_required "$P" "test" "$FD" "run-tr9" >/dev/null 2>&1
+assert_exit 0 $? "pre-step DB with a closed task and a swe run, neither tool called → pass"
+rm -rf "$P" "$FD"
+
 # ---- summary --------------------------------------------------------------
 
 echo
