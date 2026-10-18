@@ -60,6 +60,12 @@
 #    allowed is joined into one output. Each gate runs in its own process
 #    group under a watchdog at its chain-table timeout: past it, the group
 #    (the gate and everything it started) is killed and the chain denies. Any other exit ends the chain with a deny.
+#    The watchdog kills only while its chain subshell is alive and the gate's
+#    pid still leads its group. A TERM sent to the dispatcher's pid alone lets
+#    the running gate finish before the dispatcher exits: the trap that stops
+#    the gate's group runs in the chain subshell, which only a signal to the
+#    dispatcher's process group reaches. TERM, INT or HUP to that group stops
+#    both; KILL to it leaves the gate to run to its end in its own group.
 #    A duplicate waiter that gives up on its holder exits 75 under --chain,
 #    and the chain ends there without a decision (the holder's chain
 #    decides), so no later gate runs for it. A chain, a gate run with
@@ -203,6 +209,24 @@ if [ "$SHIM" = "1" ]; then
   esac
 fi
 
+# chain_watchdog <pid> <budget s> — after <budget>, kills the process group
+# <pid> leads, but only while the run_member that started it is still this
+# watchdog's parent and <pid> still leads its own group. Otherwise that run is
+# over and <pid> may name an unrelated process, so it exits without a kill.
+# Without ps it kills unchecked.
+chain_watchdog() {
+  local self parent now pgid
+  self=$(exec sh -c 'echo "$PPID"')
+  parent=$(ps -o ppid= -p "$self" 2>/dev/null)
+  sleep "$2"
+  if [ -n "$parent" ]; then
+    now=$(ps -o ppid= -p "$self" 2>/dev/null)
+    pgid=$(ps -o pgid= -p "$1" 2>/dev/null)
+    [ "${now//[[:space:]]/}" = "${parent//[[:space:]]/}" ] && [ "${pgid//[[:space:]]/}" = "$1" ] || return 0
+  fi
+  kill -KILL -- -"$1" 2>/dev/null
+}
+
 # run_member <gate> <budget s> — the gate through `dispatch.sh <gate> --chain`,
 # killed with everything it started once it runs past <budget>. Prints its
 # stdout, then a last line with its exit code. Job control puts the gate and
@@ -213,7 +237,7 @@ run_member() {
   set -m
   ( printf '%s' "$PAYLOAD" | bash "$SELF_DIR/dispatch.sh" "$1" --chain "$GATE" ${PASS[@]+"${PASS[@]}"} ) &
   pid=$!
-  ( sleep "$2"; kill -KILL -- -"$pid" ) </dev/null >/dev/null 2>&1 &
+  chain_watchdog "$pid" "$2" </dev/null >/dev/null 2>&1 &
   watch=$!
   trap 'kill -KILL -- -"$pid" -"$watch" 2>/dev/null; exit 143' TERM INT HUP
   wait "$pid"

@@ -27,8 +27,9 @@
 #     marker is never written), allows pass through, routing by tool name,
 #     context joined into one output, one lock per gate, a dying gate denies,
 #     a gate past its chain-table timeout is killed and denies (also without
-#     pgrep, leaving no process behind), two trivial gates stay within a
-#     latency budget of one, a duplicate
+#     pgrep, leaving no process behind), a watchdog whose chain subshell is
+#     gone or whose pid no longer leads a group kills nothing, two trivial
+#     gates stay within a latency budget of one, a duplicate
 #     chain whose waiter gives up ends without running later gates, and a
 #     chain stays fail-closed without hooks.json or lib/registrations.sh;
 #     real gates: agent-arg deny keeps swe-brief-gate's sentinel unwritten
@@ -555,13 +556,30 @@ test_case "chain without pgrep: an overrunning gate leaves no survivor, an allow
 NOPG=$(no_cmd_path "$TMP/nopgrep" pgrep)
 survivors() { ps -A -o args= 2>/dev/null | grep -cE "^sleep $1\$" || true; }
 reset_runs
-out=$(tpayload task_update_status tu-c17 | PATH="$NOPG" FX_SLOW=agent-arg-matches-caller FX_SLOW_S=12.37 CLAUDE_PLUGIN_ROOT="$C" bash "$C/scripts/hooks/dispatch.sh" trajectory-gates 2>/dev/null)
+out=$(tpayload task_update_status tu-c17 | PATH="$NOPG" FX_SLOW=agent-arg-matches-caller FX_SLOW_S="12.3$$" CLAUDE_PLUGIN_ROOT="$C" bash "$C/scripts/hooks/dispatch.sh" trajectory-gates 2>/dev/null)
 assert_contains "$out" "agent-arg-matches-caller ran past its 6 s budget" "overrun denies"
-assert_eq "0" "$(survivors 12.37)" "the gate's sleep was killed with it"
+assert_eq "0" "$(survivors "12.3$$")" "the gate's sleep was killed with it"
 reset_runs
 out=$(tpayload task_update_status tu-c18 | PATH="$NOPG" CLAUDE_PLUGIN_ROOT="$C" bash "$C/scripts/hooks/dispatch.sh" trajectory-gates 2>/dev/null)
 assert_eq "agent-arg-matches-caller,swe-brief-gate,swe-verification-gate" "$(ran)" "the allow ran every gate"
 assert_eq "0" "$(survivors 1830)" "no watchdog sleep left behind"
+
+test_case "chain watchdog: no kill once its chain subshell is gone or its pid no longer leads a group"
+lw="23.7$$" rw="23.8$$"
+eval "$(awk '/^chain_watchdog\(\) \{/,/^\}/' "$C/scripts/hooks/dispatch.sh")"
+leader=$(set -m; sleep "$lw" >/dev/null 2>&1 & echo $!)
+( chain_watchdog "$leader" 2 & sleep 1 )
+sleep 2
+assert_eq "1" "$(survivors "$lw")" "a watchdog whose parent is gone leaves a group leader alive"
+sleep "$rw" &
+reused=$!
+( chain_watchdog "$reused" 1 ) || true
+assert_eq "1" "$(survivors "$rw")" "a reused pid in another group is not killed"
+( chain_watchdog "$leader" 1 ) || true
+assert_eq "0" "$(survivors "$lw")" "a watchdog under its parent kills the group its pid leads"
+kill "$reused" 2>/dev/null || true
+wait "$reused" 2>/dev/null || true
+assert_eq "0" "$(survivors "$rw")" "the throwaway sleep is cleaned up"
 
 test_case "chain latency: two trivial gates stay within twice one gate + 100 ms"
 ms() { perl -MTime::HiRes=time -e 'printf "%.0f\n", time * 1000'; }
