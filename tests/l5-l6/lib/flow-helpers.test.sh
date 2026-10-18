@@ -81,4 +81,34 @@ else
   _pass
 fi
 
+PREAMBLE=$(_l5_test_prompt_prefix)
+
+test_case "compose: starts with the unchanged preamble"
+COMPOSED=$(l5_compose_test_prompt "/roundtable topic")
+assert_eq "$PREAMBLE" "${COMPOSED:0:${#PREAMBLE}}" "preamble prefix"
+
+test_case "compose: row prompt follows after exactly one blank line"
+assert_eq "$PREAMBLE"$'\n\n'"/roundtable topic" "$COMPOSED" "preamble, blank line, prompt"
+
+slash_rows() {
+  sqlite3 "$1/.claude/tmb/trajectory.db" "SELECT COUNT(*) FROM audit WHERE event_type='roundtable_slash_invoked';"
+}
+
+replay_hook() {
+  local project="$1" composed="$2"
+  jq -n --arg p "$composed" '{prompt:$p}' \
+    | TRAJECTORY_DB_PATH="$project/.claude/tmb/trajectory.db" CLAUDE_PROJECT_DIR="$project" \
+      bash "$PLUGIN_ROOT/scripts/hooks/roundtable-slash-detect.sh" >/dev/null 2>&1 || true
+}
+
+test_case "slash hook: composed /roundtable prompt writes one roundtable_slash_invoked row"
+HOOK_PROJECT=$(new_project onboarding-named)
+replay_hook "$HOOK_PROJECT" "$(l5_compose_test_prompt "/roundtable topic")"
+assert_eq "1" "$(slash_rows "$HOOK_PROJECT")" "slash rows"
+
+test_case "slash hook: composed plain prompt writes no roundtable_slash_invoked row"
+PLAIN_PROJECT=$(new_project onboarding-named)
+replay_hook "$PLAIN_PROJECT" "$(l5_compose_test_prompt "just a normal prompt")"
+assert_eq "0" "$(slash_rows "$PLAIN_PROJECT")" "slash rows"
+
 summarize
