@@ -8,10 +8,12 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
+. "$HERE/../../lib/tmpdir-cleanup.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 
 TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
+trap 'tmpdir_cleanup "$TMPDIR"' EXIT
+export GIT_OPTIONAL_LOCKS=0
 
 # A copy of this checkout (tracked + untracked, not ignored) as a fresh repo.
 REPO="$TMPDIR/repo"
@@ -20,7 +22,8 @@ mkdir -p "$REPO"
    | grep -v '^mcp/trajectory-server/node_modules' \
    | while IFS= read -r p; do [ -e "$p" ] && printf '%s\n' "$p"; done \
    | tar -cf - -T -) | tar -xf - -C "$REPO"
-git init -q -b dev "$REPO"
+git -c gc.auto=0 init -q -b dev "$REPO"
+git -C "$REPO" config gc.auto 0 && git -C "$REPO" config maintenance.auto false
 git -C "$REPO" config user.email t@t.io && git -C "$REPO" config user.name t
 git -C "$REPO" add -A && git -C "$REPO" commit -qm base
 DIST="mcp/trajectory-server/dist/index.js"
