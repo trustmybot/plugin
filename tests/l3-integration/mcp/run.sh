@@ -49,6 +49,8 @@ export MISE_DATA_DIR="${MISE_DATA_DIR:-$HOME/.local/share/mise}"
 export MISE_CONFIG_DIR="${MISE_CONFIG_DIR:-$HOME/.config/mise}"
 export MISE_STATE_DIR="$TOOL_STATE/mise-state" MISE_CACHE_DIR="$TOOL_STATE/mise-cache"
 unset CLAUDE_PLUGIN_ROOT CLAUDE_PROJECT_DIR CLAUDE_CONFIG_DIR
+# Server startup runs the cheatcode reconcile, which shells out to the claude CLI; the CLI writes .claude.json under HOME, so the suite pins the documented bypass.
+export TMB_DISABLE_CHEATCODE_HEALTHCHECK=1
 
 # Live DB: hooks spawned by the suite see a sqlite3 shim first on PATH that
 # refuses (and records) any argument under the real project's .claude/tmb/
