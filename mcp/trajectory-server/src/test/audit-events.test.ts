@@ -144,6 +144,26 @@ describe('audit_append — who may write which event', () => {
   });
 });
 
+describe('legacy_event — written only by the schema-38 migration', () => {
+  for (const agent of ['bro', 'swe', 'pr-reviewer', 'architect']) {
+    it(`audit_append refuses legacy_event for ${agent}`, async () => {
+      const db = tempDB();
+      const r = (await auditTools(db).handlers['audit_append']!({
+        agent,
+        issue_id: '-1',
+        summary: 's',
+        event_type: 'legacy_event',
+      })) as RawResult;
+      assert.equal(r.isError, true);
+      const body = JSON.parse(r.content[0]!.text) as { error: string; allowed_writers: string[] };
+      assert.equal(body.error, 'audit_event_not_writable_by_role');
+      assert.deepEqual(body.allowed_writers, ['server']);
+      assert.equal(db.get<{ n: number }>("SELECT COUNT(*) AS n FROM audit WHERE event_type = 'legacy_event'")?.n, 0);
+      db.close();
+    });
+  }
+});
+
 describe('insertAudit writer check', () => {
   it('throws AuditWriterError and writes nothing when the writer is not listed', () => {
     const db = tempDB();

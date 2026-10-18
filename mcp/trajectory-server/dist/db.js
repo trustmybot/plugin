@@ -5,8 +5,9 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { sqlLog as defaultSqlLog, serverLog as defaultServerLog, } from './logger.js';
 import { assertSafeProjectWritePath, resolveClaudeDbPath, resolveClaudePluginName, resolveClaudePluginVersion, } from './platform.js';
+import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
-export const TARGET_SCHEMA_VERSION = 37;
+export const TARGET_SCHEMA_VERSION = 38;
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
  *
@@ -493,6 +494,9 @@ function runMigrations(db, fromVersion, toVersion) {
     }
     if (fromVersion < 37 && toVersion >= 37) {
         migrateV36toV37(db);
+    }
+    if (fromVersion < 38 && toVersion >= 38) {
+        migrateV37toV38(db);
     }
 }
 function hasColumn(db, table, column) {
@@ -2012,6 +2016,37 @@ function migrateV36toV37(db) {
         if (tableExists(db, 'agent_runs') && !hasColumn(db, 'agent_runs', 'effort')) {
             db.exec("ALTER TABLE agent_runs ADD COLUMN effort TEXT CHECK (effort IN ('low','medium','high'))");
         }
+        db.exec('COMMIT');
+    }
+    catch (err) {
+        try {
+            db.exec('ROLLBACK');
+        }
+        catch {
+            // Original error wins.
+        }
+        throw err;
+    }
+}
+// v37→v38: legacy audit event types (GH 1464). v1.0.x let audit_append write any
+// event_type; the closed AUDIT_EVENT_TYPES set (GH 1216) left such rows failing
+// the event_type_documented contract. Every audit row outside the set becomes
+// 'legacy_event'; its content_json keeps the original content (non-JSON content
+// is wrapped as {"legacy_content": ...}) and gains legacy_event_type, the old
+// type. The audit_au trigger keeps audit_fts consistent. A re-run touches nothing.
+function migrateV37toV38(db) {
+    if (!tableExists(db, 'audit'))
+        return;
+    const documented = AUDIT_EVENT_TYPES.map((e) => e.type);
+    const placeholders = documented.map(() => '?').join(', ');
+    db.exec('BEGIN');
+    try {
+        db.prepare(`UPDATE audit
+          SET content_json = json_set(
+                CASE WHEN json_valid(content_json) THEN content_json ELSE json_object('legacy_content', content_json) END,
+                '$.legacy_event_type', event_type),
+              event_type = 'legacy_event'
+        WHERE event_type NOT IN (${placeholders})`).run(...documented);
         db.exec('COMMIT');
     }
     catch (err) {
