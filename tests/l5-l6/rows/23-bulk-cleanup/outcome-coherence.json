@@ -3,7 +3,7 @@
     "issues WHERE id != -1": "0",
     "tasks": "0",
     "discussions": "0",
-    "audit": "0",
+    "audit WHERE event_type != 'deep_scan_completed'": "0",
     "validation_attempts": "0"
   }
 }
