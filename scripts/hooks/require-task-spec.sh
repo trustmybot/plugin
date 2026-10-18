@@ -17,9 +17,9 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/query-task.sh
+# shellcheck source=scripts/hooks/lib/query-task.sh disable=SC1091
 . "$SCRIPT_DIR/lib/query-task.sh"
-# shellcheck source=lib/normalize-role.sh
+# shellcheck source=scripts/hooks/lib/normalize-role.sh disable=SC1091
 . "$SCRIPT_DIR/lib/normalize-role.sh"
 
 INPUT=$(cat)
@@ -98,7 +98,7 @@ UNICODE_SPACES=($'\302\240' $'\341\232\200' $'\342\200\200' $'\342\200\201' $'\3
 FOLD_SPACES=$(printf 's/%s/ /g;' "${UNICODE_SPACES[@]}")
 
 needs_contract() {
-  printf '%s\n' "$SPEC_FILES" | grep -iE '(schema\.sql$|(^|/)db\.ts$|(^|/)migrations)' >/dev/null && return 0
+  printf '%s\n' "$SPEC_FILES" | grep -iE '(\.sql$|(^|/)schema\.[^/]*$|(^|/)(migrations|migration|migrate)/|(^|/)db\.ts$)' >/dev/null && return 0
   printf '%s' "$SPEC_BODY" | LC_ALL=C sed -e "$FOLD_SPACES" | LC_ALL=C tr '\n\r\t\v\f' '     ' \
     | grep -iE '(add[[:space:]]+column|new[[:space:]_-]+(column|tool|field|table))' >/dev/null
 }
