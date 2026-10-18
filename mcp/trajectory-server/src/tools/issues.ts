@@ -459,6 +459,7 @@ export function issueTools(
           allow_duplicate: { type: 'boolean', description: 'When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating.' },
           remote_iid: { type: 'number', description: 'Optional. Adopt an existing remote issue instead of creating one: verifies the remote issue exists, links it, and skips remote creation. A failed verification creates nothing.' },
           remote_backend: { type: 'string', enum: ['github', 'gitlab'], description: 'Optional backend for remote_iid adoption. Defaults to the repo\'s sole configured remote.' },
+          include_description: { type: 'boolean', description: 'Echo the full description in the result (default false). Architect + bro only.' },
         },
         required: ['agent', 'objective', 'labels'],
       },
@@ -562,6 +563,7 @@ export function issueTools(
           agent: { type: 'string', enum: ['bro'], description: 'Calling agent identity (bro only)' },
           issue_id: { type: 'string', description: 'Issue ID as string' },
           description: { type: 'string', description: 'Full markdown description (no length cap)' },
+          include_description: { type: 'boolean', description: 'Echo the full description in the result (default false). Architect + bro only.' },
         },
         required: ['agent', 'issue_id', 'description'],
       },
@@ -588,6 +590,8 @@ export function issueTools(
           issue_id: { type: 'string', description: 'Local issue ID' },
           remote_iid: { type: 'number', description: 'Remote issue number to adopt' },
           remote_backend: { type: 'string', enum: ['github', 'gitlab'], description: 'Optional. Defaults to the repo\'s sole configured remote.' },
+          repo: { type: 'string', description: 'Optional repo name (matches a repos row) to verify against. Required when the issue has no repo and several repos exist; backfills a null issue repo on success.' },
+          include_description: { type: 'boolean', description: 'Echo the full description in the result (default false). Architect + bro only.' },
         },
         required: ['agent', 'issue_id', 'remote_iid'],
       },
@@ -603,6 +607,7 @@ export function issueTools(
           backend: { type: 'string', enum: ['github', 'gitlab'], description: 'Remote backend' },
           iid: { type: 'number', description: 'Remote issue number' },
           force: { type: 'boolean', description: 'Overwrite existing iid if already set (default false)' },
+          include_description: { type: 'boolean', description: 'Echo the full description in the result (default false). Architect + bro only.' },
         },
         required: ['agent', 'issue_id', 'backend', 'iid'],
       },
@@ -616,6 +621,7 @@ export function issueTools(
 
       const objective = args['objective'] as string;
       const description = (args['description'] as string | undefined) ?? '';
+      const includeDescription = (args['include_description'] as boolean | undefined) ?? false;
       // labels: passed to remote sync AND persisted on the row (#53) as a JSON
       // array string so issue_sync_retry replays the original validated set
       // instead of re-deriving defaultSyncLabels.
@@ -707,7 +713,7 @@ export function issueTools(
         });
         const adoptedRow = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [adoptId]);
         const adoptedIssue = decodeIssue(adoptedRow!);
-        const adoptedRedacted = redactIssue(adoptedIssue, agent, { include_description: true });
+        const adoptedRedacted = redactIssue(adoptedIssue, agent, { include_description: includeDescription });
         const adoptedPayload: Record<string, unknown> = {
           ...(adoptedRedacted as Record<string, unknown>),
           ...milestoneDefaultFields(milestoneResolution),
@@ -770,7 +776,7 @@ export function issueTools(
             };
             const row = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
             const issue = decodeIssue(row!);
-            const redacted = redactIssue(issue, agent, { include_description: true });
+            const redacted = redactIssue(issue, agent, { include_description: includeDescription });
             const payload: Record<string, unknown> = {
               ...(redacted as Record<string, unknown>),
               ...milestoneDefaultFields(milestoneResolution),
@@ -975,7 +981,7 @@ export function issueTools(
 
       const row = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
       const issue = decodeIssue(row!);
-      const redacted = redactIssue(issue, agent, { include_description: true });
+      const redacted = redactIssue(issue, agent, { include_description: includeDescription });
       const payload: Record<string, unknown> = {
         ...(redacted as Record<string, unknown>),
         ...milestoneDefaultFields(milestoneResolution),
@@ -1021,6 +1027,7 @@ export function issueTools(
 
     issue_close: requireRoles('issue_close', ['bro'], wrapHandler(async (args) => {
       requireArg(args, 'agent');
+      const agent = normalizeAgent(args['agent'] as string | undefined);
       const issueId = requireArg(args, 'issue_id') as string;
 
       const now = nowISO();
@@ -1089,7 +1096,7 @@ export function issueTools(
 
       const updated = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
       return ok({
-        ...decodeIssue(updated!),
+        ...redactIssue(decodeIssue(updated!), agent, { include_description: false }),
         tasks_escalated: live.map((t) => t.id),
         review_waived_tasks: waiveReview ? unreviewed.map((t) => t.id) : [],
         remote,
@@ -1198,8 +1205,10 @@ export function issueTools(
     }),
 
     issue_update_description: requireRoles('issue_update_description', ['bro'], wrapHandler(async (args) => {
+      const agent = normalizeAgent(args['agent'] as string | undefined);
       const issueId = requireArg(args, 'issue_id') as string;
       const description = requireArg(args, 'description') as string;
+      const includeDescription = (args['include_description'] as boolean | undefined) ?? false;
 
       const MAX_DESCRIPTION_BYTES = 1024 * 1024; // 1MB
       if (Buffer.byteLength(description, 'utf8') > MAX_DESCRIPTION_BYTES) {
@@ -1218,7 +1227,7 @@ export function issueTools(
       );
 
       const updated = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
-      return ok(decodeIssue(updated!));
+      return ok(redactIssue(decodeIssue(updated!), agent, { include_description: includeDescription }));
     })),
 
     issue_sync_retry: requireRoles('issue_sync_retry', ['bro'], wrapHandler(async (args) => {
@@ -1392,6 +1401,8 @@ export function issueTools(
     })),
 
     issue_link: requireRoles('issue_link', ['bro'], wrapHandler(async (args) => {
+      const agent = normalizeAgent(args['agent'] as string | undefined);
+      const includeDescription = (args['include_description'] as boolean | undefined) ?? false;
       const issueId = requireArg(args, 'issue_id') as string;
       const backend = requireArg(args, 'backend') as 'github' | 'gitlab';
       const iid = requireArg(args, 'iid') as number;
@@ -1435,10 +1446,13 @@ export function issueTools(
       });
 
       const updated = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
-      return ok({ linked: true, backend, iid, issue: decodeIssue(updated!) });
+      return ok({ linked: true, backend, iid, issue: redactIssue(decodeIssue(updated!), agent, { include_description: includeDescription }) });
     })),
 
     issue_adopt_remote: requireRoles('issue_adopt_remote', ['bro'], wrapHandler(async (args) => {
+      const agent = normalizeAgent(args['agent'] as string | undefined);
+      const includeDescription = (args['include_description'] as boolean | undefined) ?? false;
+      const repoArg = (args['repo'] as string | undefined) ?? null;
       const issueId = requireArg(args, 'issue_id') as string;
       const remoteIidRaw = requireArg(args, 'remote_iid');
       const remoteIid = typeof remoteIidRaw === 'number' ? remoteIidRaw : Number(remoteIidRaw);
@@ -1451,7 +1465,18 @@ export function issueTools(
         return err(`not_found: issue ${issueId}`);
       }
 
-      const adoption = await verifyAdoptionRemote(db, row.repo ?? null, remoteBackendArg, remoteIid, spawnFn);
+      if (repoArg !== null && !db.get<{ name: string }>('SELECT name FROM repos WHERE name = ?', [repoArg])) {
+        return err(`repo_not_found: no repos row named "${repoArg}"`);
+      }
+      const adoptRepo = repoArg ?? row.repo ?? null;
+      if (adoptRepo === null) {
+        const repoCount = db.get<{ n: number }>('SELECT COUNT(*) AS n FROM repos')?.n ?? 0;
+        if (repoCount > 1) {
+          return err(`repo_unresolved: issue ${issueId} has no repo and the workspace has ${repoCount} repos — pass repo`);
+        }
+      }
+
+      const adoption = await verifyAdoptionRemote(db, adoptRepo, remoteBackendArg, remoteIid, spawnFn);
       if (!adoption.ok) {
         return err(adoption.error);
       }
@@ -1468,8 +1493,8 @@ export function issueTools(
       const ghIid = adoption.backend === 'github' ? remoteIid : null;
       const glIid = adoption.backend === 'gitlab' ? remoteIid : null;
       db.run(
-        `UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_kind = COALESCE(remote_kind, ?), updated_at = ? WHERE id = ?`,
-        [ghIid, glIid, adoption.backend, now, issueId],
+        `UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_kind = COALESCE(remote_kind, ?), repo = COALESCE(repo, ?), updated_at = ? WHERE id = ?`,
+        [ghIid, glIid, adoption.backend, repoArg, now, issueId],
       );
 
       if (!idempotent) {
@@ -1484,7 +1509,7 @@ export function issueTools(
       }
 
       const updated = db.get<IssueRow>('SELECT * FROM issues WHERE id = ?', [issueId]);
-      return ok({ adopted: true, backend: adoption.backend, remote_iid: remoteIid, idempotent, issue: decodeIssue(updated!) });
+      return ok({ adopted: true, backend: adoption.backend, remote_iid: remoteIid, idempotent, issue: redactIssue(decodeIssue(updated!), agent, { include_description: includeDescription }) });
     })),
 
   };

@@ -26211,7 +26211,8 @@ function issueTools(db2, dbPath2 = "", options = {}) {
           repo: { type: "string", description: "Optional repo name (matches a repos row) this issue belongs to. Drives issue-scoped sync (explicit gh --repo / glab -R from that repo's remotes). Defaults to the sole/managed repo when exactly one repos row exists." },
           allow_duplicate: { type: "boolean", description: "When true, skip the open-issue dedup pre-check and create even if an existing open issue closely matches the objective. Default false: a likely duplicate returns { duplicate: true, duplicate_of } instead of creating." },
           remote_iid: { type: "number", description: "Optional. Adopt an existing remote issue instead of creating one: verifies the remote issue exists, links it, and skips remote creation. A failed verification creates nothing." },
-          remote_backend: { type: "string", enum: ["github", "gitlab"], description: "Optional backend for remote_iid adoption. Defaults to the repo's sole configured remote." }
+          remote_backend: { type: "string", enum: ["github", "gitlab"], description: "Optional backend for remote_iid adoption. Defaults to the repo's sole configured remote." },
+          include_description: { type: "boolean", description: "Echo the full description in the result (default false). Architect + bro only." }
         },
         required: ["agent", "objective", "labels"]
       }
@@ -26313,7 +26314,8 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         properties: {
           agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
           issue_id: { type: "string", description: "Issue ID as string" },
-          description: { type: "string", description: "Full markdown description (no length cap)" }
+          description: { type: "string", description: "Full markdown description (no length cap)" },
+          include_description: { type: "boolean", description: "Echo the full description in the result (default false). Architect + bro only." }
         },
         required: ["agent", "issue_id", "description"]
       }
@@ -26339,7 +26341,9 @@ function issueTools(db2, dbPath2 = "", options = {}) {
           agent: { type: "string", enum: ["bro"], description: "Calling agent identity (bro only)" },
           issue_id: { type: "string", description: "Local issue ID" },
           remote_iid: { type: "number", description: "Remote issue number to adopt" },
-          remote_backend: { type: "string", enum: ["github", "gitlab"], description: "Optional. Defaults to the repo's sole configured remote." }
+          remote_backend: { type: "string", enum: ["github", "gitlab"], description: "Optional. Defaults to the repo's sole configured remote." },
+          repo: { type: "string", description: "Optional repo name (matches a repos row) to verify against. Required when the issue has no repo and several repos exist; backfills a null issue repo on success." },
+          include_description: { type: "boolean", description: "Echo the full description in the result (default false). Architect + bro only." }
         },
         required: ["agent", "issue_id", "remote_iid"]
       }
@@ -26354,7 +26358,8 @@ function issueTools(db2, dbPath2 = "", options = {}) {
           issue_id: { type: "string", description: "Local issue ID" },
           backend: { type: "string", enum: ["github", "gitlab"], description: "Remote backend" },
           iid: { type: "number", description: "Remote issue number" },
-          force: { type: "boolean", description: "Overwrite existing iid if already set (default false)" }
+          force: { type: "boolean", description: "Overwrite existing iid if already set (default false)" },
+          include_description: { type: "boolean", description: "Echo the full description in the result (default false). Architect + bro only." }
         },
         required: ["agent", "issue_id", "backend", "iid"]
       }
@@ -26366,6 +26371,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       requireArg3(args, "objective");
       const objective = args["objective"];
       const description = args["description"] ?? "";
+      const includeDescription = args["include_description"] ?? false;
       const labels = args["labels"] ?? [];
       const labelError = validateIssueLabels(db2, labels, options.labelTaxonomy);
       if (labelError !== null) {
@@ -26436,7 +26442,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         });
         const adoptedRow = db2.get("SELECT * FROM issues WHERE id = ?", [adoptId]);
         const adoptedIssue = decodeIssue(adoptedRow);
-        const adoptedRedacted = redactIssue(adoptedIssue, agent, { include_description: true });
+        const adoptedRedacted = redactIssue(adoptedIssue, agent, { include_description: includeDescription });
         const adoptedPayload = {
           ...adoptedRedacted,
           ...milestoneDefaultFields(milestoneResolution)
@@ -26479,7 +26485,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
             };
             const row2 = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
             const issue3 = decodeIssue(row2);
-            const redacted2 = redactIssue(issue3, agent, { include_description: true });
+            const redacted2 = redactIssue(issue3, agent, { include_description: includeDescription });
             const payload2 = {
               ...redacted2,
               ...milestoneDefaultFields(milestoneResolution)
@@ -26666,7 +26672,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       }
       const row = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       const issue2 = decodeIssue(row);
-      const redacted = redactIssue(issue2, agent, { include_description: true });
+      const redacted = redactIssue(issue2, agent, { include_description: includeDescription });
       const payload = {
         ...redacted,
         ...milestoneDefaultFields(milestoneResolution)
@@ -26704,6 +26710,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
     }),
     issue_close: requireRoles("issue_close", ["bro"], wrapHandler3(async (args) => {
       requireArg3(args, "agent");
+      const agent = normalizeAgent(args["agent"]);
       const issueId = requireArg3(args, "issue_id");
       const now2 = nowISO();
       const existing = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
@@ -26756,7 +26763,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       const remote = await syncIssueCloseRemotes(db2, dbPath2, issueId, args["_spawnFn"]);
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
       return ok3({
-        ...decodeIssue(updated),
+        ...redactIssue(decodeIssue(updated), agent, { include_description: false }),
         tasks_escalated: live.map((t) => t.id),
         review_waived_tasks: waiveReview ? unreviewed.map((t) => t.id) : [],
         remote
@@ -26847,8 +26854,10 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       return ok3(rows.map(projectRow));
     }),
     issue_update_description: requireRoles("issue_update_description", ["bro"], wrapHandler3(async (args) => {
+      const agent = normalizeAgent(args["agent"]);
       const issueId = requireArg3(args, "issue_id");
       const description = requireArg3(args, "description");
+      const includeDescription = args["include_description"] ?? false;
       const MAX_DESCRIPTION_BYTES = 1024 * 1024;
       if (Buffer.byteLength(description, "utf8") > MAX_DESCRIPTION_BYTES) {
         return err3("description exceeds 1MB limit");
@@ -26863,7 +26872,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         [description, now2, issueId]
       );
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      return ok3(decodeIssue(updated));
+      return ok3(redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }));
     })),
     issue_sync_retry: requireRoles("issue_sync_retry", ["bro"], wrapHandler3(async (args) => {
       const issueId = requireArg3(args, "issue_id");
@@ -27005,6 +27014,8 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       });
     })),
     issue_link: requireRoles("issue_link", ["bro"], wrapHandler3(async (args) => {
+      const agent = normalizeAgent(args["agent"]);
+      const includeDescription = args["include_description"] ?? false;
       const issueId = requireArg3(args, "issue_id");
       const backend = requireArg3(args, "backend");
       const iid = requireArg3(args, "iid");
@@ -27042,9 +27053,12 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         created_at: now2
       });
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      return ok3({ linked: true, backend, iid, issue: decodeIssue(updated) });
+      return ok3({ linked: true, backend, iid, issue: redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }) });
     })),
     issue_adopt_remote: requireRoles("issue_adopt_remote", ["bro"], wrapHandler3(async (args) => {
+      const agent = normalizeAgent(args["agent"]);
+      const includeDescription = args["include_description"] ?? false;
+      const repoArg = args["repo"] ?? null;
       const issueId = requireArg3(args, "issue_id");
       const remoteIidRaw = requireArg3(args, "remote_iid");
       const remoteIid = typeof remoteIidRaw === "number" ? remoteIidRaw : Number(remoteIidRaw);
@@ -27054,7 +27068,17 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       if (!row) {
         return err3(`not_found: issue ${issueId}`);
       }
-      const adoption = await verifyAdoptionRemote(db2, row.repo ?? null, remoteBackendArg, remoteIid, spawnFn);
+      if (repoArg !== null && !db2.get("SELECT name FROM repos WHERE name = ?", [repoArg])) {
+        return err3(`repo_not_found: no repos row named "${repoArg}"`);
+      }
+      const adoptRepo = repoArg ?? row.repo ?? null;
+      if (adoptRepo === null) {
+        const repoCount = db2.get("SELECT COUNT(*) AS n FROM repos")?.n ?? 0;
+        if (repoCount > 1) {
+          return err3(`repo_unresolved: issue ${issueId} has no repo and the workspace has ${repoCount} repos \u2014 pass repo`);
+        }
+      }
+      const adoption = await verifyAdoptionRemote(db2, adoptRepo, remoteBackendArg, remoteIid, spawnFn);
       if (!adoption.ok) {
         return err3(adoption.error);
       }
@@ -27067,8 +27091,8 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       const ghIid = adoption.backend === "github" ? remoteIid : null;
       const glIid = adoption.backend === "gitlab" ? remoteIid : null;
       db2.run(
-        `UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_kind = COALESCE(remote_kind, ?), updated_at = ? WHERE id = ?`,
-        [ghIid, glIid, adoption.backend, now2, issueId]
+        `UPDATE issues SET gh_iid = COALESCE(?, gh_iid), gl_iid = COALESCE(?, gl_iid), remote_kind = COALESCE(remote_kind, ?), repo = COALESCE(repo, ?), updated_at = ? WHERE id = ?`,
+        [ghIid, glIid, adoption.backend, repoArg, now2, issueId]
       );
       if (!idempotent) {
         insertAudit(db2, {
@@ -27081,7 +27105,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         });
       }
       const updated = db2.get("SELECT * FROM issues WHERE id = ?", [issueId]);
-      return ok3({ adopted: true, backend: adoption.backend, remote_iid: remoteIid, idempotent, issue: decodeIssue(updated) });
+      return ok3({ adopted: true, backend: adoption.backend, remote_iid: remoteIid, idempotent, issue: redactIssue(decodeIssue(updated), agent, { include_description: includeDescription }) });
     }))
   };
   return { definitions, handlers };

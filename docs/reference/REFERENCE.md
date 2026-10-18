@@ -22,7 +22,7 @@ Lookups bro hits occasionally — keep here so they don't bloat CLAUDE.md.
 
 73 tools across these groups (full schema in `mcp/trajectory-server/src/tools/`):
 
-- **issues**: `issue_create`, `issue_get`, `issue_list`, `issue_close`, `issue_link`, `issue_update_description`, `issue_resume`, `issue_get_phase`, `issue_sync_retry`, `issue_adopt_remote`
+- **issues**: `issue_create`, `issue_get`, `issue_list`, `issue_close`, `issue_link`, `issue_update_description`, `issue_resume`, `issue_get_phase`, `issue_sync_retry`, `issue_adopt_remote`. The write tools return the issue row without its description; `issue_create`, `issue_update_description`, `issue_link` and `issue_adopt_remote` take `include_description: true` to echo it (bro/architect, as on `issue_get`). `issue_adopt_remote` takes an optional `repo` (a `repos` row name) to verify against; a repo-less issue in a multi-repo workspace needs it (`repo_unresolved` otherwise), and a successful adoption backfills the issue's null repo.
 - **milestones**: `milestone_close`
 - **tasks**: `task_create_batch`, `task_get`, `task_update_status`, `task_first_actionable`
 - **stats**: `task_stats`
