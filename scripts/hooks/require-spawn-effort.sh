@@ -11,13 +11,14 @@
 #
 # A missing effort is a mismatch. The deny names the expected value and the
 # fix. Without jq, or when the DB read fails, the spawn is denied
-# (fail-closed); with no trajectory DB (project not onboarded) or no sqlite3
+# (fail-closed; a DB that predates tasks.effort gets the restart-to-migrate
+# remedy instead of the generic unavailable deny); with no trajectory DB (project not onboarded) or no sqlite3
 # the gate allows, as every gate does. A swe prompt without a task id, or one
 # naming no task row, is left to require-task-spec.sh.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/query-task.sh
+# shellcheck source=scripts/hooks/lib/query-task.sh disable=SC1091
 . "$SCRIPT_DIR/lib/query-task.sh"
 
 INPUT=$(cat 2>/dev/null) || INPUT=""
@@ -46,6 +47,12 @@ if [[ "$SUBAGENT" =~ (^|:)swe$ ]]; then
   tmb_have_sqlite || exit 0
   EXPECTED=$(tmb_gate_read "$DB" "SELECT effort FROM tasks WHERE id = ${SAFE_TASK_ID};")
   if [ "$EXPECTED" = "__ERR__" ]; then
+    HAS_EFFORT=$(tmb_gate_read "$DB" "SELECT name FROM pragma_table_info('tasks') WHERE name = 'effort';")
+    if [ -z "$HAS_EFFORT" ]; then
+      jq -nc --arg r "BLOCKED: the trajectory DB predates the typed-effort schema (tasks.effort is missing): the TMB plugin was updated but the MCP server has not migrated the DB yet. Restart Claude Code so the server migrates the DB, then retry the spawn." \
+        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+      exit 0
+    fi
     tmb_deny_db_unavailable require-spawn-effort
     exit 0
   fi

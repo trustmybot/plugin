@@ -106,6 +106,20 @@ assert_contains "$out" "trajectory DB unavailable" "swe: names the DB"
 out=$(printf '%s' "$(payload pr-reviewer "$REVIEW_PROMPT" high)" | TRAJECTORY_DB_PATH="$BAD" bash "$HOOK" 2>/dev/null || true)
 assert_contains "$out" "trajectory DB unavailable" "pr-reviewer: names the DB"
 
+test_case "a pre-v37 DB (no tasks.effort) is denied with the restart-to-migrate remedy"
+OLD="$TMPDIR/v36.db"
+sqlite3 "$OLD" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+OLD_COLS=$(sqlite3 "$OLD" "SELECT group_concat(name, ', ') FROM pragma_table_info('tasks') WHERE name <> 'effort';")
+sqlite3 "$OLD" "PRAGMA foreign_keys = OFF; CREATE TABLE tasks_v36 AS SELECT $OLD_COLS FROM tasks; DROP TABLE tasks; ALTER TABLE tasks_v36 RENAME TO tasks;"
+sqlite3 "$OLD" "INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (1, 'effort', 'open', '$NOW', '$NOW'); INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, spec_body, created_at, updated_at) VALUES (1, 1, 'feat/medium', 'dev', 'd', 'pending', '## Success Criteria', '$NOW', '$NOW');"
+out=$(printf '%s' "$(payload swe "task_id=1" medium)" | TRAJECTORY_DB_PATH="$OLD" bash "$HOOK" 2>/dev/null || true)
+assert_contains "$out" '"permissionDecision":"deny"' "swe: deny"
+assert_contains "$out" "tasks.effort is missing" "swe: names the missing column"
+assert_contains "$out" "Restart Claude Code" "swe: names the remedy"
+assert_not_contains "$out" "trajectory DB unavailable" "swe: not the generic deny"
+out=$(printf '%s' "$(payload pr-reviewer "$REVIEW_PROMPT" high)" | TRAJECTORY_DB_PATH="$OLD" bash "$HOOK" 2>/dev/null || true)
+assert_not_contains "$out" "tasks.effort is missing" "pr-reviewer: not denied for the missing column"
+
 test_case "no trajectory DB (project not onboarded): pass"
 out=$(printf '%s' "$(payload swe "task_id=1")" | TRAJECTORY_DB_PATH="$TMPDIR/absent.db" bash "$HOOK" 2>/dev/null || true)
 assert_eq "" "$out" "unresolved DB allows"
