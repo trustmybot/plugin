@@ -1,6 +1,6 @@
 # Design philosophy
 
-The principles behind how the TMB plugin is shaped — why the prompts are short, how the two review gates differ, and where the line sits between TMB's own development process and the runtime that ships to a user's project.
+The principles behind how the TMB plugin is shaped — why the prompts are short, how the two review gates differ, where the line sits between TMB's own development process and the runtime that ships to a user's project, why the trajectory exists to cut entropy at handoffs, why gates catch false success while audits chase perfection, and why a replaced design is removed cleanly.
 
 ## 1. Minimal prompts, cheatcode add-ons
 
@@ -31,3 +31,19 @@ Everything else is the shipped runtime, and it must be about THE USER'S project 
 These surfaces must never reference TMB's own development process — no harness paths, no `L1`/`L5/L6` levels, no `tests/` directories, no internal milestone or release machinery. A user installing the plugin has none of that, so a prompt or hook that cites it leaks meaningless internal context and erodes trust. When a shipped surface needs to state a rule that TMB's docs also describe, it states the rule directly rather than pointing at a `docs/` file the user does not have.
 
 The #135 and #140 cleanups enforce this boundary, sweeping dev-meta leaks out of the shipped runtime and keeping the internal references where they belong, in `docs/`.
+
+## 4. Cut entropy at handoffs
+
+TMB's trajectory exists to cut the entropy lost at each handoff: Human → bro → swe → pr-reviewer → the next session. The design priority is stability first, then efficiency.
+
+Judge a proposed feature by one question: does it reduce entropy at a handoff, or make a past decision re-findable? One discussion maps to one issue, so every decision is findable from the work it shaped.
+
+## 5. Gates catch false success; audits chase perfection
+
+swe and the two review gates optimize for speed. The swe checklist and its one trusted gate run are trusted, and a reviewer's job is to catch a false success claim — verify the recorded test results — not to demand a perfect change.
+
+Exhaustive quality hunting is the audit's job, run separately against live data. This keeps the per-task loop fast without lowering the bar for what reaches main.
+
+## 6. Remove cleanly
+
+When a design is replaced, delete the old one outright. Code, prompts and docs describe only what is true now: no "no longer", "used to", "deprecated" or "previously" notes, and no commented-out remnants. The reason for the removal lives in the commit message and PR description, where history belongs.
