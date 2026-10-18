@@ -4,12 +4,16 @@
 -- setup-l5.sh). Bro spawns both, each writes a kind='analysis'
 -- discussion + a roundtable_vote.
 --
--- Caveats:
---   - The `roundtable_slash_invoked` audit row from the slash-detect hook
---     is NOT asserted: claude's slash-command expansion replaces the raw
---     `/roundtable` text before UserPromptSubmit hooks see it. The hook
---     is exercised separately (L3, future).
---   - The finalize/close path (ratification AUQ) is partial-test territory.
+-- Caveat: the finalize/close path (ratification AUQ) is partial-test territory.
+
+-- The slash-detect hook wrote exactly one roundtable_slash_invoked row and
+-- roundtable_create consumed it (no gate waiver)
+SELECT
+  CASE WHEN COUNT(*) = 1 THEN 1 ELSE 0 END AS pass,
+  'consumed roundtable_slash_invoked audit rows (got ' || COUNT(*) || ', expected exactly 1)' AS description
+FROM audit
+WHERE event_type = 'roundtable_slash_invoked'
+  AND json_extract(content_json, '$.consumed_by_roundtable_id') IS NOT NULL;
 
 -- A roundtable was created
 SELECT

@@ -157,7 +157,7 @@ l6c_run_step() {
 
   local turn=1
   local current_msg
-  current_msg="$(_l5_test_prompt_prefix)$(cat "$prompt_file")"
+  current_msg="$(l5_compose_test_prompt "$(cat "$prompt_file")")"
 
   while [ "$turn" -le "$max_turns" ]; do
     local turn_jsonl="${out_jsonl}.turn${turn}"
