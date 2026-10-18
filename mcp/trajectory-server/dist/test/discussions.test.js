@@ -356,6 +356,23 @@ describe('discussions + snapshot integration', () => {
         assert.ok(taskFields.includes('status'), 'Task must have status');
         assert.ok(taskFields.includes('title'), 'Task must have title');
     });
+    it('discussion_search: hyphenated and dotted queries do not break FTS5 MATCH', async () => {
+        const issueId = globalThis['testIssueId'];
+        db.run(`INSERT INTO discussions (issue_id, author, kind, body, created_at)
+       VALUES (?, 'bro', 'note', 'the dir-level cache holds AGENTS.md', datetime('now'))`, [issueId]);
+        const rowId = db.get(`SELECT id FROM discussions WHERE body LIKE '%dir-level cache%'`).id;
+        const disc = discussionTools(db);
+        for (const mode of ['keyword', 'hybrid']) {
+            const hit = await call(disc.handlers, 'discussion_search', { agent: 'bro', query: 'dir-level', mode, k: 20 });
+            assert.ok(!hit.isError, `${mode}: ${JSON.stringify(parseResult(hit))}`);
+            const ids = parseResult(hit).results.map((r) => r.id);
+            assert.ok(ids.includes(rowId), `${mode}: expected row ${rowId} in ${JSON.stringify(ids)}`);
+            const dotted = await call(disc.handlers, 'discussion_search', { agent: 'bro', query: 'AGENTS.md', mode, k: 20 });
+            assert.ok(!dotted.isError, `${mode} dotted: ${JSON.stringify(parseResult(dotted))}`);
+            const bare = await call(disc.handlers, 'discussion_search', { agent: 'bro', query: 'level', mode, k: 20 });
+            assert.ok(!bare.isError, `${mode} bare: ${JSON.stringify(parseResult(bare))}`);
+        }
+    });
 });
 describe('discussion_append verified_human gate (#145)', () => {
     let db;
