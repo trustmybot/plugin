@@ -89,7 +89,9 @@ l5_score_outcome() {
 #     when that file exists; if the query returns any row the requirement is
 #     waived (pre-state condition already satisfied — the tool is only needed
 #     when the pre-state lacks the resource). In L5 mode (no pre-step DB) the
-#     condition is ignored and the tool remains required.
+#     condition is ignored and the tool remains required, or
+#   - an object {"any_of":["toolA","toolB"]} satisfied when at least one of the
+#     listed tools was called (missing is reported as any_of(toolA|toolB)).
 # Asserts every non-waived tool was called at least once (superset semantics
 # per LangSmith docs). Order-agnostic. Reads tool_use names from trajectory.jsonl.
 l5_score_trajectory_required() {
@@ -119,6 +121,21 @@ l5_score_trajectory_required() {
     for i in $(seq 0 $((entry_count - 1))); do
       local entry_type tool skip_sql
       entry_type=$(jq -r ".[$i] | type" "$req_path" 2>/dev/null)
+
+      if [ "$entry_type" = "object" ] && [ "$(jq -r ".[$i] | has(\"any_of\")" "$req_path" 2>/dev/null)" = "true" ]; then
+        local alts alt any_hit="" any_label
+        alts=$(jq -r ".[$i].any_of[]" "$req_path" 2>/dev/null)
+        any_label=$(jq -r ".[$i].any_of | join(\"|\")" "$req_path" 2>/dev/null)
+        while IFS= read -r alt; do
+          [ -z "$alt" ] && continue
+          if echo "$tools_called" | grep -Fx "$alt" >/dev/null; then
+            any_hit="1"
+            break
+          fi
+        done <<< "$alts"
+        [ -z "$any_hit" ] && missing="${missing}; any_of($any_label)"
+        continue
+      fi
 
       if [ "$entry_type" = "string" ]; then
         tool=$(jq -r ".[$i]" "$req_path")
@@ -175,7 +192,7 @@ l5_score_trajectory_forbidden() {
   fi
 
   local tools_called
-  tools_called=$(jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use") | .name' "$jsonl" 2>/dev/null | sort -u)
+  tools_called=$(jq -r 'select(.type=="assistant" and .parent_tool_use_id == null) | .message.content[]? | select(.type=="tool_use") | .name' "$jsonl" 2>/dev/null | sort -u)
 
   local forbidden violation=""
   forbidden=$(jq -r '.[]' "$forb_path")

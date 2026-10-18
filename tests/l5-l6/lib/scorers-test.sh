@@ -136,6 +136,60 @@ echo '{"worktrees": [{"path": ".claude/worktrees/missing", "head_branch": "main"
 l5_score_git "$P" "test" "$FD" "run-g6" >/dev/null 2>&1
 assert_exit 1 $? "worktree path missing → fail"
 
+# ---- trajectory scorers ---------------------------------------------------
+
+T_INTENT="mcp__plugin_tmb_trajectory-server__intent_start"
+T_ISSUE="mcp__plugin_tmb_trajectory-server__issue_create"
+T_BATCH="mcp__plugin_tmb_trajectory-server__task_create_batch"
+T_VALID="mcp__plugin_tmb_trajectory-server__validation_record"
+
+write_assistant_line() {
+  local file="$1" tool="$2" parent="${3:-}"
+  if [ -n "$parent" ]; then
+    jq -nc --arg t "$tool" --arg p "$parent" '{type:"assistant", parent_tool_use_id:$p, message:{content:[{type:"tool_use", name:$t}]}}' >> "$file"
+  else
+    jq -nc --arg t "$tool" '{type:"assistant", parent_tool_use_id:null, message:{content:[{type:"tool_use", name:$t}]}}' >> "$file"
+  fi
+}
+
+echo "== trajectory_forbidden: subagent call is not attributed to bro =="
+P=$(mk_project) && FD=$(mk_flow_dir)
+write_assistant_line "$P/trajectory.jsonl" "$T_INTENT"
+write_assistant_line "$P/trajectory.jsonl" "$T_VALID" "toolu_x"
+jq -nc --arg t "$T_VALID" '[$t]' > "$FD/tools-forbidden.json"
+l5_score_trajectory_forbidden "$P" "test" "$FD" "run-tf1" >/dev/null 2>&1
+assert_exit 0 $? "subagent validation_record → pass"
+
+echo "== trajectory_forbidden: top-level call is a violation =="
+write_assistant_line "$P/trajectory.jsonl" "$T_VALID"
+l5_score_trajectory_forbidden "$P" "test" "$FD" "run-tf2" >/dev/null 2>&1
+assert_exit 1 $? "top-level validation_record → fail"
+
+echo "== trajectory_required: any_of satisfied by one alternative =="
+P=$(mk_project) && FD=$(mk_flow_dir)
+write_assistant_line "$P/trajectory.jsonl" "$T_INTENT"
+jq -nc --arg a "$T_ISSUE" --arg b "$T_INTENT" '[{any_of:[$a,$b]}]' > "$FD/tools-required.json"
+l5_score_trajectory_required "$P" "test" "$FD" "run-tr1" >/dev/null 2>&1
+assert_exit 0 $? "any_of(issue_create|intent_start) with intent_start called → pass"
+
+echo "== trajectory_required: any_of unsatisfied =="
+jq -nc --arg a "$T_ISSUE" --arg b "$T_BATCH" '[{any_of:[$a,$b]}]' > "$FD/tools-required.json"
+l5_score_trajectory_required "$P" "test" "$FD" "run-tr2" >/dev/null 2>&1
+assert_exit 1 $? "any_of(issue_create|task_create_batch) with neither called → fail"
+
+echo "== trajectory_required: plain string entries =="
+jq -nc --arg a "$T_INTENT" '[$a]' > "$FD/tools-required.json"
+l5_score_trajectory_required "$P" "test" "$FD" "run-tr3" >/dev/null 2>&1
+assert_exit 0 $? "string entry for called tool → pass"
+jq -nc --arg a "$T_BATCH" '[$a]' > "$FD/tools-required.json"
+l5_score_trajectory_required "$P" "test" "$FD" "run-tr4" >/dev/null 2>&1
+assert_exit 1 $? "string entry for uncalled tool → fail"
+
+echo "== trajectory_required: subagent calls still count =="
+write_assistant_line "$P/trajectory.jsonl" "$T_BATCH" "toolu_y"
+l5_score_trajectory_required "$P" "test" "$FD" "run-tr5" >/dev/null 2>&1
+assert_exit 0 $? "string entry satisfied by subagent call → pass"
+
 # ---- summary --------------------------------------------------------------
 
 echo
