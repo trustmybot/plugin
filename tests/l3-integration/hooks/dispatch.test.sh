@@ -37,6 +37,9 @@
 #     registration still runs; registration resolution without jq equals the
 #     jq reading for every hooks.json entry, whatever the key order
 #   Symlinked project dir and its real path → one lock, one shim project
+#   Bash deny records: a denied Bash command that writes a path leaves one
+#     <state>/locks/boundary-denies/<session>/<digest> record for it; an allow
+#     and a denied non-Bash tool leave none
 #   Parity: every PreToolUse gate in hooks.json gives the same stdout + exit
 #   code through the dispatcher as run directly.
 set -euo pipefail
@@ -713,6 +716,30 @@ assert_eq " 0" "$(tmb_registration "$PLUGIN_ROOT/hooks/hooks.json" not-registere
 printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"x{2}","hooks":[{"onFailure":"block","timeout":9,"command":"\"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh\" fx-a"},{"timeout":3,"command":"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch.sh fx-ab"}]}]}}' > "$TMP/order.json"
 assert_eq "$(jq_registration "$TMP/order.json" fx-a)" "$(tmb_registration "$TMP/order.json" fx-a)" "keys before the command, one line"
 assert_eq "$(jq_registration "$TMP/order.json" fx-ab)" "$(tmb_registration "$TMP/order.json" fx-ab)" "a name that extends another"
+
+# ===========================================================================
+test_case "a denied Bash heredoc write leaves one record keyed on its path; allows and non-Bash denies leave none"
+DENIES="$PROJ/.claude/tmb/locks/boundary-denies"
+rm -rf "$DENIES"
+X="$PROJ/notes/x.txt"
+CMD=$(printf 'cat > %s <<EOF\nhello\nEOF' "$X")
+FX_SLEEP=0 dispatch "$A" fx-deny "$(payload "$CMD" tu-rec1)" > /dev/null
+shopt -s nullglob
+recs=("$DENIES/s-1/"*)
+shopt -u nullglob
+assert_eq "1" "${#recs[@]}" "one record for the denied write"
+# shellcheck disable=SC1091
+. "$PLUGIN_ROOT/scripts/hooks/lib/cmd-analysis.sh"
+assert_eq "$DENIES/s-1/$(tmb_path_digest "$X")" "${recs[0]:-}" "the record is keyed on the canonical path"
+assert_eq "fx-deny" "$(sed -n 1p "${recs[0]}")" "line 1 names the gate"
+case "$(sed -n 2p "${recs[0]}")" in ''|*[!0-9]*) _fail "line 2 is not epoch seconds" ;; *) _pass ;; esac
+rm -rf "$DENIES"
+FX_SLEEP=0 dispatch "$A" fx-allow "$(payload "$CMD" tu-rec2)" > /dev/null
+[ ! -e "$DENIES" ] && _pass || _fail "an allowed Bash command left a record"
+FX_SLEEP=0 dispatch "$A" fx-deny "$(jq -nc --arg p "$X" '{hook_event_name:"PreToolUse",session_id:"s-1",tool_name:"Write",tool_input:{file_path:$p},tool_use_id:"tu-rec3"}')" > /dev/null
+[ ! -e "$DENIES" ] && _pass || _fail "a denied non-Bash tool left a record"
+FX_SLEEP=0 dispatch "$A" fx-deny "$(jq -nc --arg c "$CMD" '{hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$c},tool_use_id:"tu-rec4"}')" > /dev/null
+[ ! -e "$DENIES" ] && _pass || _fail "a payload without session_id left a record"
 
 # ===========================================================================
 test_case "parity: every PreToolUse gate gives the same result through the dispatcher"

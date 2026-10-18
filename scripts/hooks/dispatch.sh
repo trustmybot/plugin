@@ -71,6 +71,13 @@
 #    decides), so no later gate runs for it. A chain, a gate run with
 #    --chain, and any gate when lib/registrations.sh cannot be loaded are
 #    fail-closed whatever hooks.json says.
+# 6. Bash deny records. When a gate denies a Bash command, the dispatcher
+#    writes one record per path the command writes (tmb_cmd_write_paths) to
+#    <state>/locks/boundary-denies/<session_id>/<sha256 of the canonical path>
+#    (gate name, epoch seconds), for swe-boundary.sh to match against a later
+#    Edit/Write (audit hook_block_bypassed). Records older than
+#    TMB_BYPASS_WINDOW_MIN minutes (default 10) are pruned on every write. It
+#    observes only: the gate's stdout, exit code and timing are unchanged.
 
 set -uo pipefail
 
@@ -417,6 +424,37 @@ _expired() {
   fi
 }
 
+# record_bash_deny <rc> — when this gate denied a Bash command, one record per
+# path the command writes, <state>/locks/boundary-denies/<session_id>/<digest>
+# (line 1 the gate, line 2 epoch seconds), for swe-boundary.sh to match against
+# a later Edit/Write. Observes only: a missing session_id or jq records
+# nothing, and nothing here changes the gate's output or exit code.
+record_bash_deny() {
+  local session cmd cwd base dir window
+  [ "$1" = "2" ] || grep -qE "$DENY_PATTERN" "$LOCK/result" 2>/dev/null || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  [ "$(printf '%s' "$PAYLOAD" | jq -r '.tool_name // empty' 2>/dev/null)" = "Bash" ] || return 0
+  session=$(printf '%s' "$PAYLOAD" | jq -r '.session_id // empty' 2>/dev/null)
+  case "$session" in ''|*/*|.*) return 0 ;; esac
+  cmd=$(printf '%s' "$PAYLOAD" | jq -r '.tool_input.command // empty' 2>/dev/null)
+  [ -n "$cmd" ] || return 0
+  cwd=$(printf '%s' "$PAYLOAD" | jq -r '.cwd // empty' 2>/dev/null)
+  window="${TMB_BYPASS_WINDOW_MIN:-10}"
+  case "$window" in ''|*[!0-9]*|0) window=10 ;; esac
+  base="$(dirname "$(dirname "$LOCK_BASE")")/locks/boundary-denies"
+  dir="$base/$session"
+  (
+    . "$SELF_DIR/lib/cmd-analysis.sh" || exit 0
+    find "$base" -type f -mmin "+$window" -delete 2>/dev/null
+    find "$base" -mindepth 1 -type d -empty -delete 2>/dev/null
+    mkdir -p "$dir" || exit 0
+    while IFS= read -r path; do
+      case "$path" in /*) ;; *) continue ;; esac
+      printf '%s\n%s\n' "$GATE" "$(_now)" > "$dir/$(tmb_path_digest "$path")"
+    done < <(tmb_cmd_write_paths "$cmd" "${cwd:-$PWD}" "" "${CLAUDE_PROJECT_DIR:-}")
+  ) 2>/dev/null || true
+}
+
 hold() {
   printf '%s' "$PAYLOAD" | bash "$TARGET" ${PASS[@]+"${PASS[@]}"} >"$LOCK/result" 2>"$LOCK/stderr"
   local rc=${PIPESTATUS[1]}
@@ -428,6 +466,7 @@ hold() {
   printf '%s\n' "$rc" > "$LOCK/rc.tmp" 2>/dev/null && mv -f "$LOCK/rc.tmp" "$LOCK/rc" 2>/dev/null
   cat "$LOCK/stderr" >&2 2>/dev/null
   cat "$LOCK/result" 2>/dev/null
+  record_bash_deny "$rc"
   exit "$rc"
 }
 

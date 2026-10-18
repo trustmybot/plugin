@@ -12,6 +12,10 @@
 # (f) Bash-written path outside the task's files[] dirs → ALLOWED with a
 #     once-per-path additionalContext note
 #
+# (h) Edit/Write to a path a PreToolUse Bash gate denied a write to earlier in
+#     the session → ALLOWED, one hook_block_bypassed audit row, the record
+#     removed; another path, another session or a record past the window → no row
+#
 # Negative cases (bro context) prove bro is NOT blocked.
 set -euo pipefail
 
@@ -960,6 +964,95 @@ for cmd in "find $WT_PLAIN/src -exec rm {} \\;" "find src -name '*.md' -exec sed
   out=$(run_in "$WT_PLAIN" "$cmd")
   assert_not_contains "$out" '"permissionDecision":"deny"' "$cmd"
 done
+
+# ===========================================================================
+# Rule (h): Edit/Write after a Bash deny on the same path
+# ===========================================================================
+
+sqlite3 "$DB" "
+  ALTER TABLE issues ADD COLUMN repo TEXT;
+  CREATE TABLE audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_id INTEGER NOT NULL DEFAULT -1,
+    branch_id TEXT,
+    from_node TEXT NOT NULL DEFAULT 'bro',
+    event_type TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    content_json TEXT NOT NULL DEFAULT '{}',
+    repo TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+"
+BYPASS_SESSION="sess-bypass"
+BYPASS_DIR="$(. "$PLUGIN_ROOT/scripts/hooks/lib/cmd-analysis.sh"; tmb_path_canonical "$TMPDIR")/locks/boundary-denies/$BYPASS_SESSION"
+BYPASS_X="$WORKTREE/src/x.txt"
+BYPASS_Y="$WORKTREE/src/y.txt"
+
+bypass_record() {
+  local path="$1" age_s="${2:-0}"
+  mkdir -p "$BYPASS_DIR"
+  printf 'git-guards\n%s\n' "$(( $(date +%s) - age_s ))" \
+    > "$BYPASS_DIR/$(. "$PLUGIN_ROOT/scripts/hooks/lib/cmd-analysis.sh"; tmb_path_digest "$path")"
+}
+
+bypass_write() {
+  local tool="$1" path="$2"
+  jq -nc --arg t "$tool" --arg p "$path" --arg s "$BYPASS_SESSION" \
+    '{tool_name:$t, agent_type:"swe", session_id:$s, tool_input:{file_path:$p}}'
+}
+
+bypass_rows() { sqlite3 "$DB" "SELECT count(*) FROM audit WHERE event_type = 'hook_block_bypassed';"; }
+
+test_case "(h) Write to a path after a fresh Bash-deny record: ALLOWED, one row with all fields, record removed"
+rm -rf "$BYPASS_DIR"
+bypass_record "$BYPASS_X"
+out=$(run_hook_swe "$(bypass_write Write "$BYPASS_X")")
+assert_not_contains "$out" '"permissionDecision":"deny"' "the write stays allowed"
+assert_contains "$out" "recorded as hook_block_bypassed" "additionalContext names the event"
+assert_contains "$out" "report it to bro" "additionalContext tells the swe to report"
+assert_eq "1" "$(bypass_rows)" "one audit row"
+row=$(sqlite3 "$DB" "SELECT from_node || '|' || issue_id || '|' || summary FROM audit WHERE event_type = 'hook_block_bypassed';")
+assert_eq "hook:swe-boundary|1|Write to src/x.txt after git-guards denied a Bash write to it" "$row" "from_node, issue, summary"
+content=$(sqlite3 "$DB" "SELECT content_json FROM audit WHERE event_type = 'hook_block_bypassed';")
+assert_eq "Write $BYPASS_X git-guards $BYPASS_SESSION 10 number" \
+  "$(printf '%s' "$content" | jq -r '[.tool, .path, .denied_gate, .session_id, .task_id, (.denied_at | type)] | join(" ")')" "content carries the six fields"
+[ ! -e "$BYPASS_DIR/$(. "$PLUGIN_ROOT/scripts/hooks/lib/cmd-analysis.sh"; tmb_path_digest "$BYPASS_X")" ] && _pass || _fail "the record is still there"
+
+test_case "(h) a second Write to the same path: no further row"
+out=$(run_hook_swe "$(bypass_write Write "$BYPASS_X")")
+assert_not_contains "$out" "hook_block_bypassed" "no output without a record"
+assert_eq "1" "$(bypass_rows)" "still one row"
+
+test_case "(h) Write to another path: no row"
+rm -rf "$BYPASS_DIR"
+bypass_record "$BYPASS_X"
+out=$(run_hook_swe "$(bypass_write Write "$BYPASS_Y")")
+assert_not_contains "$out" "hook_block_bypassed" "no output"
+assert_eq "1" "$(bypass_rows)" "no new row"
+
+test_case "(h) record older than the window: no row"
+rm -rf "$BYPASS_DIR"
+bypass_record "$BYPASS_X" 700
+out=$(run_hook_swe "$(bypass_write Edit "$BYPASS_X")")
+assert_not_contains "$out" "hook_block_bypassed" "no output"
+assert_eq "1" "$(bypass_rows)" "no new row"
+out=$(TMB_BYPASS_WINDOW_MIN=20 run_hook_swe "$(bypass_write Edit "$BYPASS_X")")
+assert_not_contains "$out" "hook_block_bypassed" "the stale record was removed"
+
+test_case "(h) record inside a widened window: one row"
+rm -rf "$BYPASS_DIR"
+bypass_record "$BYPASS_X" 700
+out=$(TMB_BYPASS_WINDOW_MIN=20 run_hook_swe "$(bypass_write Edit "$BYPASS_X")")
+assert_contains "$out" "recorded as hook_block_bypassed" "TMB_BYPASS_WINDOW_MIN widens the window"
+assert_eq "2" "$(bypass_rows)" "second row"
+
+test_case "(h) another session's record: no row"
+rm -rf "$BYPASS_DIR"
+bypass_record "$BYPASS_X"
+out=$(run_hook_swe "$(bypass_write Write "$BYPASS_X" | jq -c '.session_id = "other-session"')")
+assert_not_contains "$out" "hook_block_bypassed" "no output"
+assert_eq "2" "$(bypass_rows)" "no new row"
+rm -rf "$BYPASS_DIR"
 
 # ===========================================================================
 # Layer 1 — schema-mismatch fail-safe (#596)
