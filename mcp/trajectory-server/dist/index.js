@@ -32217,6 +32217,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
       "task_retry",
       ["bro"],
       wrap3(async (args) => {
+        const agent = args["agent"] ?? "bro";
         const failedTaskId = args["failed_task_id"];
         const newBranchId = args["new_branch_id"];
         const spec = args["corrected_spec_body"];
@@ -32323,7 +32324,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           insertAudit(db2, {
             issue_id: failed.issue_id,
             branch_id: newBranchId,
-            from_node: "bro",
+            from_node: agent,
             event_type: "task_retry_attempted",
             summary: `Retry of failed task ${failedTaskId}: ${rationale.slice(0, 120)}`,
             content_json: JSON.stringify({
@@ -32334,7 +32335,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             created_at: now2
           });
           if (effortRank(effort) > effortRank(failed.effort)) {
-            insertEffortRaised(db2, { issue_id: failed.issue_id, branch_id: newBranchId, task_id: newTask.id }, failed.effort, effort, "bro", now2, failed.id);
+            insertEffortRaised(db2, { issue_id: failed.issue_id, branch_id: newBranchId, task_id: newTask.id }, failed.effort, effort, agent, now2, failed.id);
           }
           return newTask;
         });
