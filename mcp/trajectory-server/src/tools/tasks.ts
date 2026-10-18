@@ -21,7 +21,7 @@ import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolve, dirname } from 'node:path';
 import { resolveSoleRepo } from '../utils/repo-paths.js';
 import { branchRefExists } from '../utils/git-refs.js';
-import { EFFORT_LEVELS, isEffort, resolveEffortDefaults, type Effort } from './config.js';
+import { EFFORT_LEVELS, computeEffort, isEffort, type Effort } from './config.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -114,7 +114,7 @@ function validateParentBranchId(branchId: string, db: TrajectoryDB, repoValue: s
 // low|medium|high. Throws a named error so the model can retry with a
 // corrected shape. Returns the normalized arrays (omitted/undefined → empty
 // array, which disables the corresponding hook) and the effort (undefined when
-// omitted: the caller applies swe_default_effort).
+// omitted: the caller computes it with computeEffort).
 function validateTypedRailsFields(t: TaskInput): { files: string[]; verification: string[]; effort: Effort | undefined } {
   const checkStringArray = (value: unknown, field: 'files' | 'verification'): string[] => {
     if (value === undefined || value === null) return [];
@@ -348,7 +348,7 @@ export function taskTools(
                   type: 'string',
                   enum: [...EFFORT_LEVELS],
                   description:
-                    'Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted → plugin_config.swe_default_effort (medium when unset).',
+                    'Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted → computed: plugin_config.swe_default_effort (medium when unset), raised to high for prompt-bearing tasks and files[] touching plugin_config.high_effort_paths.',
                 },
               },
               required: ['branch_id', 'description'],
@@ -842,7 +842,6 @@ export function taskTools(
         }
       }
 
-      const effortDefaults = resolveEffortDefaults(db);
       const inserted = db.transaction(() => {
         const results: Task[] = [];
         const now = nowISO();
@@ -896,8 +895,13 @@ export function taskTools(
           if (parentBranchId == null) parentBranchId = 'main';
 
           const promptBearing = typeof t.prompt_bearing === 'number' && t.prompt_bearing === 1 ? 1 : 0;
-          const { files: typedFiles, verification: typedVerification, effort } =
+          const { files: typedFiles, verification: typedVerification, effort: explicitEffort } =
             validateTypedRailsFields(t);
+          const { effort } = computeEffort(db, {
+            effort: explicitEffort,
+            prompt_bearing: promptBearing,
+            files: typedFiles,
+          });
           db.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
@@ -914,7 +918,7 @@ export function taskTools(
               promptBearing,
               JSON.stringify(typedFiles),
               JSON.stringify(typedVerification),
-              effort ?? effortDefaults.swe,
+              effort,
               now,
               now,
             ],

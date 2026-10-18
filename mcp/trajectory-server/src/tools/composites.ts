@@ -35,7 +35,7 @@ import { resolveSoleRepo } from '../utils/repo-paths.js';
 import { latestVerificationRun } from './verification-runs.js';
 import { resolve, dirname } from 'node:path';
 import type { TaskProvisionInput } from '../types.js';
-import { EFFORT_LEVELS, effortRank, isEffort, resolveEffortDefaults, type Effort } from './config.js';
+import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, type Effort } from './config.js';
 
 const WORKTREE_TIMEOUT_MS = 60_000;
 
@@ -602,7 +602,7 @@ export function compositeTools(
           effort: {
             type: 'string',
             enum: [...EFFORT_LEVELS],
-            description: "Optional effort for the retry task (e.g. 'high'); omit to inherit the failed task's effort.",
+            description: "Optional effort for the retry task (e.g. 'high'); omit to run the retry at high (rework).",
           },
           session_id: RUN_SESSION_ID_SCHEMA,
         },
@@ -772,7 +772,7 @@ export function compositeTools(
     {
       name: 'task_provision',
       description:
-        "Bro's atomic planning composite — collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). Returns the spawn-ready shape {task_id, branch_id, repo, slug, effort, worktree_path, git_setup, worktree_reused, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
+        "Bro's atomic planning composite — collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). Returns the spawn-ready shape {task_id, branch_id, repo, slug, effort, effort_reason, worktree_path, git_setup, worktree_reused, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -843,7 +843,7 @@ export function compositeTools(
               effort: {
                 type: 'string',
                 enum: [...EFFORT_LEVELS],
-                description: 'Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted → plugin_config.swe_default_effort (medium when unset).',
+                description: 'Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted → computed: default from plugin_config.swe_default_effort (medium when unset); high for prompt-bearing tasks, files[] touching plugin_config.high_effort_paths, and rework.',
               },
             },
             required: ['description', 'spec_body', 'files', 'verification'],
@@ -875,7 +875,7 @@ export function compositeTools(
           effort: {
             type: 'string',
             enum: [...EFFORT_LEVELS],
-            description: "Optional new effort for the rework (e.g. 'high'); omit to keep the task's effort.",
+            description: "Optional new effort for the rework (e.g. 'high'); omit to run the rework at high.",
           },
           session_id: RUN_SESSION_ID_SCHEMA,
         },
@@ -991,7 +991,11 @@ export function compositeTools(
             `typed_field_violation: task.effort must be one of ${EFFORT_LEVELS.join(', ')}, got ${JSON.stringify(task.effort)}.`,
           );
         }
-        const effort: Effort = isEffort(task.effort) ? task.effort : resolveEffortDefaults(db).swe;
+        const { effort, reason: effortReason } = computeEffort(db, {
+          effort: task.effort,
+          prompt_bearing: promptBearing,
+          files,
+        });
 
         const slug = branchId.replace(/^[^/]+\//, '');
 
@@ -1265,6 +1269,7 @@ export function compositeTools(
           repo: repoValue,
           slug,
           effort,
+          effort_reason: effortReason,
           worktree_path: worktreePath,
           git_setup: gitSetup,
           worktree_reused: worktreeReused,
@@ -1328,7 +1333,13 @@ export function compositeTools(
 
         const files = appendUnique(parseTaskFiles(task.files), filesAdd);
         const verification = appendUnique(parseTaskFiles(task.verification), verificationAdd);
-        const effort: Effort = isEffort(effortArg) ? effortArg : task.effort;
+        const { effort } = computeEffort(db, {
+          effort: effortArg,
+          prompt_bearing: 0,
+          files,
+          rework: true,
+          current: task.effort,
+        });
         const now = nowISO();
         db.transaction(() => {
           db.run(
@@ -1787,7 +1798,13 @@ export function compositeTools(
           }
         }
 
-        const effort: Effort = isEffort(effortArg) ? effortArg : failed.effort;
+        const { effort } = computeEffort(db, {
+          effort: effortArg,
+          prompt_bearing: failed.prompt_bearing === 1 ? 1 : 0,
+          files: parseTaskFiles(failed.files),
+          rework: true,
+          current: failed.effort,
+        });
         const now = nowISO();
         const result = db.transaction(() => {
           insertDiscussion(db, {

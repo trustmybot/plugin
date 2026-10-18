@@ -24296,7 +24296,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "spec_shape_gate_waived", writers: ["bro"], description: "A task's spec-shape waiver, one row per task on its issue with from_node `bro`; `task_create_batch` and `task_provision` called with `waive_spec_shape` write one for every task they create, and bro records one for an existing task through `audit_append`; `content_json` carries `task_id`, `gate` (`spec_shape`), `reason`, `waived_by` (`bro`), `source` (`task_create_batch`, `task_provision`, or absent for `audit_append`); `require-task-spec` reads it as the spawn waiver" },
   { type: "swe_brief_fetched", writers: ["hook"], description: "`swe-brief-gate` recorded that a SWE fetched its `task_brief`; the brief gate and `bro-turn-usage` read it" },
   { type: "sync_skipped", writers: ["bro"], description: "Issue sync skipped a remote write because `issue_sync` is off; `content_json` carries `issue_id`, `reason`" },
-  { type: "task_effort_raised", writers: ["bro"], description: "`task_reopen` or `task_retry` called with an `effort` above the task's (for `task_retry`, the failed task's) raised the effort swe runs it at; one row per raise on the task's issue; `content_json` carries `task_id`, `from`, `to`, and `failed_task_id` from `task_retry`" },
+  { type: "task_effort_raised", writers: ["bro"], description: "`task_reopen` or `task_retry` called with an `effort` above the task's (for `task_retry`, the failed task's) raised the effort swe runs it at, as does either call made with no `effort` (rework computes `high`); one row per raise on the task's issue; `content_json` carries `task_id`, `from`, `to`, and `failed_task_id` from `task_retry`" },
   { type: "task_escalated_by_issue_close", writers: ["bro"], description: "`issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason`" },
   { type: "task_escalated_repair", writers: ["server"], description: "The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` and closed its open `agent_runs` rows as `issue_closed`; written by `system`; `content_json` carries `task_id`, `issue_id`, `from_status`" },
   { type: "task_recovered", writers: ["bro"], description: "`task_recover` closed a task stuck in `running`/`completed` at its commit; `content_json` carries `task_id`, `commit_sha`, `prior_status`" },
@@ -27858,7 +27858,48 @@ function resolveEffortDefaults(db2) {
   };
   return { swe: read(SWE_DEFAULT_EFFORT_KEY), reviewer: read(REVIEWER_EFFORT_KEY) };
 }
+var HIGH_EFFORT_PATHS_KEY = "high_effort_paths";
+function readHighEffortPaths(db2) {
+  const row = db2.get(
+    `SELECT value_json FROM plugin_config WHERE key = ?`,
+    [HIGH_EFFORT_PATHS_KEY]
+  );
+  if (!row) return [];
+  try {
+    const value = JSON.parse(row.value_json);
+    if (Array.isArray(value) && value.every((el) => typeof el === "string")) return value;
+  } catch {
+  }
+  return [];
+}
+function stripTrailingSlash(path2) {
+  return path2.endsWith("/") ? path2.slice(0, -1) : path2;
+}
+function pathsOverlap(file2, prefix) {
+  const a = stripTrailingSlash(file2);
+  const b = stripTrailingSlash(prefix);
+  return a === b || a.startsWith(b + "/") || b.startsWith(a + "/");
+}
+function computeEffort(db2, input) {
+  if (isEffort(input.effort)) return { effort: input.effort, reason: "explicit" };
+  const base = input.rework && input.current ? input.current : resolveEffortDefaults(db2).swe;
+  if (input.prompt_bearing === 1) return { effort: "high", reason: "prompt_bearing" };
+  const prefixes = readHighEffortPaths(db2);
+  if (input.files.some((file2) => prefixes.some((prefix) => pathsOverlap(file2, prefix)))) {
+    return { effort: "high", reason: "high_effort_paths" };
+  }
+  if (input.rework) return { effort: "high", reason: "rework" };
+  return { effort: base, reason: "default" };
+}
 function validateKnownConfigValue(key, value) {
+  if (key === HIGH_EFFORT_PATHS_KEY) {
+    if (!Array.isArray(value) || value.some((el) => typeof el !== "string" || el.trim().length === 0)) {
+      throw new Error(
+        `typed_field_violation: config key ${JSON.stringify(key)} must be an array of non-empty strings, got ${JSON.stringify(value)}.`
+      );
+    }
+    return;
+  }
   if (Object.hasOwn(EFFORT_DEFAULTS, key) && !isEffort(value)) {
     throw new Error(
       `typed_field_violation: config key ${JSON.stringify(key)} must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(value)}.`
@@ -28234,7 +28275,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
                 effort: {
                   type: "string",
                   enum: [...EFFORT_LEVELS],
-                  description: "Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted \u2192 plugin_config.swe_default_effort (medium when unset)."
+                  description: "Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted \u2192 computed: plugin_config.swe_default_effort (medium when unset), raised to high for prompt-bearing tasks and files[] touching plugin_config.high_effort_paths."
                 }
               },
               required: ["branch_id", "description"]
@@ -28601,7 +28642,6 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
           if (audit) autocreatedAudits.push(audit);
         }
       }
-      const effortDefaults = resolveEffortDefaults(db2);
       const inserted = db2.transaction(() => {
         const results = [];
         const now2 = nowISO();
@@ -28640,7 +28680,12 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
           }
           if (parentBranchId == null) parentBranchId = "main";
           const promptBearing = typeof t.prompt_bearing === "number" && t.prompt_bearing === 1 ? 1 : 0;
-          const { files: typedFiles, verification: typedVerification, effort } = validateTypedRailsFields(t);
+          const { files: typedFiles, verification: typedVerification, effort: explicitEffort } = validateTypedRailsFields(t);
+          const { effort } = computeEffort(db2, {
+            effort: explicitEffort,
+            prompt_bearing: promptBearing,
+            files: typedFiles
+          });
           db2.run(
             `INSERT INTO tasks
                (issue_id, branch_id, parent_branch_id, title, description,
@@ -28657,7 +28702,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
               promptBearing,
               JSON.stringify(typedFiles),
               JSON.stringify(typedVerification),
-              effort ?? effortDefaults.swe,
+              effort,
               now2,
               now2
             ]
@@ -31627,7 +31672,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           effort: {
             type: "string",
             enum: [...EFFORT_LEVELS],
-            description: "Optional effort for the retry task (e.g. 'high'); omit to inherit the failed task's effort."
+            description: "Optional effort for the retry task (e.g. 'high'); omit to run the retry at high (rework)."
           },
           session_id: RUN_SESSION_ID_SCHEMA
         },
@@ -31772,7 +31817,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_provision",
-      description: "Bro's atomic planning composite \u2014 collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). Returns the spawn-ready shape {task_id, branch_id, repo, slug, effort, worktree_path, git_setup, worktree_reused, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
+      description: "Bro's atomic planning composite \u2014 collapses the pre-SWE setup into one call. Resolves the repo path, validates the base, and sets up the branch ref BEFORE committing, so a git-setup failure persists no orphan task row (the same branch_id retries cleanly). Branch policy: a new ref is created from base (git_setup 'created'); an existing local or origin ref that is an ancestor of / equal to the base tip is fast-forwarded and reused ('reused'); a diverged one is refused with branch_exists_diverged (ref, ahead/behind distance, open PRs) unless reuse_existing keeps it as-is ('reused'). DB transaction: writes a kind='decision' discussion + creates one task (the task_create_batch insert path, with planning_complete). Only the worktree is created after the commit (idempotent, fail-soft; worktree_reused reports an existing one). Returns the spawn-ready shape {task_id, branch_id, repo, slug, effort, effort_reason, worktree_path, git_setup, worktree_reused, diagnostic?} so swe can be dispatched against an existing branch+worktree.",
       inputSchema: {
         type: "object",
         properties: {
@@ -31839,7 +31884,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
               effort: {
                 type: "string",
                 enum: [...EFFORT_LEVELS],
-                description: "Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted \u2192 plugin_config.swe_default_effort (medium when unset)."
+                description: "Reasoning effort swe runs this task at; every swe spawn must pass the same effort. Omitted \u2192 computed: default from plugin_config.swe_default_effort (medium when unset); high for prompt-bearing tasks, files[] touching plugin_config.high_effort_paths, and rework."
               }
             },
             required: ["description", "spec_body", "files", "verification"]
@@ -31870,7 +31915,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           effort: {
             type: "string",
             enum: [...EFFORT_LEVELS],
-            description: "Optional new effort for the rework (e.g. 'high'); omit to keep the task's effort."
+            description: "Optional new effort for the rework (e.g. 'high'); omit to run the rework at high."
           },
           session_id: RUN_SESSION_ID_SCHEMA
         },
@@ -31977,7 +32022,11 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             `typed_field_violation: task.effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(task.effort)}.`
           );
         }
-        const effort = isEffort(task.effort) ? task.effort : resolveEffortDefaults(db2).swe;
+        const { effort, reason: effortReason } = computeEffort(db2, {
+          effort: task.effort,
+          prompt_bearing: promptBearing,
+          files
+        });
         const slug = branchId.replace(/^[^/]+\//, "");
         const specShapeWaived = args["waive_spec_shape"] === true;
         const specShapeWaiverReason = args["waive_spec_shape_reason"] ?? "";
@@ -32170,6 +32219,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           repo: repoValue,
           slug,
           effort,
+          effort_reason: effortReason,
           worktree_path: worktreePath,
           git_setup: gitSetup,
           worktree_reused: worktreeReused,
@@ -32218,7 +32268,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         }
         const files = appendUnique(parseTaskFiles(task.files), filesAdd);
         const verification = appendUnique(parseTaskFiles(task.verification), verificationAdd);
-        const effort = isEffort(effortArg) ? effortArg : task.effort;
+        const { effort } = computeEffort(db2, {
+          effort: effortArg,
+          prompt_bearing: 0,
+          files,
+          rework: true,
+          current: task.effort
+        });
         const now2 = nowISO();
         db2.transaction(() => {
           db2.run(
@@ -32573,7 +32629,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             );
           }
         }
-        const effort = isEffort(effortArg) ? effortArg : failed.effort;
+        const { effort } = computeEffort(db2, {
+          effort: effortArg,
+          prompt_bearing: failed.prompt_bearing === 1 ? 1 : 0,
+          files: parseTaskFiles(failed.files),
+          rework: true,
+          current: failed.effort
+        });
         const now2 = nowISO();
         const result2 = db2.transaction(() => {
           insertDiscussion(db2, {

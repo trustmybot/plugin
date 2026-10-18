@@ -9,7 +9,7 @@ import { taskTools } from '../tools/tasks.js';
 import { issueTools } from '../tools/issues.js';
 import { auditTools } from '../tools/audit.js';
 import { compositeTools } from '../tools/composites.js';
-import { configTools, resolveEffortDefaults } from '../tools/config.js';
+import { configTools, readHighEffortPaths, resolveEffortDefaults } from '../tools/config.js';
 
 // Each git fixture is its OWN sandbox under the OS temp dir — never inside the
 // plugin tree / ambient cwd — so no git op can ever drift onto the caller's
@@ -2291,20 +2291,120 @@ describe('effort (GH 1349)', () => {
     }
   });
 
-  it("task_retry inherits the failed task's effort or raises it, auditing the raise; task_brief returns effort", async () => {
+  it('task_reopen without effort runs the rework at high with one task_effort_raised row; an explicit medium keeps medium', async () => {
+    const { db, composites, cleanup } = setup();
+    try {
+      const id = parseResult(await provision(composites.handlers, 'fix/rework-computed')).task_id as number;
+      db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [id]);
+      const kept = await call(composites.handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'explicit', effort: 'medium' });
+      assert.ok(!kept.isError, JSON.stringify(parseResult(kept)));
+      assert.equal(effortOf(db, id), 'medium');
+      const raised = () => db.all<{ content_json: string }>(`SELECT content_json FROM audit WHERE event_type = 'task_effort_raised'`);
+      assert.equal(raised().length, 0);
+
+      db.run(`UPDATE tasks SET status = 'closed' WHERE id = ?`, [id]);
+      const r = await call(composites.handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'rework' });
+      assert.ok(!r.isError, JSON.stringify(parseResult(r)));
+      assert.equal(parseResult(r).effort, 'high');
+      assert.equal(effortOf(db, id), 'high');
+      assert.deepEqual(raised().map((row) => JSON.parse(row.content_json)), [{ task_id: id, from: 'medium', to: 'high' }]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('task_provision computes effort: default, prompt_bearing, high_effort_paths in both prefix directions, explicit wins', async () => {
+    const { db, composites, config, cleanup } = setup();
+    try {
+      const provisionWith = async (branchId: string, files: string[], extra: Record<string, unknown> = {}) =>
+        parseResult(await call(composites.handlers, 'task_provision', {
+          agent: 'bro', issue_id: 1, branch_id: branchId, decision_body: 'Chosen approach: computed effort fixture.',
+          task: { description: 'd', spec_body: SPEC, files, verification: ['true'], repo: 'app', ...extra },
+        }));
+
+      const unset = await provisionWith('feat/ce-unset', ['scripts/hooks/x.sh']);
+      assert.deepEqual([unset.effort, unset.effort_reason], ['medium', 'default']);
+
+      const bearing = await provisionWith('feat/ce-bearing', ['docs/x.md'], { prompt_bearing: 1 });
+      assert.deepEqual([bearing.effort, bearing.effort_reason], ['high', 'prompt_bearing']);
+
+      const set = await call(config.handlers, 'config_set', { agent: 'bro', key: 'high_effort_paths', value: ['scripts/hooks/', 'src/api'] });
+      assert.ok(!set.isError, JSON.stringify(parseResult(set)));
+
+      const hit = await provisionWith('feat/ce-hit', ['scripts/hooks/x.sh']);
+      assert.deepEqual([hit.effort, hit.effort_reason], ['high', 'high_effort_paths']);
+      assert.equal(effortOf(db, hit.task_id), 'high');
+
+      const broader = await provisionWith('feat/ce-broader', ['scripts/']);
+      assert.deepEqual([broader.effort, broader.effort_reason], ['high', 'high_effort_paths'], 'files[] entry is a directory prefix of the configured prefix');
+
+      const narrower = await provisionWith('feat/ce-narrower', ['src/api/users/get.ts']);
+      assert.deepEqual([narrower.effort, narrower.effort_reason], ['high', 'high_effort_paths'], 'configured prefix is a directory prefix of the files[] entry');
+
+      const miss = await provisionWith('feat/ce-miss', ['scripts/hooksy/x.sh', 'src/apis/x.ts']);
+      assert.deepEqual([miss.effort, miss.effort_reason], ['medium', 'default'], 'a sibling sharing only a name prefix is no overlap');
+
+      const explicit = await provisionWith('feat/ce-explicit', ['scripts/hooks/x.sh'], { effort: 'low' });
+      assert.deepEqual([explicit.effort, explicit.effort_reason], ['low', 'explicit']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('task_create_batch computes effort from prompt_bearing and high_effort_paths; explicit low wins', async () => {
+    const { db, config, cleanup } = setup();
+    try {
+      await call(config.handlers, 'config_set', { agent: 'bro', key: 'high_effort_paths', value: ['hooks/'] });
+      const tools = taskTools(db);
+      const created = parseBatch(await call(tools.handlers, 'task_create_batch', {
+        ...WAIVERS, agent: 'bro', issue_id: '1',
+        tasks: [
+          { branch_id: 'feat/cb-hit', description: 'd', files: ['hooks/hooks.json'] },
+          { branch_id: 'feat/cb-miss', description: 'd', files: ['src/a.ts'] },
+          { branch_id: 'feat/cb-bearing', description: 'd', prompt_bearing: 1 },
+          { branch_id: 'feat/cb-explicit', description: 'd', files: ['hooks/hooks.json'], effort: 'low' },
+        ],
+      }));
+      assert.deepEqual(created.map((t) => t.effort), ['high', 'medium', 'high', 'low']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('config_set high_effort_paths refuses a non-array and a non-string element, accepts [] and a prefix list', async () => {
+    const { db, config, cleanup } = setup();
+    try {
+      for (const value of ['scripts/', [1], ['ok', '']]) {
+        const bad = await call(config.handlers, 'config_set', { agent: 'bro', key: 'high_effort_paths', value });
+        assert.equal(bad.isError, true, JSON.stringify(value));
+        assert.match(String(parseResult(bad).error), /^typed_field_violation: config key "high_effort_paths" must be an array of non-empty strings/);
+      }
+      assert.deepEqual(readHighEffortPaths(db), []);
+      for (const value of [[], ['src/api/']]) {
+        const ok = await call(config.handlers, 'config_set', { agent: 'bro', key: 'high_effort_paths', value });
+        assert.ok(!ok.isError, JSON.stringify(parseResult(ok)));
+      }
+      assert.deepEqual(readHighEffortPaths(db), ['src/api/']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("task_retry keeps an explicit effort or runs the rework at high, auditing the raise; task_brief returns effort", async () => {
     const { db, composites, cleanup } = setup();
     try {
       const id = parseResult(await provision(composites.handlers, 'fix/retry-effort', 'low')).task_id as number;
       db.run(`UPDATE tasks SET status = 'failed' WHERE id = ?`, [id]);
-      const inherit = parseResult(await call(composites.handlers, 'task_retry', {
+      const explicit = parseResult(await call(composites.handlers, 'task_retry', {
         agent: 'bro', failed_task_id: String(id), new_branch_id: 'fix/retry-effort-v2', corrected_spec_body: SPEC,
-        retry_rationale: 'inherit', description: 'd',
+        retry_rationale: 'explicit', description: 'd', effort: 'low',
       }));
-      assert.equal(effortOf(db, inherit.task_id), 'low');
+      assert.equal(effortOf(db, explicit.task_id), 'low');
+      assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM audit WHERE event_type = 'task_effort_raised'`)!.c, 0);
 
       const raised = parseResult(await call(composites.handlers, 'task_retry', {
         agent: 'bro', failed_task_id: String(id), new_branch_id: 'fix/retry-effort-v3', corrected_spec_body: SPEC,
-        retry_rationale: 'raise', description: 'd', effort: 'high',
+        retry_rationale: 'rework', description: 'd',
       }));
       assert.equal(raised.effort, 'high');
       assert.equal(effortOf(db, raised.task_id), 'high');

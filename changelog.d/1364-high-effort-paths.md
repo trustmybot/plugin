@@ -1,0 +1,2 @@
+### Added
+- **A task's effort is computed from the project's high-effort paths** (GH 1364, GH 1362): the new `high_effort_paths` config key lists path prefixes, and `task_create_batch` and `task_provision` run a task whose `files[]` overlaps one at `high` when no effort is named, as they do for prompt-bearing tasks; `task_reopen` and `task_retry` without an `effort` now run the rework at `high` (recording a `task_effort_raised` row), and `task_provision` returns the `effort_reason`.
