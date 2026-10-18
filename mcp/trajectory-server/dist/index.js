@@ -24301,7 +24301,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "task_escalated_by_issue_close", writers: ["bro"], description: "`issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason`" },
   { type: "task_escalated_repair", writers: ["server"], description: "The v33 migration escalated a task still `pending`/`running`/`needs_validation`/`completed` whose issue was already `closed` and closed its open `agent_runs` rows as `issue_closed`; written by `system`; `content_json` carries `task_id`, `issue_id`, `from_status`" },
   { type: "task_recovered", writers: ["bro"], description: "`task_recover` closed a task stuck in `running`/`completed` at its commit; `content_json` carries `task_id`, `commit_sha`, `prior_status`" },
-  { type: "task_reopened", writers: ["bro"], description: "`task_reopen` moved a `closed` / `failed` / `escalated` / `running` task back to `running` for rework; `content_json` carries `task_id`, `from_status`, `reason`, `files_add`, `verification_add`" },
+  { type: "task_reopened", writers: ["bro"], description: "`task_reopen` moved a `pending` / `closed` / `failed` / `escalated` / `running` task back to `running` for rework; `content_json` carries `task_id`, `from_status`, `reason`, `files_add`, `verification_add`" },
   { type: "task_retry_attempted", writers: ["bro"], description: "`task_retry` created a retry task for a failed one; `content_json` carries `failed_task_id`, `new_task_id`, `new_branch_id`" },
   { type: "task_spec_amended", writers: ["bro"], description: "`task_update_spec` replaced a live task's `files` / `verification` / `spec_body`; `content_json` carries `task_id`, `status`, `reason`, `changes`" },
   { type: "task_stale_swept", writers: ["bro"], description: "`task_recover` moved a `running` task with no open swe `agent_runs` row and no update for `TMB_STALE_RUNNING_HOURS` (default 6) to `failed` and closed its open runs as `swept_stale`; `content_json` carries `task_id`, `from_status`, `last_updated_at`, `stale_after_hours`" },
@@ -31624,7 +31624,7 @@ function appendUnique(existing, additions) {
   for (const a of additions) if (!out.includes(a)) out.push(a);
   return out;
 }
-var REOPENABLE_STATUSES = /* @__PURE__ */ new Set(["closed", "failed", "escalated", "running"]);
+var REOPENABLE_STATUSES = /* @__PURE__ */ new Set(["pending", "closed", "failed", "escalated", "running"]);
 var SPEC_AMENDABLE_STATUSES = /* @__PURE__ */ new Set(["pending", "running", "needs_validation", "completed"]);
 function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRunContext(db2, dbPath2)) {
   const definitions = [
@@ -31896,7 +31896,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_reopen",
-      description: "Rework a task in one call: moves a closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, opens a bro agent_runs row for the rework (reusing an open one; stamped with session_id when passed), and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
+      description: "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, opens a bro agent_runs row for the rework (reusing an open one; stamped with session_id when passed), and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
       inputSchema: {
         type: "object",
         properties: {
@@ -32254,7 +32254,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         if (!task) return err15(`task_reopen: task ${taskId} not found`);
         if (!REOPENABLE_STATUSES.has(task.status)) {
           return err15(
-            `task_reopen: task ${taskId} is '${task.status}'; task_reopen moves closed, failed, escalated or running tasks. Amend a live task's spec with task_update_spec.`
+            `task_reopen: task ${taskId} is '${task.status}'; task_reopen moves pending, closed, failed, escalated or running tasks. Amend a live task's spec with task_update_spec.`
           );
         }
         if (task.issue_status === "closed") {

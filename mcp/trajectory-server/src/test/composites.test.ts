@@ -3002,11 +3002,32 @@ describe('task_reopen + task_update_spec', () => {
     }
   });
 
-  it('task_reopen refuses pending/completed tasks, a closed issue, and a missing reason', async () => {
+  it('task_reopen on a pending task moves it to running and creates the missing worktree', async () => {
+    const { ws, repoRoot, db, handlers, git } = setup();
+    try {
+      const id = await provision(handlers, 'fix/undispatched');
+      const wt = join(repoRoot, '.claude', 'worktrees', 'undispatched');
+      git(repoRoot, 'worktree', 'remove', '--force', wt);
+      db.run(`UPDATE tasks SET status = 'pending' WHERE id = ?`, [id]);
+      const out = parse(await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'dispatch the planned task' }));
+      assert.equal(out['from_status'], 'pending');
+      assert.equal(out['status'], 'running');
+      assert.equal(out['worktree_recreated'], true);
+      assert.equal(out['worktree_path'], wt);
+      assert.equal(taskRow(db, id).status, 'running');
+      assert.match(git(repoRoot, 'worktree', 'list', '--porcelain'), /worktrees\/undispatched/);
+      assert.equal(auditOf(db, 'task_reopened').length, 1);
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('task_reopen refuses completed/needs_validation tasks, a closed issue, and a missing reason', async () => {
     const { ws, db, handlers } = setup();
     try {
       const id = await provision(handlers, 'fix/not-reopenable');
-      for (const status of ['pending', 'completed', 'needs_validation']) {
+      for (const status of ['completed', 'needs_validation']) {
         db.run(`UPDATE tasks SET status = ? WHERE id = ?`, [status, id]);
         const r = await call(handlers, 'task_reopen', { agent: 'bro', task_id: id, reason: 'x' });
         assert.equal(r.isError, true, status);

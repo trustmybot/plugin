@@ -2,7 +2,8 @@
 # Tests for scripts/hooks/require-task-spec.sh (DB-backed form)
 # Hook contract: block SWE spawns unless the prompt cites a valid
 # task_id=<N> whose row in tasks table is pending, or running with no open swe
-# agent_runs row, AND has a non-empty spec_body. A schema-touching (a .sql file, a schema.* basename,
+# agent_runs row, AND has a non-empty spec_body. A pending task whose repo is a git
+# work tree must also have its branch checked out in a linked worktree. A schema-touching (a .sql file, a schema.* basename,
 # a migrations/migration/migrate directory, db.ts) or column-adding task also needs Writer: + Populated: lines or a Nullable: line,
 # unless a spec_shape_gate_waived audit row with from_node = 'bro' names the task
 # (written per task by task_create_batch / task_provision with waive_spec_shape,
@@ -18,6 +19,9 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/require-task-spec.sh"
 # Fixture: isolated TRAJECTORY_DB_PATH + a tasks table with known rows
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
+PROJECT_DIR="$TMPDIR/project"
+mkdir -p "$PROJECT_DIR"
+export CLAUDE_PROJECT_DIR="$PROJECT_DIR"
 DB="$TMPDIR/trajectory.db"
 export TRAJECTORY_DB_PATH="$DB"
 
@@ -94,6 +98,28 @@ INSERT INTO tasks VALUES (64, 'pending', 'Ship it.', '["docs/migrations-guide.md
 INSERT INTO tasks VALUES (65, 'pending', 'Ship it.', '["app/schematics/x.ts"]', 1, 'feat/shape65');
 INSERT INTO tasks VALUES (66, 'pending', 'Ship it.', '["src/mydb.ts"]', 1, 'feat/shape66');
 SQL
+
+make_repo() {
+  git init -q -b main "$1"
+  git -C "$1" -c user.name=t -c user.email=t@t.t commit -q --allow-empty -m base
+}
+make_repo "$TMPDIR/gitapp"
+git -C "$TMPDIR/gitapp" branch fix/has-wt
+git -C "$TMPDIR/gitapp" branch fix/no-wt
+git -C "$TMPDIR/gitapp" worktree add -q "$TMPDIR/gitapp/.claude/worktrees/has-wt" fix/has-wt
+make_repo "$TMPDIR/mainapp"
+git -C "$TMPDIR/mainapp" checkout -q -b fix/on-main
+sqlite3 "$DB" "
+  ALTER TABLE tasks ADD COLUMN repo TEXT;
+  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL);
+  INSERT INTO repos VALUES ('gitapp', '$TMPDIR/gitapp');
+  INSERT INTO repos VALUES ('mainapp', '$TMPDIR/mainapp');
+  INSERT INTO tasks (id, status, spec_body, branch_id, repo) VALUES (70, 'pending', 'Do the thing.', 'fix/no-wt', 'gitapp');
+  INSERT INTO tasks (id, status, spec_body, branch_id, repo) VALUES (71, 'pending', 'Do the thing.', 'fix/has-wt', 'gitapp');
+  INSERT INTO tasks (id, status, spec_body, branch_id, repo) VALUES (72, 'pending', 'Do the thing.', 'fix/on-main', 'mainapp');
+  INSERT INTO tasks (id, status, spec_body, branch_id, repo) VALUES (73, 'pending', 'Do the thing.', 'fix/anywhere', NULL);
+  INSERT INTO tasks (id, status, spec_body, branch_id, repo) VALUES (74, 'running', 'Do the thing.', 'fix/no-wt', 'gitapp');
+"
 
 swe_input() {
   jq -n --arg p "$1" '{tool_input:{subagent_type:"swe",prompt:$p}}'
@@ -278,6 +304,32 @@ for id in 64 65 66; do
   out=$(run_hook "$(swe_input "task_id=$id please do the thing")")
   assert_eq "" "$out" "silent pass"
 done
+
+test_case "pending task in a git repo with no linked worktree is blocked with the task_reopen next step"
+out=$(run_hook "$(swe_input 'task_id=70 please do the thing')")
+assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
+assert_contains "$out" "task_reopen(task_id=70" "reason spells the task_reopen call"
+assert_contains "$out" "fix/no-wt" "reason names the branch"
+assert_contains "$out" "$TMPDIR/gitapp/.claude/worktrees/no-wt" "reason names the expected worktree path"
+assert_not_contains "$out" "switch the main checkout" "no main-checkout advice"
+
+test_case "pending task whose branch is checked out in a linked worktree passes silently"
+out=$(run_hook "$(swe_input 'task_id=71 please do the thing')")
+assert_eq "" "$out" "linked worktree allows"
+
+test_case "pending task whose branch is checked out in the main checkout is blocked with switch-back advice"
+out=$(run_hook "$(swe_input 'task_id=72 please do the thing')")
+assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
+assert_contains "$out" "switch the main checkout back" "reason says to switch the main checkout back"
+assert_contains "$out" "task_reopen(task_id=72" "reason spells the task_reopen call"
+
+test_case "pending task whose project dir is not a git work tree passes silently"
+out=$(run_hook "$(swe_input 'task_id=73 please do the thing')")
+assert_eq "" "$out" "non-git project dir is not gated"
+
+test_case "running task with no worktree is not gated"
+out=$(run_hook "$(swe_input 'task_id=74 please do the thing')")
+assert_eq "" "$out" "running task allowed"
 
 # Real server writers against a real trajectory DB: the rows task_create_batch
 # and audit_append write are the rows the hook reads.

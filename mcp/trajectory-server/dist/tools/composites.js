@@ -431,7 +431,7 @@ function appendUnique(existing, additions) {
             out.push(a);
     return out;
 }
-const REOPENABLE_STATUSES = new Set(['closed', 'failed', 'escalated', 'running']);
+const REOPENABLE_STATUSES = new Set(['pending', 'closed', 'failed', 'escalated', 'running']);
 const SPEC_AMENDABLE_STATUSES = new Set(['pending', 'running', 'needs_validation', 'completed']);
 export function compositeTools(db, dbPath, graphHolder = null, runContext = claudeRunContext(db, dbPath)) {
     const definitions = [
@@ -720,7 +720,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
         },
         {
             name: 'task_reopen',
-            description: "Rework a task in one call: moves a closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, opens a bro agent_runs row for the rework (reusing an open one; stamped with session_id when passed), and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
+            description: "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, opens a bro agent_runs row for the rework (reusing an open one; stamped with session_id when passed), and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -1115,7 +1115,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             if (!task)
                 return err(`task_reopen: task ${taskId} not found`);
             if (!REOPENABLE_STATUSES.has(task.status)) {
-                return err(`task_reopen: task ${taskId} is '${task.status}'; task_reopen moves closed, failed, escalated or running tasks. ` +
+                return err(`task_reopen: task ${taskId} is '${task.status}'; task_reopen moves pending, closed, failed, escalated or running tasks. ` +
                     `Amend a live task's spec with task_update_spec.`);
             }
             if (task.issue_status === 'closed') {
