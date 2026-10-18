@@ -429,6 +429,21 @@ test_case "GH 1199: unquoted 'keep going' → resume hint"
 out=$(run_hook_db "keep going")
 assert_contains "$out" "resume-intent hint" "unquoted resume intent fires"
 
+sqlite3 "$HINT_DB" "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('onboarded', 'true');" >/dev/null
+
+test_case "reonboard-intent: 'switch to gitflow' on an onboarded project → hint names onboard_state_get"
+out=$(run_hook_db "I want to switch to gitflow — what's the right way to reconfigure?")
+assert_contains "$out" "reonboard-intent hint" "branching-model switch fires"
+assert_contains "$out" "onboard_state_get" "CTX names the required first action"
+
+test_case "reonboard-intent: 'change pr target to main' fires"
+out=$(run_hook_db "change pr target to main")
+assert_contains "$out" "reonboard-intent hint" "PR-target change fires"
+
+test_case "reonboard-intent: 'gitflow is a popular model' does NOT fire"
+out=$(run_hook_db "gitflow is a popular model")
+assert_not_contains "$out" "reonboard-intent hint" "no verb phrase, no hint"
+
 test_case "GH 1199: quoted 'skip validation' → no concerns hint; unquoted → hint"
 out=$(run_hook 'the log line "skip validation: off" confused me')
 assert_not_contains "$out" "concerns-protocol hint" "quoted text is not a doubt-class request"

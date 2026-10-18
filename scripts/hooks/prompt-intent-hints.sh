@@ -376,7 +376,7 @@ Before \`git push\`, spawn pr-reviewer for each pending task via \`Agent(subagen
 fi
 
 # ---------------------------------------------------------------------------
-# 5. reonboard-intent — remote-setup phrases; DB query on match
+# 5. reonboard-intent — remote-setup, issue-tracker and branching-policy phrases; DB query on match
 # ---------------------------------------------------------------------------
 if [ "${TMB_DISABLE_REONBOARD_HINT:-0}" != "1" ]; then
   case "$LOWER" in
@@ -393,7 +393,12 @@ if [ "${TMB_DISABLE_REONBOARD_HINT:-0}" != "1" ]; then
         'live on a remote' 'live on github' 'live on gitlab' \
         'lives on a remote' 'lives on github' 'lives on gitlab' \
         'needs to live on' 'needs a remote' \
-        'change my issue tracker' 'switch issue tracker'; do
+        'change my issue tracker' 'switch issue tracker' \
+        'switch to gitflow' 'switch to git-flow' 'switch to github-flow' \
+        'switch to github flow' 'change branching model' \
+        'change the branching model' 'switch branching model' \
+        'change pr target' 'change the pr target' 'update pr target' \
+        'update the pr target'; do
         case "$LOWER" in
           *"$pat"*)
             matched="$pat"
