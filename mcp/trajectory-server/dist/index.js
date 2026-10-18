@@ -27765,8 +27765,47 @@ function milestoneTools(db2) {
 }
 
 // src/tools/tasks.ts
-import { spawnSync as spawnSync4 } from "node:child_process";
+import { spawnSync as spawnSync5 } from "node:child_process";
 import { resolve, dirname as dirname3 } from "node:path";
+
+// src/utils/git-refs.ts
+import { execFileSync, spawnSync as spawnSync4 } from "node:child_process";
+function refResolves(repoPath, ref) {
+  try {
+    execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", ref], {
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: SUBPROCESS_TIMEOUT_MS
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function resolveBaseRef(repoPath, base) {
+  if (refResolves(repoPath, `origin/${base}`)) return `origin/${base}`;
+  if (refResolves(repoPath, `refs/heads/${base}`)) return base;
+  return null;
+}
+function branchRefExists(repoPath, branch) {
+  return refResolves(repoPath, `refs/heads/${branch}`) || refResolves(repoPath, `refs/remotes/origin/${branch}`);
+}
+function gitOut(repoPath, args) {
+  const res = spawnSync4("git", ["-C", repoPath, ...args], {
+    encoding: "utf8",
+    timeout: SUBPROCESS_TIMEOUT_MS
+  });
+  if (res.error || res.status !== 0) return null;
+  const out = res.stdout.trim();
+  return out.length > 0 ? out : null;
+}
+function resolveRepoDefaultBranch(repoPath) {
+  const originHead = gitOut(repoPath, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
+  if (originHead) return originHead.replace(/^origin\//, "");
+  for (const candidate of ["main", "master", "dev"]) {
+    if (refResolves(repoPath, `refs/heads/${candidate}`)) return candidate;
+  }
+  return gitOut(repoPath, ["symbolic-ref", "--short", "HEAD"]) ?? "main";
+}
 
 // src/tools/config.ts
 function ok5(data) {
@@ -27985,7 +28024,6 @@ function taskFileDirs(filesJson) {
   return dirs;
 }
 var BRANCH_ID_RE = /^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)\/[a-z0-9][a-z0-9-]{0,62}$/;
-var BASE_BRANCH_ALLOWLIST = /* @__PURE__ */ new Set(["dev", "main", "master"]);
 var SPEC_BODY_MAX_BYTES = (() => {
   const raw = process.env["TMB_SPEC_BODY_MAX_BYTES"];
   if (raw === void 0) return 8e3;
@@ -27999,10 +28037,35 @@ function validateBranchId(branchId) {
     );
   }
 }
-function validateParentBranchId(branchId) {
-  if (BASE_BRANCH_ALLOWLIST.has(branchId) || BRANCH_ID_RE.test(branchId)) return;
+function isGitValidBranchName(name) {
+  return !/[\s~^:?*[\\]/.test(name) && !name.includes("..") && !name.startsWith("-") && !name.endsWith("/") && !name.endsWith(".lock");
+}
+function repoPolicyBranches(db2, repoValue) {
+  const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db2)?.name ?? null;
+  const names = /* @__PURE__ */ new Set();
+  if (!name) return { names, target: null, repoPath: null };
+  const row = db2.get(
+    `SELECT path, target_branch, protected_branches FROM repos WHERE name = ?`,
+    [name]
+  );
+  if (!row) return { names, target: null, repoPath: null };
+  if (row.target_branch) names.add(row.target_branch);
+  try {
+    const parsed = JSON.parse(row.protected_branches ?? "[]");
+    if (Array.isArray(parsed)) {
+      for (const b of parsed) if (typeof b === "string") names.add(b);
+    }
+  } catch {
+  }
+  const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname3(db2.dbPath);
+  return { names, target: row.target_branch || null, repoPath: row.path.startsWith("/") ? row.path : resolve(dbDir, row.path) };
+}
+function validateParentBranchId(branchId, db2, repoValue) {
+  if (BRANCH_ID_RE.test(branchId)) return;
+  const { names, target, repoPath } = repoPolicyBranches(db2, repoValue);
+  if (isGitValidBranchName(branchId) && (names.has(branchId) || repoPath !== null && branchRefExists(repoPath, branchId))) return;
   throw new Error(
-    `Invalid branch_id "${branchId}". Must be a base branch (dev, main, master) or git-convention format: <type>/<slug> where <type> is one of feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: dev, main, feat/user-login.`
+    `Invalid branch_id "${branchId}". Must be the repo's target branch (${target ?? "unset"}), a protected branch, an existing branch, or git-convention format: <type>/<slug> where <type> is one of feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: feat/user-login, fix/auth-crash.`
   );
 }
 function validateTypedRailsFields(t) {
@@ -28041,7 +28104,7 @@ function validateTypedRailsFields(t) {
 var SWE_ALLOWED_TARGET_STATUSES = /* @__PURE__ */ new Set(["running", "completed", "failed"]);
 var SWE_LOCKED_SOURCE_STATES = /* @__PURE__ */ new Set(["closed", "escalated"]);
 function ensureBranchInRepo(branchId, repoPath, parentBranchId) {
-  const existsResult = spawnSync4("git", ["-C", repoPath, "rev-parse", "--verify", branchId], {
+  const existsResult = spawnSync5("git", ["-C", repoPath, "rev-parse", "--verify", branchId], {
     encoding: "utf8",
     timeout: SUBPROCESS_TIMEOUT_MS
   });
@@ -28056,14 +28119,14 @@ function ensureBranchInRepo(branchId, repoPath, parentBranchId) {
   }
   let startPoint = "HEAD";
   if (parentBranchId) {
-    const parentResult = spawnSync4(
+    const parentResult = spawnSync5(
       "git",
       ["-C", repoPath, "rev-parse", "--verify", parentBranchId],
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
     );
     if (parentResult.status === 0) startPoint = parentBranchId;
   }
-  const createResult = spawnSync4("git", ["-C", repoPath, "branch", branchId, startPoint], {
+  const createResult = spawnSync5("git", ["-C", repoPath, "branch", branchId, startPoint], {
     encoding: "utf8",
     timeout: SUBPROCESS_TIMEOUT_MS
   });
@@ -28161,7 +28224,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
                 files: {
                   type: "array",
                   items: { type: "string" },
-                  description: "The task's expected scope at directory granularity (e.g. 'scripts/hooks/', 'CHANGELOG.md'). Writes outside it are allowed with a note to the swe; bro_atomic_close refuses on changed paths outside it until bro accepts them."
+                  description: "The task's expected scope at directory granularity (e.g. 'src/api/', 'docs/', 'README.md'). Writes outside it are allowed with a note to the swe; bro_atomic_close refuses on changed paths outside it until bro accepts them."
                 },
                 verification: {
                   type: "array",
@@ -28487,7 +28550,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
         if (!t.branch_id) throw new Error("Missing required arg: branch_id");
         validateBranchId(t.branch_id);
         validateTypedRailsFields(t);
-        if (t.parent_branch_id != null) validateParentBranchId(t.parent_branch_id);
+        if (t.parent_branch_id != null) validateParentBranchId(t.parent_branch_id, db2, (t.repo || soleRepoValue) ?? null);
         if (!t.description) throw new Error("Missing required arg: description");
         if (t.spec_body !== void 0) {
           if (typeof t.spec_body !== "string") {
@@ -28544,7 +28607,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
         const now2 = nowISO();
         for (const t of taskInputs) {
           if (!t.branch_id) throw new Error("Missing required arg: branch_id");
-          if (t.parent_branch_id != null) validateParentBranchId(t.parent_branch_id);
+          if (t.parent_branch_id != null) validateParentBranchId(t.parent_branch_id, db2, (t.repo || soleRepoValue) ?? null);
           if (!t.description) throw new Error("Missing required arg: description");
           if (t.spec_body !== void 0) {
             if (typeof t.spec_body !== "string") {
@@ -30797,7 +30860,7 @@ function buildBotPatterns(configOverride) {
 }
 
 // src/tools/pr_monitor.ts
-import { spawnSync as spawnSync5 } from "node:child_process";
+import { spawnSync as spawnSync6 } from "node:child_process";
 
 // src/utils/untrusted.ts
 var UNTRUSTED_CLOSE = "</untrusted-content>";
@@ -30832,7 +30895,7 @@ function defaultSpawnFn2(cmd, args, opts) {
   if (blockReason) {
     return { status: null, stdout: "", stderr: liveCliBlockedMessage(blockReason, cmd, args) };
   }
-  const result2 = spawnSync5(cmd, args, opts);
+  const result2 = spawnSync6(cmd, args, opts);
   return {
     status: result2.status,
     stdout: result2.stdout ? String(result2.stdout) : "",
@@ -31187,7 +31250,7 @@ function prMonitorTools(db2, _spawnFn) {
 }
 
 // src/tools/composites.ts
-import { execFileSync } from "node:child_process";
+import { execFileSync as execFileSync2 } from "node:child_process";
 import { existsSync as existsSync4, realpathSync as realpathSync3 } from "node:fs";
 import { resolve as resolve3, dirname as dirname6 } from "node:path";
 var WORKTREE_TIMEOUT_MS = 6e4;
@@ -31234,9 +31297,9 @@ function pathInFiles(path2, files) {
   if (dirs.some((d) => d === "tests" || d.startsWith("tests/"))) dirs.push("tests");
   return dirs.some((d) => path2 === d || path2.startsWith(`${d}/`));
 }
-var SCOPE_SURFACES = ["mcp/trajectory-server/src", "scripts/hooks", "tests", "docs", "skills"];
 function scopeSurface(path2) {
-  return SCOPE_SURFACES.find((s) => path2 === s || path2.startsWith(`${s}/`)) ?? "other";
+  const slash = path2.indexOf("/");
+  return slash > 0 ? path2.slice(0, slash) : "<root>";
 }
 function groupBySurface(paths) {
   const groups = {};
@@ -31248,8 +31311,8 @@ function groupBySurface(paths) {
   }
   return groups;
 }
-function gitOut(repoPath, args) {
-  return execFileSync("git", ["-C", repoPath, ...args], {
+function gitOut2(repoPath, args) {
+  return execFileSync2("git", ["-C", repoPath, ...args], {
     stdio: ["ignore", "pipe", "pipe"],
     timeout: SUBPROCESS_TIMEOUT_MS
   }).toString().trim();
@@ -31258,8 +31321,8 @@ function scopeCheckCommit(repoPath, targetRef, commitSha, files, recordedBaseRef
   let mergeBase;
   let diffOut;
   try {
-    mergeBase = gitOut(repoPath, ["merge-base", commitSha, targetRef]);
-    diffOut = gitOut(repoPath, ["diff", "--name-only", mergeBase, commitSha]);
+    mergeBase = gitOut2(repoPath, ["merge-base", commitSha, targetRef]);
+    diffOut = gitOut2(repoPath, ["diff", "--name-only", mergeBase, commitSha]);
   } catch (e) {
     return {
       outOfScope: [],
@@ -31270,7 +31333,7 @@ function scopeCheckCommit(repoPath, targetRef, commitSha, files, recordedBaseRef
   let recordedBase = mergeBase;
   if (recordedBaseRef && recordedBaseRef !== targetRef) {
     try {
-      recordedBase = gitOut(repoPath, ["merge-base", commitSha, recordedBaseRef]);
+      recordedBase = gitOut2(repoPath, ["merge-base", commitSha, recordedBaseRef]);
     } catch {
       recordedBase = null;
     }
@@ -31285,25 +31348,6 @@ function resolveRepoPath(db2, repoValue) {
   if (!reposRow) return name;
   const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname6(db2.dbPath);
   return reposRow.path.startsWith("/") ? reposRow.path : resolve3(dbDir, reposRow.path);
-}
-function resolveBaseRef(repoPath, base) {
-  try {
-    execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", `origin/${base}`], {
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: SUBPROCESS_TIMEOUT_MS
-    });
-    return `origin/${base}`;
-  } catch {
-  }
-  try {
-    execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${base}`], {
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: SUBPROCESS_TIMEOUT_MS
-    });
-    return base;
-  } catch {
-    return null;
-  }
 }
 function readRepoTargetBranch(db2, repoValue) {
   const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db2)?.name ?? null;
@@ -31436,7 +31480,7 @@ function taskWorktreePath(repoPath, branchId) {
   return `${repoPath}/.claude/worktrees/${branchId.replace(/^[^/]+\//, "")}`;
 }
 function git(repoPath, args, timeout = SUBPROCESS_TIMEOUT_MS) {
-  return execFileSync("git", ["-C", repoPath, ...args], {
+  return execFileSync2("git", ["-C", repoPath, ...args], {
     stdio: ["ignore", "pipe", "pipe"],
     timeout
   }).toString().trim();
@@ -31741,7 +31785,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           },
           base: {
             type: "string",
-            description: "Optional start-point for the branch ref. Defaults to the repo's target_branch || 'dev'."
+            description: "Optional start-point for the branch ref. Defaults to the repo's target_branch, else its default branch (origin/HEAD)."
           },
           reuse_existing: {
             type: "boolean",
@@ -31989,7 +32033,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           const refusal2 = outsideProject("task_provision", runContext.projectRoot, path2);
           if (refusal2) return outsideProjectResult(refusal2);
         }
-        const base = args["base"] ?? (readRepoTargetBranch(db2, repoValue) ?? "dev");
+        const base = args["base"] ?? (readRepoTargetBranch(db2, repoValue) ?? resolveRepoDefaultBranch(repoPath));
         const reuseExisting = args["reuse_existing"] === true;
         const localRef = `refs/heads/${branchId}`;
         const originRef = `refs/remotes/origin/${branchId}`;
@@ -32727,7 +32771,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         let stderr = "";
         let exitCode = 0;
         try {
-          execFileSync("git", ["-C", repoPath, "worktree", "add", wtPath, commitSha], {
+          execFileSync2("git", ["-C", repoPath, "worktree", "add", wtPath, commitSha], {
             stdio: ["ignore", "pipe", "pipe"],
             timeout: WORKTREE_TIMEOUT_MS
           });
@@ -32735,7 +32779,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           return err15(`worktree add failed: ${e.message}`);
         }
         try {
-          const result2 = execFileSync("bash", ["-c", command], {
+          const result2 = execFileSync2("bash", ["-c", command], {
             cwd: wtPath,
             stdio: ["ignore", "pipe", "pipe"],
             timeout: 6e4
@@ -32748,7 +32792,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           exitCode = spawnErr.status ?? 1;
         } finally {
           try {
-            execFileSync("git", ["-C", repoPath, "worktree", "remove", "--force", wtPath], {
+            execFileSync2("git", ["-C", repoPath, "worktree", "remove", "--force", wtPath], {
               stdio: "ignore",
               timeout: WORKTREE_TIMEOUT_MS
             });
@@ -32798,7 +32842,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           const slug = task.branch_id.replace(/^[^/]+\//, "");
           if (task.commit_sha) {
             try {
-              const refSha2 = execFileSync(
+              const refSha2 = execFileSync2(
                 "git",
                 ["-C", repoPath, "rev-parse", "--verify", `refs/heads/${task.branch_id}`],
                 { stdio: ["ignore", "pipe", "pipe"], timeout: 3e4 }
@@ -32814,13 +32858,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           try {
             let targetSha = task.commit_sha ?? "";
             if (!targetSha) {
-              targetSha = execFileSync(
+              targetSha = execFileSync2(
                 "git",
                 ["-C", wtPath, "rev-parse", "HEAD"],
                 { stdio: ["ignore", "pipe", "pipe"], timeout: 3e4 }
               ).toString().trim();
             }
-            execFileSync(
+            execFileSync2(
               "git",
               ["-C", repoPath, "update-ref", `refs/heads/${task.branch_id}`, targetSha],
               { stdio: ["ignore", "pipe", "pipe"], timeout: 3e4 }
@@ -32873,7 +32917,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           return err15("bro_atomic_close: waive_scope_gate=true requires scope_waiver_reason (at least 10 characters) naming why the extra paths are accepted.");
         }
         const repoPath = resolveRepoPath(db2, task.repo);
-        const targetCandidates = [readRepoTargetBranch(db2, task.repo), task.parent_branch_id, "dev"].filter(
+        const targetCandidates = [readRepoTargetBranch(db2, task.repo), task.parent_branch_id, repoPath ? resolveRepoDefaultBranch(repoPath) : null].filter(
           (b) => typeof b === "string" && b.length > 0
         );
         let targetRef = null;
@@ -33038,7 +33082,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
 }
 
 // src/tools/onboard.ts
-import { spawnSync as spawnSync6 } from "node:child_process";
+import { spawnSync as spawnSync7 } from "node:child_process";
 import { join as join12 } from "node:path";
 
 // src/tools/onboard-hooks-shim.ts
@@ -33512,10 +33556,10 @@ function wrapHandler13(fn) {
 }
 function probeGit(cwd) {
   const opts = { encoding: "utf8", timeout: 3e3, cwd };
-  const inGitR = spawnSync6("git", ["rev-parse", "--show-toplevel"], opts);
+  const inGitR = spawnSync7("git", ["rev-parse", "--show-toplevel"], opts);
   const in_git = inGitR.status === 0;
   if (!in_git) return { in_git: false, detected_remotes: [], origin_kind: null };
-  const remotesR = spawnSync6("git", ["remote", "-v"], opts);
+  const remotesR = spawnSync7("git", ["remote", "-v"], opts);
   const detected_remotes = [];
   if (remotesR.status === 0) {
     const seen = /* @__PURE__ */ new Set();
@@ -33537,7 +33581,7 @@ function probeGit(cwd) {
   };
 }
 function branchExists(cwd, branch) {
-  const r = spawnSync6("git", ["-C", cwd, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], {
+  const r = spawnSync7("git", ["-C", cwd, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], {
     encoding: "utf8",
     timeout: 3e3
   });
@@ -33545,16 +33589,16 @@ function branchExists(cwd, branch) {
 }
 function repoDefaultBranch(cwd) {
   const opts = { encoding: "utf8", timeout: 3e3 };
-  const head = spawnSync6("git", ["-C", cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], opts);
+  const head = spawnSync7("git", ["-C", cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], opts);
   if (head.status === 0) {
     const b = (head.stdout ?? "").trim().replace(/^origin\//, "");
     if (b) return b;
   }
   for (const cand of ["main", "master", "dev"]) {
-    const r = spawnSync6("git", ["-C", cwd, "show-ref", "--verify", "--quiet", `refs/heads/${cand}`], opts);
+    const r = spawnSync7("git", ["-C", cwd, "show-ref", "--verify", "--quiet", `refs/heads/${cand}`], opts);
     if (r.status === 0) return cand;
   }
-  const cur = spawnSync6("git", ["-C", cwd, "symbolic-ref", "--short", "HEAD"], opts);
+  const cur = spawnSync7("git", ["-C", cwd, "symbolic-ref", "--short", "HEAD"], opts);
   if (cur.status === 0) {
     const b = (cur.stdout ?? "").trim();
     if (b) return b;
@@ -33562,11 +33606,11 @@ function repoDefaultBranch(cwd) {
   return "main";
 }
 function probeCli(cmd) {
-  const which = spawnSync6("command", ["-v", cmd], { encoding: "utf8", timeout: AUTH_PROBE_TIMEOUT_MS, shell: true });
+  const which = spawnSync7("command", ["-v", cmd], { encoding: "utf8", timeout: AUTH_PROBE_TIMEOUT_MS, shell: true });
   const installed = which.status === 0 && (which.stdout ?? "").trim().length > 0;
   if (!installed) return { installed: false, authed: false };
   if (liveCliBlockReason()) return { installed: true, authed: false };
-  const authR = spawnSync6(cmd, ["auth", "status"], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
+  const authR = spawnSync7(cmd, ["auth", "status"], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
   return { installed: true, authed: authR.status === 0 };
 }
 function readConfig(db2, key) {
@@ -34321,7 +34365,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
 }
 
 // src/tools/scan.ts
-import { spawn, spawnSync as spawnSync7 } from "node:child_process";
+import { spawn, spawnSync as spawnSync8 } from "node:child_process";
 import { closeSync as closeSync2, existsSync as existsSync9, openSync as openSync2, readFileSync as readFileSync7, readSync, realpathSync as realpathSync5, writeFileSync as writeFileSync5, unlinkSync as unlinkSync2 } from "node:fs";
 import { dirname as dirname11, join as join13 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
@@ -35353,12 +35397,12 @@ function persistFilesGraph(graph, out, plan) {
 function readRepoRemotes(path2) {
   try {
     const opts = { encoding: "utf8", timeout: 3e3 };
-    const listR = spawnSync7("git", ["-C", path2, "remote"], opts);
+    const listR = spawnSync8("git", ["-C", path2, "remote"], opts);
     if (listR.status !== 0) return [];
     const names = (listR.stdout ?? "").split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
     const remotes = [];
     for (const name of names) {
-      const urlR = spawnSync7("git", ["-C", path2, "remote", "get-url", name], opts);
+      const urlR = spawnSync8("git", ["-C", path2, "remote", "get-url", name], opts);
       if (urlR.status !== 0) continue;
       const url2 = (urlR.stdout ?? "").trim();
       if (!url2) continue;
@@ -36916,7 +36960,7 @@ function cheatcodeTools(db2) {
 }
 
 // src/tools/world_model.ts
-import { spawnSync as spawnSync8 } from "node:child_process";
+import { spawnSync as spawnSync9 } from "node:child_process";
 import { resolve as resolve4, dirname as dirname13 } from "node:path";
 var WORLD_MODEL_GET_MAX_NODES = 500;
 var UNMERGED_WORK_MAX_BRANCHES = 10;
@@ -36929,8 +36973,8 @@ function computeUnmergedWork(db2, repo) {
   if (!repoRow) return { unmerged_work: [] };
   const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname13(db2.dbPath);
   const repoPath = repoRow.path.startsWith("/") ? repoRow.path : resolve4(dbDir, repoRow.path);
-  const target = repoRow.target_branch || "dev";
-  const gitCheck = spawnSync8("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
+  const target = repoRow.target_branch || resolveRepoDefaultBranch(repoPath);
+  const gitCheck = spawnSync9("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
     encoding: "utf8",
     timeout: SUBPROCESS_TIMEOUT_MS
   });
@@ -36955,13 +36999,13 @@ function computeUnmergedWork(db2, repo) {
   }
   const unmerged_work = [];
   for (const [branch_id, entry] of [...byBranch.entries()].slice(0, UNMERGED_WORK_MAX_BRANCHES)) {
-    const refCheck = spawnSync8(
+    const refCheck = spawnSync9(
       "git",
       ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branch_id}`],
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
     );
     if (refCheck.status !== 0) continue;
-    const mergeBase = spawnSync8(
+    const mergeBase = spawnSync9(
       "git",
       ["-C", repoPath, "merge-base", "--is-ancestor", entry.tip, target],
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }

@@ -6,6 +6,7 @@ import { repoSlugFromRemoteUrl } from '../sync/issue_sync.js';
 import { insertAudit } from './audit.js';
 import { taskWorktreePath } from './composites.js';
 import { LIVE_TASK_STATUSES } from './lifecycle.js';
+export { resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { repoRemotes, type Remote } from '../repos/remotes.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;

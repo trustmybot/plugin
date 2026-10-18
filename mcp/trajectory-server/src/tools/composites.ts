@@ -30,6 +30,7 @@ import { defaultSpawnFn, type SpawnFn } from '../sync/issue_sync.js';
 import { resolveMilestoneTargets } from './milestones.js';
 import type { GraphHolder } from '../graph-db.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
+import { resolveBaseRef, resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { resolveSoleRepo } from '../utils/repo-paths.js';
 import { latestVerificationRun } from './verification-runs.js';
 import { resolve, dirname } from 'node:path';
@@ -106,11 +107,9 @@ export function pathInFiles(path: string, files: readonly string[]): boolean {
   return dirs.some((d) => path === d || path.startsWith(`${d}/`));
 }
 
-// The top-level surfaces the close-time refusal groups extra paths by.
-export const SCOPE_SURFACES = ['mcp/trajectory-server/src', 'scripts/hooks', 'tests', 'docs', 'skills'] as const;
-
 export function scopeSurface(path: string): string {
-  return SCOPE_SURFACES.find((s) => path === s || path.startsWith(`${s}/`)) ?? 'other';
+  const slash = path.indexOf('/');
+  return slash > 0 ? path.slice(0, slash) : '<root>';
 }
 
 export function groupBySurface(paths: readonly string[]): Record<string, { count: number; paths: string[] }> {
@@ -197,32 +196,6 @@ export function resolveRepoPath(db: TrajectoryDB, repoValue: string | null): str
   if (!reposRow) return name;
   const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
   return reposRow.path.startsWith('/') ? reposRow.path : resolve(dbDir, reposRow.path);
-}
-
-// Resolve a base branch name to a concrete git ref, preferring the freshest
-// remote-tracking ref. Returns `origin/<base>` when it resolves (remote-present
-// repos — freshest-origin doctrine unchanged), else the local `<base>` when
-// refs/heads/<base> resolves (remoteless repos: L6 sandboxes, fresh local
-// projects, local-only stacked bases), else null when neither exists.
-function resolveBaseRef(repoPath: string, base: string): string | null {
-  try {
-    execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', `origin/${base}`], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: SUBPROCESS_TIMEOUT_MS,
-    });
-    return `origin/${base}`;
-  } catch {
-    // origin/<base> absent — fall back to the local branch.
-  }
-  try {
-    execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', `refs/heads/${base}`], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: SUBPROCESS_TIMEOUT_MS,
-    });
-    return base;
-  } catch {
-    return null;
-  }
 }
 
 // Read a repo's target_branch (pr_target) from the repos table — the sole
@@ -812,7 +785,7 @@ export function compositeTools(
           },
           base: {
             type: 'string',
-            description: "Optional start-point for the branch ref. Defaults to the repo's target_branch || 'dev'.",
+            description: "Optional start-point for the branch ref. Defaults to the repo's target_branch, else its default branch (origin/HEAD).",
           },
           reuse_existing: {
             type: 'boolean',
@@ -1108,7 +1081,7 @@ export function compositeTools(
 
         const base =
           (args['base'] as string | undefined) ??
-          (readRepoTargetBranch(db, repoValue) ?? 'dev');
+          (readRepoTargetBranch(db, repoValue) ?? resolveRepoDefaultBranch(repoPath));
 
         // Branch policy: a new ref is created from the base ('created'); an
         // existing ref (local or origin) is reused only when it is an
@@ -2242,7 +2215,7 @@ export function compositeTools(
         }
 
         const repoPath = resolveRepoPath(db, task.repo);
-        const targetCandidates = [readRepoTargetBranch(db, task.repo), task.parent_branch_id, 'dev'].filter(
+        const targetCandidates = [readRepoTargetBranch(db, task.repo), task.parent_branch_id, repoPath ? resolveRepoDefaultBranch(repoPath) : null].filter(
           (b): b is string => typeof b === 'string' && b.length > 0,
         );
         let targetRef: string | null = null;

@@ -29690,8 +29690,41 @@ function scanTools(db, graphHolder = null, dbPath = "") {
 }
 
 // src/tools/world_model.ts
-import { spawnSync as spawnSync5 } from "node:child_process";
+import { spawnSync as spawnSync6 } from "node:child_process";
 import { resolve, dirname as dirname7 } from "node:path";
+
+// src/utils/git-refs.ts
+import { execFileSync, spawnSync as spawnSync5 } from "node:child_process";
+function refResolves(repoPath, ref) {
+  try {
+    execFileSync("git", ["-C", repoPath, "rev-parse", "--verify", "--quiet", ref], {
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: SUBPROCESS_TIMEOUT_MS
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function gitOut(repoPath, args) {
+  const res = spawnSync5("git", ["-C", repoPath, ...args], {
+    encoding: "utf8",
+    timeout: SUBPROCESS_TIMEOUT_MS
+  });
+  if (res.error || res.status !== 0) return null;
+  const out = res.stdout.trim();
+  return out.length > 0 ? out : null;
+}
+function resolveRepoDefaultBranch(repoPath) {
+  const originHead = gitOut(repoPath, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
+  if (originHead) return originHead.replace(/^origin\//, "");
+  for (const candidate of ["main", "master", "dev"]) {
+    if (refResolves(repoPath, `refs/heads/${candidate}`)) return candidate;
+  }
+  return gitOut(repoPath, ["symbolic-ref", "--short", "HEAD"]) ?? "main";
+}
+
+// src/tools/world_model.ts
 var WORLD_MODEL_GET_MAX_NODES = 500;
 var UNMERGED_WORK_MAX_BRANCHES = 10;
 function computeUnmergedWork(db, repo) {
@@ -29703,8 +29736,8 @@ function computeUnmergedWork(db, repo) {
   if (!repoRow) return { unmerged_work: [] };
   const dbDir = db.dbPath === ":memory:" ? process.cwd() : dirname7(db.dbPath);
   const repoPath = repoRow.path.startsWith("/") ? repoRow.path : resolve(dbDir, repoRow.path);
-  const target = repoRow.target_branch || "dev";
-  const gitCheck = spawnSync5("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
+  const target = repoRow.target_branch || resolveRepoDefaultBranch(repoPath);
+  const gitCheck = spawnSync6("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
     encoding: "utf8",
     timeout: SUBPROCESS_TIMEOUT_MS
   });
@@ -29729,13 +29762,13 @@ function computeUnmergedWork(db, repo) {
   }
   const unmerged_work = [];
   for (const [branch_id, entry] of [...byBranch.entries()].slice(0, UNMERGED_WORK_MAX_BRANCHES)) {
-    const refCheck = spawnSync5(
+    const refCheck = spawnSync6(
       "git",
       ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branch_id}`],
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
     );
     if (refCheck.status !== 0) continue;
-    const mergeBase = spawnSync5(
+    const mergeBase = spawnSync6(
       "git",
       ["-C", repoPath, "merge-base", "--is-ancestor", entry.tip, target],
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }

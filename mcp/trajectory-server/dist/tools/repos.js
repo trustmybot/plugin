@@ -3,6 +3,7 @@ import { repoSlugFromRemoteUrl } from '../sync/issue_sync.js';
 import { insertAudit } from './audit.js';
 import { taskWorktreePath } from './composites.js';
 import { LIVE_TASK_STATUSES } from './lifecycle.js';
+export { resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { repoRemotes } from '../repos/remotes.js';
 // Every table whose `repo` column is an FK to repos(name), with its move.
 export const REPO_FK_CHILDREN = [
