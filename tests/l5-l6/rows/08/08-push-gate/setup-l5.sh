@@ -18,7 +18,7 @@ SCENARIO_DIR="$2"
 
 SEED_SHA=$(git -C "$PROJECT" rev-parse feat/seed-todo)
 REPO_NAME="$(basename "$PROJECT")"
-VERIFY_CMD='python3 todo.py | grep -qx todo'
+VERIFY_CMD='python3 todo.py | grep -x todo >/dev/null'
 
 # Use AUTOINCREMENT (omit explicit id) so this scenario works both as an
 # L5 unit (clean DB) and as an L6 chain step where IDs are already taken
