@@ -305,7 +305,7 @@ rm -rf "$SURF"
 
 test_case "tmb_path_canonical"
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+trap 'rm -rf "$TMP" "$LR"' EXIT
 REAL=$(cd -P "$TMP" && pwd -P)
 mkdir -p "$TMP/a"
 ln -s "$TMP/a" "$TMP/link"

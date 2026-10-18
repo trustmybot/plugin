@@ -767,17 +767,21 @@ cleanup_repo
 
 test_case "#15/H2: dev→main gh pr create (no --head) reads head=dev from the cd target → ALLOWED"
 setup_glab_repo   # repo initialized on dev, target_branch=dev
-out=$( (cd "$(mktemp -d)" && echo "$(jq -cn --arg c "cd $REPO_PATH && gh pr create --base main --title release" '{tool_input:{command:$c}}')" \
+ELSEWHERE=$(mktemp -d "${TMPDIR:-/tmp}/tmb-guards-elsewhere.XXXXXX")
+out=$( (cd "$ELSEWHERE" && echo "$(jq -cn --arg c "cd $REPO_PATH && gh pr create --base main --title release" '{tool_input:{command:$c}}')" \
   | TRAJECTORY_DB_PATH="$REPO_PATH/.claude/tmb/trajectory.db" bash "$HOOK" 2>&1) || true)
 assert_not_contains "$out" '"permissionDecision":"deny"' "current branch (dev), read from the cd target, must allow the release PR"
+rm -rf "$ELSEWHERE"
 cleanup_repo
 
 test_case "#15/H2: dev→main gh pr create (no --head) from a FEATURE branch (read via cd target) → BLOCKS"
 setup_glab_repo
 git -C "$REPO_PATH" checkout -q -b feat/x
-out=$( (cd "$(mktemp -d)" && echo "$(jq -cn --arg c "cd $REPO_PATH && gh pr create --base main --title oops" '{tool_input:{command:$c}}')" \
+ELSEWHERE=$(mktemp -d "${TMPDIR:-/tmp}/tmb-guards-elsewhere.XXXXXX")
+out=$( (cd "$ELSEWHERE" && echo "$(jq -cn --arg c "cd $REPO_PATH && gh pr create --base main --title oops" '{tool_input:{command:$c}}')" \
   | TRAJECTORY_DB_PATH="$REPO_PATH/.claude/tmb/trajectory.db" bash "$HOOK" 2>&1) || true)
 assert_contains "$out" '"permissionDecision":"deny"' "head=feat/x (read from cd target) must block the dev→main exception"
+rm -rf "$ELSEWHERE"
 cleanup_repo
 
 # ---- #1032: Rule 1 --base compared at a token boundary ----------------------
