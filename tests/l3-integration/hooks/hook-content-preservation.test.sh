@@ -166,6 +166,14 @@ exit 1
 STUB
 chmod +x "$MCP_STUB_DIR/pgrep"
 
+LIVE_STUB_DIR="$TMPDIR_ROOT/live-stubs"
+mkdir -p "$LIVE_STUB_DIR"
+cat > "$LIVE_STUB_DIR/pgrep" <<'STUB'
+#!/usr/bin/env bash
+echo 99999
+STUB
+chmod +x "$LIVE_STUB_DIR/pgrep"
+
 # ---------------------------------------------------------------------------
 # 1. session-start-prescan
 # ---------------------------------------------------------------------------
@@ -185,7 +193,7 @@ fi
 
 test_case "activation-routine: masked token multiset matches golden"
 AR_OUT=$(echo '{"prompt":"@bro status","transcript_path":""}' \
-  | TRAJECTORY_DB_PATH="$AR_DB" bash "$PLUGIN_ROOT/scripts/hooks/activation-routine.sh" 2>/dev/null \
+  | PATH="$LIVE_STUB_DIR:$PATH" TRAJECTORY_DB_PATH="$AR_DB" bash "$PLUGIN_ROOT/scripts/hooks/activation-routine.sh" 2>/dev/null \
   | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
 if [ -z "$AR_OUT" ]; then
   _fail "activation-routine produced no output"
