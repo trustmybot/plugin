@@ -138,6 +138,7 @@ run_step "L1 lint: CI workflow file refs exist"       bash "$HERE/l1-lint/ci-wor
 run_step "L1 lint: no bare role compare in hooks"     bash "$HERE/l1-lint/no-bare-role-compare.sh"
 run_step "L1 lint: symlink targets all resolve"       bash "$HERE/l1-lint/symlink-targets.sh"
 run_step "L1 lint: hooks.json commands executable"     bash "$HERE/l1-lint/hooks-executable.sh"
+run_step "L1 lint: L5 harness helpers (flow-helpers.test.sh)" bash "$HERE/l5-l6/lib/flow-helpers.test.sh"
 run_step "L1 lint: hooks.json routes through dispatch.sh" bash "$HERE/l1-lint/hooks-via-dispatcher.sh"
 run_step "L1 lint: hook wrapper timeouts cover budgets" bash "$HERE/l1-lint/hook-timeout-budget.sh"
 run_step "L1 lint: deny-capable hooks register onFailure: block" bash "$HERE/l1-lint/hook-onfailure.sh"

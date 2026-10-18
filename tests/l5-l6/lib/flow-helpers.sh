@@ -55,6 +55,31 @@ l5_seed_db() {
   sqlite3 "$dir/.claude/tmb/trajectory.db" < "$fixture_path"
 }
 
+# l5_fixture_is_onboarded <project_dir>: succeeds when the seeded trajectory.db
+# carries plugin_config onboarded=true.
+l5_fixture_is_onboarded() {
+  local db="$1/.claude/tmb/trajectory.db"
+  [ -f "$db" ] || return 1
+  [ "$(sqlite3 "$db" "SELECT value_json FROM plugin_config WHERE key='onboarded'" 2>/dev/null)" = "true" ]
+}
+
+# l5_write_persona_block <project_dir>: materialises the tmb persona block into
+# <project_dir>/CLAUDE.md the way onboard_apply does (persona-block.ts,
+# renderPersonaBlock): versioned start marker, the plugin CLAUDE.md body with LF
+# line ends and no trailing blank lines, end marker. An existing CLAUDE.md gets
+# the block appended after one blank line.
+l5_write_persona_block() {
+  local dir="$1" root version body target
+  root="${PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+  version=$(jq -r .version "$root/.claude-plugin/plugin.json") || return 1
+  body=$(tr -d '\r' < "$root/CLAUDE.md") || return 1
+  target="$dir/CLAUDE.md"
+  if [ -s "$target" ]; then
+    printf '\n' >> "$target"
+  fi
+  printf '<!-- tmb:persona start v%s -->\n%s\n<!-- tmb:persona end -->\n' "$version" "$body" >> "$target"
+}
+
 # l5_preserve_trajectory <project_dir> <flow_name> <run_id>: copies
 # trajectory.jsonl and trajectory.db to
 # <project>/.claude/<plugin>/l5-trajectories/<flow>/<run_id>/ (see
