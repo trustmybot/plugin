@@ -288,6 +288,13 @@ test_case "Bash rsync to agents/foo.md: DENIED"
 out=$(run_hook "$(bash_input 'rsync -av /tmp/agent.md agents/foo.md')")
 assert_contains "$out" '"permissionDecision":"deny"' "rsync to agents/*.md denied"
 
+test_case "Bash redirect > to <main>/src/templates/a.md: not prompt surface, pass; <main>/templates/a.md: DENIED"
+mkdir -p "$USER_REPO_FIX/src/templates" "$USER_REPO_FIX/templates"
+out=$(run_hook "$(bash_input "echo x > $USER_REPO_FIX/src/templates/a.md")")
+assert_not_contains "$out" "prompt-surface" "a nested templates/ dir is not prompt surface"
+out=$(run_hook "$(bash_input "echo x > $USER_REPO_FIX/templates/a.md")")
+assert_contains "$out" '"permissionDecision":"deny"' "a root templates/ dir is prompt surface"
+
 test_case "Bash redirect > to non-prompt file: pass"
 out=$(run_hook "$(bash_input 'echo "hello" > src/index.ts')")
 assert_eq "" "$out" "redirect to non-prompt file passes"

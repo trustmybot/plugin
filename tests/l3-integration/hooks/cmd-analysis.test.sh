@@ -285,6 +285,24 @@ for p in myskills/x/SKILL.md myagents/a.md src/agents.md skills/x/helper.sh agen
   if tmb_is_prompt_surface_path "$p"; then _fail "$p is not a prompt surface"; else _pass; fi
 done
 
+test_case "tmb_is_prompt_surface_path anchors on the repo root"
+for p in agents/x.md .claude/agents/x.md .claude/skills/s/SKILL.md commands/c.md nested/CLAUDE.md; do
+  if tmb_is_prompt_surface_path "$p"; then _pass; else _fail "$p should be a prompt surface"; fi
+done
+for p in src/agents/x.md docs/templates/a.md myskills/x.md src/rules/r.md; do
+  if tmb_is_prompt_surface_path "$p"; then _fail "$p is not a prompt surface"; else _pass; fi
+done
+SURF=$(mktemp -d)
+git init -q "$SURF"
+mkdir -p "$SURF/src/agents" "$SURF/agents" "$SURF/.claude/worktrees/t/agents"
+if tmb_is_prompt_surface_path "$SURF/src/agents/x.md"; then _fail "<repo>/src/agents/x.md is not a prompt surface"; else _pass; fi
+if tmb_is_prompt_surface_path "$SURF/agents/x.md"; then _pass; else _fail "<repo>/agents/x.md should be a prompt surface"; fi
+if tmb_is_prompt_surface_path "$SURF/.claude/worktrees/t/agents/x.md"; then _pass; else _fail "worktree agents/x.md should be a prompt surface"; fi
+if tmb_is_prompt_surface_path "$SURF/.claude/worktrees/t/src/agents/x.md"; then _fail "worktree src/agents/x.md is not a prompt surface"; else _pass; fi
+if tmb_is_prompt_surface_path "$SURF/src/agents/x.md" "$SURF"; then _fail "explicit root: src/agents/x.md is not a prompt surface"; else _pass; fi
+if tmb_is_prompt_surface_path "/nonexistent/agents/x.md"; then _pass; else _fail "an unresolvable root fails closed"; fi
+rm -rf "$SURF"
+
 test_case "tmb_path_canonical"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT

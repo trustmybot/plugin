@@ -127,7 +127,7 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
     _rel="${_wpath#"$_wt"/}"
     if [ -z "$_wt" ] || [ "$_rel" = "$_wpath" ]; then _wt=""; _rel="$_wpath"; fi
     if [ -n "$_wt" ] && [ "$_rel" = "CLAUDE.md" ]; then ROOT_CLAUDE_MD="$_wpath"; fi
-    if [ -z "$SURFACE_PATH" ] && tmb_is_prompt_surface_path "$_rel"; then
+    if [ -z "$SURFACE_PATH" ] && tmb_is_prompt_surface_path "$_rel" "$_wt"; then
       SURFACE_PATH="$_wpath"
       SURFACE_ANCHOR="${_wt:+$_wpath}"
     fi
@@ -251,14 +251,15 @@ fi
 # surface (tmb_is_prompt_surface_path) from SWE context unless the task row
 # has prompt_bearing=1.
 _WT_D=$(tmb_worktree_root_for_target "$TARGET")
-_SUBJECT="${TARGET#"$_WT_D"/}"
+_SUBJECT="$TARGET"
+[ -z "$_WT_D" ] || _SUBJECT="${TARGET#"$_WT_D"/}"
 if [ -n "$_WT_D" ] && [ "$_SUBJECT" = "CLAUDE.md" ]; then
   jq -nc --arg r "$(claude_md_reason "$TARGET")" \
     '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
   exit 0
 fi
 IS_PROMPT_SURFACE=""
-tmb_is_prompt_surface_path "$_SUBJECT" && IS_PROMPT_SURFACE="yes"
+tmb_is_prompt_surface_path "$_SUBJECT" "$_WT_D" && IS_PROMPT_SURFACE="yes"
 
 if [ "$IS_PROMPT_SURFACE" = "yes" ]; then
   DB=$(tmb_db_path || true)
