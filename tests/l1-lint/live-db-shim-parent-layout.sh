@@ -33,7 +33,7 @@ else
   flunk "live_db_shim_protected exited $status under set -euo pipefail with a plain parent directory"
 fi
 
-if printf '%s\n' "$out" | grep -Fxq "$checkout_real/.claude/tmb"; then
+if printf '%s\n' "$out" | grep -Fx "$checkout_real/.claude/tmb" >/dev/null; then
   pass "output lists the checkout's .claude/tmb"
 else
   flunk "output is missing $checkout_real/.claude/tmb"
