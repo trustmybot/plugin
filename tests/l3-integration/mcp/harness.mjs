@@ -14,7 +14,8 @@ const SERVER_DIST = path.resolve(HERE, '../../../mcp/trajectory-server/dist/inde
 export function serverEnv(base = process.env, dbPath = ':memory:') {
   const dir = mkdtempSync(path.join(tmpdir(), 'tmb-l3-server-'));
   return {
-    env: { ...base, TRAJECTORY_DB_PATH: dbPath, TMPDIR: dir },
+    // Startup cheatcode reconcile shells out to the claude CLI; tests pin the documented bypass (a caller's env can override).
+    env: { TMB_DISABLE_CHEATCODE_HEALTHCHECK: '1', ...base, TRAJECTORY_DB_PATH: dbPath, TMPDIR: dir },
     cleanup() { rmSync(dir, { recursive: true, force: true }); },
   };
 }
