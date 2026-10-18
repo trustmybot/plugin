@@ -143,4 +143,7 @@ for row_setup in \
 done
 # --- end deep_scan_completed deleters ---
 
+test_case "l6 chain helper: claude call disables the project-scoped trajectory-server"
+assert_contains "$(cat "$HERE/l6-chain-helpers.sh")" "--settings '{\"disabledMcpjsonServers\":[\"trajectory-server\"]}'" "cc_args --settings flag"
+
 summarize

@@ -174,6 +174,8 @@ l6c_run_step() {
         --include-hook-events
         --include-partial-messages
         --verbose
+        # run dirs sit under the checkout, so CC loads its .mcp.json as a failing project-scoped trajectory-server
+        --settings '{"disabledMcpjsonServers":["trajectory-server"]}'
         -p "$current_msg"
       )
 
