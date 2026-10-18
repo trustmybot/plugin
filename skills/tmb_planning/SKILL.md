@@ -57,7 +57,7 @@ Pass the typed machine contract on each swe-executed task:
 |---|---|
 | `medium` | Default |
 | `high` | The task touches enforcement code (hooks, guards, permission gates), the persistence or server write path (schema, migrations, DB layer, write handlers), or is prompt-bearing (`prompt_bearing: 1`) |
-| `high` | Any rework spawn after a reviewer FAIL — pass `effort` on the retry |
+| `high` | Any rework spawn after a reviewer FAIL: raise it first with `task_reopen(task_id, reason, effort='high')` or `task_retry(..., effort='high')`, then spawn with the same value |
 | `low` | Consultants and lookups |
 
 swe executes a spec bro already pinned, so medium is the executor default; high is for surfaces where a miss fails open.
@@ -120,7 +120,7 @@ If any of the four checks fails, record it with `bro_verification_fail_record` (
 ### Rework and spec changes
 
 - **Branch already exists.** `task_provision` reuses a `branch_id` only when it sits at or behind the base; a diverged one comes back as `branch_exists_diverged` with its distance and any open PR. Pick a fresh name with `branch_id_propose`, or pass `reuse_existing: true` when that branch holds the work you mean to continue.
-- **Same task, more work** (a review FAIL, a failed or escalated run): `task_reopen(task_id, reason, files_add?, verification_add?, session_id?)` moves it back to `running`, widens its fences, and recreates its worktree when missing; then spawn SWE on it again.
+- **Same task, more work** (a review FAIL, a failed or escalated run): `task_reopen(task_id, reason, files_add?, verification_add?, effort?, session_id?)` moves it back to `running`, widens its fences, and recreates its worktree when missing; pass `effort='high'` to raise the task's stored effort, then spawn SWE on it again with that same `effort`.
 - **Wrong approach:** `task_retry` starts a fresh task on a new branch with a corrected spec.
 - **Spec fix on a live task** (a typo, a missing path or command): `task_update_spec(task_id, reason, files?, verification?, spec_body?)`.
 
