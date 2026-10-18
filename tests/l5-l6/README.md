@@ -24,8 +24,7 @@ After seeding, `run-l5.sh` calls `l5_write_persona_block` (in [`lib/flow-helpers
 
 ## When a row fails
 
-- **Fix at the trigger.** When a row flips, localize what triggers it (fixture text, seeded DB state, deny-message text, the row's own prompt) and fix there. Never tune the shared TEST MODE preamble for one row: it reaches every row. A deny remedy an agent runs verbatim must be correct for the repo it names.
-- **Local runs.** Set `TMB_MCP_PID_OVERRIDE=99999999` when any trajectory-server process runs on the host, because the drift hook pgreps host-wide.
+- **Fix at the trigger.** When a row flips, localize what triggers it (fixture text, seeded DB state, deny-message text, the row's own prompt) and fix there; a `prompt.txt` change needs Human approval. Never tune the shared TEST MODE preamble for one row: it reaches every row. A deny remedy an agent runs verbatim must be correct for the repo it names.
 - **Classify from the run dir, not the summary table.** Read `<run-dir>/step-*/scorers.txt`, the tail of `bro-response.txt` and the token counts:
 
 | Class | Signature | Action |
