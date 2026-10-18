@@ -41,13 +41,23 @@ export function healthcheckTimeoutSec(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TIMEOUT_SEC;
 }
 
+export function probeChildEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, TMB_DISABLE_CHEATCODE_HEALTHCHECK: '1' };
+}
+
 function runClaude(args: string[], timeoutSec: number): Promise<string | null> {
   return new Promise((resolve) => {
     try {
       const child = execFile(
         'claude',
         args,
-        { timeout: timeoutSec * 1000, killSignal: 'SIGKILL', maxBuffer: MAX_LISTING_BYTES, encoding: 'utf8' },
+        {
+          env: probeChildEnv(),
+          timeout: timeoutSec * 1000,
+          killSignal: 'SIGKILL',
+          maxBuffer: MAX_LISTING_BYTES,
+          encoding: 'utf8',
+        },
         (error, stdout) => resolve(error ? null : stdout),
       );
       child.stdin?.end();
