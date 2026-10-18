@@ -226,6 +226,10 @@ run_step "L4 workflow-sim: flow-06 push-gate"               bun test --timeout 3
 run_step "L4 workflow-sim: flow-08 swe-retry"               bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-08-swe-retry.test.mjs"
 run_step "L4 workflow-sim: flow-09 anonymous-cold-restart"  bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-09-anonymous-cold-restart.test.mjs"
 run_step "L4 workflow-sim: flow-10 roundtable-composite"    bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-10-roundtable-composite.test.mjs"
+run_step "L4 workflow-sim: flow-11 concurrent-siblings" bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-11-concurrent-siblings.test.mjs"
+run_step "L4 workflow-sim: flow-12 spec-amend"        bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-12-spec-amend.test.mjs"
+run_step "L4 workflow-sim: flow-13 issue-update-milestone" bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-13-issue-update-milestone.test.mjs"
+run_step "L4 workflow-sim: flow-14 repo-rename"       bun test --timeout 30000 "$HERE/l4-workflow-sim/flow-14-repo-rename.test.mjs"
 
 export PATH="$_l4_saved_path"
 unset TMB_FORBID_LIVE_SYNC TMB_SCAN_PLUGIN_JSON

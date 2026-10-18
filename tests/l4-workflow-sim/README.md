@@ -20,6 +20,10 @@ Cross-reference: [`docs/architecture/FLOWS.md`](../../docs/architecture/FLOWS.md
 | 8 — SWE retry / escalation | `flow-08-swe-retry.test.mjs` | ✅ multiple validation_attempts + status='escalated' |
 | 9 — Roundtable | n/a | covered by audit 'roundtable_summary' event in flow-03 + role-matrix |
 | C — Consultant invocation | n/a | covered by `tests/l3-integration/mcp/role-matrix.test.mjs` |
+| v1.1.0 — concurrent sibling tasks | `flow-11-concurrent-siblings.test.mjs` | ✅ two `task_provision` branches + worktrees; closing one leaves the other pending |
+| v1.1.0 — spec amend | `flow-12-spec-amend.test.mjs` | ✅ `task_update_spec` on a live task + decision/audit rows; refused once closed |
+| v1.1.0 — issue update | `flow-13-issue-update-milestone.test.mjs` | ✅ `issue_update` milestone move, label replacement, objective rewrite (remote sync off) |
+| v1.1.0 — repo rename | `flow-14-repo-rename.test.mjs` | ✅ `rename_in_progress` while a worktree is live; rename + child rows + `repo_renamed` audit after close |
 
 ## What L4 does NOT test
 
