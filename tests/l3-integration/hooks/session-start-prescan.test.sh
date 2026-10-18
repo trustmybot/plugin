@@ -452,13 +452,13 @@ schema_db
 
 test_case "persona: a project with no CLAUDE.md block gets the missing line"
 rm -f "$FIXTURE_WS/CLAUDE.md"
-assert_eq "Persona: project CLAUDE.md has no tmb persona block — run /onboard" "$(persona_line "$FIXTURE_WS")" "no CLAUDE.md"
+assert_eq "Persona: project CLAUDE.md has no tmb persona block; tell the Human that the Human can run /onboard to add it" "$(persona_line "$FIXTURE_WS")" "no CLAUDE.md"
 printf '# Mine\n' > "$FIXTURE_WS/CLAUDE.md"
-assert_eq "Persona: project CLAUDE.md has no tmb persona block — run /onboard" "$(persona_line "$FIXTURE_WS")" "CLAUDE.md without a block"
+assert_eq "Persona: project CLAUDE.md has no tmb persona block; tell the Human that the Human can run /onboard to add it" "$(persona_line "$FIXTURE_WS")" "CLAUDE.md without a block"
 
 test_case "persona: a stale block names both versions"
 printf '# Mine\n\n<!-- tmb:persona start v1.0.2 -->\n# bro\n<!-- tmb:persona end -->\n' > "$FIXTURE_WS/CLAUDE.md"
-assert_eq "Persona: tmb persona block is v1.0.2, plugin is v1.0.3 — run /onboard" "$(persona_line "$FIXTURE_WS")" "stale block"
+assert_eq "Persona: tmb persona block is v1.0.2, plugin is v1.0.3; tell the Human that the Human can run /onboard to refresh it" "$(persona_line "$FIXTURE_WS")" "stale block"
 
 test_case "persona: a current block is silent, CRLF too"
 printf '# Mine\n\n<!-- tmb:persona start v1.0.3 -->\n# bro\n<!-- tmb:persona end -->\n' > "$FIXTURE_WS/CLAUDE.md"

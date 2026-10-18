@@ -256,10 +256,10 @@ if [ -n "$PLUGIN_VERSION" ] && [ -d "$PERSONA_PROJECT" ] \
   [ -f "$PERSONA_PROJECT/CLAUDE.md" ] && PERSONA_VERSION=$(sed -n 's/.*<!-- tmb:persona start v\([^[:space:]>]*\) -->.*/\1/p' "$PERSONA_PROJECT/CLAUDE.md" 2>/dev/null | head -1)
   if [ -z "$PERSONA_VERSION" ]; then
     COLD_SUFFIX="${COLD_SUFFIX}
-Persona: project CLAUDE.md has no tmb persona block — run /onboard"
+Persona: project CLAUDE.md has no tmb persona block; tell the Human that the Human can run /onboard to add it"
   elif [ "$PERSONA_VERSION" != "$PLUGIN_VERSION" ]; then
     COLD_SUFFIX="${COLD_SUFFIX}
-Persona: tmb persona block is v${PERSONA_VERSION}, plugin is v${PLUGIN_VERSION} — run /onboard"
+Persona: tmb persona block is v${PERSONA_VERSION}, plugin is v${PLUGIN_VERSION}; tell the Human that the Human can run /onboard to refresh it"
   fi
 fi
 

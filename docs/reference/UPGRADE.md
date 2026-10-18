@@ -105,7 +105,7 @@ Both columns should match the version you just installed.
 
 ### Upgrading into v1.0.3 — the bro persona moves into your CLAUDE.md
 
-Claude Code does not load a plugin's `CLAUDE.md`, so before v1.0.3 bro's persona never reached a user project. After upgrading, run `/onboard` once: `onboard_apply` writes the plugin's `CLAUDE.md` into `<project>/CLAUDE.md` between `<!-- tmb:persona start v<version> -->` and `<!-- tmb:persona end -->`, leaving the rest of the file as it was. On every later upgrade the SessionStart prescan prints `Persona: tmb persona block is v<x>, plugin is v<y> — run /onboard` and `trajectory_doctor` reports `persona_block_current`; re-running `/onboard` replaces only the marked block. `onboard_apply` with `persona: false` removes it. Commit the block with the rest of your `CLAUDE.md`, or keep it out of version control — TMB only reads the markers.
+Claude Code does not load a plugin's `CLAUDE.md`, so before v1.0.3 bro's persona never reached a user project. After upgrading, run `/onboard` once: `onboard_apply` writes the plugin's `CLAUDE.md` into `<project>/CLAUDE.md` between `<!-- tmb:persona start v<version> -->` and `<!-- tmb:persona end -->`, leaving the rest of the file as it was. On every later upgrade the SessionStart prescan prints `Persona: tmb persona block is v<x>, plugin is v<y>; tell the Human that the Human can run /onboard to refresh it` and `trajectory_doctor` reports `persona_block_current`; re-running `/onboard` replaces only the marked block. `onboard_apply` with `persona: false` removes it. Commit the block with the rest of your `CLAUDE.md`, or keep it out of version control — TMB only reads the markers.
 
 ### Upgrading into v1.0.3 — recover lost agent_runs
 
