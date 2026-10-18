@@ -17,12 +17,12 @@ The bug class this catches: regressions that clear the world model or drop the a
 | # | Speaker | Message |
 |---|---|---|
 | 1 | user | `@bro what does src/cli.py do? Just summarize it for me.\n\nDon't ask questions.` |
-| → | bro | optionally consults `world_model_get`, then `Read("src/cli.py")`, then emits a concise summary in text. |
+| → | bro | optionally consults `world_model_get`, then reads `src/cli.py` (`Read` or `Bash cat`), then emits a concise summary in text. |
 
 ## Pass criteria
 
 | Scorer | Asserts |
 |---|---|
 | `outcome.sql` | `deep_scan_completed` audit row exists (proxy for kuzu world model warm) |
-| `tools-required.json` | `Read` |
+| `tools-required.json` | `Read` or `Bash` (any_of) |
 | `cost-budget.json` | Soft 200K / 900s |
