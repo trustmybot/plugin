@@ -2,8 +2,8 @@
 # Tests for scripts/hooks/require-task-spec.sh (DB-backed form)
 # Hook contract: block SWE spawns unless the prompt cites a valid
 # task_id=<N> whose row in tasks table is pending, or running with no open swe
-# agent_runs row, AND has a non-empty spec_body. A schema-touching or
-# column-adding task also needs Writer: + Populated: lines or a Nullable: line,
+# agent_runs row, AND has a non-empty spec_body. A schema-touching (a .sql file, a schema.* basename,
+# a migrations/migration/migrate directory, db.ts) or column-adding task also needs Writer: + Populated: lines or a Nullable: line,
 # unless a spec_shape_gate_waived audit row with from_node = 'bro' names the task
 # (written per task by task_create_batch / task_provision with waive_spec_shape,
 # or by bro through audit_append). See plugin CHANGELOG for history.
@@ -86,6 +86,13 @@ INSERT INTO tasks VALUES (34, 'pending', '## Success Criteria
 INSERT INTO tasks VALUES (35, 'pending', '## Success Criteria
 - `Writer: `
 - Nullable:', '["src/schema.sql"]', 1, 'feat/empty2');
+INSERT INTO tasks VALUES (60, 'pending', 'Ship it.', '["prisma/schema.prisma"]', 1, 'feat/shape60');
+INSERT INTO tasks VALUES (61, 'pending', 'Ship it.', '["db/migrate/20240101_x.rb"]', 1, 'feat/shape61');
+INSERT INTO tasks VALUES (62, 'pending', 'Ship it.', '["sql/seed.sql"]', 1, 'feat/shape62');
+INSERT INTO tasks VALUES (63, 'pending', 'Ship it.', '["src/db.ts"]', 1, 'feat/shape63');
+INSERT INTO tasks VALUES (64, 'pending', 'Ship it.', '["docs/migrations-guide.md"]', 1, 'feat/shape64');
+INSERT INTO tasks VALUES (65, 'pending', 'Ship it.', '["app/schematics/x.ts"]', 1, 'feat/shape65');
+INSERT INTO tasks VALUES (66, 'pending', 'Ship it.', '["src/mydb.ts"]', 1, 'feat/shape66');
 SQL
 
 swe_input() {
@@ -259,6 +266,18 @@ assert_eq "$before" "$after" "no audit row written by the hook"
 test_case "non-schema task without the lines passes silently"
 out=$(run_hook "$(swe_input 'task_id=24 please do the thing')")
 assert_eq "" "$out" "silent pass"
+
+for id in 60 61 62 63; do
+  test_case "generic schema shape task $id without Writer:/Populated: is blocked"
+  out=$(run_hook "$(swe_input "task_id=$id please do the thing")")
+  assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
+done
+
+for id in 64 65 66; do
+  test_case "non-schema lookalike path task $id passes silently"
+  out=$(run_hook "$(swe_input "task_id=$id please do the thing")")
+  assert_eq "" "$out" "silent pass"
+done
 
 # Real server writers against a real trajectory DB: the rows task_create_batch
 # and audit_append write are the rows the hook reads.
