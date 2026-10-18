@@ -137,6 +137,7 @@ rm -rf "$WORK"
 test_case "clean swe spawn with valid task_id and existing branch passes silently"
 WORK=$(mktemp -d)
 setup_repo "$WORK" "dev" "fix/1-foo"
+git -C "$WORK" worktree add -q "$WORK/.claude/worktrees/1-foo" "fix/1-foo"
 db="$WORK/trajectory.db"
 sqlite3 "$db" "
   CREATE TABLE tasks (
