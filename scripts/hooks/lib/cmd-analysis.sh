@@ -81,6 +81,15 @@
 #   with -s or no script) is analysed the same way; an sh program is a command
 #   of its own, run in its statement's dir. A data heredoc (cat > f <<EOF,
 #   python3 script.py <<EOF) is never read.
+#   What find, fd and xargs run is a statement of its own: the command of
+#   find -exec / -execdir / -ok / -okdir, fd -x / -X and xargs, with find's {}
+#   (fd: {}, {.}, {//}; xargs: its -I string, else an appended argument) bound
+#   to the paths find or fd lists as a loop variable is (below), so `rm {}`,
+#   `sed -i … {}`, `mv {} {}.bak` and the rest write them; find -delete writes
+#   them too, and -fprint / -fprint0 / -fprintf / -fls write their file. The
+#   placeholder prints as `${find_path}` / `${fd_path}` / `${xargs_arg}`, and is
+#   unresolvable when the paths cannot be bound (xargs: unless piped from one
+#   find or fd); -print, -ls, -printf and the like write nothing.
 #   $VAR, ${VAR} and ${VAR:-def} in a path resolve from assignments earlier in
 #   the same command (VAR=value and export VAR=value statements, for loops,
 #   one level of nesting; every value a variable may hold is printed), else
@@ -464,8 +473,9 @@ tmb_cmd_decode() {
 # before the most recent cd (`-` when none; the base token may carry one too),
 # and a loop variable's source is attached as a word \022<dir-token>\022<word>
 # \022<word>… — to `for VAR in $(cmd …)` (after its `$()`) and to the `read` of
-# `src | while read VAR` / `while read VAR; do …; done < <(src)` — when that
-# source is one simple command (see _tmb_cmd_loop_source).
+# `src | while read VAR` / `while read VAR; do …; done < <(src)`, and to the
+# `xargs` of `src | xargs …` — when that source is one simple command (see
+# _tmb_cmd_loop_source).
 _tmb_cmd_statements_enc() {
   local cmd="${1:-}" base="${2:-@}" depth="${3:-0}" assign="${4:-}"
   local dir stmt inner
@@ -589,6 +599,8 @@ _tmb_cmd_statements_enc() {
         mk = sawwhile ? donesrc(i) : ""
         if (mk == "" && waspiped) mk = pipesrc
         if (mk != "" && mk != "!") out = out " " mk
+      } else if (assign && a0 == "xargs") {
+        if (waspiped && pipesrc != "") out = out " " pipesrc
       } else if (a0 == "git") {
         for (k = first + 1; k <= n; k++) {
           if (w[k] == "") continue
@@ -882,6 +894,7 @@ TMB_CMD_WRITE_SHAPES=(
   'ln' 'mkdir' 'rm' 'touch'
   'python -c / node -e / perl -e / ruby -e with a write mode'
   'a program fed to python / node / perl / ruby / sh through a heredoc'
+  'find -exec / -execdir / -ok / -delete / -fprint' 'fd -x / -X' 'xargs fed by find or fd'
 )
 
 tmb_cmd_write_shapes() {
@@ -1149,7 +1162,7 @@ _tmb_cmd_heredoc_align() {
 # assignments accumulate in the caller-scoped _TMB_CMD_VARS.
 _tmb_cmd_write_paths_in() {
   local cmd="${1:-}" cwd="${2:-}" base="${3:-@}" depth="${4:-0}"
-  local listing bodies="" dir stmt p inner kind idx=0 w prog b_idx b_body old
+  local listing bodies="" dir stmt p inner kind idx=0 w prog b_idx b_body old mark
   local -a words progs
   local _TMB_CMD_VARS="${_TMB_CMD_VARS:-}" _TMB_CMD_OLDTOK="-"
   listing=$(_tmb_cmd_statements_enc "$cmd" "$base" 3 assign)
@@ -1174,10 +1187,19 @@ _tmb_cmd_write_paths_in() {
         continue
       fi
     fi
+    mark=""
+    if [ "${words[0]##*/}" = xargs ] && [ "${words[${#words[@]}-1]#$'\022'}" != "${words[${#words[@]}-1]}" ]; then
+      mark="${words[${#words[@]}-1]}"
+      words=("${words[@]:0:${#words[@]}-1}")
+      stmt="${words[*]}"
+    fi
     while IFS= read -r p; do
       [ -n "$p" ] || continue
       _tmb_cmd_emit "$dir" "$(tmb_cmd_decode "$p")" "$cwd"
     done < <(_tmb_cmd_stmt_write_paths "$stmt")
+    case "${words[0]##*/}" in
+      find|fd|fdfind|xargs) _tmb_cmd_exec_writes "$dir" "$cwd" "$mark" "${words[@]}" ;;
+    esac
     kind=$(_tmb_cmd_stdin_interp "${words[@]}")
     if [ -n "$kind" ]; then
       progs=()
@@ -1203,6 +1225,85 @@ _tmb_cmd_write_paths_in() {
     _TMB_CMD_PWD=$(_tmb_cmd_dir_path "$dir" "$cwd")
     _tmb_cmd_track_vars "${words[@]}"
   done <<< "$listing"
+  return 0
+}
+
+# _tmb_cmd_exec_writes <dir-token> <cwd> <xargs-source-mark> <encoded-statement-words…>
+# The paths a find, fd or xargs statement writes through what it runs. The
+# command of find -exec / -execdir / -ok / -okdir, fd -x / -X and xargs is
+# judged as a statement of its own (_tmb_cmd_stmt_write_paths) with its
+# placeholder bound to a variable: find's {} to ${find_path}; fd's {}, {.}
+# and {//} to ${fd_path}, {/} and {/.} to `*` in its dir; xargs's -I / -i /
+# -J string, else an appended last argument, to ${xargs_arg}. find -delete
+# writes ${find_path}, and -fprint / -fprint0 / -fprintf / -fls their file.
+# find and fd bind the variable from their own paths (_tmb_cmd_lister_bind);
+# xargs from the find or fd it is piped from (<xargs-source-mark>,
+# _tmb_cmd_loop_source). Any other input, or paths that cannot be bound,
+# leave it unresolvable.
+_tmb_cmd_exec_writes() {
+  local dir="${1:-}" cwd="${2:-}" mark="${3:-}" tool name act cmd p k=1 n rep="" noin=0 ph rv
+  local _TMB_CMD_VARS="${_TMB_CMD_VARS:-}"
+  local -a words _TMB_CMD_ACTS=()
+  shift 3
+  words=("$@")
+  n=${#words[@]}
+  tool="${words[0]##*/}"
+  case "$tool" in
+    find) name=find_path ;;
+    fd|fdfind) name=fd_path ;;
+    xargs)
+      name=xargs_arg
+      while [ "$k" -lt "$n" ]; do
+        p="${words[$k]}"
+        case "$p" in
+          --) k=$((k + 1)); break ;;
+          -I|-J) rep="${words[$((k + 1))]:-}"; k=$((k + 2)) ;;
+          -I*|-J*) rep="${p#-?}"; k=$((k + 1)) ;;
+          -i|--replace) rep='{}'; k=$((k + 1)) ;;
+          -i*) rep="${p#-i}"; k=$((k + 1)) ;;
+          --replace=*) rep="${p#--replace=}"; k=$((k + 1)) ;;
+          -a|--arg-file) noin=1; k=$((k + 2)) ;;
+          -a*|--arg-file=*) noin=1; k=$((k + 1)) ;;
+          -d|-E|-L|-n|-P|-s|-R|-S|--delimiter|--max-lines|--max-args|--max-procs|--max-chars) k=$((k + 2)) ;;
+          -*) k=$((k + 1)) ;;
+          *) break ;;
+        esac
+      done
+      [ "$k" -lt "$n" ] || return 0
+      cmd="${words[*]:$k}"
+      rv="\${$name}"
+      if [ -n "$rep" ]; then cmd="${cmd//"$rep"/$rv}"; else cmd="$cmd $rv"; fi
+      _TMB_CMD_ACTS=("x$cmd")
+      if [ "$noin" = 1 ] || [ -z "$mark" ] || ! _tmb_cmd_loop_source "$name" "$mark"; then
+        _TMB_CMD_VARS="${_TMB_CMD_VARS}${name}"$'\t\001\n'
+      fi
+      ;;
+    *) return 0 ;;
+  esac
+  if [ "$tool" != xargs ]; then
+    _tmb_cmd_lister_bind "$name" "$dir" exec "${words[@]}" || _TMB_CMD_VARS="${_TMB_CMD_VARS}${name}"$'\t\001\n'
+  fi
+  [ "${#_TMB_CMD_ACTS[@]}" -gt 0 ] || return 0
+  rv="\${$name}"
+  for act in "${_TMB_CMD_ACTS[@]}"; do
+    case "$act" in
+      d) _tmb_cmd_emit "$dir" "$rv" "$cwd" ;;
+      f*) _tmb_cmd_emit "$dir" "$(tmb_cmd_decode "${act#f}")" "$cwd" ;;
+      x*)
+        cmd="${act#x}"
+        case "$tool" in
+          find) ph='{}'; cmd="${cmd//"$ph"/$rv}" ;;
+          fd|fdfind)
+            for ph in '{//}' '{.}' '{}'; do cmd="${cmd//"$ph"/$rv}"; done
+            for ph in '{/.}' '{/}'; do cmd="${cmd//"$ph"/*}"; done
+            ;;
+        esac
+        while IFS= read -r p; do
+          [ -n "$p" ] && _tmb_cmd_emit "$dir" "$(tmb_cmd_decode "$p")" "$cwd"
+        done < <(_tmb_cmd_stmt_write_paths "$cmd")
+        ;;
+    esac
+  done
   return 0
 }
 
@@ -1301,55 +1402,97 @@ _tmb_cmd_track_vars() {
 
 # _tmb_cmd_loop_source <name> <source-mark>
 # Records the values of a loop variable fed by one path-listing command
-# (\022<dir-token>\022<word>\022<word>…, from _tmb_cmd_statements_enc), when
-# that command is find, ls, git ls-files, git diff --name-only, rg --files or
-# fd and every path it lists from (its literal path arguments, else the dir it
-# runs in; git -C composes) is inside the run root _TMB_CMD_ROOT. The values
-# are each listed path itself and a glob under it (`<path>`, `<path>/*`; `*`
-# for names printed relative to the dir they are used in), `<path>/<pattern>`
-# for a -name / --glob pattern that can name CLAUDE.md / CODEX.md / CURSOR.md /
-# GEMINI.md, `<path>/*.md` when the path lies in a
-# prompt-surface dir, and `<path>/<surface-dir>/*.md` (`<path>/CLAUDE.md` for
-# the root's own) when a recursive lister starts above a prompt-surface dir
-# of the root whose whole subtree the source does not exclude
-# (_tmb_cmd_excl_covers) and its pattern can match there (-iname / --iglob
-# case-insensitively), so a
-# write through the variable is judged where its listed files lie and
-# reaches the prompt-surface rule. Non-zero, nothing recorded, for any other
-# source.
+# (\022<dir-token>\022<word>\022<word>…, from _tmb_cmd_statements_enc):
+# _tmb_cmd_lister_bind of its decoded words. Non-zero, nothing recorded, for
+# a source that cannot be bound.
 _tmb_cmd_loop_source() {
-  local name="${1:-}" m="${2#$'\022'}" dirtok dir="" cmd w k=0 n gdir="" sub="" ok=0 listed=0 v p bound pat rel d hit v2
-  local -a words=() args=() paths=() vals=() exp=() pats=() excl=() prune=()
-  [ -n "${_TMB_CMD_ROOT:-}" ] || return 1
-  case "$name" in ''|[0-9]*|*[!A-Za-z0-9_]*) return 1 ;; esac
+  local m="${2#$'\022'}" dirtok
+  local -a words=()
   dirtok="${m%%$'\022'*}"
   m="${m#"$dirtok"}"
   m=$(tmb_cmd_decode "${m#$'\022'}")
+  IFS=$'\022' read -r -a words <<< "$m"
+  [ "${#words[@]}" -gt 0 ] || return 1
+  _tmb_cmd_lister_bind "${1:-}" "$dirtok" loop "${words[@]}"
+}
+
+# _tmb_cmd_lister_bind <name> <dir-token> loop|exec <words…>
+# The path-listing model shared by loop variables and by the commands find
+# and fd run. Records under <name> in _TMB_CMD_VARS the paths a lister may
+# list, when <words> is find, ls, git ls-files, git diff --name-only,
+# rg --files or fd and every path it lists from (its literal path arguments,
+# else the dir it runs in; git -C composes) is inside the run root
+# _TMB_CMD_ROOT. The values are each listed path itself and a glob under it
+# (`<path>`, `<path>/*`; `*` for names printed relative to the dir they are
+# used in), `<path>/<pattern>` for a -name / --glob pattern that can name
+# CLAUDE.md / CODEX.md / CURSOR.md / GEMINI.md, `<path>/*.md` when the path
+# lies in a prompt-surface dir, and `<path>/<surface-dir>/*.md`
+# (`<path>/CLAUDE.md` for the root's own) when a recursive lister starts
+# above a prompt-surface dir of the root whose whole subtree the source does
+# not exclude (_tmb_cmd_excl_covers) and its pattern can match there (-iname
+# / --iglob case-insensitively), so a write through the variable is judged
+# where its listed files lie and reaches the prompt-surface rule.
+# `loop`: <words> are the decoded words of a loop source; a lister that runs
+# or prints anything but its paths (find -exec / -printf / -fprint / -ls,
+# fd -x / --format) cannot be bound.
+# `exec`: <words> are the encoded words of a find or fd statement. Its own
+# redirects are skipped, and what it runs or writes is appended to the
+# caller's _TMB_CMD_ACTS whether or not its paths bind: `x<command>` for
+# find -exec / -execdir / -ok / -okdir and fd -x / -X (fd's command gets {}
+# appended when it names no placeholder), `d` for find -delete,
+# `f<file>` for find -fprint / -fprint0 / -fprintf / -fls; a statement with
+# none binds nothing. An -o leaves find's name patterns out, since the
+# action may run on what they do not match.
+# Non-zero, nothing recorded, when the paths cannot be bound.
+_tmb_cmd_lister_bind() {
+  local name="${1:-}" dirtok="${2:-}" mode="${3:-loop}" dir="" cmd w k n gdir="" sub="" ok=0 listed=0 bad=0 skip=0 v p bound pat rel d hit v2 m prev
+  local -a words=() dec=() args=() raw=() paths=() vals=() exp=() pats=() excl=() prune=()
+  shift 3
+  words=("$@")
+  if [ "$mode" = loop ]; then
+    [ -n "${_TMB_CMD_ROOT:-}" ] || return 1
+    case "$name" in ''|[0-9]*|*[!A-Za-z0-9_]*) return 1 ;; esac
+    dec=("${words[@]}")
+  else
+    m=$(IFS=$'\022'; printf '%s' "${words[*]}")
+    IFS=$'\022' read -r -d '' -a dec < <(tmb_cmd_decode "$m") || true
+  fi
   case "$dirtok" in
     /*) dir="$dirtok" ;;
     @) dir="${_TMB_CMD_CWD:-}" ;;
     @/*) [ -n "${_TMB_CMD_CWD:-}" ] && dir="${_TMB_CMD_CWD%/}/${dirtok#@/}" ;;
-    *) dir="" ;;
   esac
-  [ -n "$dir" ] || return 1
-  IFS=$'\022' read -r -a words <<< "$m"
+  [ -n "$dir" ] || [ "$mode" = exec ] || return 1
   for ((k = 1; k < ${#words[@]}; k++)); do
-    w="${words[$k]}"
-    case "$w" in
-      '2>/dev/null') continue ;;
-      '2>') [ "${words[$((k + 1))]:-}" = /dev/null ] || return 1; k=$((k + 1)); continue ;;
-      *'<'*|*'>'*|*'`'*) return 1 ;;
-    esac
+    w="${dec[$k]:-}"
+    if [ "$mode" = exec ]; then
+      if [ "$skip" = 1 ]; then skip=0; continue; fi
+      case "${words[$k]}" in
+        '>'|'>>'|'>|'|'<'|'<<<'|'&>'|'&>>'|[0-9]'>'|[0-9]'>>'|[0-9]'<') skip=1; continue ;;
+        '>'*|'<'*|'&>'*|[0-9]'>'*|[0-9]'<'*) continue ;;
+      esac
+      raw+=("${words[$k]}")
+    else
+      case "$w" in
+        '2>/dev/null') continue ;;
+        '2>') [ "${words[$((k + 1))]:-}" = /dev/null ] || return 1; k=$((k + 1)); continue ;;
+        *'<'*|*'>'*|*'`'*) return 1 ;;
+      esac
+    fi
     args+=("$w")
   done
   n=${#args[@]}
   k=0
   cmd="${words[0]##*/}"
+  case "$mode:$cmd" in
+    exec:find|exec:fd|exec:fdfind|loop:*) ;;
+    *) return 1 ;;
+  esac
   case "$cmd" in
     find)
       while [ "$k" -lt "$n" ]; do
         case "${args[$k]}" in
-          -L) return 1 ;;
+          -L) bad=1; k=$((k + 1)) ;;
           -H|-P|-O*) k=$((k + 1)) ;;
           -D) k=$((k + 2)) ;;
           --) k=$((k + 1)); break ;;
@@ -1364,7 +1507,28 @@ _tmb_cmd_loop_source() {
         w="${args[$k]}"
         k=$((k + 1))
         case "$w" in
-          -exec*|-ok*|-printf|-fprint*|-fls|-ls|-follow) return 1 ;;
+          -exec|-execdir|-ok|-okdir)
+            [ "$mode" = exec ] || { bad=1; break; }
+            m=""; prev=""
+            while [ "$k" -lt "$n" ]; do
+              w="${raw[$k]}"
+              k=$((k + 1))
+              [ "$w" = $'\006' ] && break
+              [ "$w" = + ] && [ "$prev" = '{}' ] && break
+              m="${m:+$m }$w"; prev="$w"
+            done
+            [ -z "$m" ] || _TMB_CMD_ACTS+=("x$m")
+            ;;
+          -delete) [ "$mode" = loop ] || _TMB_CMD_ACTS+=(d) ;;
+          -fprint|-fprint0|-fprintf|-fls)
+            [ "$mode" = exec ] || { bad=1; break; }
+            _TMB_CMD_ACTS+=("f${raw[$k]:-}")
+            k=$((k + 1))
+            [ "$w" != -fprintf ] || k=$((k + 1))
+            ;;
+          -printf) [ "$mode" = exec ] || { bad=1; break; }; k=$((k + 1)) ;;
+          -ls) [ "$mode" = exec ] || { bad=1; break; } ;;
+          -follow) bad=1 ;;
           -name) pats+=("s:${args[$k]:-}"); k=$((k + 1)) ;;
           -iname) pats+=("i:${args[$k]:-}"); k=$((k + 1)) ;;
           -regex|-iregex) pats+=("r:${args[$k]:-}"); k=$((k + 1)) ;;
@@ -1381,7 +1545,10 @@ _tmb_cmd_loop_source() {
           -o|-or) ok=1 ;;
         esac
       done
-      [ "$ok" = 0 ] || excl=()
+      if [ "$ok" = 1 ]; then
+        excl=()
+        [ "$mode" = loop ] || pats=()
+      fi
       excl+=(${prune[@]+"${prune[@]}"})
       ok=0
       [ "${#paths[@]}" -gt 0 ] || paths=(.)
@@ -1463,7 +1630,20 @@ _tmb_cmd_loop_source() {
         w="${args[$k]}"
         k=$((k + 1))
         case "$w" in
-          -x|--exec|-X|--exec-batch|--format*|--path-separator*|-L|--follow|-l|--list-details|--base-directory*) return 1 ;;
+          -x|--exec|-X|--exec-batch)
+            [ "$mode" = exec ] || { bad=1; break; }
+            m=""; hit=0
+            while [ "$k" -lt "$n" ]; do
+              w="${raw[$k]}"
+              k=$((k + 1))
+              [ "$w" = $'\006' ] && break
+              case "$w" in *'{}'*|*'{/}'*|*'{//}'*|*'{.}'*|*'{/.}'*) hit=1 ;; esac
+              m="${m:+$m }$w"
+            done
+            [ "$hit" = 1 ] || m="${m:+$m }{}"
+            _TMB_CMD_ACTS+=("x$m")
+            ;;
+          --format*|--path-separator*|-L|--follow|-l|--list-details|--base-directory*) bad=1 ;;
           --search-path) paths+=("${args[$k]:-}"); k=$((k + 1)) ;;
           -E|--exclude) excl+=("F:${args[$k]:-}"); k=$((k + 1)) ;;
           -e|--extension|-t|--type|-d|--max-depth|--min-depth|--exact-depth|-S|--size|--changed-within|--changed-before|-o|--owner|-j|--threads|--max-results|-c|--color|--ignore-file|--and) k=$((k + 1)) ;;
@@ -1474,6 +1654,9 @@ _tmb_cmd_loop_source() {
       ;;
     *) return 1 ;;
   esac
+  [ "$bad" = 0 ] && [ -n "$dir" ] && [ -n "${_TMB_CMD_ROOT:-}" ] || return 1
+  [ "$mode" = loop ] || [ "${#_TMB_CMD_ACTS[@]}" -gt 0 ] || return 1
+  case "$name" in ''|[0-9]*|*[!A-Za-z0-9_]*) return 1 ;; esac
   [ -n "$_TMB_CMD_ROOTC" ] || _TMB_CMD_ROOTC=$(tmb_path_canonical "$_TMB_CMD_ROOT")
   bound="$_TMB_CMD_ROOTC"
   if [ "$cmd" = git ]; then

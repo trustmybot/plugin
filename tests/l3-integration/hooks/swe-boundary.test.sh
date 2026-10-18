@@ -925,6 +925,35 @@ out=$(run_event "$WT_PLAIN" 'OUT=/etc/tmb-1324; cat > "$OUT" < /dev/null')
 assert_contains "$out" "/etc/tmb-1324 is outside this run's root" "OUT=/etc/x; cat > \$OUT"
 
 # ===========================================================================
+# GH 1338 — what find -exec / -delete, fd -x and xargs run is judged on the
+# paths find or fd lists.
+# ===========================================================================
+
+test_case "GH 1338 swe find / fd / xargs writes outside the worktree: DENIED"
+out=$(run_in "$WT_PLAIN" "find $CLAUDE_PROJECT_DIR -exec rm {} \\;")
+assert_contains "$out" 'write target \"${find_path}\" depends on a variable the guard cannot resolve' "find <project-root> -exec rm from the worktree"
+out=$(run_in "$WT_PLAIN" "find $CLAUDE_PROJECT_DIR -print0 | xargs -0 rm")
+assert_contains "$out" 'write target \"${xargs_arg}\" depends on a variable the guard cannot resolve' "find <project-root> | xargs rm"
+out=$(run_in "$WT_PLAIN" 'find $HOME -delete')
+assert_contains "$out" '"permissionDecision":"deny"' "find \$HOME -delete"
+
+test_case "GH 1338 swe find / fd / xargs over prompt-surface dirs: DENIED (non-prompt-bearing)"
+for cmd in "find agents -name '*.md' -exec sed -i s/a/b/ {} \\;" "find agents -name '*.md' -delete" \
+  "find agents -name '*.md' -print0 | xargs -0 sed -i s/a/b/" "fd -e md . agents -x sed -i s/a/b/"; do
+  out=$(run_in "$WT_PLAIN" "$cmd")
+  assert_contains "$out" "prompt-surface" "$cmd"
+done
+out=$(run_in "$WT_PB" "find agents -name '*.md' -exec sed -i s/a/b/ {} \\;")
+assert_not_contains "$out" '"permissionDecision":"deny"' "a prompt-bearing task may"
+
+test_case "GH 1338 swe find / fd / xargs inside the worktree, outside prompt-surface dirs: ALLOWED"
+for cmd in "find $WT_PLAIN/src -exec rm {} \\;" "find src -name '*.md' -exec sed -i s/a/b/ {} \\;" "find src -name '*.tmp' -delete" \
+  "find src -name '*.ts' -print0 | xargs -0 sed -i s/a/b/" "fd -e ts . src -x sed -i s/a/b/ {}" "find agents -name '*.md' -print"; do
+  out=$(run_in "$WT_PLAIN" "$cmd")
+  assert_not_contains "$out" '"permissionDecision":"deny"' "$cmd"
+done
+
+# ===========================================================================
 # Layer 1 — schema-mismatch fail-safe (#596)
 # A stale legacy ~/.claude/tmb/trajectory.db (old schema, no prompt_bearing
 # column) up-tree from the hook's cwd must be treated as UNRESOLVED, not
