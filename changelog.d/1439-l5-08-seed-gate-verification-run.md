@@ -1,0 +1,2 @@
+### Fixed
+- **L5 row 08-push-gate seeds a task that passed the close gate** (GH 1439): the fixture seeded a needs_validation task with no repo, no typed files/verification and no gate verification run, which the pr-reviewer protocol must reject, so the row passed only when bro happened to repair the task; setup-l5.sh now seeds repo, files[], verification[] and a finished gate verification run for the commit, making the row deterministic.
