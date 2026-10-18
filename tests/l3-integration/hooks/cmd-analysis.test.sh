@@ -240,6 +240,37 @@ assert_eq 'UNRESOLVED:f:$f' "$(lpaths "cat list | while read f; do rm \"\$f\"; d
 assert_eq 'UNRESOLVED:f:$f' "$(lpaths "find /etc | while read f; do rm \"\$f\"; done")" "find /etc | while read"
 assert_eq 'UNRESOLVED:f:$f' "$(tmb_cmd_write_paths "for f in \$(find $LR); do rm \"\$f\"; done" "$LR")" "no root given"
 
+test_case "tmb_cmd_write_paths: find -exec / -delete, fd -x and xargs write the listed paths (GH 1338)"
+assert_eq "@,@/*" "$(lpaths "find $LR -name x -exec rm {} \\;")" "find <root> -name x -exec rm {} \\;"
+for cmd in "find $LR -delete" "find $LR -print0 | xargs -0 rm" "fd -e md -x sed -i s/a/b/ {}" \
+  "find $LR -exec sed -i s/a/b/ {} +" "find $LR -execdir rm {} ';'" "find $LR -ok rm {} \\;" "fd . $LR -X rm"; do
+  out=",$(lpaths "$cmd"),"
+  assert_contains "$out" ",@," "$cmd: the start path"
+  assert_contains "$out" ",@/*," "$cmd: everything under it"
+done
+assert_eq "@/a.bak,@/a/*.bak,@/a,@/a/*" "$(lpaths "find a -name x -exec mv {} {}.bak \\;")" "mv {} {}.bak: destination and the removed source"
+assert_eq "@/a.bak,@/a/*.bak" "$(lpaths "find a | xargs -I X cp X X.bak")" "xargs -I X"
+assert_eq "@/a,@/a/*" "$(lpaths "fd x a -x rm")" "fd -x with no placeholder appends {}"
+assert_eq "@/out.txt,@/f2,@/f3" "$(lpaths "find a -fprint out.txt -fprintf f2 '%p' -fls f3")" "-fprint / -fprintf / -fls write their file"
+assert_contains "$(lpaths "find agents -name '*.md' -exec sed -i s/a/b/ {} \\;")" "@/agents/*.md" "find agents -exec: the prompt-surface rule applies"
+assert_contains "$(lpaths "find $LR -name '*.sh' -o -exec sed -i s/a/b/ {} \\;")" "@/agents/*.md" "an -o: the action runs on what -name does not match"
+
+test_case "tmb_cmd_write_paths: read-only find and fd forms write nothing (GH 1338)"
+for cmd in "find $LR -name '*.sh' -print" "find a -type f -newer x -ls" "find a -printf '%p'" "find a -exec grep -l x {} \\;" \
+  "find /etc -name x" "fd -e md . a" "find a | xargs grep x" "find a -executable -print"; do
+  assert_eq "" "$(lpaths "$cmd")" "$cmd"
+done
+
+test_case "tmb_cmd_write_paths: find, fd and xargs over an unbound source stay unresolvable (GH 1338)"
+for cmd in "find / -exec rm {} \\;" "find \$HOME -delete" "find .. -delete" "find \$SRC -exec rm {} +" "find -L $LR -exec rm {} \\;"; do
+  assert_eq 'UNRESOLVED:find_path:${find_path}' "$(lpaths "$cmd")" "$cmd"
+done
+assert_eq 'UNRESOLVED:fd_path:${fd_path}' "$(lpaths "fd x /etc -x rm")" "fd x /etc -x rm"
+for cmd in "find / -print0 | xargs -0 rm" "cat list | xargs rm" "xargs rm < list" "find a -print0 | xargs -0 -a list rm" "find a | grep x | xargs rm"; do
+  assert_eq 'UNRESOLVED:xargs_arg:${xargs_arg}' "$(lpaths "$cmd")" "$cmd"
+done
+assert_eq 'UNRESOLVED:find_path:${find_path}' "$(tmb_cmd_write_paths "find $LR -delete" "$LR")" "no root given"
+
 test_case "tmb_cmd_write_shapes lists the shapes once"
 assert_contains "$(tmb_cmd_write_shapes)" "sed -i" "sed -i"
 assert_contains "$(tmb_cmd_write_shapes)" "dd of=" "dd of="

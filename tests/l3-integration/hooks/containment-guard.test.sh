@@ -239,6 +239,20 @@ assert_eq "deny" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'cat > "$(mkt
 assert_eq "deny" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'OUT=/etc/tmb-cg; cat > "$OUT"')")")" "OUT=/etc/x; cat > \$OUT"
 assert_eq "deny" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "$NODE_OUT")")")" "an interpreter heredoc writing outside the root"
 
+test_case "GH 1338: what find, fd and xargs run is judged on the listed paths"
+OUT=$(run "$PROJECT" "" Bash "$(bash_cmd 'find / -exec rm {} \;')")
+assert_eq "deny" "$(decision "$OUT")" "bro: find / -exec rm {} \\;"
+assert_contains "$OUT" 'depends on a variable the guard cannot resolve' "an out-of-root start path is unresolvable"
+for cmd in 'find $HOME -delete' 'find / -print0 | xargs -0 rm' 'cat list | xargs rm' 'fd x /etc -x rm' "find $PROJECT -fprint /tmp/tmb-cg-list"; do
+  assert_eq "deny" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "$cmd")")")" "bro: $cmd"
+done
+for cmd in "find $PROJECT -name '*.md' -exec sed -i s/a/b/ {} \\;" "find $PROJECT -name '*.sh' -print" "find / -name x -print" \
+  "find $PROJECT -name '*.tmp' -delete" "find src -print0 | xargs -0 sed -i s/a/b/" "fd -e md -x sed -i s/a/b/ {}"; do
+  assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "$cmd")")")" "bro: $cmd"
+done
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "find $PROJECT -exec rm {} \\;")")")" "swe: find <project> -exec rm from its worktree"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "find $WT/src -exec rm {} \\;")")")" "swe: find <wt>/src -exec rm"
+
 test_case "un-onboarded project → allow"
 BARE="$SANDBOX/bare"
 mkdir -p "$BARE"
