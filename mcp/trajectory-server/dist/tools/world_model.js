@@ -3,6 +3,7 @@ import { WorldModelGraph } from '../graph-db.js';
 import { resolveSoleRepo } from '../utils/repo-paths.js';
 import { spawnSync } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
+import { resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { frameUntrusted } from '../utils/untrusted.js';
 const WORLD_MODEL_GET_MAX_NODES = 500;
@@ -25,7 +26,7 @@ function computeUnmergedWork(db, repo) {
         return { unmerged_work: [] };
     const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
     const repoPath = repoRow.path.startsWith('/') ? repoRow.path : resolve(dbDir, repoRow.path);
-    const target = repoRow.target_branch || 'dev';
+    const target = repoRow.target_branch || resolveRepoDefaultBranch(repoPath);
     const gitCheck = spawnSync('git', ['-C', repoPath, 'rev-parse', '--is-inside-work-tree'], {
         encoding: 'utf8',
         timeout: SUBPROCESS_TIMEOUT_MS,

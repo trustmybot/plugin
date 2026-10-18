@@ -20,6 +20,7 @@ import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolve, dirname } from 'node:path';
 import { resolveSoleRepo } from '../utils/repo-paths.js';
+import { branchRefExists } from '../utils/git-refs.js';
 import { EFFORT_LEVELS, isEffort, resolveEffortDefaults, type Effort } from './config.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -48,8 +49,6 @@ function taskFileDirs(filesJson: string | null | undefined): Set<string> {
 export const BRANCH_ID_RE =
   /^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)\/[a-z0-9][a-z0-9-]{0,62}$/;
 
-const BASE_BRANCH_ALLOWLIST = new Set(['dev', 'main', 'master']);
-
 // Hard cap on tasks.spec_body. Architect should cite existing code/conventions
 // rather than restate them; a spec longer than ~8k is usually a sign the task
 // should be split via depends_on. Very long specs push SWE cold-start into the
@@ -73,12 +72,39 @@ function validateBranchId(branchId: string): void {
   }
 }
 
-function validateParentBranchId(branchId: string): void {
-  if (BASE_BRANCH_ALLOWLIST.has(branchId) || BRANCH_ID_RE.test(branchId)) return;
+function isGitValidBranchName(name: string): boolean {
+  return !/[\s~^:?*[\\]/.test(name) && !name.includes('..') && !name.startsWith('-') && !name.endsWith('/') && !name.endsWith('.lock');
+}
+
+function repoPolicyBranches(db: TrajectoryDB, repoValue: string | null): { names: Set<string>; target: string | null; repoPath: string | null } {
+  const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db)?.name ?? null;
+  const names = new Set<string>();
+  if (!name) return { names, target: null, repoPath: null };
+  const row = db.get<{ path: string; target_branch: string | null; protected_branches: string | null }>(
+    `SELECT path, target_branch, protected_branches FROM repos WHERE name = ?`,
+    [name],
+  );
+  if (!row) return { names, target: null, repoPath: null };
+  if (row.target_branch) names.add(row.target_branch);
+  try {
+    const parsed: unknown = JSON.parse(row.protected_branches ?? '[]');
+    if (Array.isArray(parsed)) for (const b of parsed) if (typeof b === 'string') names.add(b);
+  } catch {
+    // malformed protected_branches contributes no names
+  }
+  const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
+  return { names, target: row.target_branch || null, repoPath: row.path.startsWith('/') ? row.path : resolve(dbDir, row.path) };
+}
+
+function validateParentBranchId(branchId: string, db: TrajectoryDB, repoValue: string | null): void {
+  if (BRANCH_ID_RE.test(branchId)) return;
+  const { names, target, repoPath } = repoPolicyBranches(db, repoValue);
+  if (isGitValidBranchName(branchId) && (names.has(branchId) || (repoPath !== null && branchRefExists(repoPath, branchId)))) return;
   throw new Error(
-    `Invalid branch_id "${branchId}". Must be a base branch (dev, main, master) or git-convention ` +
-      `format: <type>/<slug> where <type> is one of feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert ` +
-      `and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: dev, main, feat/user-login.`,
+    `Invalid branch_id "${branchId}". Must be the repo's target branch (${target ?? 'unset'}), a protected branch, ` +
+      `an existing branch, or git-convention format: <type>/<slug> where <type> is one of ` +
+      `feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert ` +
+      `and <slug> is lowercase alnum + hyphens (max 63 chars). Examples: feat/user-login, fix/auth-crash.`,
   );
 }
 
@@ -310,7 +336,7 @@ export function taskTools(
                   type: 'array',
                   items: { type: 'string' },
                   description:
-                    "The task's expected scope at directory granularity (e.g. 'scripts/hooks/', 'CHANGELOG.md'). Writes outside it are allowed with a note to the swe; bro_atomic_close refuses on changed paths outside it until bro accepts them.",
+                    "The task's expected scope at directory granularity (e.g. 'src/api/', 'docs/', 'README.md'). Writes outside it are allowed with a note to the swe; bro_atomic_close refuses on changed paths outside it until bro accepts them.",
                 },
                 verification: {
                   type: 'array',
@@ -749,7 +775,7 @@ export function taskTools(
         // branch/worktree side effect below, so a validation failure persists
         // nothing (no orphan auto-created branch, no post-side-effect FK error
         // in the INSERT transaction).
-        if (t.parent_branch_id != null) validateParentBranchId(t.parent_branch_id);
+        if (t.parent_branch_id != null) validateParentBranchId(t.parent_branch_id, db, ((t.repo as string | undefined | null) || soleRepoValue) ?? null);
         if (!t.description) throw new Error('Missing required arg: description');
         if (t.spec_body !== undefined) {
           if (typeof t.spec_body !== 'string') {
@@ -823,7 +849,7 @@ export function taskTools(
 
         for (const t of taskInputs) {
           if (!t.branch_id) throw new Error('Missing required arg: branch_id');
-          if (t.parent_branch_id != null) validateParentBranchId(t.parent_branch_id);
+          if (t.parent_branch_id != null) validateParentBranchId(t.parent_branch_id, db, ((t.repo as string | undefined | null) || soleRepoValue) ?? null);
           if (!t.description) throw new Error('Missing required arg: description');
           if (t.spec_body !== undefined) {
             if (typeof t.spec_body !== 'string') {

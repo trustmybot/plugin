@@ -339,7 +339,9 @@ describe('taskTools', () => {
         db.close();
     });
     it('task_create_batch accepts parent_branch_id="dev"', async () => {
+        const repo = makeGitSubdir('parent-dev');
         const db = tempDB();
+        db.run(`INSERT INTO repos (name, path, target_branch) VALUES (?, ?, ?)`, [repo.name, repo.dir, 'dev']);
         const issueId = await createIssue(db);
         const tools = taskTools(db);
         const result = await call(tools.handlers, 'task_create_batch', {
@@ -353,9 +355,12 @@ describe('taskTools', () => {
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
         assert.equal(inserted[0].parent_branch_id, 'dev');
         db.close();
+        repo.cleanup();
     });
     it('task_create_batch accepts parent_branch_id="main"', async () => {
+        const repo = makeGitSubdir('parent-main');
         const db = tempDB();
+        db.run(`INSERT INTO repos (name, path, protected_branches) VALUES (?, ?, ?)`, [repo.name, repo.dir, JSON.stringify(['main'])]);
         const issueId = await createIssue(db);
         const tools = taskTools(db);
         const result = await call(tools.handlers, 'task_create_batch', {
@@ -369,9 +374,12 @@ describe('taskTools', () => {
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
         assert.equal(inserted[0].parent_branch_id, 'main');
         db.close();
+        repo.cleanup();
     });
     it('task_create_batch accepts parent_branch_id="master"', async () => {
+        const repo = makeGitSubdir('parent-master');
         const db = tempDB();
+        db.run(`INSERT INTO repos (name, path, protected_branches) VALUES (?, ?, ?)`, [repo.name, repo.dir, JSON.stringify(['master'])]);
         const issueId = await createIssue(db);
         const tools = taskTools(db);
         const result = await call(tools.handlers, 'task_create_batch', {
@@ -385,6 +393,7 @@ describe('taskTools', () => {
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
         assert.equal(inserted[0].parent_branch_id, 'master');
         db.close();
+        repo.cleanup();
     });
     it('task_create_batch accepts parent_branch_id="feat/foo" (git-convention still works)', async () => {
         const db = tempDB();
@@ -401,6 +410,61 @@ describe('taskTools', () => {
         assert.ok(!result.isError, `Expected no error: ${JSON.stringify(inserted)}`);
         assert.equal(inserted[0].parent_branch_id, 'feat/foo');
         db.close();
+    });
+    it('task_create_batch accepts parent_branch_id="develop" when it is the repo target_branch', async () => {
+        const repo = makeGitSubdir('parent-extra');
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path, target_branch) VALUES (?, ?, 'develop')`, [repo.name, repo.dir]);
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{ branch_id: 'feat/child-x', parent_branch_id: 'develop', description: 'child' }],
+        });
+        assert.ok(!result.isError, `Expected no error: ${result.content[0].text}`);
+        assert.equal(parseBatch(result)[0].parent_branch_id, 'develop');
+        db.close();
+        repo.cleanup();
+    });
+    it('task_create_batch rejects parent_branch_id="develop" when the repo does not name it', async () => {
+        const repo = makeGitSubdir('parent-extra');
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path, target_branch) VALUES (?, ?, 'main')`, [repo.name, repo.dir]);
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{ branch_id: 'feat/child-x', parent_branch_id: 'develop', description: 'child' }],
+        });
+        assert.ok(result.isError, 'Expected isError=true');
+        assert.match(parseResult(result).error, /Invalid branch_id "develop"/);
+        db.close();
+        repo.cleanup();
+    });
+    it('task_create_batch accepts parent_branch_id="trunk" when it exists as a local ref', async () => {
+        const repo = makeGitSubdir('parent-extra');
+        const db = tempDB();
+        db.run(`INSERT INTO repos (name, path) VALUES (?, ?)`, [repo.name, repo.dir]);
+        execFileSync('git', ['-C', repo.dir, 'branch', 'trunk']);
+        const issueId = await createIssue(db);
+        const tools = taskTools(db);
+        const result = await call(tools.handlers, 'task_create_batch', {
+            waive_scope_gate: true, waive_scope_gate_reason: 'unit-test synthetic scope; gate not under test',
+            waive_branch_gate: true, waive_branch_gate_reason: 'unit-test synthetic branch gate; not under test', waive_intent_gate: true, waive_intent_gate_reason: 'unit-test synthetic intent; not under test', waive_decision_gate: true, waive_decision_gate_reason: 'unit-test synthetic decision; not under test',
+            agent: 'bro',
+            issue_id: String(issueId),
+            tasks: [{ branch_id: 'feat/child-x', parent_branch_id: 'trunk', description: 'child' }],
+        });
+        assert.ok(!result.isError, `Expected no error: ${result.content[0].text}`);
+        assert.equal(parseBatch(result)[0].parent_branch_id, 'trunk');
+        db.close();
+        repo.cleanup();
     });
     it('task_create_batch rejects parent_branch_id="random-junk"', async () => {
         const db = tempDB();

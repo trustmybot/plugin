@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pinScanEnv, tempDB } from './helpers.js';
-import { compositeTools, filesToDirs, scopeCheckCommit } from '../tools/composites.js';
+import { compositeTools, filesToDirs, scopeCheckCommit, scopeSurface } from '../tools/composites.js';
 import { GraphHolder } from '../graph-db.js';
 import { issueTools } from '../tools/issues.js';
 import { taskTools } from '../tools/tasks.js';
@@ -800,8 +800,8 @@ describe('bro_atomic_close — scope gate (#157)', () => {
             });
             assert.equal(r.isError, true);
             const out = parse(r);
-            assert.deepEqual(out['extras_by_surface'], { 'scripts/hooks': { count: 1, paths: ['scripts/hooks/rogue.sh'] } });
-            assert.match(out['error'], /scripts\/hooks \(1\): scripts\/hooks\/rogue\.sh/);
+            assert.deepEqual(out['extras_by_surface'], { scripts: { count: 1, paths: ['scripts/hooks/rogue.sh'] } });
+            assert.match(out['error'], /scripts \(1\): scripts\/hooks\/rogue\.sh/);
             assert.doesNotMatch(out['error'], /elsewhere/);
             assert.match(out['error'], /scope_waiver_reason/);
         }
@@ -2936,6 +2936,13 @@ describe('agent_runs lifecycle — rows open with their run and close with their
         assert.equal(rows[0].completed_at, null, 'the young row stays open');
         assert.equal(rows[0].exit_reason, null);
         db.close();
+    });
+});
+describe('scopeSurface', () => {
+    it('groups by first path segment, root files under <root>', () => {
+        assert.equal(scopeSurface('src/a.ts'), 'src');
+        assert.equal(scopeSurface('README.md'), '<root>');
+        assert.equal(scopeSurface('a/b/c'), 'a');
     });
 });
 //# sourceMappingURL=composites.test.js.map
