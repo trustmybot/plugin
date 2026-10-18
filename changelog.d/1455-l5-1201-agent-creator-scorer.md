@@ -1,0 +1,2 @@
+### Fixed
+- **L5 12.01-agent-creator no longer fails on tools and an audit mode the doctrine never produces** (GH 1455): the row's `tools-required.json` demanded `audit_append` and `Write`, and `outcome.sql` demanded a `template-copy` mode, but `agent-create` calls `agent_resolve` then `agent_register`, which writes the `tmb_agent_created` audit row itself with mode `agent_register`, so the row now requires those tools and asserts the audit row carries an `agent_id`.
