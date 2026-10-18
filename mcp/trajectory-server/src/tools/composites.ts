@@ -1717,6 +1717,7 @@ export function compositeTools(
       'task_retry',
       ['bro'],
       wrap(async (args) => {
+        const agent = (args['agent'] as string | undefined) ?? 'bro';
         const failedTaskId = args['failed_task_id'] as string;
         const newBranchId = args['new_branch_id'] as string;
         const spec = args['corrected_spec_body'] as string;
@@ -1858,7 +1859,7 @@ export function compositeTools(
           insertAudit(db, {
             issue_id: failed.issue_id,
             branch_id: newBranchId,
-            from_node: 'bro',
+            from_node: agent,
             event_type: 'task_retry_attempted',
             summary: `Retry of failed task ${failedTaskId}: ${rationale.slice(0, 120)}`,
             content_json: JSON.stringify({
@@ -1870,7 +1871,7 @@ export function compositeTools(
           });
 
           if (effortRank(effort) > effortRank(failed.effort)) {
-            insertEffortRaised(db, { issue_id: failed.issue_id, branch_id: newBranchId, task_id: newTask.id }, failed.effort, effort, 'bro', now, failed.id);
+            insertEffortRaised(db, { issue_id: failed.issue_id, branch_id: newBranchId, task_id: newTask.id }, failed.effort, effort, agent, now, failed.id);
           }
 
           return newTask;

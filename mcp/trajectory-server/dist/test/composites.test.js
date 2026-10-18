@@ -141,6 +141,38 @@ describe('task_retry', () => {
         const auditRows = db.all(`SELECT event_type FROM audit WHERE issue_id = ?`, [issueId]);
         assert.ok(auditRows.some((r) => r.event_type === 'task_retry_attempted'));
     });
+    it('records task_retry_attempted and task_effort_raised with the calling agent', async () => {
+        const db = tempDB();
+        const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const composites = compositeTools(db, '/tmp/.claude/tmb/trajectory.db');
+        const caller = 'bro';
+        const issueId = Number(parse(await call(issues.handlers, 'issue_create', {
+            labels: ['Bug', 'Priority: High'],
+            agent: 'bro', objective: 'retry audit author', description: 'x',
+        }))['id']);
+        db.run(`INSERT INTO tasks (issue_id, branch_id, title, description, status, spec_body, effort, created_at, updated_at)
+       VALUES (?, 'fix/audit-author', '', 'd', 'failed', 's', 'medium', datetime('now'), datetime('now'))`, [issueId]);
+        const failedId = db.get(`SELECT id FROM tasks WHERE branch_id = 'fix/audit-author'`).id;
+        const retry = await call(composites.handlers, 'task_retry', {
+            agent: caller,
+            failed_task_id: String(failedId),
+            new_branch_id: 'fix/audit-author-v2',
+            corrected_spec_body: 'fixed approach',
+            retry_rationale: 'raise effort',
+            description: 'retry desc',
+            effort: 'high',
+        });
+        assert.equal(retry.isError, undefined, JSON.stringify(parse(retry)));
+        const attempted = db.get(`SELECT from_node FROM audit WHERE issue_id = ? AND event_type = 'task_retry_attempted'`, [issueId]);
+        assert.equal(attempted.from_node, caller);
+        const raised = db.get(`SELECT from_node, content_json FROM audit WHERE issue_id = ? AND event_type = 'task_effort_raised'`, [issueId]);
+        assert.equal(raised.from_node, caller);
+        const content = JSON.parse(raised.content_json);
+        assert.equal(content.from, 'medium');
+        assert.equal(content.to, 'high');
+        assert.equal(content.failed_task_id, failedId);
+        db.close();
+    });
     it('copies files, verification and prompt_bearing from the failed task', async () => {
         const db = tempDB();
         const issues = issueTools(db, '/tmp/.claude/tmb/trajectory.db');
