@@ -3,8 +3,9 @@
 -- that needs a clean post-onboard project state.
 --
 -- Schema-seeded automatically (no fixture work needed):
---   - plugin_config defaults (branching_model='github-flow', pr_target='main',
---     protected_branches=["main"], remotes=[], issue_sync='off')
+--   - plugin_config defaults (remotes=[], issue_sync='off'); repo policy
+--     (target_branch, branching_model, protected_branches) lives in the `repos`
+--     row created by scan_run
 --   - agents registry (swe, pr-reviewer, architect, cto, ceo, pm)
 --   - system issue (id=-1) — parent FK for issue-less recovery audit writes
 --
