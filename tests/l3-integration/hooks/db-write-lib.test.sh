@@ -23,6 +23,18 @@ sqlite3 "$DB" < "$SCHEMA" >/dev/null
 
 count() { sqlite3 "$DB" "$1"; }
 
+# wait_for_lock <db> [<ceiling_s>]: 0 once a holder has the lock, 1 at the ceiling. A readonly read fails under BEGIN EXCLUSIVE on a rollback-journal DB; a WAL DB under BEGIN IMMEDIATE still reads, so a zero-timeout BEGIN IMMEDIATE probe covers that holder.
+wait_for_lock() {
+  local db="$1" ceiling_s="${2:-10}" tries i
+  tries=$((ceiling_s * 10))
+  for ((i = 0; i < tries; i++)); do
+    sqlite3 -readonly "$db" "SELECT 1;" >/dev/null 2>&1 || return 0
+    sqlite3 "$db" ".timeout 0" "BEGIN IMMEDIATE; ROLLBACK;" >/dev/null 2>&1 || return 0
+    sleep 0.1
+  done
+  return 1
+}
+
 test_case "tmb_now_iso prints a 24-char UTC ms-ISO timestamp"
 NOW=$(tmb_now_iso)
 assert_eq "24" "${#NOW}" "tmb_now_iso length"
@@ -192,39 +204,42 @@ mkfifo "$TMPDIR_FIXTURE/lock.fifo"
 sqlite3 "$LOCKED_DB" < "$TMPDIR_FIXTURE/lock.fifo" >/dev/null 2>&1 &
 LOCK_PID=$!
 exec 8>"$TMPDIR_FIXTURE/lock.fifo"
-printf 'BEGIN EXCLUSIVE;\nINSERT INTO x VALUES (1);\n' >&8
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-  sqlite3 -readonly "$LOCKED_DB" "SELECT 1;" >/dev/null 2>&1 || break
-  sleep 0.1
-done
-: > "$RO_LOG"
-assert_eq "__ERR__" "$(PATH="$RO_BIN:$PATH" TMB_DB_WRITE_TIMEOUT_MS=100 tmb_gate_read "$LOCKED_DB" "SELECT count(*) FROM x;")" "locked DB"
-assert_eq "1" "$(grep -c . "$RO_LOG")" "one sqlite3 run"
+printf '.timeout 2000\nBEGIN EXCLUSIVE;\nINSERT INTO x VALUES (1);\n' >&8
+if wait_for_lock "$LOCKED_DB"; then
+  : > "$RO_LOG"
+  assert_eq "__ERR__" "$(PATH="$RO_BIN:$PATH" TMB_DB_WRITE_TIMEOUT_MS=100 tmb_gate_read "$LOCKED_DB" "SELECT count(*) FROM x;")" "locked DB"
+  assert_eq "1" "$(grep -c . "$RO_LOG")" "one sqlite3 run"
+else
+  _fail "fixture: lock holder never acquired the lock (locked.db)"
+fi
 exec 8>&-
 wait "$LOCK_PID" 2>/dev/null
 
 test_case "run budget: three writes under a held lock stop waiting once the budget is spent"
-( printf 'BEGIN IMMEDIATE;\n'; sleep 6; printf 'COMMIT;\n' ) | sqlite3 "$DB" &
+( printf '.timeout 2000\nBEGIN IMMEDIATE;\n'; sleep 6; printf 'COMMIT;\n' ) | sqlite3 "$DB" &
 HOLDER=$!
-sleep 0.2
-BUDGET_OUT=$(bash -c '
-  . "$1"
-  now() { perl -MTime::HiRes=time -e "printf(\"%d\", time() * 1000)"; }
-  start=$(now)
-  for i in 1 2 3; do
-    tmb_db_write "$2" "INSERT INTO plugin_config (key, value_json) VALUES (\"dbw_budget_$i\", \"1\");" 2>>"$3" || printf "fail%s " "$i"
-  done
-  printf "%s" "$(( $(now) - start ))"
-' _ "$LIB" "$DB" "$TMPDIR_FIXTURE/budget.err")
+if wait_for_lock "$DB"; then
+  BUDGET_OUT=$(bash -c '
+    . "$1"
+    now() { perl -MTime::HiRes=time -e "printf(\"%d\", time() * 1000)"; }
+    start=$(now)
+    for i in 1 2 3; do
+      tmb_db_write "$2" "INSERT INTO plugin_config (key, value_json) VALUES (\"dbw_budget_$i\", \"1\");" 2>>"$3" || printf "fail%s " "$i"
+    done
+    printf "%s" "$(( $(now) - start ))"
+  ' _ "$LIB" "$DB" "$TMPDIR_FIXTURE/budget.err")
+  assert_contains "$BUDGET_OUT" "fail1 fail2 fail3 " "all three writes fail under the held lock"
+  BUDGET_MS="${BUDGET_OUT##* }"
+  HOOK_FLOOR_MS=4500
+  [ "$BUDGET_MS" -lt "$HOOK_FLOOR_MS" ] && _pass || _fail "three writes took ${BUDGET_MS} ms, want < ${HOOK_FLOOR_MS} ms (run budget 3500 + 1 s)"
+  [ "$BUDGET_MS" -ge 3000 ] && _pass || _fail "the first write should still use most of the budget (took ${BUDGET_MS} ms)"
+  assert_contains "$(cat "$TMPDIR_FIXTURE/budget.err")" "run budget spent" "later writes fail fast naming the spent budget"
+  assert_eq "0" "$(count "SELECT COUNT(*) FROM plugin_config WHERE key LIKE 'dbw_budget_%';")" "no row written"
+else
+  _fail "fixture: lock holder never acquired the lock ($DB)"
+fi
 kill "$HOLDER" 2>/dev/null || true
 wait "$HOLDER" 2>/dev/null || true
-assert_contains "$BUDGET_OUT" "fail1 fail2 fail3 " "all three writes fail under the held lock"
-BUDGET_MS="${BUDGET_OUT##* }"
-HOOK_FLOOR_MS=4500
-[ "$BUDGET_MS" -lt "$HOOK_FLOOR_MS" ] && _pass || _fail "three writes took ${BUDGET_MS} ms, want < ${HOOK_FLOOR_MS} ms (run budget 3500 + 1 s)"
-[ "$BUDGET_MS" -ge 3000 ] && _pass || _fail "the first write should still use most of the budget (took ${BUDGET_MS} ms)"
-assert_contains "$(cat "$TMPDIR_FIXTURE/budget.err")" "run budget spent" "later writes fail fast naming the spent budget"
-assert_eq "0" "$(count "SELECT COUNT(*) FROM plugin_config WHERE key LIKE 'dbw_budget_%';")" "no row written"
 
 test_case "sqlite3 fallback audits against the system issue (issue_id = -1)"
 ERR=$(TRAJECTORY_DB_PATH="$DB" bash -c '
