@@ -1897,6 +1897,30 @@ describe('task_brief (#300)', () => {
     db.close();
   });
 
+  it('a swe caller records the swe_brief_fetched sentinel once; bro and pr-reviewer record none', async () => {
+    const db = tempDB();
+    const id = seedTask(db, { repo: 'app', spec: SPEC });
+    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+    const sentinels = (): Array<{ from_node: string; content_json: string }> =>
+      db.all<{ from_node: string; content_json: string }>(
+        `SELECT from_node, content_json FROM audit WHERE event_type = 'swe_brief_fetched'`,
+      );
+
+    await tools.handlers['task_brief']!({ agent: 'bro', task_id: id });
+    await tools.handlers['task_brief']!({ agent: 'pr-reviewer', task_id: id });
+    assert.equal(sentinels().length, 0, 'bro and pr-reviewer write no sentinel');
+
+    await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
+    const rows = sentinels();
+    assert.equal(rows.length, 1, 'first swe call writes exactly one row');
+    assert.equal(rows[0]!.from_node, 'swe');
+    assert.deepEqual(JSON.parse(rows[0]!.content_json), { task_id: id, agent_type: 'swe' });
+
+    await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
+    assert.equal(sentinels().length, 1, 'a second swe call adds none');
+    db.close();
+  });
+
   it('errors on a missing task', async () => {
     const db = tempDB();
     const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);

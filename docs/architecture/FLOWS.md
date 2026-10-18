@@ -97,7 +97,7 @@ sequenceDiagram
 
     Note over S: arrives already inside the hook-created worktree
     par
-        S->>DB: task_brief(task_id=N)
+        S->>DB: task_brief(task_id=N) (records the swe_brief_fetched sentinel)
     and
         S->>S: cd <worktree>
     end

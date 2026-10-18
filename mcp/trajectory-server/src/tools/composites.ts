@@ -1550,6 +1550,23 @@ export function compositeTools(
         if (normalizeAgent(args['agent'] as string | undefined) === 'swe') {
           const repoPath = resolveRepoPath(db, task.repo);
           openSweRun(db, task, nowISO(), runContext, repoPath?.startsWith('/') ? taskWorktreePath(repoPath, task.branch_id) : null);
+          const sentinel = db.get<{ n: number }>(
+            `SELECT COUNT(*) AS n FROM audit WHERE event_type = 'swe_brief_fetched' AND json_extract(content_json, '$.task_id') = ?`,
+            [task.id],
+          );
+          if (!sentinel || sentinel.n === 0) {
+            insertAudit(db, {
+              issue_id: task.issue_id,
+              branch_id: task.branch_id,
+              from_node: 'swe',
+              writer: 'swe',
+              event_type: 'swe_brief_fetched',
+              summary: `SWE fetched task_brief for task_id=${task.id}`,
+              content_json: JSON.stringify({ task_id: task.id, agent_type: 'swe' }),
+              created_at: nowISO(),
+              repo: task.repo,
+            });
+          }
         }
 
         // Resolve repo: task.repo, else the single-repo fallback (path-keyed
