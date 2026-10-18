@@ -11,10 +11,19 @@ export function healthcheckTimeoutSec() {
     const raw = Number(process.env['TMB_CHEATCODE_HEALTHCHECK_TIMEOUT']);
     return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TIMEOUT_SEC;
 }
+export function probeChildEnv() {
+    return { ...process.env, TMB_DISABLE_CHEATCODE_HEALTHCHECK: '1' };
+}
 function runClaude(args, timeoutSec) {
     return new Promise((resolve) => {
         try {
-            const child = execFile('claude', args, { timeout: timeoutSec * 1000, killSignal: 'SIGKILL', maxBuffer: MAX_LISTING_BYTES, encoding: 'utf8' }, (error, stdout) => resolve(error ? null : stdout));
+            const child = execFile('claude', args, {
+                env: probeChildEnv(),
+                timeout: timeoutSec * 1000,
+                killSignal: 'SIGKILL',
+                maxBuffer: MAX_LISTING_BYTES,
+                encoding: 'utf8',
+            }, (error, stdout) => resolve(error ? null : stdout));
             child.stdin?.end();
         }
         catch {
