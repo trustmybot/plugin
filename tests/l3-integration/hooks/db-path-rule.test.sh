@@ -28,6 +28,14 @@ unset CLAUDE_PROJECT_DIR TRAJECTORY_DB_PATH CLAUDE_PLUGIN_ROOT
 FAKE_HOME="$BASE/home"
 mkdir -p "$FAKE_HOME/.claude"
 
+mkdir -p "$BASE/bin"
+cat > "$BASE/bin/pgrep" <<'STUB'
+#!/usr/bin/env bash
+echo 99999
+STUB
+chmod +x "$BASE/bin/pgrep"
+LIVE_PATH="$BASE/bin:$PATH"
+
 # schema <db>: the columns/tables the hooks under test read.
 schema() {
   sqlite3 "$1" "
@@ -92,7 +100,7 @@ run_ws() {
 
 for MODE in root walk; do
   test_case "[$MODE] activation-routine reads the workspace DB"
-  out=$(run_ws "$MODE" activation-routine.sh '{"prompt":"hey bro"}')
+  out=$(run_ws "$MODE" activation-routine.sh '{"prompt":"hey bro"}' PATH="$LIVE_PATH")
   assert_contains "$out" "onboarded=yes" "onboarded marker from the workspace DB"
   assert_contains "$out" "pending=#3" "pending issue from the workspace DB"
 
@@ -145,10 +153,10 @@ done
 test_case "[root] a nested repo DB does not shadow the project-root DB"
 mkdir -p "$REPO/.claude/tmb"
 schema "$REPO/.claude/tmb/trajectory.db"
-out=$(run_ws root activation-routine.sh '{"prompt":"hey bro"}')
+out=$(run_ws root activation-routine.sh '{"prompt":"hey bro"}' PATH="$LIVE_PATH")
 assert_contains "$out" "pending=#3" "still the workspace DB"
 test_case "[walk] the outermost DB wins over a nested repo DB"
-out=$(run_ws walk activation-routine.sh '{"prompt":"hey bro"}')
+out=$(run_ws walk activation-routine.sh '{"prompt":"hey bro"}' PATH="$LIVE_PATH")
 assert_contains "$out" "pending=#3" "outermost workspace DB"
 rm -rf "$REPO/.claude"
 
@@ -270,9 +278,9 @@ out=$(run_gate swe-boundary.sh "$SB_PAYLOAD" "$GOOD_DB" "$WT")
 assert_eq "" "$out" "prompt_bearing=1 task allows"
 
 test_case "advisory hooks log one stderr line and allow on a DB error"
-err=$( (cd "$GATE_REPO" && printf '%s' '{"prompt":"hey bro"}' | env HOME="$FAKE_HOME" TRAJECTORY_DB_PATH="$CORRUPT_DB" bash "$HOOKS/activation-routine.sh" 2>&1 >/dev/null) || true)
+err=$( (cd "$GATE_REPO" && printf '%s' '{"prompt":"hey bro"}' | env HOME="$FAKE_HOME" PATH="$LIVE_PATH" TRAJECTORY_DB_PATH="$CORRUPT_DB" bash "$HOOKS/activation-routine.sh" 2>&1 >/dev/null) || true)
 assert_contains "$err" "activation-routine: trajectory DB unavailable" "activation-routine stderr line"
-out=$( (cd "$GATE_REPO" && printf '%s' '{"prompt":"hey bro"}' | env HOME="$FAKE_HOME" TRAJECTORY_DB_PATH="$CORRUPT_DB" bash "$HOOKS/activation-routine.sh" 2>/dev/null) || true)
+out=$( (cd "$GATE_REPO" && printf '%s' '{"prompt":"hey bro"}' | env HOME="$FAKE_HOME" PATH="$LIVE_PATH" TRAJECTORY_DB_PATH="$CORRUPT_DB" bash "$HOOKS/activation-routine.sh" 2>/dev/null) || true)
 assert_eq "" "$out" "activation-routine emits nothing"
 
 summarize
