@@ -216,4 +216,16 @@ _pass
 branch_exists dev || { echo "FAIL: first repo's dev branch affected"; exit 1; }
 _pass
 
+# ---------------------------------------------------------------------------
+test_case "(e) base resolves to a missing ref → merged branch left alone"
+make_merged feat/nobase nobase
+sqlite3 "$DB" "UPDATE repos SET target_branch = NULL WHERE name='repo';"
+git -C "$REPO" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/gone
+out=$(run_hook "$(input 'gh pr merge feat/nobase --squash')")
+assert_not_contains "$out" 'cleaned up merged branch' "no cleanup report"
+branch_exists feat/nobase || { echo "FAIL: branch deleted without a resolvable base"; exit 1; }
+_pass
+git -C "$REPO" symbolic-ref --delete refs/remotes/origin/HEAD
+sqlite3 "$DB" "UPDATE repos SET target_branch = 'dev' WHERE name='repo';"
+
 summarize

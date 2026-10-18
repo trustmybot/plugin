@@ -93,7 +93,7 @@ if [ -n "$user_install" ]; then
   if [ -n "$project_install" ]; then
     NOTICE="TMB: user-scope TMB v$(install_version "$user_install") ignored — project install v$(install_version "$project_install") in use."
   else
-    NOTICE="TMB installed at user scope; \`--scope project\` is recommended (see docs/reference/INSTALL.md)."
+    NOTICE="TMB installed at user scope; \`--scope project\` is recommended (see ${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/}docs/reference/INSTALL.md)."
   fi
   case "$session_id" in
     ''|*/*|.*) NOTICE_MARKER="" ;;
