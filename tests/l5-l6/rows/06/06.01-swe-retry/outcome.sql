@@ -1,4 +1,4 @@
--- 06.01-swe-retry: pre-seed has a failed task + concern discussion. Bro should
+-- 06.01-swe-retry: pre-seed has a failed task + failure-feedback note. Bro should
 -- call the task_retry composite (tmb_planning §Step 5 retry path),
 -- which emits a task_retry_attempted audit event in the same transaction
 -- as the new task insert and the discussion(kind='decision') append.
