@@ -24,6 +24,9 @@ VERIFY_CMD='python3 todo.py | grep -x todo >/dev/null'
 # L5 unit (clean DB) and as an L6 chain step where IDs are already taken
 # by prior rows. Substantive assertions key off branch_id, not numeric id.
 sqlite3 "$PROJECT/.claude/tmb/trajectory.db" <<SQL
+INSERT OR IGNORE INTO repos (name, path, target_branch, branching_model, protected_branches)
+VALUES ('$REPO_NAME', '$PROJECT', 'main', 'github-flow', '["main"]');
+
 INSERT INTO issues (objective, description, status, created_at, updated_at)
 VALUES ('Seed todo CLI (push-gate)', 'pre-seed for push-gate scenario', 'open',
         datetime('now'), datetime('now'));
