@@ -152,6 +152,7 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `issue_auto_closed_on_merge` | `hook` | `close-issue-on-merge` closed a local issue named by a merged PR's closing-ref; `content_json` carries `gh_iid` |
 | `issue_close_remote_skipped` | `server` | `issue_close`, `bro_atomic_close` or `task_recover` closed an issue locally but no linked remote because the remote-sync gate is off: `reason` is `issue_sync_off` (`plugin_config.issue_sync` unset or `off`), `env_disabled` (`TMB_DISABLE_REMOTE_SYNC` set) or `no_backend` (no usable gh/glab for the issue repo's remotes); `content_json` carries `reason`, `remotes` |
 | `issue_linked` | `bro` | `issue_link` bound a local issue to a remote issue; `content_json` carries `issue_id`, `backend`, `iid`, `forced` |
+| `issue_updated` | `bro` | bro changed an issue's milestone, labels or objective after creation |
 | `mcp_unavailable_fallback_invoked` | `bro`, `swe`, `pr-reviewer`, `consultant` | The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1` |
 | `milestone_closed` | `bro` | `milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed` |
 | `milestone_reconcile_failed` | `bro` | `scan_run` could not read a repo's remote milestones; `content_json` carries `repo`, `backend`, `reason` (the scan still succeeds) |
