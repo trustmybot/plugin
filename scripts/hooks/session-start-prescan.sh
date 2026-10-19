@@ -65,31 +65,75 @@ if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/.claude-plugi
   fi
 fi
 
-# Probe git state. Each query falls through to "(unknown)" on error so
-# the hook stays silent rather than blowing up on an unusual repo state.
-BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
-COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo 0)
-DIRTY_COUNT=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
-LAST_5_RAW=$(git log --oneline -5 2>/dev/null || true)
+# Everything below reads the project and its repos from the trajectory DB —
+# never the hook's cwd. PROJECT_ROOT is tmb_project_root; REPOS holds one
+# "<name>|<abs path>" per repos row (a relative path joins the DB dir), else
+# the project root under its basename.
+PROJECT_ROOT=$(tmb_project_root)
 
-# Top-level layout (one line, names only).
-TOPLEVEL=""
-for entry in *; do
-  [ -e "$entry" ] || continue
-  TOPLEVEL="$TOPLEVEL $entry"
-done
-TOPLEVEL=$(printf '%s' "$TOPLEVEL" | awk '{ for (i=1;i<=NF && i<=10;i++) printf("%s%s", (i>1?" ":""), $i) }')
+list_repos() {
+  local rows name path
+  rows=$(tmb_sqlite_ro "$DB_PATH" "SELECT name || '|' || path FROM repos WHERE COALESCE(path, '') <> '' ORDER BY name;" 2>/dev/null) || rows=""
+  if [ -z "$rows" ]; then
+    [ -n "$PROJECT_ROOT" ] && printf '%s|%s\n' "$(basename "$PROJECT_ROOT")" "$PROJECT_ROOT"
+    return 0
+  fi
+  while IFS='|' read -r name path; do
+    case "$path" in /*) ;; *) path=$(tmb_realdir "$(dirname "$DB_PATH")/$path") ;; esac
+    printf '%s|%s\n' "$name" "${path%/}"
+  done <<<"$rows"
+}
+REPOS=$(list_repos)
+REPO_N=$(printf '%s' "$REPOS" | grep -c . || true)
 
-# Stack indicators.
+detect_stacks() {
+  local d="$1" s=""
+  [ -f "$d/package.json" ] && s="$s Node"
+  { [ -f "$d/pyproject.toml" ] || [ -f "$d/setup.py" ] || [ -f "$d/requirements.txt" ]; } && s="$s Python"
+  [ -f "$d/go.mod" ] && s="$s Go"
+  [ -f "$d/Cargo.toml" ] && s="$s Rust"
+  [ -f "$d/Gemfile" ] && s="$s Ruby"
+  [ -f "$d/composer.json" ] && s="$s PHP"
+  s="${s# }"
+  printf '%s' "${s:-(none detected)}"
+}
+
+# Per repo: stacks, then git state. Each git query falls through to
+# unknown/0 on error so the hook stays silent on an unusual repo state.
 STACKS=""
-[ -f package.json ] && STACKS="$STACKS Node"
-{ [ -f pyproject.toml ] || [ -f setup.py ] || [ -f requirements.txt ]; } && STACKS="$STACKS Python"
-[ -f go.mod ] && STACKS="$STACKS Go"
-[ -f Cargo.toml ] && STACKS="$STACKS Rust"
-[ -f Gemfile ] && STACKS="$STACKS Ruby"
-[ -f composer.json ] && STACKS="$STACKS PHP"
-STACKS=$(echo "$STACKS" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-[ -z "$STACKS" ] && STACKS="(none detected)"
+BRANCHES=""
+LAST_5=""
+while IFS='|' read -r name path; do
+  [ -n "$name" ] || continue
+  if [ ! -d "$path" ]; then
+    STACKS="${STACKS:+$STACKS; }${name}: missing (${path})"
+    BRANCHES="${BRANCHES:+$BRANCHES; }${name}: missing (${path})"
+    continue
+  fi
+  STACKS="${STACKS:+$STACKS; }${name}: $(detect_stacks "$path")"
+  branch=$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
+  commits=$(git -C "$path" rev-list --count HEAD 2>/dev/null || echo 0)
+  dirty=$(git -C "$path" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+  BRANCHES="${BRANCHES:+$BRANCHES; }${name}: ${branch} (${commits} commits, ${dirty} dirty paths)"
+  prefix="  "
+  [ "$REPO_N" -gt 1 ] && prefix="  [${name}] "
+  log=$(git -C "$path" log --oneline -5 2>/dev/null | awk -v p="$prefix" '{ print p $0 }')
+  [ -n "$log" ] && LAST_5="${LAST_5:+$LAST_5
+}${log}"
+done <<<"$REPOS"
+[ -n "$STACKS" ] || STACKS="(no project resolves)"
+[ -n "$BRANCHES" ] || BRANCHES="(no project resolves)"
+
+# Top-level layout of the project root (one line, names only).
+TOPLEVEL="(no project resolves)"
+if [ -n "$PROJECT_ROOT" ] && [ -d "$PROJECT_ROOT" ]; then
+  TOPLEVEL=""
+  for entry in "$PROJECT_ROOT"/*; do
+    [ -e "$entry" ] || continue
+    TOPLEVEL="$TOPLEVEL $(basename "$entry")"
+  done
+  TOPLEVEL=$(printf '%s' "$TOPLEVEL" | awk '{ for (i=1;i<=NF && i<=10;i++) printf("%s%s", (i>1?" ":""), $i) }')
+fi
 
 # Open issues + pending tasks from the trajectory DB.
 OPEN_ISSUES=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM issues WHERE status='open';" 2>/dev/null || echo 0)
@@ -106,18 +150,12 @@ tracked_source_count() {
 }
 
 count_source_files() {
-  local repo_paths path total=0 n
-  repo_paths=$(tmb_sqlite_ro "$DB_PATH" "SELECT path FROM repos;" 2>/dev/null) || repo_paths=""
-  if [ -z "$repo_paths" ]; then
-    n=$(tracked_source_count .)
-    [[ "$n" =~ ^[0-9]+$ ]] && total=$n
-  else
-    while IFS= read -r path; do
-      [ -d "$path" ] || continue
-      n=$(tracked_source_count "$path")
-      [[ "$n" =~ ^[0-9]+$ ]] && total=$((total + n))
-    done <<<"$repo_paths"
-  fi
+  local name path total=0 n
+  while IFS='|' read -r name path; do
+    [ -n "$name" ] && [ -d "$path" ] || continue
+    n=$(tracked_source_count "$path")
+    [[ "$n" =~ ^[0-9]+$ ]] && total=$((total + n))
+  done <<<"$REPOS"
   printf '%s' "$total"
 }
 
@@ -226,8 +264,6 @@ if [ -n "$CONTRACT_IDS" ] && [ -n "$CONTRACT_SCRIPT" ]; then
   fi
 fi
 
-LAST_5=$(printf '%s' "$LAST_5_RAW" | head -5 | sed 's/^/  /')
-
 # Assemble the inventory block.
 # STABLE fields first (same across sessions): dirs, stacks, world model state.
 # VOLATILE fields last (change per session/turn): branch, counts, commits.
@@ -265,7 +301,7 @@ Top-level dirs:    ${TOPLEVEL}
 Stacks detected:   ${STACKS}
 World model:       ${WORLD_MODEL_LINE}
 Trajectory DB:     ${DOCTOR_STATE}
-Git branch:        ${BRANCH} (${COMMIT_COUNT} commits, ${DIRTY_COUNT} dirty paths)
+Git branch:        ${BRANCHES}
 Open issues:       ${OPEN_ISSUES}
 Pending tasks:     ${PENDING_TASKS}
 Last 5 commits:

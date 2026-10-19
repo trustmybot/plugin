@@ -54,6 +54,7 @@ assert_eq "UserPromptSubmit" "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.
 CTX=$(context_of "$OUT")
 assert_eq "$HEADER" "$(printf '%s\n' "$CTX" | head -1)" "header line"
 assert_contains "$CTX" "# You are bro" "persona body"
+assert_eq "Project root (<project> in TMB prompts): $PROJECT" "$(printf '%s\n' "$CTX" | sed -n 2p)" "project root line"
 if [ -f "$(marker s-mid)" ]; then _pass; else _fail "no persona marker written"; fi
 assert_eq "" "$(run_hook "$PROJECT" "$(payload s-mid)" "$FIXTURE_PLUGIN")" "second prompt silent"
 assert_eq "absent" "$(checksum "$PROJECT/CLAUDE.md")" "no CLAUDE.md created"

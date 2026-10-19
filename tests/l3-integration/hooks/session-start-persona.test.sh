@@ -56,6 +56,7 @@ assert_persona_emitted() {
   ctx=$(context_of "$out")
   assert_eq "$HEADER" "$(printf '%s\n' "$ctx" | head -1)" "$label: header line"
   assert_contains "$ctx" "# You are bro" "$label: persona body"
+  assert_contains "$ctx" "Project root (<project> in TMB prompts): $PROJECT" "$label: project root line"
   assert_eq "$before" "$(checksum "$PROJECT/CLAUDE.md")" "$label: project CLAUDE.md byte-identical"
   if [ -f "$(marker "$sid")" ]; then _pass; else _fail "$label: no persona marker for $sid"; fi
 }

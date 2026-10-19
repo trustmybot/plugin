@@ -128,7 +128,16 @@ bump_repo() {
   done
   printf '{\n  "workspaces": {\n    "": {\n      "version": "1.0.0"\n    }\n  }\n}\n' > "$dir/bun.lock"
   cp "$FIXTURE/CHANGELOG.md" "$dir/CHANGELOG.md"
+  mkdir -p "$dir/scripts/maintenance/lib"
+  cp "$BUMP" "$dir/scripts/maintenance/"
+  cp "$PLUGIN_ROOT/scripts/maintenance/lib/changelog-fragments.sh" "$dir/scripts/maintenance/lib/"
   printf '%s\n' "$dir"
+}
+
+# bump-version.sh operates on the checkout holding it, so run the temp repo's copy from an unrelated cwd.
+bump() {
+  local dir="$1"; shift
+  (cd "$TMPDIR" && bash "$dir/scripts/maintenance/bump-version.sh" "$@")
 }
 
 # Copy fragments in the given order so creation order (and mtimes) differ between copies.
@@ -142,7 +151,7 @@ test_case "--dry-run prints the expected section and changes nothing"
 B1=$(bump_repo bump-a)
 add_fragments "$B1" 10-ten.md 9-nine.md 1277-new-thing.md 42-hole.md 300-flag.md
 before=$(cd "$B1" && find . -path ./.git -prune -o -type f -print | LC_ALL=C sort | xargs cat | cksum)
-(cd "$B1" && bash "$BUMP" --dry-run --date 2026-10-12 1.1.0) > "$TMPDIR/dry-a.md"
+bump "$B1" --dry-run --date 2026-10-12 1.1.0 > "$TMPDIR/dry-a.md"
 if cmp -s "$FIXTURE/expected-block.md" "$TMPDIR/dry-a.md"; then _pass; else _fail "dry-run block differs: $(diff "$FIXTURE/expected-block.md" "$TMPDIR/dry-a.md" | head -10)"; fi
 after=$(cd "$B1" && find . -path ./.git -prune -o -type f -print | LC_ALL=C sort | xargs cat | cksum)
 assert_eq "$before" "$after" "dry-run leaves every file unchanged"
@@ -150,11 +159,11 @@ assert_eq "$before" "$after" "dry-run leaves every file unchanged"
 test_case "same inputs in a different creation order → byte-identical section"
 B2=$(bump_repo bump-b)
 add_fragments "$B2" 300-flag.md 42-hole.md 1277-new-thing.md 9-nine.md 10-ten.md
-(cd "$B2" && bash "$BUMP" --dry-run --date 2026-10-12 1.1.0) > "$TMPDIR/dry-b.md"
+bump "$B2" --dry-run --date 2026-10-12 1.1.0 > "$TMPDIR/dry-b.md"
 if cmp -s "$TMPDIR/dry-a.md" "$TMPDIR/dry-b.md"; then _pass; else _fail "two runs differ"; fi
 
 test_case "the bump writes the section in place of Unreleased and deletes the fragments"
-(cd "$B1" && bash "$BUMP" --date 2026-10-12 1.1.0 >/dev/null)
+bump "$B1" --date 2026-10-12 1.1.0 >/dev/null
 { printf '# Changelog\n\nAll notable changes.\n\n'; cat "$FIXTURE/expected-block.md"; printf '## v1.0.0 — 2026-01-01\n\n### Added\n- **First release** (GH 1): hello.\n'; } > "$TMPDIR/expected-changelog.md"
 if cmp -s "$TMPDIR/expected-changelog.md" "$B1/CHANGELOG.md"; then _pass; else _fail "CHANGELOG differs: $(diff "$TMPDIR/expected-changelog.md" "$B1/CHANGELOG.md" | head -10)"; fi
 left=$(find "$B1/changelog.d" -name '*.md' | wc -l | tr -d ' ')
@@ -166,7 +175,7 @@ B3=$(bump_repo bump-bad)
 add_fragments "$B3" 9-nine.md
 printf '### Tweaked\n- **Nope** (GH 77): nope.\n' > "$B3/changelog.d/77-nope.md"
 before=$(cd "$B3" && find . -path ./.git -prune -o -type f -print | LC_ALL=C sort | xargs cat | cksum)
-rc=0; (cd "$B3" && bash "$BUMP" --date 2026-10-12 1.1.0 >/dev/null 2>"$TMPDIR/bad.err") || rc=$?
+rc=0; bump "$B3" --date 2026-10-12 1.1.0 >/dev/null 2>"$TMPDIR/bad.err" || rc=$?
 assert_eq 1 "$rc" "malformed → exit 1"
 assert_contains "$(cat "$TMPDIR/bad.err")" "77-nope.md" "names the fragment"
 after=$(cd "$B3" && find . -path ./.git -prune -o -type f -print | LC_ALL=C sort | xargs cat | cksum)

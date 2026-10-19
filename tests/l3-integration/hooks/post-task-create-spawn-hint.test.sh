@@ -22,9 +22,19 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/post-task-create-spawn-hint.sh"
 PROJECT="$(mktemp -d)"
 trap 'rm -rf "$PROJECT"' EXIT
 mkdir -p "$PROJECT/.claude/tmb"
-touch "$PROJECT/.claude/tmb/trajectory.db"
+REPO_PATH="$PROJECT/repos/plugin"
+
+# seed_db <db> <repos.path> — tasks 42/43 in the sole registered repo.
+seed_db() {
+  sqlite3 "$1" "
+    CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT);
+    CREATE TABLE tasks (id INTEGER PRIMARY KEY, branch_id TEXT, repo TEXT);
+    INSERT INTO repos VALUES ('plugin', '$2');
+    INSERT INTO tasks VALUES (42, 'feat/my-feature', 'plugin'), (43, 'feat/other', '');"
+}
+seed_db "$PROJECT/.claude/tmb/trajectory.db" "$REPO_PATH"
 export CLAUDE_PROJECT_DIR="$PROJECT"
-cd "$PROJECT"
+cd /
 
 run_hook() {
   echo "$1" | bash "$HOOK" 2>&1 || true
@@ -87,7 +97,8 @@ out=$(run_hook "$input")
 assert_contains "$out" "additionalContext" "hook emits additionalContext"
 assert_contains "$out" "SWE-spawn hint" "hint mentions SWE-spawn"
 assert_contains "$out" "task_id=42" "hint lists task id 42"
-assert_contains "$out" "worktree=$PROJECT/.claude/worktrees/my-feature" "worktree path comes from the pinned fixture project"
+assert_contains "$out" "worktree=$REPO_PATH/.claude/worktrees/my-feature" "worktree path is <repos.path>/.claude/worktrees/<slug>"
+assert_contains "$out" "worktree=$REPO_PATH/.claude/worktrees/other" "empty tasks.repo falls back to the sole repos row"
 assert_contains "$out" "task_id=43" "hint lists task id 43"
 assert_contains "$out" "branch_id=feat/my-feature" "hint lists branch_id"
 assert_contains "$out" "Step 4" "hint cites tmb_planning Step 4"
@@ -98,18 +109,23 @@ assert_contains "$out" "CLAUDE_PLUGIN_ROOT" "hint uses CLAUDE_PLUGIN_ROOT variab
 assert_not_contains "$out" "isolation='worktree'" "hint must not use isolation='worktree' in recipe"
 
 # ──────────────────────────────────────────────────────────────
-# Case 4b: absolute worktree path derived from trajectory DB location
+# Case 4b: the DB named by TRAJECTORY_DB_PATH decides, not the cwd
 # ──────────────────────────────────────────────────────────────
-test_case "worktree path is absolute and starts with workspace root"
+test_case "worktree path is absolute and comes from the resolved DB's repos row"
 FIXTURE_WS="$(mktemp -d)"
 FIXTURE_DB_DIR="$FIXTURE_WS/.claude/tmb"
-mkdir -p "$FIXTURE_DB_DIR"
-touch "$FIXTURE_DB_DIR/trajectory.db"
+mkdir -p "$FIXTURE_DB_DIR" "$FIXTURE_WS/checkout"
+seed_db "$FIXTURE_DB_DIR/trajectory.db" "$FIXTURE_WS/checkout"
 input=$(make_input "mcp__tmb__trajectory-server__task_create_batch" "$TASK_ARRAY")
-out=$(echo "$input" | TRAJECTORY_DB_PATH="$FIXTURE_DB_DIR/trajectory.db" bash "$HOOK" 2>&1 || true)
-assert_contains "$out" "$FIXTURE_WS/.claude/worktrees/" "emitted path starts with fixture workspace root"
-assert_contains "$out" "worktree=$FIXTURE_WS/.claude/worktrees/my-feature" "slug strips type/ prefix for feat/my-feature"
+out=$(cd "$PROJECT" && echo "$input" | TRAJECTORY_DB_PATH="$FIXTURE_DB_DIR/trajectory.db" bash "$HOOK" 2>&1 || true)
+assert_contains "$out" "worktree=$FIXTURE_WS/checkout/.claude/worktrees/my-feature" "slug strips type/ prefix for feat/my-feature"
+assert_not_contains "$out" "worktree=.claude" "never a cwd-relative path"
 rm -rf "$FIXTURE_WS"
+
+test_case "a task the DB cannot place is reported unresolved, not guessed"
+input=$(make_input "mcp__tmb__trajectory-server__task_create_batch" '[{"id":99,"branch_id":"feat/ghost"}]')
+out=$(run_hook "$input")
+assert_contains "$out" "task_id=99 branch_id=feat/ghost worktree=unresolved (task 99 has no tasks row)" "names what is missing"
 
 # ──────────────────────────────────────────────────────────────
 # Case 5: response text is non-array JSON — passes silently

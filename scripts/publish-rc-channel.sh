@@ -138,7 +138,7 @@ if [ "$STABLE_REPIN" -eq 1 ]; then
   printf "Re-pinning the rc channel to the stable tag %s (no gate — gated at its rc) ...\n" "$TAG"
 else
   printf "Checking the release-gate run for %s ...\n" "$TAG"
-  await_release_gate "$TAG" || exit $?
+  await_release_gate "$TAG" "$PLUGIN_ROOT" || exit $?
 fi
 
 # ---------- clone the catalog into a temp dir ----------

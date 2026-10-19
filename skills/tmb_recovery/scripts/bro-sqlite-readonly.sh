@@ -9,10 +9,9 @@
 # Returns JSON matching the MCP tool response shape for the 7 supported read tools.
 # Write tools and unknown tools return an error JSON and exit 1.
 #
-# DB path resolution mirrors mcp/trajectory-server/src/db.ts exactly:
-#   1. TRAJECTORY_DB_PATH env override wins
-#   2. Default: <cwd>/.claude/<plugin-name>/trajectory.db
-#      where plugin-name comes from CLAUDE_PLUGIN_ROOT's plugin.json, fallback "tmb"
+# The DB is the one the hooks resolve (tmb_db_path in
+# scripts/hooks/lib/query-task.sh): TRAJECTORY_DB_PATH, else
+# <CLAUDE_PROJECT_DIR>/.claude/<plugin-name>/trajectory.db. Never the cwd's.
 
 set -euo pipefail
 
@@ -43,35 +42,19 @@ KNOWN_WRITE_TOOLS=(
 )
 
 # ---------------------------------------------------------------------------
-# DB path resolution (mirrors db.ts resolveDbPath / resolvePluginName)
+# DB path resolution (scripts/hooks/lib/query-task.sh)
 # ---------------------------------------------------------------------------
-resolve_plugin_name() {
-  local root="${CLAUDE_PLUGIN_ROOT:-}"
-  if [[ -z "$root" ]]; then
-    echo "tmb"
-    return
-  fi
-  local manifest="$root/.claude-plugin/plugin.json"
-  if [[ -f "$manifest" ]]; then
-    local name
-    name=$(python3 -c "import json,sys; d=json.load(open('$manifest')); print(d.get('name',''))" 2>/dev/null || true)
-    if [[ -n "$name" ]]; then
-      echo "$name"
-      return
-    fi
-  fi
-  echo "tmb"
-}
+# shellcheck source=scripts/hooks/lib/query-task.sh
+. "${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}/scripts/hooks/lib/query-task.sh"
 
+# Prints the resolved DB, else where it was expected (empty when nothing names it).
 resolve_db_path() {
-  local override="${TRAJECTORY_DB_PATH:-}"
-  if [[ -n "${override// }" ]]; then
-    echo "$override"
-    return
+  tmb_db_path 2>/dev/null && return 0
+  if [[ -n "${TRAJECTORY_DB_PATH:-}" ]]; then
+    echo "$TRAJECTORY_DB_PATH"
+  elif [[ -n "${CLAUDE_PROJECT_DIR:-}" ]]; then
+    tmb_db_location "$CLAUDE_PROJECT_DIR"
   fi
-  local plugin_name
-  plugin_name=$(resolve_plugin_name)
-  echo "$(pwd)/.claude/$plugin_name/trajectory.db"
 }
 
 # ---------------------------------------------------------------------------
@@ -375,7 +358,7 @@ main() {
   if [[ "${1:-}" == "--dry-run" ]]; then
     DB_PATH=$(resolve_db_path)
     if [[ ! -f "$DB_PATH" ]]; then
-      printf '{"error":"db-not-found","path":"%s"}\n' "$DB_PATH"
+      printf '{"error":"db-not-found","path":"%s","hint":"Set CLAUDE_PROJECT_DIR to the project root (or TRAJECTORY_DB_PATH to the DB)."}\n' "${DB_PATH:-unresolved}"
       exit 1
     fi
     local count
@@ -427,7 +410,7 @@ print(json.dumps({'supported_read_tools': $(printf '%s\n' "${SUPPORTED_READ_TOOL
   DB_PATH=$(resolve_db_path)
 
   if [[ ! -f "$DB_PATH" ]]; then
-    printf '{"error":"db-not-found","path":"%s","hint":"Set TRAJECTORY_DB_PATH env var to override."}\n' "$DB_PATH"
+    printf '{"error":"db-not-found","path":"%s","hint":"Set CLAUDE_PROJECT_DIR to the project root (or TRAJECTORY_DB_PATH to the DB)."}\n' "${DB_PATH:-unresolved}"
     exit 1
   fi
 

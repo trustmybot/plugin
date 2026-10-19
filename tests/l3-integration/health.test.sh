@@ -487,6 +487,15 @@ echo '{"enabledPlugins":{"tmb@trustmybot-dev":true,"tmb@trustmybot-rc":false}}' 
 out=$(dup_health || true)
 assert_not_contains "$out" "WARN  duplicate-plugin" "no warning"
 
+test_case "duplicate-plugin: no DB and no CLAUDE_PROJECT_DIR is reported, never guessed from the cwd"
+echo '{"enabledPlugins":{"tmb@trustmybot-dev":true,"tmb@trustmybot-rc":true}}' > "$ROOT/.claude/settings.local.json"
+out=$(cd "$ROOT" && env -i PATH="$PATH" HOME="$SANDBOX/home" TMB_TEST_RUN_ID=health-unresolved \
+  TMB_HEALTH_SERVER_LOG="$F_LOG" TMB_HEALTH_CACHE_DIR="$F_CACHE" TMB_HEALTH_INTENDED_VERSION="$F_INTENDED" \
+  TMB_HEALTH_PGREP_COUNT="1" TMB_HEALTH_INSTALLED_JSON="$ROOT/installed.json" \
+  bash "$HEALTH" 2>&1 || true)
+assert_contains "$out" "WARN  duplicate-plugin: skipped — no project resolves" "unresolved project reported"
+assert_not_contains "$out" "enabled tmb copies for" "cwd not used as the project"
+
 # ============================================================================
 # legacy-user-hooks warning — pre-1.1.0 resolve-hook.sh and _tmb_managed
 # entries in the user settings.json: WARN naming file, lines and hooks; files

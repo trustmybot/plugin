@@ -8,17 +8,21 @@
 # publish/release choke points now refuse to make a build public until the tag's
 # gate has concluded `success`.
 #
+# Both functions take the plugin repo dir from their caller (default: the
+# checkout holding this file) and run every git command with git -C; neither
+# reads the cwd.
+#
 # Provides:
-#   resolve_gate_tag <tag>
+#   resolve_gate_tag <tag> [repo_dir]
 #     Map a tag to the tag whose release-gate run carries its verdict. The gate
 #     fires only on rc tags (#630), so an rc tag resolves to itself. A stable tag
-#     resolves to the newest v*-rc.* tag merged into HEAD — after a dev → main
-#     promotion the promoted rc is always an ancestor, and it is functionally
+#     resolves to the newest v*-rc.* tag merged into repo_dir's HEAD — after a
+#     dev → main promotion the promoted rc is always an ancestor, and it is functionally
 #     identical to the stable cut, so its concluded run is the stable tag's
 #     verdict. Returns:
 #       0  — echoes the resolved rc tag on stdout
 #       2  — stable tag with no rc tag in HEAD's ancestry (verdict unresolvable)
-#   await_release_gate <tag> [timeout_seconds]
+#   await_release_gate <tag> [repo_dir] [timeout_seconds]
 #     Resolve the release-gate run whose headBranch == <tag> (tag-triggered runs
 #     report the tag name as the branch, so a dev workflow_dispatch run is never
 #     matched), poll every 30s while it is queued/in_progress, and return:
@@ -30,8 +34,11 @@
 #     Timeout precedence: <timeout_seconds> arg, else env TMB_GATE_TIMEOUT, else
 #     1800s. Prints what it is waiting on, with the run URL.
 
+_TMB_GATE_SELF_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 resolve_gate_tag() {
   local tag="${1:-}"
+  local repo_dir="${2:-$_TMB_GATE_SELF_REPO}"
 
   if [ -z "$tag" ]; then
     printf "❌ resolve_gate_tag: missing <tag> argument.\n" >&2
@@ -46,7 +53,7 @@ resolve_gate_tag() {
   esac
 
   local rc_tag
-  rc_tag="$(git tag --list 'v*-rc.*' --merged HEAD --sort=-creatordate | head -1)"
+  rc_tag="$(git -C "$repo_dir" tag --list 'v*-rc.*' --merged HEAD --sort=-creatordate | head -1)"
 
   if [ -z "$rc_tag" ]; then
     printf "❌ resolve_gate_tag: no v*-rc.* tag in HEAD's ancestry for stable tag %s.\n" "$tag" >&2
@@ -62,7 +69,8 @@ resolve_gate_tag() {
 
 await_release_gate() {
   local tag="${1:-}"
-  local timeout="${2:-${TMB_GATE_TIMEOUT:-1800}}"
+  local repo_dir="${2:-$_TMB_GATE_SELF_REPO}"
+  local timeout="${3:-${TMB_GATE_TIMEOUT:-1800}}"
   local repo="trustmybot/plugin"
   local poll_interval=30
   local waited=0
@@ -94,7 +102,7 @@ await_release_gate() {
     if [ -z "$run_json" ] || [ "$run_json" = "[]" ]; then
       printf "❌ No release-gate run found for tag %s.\n" "$tag" >&2
       printf "   Tag runs auto-fire on push — wait for GitHub to register it, or\n" >&2
-      printf "   confirm the tag was pushed: git ls-remote --tags origin refs/tags/%s\n" "$tag" >&2
+      printf "   confirm the tag was pushed: git -C %s ls-remote --tags origin refs/tags/%s\n" "$repo_dir" "$tag" >&2
       return 2
     fi
 
