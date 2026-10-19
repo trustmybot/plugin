@@ -7,6 +7,7 @@ import { GraphHolder, WorldModelGraph } from './graph-db.js';
 import { createProjectLogger } from './logger.js';
 import { createCodexRuntimeContext, assertSafeProjectWritePath, UnsafeProjectWritePathError, } from './platform.js';
 const GIT_MAX_BUFFER_BYTES = 64 * 1024;
+const DEFAULT_GIT_TIMEOUT_MS = 60_000;
 export class CodexRuntimeError extends Error {
     code;
     constructor(code, message) {
@@ -23,6 +24,7 @@ export class CodexRuntimeManager {
     plugin;
     capacity;
     now;
+    gitTimeoutMs;
     graphHolderFactory;
     runtimes = new Map();
     requests = new Map();
@@ -36,6 +38,7 @@ export class CodexRuntimeManager {
         this.plugin = opts.plugin;
         this.capacity = opts.capacity ?? 4;
         this.now = opts.now ?? Date.now;
+        this.gitTimeoutMs = gitTimeoutOption(opts.gitTimeoutMs);
         this.graphHolderFactory = opts.graphHolderFactory;
     }
     initialize(projectRootInput) {
@@ -116,7 +119,7 @@ export class CodexRuntimeManager {
     }
     async initializeCanonical(projectRoot) {
         try {
-            await validateGitProjectRoot(projectRoot, runGit);
+            await validateGitProjectRoot(projectRoot, runGit, this.gitTimeoutMs);
         }
         catch (error) {
             throw normalizeRuntimeError(error);
@@ -190,7 +193,7 @@ export async function validateCodexProjectRoot(input, options = {}) {
     let canonical;
     try {
         canonical = canonicalizeProjectRootInput(input);
-        await validateGitProjectRoot(canonical, options.runGit ?? runGit);
+        await validateGitProjectRoot(canonical, options.runGit ?? runGit, gitTimeoutOption(options.gitTimeoutMs));
     }
     catch (error) {
         throw normalizeRuntimeError(error);
@@ -226,8 +229,22 @@ function canonicalizeProjectRootInput(input) {
     }
     return canonical;
 }
-async function validateGitProjectRoot(canonical, git) {
-    const topLevel = await git(canonical, ['rev-parse', '--show-toplevel']);
+function gitTimeoutOption(value) {
+    const timeoutMs = value ?? DEFAULT_GIT_TIMEOUT_MS;
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+        throw new Error('Codex Git timeout must be a positive integer of milliseconds');
+    }
+    return timeoutMs;
+}
+async function validateGitProjectRoot(canonical, runner, timeoutMs) {
+    const git = async (args) => {
+        const result = await runner(canonical, args, timeoutMs);
+        if (result.timedOut === true) {
+            throw new CodexRuntimeError('project_validation_timeout', `git ${args.join(' ')} did not finish within ${timeoutMs} ms, so project_root could not be validated.`);
+        }
+        return result;
+    };
+    const topLevel = await git(['rev-parse', '--show-toplevel']);
     if (!topLevel.ok) {
         throw new CodexRuntimeError('project_root_not_git_toplevel', 'project_root must identify a Git worktree top level.');
     }
@@ -241,7 +258,7 @@ async function validateGitProjectRoot(canonical, git) {
     if (canonicalTopLevel !== canonical) {
         throw new CodexRuntimeError('project_root_not_git_toplevel', 'project_root must be the Git worktree top level, not a nested directory.');
     }
-    const ignored = await git(canonical, [
+    const ignored = await git([
         'check-ignore',
         '--no-index',
         '--quiet',
@@ -250,19 +267,20 @@ async function validateGitProjectRoot(canonical, git) {
     if (!ignored.ok) {
         throw stateNotIgnoredError();
     }
-    const tracked = await git(canonical, ['ls-files', '-z', '--', '.tmb']);
+    const tracked = await git(['ls-files', '-z', '--', '.tmb']);
     if (!tracked.ok || tracked.stdout.length > 0) {
         throw stateNotIgnoredError();
     }
 }
-const runGit = (cwd, args) => {
+const runGit = (cwd, args, timeoutMs) => {
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
     env['GIT_TERMINAL_PROMPT'] = '0';
     env['GIT_CONFIG_NOSYSTEM'] = '1';
     env['GIT_CONFIG_GLOBAL'] = '/dev/null';
     env['LC_ALL'] = 'C';
     return new Promise((resolve) => {
-        execFile('git', [
+        let settled = false;
+        const child = execFile('git', [
             '-c',
             'core.fsmonitor=false',
             '-c',
@@ -277,11 +295,24 @@ const runGit = (cwd, args) => {
             env,
             maxBuffer: GIT_MAX_BUFFER_BYTES,
         }, (error, stdout) => {
+            if (settled)
+                return;
+            settled = true;
+            clearTimeout(timer);
             resolve({
                 ok: error === null,
                 stdout: stdout.trim(),
             });
         });
+        // Settle on the timer itself: execFile's own timeout waits for stdio to
+        // close, which a stalled git or an orphaned grandchild can hold open.
+        const timer = setTimeout(() => {
+            if (settled)
+                return;
+            settled = true;
+            child.kill('SIGKILL');
+            resolve({ ok: false, stdout: '', timedOut: true });
+        }, timeoutMs);
     });
 };
 function openRuntime(projectRoot, plugin, now, lastUsedOrder, graphHolderFactory) {

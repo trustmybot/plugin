@@ -699,6 +699,7 @@ Overall status：
 - `project_root_not_directory`
 - `project_root_not_git_toplevel`
 - `project_state_not_ignored`
+- `project_validation_timeout`
 - `invalid_arguments`
 - `unsupported_identity_claim`
 
@@ -776,8 +777,9 @@ Partial error 示例：
 | 3 | `project_root` 缺失、为空或类型错误 | `missing_project_root` |
 | 4 | 其他 schema 错误、额外字段、无效 `desired_state` | `invalid_arguments` |
 | 5 | project root 非绝对、缺失、非目录或无法 canonicalize | 对应 `project_root_*` 错误 |
-| 6 | 不是 Git top-level，或 Git top-level 检查失败/超时 | `project_root_not_git_toplevel` |
-| 7 | `.tmb/` 未 ignore、已 tracked，或相关 Git 检查失败/超时 | `project_state_not_ignored` |
+| 6 | 不是 Git top-level，或 Git top-level 检查失败 | `project_root_not_git_toplevel` |
+| 7 | `.tmb/` 未 ignore、已 tracked，或相关 Git 检查失败 | `project_state_not_ignored` |
+| 7a | 第 6、7 步任一 Git 检查超时（GH 1523） | `project_validation_timeout` |
 | 8 | `.codex`、`.codex/agents` 父路径不安全 | `unsafe_codex_agents_path` |
 | 9 | 任一目标路径类型不安全；同类问题按 catalog 顺序选择第一个 | `unsafe_codex_agents_path` |
 | 10 | 普通目标文件内容不匹配；details 按 catalog 顺序列出所有冲突 | `agent_materialization_conflict` |
@@ -1510,11 +1512,12 @@ Desktop 测试是本 Scope 唯一可能触及当前 Codex profile 的步骤，�
 | 路径不存在或无法 stat/realpath | `project_root_not_found` |
 | 路径是普通文件 | `project_root_not_directory` |
 | Git worktree 内的子目录 | `project_root_not_git_toplevel` |
-| `git rev-parse --show-toplevel` 失败或超时 | `project_root_not_git_toplevel` |
+| `git rev-parse --show-toplevel` 失败 | `project_root_not_git_toplevel` |
 | `.tmb/` 未 ignore | `project_state_not_ignored` |
 | `.tmb/` 下存在 tracked 文件 | `project_state_not_ignored` |
-| `git check-ignore` 失败或超时 | `project_state_not_ignored` |
-| `git ls-files` 失败或超时 | `project_state_not_ignored` |
+| `git check-ignore` 失败 | `project_state_not_ignored` |
+| `git ls-files` 失败 | `project_state_not_ignored` |
+| 任一 Git 检查超时 | `project_validation_timeout` |
 
 同一组 fixture 还必须分别调用 getter 和 `runtime_initialize`，断言两者对上述 root/state 输入返回相同稳定错误码。成功路径则断言 getter 保持只读，而 `runtime_initialize` 仍按 Scope 3 契约创建或复用 `.tmb/tmb/`。
 
