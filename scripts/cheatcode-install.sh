@@ -51,7 +51,9 @@
 #   or the discrete flags:
 #   --source-url <url>  --kind <skill|mcp|plugin>  [--name <n>]  [--tier <1|2>]
 #   --scope <local|global>  install scope (default local) — echoed in the output
-#       and persisted on the cheatcodes row by the caller.
+#       and persisted on the cheatcodes row by the caller. Every `claude` call
+#       runs with `--scope project`; `global` (a user-wide install) is refused
+#       with an `outside_project` error before any `claude` call.
 #
 # Output shape on stdout:
 #   {
@@ -92,6 +94,10 @@ case "$SCOPE" in
   local|global) : ;;
   *) echo "{\"error\":\"--scope must be local|global (got '${SCOPE}')\"}" >&2; exit 1 ;;
 esac
+if [ "$SCOPE" = "global" ]; then
+  echo '{"error":"outside_project","scope":"global","message":"scope=global installs outside the project (user-wide); TMB installs nothing outside the project. Re-run with --scope local."}' >&2
+  exit 1
+fi
 
 # Normalize the candidate into a single JSON object regardless of input form.
 # --candidate wins; the discrete flags fill in otherwise.
@@ -132,16 +138,6 @@ case "$cand_kind" in
 esac
 
 INSTALL_TIMEOUT=30
-
-# Map the script's local|global scope onto the CLI's user|project|local scope.
-# The CLI's `--scope` accepts user|project|local; the script's "global" is a
-# user-wide install (user) and "local" is project-scoped (project).
-cli_scope() {
-  case "$SCOPE" in
-    global) printf 'user' ;;
-    *)      printf 'project' ;;
-  esac
-}
 
 # Detect whether $src_url already resolves inside a REGISTERED marketplace, so
 # the install can skip `marketplace add` entirely (#148). Two cases resolve:
@@ -225,8 +221,7 @@ marketplace_install() {
     jq -nc '{installed: false, version: null, error: "marketplace CLI unavailable"}'
     return
   fi
-  local scope add_out rc mkt ref
-  scope=$(cli_scope)
+  local add_out rc mkt ref
   # Step 1: register the repo URL as a marketplace — UNLESS it already resolves
   # inside a registered one (#148). A marketplace-relative ref / a name@mkt ref /
   # a repo already in `marketplace list` skips the add and installs directly;
@@ -234,7 +229,7 @@ marketplace_install() {
   # degrade soft (never crash) so the caller can roll back the phantom row.
   mkt=$(resolve_registered_marketplace)
   if [ -z "$mkt" ]; then
-    add_out=$(timeout "$INSTALL_TIMEOUT" claude plugin marketplace add "$src_url" --scope "$scope" 2>&1); rc=$?
+    add_out=$(timeout "$INSTALL_TIMEOUT" claude plugin marketplace add "$src_url" --scope project 2>&1); rc=$?
     if [ "$rc" -ne 0 ]; then
       jq -nc --arg e "marketplace add failed (exit $rc)" \
         '{installed: false, version: null, error: $e}'
@@ -250,7 +245,7 @@ marketplace_install() {
     ref="$cand_name"
   fi
   local out
-  out=$(timeout "$INSTALL_TIMEOUT" claude plugin install "$ref" --scope "$scope" 2>/dev/null); rc=$?
+  out=$(timeout "$INSTALL_TIMEOUT" claude plugin install "$ref" --scope project 2>/dev/null); rc=$?
   if [ "$rc" -ne 0 ]; then
     jq -nc --arg e "marketplace install failed (exit $rc)" \
       '{installed: false, version: null, error: $e}'
@@ -262,11 +257,11 @@ marketplace_install() {
   jq -nc --arg v "$ver" '{installed: true, version: (if ($v | length) > 0 then $v else null end), error: null}'
 }
 
-# MCP register adapter (mcp kind). Adds the server to the Claude Code MCP config
-# via `claude mcp add <name> ...`, mirroring the uninstall side's mcp_deregister
-# (`claude mcp remove`). Best-effort: prints {installed, version, error} and
-# degrades to installed=false with an error note if the CLI is absent or the add
-# fails, never crashes. NOTE: a faithful MCP add needs the server's run-command
+# MCP register adapter (mcp kind). Adds the server to the project's .mcp.json
+# via `claude mcp add --scope project <name> ...`, mirroring the uninstall
+# side's mcp_deregister (`claude mcp remove`). Best-effort: prints {installed,
+# version, error} and degrades to installed=false with an error note if the CLI
+# is absent or the add fails, never crashes. NOTE: a faithful MCP add needs the server's run-command
 # (e.g. `uvx --from git+<url> <name> start-mcp-server`), which the cheatcode
 # record (name + source_url only) does not carry — full run-command resolution is
 # a follow-up (needs reading the repo's mcp config).
@@ -280,7 +275,7 @@ mcp_register() {
     return
   fi
   local rc
-  timeout "$INSTALL_TIMEOUT" claude mcp add "$cand_name" "$src_url" >/dev/null 2>&1; rc=$?
+  timeout "$INSTALL_TIMEOUT" claude mcp add --scope project "$cand_name" "$src_url" >/dev/null 2>&1; rc=$?
   if [ "$rc" -ne 0 ]; then
     jq -nc '{installed: false, version: null, error: "mcp add needs a run-command (source_url only) — see follow-up"}'
     return

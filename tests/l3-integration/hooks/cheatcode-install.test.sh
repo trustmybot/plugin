@@ -3,9 +3,12 @@
 #   Part A — scripts/cheatcode-install.sh assembles the install payload from a
 #            fixture (no live marketplace). JSON shape + kind-dependent
 #            attachment + the skill-kind proposed-PR payload.
+#            A claude PATH shim records the live adapter's argv: every call
+#            runs with --scope project, and --scope global is refused with
+#            outside_project before any call (GH 1533).
 #   Part B — scripts/hooks/cheatcode-install-approval.sh fails closed: deny
 #            without an approval record, allow with one.
-# Network is stubbed via TMB_CHEATCODE_INSTALL_FIXTURE — no live web.
+# Network is stubbed via TMB_CHEATCODE_INSTALL_FIXTURE or the shim — no live web.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,13 +52,53 @@ assert_eq "null" "$(printf '%s' "$OUT" | jq -r '.proposed_pr')" "proposed_pr"
 test_case "scope defaults to local when --scope omitted"
 assert_eq "local" "$(printf '%s' "$OUT" | jq -r '.scope')" "scope"
 
-# --scope global is echoed in the output (#659).
-OUT_GLOBAL=$(TMB_CHEATCODE_INSTALL_FIXTURE="$FIXTURE" bash "$SCRIPT" \
-  --scope global \
-  --candidate '{"name":"pdf-plugin","kind":"plugin","source_url":"https://x.test/pdf"}')
+# A PATH shim stands in for the claude CLI and records each call's argv, one
+# line per call. `marketplace list` answers an empty list; `marketplace add`
+# names the marketplace it registered.
+SHIM_DIR="$WORKSPACE/shim"
+ARGV_LOG="$WORKSPACE/claude-argv.log"
+mkdir -p "$SHIM_DIR"
+cat > "$SHIM_DIR/claude" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CLAUDE_ARGV_LOG"
+case "$*" in
+  "plugin marketplace list"*) printf '[]\n' ;;
+  "plugin marketplace add"*) printf "Successfully added marketplace 'x-mkt'\n" ;;
+esac
+exit 0
+SH
+chmod +x "$SHIM_DIR/claude"
+NOFIX_CWD="$WORKSPACE/live"
+mkdir -p "$NOFIX_CWD"
 
-test_case "--scope global is echoed in the output"
-assert_eq "global" "$(printf '%s' "$OUT_GLOBAL" | jq -r '.scope')" "scope global"
+# run_live <args...> — runs the install with no fixture and the shim on PATH.
+run_live() {
+  : > "$ARGV_LOG"
+  (cd "$NOFIX_CWD" && env -u TMB_CHEATCODE_INSTALL_FIXTURE \
+    PATH="$SHIM_DIR:$PATH" CLAUDE_ARGV_LOG="$ARGV_LOG" bash "$SCRIPT" "$@")
+}
+
+test_case "--scope global is refused with outside_project before any claude call"
+set +e
+ERR_GLOBAL=$(run_live --scope global \
+  --candidate '{"name":"pdf-plugin","kind":"plugin","source_url":"https://x.test/pdf"}' 2>&1 >/dev/null)
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then _pass; else _fail "expected non-zero exit on --scope global"; fi
+assert_eq "outside_project" "$(printf '%s' "$ERR_GLOBAL" | jq -r '.error')" "global error"
+assert_eq "" "$(cat "$ARGV_LOG")" "claude calls under --scope global"
+
+test_case "plugin kind: marketplace add + install run with --scope project"
+OUT_LIVE=$(run_live --candidate '{"name":"pdf-plugin","kind":"plugin","source_url":"https://x.test/pdf"}')
+assert_eq "true" "$(printf '%s' "$OUT_LIVE" | jq -r '.installed')" "live plugin installed"
+assert_eq "plugin marketplace list --json
+plugin marketplace add https://x.test/pdf --scope project
+plugin install pdf-plugin@x-mkt --scope project" "$(cat "$ARGV_LOG")" "plugin argv"
+
+test_case "mcp kind: mcp add runs with --scope project"
+OUT_MCP_LIVE=$(run_live --candidate '{"name":"pdf-mcp","kind":"mcp","source_url":"https://x.test/pdf-mcp"}')
+assert_eq "true" "$(printf '%s' "$OUT_MCP_LIVE" | jq -r '.installed')" "live mcp installed"
+assert_eq "mcp add --scope project pdf-mcp https://x.test/pdf-mcp" "$(cat "$ARGV_LOG")" "mcp argv"
 
 test_case "invalid scope fails non-zero"
 set +e

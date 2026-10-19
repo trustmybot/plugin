@@ -60,7 +60,7 @@ TOOL_PATH="$PATH"
 
 L3_MCP_TESTS=("$HERE"/*.test.mjs)
 [ -z "${L3_MCP_TEST_FILES:-}" ] || read -r -a L3_MCP_TESTS <<< "$L3_MCP_TEST_FILES"
-L3_MCP_SCRIPTS=("$HERE/maintenance-scripts-no-db.test.sh")
+L3_MCP_SCRIPTS=("$HERE/maintenance-scripts-no-db.test.sh" "$HERE/cheatcode-uninstall.test.sh")
 [ -z "${L3_MCP_TEST_SCRIPTS+x}" ] || read -r -a L3_MCP_SCRIPTS <<< "$L3_MCP_TEST_SCRIPTS"
 
 rc=0
