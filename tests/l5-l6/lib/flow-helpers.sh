@@ -93,7 +93,7 @@ l5_preserve_trajectory() {
 # by the L1 auq-shape lint.
 _l5_test_prompt_prefix() {
   cat <<'EOF'
-[TEST MODE] Do not call AskUserQuestion. Apply sensible defaults and continue; where a skill's normal flow is to hold for the Human (e.g. concerns-protocol), record the note and hold — don't push past it. The Human is not in the loop here. TEST MODE does NOT bypass routing hints from PreToolUse / UserPromptSubmit hooks — when a hook injects a `[tmb consultant-spawn enforcement]` or similar enforcement context, follow it exactly as you would in production. The ceremony (e.g. `/tmb:agent-create`) is the test purpose. If you run `/onboard`, answer its Bash sandbox question No: pass `sandbox_enforcement: 'no'` to `onboard_apply`.
+[TEST MODE] Do not call AskUserQuestion. Apply sensible defaults and continue; where a skill's normal flow is to hold for the Human (e.g. concerns-protocol), record the note and hold — don't push past it. The Human is not in the loop here. TEST MODE does NOT bypass routing hints from PreToolUse / UserPromptSubmit hooks — when a hook injects a `[tmb consultant-spawn enforcement]` or similar enforcement context, follow it exactly as you would in production. The ceremony (e.g. `/tmb:agent-create`) is the test purpose. If the onboard flow asks its Bash sandbox question, answer No: pass `sandbox_enforcement: 'no'` to `onboard_apply`.
 
 EOF
 }

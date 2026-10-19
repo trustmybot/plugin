@@ -46,6 +46,24 @@ assert_eq "$PREAMBLE" "${COMPOSED:0:${#PREAMBLE}}" "preamble prefix"
 test_case "preamble pins the /onboard sandbox answer to no (GH 1549)"
 assert_contains "$PREAMBLE" "sandbox_enforcement: 'no'" "sandbox pin"
 
+test_case "preamble carries no /onboard token, which would suppress the reonboard hint (GH 1553)"
+assert_not_contains "$PREAMBLE" "/onboard" "preamble /onboard token"
+
+test_case "reonboard hook: composed remote-setup prompt on an onboarded DB emits the reonboard hint (GH 1553)"
+if ! command -v sqlite3 >/dev/null 2>&1; then
+  _pass "skipped: sqlite3 not installed"
+else
+  REONBOARD_PROJECT=$(mktemp -d)
+  SCRATCH+=("$REONBOARD_PROJECT")
+  mkdir -p "$REONBOARD_PROJECT/.claude/tmb"
+  REONBOARD_DB="$REONBOARD_PROJECT/.claude/tmb/trajectory.db"
+  sqlite3 "$REONBOARD_DB" "CREATE TABLE plugin_config (key TEXT PRIMARY KEY, value_json TEXT); INSERT INTO plugin_config VALUES ('onboarded', 'true');"
+  REONBOARD_OUT=$(jq -n --arg p "$(l5_compose_test_prompt "@bro this project needs to live on a remote — set it up.")" '{prompt:$p}' \
+    | TRAJECTORY_DB_PATH="$REONBOARD_DB" CLAUDE_PROJECT_DIR="$REONBOARD_PROJECT" \
+      bash "$PLUGIN_ROOT/scripts/hooks/prompt-intent-hints.sh" 2>/dev/null || true)
+  assert_contains "$REONBOARD_OUT" "reonboard-intent hint" "hook output"
+fi
+
 test_case "compose: row prompt follows after exactly one blank line"
 assert_eq "$PREAMBLE"$'\n\n'"/roundtable topic" "$COMPOSED" "preamble, blank line, prompt"
 
