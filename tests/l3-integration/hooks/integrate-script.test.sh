@@ -191,6 +191,57 @@ if [ "$OUT" != "$FIRST" ]; then _pass; else _fail "second integration printed th
 assert_eq "$(g rev-parse main)" "$(g rev-parse "$OUT^")" "the second rebase sits on main"
 cleanup
 
+# setup_node_modules <main-move> <verification json> — setup, then main tracks
+# package.json, pkg/package.json and other/package.json; the main checkout holds
+# untracked node_modules/marker and pkg/node_modules/marker, other/ has none.
+setup_node_modules() {
+  setup "$1" "$2"
+  mkdir -p "$REPO/pkg" "$REPO/other"
+  printf '{}\n' > "$REPO/package.json"
+  printf '{}\n' > "$REPO/pkg/package.json"
+  printf '{}\n' > "$REPO/other/package.json"
+  g add package.json pkg/package.json other/package.json
+  g commit -qm "chore: package manifests"
+  mkdir -p "$REPO/node_modules" "$REPO/pkg/node_modules"
+  printf 'root-dep\n' > "$REPO/node_modules/marker"
+  printf 'pkg-dep\n' > "$REPO/pkg/node_modules/marker"
+}
+
+assert_markers_intact() {
+  assert_eq "root-dep" "$(cat "$REPO/node_modules/marker" 2>/dev/null)" "main checkout node_modules/marker"
+  assert_eq "pkg-dep" "$(cat "$REPO/pkg/node_modules/marker" 2>/dev/null)" "main checkout pkg/node_modules/marker"
+}
+
+NODE_MODULES_PASSING='["test -f node_modules/marker", "test -f pkg/node_modules/marker", "test ! -e other/node_modules"]'
+NODE_MODULES_FAILING='["test -f node_modules/marker", "test -f pkg/node_modules/marker", "exit 5"]'
+
+test_case "node_modules: untracked installs are linked into the worktree, clean rebase exits 0"
+setup_node_modules clean "$NODE_MODULES_PASSING"
+integrate main
+assert_exit_code 0 "$RC" "integrate.sh exit ($ERR)"
+assert_eq "$OUT" "$(g rev-parse refs/heads/feat/x-1)" "feat/x-1 tip"
+assert_eq "3" "$(q "SELECT COUNT(*) FROM verification_run_commands WHERE exit_code = 0;")" "all three commands passed"
+assert_no_temp_worktree
+assert_markers_intact
+cleanup
+
+test_case "node_modules: failing verification exits 1 and leaves the main checkout's installs"
+setup_node_modules clean "$NODE_MODULES_FAILING"
+integrate main
+assert_exit_code 1 "$RC" "integrate.sh exit ($ERR)"
+assert_eq "0|0|5" "$(q "SELECT group_concat(exit_code, '|') FROM (SELECT exit_code FROM verification_run_commands ORDER BY ordinal);")" "the links resolved before the failing command"
+assert_no_temp_worktree
+assert_markers_intact
+cleanup
+
+test_case "node_modules: conflict exits 2 and leaves the main checkout's installs"
+setup_node_modules conflict "$NODE_MODULES_PASSING"
+integrate main
+assert_exit_code 2 "$RC" "integrate.sh exit ($ERR)"
+assert_no_temp_worktree
+assert_markers_intact
+cleanup
+
 # git-guards denies a rebase in the main checkout; the temporary worktree
 # integrate.sh rebases in is a linked worktree, where rebase is allowed, and
 # bro's own command is a script call git-guards does not judge as a rebase.
