@@ -8,7 +8,11 @@
 #   (a) swe agA, cwd = main checkout, Write into worktree B → denied; the
 #       containment_denied row has root = worktree A and task_id = A.
 #   (b) the same payload writing inside worktree A → allowed by every gate.
-#   (c) Bash touch <worktree B>/x from agA, cwd = main checkout → denied.
+#   (c) Bash touch <worktree B>/x from agA, cwd = main checkout → denied; the
+#       recorded path is <worktree B>/x.
+#   (c2) Bash from agA, cwd = main checkout, judged by its write targets, not
+#       its cwd: ls, cd A && git status, cd A && touch src/x.ts → allowed by
+#       every gate; a bare touch x and cd B && touch x → denied.
 #   (d) swe agZ with no bound row → denied with the task_brief instruction;
 #       its row's root is not the project root.
 #   (e) the main thread (no agent_type, no agent_id), cwd = worktree A,
@@ -102,6 +106,9 @@ last_denial() {
   sqlite3 "$DB" "SELECT json_extract(content_json,'\$.root') || '|' || COALESCE(json_extract(content_json,'\$.task_id'), 'null')
                    FROM audit WHERE event_type='containment_denied' ORDER BY id DESC LIMIT 1;"
 }
+last_denied_path() {
+  sqlite3 "$DB" "SELECT json_extract(content_json,'\$.path') FROM audit WHERE event_type='containment_denied' ORDER BY id DESC LIMIT 1;"
+}
 
 test_case "the fixture runs every PreToolUse Write gate"
 WRITE_GATES=$(gates Write | paste -sd, -)
@@ -133,6 +140,21 @@ test_case "(c) Bash touch <worktree B>/x from agA, cwd = main checkout → denie
 OUT=$(run "$PROJECT" "tmb:swe" agA Bash "$(bash_cmd "touch $WT_B/x")")
 assert_eq "deny" "$(decision_of "$OUT" containment-guard)" "containment-guard denies"
 assert_eq "$WT_A|1" "$(last_denial)" "root = worktree A, task_id = A"
+assert_eq "$WT_B/x" "$(last_denied_path)" "the recorded path is worktree B's x, not the cwd"
+
+test_case "(c2) a bound swe's Bash is judged by its write targets, not its cwd (cwd = main checkout)"
+OUT=$(run "$PROJECT" "tmb:swe" agA Bash "$(bash_cmd "ls")")
+assert_eq "" "$(denied_by "$OUT")" "ls: no gate denies"
+OUT=$(run "$PROJECT" "tmb:swe" agA Bash "$(bash_cmd "cd $WT_A && git status")")
+assert_eq "" "$(denied_by "$OUT")" "cd A && git status: no gate denies"
+OUT=$(run "$PROJECT" "tmb:swe" agA Bash "$(bash_cmd "cd $WT_A && touch src/x.ts")")
+assert_eq "" "$(denied_by "$OUT")" "cd A && touch src/x.ts: no gate denies"
+OUT=$(run "$PROJECT" "tmb:swe" agA Bash "$(bash_cmd "touch x")")
+assert_eq "deny" "$(decision_of "$OUT" containment-guard)" "bare touch x from the main checkout"
+assert_eq "$PROJECT/x" "$(last_denied_path)" "the recorded path is the main checkout's x"
+OUT=$(run "$PROJECT" "tmb:swe" agA Bash "$(bash_cmd "cd $WT_B && touch x")")
+assert_eq "deny" "$(decision_of "$OUT" containment-guard)" "cd B && touch x"
+assert_eq "$WT_B/x" "$(last_denied_path)" "the recorded path is worktree B's x"
 
 test_case "(d) swe agZ with no bound row → denied with the task_brief instruction"
 OUT=$(run "$PROJECT" "swe" agZ Write "$(write "$WT_A/src/z.ts")")

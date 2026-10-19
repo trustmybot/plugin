@@ -23,7 +23,8 @@
 #   Write/Edit/MultiEdit/NotebookEdit — deny when the canonical file_path
 #     (symlinks followed before `..` applies, as the kernel does; /tmp ≡
 #     /private/tmp) is outside the root.
-#   Bash — deny when the payload cwd is outside the root, or when a path the
+#   Bash — deny when the payload cwd is outside the root (not judged for a
+#     swe with agent_id, whose spawn cwd is the main checkout), or when a path the
 #     command writes (tmb_cmd_write_paths in lib/cmd-analysis.sh: redirect
 #     targets, tee, cp/mv/rsync/install, mkdir, rm, touch, links, sed -i,
 #     git worktree add, git clone, interpreter one-liners and programs fed to
@@ -94,6 +95,7 @@ PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-}"
 TASK_ID=""
 ROOT=""
 UNBOUND=""
+BOUND=""
 if [ "$(tmb_swe_context "$AGENT_TYPE")" = "yes" ] && [ -n "$AGENT_ID" ]; then
   CALLER=$(tmb_caller_run "$INPUT" "$DB")
   case "$CALLER" in
@@ -102,7 +104,7 @@ if [ "$(tmb_swe_context "$AGENT_TYPE")" = "yes" ] && [ -n "$AGENT_ID" ]; then
     *)
       TASK_ID=$(tmb_sql_int "${CALLER%%|*}")
       ROOT="${CALLER#*|}"
-      [ -n "$ROOT" ] || UNBOUND="yes"
+      if [ -n "$ROOT" ]; then BOUND="yes"; else UNBOUND="yes"; fi
       ;;
   esac
 elif [ "$(tmb_swe_context "$AGENT_TYPE")" = "yes" ]; then
@@ -222,7 +224,7 @@ if [ "$TOOL_NAME" != "Bash" ]; then
   exit 0
 fi
 
-[ -n "$UNBOUND" ] || allowed "$CWD" || deny "$CWD"
+[ -n "$UNBOUND" ] || [ -n "$BOUND" ] || allowed "$CWD" || deny "$CWD"
 
 COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null || true)
 [ -n "$COMMAND" ] || exit 0
