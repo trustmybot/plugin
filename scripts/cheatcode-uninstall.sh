@@ -9,9 +9,11 @@
 # mirrors cheatcode-install.sh exactly:
 #
 #   plugin → marketplace uninstall removes its skills/hooks/commands via the
-#            plugin manifest (claude plugin uninstall <name>). method 'marketplace'.
-#   mcp    → deregister the server from config (claude mcp remove <name>) — a
-#            distinct path from the plugin marketplace. method 'mcp-deregister'.
+#            plugin manifest (claude plugin uninstall <name> --scope project).
+#            method 'marketplace'.
+#   mcp    → deregister the server from the project's .mcp.json (claude mcp
+#            remove <name> --scope project) — a distinct path from the plugin
+#            marketplace. method 'mcp-deregister'.
 #   skill  → a standalone skill's attachment is a proposed-PR record only; nothing
 #            was ever written to agent md, so there is nothing to reverse at the
 #            marketplace. method 'skill-proposed-pr-revert', removed=false.
@@ -131,7 +133,7 @@ marketplace_uninstall() {
     return
   fi
   local rc
-  timeout "$UNINSTALL_TIMEOUT" claude plugin uninstall "$cand_name" >/dev/null 2>&1; rc=$?
+  timeout "$UNINSTALL_TIMEOUT" claude plugin uninstall "$cand_name" --scope project --keep-data >/dev/null 2>&1; rc=$?
   if [ "$rc" -ne 0 ]; then
     jq -nc --arg e "marketplace uninstall failed (exit $rc)" \
       '{removed: false, error: $e}'
@@ -140,11 +142,11 @@ marketplace_uninstall() {
   jq -nc '{removed: true, error: null}'
 }
 
-# MCP deregister adapter (mcp kind). Removes the server from the Claude Code MCP
-# config via `claude mcp remove <name>` — the clean, atomic deregister path,
-# distinct from the plugin marketplace surface. Best-effort: degrades to
-# removed=false with an error note if the CLI is absent or exits non-zero, never
-# crashes.
+# MCP deregister adapter (mcp kind). Removes the server from the project's
+# .mcp.json via `claude mcp remove <name> --scope project` — the clean, atomic
+# deregister path, distinct from the plugin marketplace surface. Best-effort:
+# degrades to removed=false with an error note if the CLI is absent or exits
+# non-zero, never crashes.
 mcp_deregister() {
   if ! command -v claude >/dev/null 2>&1; then
     jq -nc '{removed: false, error: "mcp CLI unavailable"}'
@@ -155,7 +157,7 @@ mcp_deregister() {
     return
   fi
   local rc
-  timeout "$UNINSTALL_TIMEOUT" claude mcp remove "$cand_name" >/dev/null 2>&1; rc=$?
+  timeout "$UNINSTALL_TIMEOUT" claude mcp remove "$cand_name" --scope project >/dev/null 2>&1; rc=$?
   if [ "$rc" -ne 0 ]; then
     jq -nc --arg e "mcp deregister failed (exit $rc)" \
       '{removed: false, error: $e}'

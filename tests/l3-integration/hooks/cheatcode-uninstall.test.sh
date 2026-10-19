@@ -3,8 +3,8 @@
 #   scripts/cheatcode-uninstall.sh assembles the teardown payload from a fixture
 #   (no live marketplace). JSON shape + kind-dependent method, plus the env-unset
 #   default-path probe that lets the L6 chain reach the staged fixture.
-# Network is stubbed via TMB_CHEATCODE_UNINSTALL_FIXTURE / the default file — no
-# live web.
+# Network is stubbed via TMB_CHEATCODE_UNINSTALL_FIXTURE / the default file, or a
+# claude PATH shim that records argv — no live web.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -92,6 +92,38 @@ OUT_NOFIX=$(cd "$NOFIX_DIR" && env -u TMB_CHEATCODE_UNINSTALL_FIXTURE bash "$SCR
 test_case "no env + no default file → no-fixture path unchanged (not removed)"
 assert_eq "false" "$(printf '%s' "$OUT_NOFIX" | jq -r '.removed')" "no-fixture removed"
 assert_eq "skill-proposed-pr-revert" "$(printf '%s' "$OUT_NOFIX" | jq -r '.method')" "no-fixture method"
+
+# ---------------------------------------------------------------------------
+# Live adapters through a claude PATH shim that records each call's argv, one
+# line per call: both teardowns run with --scope project (GH 1533).
+# ---------------------------------------------------------------------------
+SHIM_DIR="$WORKSPACE/shim"
+ARGV_LOG="$WORKSPACE/claude-argv.log"
+mkdir -p "$SHIM_DIR"
+cat > "$SHIM_DIR/claude" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CLAUDE_ARGV_LOG"
+exit 0
+SH
+chmod +x "$SHIM_DIR/claude"
+LIVE_CWD="$WORKSPACE/live"
+mkdir -p "$LIVE_CWD"
+
+run_live() {
+  : > "$ARGV_LOG"
+  (cd "$LIVE_CWD" && env -u TMB_CHEATCODE_UNINSTALL_FIXTURE \
+    PATH="$SHIM_DIR:$PATH" CLAUDE_ARGV_LOG="$ARGV_LOG" bash "$SCRIPT" "$@")
+}
+
+test_case "plugin kind: claude plugin uninstall runs with --scope project --keep-data"
+OUT_LIVE=$(run_live --candidate '{"name":"pdf-plugin","kind":"plugin","source_url":"https://x.test/pdf"}')
+assert_eq "true" "$(printf '%s' "$OUT_LIVE" | jq -r '.removed')" "live plugin removed"
+assert_eq "plugin uninstall pdf-plugin --scope project --keep-data" "$(cat "$ARGV_LOG")" "plugin argv"
+
+test_case "mcp kind: claude mcp remove runs with --scope project"
+OUT_MCP_LIVE=$(run_live --candidate '{"name":"pdf-mcp","kind":"mcp","source_url":"https://x.test/pdf-mcp"}')
+assert_eq "true" "$(printf '%s' "$OUT_MCP_LIVE" | jq -r '.removed')" "live mcp removed"
+assert_eq "mcp remove pdf-mcp --scope project" "$(cat "$ARGV_LOG")" "mcp argv"
 
 summarize
 printf "PASS cheatcode-uninstall\n"
