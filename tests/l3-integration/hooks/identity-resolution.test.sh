@@ -16,8 +16,8 @@
 #       relative to the project root (the dir holding .claude/<plugin>).
 # Plus: an unresolved swe is denied naming the missing piece, bro is
 # unchanged, the subagents/ transcript fallback, scan.sh from a session dir
-# under .claude/worktrees/<n>, heredoc text vs a redirect target, and the
-# no-cwd-identity lint passing on the hooks and failing on an injected $PWD.
+# under .claude/worktrees/<n>, and heredoc text vs a redirect target. The
+# no-cwd-reads lint has its own self-test, no-cwd-reads-lint.test.sh.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,7 +26,6 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 BOUNDARY="$PLUGIN_ROOT/scripts/hooks/swe-boundary.sh"
 CONTAIN="$PLUGIN_ROOT/scripts/hooks/containment-guard.sh"
 SCHEMA="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
-LINT="$PLUGIN_ROOT/tests/l1-lint/no-cwd-identity.sh"
 
 command -v jq >/dev/null 2>&1 || { printf "SKIP jq not found\n"; exit 0; }
 command -v sqlite3 >/dev/null 2>&1 || { printf "SKIP sqlite3 not found\n"; exit 0; }
@@ -283,26 +282,5 @@ SCAN_OUT=$(PATH="$SB/stub-bin:$PATH" CLAUDE_PROJECT_DIR="$C_PROJ" TRAJECTORY_DB_
 N=$(printf '%s' "$SCAN_OUT" | jq '.repos | length' 2>/dev/null || echo 0)
 if [ "${N:-0}" -ge 1 ]; then _pass; else _fail "scan.sh found $N repos under $C_PROJ"; fi
 assert_eq "$C_PROJ" "$(printf '%s' "$SCAN_OUT" | jq -r '.repos[0].path' 2>/dev/null)" "the repo is the session dir itself"
-
-test_case "no-cwd-identity lint: passes on the hooks, fails on an injected \$PWD identity read"
-ALLOW="$PLUGIN_ROOT/tests/l1-lint/no-cwd-identity.allowlist"
-RC=0
-bash "$LINT" >/dev/null 2>&1 || RC=$?
-assert_exit_code 0 "$RC" "the lint passes on scripts/hooks"
-cp -R "$PLUGIN_ROOT/scripts/hooks" "$SB/hooks-copy"
-cp -R "$SB/hooks-copy" "$SB/hooks-pristine"
-RC=0
-bash "$LINT" "$SB/hooks-pristine" "$ALLOW" >/dev/null 2>&1 || RC=$?
-assert_exit_code 0 "$RC" "the lint passes on an unmodified copy"
-printf '%s\n' 'case "$PWD" in */.claude/worktrees/*) WT="${PWD%%/.claude/worktrees/*}" ;; esac' >> "$SB/hooks-copy/swe-boundary.sh"
-RC=0
-LINT_OUT=$(bash "$LINT" "$SB/hooks-copy" "$ALLOW" 2>&1) || RC=$?
-assert_exit_code 1 "$RC" "the lint fails on an injected \$PWD read"
-assert_contains "$LINT_OUT" "swe-boundary.sh" "the failure names the file"
-cp "$PLUGIN_ROOT/scripts/hooks/swe-boundary.sh" "$SB/hooks-copy/swe-boundary.sh"
-printf '%s\n' 'ROOT=$(jq -r .cwd <<<"$INPUT")' >> "$SB/hooks-copy/containment-guard.sh"
-RC=0
-bash "$LINT" "$SB/hooks-copy" "$ALLOW" >/dev/null 2>&1 || RC=$?
-assert_exit_code 1 "$RC" "the lint fails on the payload .cwd as a root"
 
 summarize

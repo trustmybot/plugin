@@ -78,6 +78,16 @@
 #    Edit/Write (audit hook_block_bypassed). Records older than
 #    TMB_BYPASS_WINDOW_MIN minutes (default 10) are pruned on every write. It
 #    observes only: the gate's stdout, exit code and timing are unchanged.
+# 7. Deny audit. Every deny the dispatcher returns — a gate's exit 2,
+#    permissionDecision "deny" or decision "block", or its own fail-closed
+#    decision — writes one hook_denied audit row (from_node hook:dispatch)
+#    after the decision is printed, on the task's issue else -1, content
+#    {hook, rule, tool, agent_type, task_id, cwd}: rule is the first 200
+#    characters of the deny reason, task_id the calling swe's run else
+#    tool_input.task_id, null when neither. A replayed duplicate writes none
+#    (its holder did), and a chain's member deny is written by the member's
+#    own dispatch. No DB or a failed write records nothing; the decision and
+#    exit code are unchanged.
 
 set -uo pipefail
 
@@ -116,11 +126,72 @@ DENY_PATTERN='"permissionDecision"[[:space:]]*:[[:space:]]*"deny"|"decision"[[:s
 # chain ends without a decision of its own (the holder's chain decides).
 CHAIN_YIELD=75
 FAIL_CLOSED=1
+DENIED=0
+DENIED_GATE=""
+DENIED_RULE=""
 
 read_payload() {
   [ "$PAYLOAD_READ" = "1" ] && return 0
   PAYLOAD_READ=1
   PAYLOAD=$(cat)
+}
+
+# note_denied <reason> [<gate>] — this process returns a deny; on_exit audits it.
+note_denied() {
+  DENIED=1
+  DENIED_RULE="${1:0:200}"
+  DENIED_GATE="${2:-$GATE}"
+}
+
+# deny_reason <stdout> <stderr> — the reason a gate gave for its deny: its
+# JSON permissionDecisionReason or reason, else its stderr.
+deny_reason() {
+  local r=""
+  command -v jq >/dev/null 2>&1 && r=$(printf '%s' "$1" | jq -rs '
+    map(select(type == "object") | (.hookSpecificOutput.permissionDecisionReason? // .reason? // empty))
+    | first // empty' 2>/dev/null)
+  printf '%s' "${r:-$2}"
+}
+
+# _json_str <text> — <text> as a JSON string, for the no-jq audit content.
+_json_str() {
+  local s
+  s=$(printf '%s' "$1" | tr -d '\000-\037')
+  s="${s//\\/\\\\}"
+  printf '"%s"' "${s//\"/\\\"}"
+}
+
+# audit_denied — the one hook_denied row for the deny noted in this process.
+# Observes only: everything it prints is discarded and a failure is ignored.
+audit_denied() {
+  [ "$DENIED" = "1" ] || return 0
+  (
+    export TMB_DB_WRITE_TIMEOUT_MS=300 TMB_DB_WRITE_RUN_BUDGET_MS=600
+    declare -F tmb_db_path >/dev/null || exit 0
+    tmb_have_sqlite || exit 0
+    db=$(tmb_db_path) || exit 0
+    . "$SELF_DIR/lib/db-write.sh" || exit 0
+    task_id="" issue=-1 tool=""
+    if command -v jq >/dev/null 2>&1; then
+      . "$SELF_DIR/lib/cmd-analysis.sh" || exit 0
+      run=$(tmb_caller_run "$PAYLOAD" "$db")
+      task_id=$(tmb_sql_int "${run%%|*}")
+      [ -n "$task_id" ] || task_id=$(tmb_sql_int "$(printf '%s' "$PAYLOAD" | jq -r '.tool_input.task_id? // empty' 2>/dev/null)")
+      tool=$(printf '%s' "$PAYLOAD" | jq -r '.tool_name? // empty' 2>/dev/null)
+      content=$(printf '%s' "$PAYLOAD" | jq -c --arg hook "$DENIED_GATE" --arg rule "$DENIED_RULE" --arg tid "$task_id" '
+        {hook: $hook, rule: $rule, tool: (.tool_name? // null), agent_type: (.agent_type? // null),
+         task_id: (if $tid == "" then null else ($tid | tonumber) end), cwd: (.cwd? // null)}' 2>/dev/null) \
+        || content=""
+    fi
+    [ -n "${content:-}" ] || content=$(printf '{"hook":%s,"rule":%s,"tool":null,"agent_type":null,"task_id":null,"cwd":null}' \
+      "$(_json_str "$DENIED_GATE")" "$(_json_str "$DENIED_RULE")")
+    if [ -n "$task_id" ]; then
+      issue=$(tmb_sql_int "$(tmb_sqlite_ro "$db" "SELECT issue_id FROM tasks WHERE id = ${task_id};")")
+      [ -n "$issue" ] || issue=-1
+    fi
+    tmb_audit_append "$db" "$issue" '' "hook:dispatch" "hook_denied" \
+      "${DENIED_GATE} denied${tool:+ $tool}" "$content"
+  ) >/dev/null 2>&1 || true
 }
 
 # fail_closed_decision <cause> [<reason>] [<gate>] — the blocking decision for
@@ -135,16 +206,19 @@ fail_closed_decision() {
   else
     printf '{"decision":"block","reason":"%s"}\n' "$reason"
   fi
+  note_denied "$reason" "$gate"
 }
 
 on_exit() {
   local rc=$?
-  [ "$FAIL_CLOSED" = "1" ] || return 0
-  case "$rc" in 0|2) return 0 ;; esac
-  [ -n "$CHAIN" ] && [ "$rc" = "$CHAIN_YIELD" ] && return 0
-  read_payload
-  fail_closed_decision "dispatch failed (exit $rc)"
-  exit 0
+  if [ "$FAIL_CLOSED" = "1" ] && [ "$rc" != "0" ] && [ "$rc" != "2" ] \
+     && ! { [ -n "$CHAIN" ] && [ "$rc" = "$CHAIN_YIELD" ]; }; then
+    read_payload
+    fail_closed_decision "dispatch failed (exit $rc)"
+    rc=0
+  fi
+  audit_denied
+  exit "$rc"
 }
 trap on_exit EXIT
 
@@ -176,10 +250,14 @@ settle() {
   local rc="$1" out="$2"
   if [ "$FAIL_CLOSED" = "0" ] || [ "$rc" = "0" ] || [ "$rc" = "2" ]; then
     [ -n "$out" ] && printf '%s\n' "$out"
+    if [ "$rc" = "2" ] || printf '%s' "$out" | grep -E "$DENY_PATTERN" >/dev/null; then
+      note_denied "$(deny_reason "$out" "exit $rc")"
+    fi
     return "$rc"
   fi
   if printf '%s' "$out" | grep -E "$DENY_PATTERN" >/dev/null; then
     printf '%s\n' "$out"
+    note_denied "$(deny_reason "$out" "exit $rc")"
   else
     fail_closed_decision "exited $rc"
   fi
@@ -346,10 +424,6 @@ read_payload
 
 run_gate() {
   local out rc
-  if [ "$FAIL_CLOSED" = "0" ]; then
-    printf '%s' "$PAYLOAD" | bash "$TARGET" ${PASS[@]+"${PASS[@]}"}
-    return "${PIPESTATUS[1]}"
-  fi
   out=$(printf '%s' "$PAYLOAD" | bash "$TARGET" ${PASS[@]+"${PASS[@]}"}; exit "${PIPESTATUS[1]}")
   rc=$?
   settle "$rc" "$out"
@@ -457,9 +531,12 @@ record_bash_deny() {
 hold() {
   printf '%s' "$PAYLOAD" | bash "$TARGET" ${PASS[@]+"${PASS[@]}"} >"$LOCK/result" 2>"$LOCK/stderr"
   local rc=${PIPESTATUS[1]}
+  if [ "$rc" = "2" ] || grep -qE "$DENY_PATTERN" "$LOCK/result" 2>/dev/null; then
+    note_denied "$(deny_reason "$(cat "$LOCK/result" 2>/dev/null)" "$(cat "$LOCK/stderr" 2>/dev/null)")"
+  elif [ "$FAIL_CLOSED" = "1" ] && [ "$rc" != "0" ]; then
+    fail_closed_decision "exited $rc" >"$LOCK/result" 2>>"$LOCK/stderr"
+  fi
   if [ "$FAIL_CLOSED" = "1" ] && [ "$rc" != "0" ] && [ "$rc" != "2" ]; then
-    grep -qE "$DENY_PATTERN" "$LOCK/result" 2>/dev/null \
-      || fail_closed_decision "exited $rc" >"$LOCK/result" 2>>"$LOCK/stderr"
     rc=0
   fi
   printf '%s\n' "$rc" > "$LOCK/rc.tmp" 2>/dev/null && mv -f "$LOCK/rc.tmp" "$LOCK/rc" 2>/dev/null

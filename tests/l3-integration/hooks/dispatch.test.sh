@@ -40,6 +40,10 @@
 #   Bash deny records: a denied Bash command that writes a path leaves one
 #     <state>/locks/boundary-denies/<session>/<digest> record for it; an allow
 #     and a denied non-Bash tool leave none
+#   Deny audit: one hook_denied row per deny (hook, rule, tool, agent_type,
+#     cwd), none for an allow or a replayed duplicate; an exit-2 block and a
+#     fail-closed deny count; a task's deny lands on its issue with the rule
+#     capped at 200 characters; a failed write leaves the decision unchanged
 #   Parity: every PreToolUse gate in hooks.json gives the same stdout + exit
 #   code through the dispatcher as run directly.
 set -euo pipefail
@@ -64,7 +68,7 @@ make_install() {
   local root="$1" label="$2"
   mkdir -p "$root/scripts/hooks/lib" "$root/.claude-plugin" "$root/hooks"
   cp "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" "$root/scripts/hooks/"
-  cp "$PLUGIN_ROOT/scripts/hooks/lib/"*.sh "$root/scripts/hooks/lib/"
+  cp "$PLUGIN_ROOT/scripts/hooks/lib/"*.sh "$PLUGIN_ROOT/scripts/hooks/lib/audit-events.txt" "$root/scripts/hooks/lib/"
   printf '{"name":"tmb"}\n' > "$root/.claude-plugin/plugin.json"
   cat > "$root/hooks/hooks.json" <<'EOF'
 {"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[
@@ -741,6 +745,77 @@ FX_SLEEP=0 dispatch "$A" fx-deny "$(jq -nc --arg p "$X" '{hook_event_name:"PreTo
 [ ! -e "$DENIES" ] && _pass || _fail "a denied non-Bash tool left a record"
 FX_SLEEP=0 dispatch "$A" fx-deny "$(jq -nc --arg c "$CMD" '{hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$c},tool_use_id:"tu-rec4"}')" > /dev/null
 [ ! -e "$DENIES" ] && _pass || _fail "a payload without session_id left a record"
+
+# ===========================================================================
+AP="$TMP/audit-proj"
+mkdir -p "$AP/.claude/tmb"
+ADB="$AP/.claude/tmb/trajectory.db"
+sqlite3 "$ADB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+sqlite3 "$ADB" "
+  INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (7, 'o', 'open', 'x', 'x');
+  INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at)
+    VALUES (42, 7, 'fix/x', 'dev', 'd', 'running', 'x', 'x');"
+denied_rows() { sqlite3 "$ADB" "SELECT COUNT(*) FROM audit WHERE event_type = 'hook_denied';"; }
+last_denied() { sqlite3 "$ADB" "SELECT $1 FROM audit WHERE event_type = 'hook_denied' ORDER BY id DESC LIMIT 1;"; }
+apayload() {
+  jq -nc --arg c "$1" --arg id "$2" --arg cwd "$AP" \
+    '{hook_event_name:"PreToolUse",session_id:"s-a",agent_type:"bro",cwd:$cwd,tool_name:"Bash",tool_input:{command:$c},tool_use_id:$id}'
+}
+
+test_case "deny audit: one hook_denied row per deny, with hook, rule, tool, agent_type and cwd"
+before=$(denied_rows)
+out=$(FX_SLEEP=0 CLAUDE_PROJECT_DIR="$AP" dispatch "$A" fx-deny "$(apayload "ls a1" tu-a1)" 2>/dev/null)
+is_deny "$out" && _pass || _fail "no deny: $out"
+assert_eq "$((before + 1))" "$(denied_rows)" "exactly one row"
+assert_eq "hook:dispatch|-1" "$(last_denied "from_node || '|' || issue_id")" "from hook:dispatch on the system issue"
+assert_eq "fx-deny|fx|Bash|bro|$AP" "$(last_denied "content_json" | jq -r '[.hook, .rule, .tool, .agent_type, .cwd] | join("|")')" "content names the deny"
+
+test_case "deny audit: an allow writes no row"
+before=$(denied_rows)
+out=$(FX_SLEEP=0 CLAUDE_PROJECT_DIR="$AP" dispatch "$A" fx-allow "$(apayload "ls a2" tu-a2)" 2>/dev/null)
+assert_contains "$out" "fx banner" "the gate allowed"
+assert_eq "$before" "$(denied_rows)" "no row"
+
+test_case "deny audit: a replayed duplicate writes no second row"
+P=$(apayload "ls a3" tu-a3)
+before=$(denied_rows)
+FX_SLEEP=0 CLAUDE_PROJECT_DIR="$AP" dispatch "$A" fx-deny "$P" >/dev/null 2>&1
+out=$(FX_SLEEP=0 CLAUDE_PROJECT_DIR="$AP" dispatch "$A" fx-deny "$P" 2>/dev/null)
+is_deny "$out" && _pass || _fail "duplicate did not replay the deny: $out"
+assert_eq "$((before + 1))" "$(denied_rows)" "one row for the decision"
+
+test_case "deny audit: an exit-2 block and a fail-closed deny each write one row"
+before=$(denied_rows)
+CLAUDE_PROJECT_DIR="$AP" dispatch "$A" fx-rc2 "$(apayload "ls a4" tu-a4)" >/dev/null 2>&1 || true
+assert_eq "$((before + 1))" "$(denied_rows)" "one row for exit 2"
+assert_eq "fx-rc2|fx blocked" "$(last_denied "content_json" | jq -r '[.hook, .rule] | join("|")')" "the rule is the gate's stderr"
+out=$(CLAUDE_PROJECT_DIR="$AP" dispatch "$A" fx-gate-dies "$(apayload "ls a5" tu-a5)" 2>/dev/null)
+is_deny "$out" && _pass || _fail "no deny: $out"
+assert_eq "$((before + 2))" "$(denied_rows)" "one row for the fail-closed deny"
+assert_contains "$(last_denied "content_json" | jq -r '.hook + " " + .rule')" "fx-gate-dies BLOCKED: TMB gate fx-gate-dies exited 1" "hook and rule name the dead gate"
+
+test_case "deny audit: the task's issue carries the row; the rule is capped at 200 characters"
+long=$(printf 'x%.0s' $(seq 1 300))
+cat > "$A/scripts/hooks/fx-deny-long.sh" <<EOF
+#!/usr/bin/env bash
+cat >/dev/null
+printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$long"
+EOF
+chmod +x "$A/scripts/hooks/fx-deny-long.sh"
+P=$(jq -nc --arg cwd "$AP" '{hook_event_name:"PreToolUse",session_id:"s-a",agent_type:"bro",cwd:$cwd,
+  tool_name:"mcp__plugin_tmb_trajectory-server__task_update_status",tool_input:{task_id:42,status:"closed"},tool_use_id:"tu-a6"}')
+before=$(denied_rows)
+CLAUDE_PROJECT_DIR="$AP" dispatch "$A" fx-deny-long "$P" >/dev/null 2>&1
+assert_eq "$((before + 1))" "$(denied_rows)" "one row"
+assert_eq "7" "$(last_denied issue_id)" "on task 42's issue"
+assert_eq "42|200" "$(last_denied content_json | jq -r '"\(.task_id)|\(.rule | length)"')" "task_id recorded, rule truncated"
+
+test_case "deny audit: a failed write leaves the decision unchanged"
+rc=0
+out=$(FX_SLEEP=0 CLAUDE_PROJECT_DIR="$PROJ" dispatch "$A" fx-deny "$(payload "ls a7" tu-a7)" 2>"$TMP/err") || rc=$?
+assert_eq "0" "$rc" "exit 0 with no audit table"
+is_deny "$out" && _pass || _fail "no deny: $out"
+assert_eq "" "$(cat "$TMP/err")" "nothing on stderr"
 
 # ===========================================================================
 test_case "parity: every PreToolUse gate gives the same result through the dispatcher"
