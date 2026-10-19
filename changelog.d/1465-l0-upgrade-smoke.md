@@ -1,2 +1,0 @@
-### Added
-- **L0 upgrade smoke from a real-shape v1.0.2 DB** (GH 1465): `tests/l0-install/run-upgrade-smoke.sh` builds an image where the shipped v1.0.2 server and hook write an issue, discussions, a task, gate and verification waivers, and a custom `audit_append` event type, then the current server migrates that DB and `trajectory-doctor.sh` must exit 0. An upgrade that breaks a v1.0.x user's DB, the way GH 1464 did, now fails before release.

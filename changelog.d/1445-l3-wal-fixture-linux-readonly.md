@@ -1,2 +1,0 @@
-### Fixed
-- **L3 gate suites pass on Linux sqlite** (GH 1445): the wal-no-holder fixture failed git-push-guard, require-task-spec and swe-verification-gate on CI because it assumed `sqlite3 -readonly` cannot open a WAL DB with no `-shm`, which holds on macOS but not Linux sqlite 3.45. The no-holder case now probes the platform at runtime, keeps the gate-decision assertions unconditional, and prints a note instead of failing when the `-cmd` fallback is not exercised.

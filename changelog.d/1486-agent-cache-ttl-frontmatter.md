@@ -1,2 +1,0 @@
-### Changed
-- **swe now requests a 1h subagent prompt cache** (GH 1486): swe idles through multi-minute builds and test suites, and with Claude Code's default 5m cache each long gap re-wrote its whole context. Its frontmatter now declares `experimental.cacheTtl: 1h`; pr-reviewer and every consultant template declare `5m` explicitly, and `/tmb:agent-create` carries the field into agents it creates. Your own `subagentPromptCacheTtl` setting or prompt-cache TTL env var still overrides it. Needs Claude Code 2.1.248 or later; older versions ignore the field.
