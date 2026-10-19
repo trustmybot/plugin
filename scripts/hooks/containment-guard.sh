@@ -3,15 +3,28 @@
 #
 # Fires on: PreToolUse — matcher: Write|Edit|MultiEdit|NotebookEdit|Bash
 #
-# Root: in a swe / pr-reviewer context, the open agent_runs.root_dir of the
-# active task (resolved by tmb_resolve_task_id_for_target from the payload
-# cwd); otherwise, and when that row carries no root, CLAUDE_PROJECT_DIR (else
-# the project holding the trajectory DB).
+# Root, by the caller's identity (never its cwd):
+#   swe with agent_id — the root_dir of its own run (tmb_caller_run: the newest
+#     swe agent_runs row with spawn_id = agent_id, bound by swe-brief-gate.sh at
+#     its first task_brief); TASK_ID is that row's task. No such row, or a row
+#     with no root_dir → every write is denied (devices aside) with the
+#     instruction to call task_brief first, audited with content.reason
+#     `unbound_caller`; Bash with no write runs. The root never widens to the
+#     project.
+#   swe without agent_id (a headless or legacy payload) — the open swe row's
+#     root_dir of the task tmb_resolve_task_id_for_target finds from the
+#     payload cwd, else the project root.
+#   pr-reviewer — the project root (a read-only reviewer; its row opens only
+#     at SubagentStop).
+#   bro (no agent_type, or bro) — the project root.
+# The project root is CLAUDE_PROJECT_DIR, else the project holding the
+# trajectory DB.
 #
 #   Write/Edit/MultiEdit/NotebookEdit — deny when the canonical file_path
 #     (symlinks followed before `..` applies, as the kernel does; /tmp ≡
 #     /private/tmp) is outside the root.
-#   Bash — deny when the payload cwd is outside the root, or when a path the
+#   Bash — deny when the payload cwd is outside the root (not judged for a
+#     swe with agent_id, whose spawn cwd is the main checkout), or when a path the
 #     command writes (tmb_cmd_write_paths in lib/cmd-analysis.sh: redirect
 #     targets, tee, cp/mv/rsync/install, mkdir, rm, touch, links, sed -i,
 #     git worktree add, git clone, interpreter one-liners and programs fed to
@@ -38,7 +51,8 @@
 #     and its plans dir (.../plans). swe and pr-reviewer never get these.
 #
 # Every denial writes one containment_denied audit row (from_node
-# hook:containment-guard, content {tool, path, root, task_id}) and names the
+# hook:containment-guard, content {tool, path, root, task_id}, plus reason for
+# an unbound swe, whose root is null) and names the
 # root and the offending path. No trajectory DB (project not onboarded) →
 # allow; a DB that resolves but cannot be read → deny (fail closed).
 set -uo pipefail
@@ -75,14 +89,30 @@ CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // ""' 2>/dev/null || true)
 [ -n "$CWD" ] || CWD="$PWD"
 
 AGENT_TYPE=$(tmb_normalize_role "$(printf '%s' "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null || true)")
+AGENT_ID=$(printf '%s' "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null || true)
+PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-}"
+[ -n "$PROJECT_ROOT" ] || PROJECT_ROOT=$(dirname "$(dirname "$(dirname "$DB")")")
 TASK_ID=""
 ROOT=""
-if [ "$AGENT_TYPE" = "pr-reviewer" ] || [ "$(tmb_swe_context "$AGENT_TYPE")" = "yes" ]; then
+UNBOUND=""
+BOUND=""
+if [ "$(tmb_swe_context "$AGENT_TYPE")" = "yes" ] && [ -n "$AGENT_ID" ]; then
+  CALLER=$(tmb_caller_run "$INPUT" "$DB")
+  case "$CALLER" in
+    __ERR__) tmb_deny_db_unavailable "containment-guard"; exit 0 ;;
+    '') UNBOUND="yes" ;;
+    *)
+      TASK_ID=$(tmb_sql_int "${CALLER%%|*}")
+      ROOT="${CALLER#*|}"
+      if [ -n "$ROOT" ]; then BOUND="yes"; else UNBOUND="yes"; fi
+      ;;
+  esac
+elif [ "$(tmb_swe_context "$AGENT_TYPE")" = "yes" ]; then
   TASK_ID=$(tmb_sql_int "$(tmb_resolve_task_id_for_target "$CWD/" "$INPUT" "$DB")")
   if [ -n "$TASK_ID" ]; then
     ROOT=$(tmb_gate_read "$DB" "SELECT root_dir FROM agent_runs
                                  WHERE task_id = ${TASK_ID} AND completed_at IS NULL AND root_dir IS NOT NULL
-                                   AND agent_type IN ('swe','pr-reviewer')
+                                   AND agent_type = 'swe'
                                  ORDER BY id DESC LIMIT 1;")
     if [ "$ROOT" = "__ERR__" ]; then
       tmb_deny_db_unavailable "containment-guard"
@@ -90,11 +120,9 @@ if [ "$AGENT_TYPE" = "pr-reviewer" ] || [ "$(tmb_swe_context "$AGENT_TYPE")" = "
     fi
   fi
 fi
-if [ -z "$ROOT" ]; then
-  ROOT="${CLAUDE_PROJECT_DIR:-}"
-  [ -n "$ROOT" ] || ROOT=$(dirname "$(dirname "$(dirname "$DB")")")
-fi
-ROOT_C=$(tmb_path_canonical "$ROOT")
+[ -n "$ROOT" ] || [ -n "$UNBOUND" ] || ROOT="$PROJECT_ROOT"
+ROOT_C=""
+[ -z "$ROOT" ] || ROOT_C=$(tmb_path_canonical "$ROOT")
 
 CACHE_DIR="${TMB_MODEL_CACHE_DIR:-${HF_HOME:-}}"
 [ -n "$CACHE_DIR" ] || CACHE_DIR="$HOME/.cache/huggingface"
@@ -133,6 +161,7 @@ allowed() {
   case "$1" in
     /dev/null|/dev/stdout|/dev/stderr|/dev/tty|/dev/fd/*) return 0 ;;
   esac
+  [ -z "$UNBOUND" ] || return 1
   c=$(tmb_path_canonical "$1")
   under "$c" "$ROOT_C" && return 0
   under "$c" "$CACHE_C" && return 0
@@ -143,16 +172,21 @@ allowed() {
 
 # deny <path> [<reason>]
 deny() {
-  local path="$1" reason="${2:-}" content issue
-  content=$(jq -cn --arg tool "$TOOL_NAME" --arg path "$path" --arg root "$ROOT" --arg tid "$TASK_ID" \
-    '{tool:$tool, path:$path, root:$root, task_id:(if $tid == "" then null else ($tid | tonumber) end)}')
+  local path="$1" reason="${2:-}" content issue why=""
+  if [ -n "$UNBOUND" ]; then
+    why="unbound_caller: swe agent_id ${AGENT_ID} has no agent_runs row with a root (spawn_id = agent_id)"
+    reason="BLOCKED: containment — this swe (agent_id ${AGENT_ID}) is not bound to a task run yet, so it has no root to write under. Call task_brief(agent='swe', task_id=<N>) first, with the task_id from your spawn prompt; the brief binds your run and its worktree. Target: ${path}."
+  fi
+  content=$(jq -cn --arg tool "$TOOL_NAME" --arg path "$path" --arg root "$ROOT" --arg tid "$TASK_ID" --arg why "$why" \
+    '{tool:$tool, path:$path, root:(if $root == "" then null else $root end), task_id:(if $tid == "" then null else ($tid | tonumber) end)}
+     + (if $why == "" then {} else {reason:$why} end)')
   issue=-1
   if [ -n "$TASK_ID" ]; then
     issue=$(tmb_sql_int "$(tmb_sqlite_ro "$DB" "SELECT issue_id FROM tasks WHERE id = ${TASK_ID};")")
     [ -n "$issue" ] || issue=-1
   fi
   tmb_audit_append "$DB" "$issue" '' "hook:containment-guard" "containment_denied" \
-    "${TOOL_NAME} denied: ${path} is outside ${ROOT}" "$content" || true
+    "${TOOL_NAME} denied: ${path} is outside ${ROOT:-any root (unbound swe ${AGENT_ID})}" "$content" || true
   [ -n "$reason" ] || reason="BLOCKED: containment — ${path} is outside this run's root ${ROOT}. TMB agents write only under their root (the task worktree for swe, the project for bro); keep scratch files inside it."
   jq -nc --arg r "$reason" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
@@ -190,7 +224,7 @@ if [ "$TOOL_NAME" != "Bash" ]; then
   exit 0
 fi
 
-allowed "$CWD" || deny "$CWD"
+[ -n "$UNBOUND" ] || [ -n "$BOUND" ] || allowed "$CWD" || deny "$CWD"
 
 COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null || true)
 [ -n "$COMMAND" ] || exit 0

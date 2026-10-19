@@ -4,17 +4,21 @@
 # bro_atomic_close diffs the task's own commits against files[] and records
 # the extras bro accepts.
 #
-# Fires in SWE worktree contexts (the target or $PWD inside
-# .claude/worktrees/<slug>). Resolves the active task, reads its typed `files`
-# column through lib/scope-fence.sh (the classifier swe-boundary.sh shares for
-# Bash writes), and for a path outside every listed dir emits
+# Fires for a swe caller. The task and worktree are the caller's own run
+# (tmb_caller_run: the swe agent_runs row bound to the payload agent_id); a
+# payload with no bound run falls back to the target's worktree (or $PWD
+# inside .claude/worktrees/<slug>) and the task it resolves to. Reads that
+# task's typed `files` column through lib/scope-fence.sh (the classifier
+# swe-boundary.sh shares for Bash writes), and for a path outside every
+# listed dir emits
 # additionalContext "<path> is outside this task's files[] (<dirs>); list it
 # and why in your report" — once per path per task.
 #
 # Silent when: not an SWE context, no worktree, no DB, no task row, an empty
 # files[], a DB read error, the path inside files[], or the path already
-# noted. Paths outside the worktree, prompt-surface paths and CLAUDE.md are
-# swe-boundary.sh's denies.
+# noted. Paths outside the worktree (the caller's own, when bound),
+# prompt-surface paths and CLAUDE.md are swe-boundary.sh's and
+# containment-guard.sh's denies.
 #
 # Fires on: PreToolUse — matcher: Edit|Write|MultiEdit|NotebookEdit
 set -uo pipefail
@@ -26,6 +30,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/normalize-role.sh"
 # shellcheck source=scripts/hooks/lib/scope-fence.sh disable=SC1091
 . "$SCRIPT_DIR/lib/scope-fence.sh"
+# shellcheck source=scripts/hooks/lib/cmd-analysis.sh disable=SC1091
+. "$SCRIPT_DIR/lib/cmd-analysis.sh"
 
 INPUT=$(cat)
 
@@ -44,14 +50,19 @@ SWE_CTX=$(tmb_swe_context "$AGENT_TYPE")
 TARGET=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_path // ""' 2>/dev/null || true)
 [ -n "$TARGET" ] || exit 0
 
-WORKTREE_ROOT=$(tmb_worktree_root_for_target "$TARGET")
-[ -n "$WORKTREE_ROOT" ] || exit 0
-
 DB=$(tmb_db_path 2>/dev/null || true)
 [ -n "$DB" ] || exit 0
 tmb_have_sqlite || exit 0
 
-TASK_ID=$(tmb_resolve_task_id_for_target "$TARGET" "$INPUT" "$DB")
+CALLER=$(tmb_caller_run "$INPUT" "$DB")
+[ "$CALLER" != "__ERR__" ] || exit 0
+TASK_ID=$(tmb_sql_int "${CALLER%%|*}")
+WORKTREE_ROOT="${CALLER#*|}"
+if [ -z "$TASK_ID" ] || [ -z "$WORKTREE_ROOT" ]; then
+  WORKTREE_ROOT=$(tmb_worktree_root_for_target "$TARGET")
+  [ -n "$WORKTREE_ROOT" ] || exit 0
+  TASK_ID=$(tmb_resolve_task_id_for_target "$TARGET" "$INPUT" "$DB")
+fi
 [ -n "$TASK_ID" ] || exit 0
 
 tmb_scope_fence_load "$DB" "$TASK_ID"

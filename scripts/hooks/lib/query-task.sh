@@ -526,6 +526,24 @@ tmb_resolve_task_id_for_target() {
   echo "$task_id"
 }
 
+# tmb_caller_run <input_json> <db>
+# The run of the swe making this tool call, keyed on who it is, not where it
+# stands: for a payload whose role (tmb_agent_role, lib/cmd-analysis.sh — the
+# caller sources it) is swe and that carries agent_id, prints
+# `<task_id>|<root_dir>` of the newest swe agent_runs row with spawn_id =
+# agent_id, open or closed (swe-brief-gate.sh binds it at the swe's first
+# task_brief). Prints nothing for another role, no agent_id or no such row;
+# prints __ERR__ when the DB read fails (tmb_gate_read). Never fails the caller.
+tmb_caller_run() {
+  local input="${1:-}" db="${2:-}" agent_id
+  [ "$(tmb_agent_role "$input")" = "swe" ] || return 0
+  agent_id=$(printf '%s' "$input" | jq -r '.agent_id // empty' 2>/dev/null || true)
+  [ -n "$agent_id" ] || return 0
+  tmb_gate_read "$db" "SELECT COALESCE(task_id, '') || '|' || COALESCE(root_dir, '') FROM agent_runs
+                        WHERE agent_type = 'swe' AND spawn_id = '$(tmb_sql_quote "$agent_id")'
+                        ORDER BY id DESC LIMIT 1;"
+}
+
 # tmb_task_id_from_transcript <transcript_path>
 # The spawn-prompt task binding: the first `task_id=<N>` in the transcript's
 # message content. Content may be a plain string or an array of blocks
