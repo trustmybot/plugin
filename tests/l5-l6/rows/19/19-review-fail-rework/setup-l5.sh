@@ -103,10 +103,6 @@ git -C "$WT" add src/cli.py
 git -C "$WT" commit -qm 'feat: add count subcommand'
 SEED_SHA=$(git -C "$WT" rev-parse HEAD)
 
-# Marks this worktree's admin dir: task_reopen reusing the worktree keeps it,
-# a removed and re-added worktree loses it (outcome-files.json).
-touch "$(git -C "$WT" rev-parse --absolute-git-dir)/l5-seeded"
-
 REPO_NAME="$(basename "$PROJECT")"
 VERIFY_CMD='python3 src/cli.py count'
 sqlite3 "$DB" <<SQL

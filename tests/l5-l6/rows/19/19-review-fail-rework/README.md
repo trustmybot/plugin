@@ -12,7 +12,6 @@
 - An open issue `Add count subcommand to todo CLI` and its task on `feat/add-count-subcommand`, `status='closed'`, `commit_sha` = the attempt, typed `files[]` / `verification[]`.
 - A completed swe `agent_runs` row whose `root_dir` is the worktree path.
 - `validation_attempts(attempt_n=1, agent='pr-reviewer', verdict='fail')` with the reviewer's findings.
-- A marker file `l5-seeded` in the worktree's git admin dir (`.git/worktrees/add-count-subcommand/`).
 
 ## Turns
 
@@ -26,7 +25,6 @@
 | Scorer | Asserts |
 |---|---|
 | `outcome.sql` | a `task_reopened` audit row from `closed` on the count branch; exactly one task on that branch; ≥2 swe `agent_runs` on the task, all with one `root_dir`; ≥2 `validation_attempts` on the task |
-| `outcome-files.json` | the seeded worktree's admin-dir marker and its `src/cli.py` still exist |
 | `outcome-coherence.json` | one task on the branch; `task_reopened >= 1`; `validation_attempts >= 2` |
 | `outcome-git.json` | `base_branch_unchanged: true` |
 | `tools-required.json` | `task_reopen`, `Agent` |
@@ -35,5 +33,5 @@
 
 ## Gaps (proxies)
 
-- **Same worktree path reused.** `task_reopen` reports `worktree_recreated` only in its tool result, which the scorers do not read. Two proxies stand in: every swe run on the task carries one `root_dir`, and the marker in the worktree's git admin dir survives (a removed and re-added worktree gets a fresh admin dir without it).
+- **Same worktree path reused.** Not scored. `task_reopen` reports `worktree_recreated` only in its tool result, which the scorers do not read. Once the second review passes, `cleanup-worktree-on-task-close.sh` removes the worktree, so the end state cannot tell reuse from recreation at the same path. Neither can the `root_dir` check in `outcome.sql`: `record-swe-spawn.sh` derives `root_dir` from `repos.path` plus the branch slug, so it is the same path either way; it stays only as a consistency check. The row scores the reopen itself instead: the `task_reopened` audit row, one task on the branch, and the second validation row.
 - **Second validation row.** It lands only if pr-reviewer runs inside the turn; a turn that ends after swe returns fails this check even when the rework is correct.
