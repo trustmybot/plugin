@@ -77,10 +77,11 @@ persona_mark() {
 }
 
 # persona_context — prints the header line, the old-block note when the
-# project's CLAUDE.md still holds a tmb:persona block, and the plugin's
+# project's CLAUDE.md still holds a tmb:persona block, the project root
+# (tmb_project_root, which <project> names in TMB prompts), and the plugin's
 # CLAUDE.md. Returns 1 when that file cannot be read or is empty.
 persona_context() {
-  local body header
+  local body header root
   [ -r "$PERSONA_SOURCE" ] || return 1
   body=$(cat "$PERSONA_SOURCE" 2>/dev/null) || return 1
   [ -n "$body" ] || return 1
@@ -89,6 +90,8 @@ persona_context() {
   if [ -f "$PERSONA_PROJECT/CLAUDE.md" ] && grep -F '<!-- tmb:persona start' "$PERSONA_PROJECT/CLAUDE.md" >/dev/null 2>&1; then
     printf '%s\n' "[The project's CLAUDE.md still holds a <!-- tmb:persona --> block from an older /onboard. It is no longer needed, since this hook delivers the persona; tell the Human they may delete it.]"
   fi
+  root=$(tmb_project_root)
+  printf 'Project root (<project> in TMB prompts): %s\n' "${root:-unresolved (no CLAUDE_PROJECT_DIR and no trajectory DB)}"
   printf '\n%s\n' "$body"
 }
 

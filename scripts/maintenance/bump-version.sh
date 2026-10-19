@@ -10,6 +10,8 @@
 #   --dry-run   print the CHANGELOG section the release would get; change nothing
 #   --date      release date in the section header (default: today, UTC)
 #
+# Operates on the checkout holding this script, whatever the cwd.
+#
 # Touches:
 #   1. .claude-plugin/plugin.json                         "version"
 #   2. .codex-plugin/plugin.json                          "version"
@@ -62,7 +64,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/maintenance/lib/changelog-fragments.sh
 . "$SCRIPT_DIR/lib/changelog-fragments.sh"
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_ROOT"
 
 TMP_DIR="$(mktemp -d)"

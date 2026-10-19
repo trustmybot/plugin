@@ -388,8 +388,17 @@ fi
 # ===========================================================================
 # duplicate-plugin (warning) — more than one enabled copy for this project
 # ===========================================================================
-DUP_PROJECT="${CLAUDE_PROJECT_DIR:-${WS_ROOT:-$PWD}}"
-DUP_INSTALLS=$(TMB_INSTALLED_JSON="$INSTALLED_JSON" tmb_duplicate_installs "$DUP_PROJECT" 2>/dev/null || true)
+DUP_PROJECT=""
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] || [ "$DB" != ":memory:" ]; then
+  DUP_PROJECT=$(tmb_project_root)
+fi
+DUP_INSTALLS=""
+if [ -z "$DUP_PROJECT" ]; then
+  printf 'WARN  duplicate-plugin: skipped — no project resolves (no CLAUDE_PROJECT_DIR and no trajectory DB)\n'
+  remediate "Run from a Claude Code session in the project, or set CLAUDE_PROJECT_DIR (or TRAJECTORY_DB_PATH) to it."
+else
+  DUP_INSTALLS=$(TMB_INSTALLED_JSON="$INSTALLED_JSON" tmb_duplicate_installs "$DUP_PROJECT" 2>/dev/null || true)
+fi
 if [ -n "$DUP_INSTALLS" ]; then
   printf 'WARN  duplicate-plugin: %s enabled %s copies for %s: %s\n' \
     "$(printf '%s\n' "$DUP_INSTALLS" | grep -c .)" "$PLUGIN_NAME" "$DUP_PROJECT" "$(tmb_duplicate_installs_names "$DUP_INSTALLS")"

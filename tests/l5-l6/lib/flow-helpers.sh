@@ -8,15 +8,20 @@ source "$(dirname "${BASH_SOURCE[0]}")/timeout-shim.sh"
 # shellcheck source=scripts/hooks/lib/resolve-install.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../../scripts/hooks/lib/resolve-install.sh"
 
+_FLOW_HELPERS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # tmb_test_state_dir <plugin_root>: <project>/.claude/<plugin>, where test
-# harness artifacts live. <project> is CLAUDE_PROJECT_DIR, else the repo
-# holding <plugin_root>; <plugin> is the manifest name at <plugin_root>.
+# harness artifacts live. <project> is CLAUDE_PROJECT_DIR, else the main
+# checkout of the plugin repo holding this file (a worktree resolves to its
+# main checkout); <plugin> is the manifest name at <plugin_root>.
 tmb_test_state_dir() {
-  local plugin_root="$1" project plugin
-  project="${CLAUDE_PROJECT_DIR:-}"
-  [ -n "$project" ] || project=$(git -C "$plugin_root" rev-parse --show-toplevel 2>/dev/null)
+  local plugin_root="$1" project="${CLAUDE_PROJECT_DIR:-}" common plugin
   if [ -z "$project" ]; then
-    printf 'tmb_test_state_dir: CLAUDE_PROJECT_DIR is unset and %s is not inside a git repo\n' "$plugin_root" >&2
+    common=$(git -C "$_FLOW_HELPERS_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common=""
+    [ -n "$common" ] && project=$(dirname "$common")
+  fi
+  if [ -z "$project" ]; then
+    printf 'tmb_test_state_dir: CLAUDE_PROJECT_DIR is unset and %s is not inside a git repo\n' "$_FLOW_HELPERS_DIR" >&2
     return 1
   fi
   plugin=$(CLAUDE_PLUGIN_ROOT="$plugin_root" _tmb_install_plugin_name)
@@ -50,6 +55,7 @@ l5_seed_db() {
     printf "  ✗ fixture not found: %s\n" "$fixture_path" >&2
     return 1
   fi
+  # shellcheck disable=SC2153 # PLUGIN_ROOT is set by the runner that sources this file
   local schema_path="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
   sqlite3 "$dir/.claude/tmb/trajectory.db" < "$schema_path"
   sqlite3 "$dir/.claude/tmb/trajectory.db" < "$fixture_path"

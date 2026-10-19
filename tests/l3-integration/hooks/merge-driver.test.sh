@@ -65,6 +65,20 @@ bash "$REPO/scripts/maintenance/install-merge-driver.sh" "$REPO" >/dev/null
 assert_contains "$(git config -f "$REPO/.git/config" --get merge.tmb-regen.driver)" "regen-generated.sh" "driver in .git/config"
 assert_eq "" "$(git config --global --get merge.tmb-regen.driver 2>/dev/null || true)" "nothing global"
 
+test_case "with no argument, run from a worktree's copy outside any repo cwd, it targets the main checkout"
+MAIN="$TMPDIR/main"
+mkdir -p "$MAIN/scripts/maintenance" "$TMPDIR/outside"
+cp "$PLUGIN_ROOT/scripts/maintenance/install-merge-driver.sh" "$MAIN/scripts/maintenance/"
+git -c gc.auto=0 init -q -b dev "$MAIN"
+git -C "$MAIN" config user.email t@t.io && git -C "$MAIN" config user.name t
+git -C "$MAIN" add -A && git -C "$MAIN" commit -qm base
+WT="$MAIN/.claude/worktrees/feature"
+git -C "$MAIN" worktree add -q -b feature "$WT"
+out=$(cd "$TMPDIR/outside" && bash "$WT/scripts/maintenance/install-merge-driver.sh")
+assert_contains "$(git config -f "$MAIN/.git/config" --get merge.tmb-regen.driver)" "regen-generated.sh" "driver in the main checkout's common-dir config"
+assert_contains "$out" "$(cd "$MAIN" && pwd -P)/.git/config" "reports the main checkout's config"
+assert_eq "" "$(ls -A "$TMPDIR/outside")" "nothing written in the cwd"
+
 test_case "with the driver, the merge completes with ours and no conflict markers"
 git -C "$REPO" checkout -q side-a
 rc=0; git -C "$REPO" merge --no-edit side-b >"$TMPDIR/merge.out" 2>&1 || rc=$?

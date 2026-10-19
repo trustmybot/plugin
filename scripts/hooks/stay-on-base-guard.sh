@@ -20,6 +20,10 @@
 # ALLOW: branch creation, switches to non-task branches, switches run inside a
 # worktree, switches named only in quoted text or a heredoc.
 #
+# The deny names the task's worktree as an absolute path: tmb_task_location
+# (<repos.path>/.claude/worktrees/<slug>), else under the statement dir's main
+# checkout.
+#
 # Pattern follows #428 hardening: numeric task_id validation, fail-closed
 # tmb_gate_read from lib/query-task.sh, early-exit for non-checkout commands.
 
@@ -30,6 +34,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/query-task.sh"
 # shellcheck source=scripts/hooks/lib/cmd-analysis.sh
 . "$SCRIPT_DIR/lib/cmd-analysis.sh"
+# shellcheck source=scripts/hooks/lib/agent-context.sh
+. "$SCRIPT_DIR/lib/agent-context.sh"
+# shellcheck source=scripts/hooks/lib/resolve-repo.sh
+. "$SCRIPT_DIR/lib/resolve-repo.sh"
 
 INPUT=$(cat)
 TOOL_NAME=$(printf '%s' "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null || true)
@@ -86,9 +94,14 @@ while IFS="$(printf '\t')" read -r DIR TARGET_BRANCH STMT; do
     exit 0
   fi
 
-  SLUG=$(printf '%s' "$TARGET_BRANCH" | sed 's|.*/||')
+  if tmb_task_location "$DB" "$OPEN_TASK_ID"; then
+    WT="$TMB_CTX_WORKTREE"
+  else
+    MAIN_ROOT=$(tmb_repo_git_root "$DIR")
+    WT="${MAIN_ROOT:-$DIR}/.claude/worktrees/$(tmb_branch_slug "$TARGET_BRANCH")"
+  fi
   jq -nc --arg reason \
-    "the main checkout stays on the base; SWE work lives in worktrees — use the worktree at .claude/worktrees/${SLUG}. Branch '${TARGET_BRANCH}' belongs to open task #${OPEN_TASK_ID}. Switch to the worktree instead: cd .claude/worktrees/${SLUG}" \
+    "the main checkout stays on the base; SWE work lives in worktrees — use the worktree at ${WT}. Branch '${TARGET_BRANCH}' belongs to open task #${OPEN_TASK_ID}. Switch to the worktree instead: cd ${WT}" \
     '{
       hookSpecificOutput: {
         hookEventName: "PreToolUse",

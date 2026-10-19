@@ -47,7 +47,7 @@ git -C "$FIXTURE_WS" commit -q -m "initial commit"
 
 # Helper: run the real hook from the fixture workspace with explicit DB.
 run_hook() {
-  (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>/dev/null) || true
+  (cd "$FIXTURE_WS" && env CLAUDE_PROJECT_DIR="$FIXTURE_WS" TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>/dev/null) || true
 }
 
 # reset_db: remove the DB and any WAL/SHM sidecars atomically, then recreate.
@@ -186,7 +186,7 @@ fi
 
 test_case "missing DB: hook exits silently (no output)"
 rm -f "$DB" "${DB}-wal" "${DB}-shm"
-out_no_db=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
+out_no_db=$( (cd "$FIXTURE_WS" && env CLAUDE_PROJECT_DIR="$FIXTURE_WS" TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
 assert_eq "" "$out_no_db" "no output when DB missing"
 
 # Re-create DB for the remaining cold/warm tests.
@@ -219,7 +219,7 @@ FAKE_HOOK="$FAKE_SCRIPTS/hooks/session-start-prescan.sh"
 test_case "cold + invoker present: context says scan started"
 kill_fixture_node
 rm -f "$INVOCATION_FLAG"
-COLD_OUT=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" INVOCATION_FLAG="$INVOCATION_FLAG" TMB_SKIP_AUTO_PRESCAN=0 bash "$FAKE_HOOK" 2>/dev/null) || true)
+COLD_OUT=$( (cd "$FIXTURE_WS" && env CLAUDE_PROJECT_DIR="$FIXTURE_WS" TRAJECTORY_DB_PATH="$DB" INVOCATION_FLAG="$INVOCATION_FLAG" TMB_SKIP_AUTO_PRESCAN=0 bash "$FAKE_HOOK" 2>/dev/null) || true)
 COLD_CTX=$(echo "$COLD_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
 assert_contains "$COLD_CTX" "scan is running in the background" "cold context mentions background scan"
 
@@ -240,7 +240,7 @@ assert_not_contains "$COLD_CTX" "tell the Human to run /scan" "no manual scan in
 test_case "cold + TMB_SKIP_AUTO_PRESCAN=1: context says world model is cold"
 kill_fixture_node
 rm -f "$INVOCATION_FLAG"
-SKIP_OUT=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$FAKE_HOOK" 2>/dev/null) || true)
+SKIP_OUT=$( (cd "$FIXTURE_WS" && env CLAUDE_PROJECT_DIR="$FIXTURE_WS" TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$FAKE_HOOK" 2>/dev/null) || true)
 SKIP_CTX=$(echo "$SKIP_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
 assert_contains "$SKIP_CTX" "cold" "skip context mentions cold"
 
@@ -277,9 +277,28 @@ for spec in "alpha:2" "beta:3"; do
   git -C "$WS_ROOT/$repo_name" commit -q -m "initial commit"
   sqlite3 "$DB" "INSERT INTO repos (name, path, last_scanned_at) VALUES ('$repo_name', '$WS_ROOT/$repo_name', '2026-01-01T00:00:00Z');"
 done
-WS_OUT=$( (cd "$WS_ROOT" && env TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>/dev/null) || true)
+WS_OUT=$( (cd "$WS_ROOT" && env CLAUDE_PROJECT_DIR="$WS_ROOT" TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>/dev/null) || true)
 WS_CTX=$(echo "$WS_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
 assert_contains "$WS_CTX" "cold (no scan yet; 5 source files)" "workspace sum of 2 + 3 files"
+
+test_case "non-repo cwd: the inventory names every repos row with its own branch, stacks and commits"
+printf '{}\n' > "$WS_ROOT/beta/package.json"
+git -C "$WS_ROOT/beta" checkout -q -b feature-x
+NONREPO_CWD="$TMPDIR/not-a-repo"
+mkdir -p "$NONREPO_CWD"
+NR_CTX=$( (cd "$NONREPO_CWD" && env CLAUDE_PROJECT_DIR="$WS_ROOT" TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>/dev/null) | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || true)
+NR_BRANCH_ALPHA=$(git -C "$WS_ROOT/alpha" rev-parse --abbrev-ref HEAD)
+assert_contains "$NR_CTX" "Top-level dirs:    alpha beta" "top-level dirs come from the project root"
+assert_contains "$NR_CTX" "Stacks detected:   alpha: (none detected); beta: Node" "stacks per repos row"
+assert_contains "$NR_CTX" "Git branch:        alpha: ${NR_BRANCH_ALPHA} (1 commits, 0 dirty paths); beta: feature-x (1 commits, 1 dirty paths)" "branch per repos row"
+assert_contains "$NR_CTX" "  [alpha] " "alpha's commits are labelled"
+assert_contains "$NR_CTX" "  [beta] " "beta's commits are labelled"
+rm -f "$WS_ROOT/beta/package.json"
+
+test_case "a repos row whose dir is gone is reported missing"
+sqlite3 "$DB" "INSERT INTO repos (name, path, last_scanned_at) VALUES ('gone', '$WS_ROOT/gone', '2026-01-01T00:00:00Z');"
+GONE_CTX=$( (cd "$NONREPO_CWD" && env CLAUDE_PROJECT_DIR="$WS_ROOT" TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>/dev/null) | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || true)
+assert_contains "$GONE_CTX" "gone: missing ($WS_ROOT/gone)" "missing repo dir named"
 WS_WM_LINES=$(printf '%s\n' "$WS_CTX" | grep -c '^World model:' || true)
 assert_eq "1" "$WS_WM_LINES" "World model row starts once"
 assert_eq "Trajectory DB:" "$(printf '%s\n' "$WS_CTX" | grep -A1 '^World model:' | tail -1 | cut -c1-14)" "World model row is a single line"
@@ -291,7 +310,7 @@ EMPTY_REPO="$TMPDIR/empty-repo"
 mkdir -p "$EMPTY_REPO"
 git -C "$EMPTY_REPO" init -q
 rm -f "$INVOCATION_FLAG"
-EMPTY_OUT=$( (cd "$EMPTY_REPO" && env TRAJECTORY_DB_PATH="$DB" INVOCATION_FLAG="$INVOCATION_FLAG" TMB_SKIP_AUTO_PRESCAN=0 bash "$FAKE_HOOK" 2>/dev/null) || true)
+EMPTY_OUT=$( (cd "$EMPTY_REPO" && env CLAUDE_PROJECT_DIR="$EMPTY_REPO" TRAJECTORY_DB_PATH="$DB" INVOCATION_FLAG="$INVOCATION_FLAG" TMB_SKIP_AUTO_PRESCAN=0 bash "$FAKE_HOOK" 2>/dev/null) || true)
 EMPTY_CTX=$(echo "$EMPTY_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
 assert_contains "$EMPTY_CTX" "cold (no scan yet; 0 source files)" "zero tracked files"
 EMPTY_ZERO_COUNT=$(printf '%s\n' "$EMPTY_CTX" | grep -o '0 source files' | wc -l | tr -d ' ')
@@ -314,7 +333,7 @@ kill_fixture_node
 sqlite3 "$DB" "INSERT INTO audit (event_type) VALUES ('deep_scan_completed');
   INSERT INTO repos (name, path, file_count, last_scanned_at)
     VALUES ('fixture', '$FIXTURE_WS', 42, strftime('%Y-%m-%dT%H:%M:%fZ','now','-3 hours'));"
-WARM_OUT=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
+WARM_OUT=$( (cd "$FIXTURE_WS" && env CLAUDE_PROJECT_DIR="$FIXTURE_WS" TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
 WARM_CTX=$(echo "$WARM_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
 assert_contains "$WARM_CTX" "World model:       warm (42 files, last scan 3h ago)" "warm banner with age"
 
@@ -328,7 +347,7 @@ assert_not_contains "$WARM_CTX" "world model is cold" "no cold message in warm s
 
 test_case "stale: last scan past 7 days reads stale with age and /scan hint"
 sqlite3 "$DB" "UPDATE repos SET last_scanned_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-12 days');"
-STALE_OUT=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
+STALE_OUT=$( (cd "$FIXTURE_WS" && env CLAUDE_PROJECT_DIR="$FIXTURE_WS" TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
 STALE_CTX=$(echo "$STALE_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
 assert_contains "$STALE_CTX" "World model:       stale (last scan 12d ago) — run /scan" "stale banner"
 
@@ -337,7 +356,7 @@ assert_not_contains "$STALE_CTX" "warm" "stale model is not warm"
 
 test_case "stale: a scan row with no repos row still reads stale, never warm"
 sqlite3 "$DB" "DELETE FROM repos;"
-NOREPO_OUT=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
+NOREPO_OUT=$( (cd "$FIXTURE_WS" && env CLAUDE_PROJECT_DIR="$FIXTURE_WS" TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>/dev/null) || true)
 NOREPO_CTX=$(echo "$NOREPO_OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "")
 assert_contains "$NOREPO_CTX" "World model:       stale (last scan unknown) — run /scan" "unknown age reads stale"
 
@@ -352,7 +371,7 @@ schema_db() {
 }
 doctor_line() {
   local out
-  out=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$SCHEMA_DB" TMB_SKIP_AUTO_PRESCAN=1 "$@" bash "$HOOK" 2>/dev/null) || true)
+  out=$( (cd "$FIXTURE_WS" && env CLAUDE_PROJECT_DIR="$FIXTURE_WS" TRAJECTORY_DB_PATH="$SCHEMA_DB" TMB_SKIP_AUTO_PRESCAN=1 "$@" bash "$HOOK" 2>/dev/null) || true)
   printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null | grep '^Trajectory DB:' || true
 }
 
@@ -362,7 +381,7 @@ assert_eq "Trajectory DB:     healthy" "$(doctor_line)" "healthy banner"
 
 test_case "doctor banner: line sits right after the World model line"
 schema_db
-BANNER_CTX=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$SCHEMA_DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>/dev/null) | jq -r '.hookSpecificOutput.additionalContext' | grep -A1 '^World model:' | tail -1 || true)
+BANNER_CTX=$( (cd "$FIXTURE_WS" && env CLAUDE_PROJECT_DIR="$FIXTURE_WS" TRAJECTORY_DB_PATH="$SCHEMA_DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>/dev/null) | jq -r '.hookSpecificOutput.additionalContext' | grep -A1 '^World model:' | tail -1 || true)
 assert_contains "$BANNER_CTX" "Trajectory DB:" "Trajectory DB line follows World model"
 
 test_case "doctor banner: violations are counted and named"
@@ -391,7 +410,7 @@ assert_eq "Trajectory DB:     unchecked (schema v30 < v$(jq -r .schema_version "
 
 test_case "doctor banner: a DB the contracts cannot read reports unchecked, never healthy"
 reset_db "$DB"
-NO_SCHEMA_LINE=$( (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>/dev/null) | jq -r '.hookSpecificOutput.additionalContext' | grep '^Trajectory DB:' || true)
+NO_SCHEMA_LINE=$( (cd "$FIXTURE_WS" && env CLAUDE_PROJECT_DIR="$FIXTURE_WS" TRAJECTORY_DB_PATH="$DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>/dev/null) | jq -r '.hookSpecificOutput.additionalContext' | grep '^Trajectory DB:' || true)
 assert_not_contains "$NO_SCHEMA_LINE" "healthy" "no healthy banner on read errors"
 assert_contains "$NO_SCHEMA_LINE" "unchecked" "read errors leave contracts unchecked"
 
@@ -402,7 +421,7 @@ mkdir -p "$DUP_HOME" "$FIXTURE_WS/.claude"
 LOCAL_SETTINGS="$FIXTURE_WS/.claude/settings.local.json"
 dup_entry() { printf '{"scope":"%s","projectPath":"%s","installPath":"/cache/%s","version":"%s"}' "$1" "$FIXTURE_WS" "$2" "$2"; }
 dup_run() {
-  (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$SCHEMA_DB" TMB_SKIP_AUTO_PRESCAN=1 HOME="$DUP_HOME" CLAUDE_PROJECT_DIR="$FIXTURE_WS" bash "$HOOK" 2>"$TMPDIR/dup.err") || true
+  (cd "$FIXTURE_WS" && env CLAUDE_PROJECT_DIR="$FIXTURE_WS" TRAJECTORY_DB_PATH="$SCHEMA_DB" TMB_SKIP_AUTO_PRESCAN=1 HOME="$DUP_HOME" bash "$HOOK" 2>"$TMPDIR/dup.err") || true
 }
 dup_line() { dup_run | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null | grep '^Plugin:' || true; }
 schema_db
@@ -446,7 +465,7 @@ LEGACY_OLD="$TMPDIR/old-project"
 mkdir -p "$LEGACY_CFG" "$LEGACY_OLD" "$TMPDIR/rc-project"
 LEGACY_OLD_REAL=$(cd "$LEGACY_OLD" && pwd -P)
 legacy_run() {
-  (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$SCHEMA_DB" TMB_SKIP_AUTO_PRESCAN=1 CLAUDE_PROJECT_DIR="$FIXTURE_WS" bash "$HOOK" 2>"$TMPDIR/legacy.err") || true
+  (cd "$FIXTURE_WS" && env CLAUDE_PROJECT_DIR="$FIXTURE_WS" TRAJECTORY_DB_PATH="$SCHEMA_DB" TMB_SKIP_AUTO_PRESCAN=1 bash "$HOOK" 2>"$TMPDIR/legacy.err") || true
 }
 legacy_lines() { legacy_run | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null | grep '^Plugin: .*pre-1\.1\.0 TMB hook' || true; }
 legacy_sums() { cksum "$LEGACY_SETTINGS" "$TMB_INSTALLED_JSON" 2>/dev/null; }

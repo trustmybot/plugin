@@ -2,7 +2,8 @@
 # Installs the tmb-regen git merge driver into one repo's own config
 # (.git/config, shared by its worktrees) — never --global.
 #
-# Usage: bash scripts/maintenance/install-merge-driver.sh [repo-dir]   (default: cwd)
+# Usage: bash scripts/maintenance/install-merge-driver.sh [repo-dir]
+#   (default: the main checkout of the repo holding this script, never the cwd)
 #
 # .gitattributes routes the generated artefacts (mcp/trajectory-server/dist/**,
 # scripts/hooks/lib/audit-events.txt, scripts/hooks/lib/data-contracts.json)
@@ -14,7 +15,16 @@
 
 set -euo pipefail
 
-REPO="${1:-.}"
+REPO="${1:-}"
+if [ -z "$REPO" ]; then
+  SELF_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  COMMON_DIR="$(git -C "$SELF_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  if [ -z "$COMMON_DIR" ]; then
+    echo "install-merge-driver: $SELF_ROOT is not in a git repository; pass the repo dir" >&2
+    exit 1
+  fi
+  REPO="$(dirname "$COMMON_DIR")"
+fi
 if ! git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1; then
   echo "install-merge-driver: $REPO is not a git repository" >&2
   exit 1
