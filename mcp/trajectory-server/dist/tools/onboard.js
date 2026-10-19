@@ -13,14 +13,17 @@
 // "github-flow → pr_target=main", "gitflow → protected_branches=[main, develop]"
 // rules live here, not in the skill.
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CLAUDE_STANDALONE_MARKER, canonicalExisting, claudeDbCounts, claudeProjectRootOfDb, claudeStateDir, isPathWithin, otherClaudeDbs, resolveClaudeSessionDir, } from '../platform.js';
+import { insertAudit } from './audit.js';
 import { SUBPROCESS_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS } from '../utils/timeouts.js';
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
-import { resolveSoleRepoPath } from '../utils/repo-paths.js';
+import { repoRowPath, resolveSoleRepoPath } from '../utils/repo-paths.js';
 import { remotesView, repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
+import { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { countShimEntries, removeProjectEnforcementShim, writeProjectEnforcementShim, } from './onboard-hooks-shim.js';
 import { isSshRemote, removeProjectSandbox, sandboxRecommended, writeProjectSandbox, } from './onboard-sandbox.js';
@@ -452,7 +455,7 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
     const definitions = [
         {
             name: 'onboard_state_get',
-            description: 'Read onboard state: first-run flag, current plugin_config, and git/CLI probe (origin URL → provider, gh/glab auth). Call once before AskUserQuestion.',
+            description: 'Read onboard state: first-run flag, current plugin_config, git/CLI probe (origin URL → provider, gh/glab auth), and nesting {session_dir, project_root, nested, other_dbs:[{path, issues, tasks, empty}]} for Round 0. Call once before AskUserQuestion.',
             inputSchema: { type: 'object', properties: {} },
         },
         {
@@ -481,11 +484,24 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
         },
         {
             name: 'onboard_apply',
-            description: 'Persist /onboard answers in one transaction. Derives pr_target + protected_branches from branching_model, writes onboarded marker. Accepts wire values or human-readable labels (case-insensitive). Keep options omit the key.',
+            description: 'Persist /onboard answers in one transaction. Derives pr_target + protected_branches from branching_model, writes onboarded marker. Accepts wire values or human-readable labels (case-insensitive). Keep options omit the key. Round 0: standalone=true alone makes the nested session dir its own project; remove_stray_dbs (alone or with shape) deletes empty stray DBs.',
             inputSchema: {
                 type: 'object',
                 properties: {
-                    shape: { type: 'string', enum: ['local', 'remote'] },
+                    shape: {
+                        type: 'string',
+                        enum: ['local', 'remote'],
+                        description: 'Required for the onboarding answers. Omit only for a Round-0-only call (standalone, or remove_stray_dbs alone).',
+                    },
+                    standalone: {
+                        type: 'boolean',
+                        description: "Round 0 'Make <subdir> its own TMB project': creates <session_dir>/.claude/<plugin>/standalone and a fresh trajectory DB there, then the Human restarts the session. Only when nesting.nested; pass no other answers.",
+                    },
+                    remove_stray_dbs: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: "Round 0: paths from nesting.other_dbs the Human agreed to remove. Each is deleted (with -wal/-shm and its state dir) only when it is still empty (0 issues, 0 tasks) and lies below the project root; the rest are refused and left in place.",
+                    },
                     branching_model: {
                         type: 'string',
                         enum: ['github-flow', 'gitflow'],
@@ -517,7 +533,6 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                         description: "Optional. Scope the write to a single repos row: only that row's target_branch/branching_model/protected_branches are updated; other repos rows, remotes, issue_sync, and the onboarded marker are NOT touched. Must match an existing repos.name. Omit for the workspace-wide apply.",
                     },
                 },
-                required: ['shape'],
             },
         },
     ];
@@ -559,6 +574,96 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
         pluginRoot: shimEnv.pluginRoot !== undefined ? shimEnv.pluginRoot : resolvePluginRoot(),
         projectRoot: projectRoot(),
     });
+    // Round 0: where the session sits relative to the project the DB walk
+    // resolved, and every other trajectory DB around it. A DB outside the
+    // <root>/.claude/<plugin>/ layout (or in memory) has no nesting to report.
+    const nesting = () => {
+        const session_dir = shimEnv.sessionDir ?? resolveClaudeSessionDir();
+        const root = claudeProjectRootOfDb(dbPath);
+        if (root === null)
+            return { session_dir, project_root: projectRoot(), nested: false, other_dbs: [] };
+        const session = canonicalExisting(session_dir);
+        const project = canonicalExisting(root);
+        return {
+            session_dir,
+            project_root: root,
+            nested: session !== project && isPathWithin(project, session),
+            other_dbs: otherClaudeDbs(dbPath, { sessionDir: session_dir }) ?? [],
+        };
+    };
+    const makeStandalone = () => {
+        const where = nesting();
+        if (!where.nested) {
+            throw new Error(`standalone needs a session directory below the project root (session ${where.session_dir}, project ${where.project_root})`);
+        }
+        const stateDir = claudeStateDir(where.session_dir, basename(dirname(dbPath)));
+        const newDb = join(stateDir, 'trajectory.db');
+        mkdirSync(stateDir, { recursive: true });
+        new TrajectoryDB(newDb, { pluginVersion: null, serverLog: () => { }, sqlLog: () => { } }).close();
+        const marker = join(stateDir, CLAUDE_STANDALONE_MARKER);
+        writeFileSync(marker, 'This directory is its own TMB project: the trajectory DB walk-up stops here.\n');
+        insertAudit(db, {
+            issue_id: -1,
+            from_node: 'bro',
+            event_type: 'project_made_standalone',
+            summary: `onboard: ${where.session_dir} is now its own TMB project (left workspace ${where.project_root})`,
+            content_json: JSON.stringify({ session_dir: where.session_dir, db_path: newDb, marker }),
+        });
+        return {
+            ok: true,
+            standalone: { session_dir: where.session_dir, db_path: newDb, marker },
+            restart_required: true,
+        };
+    };
+    const removeStrayDbs = (paths) => {
+        const root = claudeProjectRootOfDb(dbPath);
+        if (root === null)
+            throw new Error('remove_stray_dbs needs a project trajectory DB (<root>/.claude/<plugin>/trajectory.db)');
+        const project = canonicalExisting(root);
+        const self = canonicalExisting(dbPath);
+        const pluginName = basename(dirname(dbPath));
+        const removed = [];
+        const refused = [];
+        const refusal = (path) => {
+            if (!isAbsolute(path))
+                return 'not an absolute path';
+            if (!existsSync(path))
+                return 'no such file';
+            const strayRoot = claudeProjectRootOfDb(path);
+            if (strayRoot === null || basename(path) !== 'trajectory.db' || basename(dirname(path)) !== pluginName) {
+                return `not a <dir>/.claude/${pluginName}/trajectory.db path`;
+            }
+            if (canonicalExisting(path) === self)
+                return 'the current trajectory DB';
+            const strayProject = canonicalExisting(strayRoot);
+            if (strayProject === project || !isPathWithin(project, strayProject))
+                return `not below the project root ${root}`;
+            const { issues, tasks } = claudeDbCounts(path);
+            if (issues !== 0 || tasks !== 0)
+                return `not empty (${issues ?? '?'} issues, ${tasks ?? '?'} tasks)`;
+            return null;
+        };
+        for (const path of paths) {
+            const reason = refusal(path);
+            if (reason !== null) {
+                refused.push({ path, reason });
+                continue;
+            }
+            const stateDir = dirname(path);
+            for (const file of [path, `${path}-wal`, `${path}-shm`])
+                rmSync(file, { force: true });
+            rmSync(stateDir, { recursive: true, force: true });
+            insertAudit(db, {
+                issue_id: -1,
+                from_node: 'bro',
+                event_type: 'stray_db_removed',
+                summary: `onboard: removed the empty stray trajectory DB ${path}`,
+                content_json: JSON.stringify({ path, state_dir: stateDir, project_root: root }),
+            });
+            removed.push(path);
+        }
+        return { removed, refused };
+    };
     const handlers = {
         onboard_state_get: requireRoles('onboard_state_get', ['bro'], wrapHandler(async () => {
             const git = probeGit(probeDir());
@@ -591,6 +696,7 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     glab_installed: glab.installed,
                     glab_authed: glab.authed,
                 },
+                nesting: nesting(),
             });
         })),
         onboard_get_questions: requireRoles('onboard_get_questions', ['bro'], wrapHandler(async (args) => {
@@ -672,6 +778,21 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
         onboard_apply: requireRoles('onboard_apply', ['bro'], wrapHandler(async (args) => {
             if ('persona' in args) {
                 throw new Error("persona_input_removed: onboard_apply takes no 'persona' input — bro's persona loads from the plugin through its SessionStart and UserPromptSubmit hooks, and TMB never writes the project's CLAUDE.md");
+            }
+            if (args['standalone'] === true) {
+                const others = Object.keys(args).filter((k) => k !== 'standalone' && k !== 'agent' && args[k] !== undefined);
+                if (others.length > 0) {
+                    throw new Error(`standalone=true is applied alone — drop ${others.join(', ')}; the new project onboards after the session restart`);
+                }
+                return ok(makeStandalone());
+            }
+            const rawStray = args['remove_stray_dbs'];
+            if (rawStray !== undefined && (!Array.isArray(rawStray) || rawStray.some((p) => typeof p !== 'string'))) {
+                throw new Error('remove_stray_dbs must be an array of DB paths from nesting.other_dbs');
+            }
+            const strayPaths = rawStray;
+            if (strayPaths !== undefined && args['shape'] === undefined) {
+                return ok({ ok: true, stray_dbs: removeStrayDbs(strayPaths) });
             }
             const shape = args['shape'];
             if (shape !== 'local' && shape !== 'remote') {
@@ -898,13 +1019,14 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                         // Only reconcile against a repo that is actually a git tree. A
                         // non-git path (or a probe failure) keeps the chosen policy as-is
                         // — no worse than before, and single-repo behavior stays identical.
-                        if (probeGit(row.path).in_git) {
-                            if (effModel === 'gitflow' && !branchExists(row.path, pr_target)) {
+                        const repoPath = repoRowPath(db, row.path);
+                        if (probeGit(repoPath).in_git) {
+                            if (effModel === 'gitflow' && !branchExists(repoPath, pr_target)) {
                                 effModel = 'github-flow';
-                                effTarget = repoDefaultBranch(row.path);
+                                effTarget = repoDefaultBranch(repoPath);
                             }
                             if (shape === 'remote') {
-                                effRemotes = remotesForPath(row.path);
+                                effRemotes = remotesForPath(repoPath);
                             }
                         }
                     }
@@ -976,6 +1098,7 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
             return ok({
                 ok: true,
                 ...(warning ? { warning } : {}),
+                ...(strayPaths !== undefined ? { stray_dbs: removeStrayDbs(strayPaths) } : {}),
                 applied: {
                     onboarded: true,
                     branching_model,

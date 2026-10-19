@@ -13,7 +13,7 @@
 #   (d) a workspace project with nested repos ws/svc-a and ws/svc-b, both
 #       holding a worktree of the same slug;
 #   (e) .claude/worktrees appears twice above the project, and repos.path is
-#       relative to the DB's dir.
+#       relative to the project root (the dir holding .claude/<plugin>).
 # Plus: an unresolved swe is denied naming the missing piece, bro is
 # unchanged, the subagents/ transcript fallback, scan.sh from a session dir
 # under .claude/worktrees/<n>, heredoc text vs a redirect target, and the
@@ -184,11 +184,11 @@ mkdir -p "$D_PROJ/.claude/worktrees/id-d"
 OUT=$(hook "$BOUNDARY" "$D_PROJ" "$D_DB" "$D_PROJ/.claude/worktrees/id-d" "$(payload swe "$D_TR" "$D_PROJ/.claude/worktrees/id-d" Edit "$(edit "$D_PROJ/.claude/worktrees/id-d/f.txt")")")
 assert_eq "deny" "$(decision "$OUT")" "swe-boundary: ws/.claude/worktrees/id-d is not svc-a's"
 
-# (e) .claude/worktrees twice above the project; repos.path relative to the DB dir
+# (e) .claude/worktrees twice above the project; repos.path relative to the project root
 E_PROJ="$SB/e/outer/.claude/worktrees/n1/.claude/worktrees/n2"
 git_init "$E_PROJ"
 E_DB=$(new_db "$E_PROJ")
-sqlite3 "$E_DB" "INSERT INTO repos (name, path) VALUES ('n2', '../..');"
+sqlite3 "$E_DB" "INSERT INTO repos (name, path) VALUES ('n2', '.');"
 add_task "$E_DB" 1 "chore/id-e" n2
 git -C "$E_PROJ" worktree add -q -b chore/id-e "$E_PROJ/.claude/worktrees/id-e"
 git -C "$E_PROJ" worktree add -q -b chore/other-e "$SB/e/outer/.claude/worktrees/n1/.claude/worktrees/other-e"

@@ -13,9 +13,8 @@ import { defaultSpawnFn } from '../sync/issue_sync.js';
 import { resolveMilestoneTargets } from './milestones.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolveBaseRef, resolveRepoDefaultBranch } from '../utils/git-refs.js';
-import { resolveSoleRepo } from '../utils/repo-paths.js';
+import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { latestVerificationRun } from './verification-runs.js';
-import { resolve, dirname } from 'node:path';
 import { EFFORT_LEVELS, computeEffort, effortRank, isEffort } from './config.js';
 const WORKTREE_TIMEOUT_MS = 60_000;
 // Extract the unique directories implied by a task's typed `files[]` array. Each
@@ -135,7 +134,7 @@ export function scopeCheckCommit(repoPath, targetRef, commitSha, files, recorded
     return { outOfScope, checked: true, mergeBase, recordedBase, baseMoved: recordedBase !== mergeBase };
 }
 // Resolve a task's repo to its on-disk path (repos.path; relative → resolved
-// against the trajectory DB's directory). Sole-repo fallback applies when the
+// against the project root). Sole-repo fallback applies when the
 // task has no explicit repo. Returns null when no repo can be resolved.
 export function resolveRepoPath(db, repoValue) {
     const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db)?.name ?? null;
@@ -144,8 +143,7 @@ export function resolveRepoPath(db, repoValue) {
     const reposRow = db.get(`SELECT path FROM repos WHERE name = ?`, [name]);
     if (!reposRow)
         return name;
-    const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
-    return reposRow.path.startsWith('/') ? reposRow.path : resolve(dbDir, reposRow.path);
+    return repoRowPath(db, reposRow.path);
 }
 // Read a repo's target_branch (pr_target) from the repos table — the sole
 // source of truth (#980). Falls back to the sole registered repo when repoValue
@@ -900,8 +898,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             if (repoValue) {
                 const reposRow = db.get(`SELECT path FROM repos WHERE name = ?`, [repoValue]);
                 if (reposRow) {
-                    const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
-                    repoPath = reposRow.path.startsWith('/') ? reposRow.path : resolve(dbDir, reposRow.path);
+                    repoPath = repoRowPath(db, reposRow.path);
                 }
                 else {
                     // #1027: tasks.repo is a FK to repos(name) ON DELETE RESTRICT.

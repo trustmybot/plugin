@@ -87,7 +87,7 @@ tmb_task_location() {
     fi
     return 1
   fi
-  case "$path" in /*) ;; *) path=$(tmb_realdir "$(dirname "$db")/$path") ;; esac
+  case "$path" in /*) ;; *) path=$(tmb_realdir "$(tmb_repo_path_abs "$db" "$path")") ;; esac
   TMB_CTX_REPO="$name"
   TMB_CTX_REPO_ROOT="${path%/}"
   TMB_CTX_WORKTREE="${TMB_CTX_REPO_ROOT}/.claude/worktrees/$(tmb_branch_slug "$branch")"

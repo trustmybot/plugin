@@ -20868,7 +20868,7 @@ import { createRequire as createRequire2 } from "node:module";
 import { isAbsolute as isAbsolute2 } from "node:path";
 
 // src/db.ts
-import { copyFileSync, readFileSync as readFileSync3, readdirSync } from "node:fs";
+import { copyFileSync, readFileSync as readFileSync3, readdirSync as readdirSync2 } from "node:fs";
 import { basename as basename2, join as join4, dirname as dirname3 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { performance } from "node:perf_hooks";
@@ -20889,6 +20889,7 @@ import { join as join3 } from "node:path";
 import {
   existsSync,
   lstatSync,
+  readdirSync,
   readFileSync as readFileSync2,
   realpathSync as realpathSync2,
   statSync
@@ -21079,26 +21080,31 @@ function probeClaudeDb(path) {
     }
   }
 }
-function findExistingClaudeDbUp(startDir, pluginName, opts) {
+var CLAUDE_STANDALONE_MARKER = "standalone";
+function isStandaloneClaudeDb(dbPath) {
+  return existsSync(join2(dirname2(dbPath), CLAUDE_STANDALONE_MARKER));
+}
+function walkClaudeDbs(start, pluginName, opts) {
   const home = opts?.home ?? homedir();
-  const env = opts?.env ?? process.env;
   const probe = opts?.probe ?? probeClaudeDb;
+  const found = [];
+  for (let dir = start; dirname2(dir) !== dir; dir = dirname2(dir)) {
+    if (dir === home && start !== home) break;
+    const candidate = claudeDbLocation(dir, pluginName);
+    if (!existsSync(candidate) || probe(candidate) === "stale") continue;
+    found.push(candidate);
+    if (isStandaloneClaudeDb(candidate)) break;
+  }
+  return { resolved: found.length === 0 ? null : found[found.length - 1], candidates: found };
+}
+function findExistingClaudeDbUp(startDir, pluginName, opts) {
+  const env = opts?.env ?? process.env;
   const override = env["TRAJECTORY_DB_PATH"];
   if (override && override.trim().length > 0) {
     return existsSync(override) ? override : null;
   }
   const projectRoot = opts?.projectRoot !== void 0 ? opts.projectRoot : resolveClaudeProjectRoot(env);
-  if (projectRoot) {
-    const atRoot = claudeDbLocation(projectRoot, pluginName);
-    return existsSync(atRoot) ? atRoot : null;
-  }
-  let outermost = null;
-  for (let dir = startDir; dirname2(dir) !== dir; dir = dirname2(dir)) {
-    if (dir === home && startDir !== home) break;
-    const candidate = claudeDbLocation(dir, pluginName);
-    if (existsSync(candidate) && probe(candidate) !== "stale") outermost = candidate;
-  }
-  return outermost;
+  return walkClaudeDbs(projectRoot ?? startDir, pluginName, opts).resolved;
 }
 function canonicalDirectory(path, label, ErrorType = Error) {
   if (!isAbsolute(path)) {
@@ -21352,6 +21358,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "milestones_reconciled", writers: ["bro"], description: "`scan_run` imported a repo's remote milestones; `content_json` carries `imported`, `closed`, `repo`" },
   { type: "persona_block_written", writers: ["server"], description: "Legacy type kept for historical rows: in v1.1.0-rc.1 `onboard_apply` copied bro's persona block into the project's `CLAUDE.md`; nothing writes it now and `audit_append` refuses it; `content_json` carries `action` (`appended`, `replaced`), `version`", reserved: true },
   { type: "planning_complete", writers: ["bro"], description: "Bro finished planning: batched `task_create_batch` + SWE spawn" },
+  { type: "project_made_standalone", writers: ["bro"], description: "`onboard_apply(standalone=true)` made the session directory, nested below the workspace, its own TMB project: it wrote the `standalone` marker and a fresh trajectory DB in `<session_dir>/.claude/<plugin>/`, which the DB walk-up then picks over the workspace DB; filed under the system issue `-1` in the workspace DB; `content_json` carries `session_dir`, `db_path`, `marker`" },
   { type: "readme_staleness_surfaced", writers: ["hook"], description: "`post-atomic-close-readme` surfaced READMEs a closed task may have left stale" },
   { type: "registry_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_registry_gate`; `content_json` carries the waiver reason" },
   { type: "repo_remotes_migration_skipped", writers: ["server"], description: "The v35 migration could not move a repo's `repos.remotes` JSON into `repo_remotes` \u2014 the value did not parse as an array or a name \u2192 url map, or some entries carried no url or a duplicate name (the rest moved); one row per repo on the system issue `-1`, written by `system`; `content_json` carries `repo`, `reason`, `raw`" },
@@ -21368,6 +21375,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "scope_gate_waived", writers: ["bro"], description: "`bro_atomic_close(waive_scope_gate: true)` accepted the task's changed paths outside its `files[]` with a `scope_waiver_reason`; `content_json` carries `skill`, `task_id`, `commit_sha`, `accepted_paths`, `reason`, `base_moved`, `recorded_base`, `merge_base`. `task_create_batch(waive_scope_gate: true)` writes one when it skips its question gate, `content_json` carrying `waive_scope_gate_reason`, `tasks_created`" },
   { type: "skill_creator_blocked", writers: ["bro"], description: "`tmb_skill-creator` halted before writing the skill (no Human approval); written by bro via `audit_append`", reserved: true },
   { type: "spec_shape_gate_waived", writers: ["bro"], description: "A task's spec-shape waiver, one row per task on its issue with from_node `bro`; `task_create_batch` and `task_provision` called with `waive_spec_shape` write one for every task they create, and bro records one for an existing task through `audit_append`; `content_json` carries `task_id`, `gate` (`spec_shape`), `reason`, `waived_by` (`bro`), `source` (`task_create_batch`, `task_provision`, or absent for `audit_append`); `require-task-spec` reads it as the spawn waiver" },
+  { type: "stray_db_removed", writers: ["bro"], description: "`onboard_apply(remove_stray_dbs)` deleted an empty trajectory DB (0 issues, 0 tasks) below the project root, with its `-wal`/`-shm` files and its state dir, on the Human's yes; one row per DB on the system issue `-1`; `content_json` carries `path`, `state_dir`, `project_root`" },
   { type: "swe_atomic_close_auto_completed", writers: ["hook"], description: "`swe-atomic-close` auto-completed a `pending`/`running` task on SubagentStop because its worktree HEAD is neither equal to nor an ancestor of any parent tip (local or origin); one row per auto-complete on the task's issue, written in the same transaction as the status change; `content_json` carries `task_id`, `commit_sha`, `parent_tip_local`, `parent_tip_origin` (null when that ref is absent)" },
   { type: "swe_brief_fetched", writers: ["swe"], description: "`task_brief` recorded that a SWE fetched its brief (one row per task); swe-brief-gate reads it" },
   { type: "sync_skipped", writers: ["bro"], description: "Issue sync skipped a remote write because `issue_sync` is off; `content_json` carries `issue_id`, `reason`" },
@@ -21794,7 +21802,7 @@ function backupDbBeforeMigration(db, dbPath, targetVersion) {
   const base = basename2(dbPath);
   const prefix = `${base}.pre-v${targetVersion}.`;
   try {
-    const existing = readdirSync(dir).some(
+    const existing = readdirSync2(dir).some(
       (f) => f.startsWith(prefix) && f.endsWith(".bak")
     );
     if (existing) return;
@@ -26618,28 +26626,7 @@ function serializeConfigValue(key, rawValue) {
 }
 
 // src/utils/repo-paths.ts
-function resolveRepoForSync(db, repoName) {
-  if (repoName) {
-    const row = db.get(`SELECT name, path FROM repos WHERE name = ?`, [repoName]);
-    return row ? { name: row.name, path: row.path } : null;
-  }
-  const rows = db.all(`SELECT name, path FROM repos`);
-  if (rows.length !== 1) return null;
-  return { name: rows[0].name, path: rows[0].path };
-}
-function resolveSoleRepo(db, name) {
-  if (name) {
-    const repoRow = db.get(
-      `SELECT path FROM repos WHERE name = ?`,
-      [name]
-    );
-    return repoRow?.path ? { name, path: repoRow.path } : void 0;
-  }
-  const repos = db.all(
-    `SELECT name, path FROM repos`
-  );
-  return repos.length === 1 ? { name: repos[0].name, path: repos[0].path } : void 0;
-}
+import { dirname as dirname6, isAbsolute as isAbsolute5, resolve } from "node:path";
 
 // src/tools/containment.ts
 import { isAbsolute as isAbsolute4, join as join7, parse as parse3, relative as relative3, sep as sep2 } from "node:path";
@@ -26649,6 +26636,35 @@ function projectRootFromDbPath(dbPath) {
   const idx = segments.lastIndexOf(".claude");
   if (idx <= 0) return null;
   return segments.slice(0, idx).join(sep2) || sep2;
+}
+
+// src/utils/repo-paths.ts
+function repoRowPath(db, path) {
+  if (isAbsolute5(path)) return path;
+  const base = db.dbPath === ":memory:" ? process.cwd() : projectRootFromDbPath(db.dbPath) ?? dirname6(db.dbPath);
+  return resolve(base, path);
+}
+function resolveRepoForSync(db, repoName) {
+  if (repoName) {
+    const row = db.get(`SELECT name, path FROM repos WHERE name = ?`, [repoName]);
+    return row ? { name: row.name, path: repoRowPath(db, row.path) } : null;
+  }
+  const rows = db.all(`SELECT name, path FROM repos`);
+  if (rows.length !== 1) return null;
+  return { name: rows[0].name, path: repoRowPath(db, rows[0].path) };
+}
+function resolveSoleRepo(db, name) {
+  if (name) {
+    const repoRow = db.get(
+      `SELECT path FROM repos WHERE name = ?`,
+      [name]
+    );
+    return repoRow?.path ? { name, path: repoRowPath(db, repoRow.path) } : void 0;
+  }
+  const repos = db.all(
+    `SELECT name, path FROM repos`
+  );
+  return repos.length === 1 ? { name: repos[0].name, path: repoRowPath(db, repos[0].path) } : void 0;
 }
 
 // src/sync/backend.ts
@@ -28644,7 +28660,7 @@ function issueTools(db, dbPath = "", options = {}) {
 // src/tools/scan.ts
 import { spawn, spawnSync as spawnSync4 } from "node:child_process";
 import { closeSync as closeSync3, existsSync as existsSync4, openSync as openSync3, readFileSync as readFileSync6, readSync, realpathSync as realpathSync5, writeFileSync, unlinkSync as unlinkSync2 } from "node:fs";
-import { dirname as dirname6, join as join10 } from "node:path";
+import { dirname as dirname7, join as join10 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/file-purpose.ts
@@ -29163,7 +29179,7 @@ function wrap(fn) {
   };
 }
 function resolveScanScript() {
-  const here = dirname6(fileURLToPath3(import.meta.url));
+  const here = dirname7(fileURLToPath3(import.meta.url));
   const candidates = [
     join10(here, "..", "..", "..", "..", "scripts", "scan.sh"),
     join10(here, "..", "..", "..", "scripts", "scan.sh")
@@ -29736,7 +29752,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
             `graph_db_open_failed: ${graphOpenError} \u2014 another process holds the world-model lock (identify the holder by running lsof on the world-model graph file); the server retries automatically on the next call once the holder exits`
           );
         }
-        const lockPath = dbPath && dbPath !== ":memory:" ? join10(dirname6(dbPath), "scan.lock") : "";
+        const lockPath = dbPath && dbPath !== ":memory:" ? join10(dirname7(dbPath), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -29821,7 +29837,6 @@ function scanTools(db, graphHolder = null, dbPath = "") {
 
 // src/tools/world_model.ts
 import { spawnSync as spawnSync6 } from "node:child_process";
-import { resolve, dirname as dirname7 } from "node:path";
 
 // src/utils/git-refs.ts
 import { execFileSync, spawnSync as spawnSync5 } from "node:child_process";
@@ -29864,8 +29879,7 @@ function computeUnmergedWork(db, repo) {
     [repo]
   );
   if (!repoRow) return { unmerged_work: [] };
-  const dbDir = db.dbPath === ":memory:" ? process.cwd() : dirname7(db.dbPath);
-  const repoPath = repoRow.path.startsWith("/") ? repoRow.path : resolve(dbDir, repoRow.path);
+  const repoPath = repoRowPath(db, repoRow.path);
   const target = repoRow.target_branch || resolveRepoDefaultBranch(repoPath);
   const gitCheck = spawnSync6("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
     encoding: "utf8",

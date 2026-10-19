@@ -3,9 +3,8 @@ import type { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { WorldModelGraph } from '../graph-db.js';
 import type { DirectoryNode, FileNode, GraphHolder } from '../graph-db.js';
-import { resolveSoleRepo } from '../utils/repo-paths.js';
+import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { spawnSync } from 'node:child_process';
-import { resolve, dirname } from 'node:path';
 import { resolveRepoDefaultBranch } from '../utils/git-refs.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { frameUntrusted } from '../utils/untrusted.js';
@@ -47,8 +46,7 @@ function computeUnmergedWork(
   );
   if (!repoRow) return { unmerged_work: [] };
 
-  const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
-  const repoPath = repoRow.path.startsWith('/') ? repoRow.path : resolve(dbDir, repoRow.path);
+  const repoPath = repoRowPath(db, repoRow.path);
   const target = repoRow.target_branch || resolveRepoDefaultBranch(repoPath);
 
   const gitCheck = spawnSync('git', ['-C', repoPath, 'rev-parse', '--is-inside-work-tree'], {

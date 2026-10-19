@@ -160,9 +160,22 @@ out=$(run_ws walk activation-routine.sh '{"prompt":"hey bro"}' PATH="$LIVE_PATH"
 assert_contains "$out" "pending=#3" "outermost workspace DB"
 rm -rf "$REPO/.claude"
 
-test_case "[root] CLAUDE_PROJECT_DIR without a DB is unresolved (no walking)"
-out=$( (cd "$REPO/src" && printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git worktree add -b feat/x .claude/worktrees/x"}}' \
-  | env HOME="$FAKE_HOME" CLAUDE_PROJECT_DIR="$REPO" bash "$HOOKS/no-worktree-branch-create.sh" 2>/dev/null) || true)
+BRANCH_CREATE='{"tool_name":"Bash","tool_input":{"command":"git worktree add -b feat/x .claude/worktrees/x"}}'
+
+test_case "[root] CLAUDE_PROJECT_DIR below the workspace walks up to the workspace DB (GH 1553)"
+out=$( (cd / && printf '%s' "$BRANCH_CREATE" \
+  | env -u TMB_TEST_RUN_ID -u TMB_FORBID_LIVE_SYNC HOME="$FAKE_HOME" CLAUDE_PROJECT_DIR="$REPO" bash "$HOOKS/no-worktree-branch-create.sh" 2>/dev/null) || true)
+assert_contains "$out" "cannot create a branch" "workspace DB resolved → branch-create denied"
+
+test_case "[root] CLAUDE_PROJECT_DIR with no DB above it is unresolved"
+mkdir -p "$BASE/nodb/project"
+out=$( (cd "$REPO/src" && printf '%s' "$BRANCH_CREATE" \
+  | env -u TMB_TEST_RUN_ID -u TMB_FORBID_LIVE_SYNC HOME="$FAKE_HOME" CLAUDE_PROJECT_DIR="$BASE/nodb/project" bash "$HOOKS/no-worktree-branch-create.sh" 2>/dev/null) || true)
+assert_eq "" "$out" "unresolved → allow"
+
+test_case "[root] under a test flag CLAUDE_PROJECT_DIR without its own DB is unresolved (no walking)"
+out=$( (cd "$REPO/src" && printf '%s' "$BRANCH_CREATE" \
+  | env HOME="$FAKE_HOME" TMB_TEST_RUN_ID=db-path-rule CLAUDE_PROJECT_DIR="$REPO" bash "$HOOKS/no-worktree-branch-create.sh" 2>/dev/null) || true)
 assert_eq "" "$out" "unresolved → allow"
 
 # ----------------------------------------------------------------------------

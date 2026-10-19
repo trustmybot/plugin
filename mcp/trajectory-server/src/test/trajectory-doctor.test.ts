@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tempDB } from './helpers.js';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { SCHEMA_V28_SQL } from './fixtures/schema-v28.js';
 import type { TrajectoryDB } from '../db.js';
@@ -759,6 +759,55 @@ describe('single_tmb_plugin_enabled', () => {
       assert.deepEqual(report.violations, []);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('no_other_trajectory_dbs (GH 1553)', () => {
+  const fileContract = DATA_CONTRACTS.find((c) => c.id === 'no_other_trajectory_dbs')!;
+
+  function plant(root: string, issues = 0): string {
+    mkdirSync(join(root, '.claude', 'tmb'), { recursive: true });
+    const path = join(root, '.claude', 'tmb', 'trajectory.db');
+    const db = tempDB({ path, seedScan: false });
+    for (let i = 0; i < issues; i += 1) seedIssue(db);
+    db.close();
+    return path;
+  }
+
+  it('is a warn-severity file contract', () => {
+    assert.equal(fileContract.severity, 'warn');
+    assert.equal(fileContract.source, 'files');
+  });
+
+  it('names each extra DB path with its issue and task counts', () => {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-others-')));
+    try {
+      const ws = join(base, 'ws');
+      const session = join(ws, 'a', 'b');
+      const wsDb = plant(ws, 1);
+      const nested = plant(session, 2);
+      const report = checkTrajectoryDbFile(wsDb, [fileContract], { env: { CLAUDE_PROJECT_DIR: session, HOME: join(base, 'home') } });
+      assert.equal(report.healthy, true, 'a warn violation leaves the report healthy');
+      const v = report.violations[0]!;
+      assert.equal(v.id, 'no_other_trajectory_dbs');
+      assert.equal(v.actual, 1);
+      assert.deepEqual(v.sample, [{ path: nested, issues: 2, tasks: 0 }]);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('holds when the project has one DB, and skips a DB outside the <project>/.claude/<plugin> layout', () => {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-others-')));
+    try {
+      const wsDb = plant(join(base, 'ws'));
+      const env = { CLAUDE_PROJECT_DIR: join(base, 'ws'), HOME: join(base, 'home') };
+      assert.deepEqual(checkTrajectoryDbFile(wsDb, [fileContract], { env }).violations, []);
+      const report = runDataContracts(trajectoryDbReader(tempDB()), [fileContract], { env });
+      assert.equal(report.skipped[0]?.id, 'no_other_trajectory_dbs');
+    } finally {
+      rmSync(base, { recursive: true, force: true });
     }
   });
 });

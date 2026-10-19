@@ -28,9 +28,9 @@ REPO_PATH="$PROJECT/repos/plugin"
 seed_db() {
   sqlite3 "$1" "
     CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT);
-    CREATE TABLE tasks (id INTEGER PRIMARY KEY, branch_id TEXT, repo TEXT);
+    CREATE TABLE tasks (id INTEGER PRIMARY KEY, branch_id TEXT, repo TEXT, prompt_bearing INTEGER);
     INSERT INTO repos VALUES ('plugin', '$2');
-    INSERT INTO tasks VALUES (42, 'feat/my-feature', 'plugin'), (43, 'feat/other', '');"
+    INSERT INTO tasks (id, branch_id, repo) VALUES (42, 'feat/my-feature', 'plugin'), (43, 'feat/other', '');"
 }
 seed_db "$PROJECT/.claude/tmb/trajectory.db" "$REPO_PATH"
 export CLAUDE_PROJECT_DIR="$PROJECT"
