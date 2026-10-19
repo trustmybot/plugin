@@ -65,8 +65,17 @@ if [ "$TOOL_NAME" = "Bash" ]; then
   # worktree path anywhere (#1031). The old whole-command test exempted
   # `sed '...' .claude/worktrees/x/agents/a.md > agents/a.md`, which reads from a
   # worktree but WRITES a prompt surface in the main checkout.
+  # The project's own path never counts: a project checked out under some
+  # .claude/worktrees/<n> is still the main checkout (GH 1550).
+  _PROJ=$(tmb_project_root)
+  _PROJ_REAL=$(tmb_realdir "$_PROJ")
   _token_in_worktree() {
-    case "$1" in
+    local p="$1" root
+    for root in "$_PROJ" "$_PROJ_REAL"; do
+      [ -n "$root" ] || continue
+      case "$p" in "$root"/*) p="${p#"$root"/}"; break ;; esac
+    done
+    case "$p" in
       */.claude/worktrees/*|.claude/worktrees/*) return 0 ;;
     esac
     return 1
@@ -84,7 +93,7 @@ if [ "$TOOL_NAME" = "Bash" ]; then
       _BASH_DEST_TOK="$_wpath"
       break
     fi
-  done < <(tmb_cmd_write_paths "$CMD")
+  done < <(tmb_cmd_write_paths "$CMD" "$(tmb_payload_cwd "$INPUT")")
   if [ -n "$_BASH_DEST_TOK" ]; then
     BASH_DENY_REASON="BLOCKED: Bash write-forms targeting prompt-surface files (agents/*.md, skills/*/SKILL.md, commands/*.md, templates/*.md, CLAUDE.md, CODEX/CURSOR/GEMINI.md) are denied from the main checkout for every agent identity. Sanctioned route: spawn an SWE task (prompt_bearing=1) for intentional prompt edits. Reads (cat/grep/sed -n) are always allowed."
     jq -nc --arg reason "$BASH_DENY_REASON" '{
@@ -107,10 +116,8 @@ TARGET=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_pa
 
 # Worktree exemption: any write whose target path lives inside
 # `.claude/worktrees/<slug>/...` is a legitimate SWE edit in its task
-# worktree — allow regardless of agent identity. This MUST be a
-# target-path check, not a $PWD check: CC subagents inherit the parent's
-# CWD, so $PWD is always the project root for every hook invocation
-# (the previous $PWD-based check never matched and silently blocked SWE).
+# worktree — allow regardless of agent identity. This is a target-path
+# check, never a cwd check: CC subagents inherit the parent's cwd (GH 1550).
 case "$TARGET" in
   */.claude/worktrees/*|.claude/worktrees/*) exit 0 ;;
 esac
@@ -133,20 +140,16 @@ fi
 case "$TARGET" in
   /*)
     TARGET_DIR=$(dirname "$TARGET")
-    # Only consult registration when the target's directory actually exists —
-    # otherwise tmb_repo_git_root falls back to $PWD (the hook's cwd) and would
-    # mis-scope. A target whose parent dir is absent fails closed (guarded).
+    # Only consult registration when the target's directory actually exists;
+    # a target whose parent dir is absent fails closed (guarded).
     if tmb_have_sqlite && [ -d "$TARGET_DIR" ]; then
       TARGET_GIT_ROOT=$(tmb_repo_git_root "$TARGET_DIR")
       if [ -n "$TARGET_GIT_ROOT" ]; then
-        SAFE_GIT_ROOT=$(tmb_sql_quote "$TARGET_GIT_ROOT")
-        REGISTERED=$(tmb_gate_read "$DB_PATH" \
-          "SELECT COUNT(*) FROM repos WHERE path = '${SAFE_GIT_ROOT}';")
-        if [ "$REGISTERED" = "__ERR__" ]; then
+        if [ "$(tmb_gate_read "$DB_PATH" "SELECT COUNT(*) FROM repos;")" = "__ERR__" ]; then
           tmb_deny_db_unavailable no-source-edit-from-main
           exit 0
         fi
-        [ "${REGISTERED:-0}" -gt 0 ] || exit 0   # unregistered sibling repo — outside Rule 1 scope
+        [ -n "$(tmb_repo_name_for_root "$DB_PATH" "$TARGET_GIT_ROOT")" ] || exit 0   # unregistered sibling repo — outside Rule 1 scope
       else
         exit 0   # directory in no git repository — outside Rule 1 scope
       fi
@@ -165,7 +168,7 @@ _target_is_plugin_source_repo() {
       start=$(dirname "$TARGET")
       while [ ! -d "$start" ] && [ "$start" != "/" ]; do start=$(dirname "$start"); done
       ;;
-    *) start="$PWD" ;;
+    *) start=$(dirname "$(tmb_payload_cwd "$INPUT")/$TARGET") ;;
   esac
   git_root=$(tmb_repo_git_root "$start")
   [ -n "$git_root" ] || return 1

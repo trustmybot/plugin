@@ -144,7 +144,7 @@ for MODE in root walk; do
   assert_contains "$out" "stale trajectory DB (this project): $FAKE_HOME/.claude/projects/$SLUG/trajectory.db" "stale DB of the workspace project reported"
   rm -rf "$FAKE_HOME/.claude/projects"
 
-  test_case "[$MODE] ensure-gitignore stays DB-independent"
+  test_case "[$MODE] ensure-gitignore covers the registered repo, not the cwd"
   out=$(run_ws "$MODE" ensure-gitignore.sh '{}')
   assert_eq "" "$out" "no stdout"
   grep -qxF '.claude/' "$REPO/.gitignore" && _pass || _fail ".claude/ ignored in the repo"
@@ -252,7 +252,10 @@ gate consultant-persistence-gate.sh \
 
 # swe-scope-fence only notes a write outside files[]: a DB error leaves it
 # silent, never a deny.
-SF_PAYLOAD=$(jq -nc --arg t "$WT/src/x.ts" '{tool_name:"Edit",agent_type:"swe",tool_input:{file_path:$t}}')
+# The swe's spawn transcript names task 3, whose worktree is $WT.
+SPAWN_TR="$GATE_DIR/spawn-3.jsonl"
+printf '{"message":{"content":[{"type":"text","text":"task_id=3"}]}}\n' > "$SPAWN_TR"
+SF_PAYLOAD=$(jq -nc --arg t "$WT/src/x.ts" --arg tr "$SPAWN_TR" '{tool_name:"Edit",agent_type:"swe",agent_transcript_path:$tr,tool_input:{file_path:$t}}')
 test_case "swe-scope-fence.sh: corrupt or unreadable DB stays silent"
 assert_eq "" "$(run_gate swe-scope-fence.sh "$SF_PAYLOAD" "$CORRUPT_DB" "$WT")" "corrupt DB: no output"
 assert_eq "" "$(run_gate swe-scope-fence.sh "$SF_PAYLOAD" "$LOCKED_DB" "$WT")" "unreadable DB: no output"
@@ -262,7 +265,7 @@ assert_contains "$(run_gate swe-scope-fence.sh "$SF_PAYLOAD" "$GOOD_DB" "$WT")" 
 # swe-boundary keeps its prompt-surface deny for un-onboarded projects (its rule
 # needs no DB); the DB only grants prompt_bearing. So (a) asserts the reason is
 # the prompt-surface one, never the unavailable one.
-SB_PAYLOAD=$(jq -nc --arg t "$WT/agents/a.md" '{tool_name:"Edit",agent_type:"swe",tool_input:{file_path:$t}}')
+SB_PAYLOAD=$(jq -nc --arg t "$WT/agents/a.md" --arg tr "$SPAWN_TR" '{tool_name:"Edit",agent_type:"swe",agent_transcript_path:$tr,tool_input:{file_path:$t}}')
 test_case "swe-boundary.sh: unresolved DB keeps the un-onboarded behaviour"
 out=$(run_gate swe-boundary.sh "$SB_PAYLOAD" "$MISSING_DB" "$WT")
 assert_contains "$out" "may not edit prompt-surface files" "prompt-surface reason"

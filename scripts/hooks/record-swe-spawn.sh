@@ -75,7 +75,7 @@ else
   [ -n "$REPO_ROOT" ] || REPO_ROOT="$WORKSPACE_ROOT"
 fi
 ROOT_DIR_SQL="NULL"
-[ -n "$BRANCH" ] && ROOT_DIR_SQL="'$(tmb_sql_quote "${REPO_ROOT%/}/.claude/worktrees/${BRANCH##*/}")'"
+[ -n "$BRANCH" ] && ROOT_DIR_SQL="'$(tmb_sql_quote "${REPO_ROOT%/}/.claude/worktrees/$(tmb_branch_slug "$BRANCH")")'"
 
 EFFORT_SQL="effort"
 case "$EFFORT" in low|medium|high) EFFORT_SQL="'${EFFORT}'" ;; esac

@@ -141,14 +141,22 @@ _batch_stat() {
 }
 
 # Discover git repos under SESSION_DIR (max depth 4). Excludes worktrees and
-# common build artefacts.
+# common build artefacts below SESSION_DIR; the prune patterns match paths
+# relative to it, so a SESSION_DIR that itself sits under .claude/worktrees/
+# is still scanned (GH 1550).
 discover_repos() {
-  find "$SESSION_DIR" -maxdepth 4 \
+  (cd "$SESSION_DIR" && find . -maxdepth 4 \
     \( -path '*/node_modules' -o -path '*/.claude/worktrees*' \
        -o -path '*/dist' -o -path '*/build' -o -path '*/.next' \
        -o -path '*/target' -o -path '*/.venv' -o -path '*/venv' \) -prune \
-    -o -name .git -print 2>/dev/null \
+    -o -name .git -print 2>/dev/null) \
   | sed 's:/\.git$::' \
+  | while IFS= read -r rel; do
+      case "$rel" in
+        .) printf '%s\n' "$SESSION_DIR" ;;
+        ./*) printf '%s/%s\n' "$SESSION_DIR" "${rel#./}" ;;
+      esac
+    done \
   | sort -u
 }
 

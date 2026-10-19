@@ -10,7 +10,8 @@
 #   - in-scope edit (path under a listed dir) → silent
 #   - out-of-scope edit → allowed, note names the path and the listed dirs
 #   - the same path again → silent (deduped per task); another task → noted
-#   - no-task, empty files[], non-worktree PWD, non-Edit tool → silent
+#   - no-task, empty files[], a target outside the worktree, no spawn
+#     transcript, non-Edit tool → silent
 #   - dir-granularity: file listed → its directory is the scope
 #   - root-level file listed → only that exact file is in scope
 #   - tests/ path in scope when files[] includes a tests/ parent
@@ -67,11 +68,30 @@ sqlite3 "$DB" "
   INSERT INTO tasks VALUES (3, 1, 'feat/task-nofiles', 'running', '', 0, '$FILES_EMPTY');
   INSERT INTO tasks VALUES (5, 1, 'feat/task-rootfile', 'running', '', 0, '$FILES_ROOT_FILE');
   INSERT INTO tasks VALUES (6, 1, 'feat/task-trailingslash', 'running', '', 0, '$FILES_TRAILING_SLASH');
+  ALTER TABLE tasks ADD COLUMN repo TEXT;
+  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT);
+  INSERT INTO repos VALUES ('proj', '$TMPDIR');
 "
 
+# spawn_transcript <task_id> — the swe's spawn transcript (task_id=<N> in its
+# prompt), the only thing that identifies its task and worktree.
+spawn_transcript() {
+  local tf="$TMPDIR/spawn-$1.jsonl"
+  printf '{"message":{"content":[{"type":"text","text":"task_id=%s"}]}}\n' "$1" > "$tf"
+  printf '%s\n' "$tf"
+}
+
+# with_task <task_id> <input> — <input> as sent by the swe spawned for <task_id>.
+with_task() {
+  jq -c --arg t "$(spawn_transcript "$1")" '. + {agent_transcript_path: $t}' <<<"$2"
+}
+
+# run_hook <worktree> <input> — the swe of the task whose branch slug is the
+# worktree's name (none for an unknown slug), its shell in that worktree.
 run_hook() {
-  local worktree="$1"
-  local input="$2"
+  local worktree="$1" input="$2" task
+  task=$(sqlite3 "$DB" "SELECT id FROM tasks WHERE substr(branch_id, instr(branch_id, '/') + 1) = '${worktree##*/}' LIMIT 1;")
+  [ -z "$task" ] || input=$(with_task "$task" "$input")
   (cd "$worktree" && echo "$input" | bash "$HOOK" 2>&1 || true)
 }
 
@@ -180,13 +200,17 @@ test_case "empty-files: task with empty typed files[] is silent"
 out=$(run_hook "$WT_NOFILES" "$(make_edit_input "anything/file.ts")")
 assert_eq "$out" "" "no output without files[]"
 
-test_case "non-worktree: relative target with PWD outside a worktree is silent"
-out=$( (cd "$NON_WT_DIR" && echo "$(make_edit_input "anything/file.ts")" | bash "$HOOK" 2>&1) || true)
-assert_eq "$out" "" "no worktree, no note"
+test_case "non-worktree: a relative target joins the cwd; outside the worktree is silent"
+out=$( (cd "$NON_WT_DIR" && with_task 1 "$(make_edit_input "anything/file.ts")" | bash "$HOOK" 2>&1) || true)
+assert_eq "$out" "" "outside the worktree, no note"
 
-test_case "target-derived: absolute out-of-scope target resolves the worktree from the target (#597)"
-out=$( (cd "$NON_WT_DIR" && echo "$(make_edit_input "$WT_A/lib/x.ts")" | bash "$HOOK" 2>&1) || true)
-assert_contains "$out" "lib/x.ts is outside this task's files[]" "the worktree comes from the target"
+test_case "GH 1550: no spawn transcript is silent, whatever the cwd"
+out=$( (cd "$WT_A" && echo "$(make_edit_input "$WT_A/lib/unidentified.ts")" | bash "$HOOK" 2>&1) || true)
+assert_eq "$out" "" "a cwd inside a worktree is not identity"
+
+test_case "identity-derived: absolute out-of-scope target, shell outside any worktree (#597)"
+out=$( (cd "$NON_WT_DIR" && with_task 1 "$(make_edit_input "$WT_A/lib/x.ts")" | bash "$HOOK" 2>&1) || true)
+assert_contains "$out" "lib/x.ts is outside this task's files[]" "the worktree comes from the task"
 
 test_case "non-edit-tool: Bash is ignored (swe-boundary.sh notes Bash writes)"
 bash_input=$(jq -n '{"tool_name":"Bash","agent_type":"swe","tool_input":{"command":"echo x > elsewhere/y.ts"}}')
@@ -196,7 +220,7 @@ assert_eq "$out" "" "Bash produces no output here"
 test_case "GH 1279: a path a heredoc program writes outside files[] is noted once (swe-boundary.sh, same classifier)"
 BOUNDARY_HOOK="$PLUGIN_ROOT/scripts/hooks/swe-boundary.sh"
 heredoc_cmd=$(printf '%s\n' "python3 - <<'EOF'" "open('src/heredoc_out.py', 'w').write('x')" 'EOF')
-bash_input=$(jq -n --arg c "$heredoc_cmd" '{"tool_name":"Bash","agent_type":"swe","tool_input":{"command":$c}}')
+bash_input=$(with_task 1 "$(jq -n --arg c "$heredoc_cmd" '{"tool_name":"Bash","agent_type":"swe","tool_input":{"command":$c}}')")
 out=$( (cd "$WT_A" && echo "$bash_input" | bash "$BOUNDARY_HOOK" 2>&1) || true)
 assert_not_contains "$out" "$DENY" "the note never denies"
 assert_contains "$out" "src/heredoc_out.py is outside this task's files[] (scripts/hooks, tests/l3-integration/hooks)" "the extracted path is noted"
@@ -204,7 +228,7 @@ out=$( (cd "$WT_A" && echo "$bash_input" | bash "$BOUNDARY_HOOK" 2>&1) || true)
 assert_not_contains "$out" "outside this task" "noted once per path"
 
 test_case "DB read error: silent, never a deny"
-out=$( (cd "$WT_A" && echo "$(make_edit_input "src/db-error.ts")" | TRAJECTORY_DB_PATH="$TMPDIR/not-a-db/trajectory.db" bash "$HOOK" 2>&1) || true)
+out=$( (cd "$WT_A" && with_task 1 "$(make_edit_input "src/db-error.ts")" | TRAJECTORY_DB_PATH="$TMPDIR/not-a-db/trajectory.db" bash "$HOOK" 2>&1) || true)
 assert_not_contains "$out" "$DENY" "a DB error never denies"
 
 test_case "source: the hook carries no deny"

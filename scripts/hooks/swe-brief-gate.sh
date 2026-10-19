@@ -46,6 +46,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/normalize-role.sh"
 # shellcheck source=scripts/hooks/lib/db-write.sh
 . "$SCRIPT_DIR/lib/db-write.sh"
+# shellcheck source=scripts/hooks/lib/agent-context.sh
+. "$SCRIPT_DIR/lib/agent-context.sh"
 
 INPUT=$(cat)
 
@@ -60,38 +62,15 @@ if [ -z "$DB" ] || ! tmb_have_sqlite; then
   exit 0
 fi
 
-# Extract task_id from transcript (first human turn contains 'task_id=N') or
-# from tool_input fields (task_update_status, task_get, etc. pass task_id directly).
-TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.agent_transcript_path // ""' 2>/dev/null || true)
-TASK_ID=$(tmb_task_id_from_transcript "$TRANSCRIPT_PATH")
+# The task_id comes from the swe's own spawn transcript (first human turn
+# contains 'task_id=N'; agent_transcript_path, else the subagents file beside
+# the session transcript) or from tool_input fields (task_update_status,
+# task_get, etc. pass task_id directly). Never from the cwd (GH 1550).
+TASK_ID=$(tmb_task_id_from_transcript "$(tmb_agent_transcript "$INPUT")")
 
 if [ -z "$TASK_ID" ]; then
   TASK_ID=$(echo "$INPUT" | jq -r '.tool_input.task_id // empty' 2>/dev/null || true)
   case "$TASK_ID" in ''|*[!0-9]*) TASK_ID="" ;; esac
-fi
-
-# Worktree fallback: when transcript and tool_input provide no task_id, the
-# worktree's checked-out branch matches branch_id exactly; a detached worktree
-# falls back to its slug (tmb_task_by_slug).
-if [ -z "$TASK_ID" ]; then
-  WORKTREE_ROOT=$(tmb_worktree_root_for_target "")
-  if [ -n "$WORKTREE_ROOT" ]; then
-    WORKTREE_BRANCH=$(git -C "$WORKTREE_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
-    if [ -n "$WORKTREE_BRANCH" ] && [ "$WORKTREE_BRANCH" != "HEAD" ]; then
-      SAFE_BRANCH=$(tmb_sql_quote "$WORKTREE_BRANCH")
-      TASK_ID=$(tmb_sqlite_ro "$DB" "
-        SELECT id FROM tasks
-         WHERE branch_id = '${SAFE_BRANCH}'
-           AND status IN ('pending','running','completed')
-         ORDER BY id DESC
-         LIMIT 1;
-      ")
-    fi
-    if [ -z "$TASK_ID" ]; then
-      TASK_ID=$(tmb_task_by_slug "$DB" "$(basename "$WORKTREE_ROOT")" id "'pending','running','completed'")
-    fi
-    TASK_ID=$(tmb_sql_int "$TASK_ID")
-  fi
 fi
 
 if [ -z "$TASK_ID" ]; then

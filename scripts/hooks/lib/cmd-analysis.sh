@@ -1141,7 +1141,10 @@ _tmb_cmd_interp_writes() {
 # cannot parse the program, or a write shape shows that no call was found
 # for. The literals of the data a call writes (write / writelines /
 # write_text / write_bytes, fs.writeFile* / appendFile* data) are content and
-# never count; a program that does not parse counts all of them. With
+# never count, nor do the arguments of a text call (replace / sub / gsub,
+# split / strip, startswith / find / match / search / test, print / puts /
+# log), which are data (GH 1550); a program that does not parse counts all
+# of them. With
 # `operands`, a program that writes but names no literal prints `-` so the
 # caller still judges its operands.
 _tmb_cmd_prog_writes() {
@@ -1483,6 +1486,11 @@ _tmb_cmd_prog_calls() {
       if (rk == "P" || rk == "PE") return 1
       return (sn_pre == "" || sn_pre ~ /(^|[.:])(os|fs|fsp|promises|File|IO)$/) ? 2 : 1
     }
+    function indata(   t) {
+      if (d == 0 || ftype[d] == "group") return 0
+      t = fid[d]; splitname(fname[t])
+      return sn_last ~ /^(replace|replaceAll|sub|subn|gsub|split|rsplit|startswith|endswith|startsWith|endsWith|strip|lstrip|rstrip|removeprefix|removesuffix|find|rfind|rindex|indexOf|lastIndexOf|includes|count|match|fullmatch|search|test|print|printf|puts|say|warn|log)$/
+    }
     function incontent(   k, t) {
       for (k = d; k >= 1; k--) {
         t = fid[k]
@@ -1562,7 +1570,7 @@ _tmb_cmd_prog_calls() {
       if (lang == "ruby" && (qc == "\"" || qc == "`") && index(v, "#{")) interp = 1
       if (lang == "node" && qc == "`" && index(v, "${")) interp = 1
       if (lang == "py" && d > 0 && fname[fid[d]] ~ /(^|[.])(__import__|import_module)$/ && v ~ /^(os|subprocess)$/) unres()
-      if (!incontent()) { qv = v; gsub(/\n/, " ", qv); print "Q\t" qc qv qc }
+      if (!incontent() && !indata()) { qv = v; gsub(/\n/, " ", qv); print "Q\t" qc qv qc }
       tok(interp ? "E" : "L", v)
       ip = j; pc = 0
       if (qc == "`" && (lang == "perl" || lang == "ruby")) bt(v, interp)

@@ -17,7 +17,7 @@ export CLAUDE_PROJECT_DIR="$TMPDIR"
 
 run_in_repo() {
   local repo="$1"
-  (cd "$repo" && echo '{}' | bash "$HOOK" 2>&1 || true)
+  (cd "$repo" && echo '{}' | CLAUDE_PROJECT_DIR="$repo" bash "$HOOK" 2>&1 || true)
 }
 
 test_case "not a git repo: silent no-op"
@@ -60,5 +60,19 @@ before_md5=$(md5 -q "$REPO/.gitignore" 2>/dev/null || md5sum "$REPO/.gitignore" 
 run_in_repo "$REPO" >/dev/null
 after_md5=$(md5 -q "$REPO/.gitignore" 2>/dev/null || md5sum "$REPO/.gitignore" | awk '{print $1}')
 assert_eq "$before_md5" "$after_md5" "matches both .claude/ and .claude variants"
+
+test_case "GH 1550: the project and its registered repos, never the cwd's repo"
+WS="$TMPDIR/ws"
+SVC="$TMPDIR/elsewhere/svc"
+CWD_REPO="$TMPDIR/cwd-repo"
+mkdir -p "$WS/.claude/tmb" "$SVC" "$CWD_REPO"
+(cd "$WS" && git init -q -b main)
+(cd "$SVC" && git init -q -b main)
+(cd "$CWD_REPO" && git init -q -b main)
+sqlite3 "$WS/.claude/tmb/trajectory.db" "CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT NOT NULL); INSERT INTO repos VALUES ('svc', '$SVC');"
+(cd "$CWD_REPO" && echo '{}' | CLAUDE_PROJECT_DIR="$WS" TRAJECTORY_DB_PATH="$WS/.claude/tmb/trajectory.db" bash "$HOOK" >/dev/null 2>&1 || true)
+assert_eq "yes" "$(grep -qxF '.claude/' "$WS/.gitignore" 2>/dev/null && echo yes || echo no)" "the project's repo"
+assert_eq "yes" "$(grep -qxF '.claude/' "$SVC/.gitignore" 2>/dev/null && echo yes || echo no)" "a registered repo outside the project"
+assert_eq "no" "$([ -f "$CWD_REPO/.gitignore" ] && echo yes || echo no)" "the cwd's repo is untouched"
 
 summarize

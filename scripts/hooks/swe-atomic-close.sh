@@ -49,6 +49,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/resolve-repo.sh" 2>/dev/null || true
 # shellcheck source=scripts/hooks/lib/db-write.sh disable=SC1091
 . "$SCRIPT_DIR/lib/db-write.sh"
+# shellcheck source=scripts/hooks/lib/agent-context.sh disable=SC1091
+. "$SCRIPT_DIR/lib/agent-context.sh"
 
 # Parse a JSONL transcript file and print pipe-separated stats:
 #   tokens_in|tokens_out|tool_uses|duration_ms|cache_read_tokens|cache_creation_tokens|first_ts|model
@@ -167,7 +169,6 @@ TASK_ID=$(tmb_sql_int "$TASK_ID")
 TASK_STATUS=$(echo "$ROW" | cut -d'|' -f2)
 BRANCH=$(echo "$ROW" | cut -d'|' -f3)
 PARENT_BRANCH=$(echo "$ROW" | cut -d'|' -f4)
-TASK_REPO=$(echo "$ROW" | cut -d'|' -f5)
 ISSUE_ID=$(echo "$ROW" | cut -d'|' -f6)
 
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -233,28 +234,18 @@ SELECT ${SAFE_TASK_ID}, ${SAFE_ISSUE_ID}, 'pr-reviewer', ${SAFE_TOKENS_IN}, ${SA
   exit 0
 fi
 
-# Resolve REPO_ROOT for worktree path:
-#   1. If task has a repo and repos.path resolves, use it (multi-repo workspace).
-#   2. Else fall back to `git rev-parse --show-toplevel` from PWD.
-#   3. Else PWD itself.
+# The worktree comes from the task row, never the cwd (GH 1550):
+# tasks.repo (empty: the sole repos row) → repos.path →
+# <repos.path>/.claude/worktrees/<tmb_branch_slug branch_id>, the path
+# task_provision creates. A task with no resolvable repos row falls back to
+# the project root (tmb_project_root).
 REPO_ROOT=""
-if [ -n "$TASK_REPO" ]; then
-  # shellcheck disable=SC2001
-  REPO_ROOT=$(sqlite3 "$DB" \
-    "SELECT path FROM repos WHERE name='$(echo "$TASK_REPO" | sed "s/'/''/g")' LIMIT 1;" \
-    2>/dev/null || true)
+if tmb_task_location "$DB" "$TASK_ID" >/dev/null 2>&1; then
+  REPO_ROOT="$TMB_CTX_REPO_ROOT"
 fi
-if [ -z "$REPO_ROOT" ]; then
-  REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")
-fi
-
-# Derive the worktree path: slug = everything after the last '/' in branch_id.
-SLUG="${BRANCH##*/}"
-# Resolve the worktree from the TASK'S REPO, repo-rooted, mirroring the creators
-# (ensure-swe-worktree.sh / MCP task_provision) and swe-verification-gate.sh:
-# the worktree lives at <repoRoot>/.claude/worktrees/<slug>. REPO_ROOT was
-# resolved above from tasks.repo → repos.path (single-repo: repo == workspace).
-WT_PATH="${REPO_ROOT}/.claude/worktrees/${SLUG}"
+[ -n "$REPO_ROOT" ] || REPO_ROOT=$(tmb_project_root)
+REPO_ROOT=$(tmb_realdir "$REPO_ROOT")
+WT_PATH="${REPO_ROOT}/.claude/worktrees/$(tmb_branch_slug "$BRANCH")"
 
 SAFE_ROOT_DIR=$(tmb_sql_quote "$WT_PATH")
 

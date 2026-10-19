@@ -30,10 +30,13 @@
 # commits against files[]. Reads and read inputs of a write never fire.
 #
 # SWE context = the agent identity (tmb_agent_role in lib/cmd-analysis.sh) is
-# swe. A path never decides the role. The assigned worktree and task are the
-# caller's own run (tmb_caller_run in lib/query-task.sh, keyed on the payload
-# agent_id); a payload with no bound run falls back to $PWD for rule (c) and
-# to the target's worktree for task lookups. Bash rules judge the command's
+# swe. A path never decides the role. The assigned task and worktree come from
+# identity, never the shared cwd (tmb_agent_context in lib/agent-context.sh):
+# task_id=<N> in the swe's spawn transcript → tasks.repo → repos.path →
+# <repos.path>/.claude/worktrees/<slug>. A swe whose context cannot be
+# resolved is denied every Edit/Write (rule (c) fails closed) with the missing
+# piece named; with no trajectory DB nothing is enforced. Relative targets
+# join the payload cwd (the dir the tool runs in). Bash rules judge the command's
 # executable statements only: data heredocs and quoted text are data; a
 # program fed to an interpreter through a heredoc is analysed for the paths it
 # writes, and a variable set earlier in the same command is resolved.
@@ -48,6 +51,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/cmd-analysis.sh"
 # shellcheck source=scripts/hooks/lib/scope-fence.sh
 . "$SCRIPT_DIR/lib/scope-fence.sh"
+# shellcheck source=scripts/hooks/lib/agent-context.sh
+. "$SCRIPT_DIR/lib/agent-context.sh"
 
 INPUT=$(cat)
 
@@ -60,27 +65,25 @@ TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null || true)
 SWE_CTX="no"
 [ "$(tmb_agent_role "$INPUT")" = "swe" ] && SWE_CTX="yes"
 
-# The caller's own run (tmb_caller_run: the swe agent_runs row bound to the
-# payload agent_id). When bound, its root and task decide rule (c), the Bash
-# write root and every task lookup below, ahead of $PWD or the target.
+# The caller's context (tmb_agent_context): its task and derived worktree
+# decide rule (c), the Bash write root and every task lookup below.
+# CTX_STATE: ok, missing (a swe whose task, repo or path is unresolved) or
+# nodb (no trajectory DB: nothing to enforce against).
 CALLER_TASK=""
-CALLER_ROOT=""
-if [ "$SWE_CTX" = "yes" ]; then
-  _CALLER_DB=$(tmb_db_path 2>/dev/null || true)
-  if [ -n "$_CALLER_DB" ] && tmb_have_sqlite; then
-    _CALLER=$(tmb_caller_run "$INPUT" "$_CALLER_DB")
-    if [ "$_CALLER" = "__ERR__" ]; then
-      tmb_deny_db_unavailable swe-boundary
-      exit 0
-    fi
-    if [ -n "$_CALLER" ]; then
-      CALLER_TASK=$(tmb_sql_int "${_CALLER%%|*}")
-      CALLER_ROOT="${_CALLER#*|}"
-    fi
-  fi
+WORKTREE_ROOT=""
+CTX_STATE="ok"
+if [ "$SWE_CTX" = "yes" ] && tmb_have_sqlite; then
+  _CTX_RC=0
+  tmb_agent_context "$INPUT" || _CTX_RC=$?
+  case "$_CTX_RC" in
+    0) CALLER_TASK="$TMB_CTX_TASK_ID"; WORKTREE_ROOT="$TMB_CTX_WORKTREE" ;;
+    2) tmb_deny_db_unavailable swe-boundary; exit 0 ;;
+    3) CTX_STATE="nodb" ;;
+    *) CTX_STATE="missing"; CALLER_TASK="$TMB_CTX_TASK_ID" ;;
+  esac
 fi
 
-# _task_for <target> <db> — the caller's task when bound, else the task the
+# _task_for <target> <db> — the caller's task when resolved, else the task the
 # target's worktree resolves to.
 _task_for() {
   if [ -n "$CALLER_TASK" ]; then
@@ -90,16 +93,15 @@ _task_for() {
   fi
 }
 
-# The assigned worktree root — used by rule (c): the caller's run root, else
-# $PWD when it's inside a worktree (a payload with no agent_id).
-WORKTREE_ROOT="$CALLER_ROOT"
-if [ -z "$WORKTREE_ROOT" ]; then
-  case "$PWD" in
-    */.claude/worktrees/*)
-      WORKTREE_ROOT=$(echo "$PWD" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|')
-      ;;
-  esac
-fi
+# _wt_of <path> — the worktree a written path lies in: the caller's own when
+# the path is inside it, else the path's .claude/worktrees/<slug> dir.
+_wt_of() {
+  if tmb_ctx_in_worktree "$1"; then
+    printf '%s' "$TMB_CTX_WORKTREE"
+    return 0
+  fi
+  tmb_worktree_root_for_target "$1"
+}
 
 # ---- Rules (a), (b), (e), (f): Bash from SWE context ------------------------
 # Each rule judges the executable statements of the command
@@ -137,16 +139,8 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
   fi
 
   # (e), (f) Every written path, relative to the worktree it lies in.
-  _wt_of() {
-    case "$1" in
-      */.claude/worktrees/*) printf '%s' "$1" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|' ;;
-    esac
-  }
-
-  _SWE_CWD=$(tmb_payload_cwd "$INPUT")
-  _SWE_ROOT="$CALLER_ROOT"
-  [ -n "$_SWE_ROOT" ] || _SWE_ROOT=$(_wt_of "$_SWE_CWD")
-  [ -n "$_SWE_ROOT" ] || _SWE_ROOT="${CLAUDE_PROJECT_DIR:-}"
+  _SWE_ROOT="$WORKTREE_ROOT"
+  [ -n "$_SWE_ROOT" ] || _SWE_ROOT=$(tmb_project_root)
 
   SURFACE_PATH=""
   SURFACE_ANCHOR=""
@@ -170,7 +164,7 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
       SURFACE_ANCHOR="${_wt:+$_wpath}"
     fi
     if [ -n "$_wt" ]; then FENCE_PATHS+=("$_wpath"); fi
-  done < <(tmb_cmd_write_paths "$CMD" "$_SWE_CWD" "" "$_SWE_ROOT")
+  done < <(tmb_cmd_write_paths "$CMD" "$(tmb_payload_cwd "$INPUT")" "" "$_SWE_ROOT")
 
   if [ -n "$ROOT_CLAUDE_MD" ]; then
     jq -nc --arg r "$(claude_md_reason "$ROOT_CLAUDE_MD")" \
@@ -190,7 +184,6 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
   # (e), (g) Lift when the resolved task has prompt_bearing=1.
   _PB_ALLOWED=""
   if [ -n "$SURFACE_PATH" ] || [ -n "$UNRESOLVED_TARGET" ]; then
-    [ -n "$SURFACE_ANCHOR" ] || SURFACE_ANCHOR="$(tmb_payload_cwd "$INPUT")/"
     _PB_TASK_ID=$(_task_for "$SURFACE_ANCHOR" "$_DB")
     if [ -n "$_PB_TASK_ID" ] && [ -n "$_DB" ] && tmb_have_sqlite; then
       _PB_VAL=$(tmb_gate_read "$_DB" "
@@ -304,38 +297,38 @@ TARGET=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_pa
 [ -n "$TARGET" ] || exit 0
 
 # ---- Rule (c): target outside assigned worktree ----------------------------
-if [ -n "$WORKTREE_ROOT" ]; then
-  # Normalize target to absolute path for comparison.
-  # If target is relative, prepend PWD.
-  case "$TARGET" in
-    /*) ABS_TARGET="$TARGET" ;;
-    *)  ABS_TARGET="${PWD}/${TARGET}" ;;
-  esac
-  # Resolve any ./ or ../ without requiring realpath (best-effort).
-  case "$ABS_TARGET" in
-    *"/../"*|*"/./"*)
-      _resolved=$(cd "$(dirname "$ABS_TARGET")" 2>/dev/null && pwd)/$(basename "$ABS_TARGET") || true
-      [ -n "$_resolved" ] && ABS_TARGET="$_resolved"
-      ;;
-  esac
-  case "$ABS_TARGET" in
-    "${WORKTREE_ROOT}"/*|"${WORKTREE_ROOT}") ;;
-    *)
-      DENY_MSG="BLOCKED: SWE may only edit files inside its assigned worktree (${WORKTREE_ROOT}). Target '${TARGET}' is outside the worktree."
-      jq -nc --arg r "$DENY_MSG" \
-        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
-      exit 0
-      ;;
-  esac
+# The worktree is the caller's derived one (canonical paths compared); a
+# relative target joins the payload cwd, the dir the tool resolves it in.
+if [ "$CTX_STATE" = "missing" ]; then
+  DENY_MSG="BLOCKED: swe-boundary cannot resolve this swe's worktree: ${TMB_CTX_MISSING}. An swe works out of <repos.path of tasks.repo>/.claude/worktrees/<branch slug>, found from the task_id=<N> in its spawn prompt; until that resolves, Edit/Write is denied. Target: ${TARGET}. Report this to bro."
+  jq -nc --arg r "$DENY_MSG" \
+    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
+  exit 0
+fi
+case "$TARGET" in
+  /*) ABS_TARGET="$TARGET" ;;
+  *)  ABS_TARGET="$(tmb_payload_cwd "$INPUT")/${TARGET}" ;;
+esac
+if [ -n "$WORKTREE_ROOT" ] && ! tmb_ctx_in_worktree "$ABS_TARGET"; then
+  DENY_MSG="BLOCKED: SWE may only edit files inside its assigned worktree (${WORKTREE_ROOT}) of task ${CALLER_TASK}. Target '${TARGET}' is outside the worktree."
+  jq -nc --arg r "$DENY_MSG" \
+    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
+  exit 0
 fi
 
 # ---- Rule (d): CLAUDE.md and prompt-surface paths --------------------------
 # Deny CLAUDE.md at the worktree root always; deny the rest of the prompt
 # surface (tmb_is_prompt_surface_path) from SWE context unless the task row
 # has prompt_bearing=1.
-_WT_D=$(tmb_worktree_root_for_target "$TARGET")
-_SUBJECT="$TARGET"
-[ -z "$_WT_D" ] || _SUBJECT="${TARGET#"$_WT_D"/}"
+if [ -n "$WORKTREE_ROOT" ]; then
+  _WT_D="$WORKTREE_ROOT"
+  _SUBJECT=$(tmb_path_canonical "$ABS_TARGET")
+  _SUBJECT="${_SUBJECT#"$(tmb_path_canonical "$WORKTREE_ROOT")"/}"
+else
+  _WT_D=$(tmb_worktree_root_for_target "$TARGET")
+  _SUBJECT="$TARGET"
+  [ -z "$_WT_D" ] || _SUBJECT="${TARGET#"$_WT_D"/}"
+fi
 if [ -n "$_WT_D" ] && [ "$_SUBJECT" = "CLAUDE.md" ]; then
   jq -nc --arg r "$(claude_md_reason "$TARGET")" \
     '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$r}}'
@@ -351,9 +344,8 @@ if [ "$IS_PROMPT_SURFACE" = "yes" ]; then
     exit 0
   fi
   if [ -n "$DB" ] && tmb_have_sqlite; then
-    # The caller's task when bound; else resolve it robustly (worktree branch
-    # → slug → transcript), deriving the worktree from the TARGET when $PWD
-    # isn't inside one.
+    # The caller's task (tmb_agent_context); without a DB-resolved context,
+    # the task the TARGET's worktree resolves to (branch → slug → transcript).
     TASK_ID=$(_task_for "$TARGET" "$DB")
     if [ -n "$TASK_ID" ]; then
       PROMPT_BEARING=$(tmb_gate_read "$DB" "

@@ -115,7 +115,7 @@ if [ "$STATUS" = "pending" ]; then
       $0 == ref { if (entry == 1) main = 1; else linked = 1 }
       END { print (linked ? "linked" : (main ? "main" : "none")) }')
     if [ "$WT_STATE" != "linked" ]; then
-      WT_EXPECTED="${WT_REPO%/}/.claude/worktrees/${WT_BRANCH#*/}"
+      WT_EXPECTED="${WT_REPO%/}/.claude/worktrees/$(tmb_branch_slug "$WT_BRANCH")"
       WT_SWITCH=""
       [ "$WT_STATE" = "main" ] && WT_SWITCH=" The main checkout currently has $WT_BRANCH checked out; switch the main checkout back to its base branch first (git cannot attach a branch that is checked out elsewhere)."
       jq -nc --arg id "$TASK_ID" --arg branch "$WT_BRANCH" --arg path "$WT_EXPECTED" --arg switch "$WT_SWITCH" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("BLOCKED: task_id="+$id+" is pending and branch "+$branch+" has no linked worktree (expected "+$path+")."+$switch+" Call task_reopen(task_id="+$id+", reason=\"<why>\") to create the worktree, then respawn swe.")}}'

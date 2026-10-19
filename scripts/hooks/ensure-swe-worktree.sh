@@ -63,7 +63,7 @@ if [ -z "$BRANCH" ]; then
 fi
 
 # slug = branch's last path component (fix/foo-bar → foo-bar).
-SLUG="${BRANCH##*/}"
+SLUG=$(tmb_branch_slug "$BRANCH")
 
 # Resolve the repo root via the path-keyed model:
 #   tasks.repo → repos.path, else single-repo fallback, else workspace root.

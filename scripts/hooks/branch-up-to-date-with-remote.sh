@@ -79,9 +79,9 @@ tmb_have_sqlite || exit 0
 
 # One read: the repos row for REPO_ROOT. No row = unregistered/sibling repo —
 # don't impose policy on it (#549). A read error fails closed.
-SAFE_REPO_ROOT=$(tmb_sql_quote "$REPO_ROOT")
+_REPO_Q=$(tmb_sql_quote "$(tmb_repo_name_for_root "$DB_PATH" "$REPO_ROOT")")
 _REPO_ROW=$(tmb_gate_read "$DB_PATH" \
-  "SELECT 'repo|' || COALESCE(target_branch, '') FROM repos WHERE path = '${SAFE_REPO_ROOT}' LIMIT 1;")
+  "SELECT 'repo|' || COALESCE(target_branch, '') FROM repos WHERE name = '$_REPO_Q' LIMIT 1;")
 if [ "$_REPO_ROW" = "__ERR__" ]; then
   tmb_deny_db_unavailable branch-up-to-date-with-remote
   exit 0

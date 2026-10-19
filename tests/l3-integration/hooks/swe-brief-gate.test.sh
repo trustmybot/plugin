@@ -295,39 +295,43 @@ INPUT=$(jq -n --arg tr "$TR" '{
 out=$(run_hook "$INPUT")
 assert_not_contains "$out" '"permissionDecision":"deny"' "Edit must be allowed after task_brief"
 
-# ---- Slug fallback: no transcript, PWD inside worktree resolves task_id -----
-test_case "Slug fallback: no transcript, PWD inside worktree → gate evaluates (denies)"
+# ---- GH 1550: identity is the spawn transcript, never the cwd ---------------
 sqlite3 "$DB" "INSERT OR IGNORE INTO tasks VALUES (70, 1, 'fix/slug-task', 'pending', 'spec');" 2>/dev/null || true
-# PWD must look like a worktree root whose slug matches the branch_id suffix.
 FAKE_WT="$TMPDIR/.claude/worktrees/slug-task"
+mkdir -p "$FAKE_WT"
+
+test_case "GH 1550: no transcript, shell inside a task's worktree → the cwd resolves nothing"
 INPUT=$(jq -n '{
   agent_type: "swe",
   tool_name: "mcp__tmb__trajectory-server__task_update_status",
   tool_input: {}
 }')
-out=$(cd "$FAKE_WT" 2>/dev/null || mkdir -p "$FAKE_WT" && cd "$FAKE_WT" && echo "$INPUT" | bash "$HOOK" 2>&1 || true)
-assert_contains "$out" '"permissionDecision":"deny"' "slug fallback should resolve task and deny"
+out=$(cd "$FAKE_WT" && echo "$INPUT" | bash "$HOOK" 2>&1 || true)
+assert_eq "" "$out" "a cwd inside a worktree is not identity"
+
+# The subagent transcript beside the session transcript:
+# <transcript_path minus .jsonl>/subagents/agent-<agent_id>.jsonl.
+mkdir -p "$TMPDIR/session/subagents"
+printf '{"message":{"content":[{"type":"text","text":"task_id=70"}]}}\n' > "$TMPDIR/session/subagents/agent-sub70.jsonl"
+sub_input() {
+  jq -n --arg t "$TMPDIR/session.jsonl" --arg tool "$1" \
+    '{agent_type: "swe", agent_id: "sub70", transcript_path: $t, tool_name: $tool, tool_input: {}}'
+}
+
+test_case "Subagents transcript: no agent_transcript_path → gate evaluates (denies)"
+out=$(echo "$(sub_input mcp__tmb__trajectory-server__task_update_status)" | bash "$HOOK" 2>&1 || true)
+assert_contains "$out" '"permissionDecision":"deny"' "the subagents transcript resolves the task"
 assert_contains "$out" "task_brief" "deny reason must mention task_brief"
 
-test_case "Slug fallback: task_brief via slug passes through and writes nothing"
-INPUT=$(jq -n '{
-  agent_type: "swe",
-  tool_name: "mcp__tmb__trajectory-server__task_brief",
-  tool_input: {}
-}')
-out=$(cd "$FAKE_WT" && echo "$INPUT" | bash "$HOOK" 2>&1 || true)
-assert_eq "" "$out" "task_brief via slug should be allowed"
-assert_eq "0" "$(sentinel_count 70)" "the hook must not write a sentinel row for the slug-resolved task"
+test_case "Subagents transcript: task_brief passes through and writes nothing"
+out=$(echo "$(sub_input mcp__tmb__trajectory-server__task_brief)" | bash "$HOOK" 2>&1 || true)
+assert_eq "" "$out" "task_brief should be allowed"
+assert_eq "0" "$(sentinel_count 70)" "the hook must not write a sentinel row"
 seed_sentinel 70
 
-test_case "Slug fallback: after sentinel exists, tool allowed"
-INPUT=$(jq -n '{
-  agent_type: "swe",
-  tool_name: "mcp__tmb__trajectory-server__task_update_status",
-  tool_input: {}
-}')
-out=$(cd "$FAKE_WT" && echo "$INPUT" | bash "$HOOK" 2>&1 || true)
-assert_not_contains "$out" '"permissionDecision":"deny"' "tool allowed after slug-resolved sentinel"
+test_case "Subagents transcript: after sentinel exists, tool allowed"
+out=$(echo "$(sub_input mcp__tmb__trajectory-server__task_update_status)" | bash "$HOOK" 2>&1 || true)
+assert_not_contains "$out" '"permissionDecision":"deny"' "tool allowed after the sentinel"
 
 # ---- bro Edit never denied --------------------------------------------------
 test_case "bro caller: Edit never denied (gate must not affect bro)"

@@ -430,7 +430,7 @@ _expired() {
 # a later Edit/Write. Observes only: a missing session_id or jq records
 # nothing, and nothing here changes the gate's output or exit code.
 record_bash_deny() {
-  local session cmd cwd base dir window
+  local session cmd base dir window
   [ "$1" = "2" ] || grep -qE "$DENY_PATTERN" "$LOCK/result" 2>/dev/null || return 0
   command -v jq >/dev/null 2>&1 || return 0
   [ "$(printf '%s' "$PAYLOAD" | jq -r '.tool_name // empty' 2>/dev/null)" = "Bash" ] || return 0
@@ -438,7 +438,6 @@ record_bash_deny() {
   case "$session" in ''|*/*|.*) return 0 ;; esac
   cmd=$(printf '%s' "$PAYLOAD" | jq -r '.tool_input.command // empty' 2>/dev/null)
   [ -n "$cmd" ] || return 0
-  cwd=$(printf '%s' "$PAYLOAD" | jq -r '.cwd // empty' 2>/dev/null)
   window="${TMB_BYPASS_WINDOW_MIN:-10}"
   case "$window" in ''|*[!0-9]*|0) window=10 ;; esac
   base="$(dirname "$(dirname "$LOCK_BASE")")/locks/boundary-denies"
@@ -451,7 +450,7 @@ record_bash_deny() {
     while IFS= read -r path; do
       case "$path" in /*) ;; *) continue ;; esac
       printf '%s\n%s\n' "$GATE" "$(_now)" > "$dir/$(tmb_path_digest "$path")"
-    done < <(tmb_cmd_write_paths "$cmd" "${cwd:-$PWD}" "" "${CLAUDE_PROJECT_DIR:-}")
+    done < <(tmb_cmd_write_paths "$cmd" "$(tmb_payload_cwd "$PAYLOAD")" "" "$(tmb_project_root)")
   ) 2>/dev/null || true
 }
 

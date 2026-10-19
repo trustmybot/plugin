@@ -22,19 +22,26 @@ mkdir -p "$WT/src" "$(dirname "$DB")" "$CACHE" "$HOST_TMP"
 sqlite3 "$DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
 NOW="2026-10-11T10:00:00.000Z"
 sqlite3 "$DB" "
+  INSERT INTO repos (name, path) VALUES ('project', '$PROJECT');
   INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (7, 'containment', 'open', '$NOW', '$NOW');
-  INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, updated_at)
-    VALUES (5, 7, 'feat/cg-task', 'd', 'running', '$NOW', '$NOW');
+  INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, updated_at, repo)
+    VALUES (5, 7, 'feat/cg-task', 'd', 'running', '$NOW', '$NOW', 'project');
   INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, root_dir, host)
     VALUES (5, 7, 'swe', '$NOW', '$WT', 'claude');
 "
+# The swe's spawn transcript: Claude Code puts task_id=<N> in its prompt.
+TRANSCRIPT="$SANDBOX/spawn-5.jsonl"
+printf '{"message":{"content":[{"type":"text","text":"task_id=5"}]}}\n' > "$TRANSCRIPT"
 
 # run <cwd> <agent_type|''> <tool> <tool_input-json> [<project-dir>]
+# A swe payload carries the task-5 spawn transcript unless CG_NO_IDENTITY=1.
 run() {
   local payload
   payload=$(jq -nc --arg cwd "$1" --arg at "$2" --arg tool "$3" --argjson ti "$4" \
+    --arg tr "$([ -n "${CG_NO_IDENTITY:-}" ] || printf '%s' "$TRANSCRIPT")" \
     '{hook_event_name:"PreToolUse", session_id:"s-1", cwd:$cwd, tool_name:$tool, tool_input:$ti}
-     + (if $at == "" then {} else {agent_type:$at} end)')
+     + (if $at == "" then {} else {agent_type:$at} end)
+     + (if ($at | test("swe$")) and $tr != "" then {agent_transcript_path:$tr} else {} end)')
   (cd "$1" 2>/dev/null || cd "$SANDBOX" || exit 1
    printf '%s' "$payload" | CLAUDE_PROJECT_DIR="${5:-$PROJECT}" CLAUDE_CONFIG_DIR="" TMB_MODEL_CACHE_DIR="$CACHE" TMPDIR="$HOST_TMP" bash "$HOOK" 2>&1)
 }
@@ -87,8 +94,17 @@ test_case "Bash: a heredoc and quotes mentioning > /tmp/z → allow"
 HEREDOC=$(printf '%s\n' "cat <<'EOF' > notes.txt" 'echo "> /tmp/z"' 'write > /tmp/z' 'EOF' 'echo "see > /tmp/z"')
 assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$HEREDOC")")")" "data, not redirects"
 
-test_case "Bash: cwd outside the root → deny"
-assert_eq "deny" "$(decision "$(run "$SANDBOX" "swe" Bash "$(bash_cmd 'ls')")")" "cwd outside the worktree"
+test_case "Bash: a swe's cwd is not its identity; a relative write still joins the cwd"
+assert_eq "allow" "$(decision "$(run "$SANDBOX" "swe" Bash "$(bash_cmd 'ls')")")" "a read from outside the worktree"
+assert_eq "deny" "$(decision "$(run "$SANDBOX" "swe" Bash "$(bash_cmd 'touch notes.txt')")")" "a relative write from outside lands outside"
+assert_eq "allow" "$(decision "$(run "$SANDBOX" "swe" Bash "$(bash_cmd "touch $WT/notes.txt")")")" "an absolute write into the worktree"
+
+test_case "GH 1550: a swe with no spawn transcript fails closed, naming the missing piece"
+OUT=$(CG_NO_IDENTITY=1 run "$WT" "swe" Write "$(write "$WT/src/a.ts")")
+assert_eq "deny" "$(decision "$OUT")" "a cwd inside the worktree is not identity"
+assert_contains "$OUT" "no task_id" "the reason names the missing piece"
+assert_eq "allow" "$(decision "$(CG_NO_IDENTITY=1 run "$WT" "swe" Bash "$(bash_cmd 'ls')")")" "Bash with no write runs"
+sqlite3 "$DB" "DELETE FROM audit WHERE event_type='containment_denied' AND content_json LIKE '%unbound_caller%';"
 
 test_case "Bash: mkdir \"\$TMB_MODEL_CACHE_DIR\"/x → allow"
 assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd 'mkdir "$TMB_MODEL_CACHE_DIR"/x')")")" "the model cache is sanctioned"

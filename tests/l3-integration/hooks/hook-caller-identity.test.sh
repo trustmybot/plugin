@@ -18,7 +18,8 @@
 #       (commit, reset --hard, clean, checkout --, stash) → denied, the row
 #       naming worktree A and task A; git -C A commit, make -C A,
 #       npm --prefix A, git -C A status, git -C B log → allowed.
-#   (d) swe agZ with no bound row → denied with the task_brief instruction;
+#   (d) swe agZ with no spawn transcript and no bound row → denied, naming
+#       the missing task_id;
 #       its row's root is not the project root.
 #   (e) the main thread (no agent_type, no agent_id), cwd = worktree A,
 #       writing <project>/.claude/tmb/issue-drafts/x.md → allowed by every gate.
@@ -58,6 +59,7 @@ mkdir -p "$WT_A/src" "$WT_B/src" "$(dirname "$DB")"
 sqlite3 "$DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
 NOW="2026-10-18T10:00:00.000Z"
 sqlite3 "$DB" "
+  INSERT INTO repos (name, path) VALUES ('project', '$PROJECT');
   INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (9, 'caller identity', 'open', '$NOW', '$NOW');
   INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, spec_body, files, created_at, updated_at) VALUES
     (1, 9, 'fix/a-task', 'dev', 'd', 'running', '## spec', '[\"src/\"]', '$NOW', '$NOW'),
@@ -185,10 +187,11 @@ assert_eq "allow" "$(decision_of "$OUT" containment-guard)" "bro committing in t
 OUT=$(run "$PROJECT" "tmb:pr-reviewer" agR Bash "$(bash_cmd "git -C $PROJECT stash")")
 assert_eq "allow" "$(decision_of "$OUT" containment-guard)" "pr-reviewer: its root is the project"
 
-test_case "(d) swe agZ with no bound row → denied with the task_brief instruction"
+test_case "(d) swe agZ with no transcript and no bound row → denied, naming the missing piece"
 OUT=$(run "$PROJECT" "swe" agZ Write "$(write "$WT_A/src/z.ts")")
 assert_eq "deny" "$(decision_of "$OUT" containment-guard)" "a write inside a worktree"
-assert_contains "$OUT" "task_brief(agent='swe', task_id=<N>) first" "the reason tells it to call task_brief"
+assert_contains "$OUT" "no task_id" "the reason names the missing task_id"
+assert_contains "$OUT" "task_id=<N> in its spawn prompt" "the reason names where the task_id comes from"
 ROW=$(sqlite3 "$DB" "SELECT COALESCE(json_extract(content_json,'\$.root'), 'null') || '|' || json_extract(content_json,'\$.reason')
                        FROM audit WHERE event_type='containment_denied' ORDER BY id DESC LIMIT 1;")
 assert_contains "$ROW" "null|unbound_caller" "root null, reason names the unbound caller"
