@@ -21145,7 +21145,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "agent_arg_mismatch", writers: ["hook"], description: "`agent-arg-matches-caller` denied a trajectory-server call whose `agent` argument named another role than the caller (the payload's `agent_type`, or bro for the main session); one row per denial on the task's issue when `tool_input` carries a `task_id`, else the system issue `-1`, from_node `hook:agent-arg-matches-caller`; `content_json` carries `tool`, `given`, `actual`, `task_id`. `audit_append` refuses this event" },
   { type: "agent_runs_capture_skipped", writers: ["hook"], description: "`swe-atomic-close` could not bind a SWE spawn to a task (no `task_id=<N>` in the spawn transcript, or no such task) and wrote no `agent_runs` row; filed under the system issue `-1`; `content_json` carries `reason`, `transcript`, `spawn_id`, `task_id`" },
   { type: "agent_runs_backfilled", writers: ["bro"], description: "`agent_runs_backfill` (dry_run false) recovered `agent_runs` rows from archived Claude Code transcripts; one row per run on the system issue `-1`, from_node `bro`; `content_json` is the report: `transcripts_dir`, `transcripts_seen`, `sessions_seen`, `bound`, `unbound` (`count`, `first` \u2014 up to 20 `{path, reason}`), `rows_inserted`, `rows_updated`, `rows_skipped_measured`, `tokens_total_added`" },
-  { type: "agent_runs_claimed", writers: ["hook"], description: "`bro-turn-usage` claimed bro `agent_runs` rows opened without a `session_id` for its session (one row per claim, on the rows' issue when they share one, else the system issue `-1`); `content_json` carries `run_ids`, `session_id`" },
+  { type: "agent_runs_claimed", writers: ["server"], description: "Legacy type kept for historical rows: in v1.1.0-rc.1 `bro-turn-usage` claimed per-task bro `agent_runs` rows opened without a `session_id` for its session; bro is now metered per session, so nothing writes it and `audit_append` refuses it; `content_json` carries `run_ids`, `session_id`", reserved: true },
   { type: "branch_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_branch_gate`; `content_json` carries the waiver reason" },
   { type: "branch_id_proposed", writers: ["bro"], description: "`intent_start` proposed the issue's feature branch; `content_json` carries `branch_id`, `objective`; the scope and branch gates read it" },
   { type: "bro_verification_fail", writers: ["bro"], description: "Bro task-gate found a V1/V2/V3 check that failed" },
@@ -21199,7 +21199,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "skill_creator_blocked", writers: ["bro"], description: "`tmb_skill-creator` halted before writing the skill (no Human approval); written by bro via `audit_append`", reserved: true },
   { type: "spec_shape_gate_waived", writers: ["bro"], description: "A task's spec-shape waiver, one row per task on its issue with from_node `bro`; `task_create_batch` and `task_provision` called with `waive_spec_shape` write one for every task they create, and bro records one for an existing task through `audit_append`; `content_json` carries `task_id`, `gate` (`spec_shape`), `reason`, `waived_by` (`bro`), `source` (`task_create_batch`, `task_provision`, or absent for `audit_append`); `require-task-spec` reads it as the spawn waiver" },
   { type: "swe_atomic_close_auto_completed", writers: ["hook"], description: "`swe-atomic-close` auto-completed a `pending`/`running` task on SubagentStop because its worktree HEAD is neither equal to nor an ancestor of any parent tip (local or origin); one row per auto-complete on the task's issue, written in the same transaction as the status change; `content_json` carries `task_id`, `commit_sha`, `parent_tip_local`, `parent_tip_origin` (null when that ref is absent)" },
-  { type: "swe_brief_fetched", writers: ["swe"], description: "`task_brief` recorded that a SWE fetched its brief (one row per task); swe-brief-gate, bro-turn-usage and agent_runs_backfill read it" },
+  { type: "swe_brief_fetched", writers: ["swe"], description: "`task_brief` recorded that a SWE fetched its brief (one row per task); swe-brief-gate reads it" },
   { type: "sync_skipped", writers: ["bro"], description: "Issue sync skipped a remote write because `issue_sync` is off; `content_json` carries `issue_id`, `reason`" },
   { type: "task_effort_raised", writers: ["bro"], description: "`task_reopen` or `task_retry` called with an `effort` above the task's (for `task_retry`, the failed task's) raised the effort swe runs it at, as does either call made with no `effort` (rework computes `high`); one row per raise on the task's issue; `content_json` carries `task_id`, `from`, `to`, and `failed_task_id` from `task_retry`" },
   { type: "task_escalated_by_issue_close", writers: ["bro"], description: "`issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason`" },
@@ -25923,7 +25923,7 @@ var RUN_SESSION_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 var RUN_SESSION_ID_SCHEMA = {
   type: "string",
   pattern: "^[A-Za-z0-9_-]{8,64}$",
-  description: "Optional: your host session id (the session_id=<id> the activation routine injects each turn). Stamps the task's bro agent_runs row so its usage is attributed to this session."
+  description: "Optional: your host session id (the session_id=<id> the activation routine injects each turn). Validated and otherwise unused: bro usage is metered per session by the bro-turn-usage Stop hook, not per task."
 };
 function parseRunSessionId(value) {
   if (value === void 0 || value === null) return null;
@@ -25931,13 +25931,6 @@ function parseRunSessionId(value) {
     throw new Error("session_id must be 8\u201364 characters of [A-Za-z0-9_-].");
   }
   return value;
-}
-function openBroRun(db2, task, now2, ctx, sessionId = null) {
-  db2.run(
-    `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host, session_id)
-     VALUES (?, ?, 'bro', ?, ?, ?, ?, ?)`,
-    [task.id, task.issue_id, now2, task.repo, ctx.projectRoot, ctx.host, sessionId]
-  );
 }
 function openSweRun(db2, task, now2, ctx, rootDir) {
   const orphanBefore = new Date(Date.parse(now2) - SWE_ORPHAN_AFTER_MS).toISOString();
@@ -28293,7 +28286,7 @@ function insertSpecShapeWaiver(db2, task, reason, source, createdAt) {
     created_at: createdAt
   });
 }
-function taskTools(db2, runContext = claudeRunContext(db2)) {
+function taskTools(db2) {
   const definitions = [
     {
       name: "task_create_batch",
@@ -28462,7 +28455,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
         return err6("system_issue_reserved: issue -1 is the system issue and carries audit rows only; create the task under a real issue.");
       }
       const taskInputs = args["tasks"];
-      const sessionId = parseRunSessionId(args["session_id"]);
+      parseRunSessionId(args["session_id"]);
       if (!Array.isArray(taskInputs) || taskInputs.length === 0) {
         return ok6([]);
       }
@@ -28772,10 +28765,7 @@ function taskTools(db2, runContext = claudeRunContext(db2)) {
           const row = db2.get(
             "SELECT * FROM tasks WHERE rowid = last_insert_rowid()"
           );
-          if (row) {
-            results.push(row);
-            openBroRun(db2, { id: row.id, issue_id: Number(issueId), repo: row.repo ?? null }, now2, runContext, sessionId);
-          }
+          if (row) results.push(row);
         }
         for (const ac of autocreatedAudits) {
           insertAudit(db2, {
@@ -30266,11 +30256,12 @@ function costEstimate(rows, prices) {
   };
 }
 var TOKENS_TOTAL_SQL = "CASE WHEN COALESCE(tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens) IS NULL THEN NULL ELSE COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0) + COALESCE(cache_read_tokens, 0) + COALESCE(cache_creation_tokens, 0) END";
+var TASK_COST_AGENTS_SQL = "agent_type IN ('swe', 'pr-reviewer')";
 function statsTools(db2) {
   const definitions = [
     {
       name: "task_stats",
-      description: "Return token/duration aggregate + per-spawn breakdown for one task. tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model).",
+      description: "Return token/duration aggregate + per-spawn breakdown of one task's swe and pr-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model).",
       inputSchema: {
         type: "object",
         properties: {
@@ -30293,7 +30284,7 @@ function statsTools(db2) {
           throw new Error("task_id must be a positive integer");
         }
         const aggRow = db2.get(
-          `SELECT COUNT(*) as spawn_count, SUM(tokens_in) as sum_tokens_in, SUM(tokens_out) as sum_tokens_out, SUM(${TOKENS_TOTAL_SQL}) as sum_tokens_total, SUM(cache_read_tokens) as sum_cache_read, SUM(cache_creation_tokens) as sum_cache_creation, SUM(tool_uses) as sum_tool_uses, SUM(duration_ms) as sum_duration_ms FROM agent_runs WHERE task_id = ?`,
+          `SELECT COUNT(*) as spawn_count, SUM(tokens_in) as sum_tokens_in, SUM(tokens_out) as sum_tokens_out, SUM(${TOKENS_TOTAL_SQL}) as sum_tokens_total, SUM(cache_read_tokens) as sum_cache_read, SUM(cache_creation_tokens) as sum_cache_creation, SUM(tool_uses) as sum_tool_uses, SUM(duration_ms) as sum_duration_ms FROM agent_runs WHERE task_id = ? AND ${TASK_COST_AGENTS_SQL}`,
           [taskId]
         );
         const sumIn = aggRow?.sum_tokens_in ?? 0;
@@ -30312,7 +30303,7 @@ function statsTools(db2) {
           estimated_cost_usd: estimateCostUsd(sumIn, sumOut, sumCacheRead, sumCacheCreation)
         };
         const spawns = db2.all(
-          `SELECT id, agent_type, host, model, root_dir, exit_reason, tokens_in, tokens_out, ${TOKENS_TOTAL_SQL} AS tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_source FROM agent_runs WHERE task_id = ? ORDER BY id`,
+          `SELECT id, agent_type, host, model, root_dir, exit_reason, tokens_in, tokens_out, ${TOKENS_TOTAL_SQL} AS tokens_total, cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_source FROM agent_runs WHERE task_id = ? AND ${TASK_COST_AGENTS_SQL} ORDER BY id`,
           [taskId]
         );
         const cost = costEstimate(spawns, readModelPrices(db2));
@@ -31957,7 +31948,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
     },
     {
       name: "task_reopen",
-      description: "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, opens a bro agent_runs row for the rework (reusing an open one; stamped with session_id when passed), and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
+      description: "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
       inputSchema: {
         type: "object",
         properties: {
@@ -32026,7 +32017,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const branchId = args["branch_id"];
         const decisionBody = args["decision_body"];
         const task = args["task"];
-        const sessionId = parseRunSessionId(args["session_id"]);
+        parseRunSessionId(args["session_id"]);
         if (typeof issueId !== "number" || !Number.isFinite(issueId)) {
           return err15("issue_id must be a number");
         }
@@ -32239,7 +32230,6 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             "SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()"
           );
           if (!row) throw new Error("task_provision: task insert succeeded but row lookup failed");
-          openBroRun(db2, { id: row.id, issue_id: issueId, repo: row.repo }, now2, runContext, sessionId);
           insertAudit(db2, {
             issue_id: issueId,
             branch_id: branchId,
@@ -32300,7 +32290,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         if (typeof reason !== "string" || reason.trim().length === 0) {
           return err15("reason must be a non-empty string");
         }
-        const sessionId = parseRunSessionId(args["session_id"]);
+        parseRunSessionId(args["session_id"]);
         const filesAdd = validateFenceAdditions(args["files_add"], "files_add");
         const verificationAdd = validateFenceAdditions(args["verification_add"], "verification_add");
         const effortArg = args["effort"];
@@ -32373,11 +32363,6 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
           if (effortRank(effort) > effortRank(task.effort)) {
             insertEffortRaised(db2, { issue_id: task.issue_id, branch_id: task.branch_id, task_id: taskId }, task.effort, effort, agent, now2);
           }
-          const openBro = db2.get(
-            `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'bro' AND completed_at IS NULL LIMIT 1`,
-            [taskId]
-          );
-          if (!openBro) openBroRun(db2, { id: taskId, issue_id: task.issue_id, repo: task.repo }, now2, runContext, sessionId);
         });
         let worktreePath = null;
         let worktreeRecreated = false;
@@ -32648,7 +32633,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
         const description = args["description"];
         const title = args["title"] ?? "";
         const repoOverride = args["repo"] ?? null;
-        const sessionId = parseRunSessionId(args["session_id"]);
+        parseRunSessionId(args["session_id"]);
         const effortArg = args["effort"];
         if (effortArg !== void 0 && !isEffort(effortArg)) {
           return err15(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(effortArg)}.`);
@@ -32749,7 +32734,6 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             "SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()"
           );
           if (!newTask) throw new Error("insert succeeded but row lookup failed");
-          openBroRun(db2, { id: newTask.id, issue_id: failed.issue_id, repo: newTask.repo }, now2, runContext, sessionId);
           insertAudit(db2, {
             issue_id: failed.issue_id,
             branch_id: newBranchId,
@@ -37602,24 +37586,6 @@ function spawnStats(records) {
     model: dominantModel(msgs)
   };
 }
-function sessionMessages(records) {
-  const groups = /* @__PURE__ */ new Map();
-  records.forEach((r, i) => {
-    const msg = messageOf(r);
-    if (r["isSidechain"] === true || !msg || msg["usage"] === void 0 || msg["usage"] === null) return;
-    const ts2 = isoMs(r["timestamp"]);
-    if (ts2 === null) return;
-    const key = messageKey(r, i);
-    const prev = groups.get(key);
-    groups.set(key, {
-      ts: prev && prev.ts < ts2 ? prev.ts : ts2,
-      u: usageOf(msg["usage"]),
-      m: modelId(msg["model"]),
-      tu: (prev?.tu ?? 0) + toolUseCount(r)
-    });
-  });
-  return [...groups.values()].sort((a, b) => a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0);
-}
 function normalizeRole(v) {
   return typeof v === "string" && v !== "" ? v.slice(v.indexOf(":") + 1) : null;
 }
@@ -37717,7 +37683,6 @@ function agentRunsBackfill(db2, opts) {
   for (const p of sessions) sessionRecords.set(basename4(p, ".jsonl"), readRecords(p));
   const spawnTypes = /* @__PURE__ */ new Map();
   const claimedRunIds = /* @__PURE__ */ new Set();
-  const plannedSwe = [];
   for (const { path: path2, session } of subagents) {
     const records = readRecords(path2);
     const stats = spawnStats(records);
@@ -37770,9 +37735,6 @@ function agentRunsBackfill(db2, opts) {
     if (target) {
       claimedRunIds.add(target.id);
       report.rows_updated++;
-      if (agentType === "swe") {
-        plannedSwe.push({ id: target.id, task_id: task.id, started_at: target.started_at ?? stats.first_ts, completed_at: stats.last_ts });
-      }
       writes.push({
         kind: "update_spawn",
         id: target.id,
@@ -37795,9 +37757,6 @@ function agentRunsBackfill(db2, opts) {
       });
     } else {
       report.rows_inserted++;
-      if (agentType === "swe") {
-        plannedSwe.push({ id: null, task_id: task.id, started_at: stats.first_ts, completed_at: stats.last_ts });
-      }
       writes.push({
         kind: "insert",
         values: [
@@ -37822,10 +37781,14 @@ function agentRunsBackfill(db2, opts) {
       });
     }
   }
-  planBroRows(db2, sessionRecords, plannedSwe, opts, report, writes);
+  for (const records of sessionRecords.values()) {
+    const stamps = records.map((r) => isoMs(r["timestamp"])).filter((s) => s !== null).sort();
+    const last = stamps[stamps.length - 1];
+    if (last !== void 0 && (!opts.since || last >= opts.since)) report.sessions_seen++;
+  }
   if (!opts.dryRun) {
     db2.transaction(() => {
-      applyWrites(db2, writes, opts.now);
+      applyWrites(db2, writes);
       insertAudit(db2, {
         issue_id: -1,
         from_node: "bro",
@@ -37838,99 +37801,7 @@ function agentRunsBackfill(db2, opts) {
   }
   return report;
 }
-function planBroRows(db2, sessionRecords, plannedSwe, opts, report, writes) {
-  const spans = [];
-  for (const [session, records] of sessionRecords) {
-    const stamps = records.map((r) => isoMs(r["timestamp"])).filter((s) => s !== null).sort();
-    if (stamps.length === 0) continue;
-    const last = stamps[stamps.length - 1];
-    if (opts.since && last < opts.since) continue;
-    report.sessions_seen++;
-    spans.push({ session, first: stamps[0], last, msgs: sessionMessages(records) });
-  }
-  const legacyOwner = /* @__PURE__ */ new Map();
-  for (const s of spans) {
-    const rows = db2.all(
-      `SELECT id FROM agent_runs
-        WHERE agent_type = 'bro' AND session_id IS NULL AND started_at IS NOT NULL
-          AND started_at >= strftime('%Y-%m-%dT%H:%M:%fZ', ?, '-2 seconds') AND started_at <= ?`,
-      [s.first, s.last]
-    );
-    for (const r of rows) {
-      const prev = legacyOwner.get(r.id);
-      if (!prev || prev.first < s.first) legacyOwner.set(r.id, { session: s.session, first: s.first });
-    }
-  }
-  for (const s of spans) {
-    const legacyIds = [...legacyOwner].filter(([, o]) => o.session === s.session).map(([id]) => id);
-    const runs = db2.all(
-      `SELECT r.id, r.task_id, r.agent_type, r.started_at, r.completed_at, r.spawn_id, r.session_id, r.usage_source,
-              r.tokens_in, r.tokens_out, r.cache_read_tokens, r.cache_creation_tokens, strftime('%Y-%m-%dT%H:%M:%fZ', r.started_at, '-2 seconds') AS window_start,
-              CASE WHEN t.status = 'running' THEN t.updated_at END AS running_since
-         FROM agent_runs r LEFT JOIN tasks t ON t.id = r.task_id
-        WHERE r.agent_type = 'bro' AND r.started_at IS NOT NULL
-          AND (r.session_id = ? OR r.id IN (SELECT value FROM json_each(?)))`,
-      [s.session, JSON.stringify(legacyIds)]
-    );
-    if (runs.length === 0) continue;
-    const taskIds = JSON.stringify([...new Set(runs.map((r) => r.task_id))]);
-    const sweRows = db2.all(
-      `SELECT id, task_id, started_at, completed_at FROM agent_runs
-        WHERE agent_type = 'swe' AND started_at IS NOT NULL AND task_id IN (SELECT value FROM json_each(?))`,
-      [taskIds]
-    );
-    const planned = new Map(plannedSwe.filter((p) => p.id !== null).map((p) => [p.id, p]));
-    const sweRuns = [
-      ...sweRows.map((r) => planned.get(r.id) ?? r),
-      ...plannedSwe.filter((p) => p.id === null)
-    ];
-    const briefs = db2.all(
-      `SELECT CAST(json_extract(content_json, '$.task_id') AS INTEGER) AS task_id, created_at FROM audit
-        WHERE event_type = 'swe_brief_fetched'
-          AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) IN (SELECT value FROM json_each(?))`,
-      [taskIds]
-    );
-    const owned = /* @__PURE__ */ new Map();
-    for (const m of s.msgs) {
-      let best = null;
-      for (const r of runs) {
-        if (!(r.window_start <= m.ts && (r.completed_at === null || m.ts < r.completed_at))) continue;
-        const active = r.running_since !== null && r.running_since <= m.ts || sweRuns.some((w) => w.task_id === r.task_id && w.started_at <= m.ts && (w.completed_at === null || m.ts < w.completed_at));
-        const briefedAt = briefs.filter((b) => b.task_id === r.task_id && b.created_at <= m.ts).reduce((a, b) => b.created_at > a ? b.created_at : a, "");
-        const key = [active ? 1 : 0, briefedAt, r.started_at, r.id];
-        if (!best || compareKey(key, best.key) > 0) best = { id: r.id, key };
-      }
-      if (!best) continue;
-      const acc = owned.get(best.id) ?? { u: { ti: 0, to: 0, cr: 0, cc: 0 }, tu: 0, models: /* @__PURE__ */ new Map() };
-      acc.u.ti += m.u.ti;
-      acc.u.to += m.u.to;
-      acc.u.cr += m.u.cr;
-      acc.u.cc += m.u.cc;
-      acc.tu += m.tu;
-      if (m.m !== "") acc.models.set(m.m, (acc.models.get(m.m) ?? 0) + usageTotal(m.u));
-      owned.set(best.id, acc);
-    }
-    for (const r of runs) {
-      if (isMeasured(r)) {
-        report.rows_skipped_measured++;
-        continue;
-      }
-      const acc = owned.get(r.id) ?? { u: { ti: 0, to: 0, cr: 0, cc: 0 }, tu: 0, models: /* @__PURE__ */ new Map() };
-      const model = [...acc.models].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))[0]?.[0] ?? null;
-      report.rows_updated++;
-      report.tokens_total_added += usageTotal(acc.u);
-      writes.push({ kind: "update_bro", id: r.id, session: s.session, u: acc.u, tu: acc.tu, model });
-    }
-  }
-}
-function compareKey(a, b) {
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] < b[i]) return -1;
-    if (a[i] > b[i]) return 1;
-  }
-  return 0;
-}
-function applyWrites(db2, writes, now2) {
+function applyWrites(db2, writes) {
   for (const w of writes) {
     if (w.kind === "insert") {
       db2.run(
@@ -37940,7 +37811,7 @@ function applyWrites(db2, writes, now2) {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'backfill', ?, 'claude', ?, ?)`,
         w.values
       );
-    } else if (w.kind === "update_spawn") {
+    } else {
       db2.run(
         `UPDATE agent_runs
             SET tokens_in = ?, tokens_out = ?, cache_read_tokens = ?, cache_creation_tokens = ?,
@@ -37951,16 +37822,6 @@ function applyWrites(db2, writes, now2) {
                 root_dir = COALESCE(root_dir, ?), exit_reason = COALESCE(exit_reason, ?)
           WHERE id = ?`,
         w.values
-      );
-    } else {
-      db2.run(
-        `UPDATE agent_runs
-            SET tokens_in = ?, tokens_out = ?, cache_read_tokens = ?, cache_creation_tokens = ?, tool_uses = ?,
-                duration_ms = MAX(0, CAST(ROUND((julianday(COALESCE(completed_at, ?)) - julianday(started_at)) * 86400000) AS INTEGER)),
-                session_id = COALESCE(session_id, ?), usage_source = 'backfill', model = COALESCE(?, model),
-                host = COALESCE(host, 'claude')
-          WHERE id = ?`,
-        [w.u.ti, w.u.to, w.u.cr, w.u.cc, w.tu, now2, w.session, w.model, w.id]
       );
     }
   }
@@ -37975,7 +37836,7 @@ function agentRunsBackfillTools(db2, dbPath2) {
   const definitions = [
     {
       name: "agent_runs_backfill",
-      description: "Recover swe/pr-reviewer/bro agent_runs from Claude Code transcripts on disk (read-only) as usage_source='backfill'; never overwrites measured rows; idempotent. dry_run (default true) only reports.",
+      description: "Recover swe/pr-reviewer agent_runs from Claude Code transcripts on disk (read-only) as usage_source='backfill'; bro rows are left alone (the Stop hook meters bro per session); never overwrites measured rows; idempotent. dry_run (default true) only reports.",
       inputSchema: {
         type: "object",
         properties: {
@@ -38127,6 +37988,8 @@ var V33_RUN_WRITERS_SINCE = {
   label: "the first run carrying a root_dir",
   min_schema: 33
 };
+var NOT_PER_TASK_BRO_ROW = "NOT (agent_type = 'bro' AND task_id IS NOT NULL)";
+var BRO_SESSION_ROW = "agent_type = 'bro' AND task_id IS NULL";
 var POPULATED_COLUMNS = [
   { table: "agent_runs", column: "session_id", created_column: "started_at", writer_since: V33_RUN_WRITERS_SINCE, floor: 0.2, min_schema: 30 },
   { table: "agent_runs", column: "usage_source", created_column: "started_at", scope: "completed_at IS NOT NULL", scope_label: "completed rows", floor: 0.05, min_schema: 30 },
@@ -38152,14 +38015,16 @@ function populatedContract(c) {
   const where = [
     `${ts(c.created_column)} >= ${daysAgo(30)}`,
     ...c.writer_since ? [`${ts(c.created_column)} >= ${c.writer_since.sql}`] : [],
+    ...c.table === "agent_runs" ? [NOT_PER_TASK_BRO_ROW] : [],
     ...c.scope ? [c.scope] : []
   ].join(" AND ");
   const since = c.writer_since ? ` and not before ${c.writer_since.label}` : "";
+  const excluded = c.table === "agent_runs" ? ", per-task bro rows excluded" : "";
   const minSchema = Math.max(c.min_schema, c.writer_since?.min_schema ?? 0);
   return {
     id: `populated_${c.table}_${c.column}`,
     severity: "warn",
-    description: `${c.table}.${c.column} NULL rate over ${c.scope_label ?? "rows"} created in the last 30 days${since} stays at or under ${c.floor}`,
+    description: `${c.table}.${c.column} NULL rate over ${c.scope_label ?? "rows"} created in the last 30 days${since}${excluded} stays at or under ${c.floor}`,
     sql: `SELECT COALESCE(AVG(CASE WHEN ${c.column} IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM ${c.table} WHERE ${where}`,
     expect: { op: "<=", value: c.floor },
     sample_sql: `SELECT id FROM ${c.table} WHERE ${where} AND ${c.column} IS NULL ORDER BY id DESC LIMIT 5`,
@@ -38208,6 +38073,20 @@ function buildDataContracts(documentedEventTypes) {
                AND (usage_source IS NULL OR usage_source <> 'unmeasured')
                AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0
                AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0
+             ORDER BY id DESC LIMIT 5`
+    },
+    {
+      id: "bro_session_runs_metered",
+      severity: "error",
+      min_schema: 33,
+      description: "bro session agent_runs (task_id NULL) started in the last 7 days carry session_id, model, tokens_out and usage_source",
+      sql: `SELECT COUNT(*) FROM agent_runs
+             WHERE ${BRO_SESSION_ROW} AND ${ts("started_at")} >= ${daysAgo(7)}
+               AND (session_id IS NULL OR model IS NULL OR COALESCE(tokens_out, 0) = 0 OR usage_source IS NULL)`,
+      expect: { op: "=", value: 0 },
+      sample_sql: `SELECT id, session_id, model, tokens_out, usage_source, started_at FROM agent_runs
+             WHERE ${BRO_SESSION_ROW} AND ${ts("started_at")} >= ${daysAgo(7)}
+               AND (session_id IS NULL OR model IS NULL OR COALESCE(tokens_out, 0) = 0 OR usage_source IS NULL)
              ORDER BY id DESC LIMIT 5`
     },
     {

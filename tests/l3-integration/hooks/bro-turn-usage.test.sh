@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# L3 tests: bro-turn-usage.sh Stop hook attributes the session transcript's
-# usage to bro agent_runs rows by time window, recomputed absolutely on every
-# Stop, only ever touches rows of its own session, audits legacy claims, and
-# resolves overlapping windows by running task, then briefed task, then newest.
+# L3 tests: bro-turn-usage.sh Stop hook keeps exactly one bro agent_runs row
+# per session (task_id NULL) holding the session transcript's main-loop usage,
+# rewritten absolutely on every Stop, and never touches another session's row
+# or a legacy per-task bro row.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,116 +19,133 @@ SESSION="sess-main"
 
 sqlite3 "$DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
 
-# at <seconds>: ms-ISO stamp <seconds> after T0 (one hour ago), so closed rows
-# fall inside the hook's 24 h recompute horizon.
 T0=$(sqlite3 :memory: "SELECT strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now', '-3600 seconds');")
 at() {
   sqlite3 :memory: "SELECT strftime('%Y-%m-%dT%H:%M:%fZ', '$T0', '+$1 seconds');"
 }
 
-# msg <n> <seconds> [<content-json>]: one assistant JSONL line whose usage is
-# in=n, out=10n, cache_read=100n, cache_creation=1000n.
+# msg <n> <seconds> [<content-json>] [<model>]: one assistant JSONL line whose
+# usage is in=n, out=10n, cache_read=100n, cache_creation=1000n.
 msg() {
-  local n="$1" s="$2" content="${3:-[]}"
-  printf '{"type":"assistant","timestamp":"%s","message":{"id":"msg_%s","usage":{"input_tokens":%d,"output_tokens":%d,"cache_read_input_tokens":%d,"cache_creation_input_tokens":%d},"content":%s}}\n' \
-    "$(at "$s")" "$n" "$n" "$((n * 10))" "$((n * 100))" "$((n * 1000))" "$content"
+  local n="$1" s="$2" content="${3:-[]}" model="${4:-claude-opus-test}"
+  printf '{"type":"assistant","timestamp":"%s","message":{"id":"msg_%s","model":"%s","usage":{"input_tokens":%d,"output_tokens":%d,"cache_read_input_tokens":%d,"cache_creation_input_tokens":%d},"content":%s}}\n' \
+    "$(at "$s")" "$n" "$model" "$n" "$((n * 10))" "$((n * 100))" "$((n * 1000))" "$content"
+}
+
+# touch_task <id>: a tool_use block calling task_brief on task <id>.
+touch_task() {
+  printf '[{"type":"tool_use","id":"tu_%s","name":"mcp__plugin_tmb_trajectory-server__task_brief","input":{"agent":"bro","task_id":%s}}]' "$1" "$1"
 }
 
 run_hook() {
   printf '{"session_id":"%s","transcript_path":"%s"}' "${2:-$SESSION}" "$1" \
-    | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>&1 || true
+    | TRAJECTORY_DB_PATH="${3:-$DB}" bash "$HOOK" 2>&1 || true
 }
 
-row() {
-  sqlite3 -separator '|' "$DB" "SELECT COALESCE(tokens_in,'null'), COALESCE(tokens_out,'null'), COALESCE(cache_read_tokens,'null'), COALESCE(cache_creation_tokens,'null'), tool_uses, COALESCE(session_id,'null'), COALESCE(usage_source,'null') FROM agent_runs WHERE id=$1;"
+session_count() {
+  sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs WHERE agent_type='bro' AND session_id='${1:-$SESSION}';"
 }
 
-# Timeline (seconds after T0): first transcript message 0; A opens 10; msgs 1-3
-# at 20/30/40; A closes 50; B opens 60; msgs 4-6 at 70/80/90; msgs 7-8 at
-# 100/110 arrive before the second Stop.
+session_row() {
+  sqlite3 -separator '|' "$DB" "SELECT COALESCE(task_id,'null'), COALESCE(issue_id,'null'), tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, tool_uses, COALESCE(model,'null'), usage_source, host, exit_reason, COALESCE(root_dir,'null') FROM agent_runs WHERE agent_type='bro' AND session_id='${1:-$SESSION}';"
+}
+
+# Two provisioned tasks; the session's turns touch both.
 sqlite3 "$DB" "
-  INSERT INTO agent_runs (id, agent_type, started_at, completed_at) VALUES
-    (1, 'bro', '$(at 10)', '$(at 50)'),
-    (2, 'bro', '$(at 60)', NULL),
-    (3, 'bro', '$(at 15)', NULL),
-    (4, 'bro', '$(at -600)', NULL);
-  UPDATE agent_runs SET session_id = 'sess-other' WHERE id = 3;
+  INSERT INTO issues (id, objective, created_at, updated_at) VALUES (1, 'o', '$(at 0)', '$(at 0)');
+  INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, updated_at) VALUES
+    (11, 1, 'fix/a', 'd', 'running', '$(at 0)', '$(at 0)'),
+    (12, 1, 'fix/b', 'd', 'running', '$(at 0)', '$(at 0)');
 "
 
 {
   printf '{"type":"user","timestamp":"%s","message":{"role":"user","content":"@bro go"}}\n' "$(at 0)"
   msg 1 20 '[{"type":"text","text":"a"}]'
-  msg 1 20 '[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]'
-  msg 2 30
-  printf '{"type":"assistant","isSidechain":true,"timestamp":"%s","message":{"id":"msg_side","usage":{"input_tokens":999999,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[]}}\n' "$(at 35)"
-  msg 3 40
-  msg 4 70 '[{"type":"tool_use","id":"t4","name":"Read","input":{}}]'
-  msg 5 80
-  msg 6 90
+  msg 1 20 "$(touch_task 11)"
+  msg 2 30 "$(touch_task 12)"
+  printf '{"type":"assistant","isSidechain":true,"timestamp":"%s","message":{"id":"msg_side","model":"claude-side","usage":{"input_tokens":999999,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[]}}\n' "$(at 35)"
+  msg 3 40 "$(touch_task 11)"
+  msg 4 70 "$(touch_task 12)"
 } > "$TRANSCRIPT"
 
-test_case "first Stop: A gets Σ(msgs 1-3), B gets Σ(msgs 4-6)"
-run_hook "$TRANSCRIPT"
-assert_eq "6|60|600|6000|1|${SESSION}|transcript" "$(row 1)" "row A = msgs 1..3 (split content-block lines counted once, sidechain ignored)"
-assert_eq "15|150|1500|15000|1|${SESSION}|transcript" "$(row 2)" "row B = msgs 4..6"
+test_case "first Stop: one session row with the main-loop sums"
+assert_eq "" "$(run_hook "$TRANSCRIPT")" "no stderr"
+assert_eq "1" "$(session_count)" "exactly one bro row for the session"
+assert_eq "null|null|10|100|1000|10000|4|claude-opus-test|transcript|claude|completed|null" "$(session_row)" \
+  "task_id/issue_id NULL; tokens_out = Σ main-loop out (split content-block lines counted once, sidechain ignored)"
+assert_eq "$(at 0)|$(at 70)|70000" \
+  "$(sqlite3 -separator '|' "$DB" "SELECT started_at, completed_at, duration_ms FROM agent_runs WHERE agent_type='bro' AND session_id='${SESSION}';")" \
+  "started_at / completed_at = first / last main-loop message"
 
-test_case "another session's row is never touched"
-assert_eq "null|null|null|null|0|sess-other|null" "$(row 3)" "sess-other row stays unmeasured"
+test_case "no per-task bro row, no zero-token closed row"
+assert_eq "0" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs WHERE agent_type='bro' AND task_id IS NOT NULL;")" "no bro row carries a task"
+assert_eq "0" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM agent_runs WHERE agent_type='bro' AND completed_at IS NOT NULL AND tokens_out=0 AND model IS NULL;")" \
+  "no closed bro row with 0 tokens and a NULL model"
 
-test_case "the claim takes only unclaimed rows started after the session's first message"
-assert_eq "null|null|null|null|0|null|null" "$(row 4)" "a row opened before the session began stays unclaimed"
-
-test_case "duration is the window length"
-dur_a=$(sqlite3 "$DB" "SELECT duration_ms FROM agent_runs WHERE id=1;")
-assert_eq "40000" "$dur_a" "row A window is 40 s"
-
-test_case "second Stop: A unchanged, B grows by msgs 7-8"
-{ msg 7 100; msg 8 110; } >> "$TRANSCRIPT"
-run_hook "$TRANSCRIPT"
-assert_eq "6|60|600|6000|1|${SESSION}|transcript" "$(row 1)" "row A is unchanged"
-assert_eq "30|300|3000|30000|1|${SESSION}|transcript" "$(row 2)" "row B = msgs 4..8"
-assert_eq "null|null|null|null|0|sess-other|null" "$(row 3)" "sess-other row still untouched"
+test_case "second Stop: still one row, rewritten with the new totals"
+{ msg 5 100; msg 6 110 "$(touch_task 11)"; } >> "$TRANSCRIPT"
+run_hook "$TRANSCRIPT" >/dev/null
+assert_eq "1" "$(session_count)" "count stays at 1"
+assert_eq "null|null|21|210|2100|21000|5|claude-opus-test|transcript|claude|completed|null" "$(session_row)" "absolute sums over msgs 1..6"
 
 test_case "re-running the same Stop is idempotent"
-run_hook "$TRANSCRIPT"
-assert_eq "30|300|3000|30000|1|${SESSION}|transcript" "$(row 2)" "row B unchanged by a re-run"
+run_hook "$TRANSCRIPT" >/dev/null
+assert_eq "1" "$(session_count)" "count stays at 1"
+assert_eq "null|null|21|210|2100|21000|5|claude-opus-test|transcript|claude|completed|null" "$(session_row)" "unchanged by a re-run"
 
-test_case "a parallel session's Stop meters only its own rows"
+test_case "a parallel session writes its own row and leaves this one alone"
 OTHER_T="$TMPDIR_BTU/other.jsonl"
 {
   printf '{"type":"user","timestamp":"%s","message":{"role":"user","content":"hi"}}\n' "$(at 5)"
-  printf '{"type":"assistant","timestamp":"%s","message":{"id":"o1","usage":{"input_tokens":7,"output_tokens":7,"cache_read_input_tokens":7,"cache_creation_input_tokens":7},"content":[]}}\n' "$(at 20)"
+  printf '{"type":"assistant","timestamp":"%s","message":{"id":"o1","model":"claude-other","usage":{"input_tokens":7,"output_tokens":7,"cache_read_input_tokens":7,"cache_creation_input_tokens":7},"content":[]}}\n' "$(at 20)"
 } > "$OTHER_T"
-run_hook "$OTHER_T" "sess-other"
-assert_eq "7|7|7|7|0|sess-other|transcript" "$(row 3)" "sess-other row metered from its own transcript"
-assert_eq "6|60|600|6000|1|${SESSION}|transcript" "$(row 1)" "main-session row A untouched by the other session"
-assert_eq "30|300|3000|30000|1|${SESSION}|transcript" "$(row 2)" "main-session row B untouched by the other session"
+run_hook "$OTHER_T" "sess-other" >/dev/null
+assert_eq "null|null|7|7|7|7|0|claude-other|transcript|claude|completed|null" "$(session_row sess-other)" "sess-other metered from its own transcript"
+assert_eq "null|null|21|210|2100|21000|5|claude-opus-test|transcript|claude|completed|null" "$(session_row)" "main session untouched"
+
+test_case "legacy per-task bro rows are never touched"
+sqlite3 "$DB" "
+  INSERT INTO agent_runs (id, task_id, issue_id, agent_type, started_at, session_id) VALUES
+    (901, 11, 1, 'bro', '$(at 10)', '${SESSION}'),
+    (902, 12, 1, 'bro', '$(at 10)', NULL);
+"
+run_hook "$TRANSCRIPT" >/dev/null
+assert_eq "901|${SESSION}|null|null|null|0 902|null|null|null|null|0 " \
+  "$(sqlite3 -separator '|' "$DB" "SELECT id, COALESCE(session_id,'null'), COALESCE(tokens_in,'null'), COALESCE(usage_source,'null'), COALESCE(completed_at,'null'), tool_uses FROM agent_runs WHERE id IN (901, 902) ORDER BY id;" | tr '\n' ' ')" \
+  "legacy rows keep their values; none is claimed"
+sqlite3 "$DB" "DELETE FROM agent_runs WHERE id IN (901, 902);"
 
 test_case "missing transcript_path or session_id exits silently"
 printf '{"session_id":"%s"}' "$SESSION" | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>&1 || true
 printf '{"transcript_path":"%s"}' "$TRANSCRIPT" | TRAJECTORY_DB_PATH="$DB" bash "$HOOK" 2>&1 || true
-assert_eq "30|300|3000|30000|1|${SESSION}|transcript" "$(row 2)" "row B unchanged"
+assert_eq "1" "$(session_count)" "count unchanged"
 
 test_case "TMB_DISABLE_BRO_TURN_USAGE_HOOK=1 skips all processing"
-sqlite3 "$DB" "UPDATE agent_runs SET tokens_in = 0 WHERE id=2;"
+sqlite3 "$DB" "UPDATE agent_runs SET tokens_in = 0 WHERE agent_type='bro' AND session_id='${SESSION}';"
 printf '{"session_id":"%s","transcript_path":"%s"}' "$SESSION" "$TRANSCRIPT" \
   | TRAJECTORY_DB_PATH="$DB" TMB_DISABLE_BRO_TURN_USAGE_HOOK=1 bash "$HOOK" 2>&1 || true
-assert_eq "0" "$(sqlite3 "$DB" "SELECT tokens_in FROM agent_runs WHERE id=2;")" "bypass env must skip the update"
+assert_eq "0" "$(sqlite3 "$DB" "SELECT tokens_in FROM agent_runs WHERE agent_type='bro' AND session_id='${SESSION}';")" "bypass env must skip the update"
+
+test_case "a session with no metered message writes no row"
+EMPTY_T="$TMPDIR_BTU/empty.jsonl"
+printf '{"type":"user","timestamp":"%s","message":{"role":"user","content":"hi"}}\n' "$(at 0)" > "$EMPTY_T"
+assert_eq "" "$(run_hook "$EMPTY_T" sess-empty)" "no stderr"
+assert_eq "0" "$(session_count sess-empty)" "no row for a session without usage"
 
 test_case "hostile transcript values cannot reach the SQL"
 EVIL_T="$TMPDIR_BTU/evil.jsonl"
 {
   printf '{"type":"user","timestamp":"%s","message":{"content":"x"}}\n' "$(at 0)"
-  printf '{"type":"assistant","timestamp":"%s","message":{"id":"e1","usage":{"input_tokens":"1; DROP TABLE agent_runs;--","output_tokens":-5},"content":[]}}\n' "$(at 70)"
+  printf '{"type":"assistant","timestamp":"%s","message":{"id":"e1","model":"x'"'"');DROP TABLE agent_runs;--","usage":{"input_tokens":"1; DROP TABLE agent_runs;--","output_tokens":-5,"cache_read_input_tokens":2},"content":[]}}\n' "$(at 70)"
   printf '{"type":"assistant","timestamp":"2026-01-01T00:00:00Z'"'"'); DROP TABLE agent_runs;--","message":{"id":"e2","usage":{"input_tokens":3},"content":[]}}\n'
+  printf '"a bare string line"\n'
 } > "$EVIL_T"
-EVIL_OUT=$(run_hook "$EVIL_T")
-assert_eq "" "$EVIL_OUT" "no SQL error on hostile input"
+assert_eq "" "$(run_hook "$EVIL_T" sess-evil)" "no SQL error on hostile input"
 assert_eq "1" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='agent_runs';")" "agent_runs table survives"
-assert_eq "0|0|0|0|0|${SESSION}|transcript" "$(row 2)" "non-numeric / negative usage counts as 0; a malformed timestamp is dropped"
+assert_eq "null|null|0|0|2|0|0|xDROPTABLEagent_runs--|transcript|claude|completed|null" "$(session_row sess-evil)" \
+  "non-numeric / negative usage counts as 0; a malformed timestamp is dropped; the model id is stripped"
 
-test_case "model is the dominant message.model in the row's window; host is stamped"
-MODEL_DB_ROW=$(sqlite3 "$DB" "INSERT INTO agent_runs (agent_type, started_at, session_id) VALUES ('bro', '$(at 200)', '${SESSION}'); SELECT last_insert_rowid();")
+test_case "model is the one with the most tokens; <synthetic> carries no model"
 MODEL_T="$TMPDIR_BTU/model.jsonl"
 {
   printf '{"type":"user","timestamp":"%s","message":{"content":"x"}}\n' "$(at 0)"
@@ -136,95 +153,16 @@ MODEL_T="$TMPDIR_BTU/model.jsonl"
   printf '{"type":"assistant","timestamp":"%s","message":{"id":"mm2","model":"claude-small-1","usage":{"input_tokens":5,"output_tokens":5},"content":[]}}\n' "$(at 211)"
   printf '{"type":"assistant","timestamp":"%s","message":{"id":"mm3","model":"claude-big-9","usage":{"input_tokens":500,"output_tokens":5},"content":[]}}\n' "$(at 212)"
   printf '{"type":"assistant","timestamp":"%s","message":{"id":"mm4","model":"<synthetic>","usage":{"input_tokens":9000,"output_tokens":0},"content":[]}}\n' "$(at 213)"
-  printf '{"type":"assistant","timestamp":"%s","message":{"id":"mm5","model":"x'"'"');DROP TABLE agent_runs;--","usage":{"input_tokens":1,"output_tokens":0},"content":[]}}\n' "$(at 214)"
 } > "$MODEL_T"
-assert_eq "" "$(run_hook "$MODEL_T")" "no SQL error"
-assert_eq "claude-big-9|claude" \
-  "$(sqlite3 "$DB" "SELECT model, host FROM agent_runs WHERE id=${MODEL_DB_ROW};")" \
-  "the model with the most tokens wins; <synthetic> carries no model"
-assert_eq "1" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='agent_runs';")" "a hostile model id cannot reach the SQL"
+run_hook "$MODEL_T" sess-model >/dev/null
+assert_eq "claude-big-9" "$(sqlite3 "$DB" "SELECT model FROM agent_runs WHERE session_id='sess-model';")" "the model with the most tokens wins"
 
-test_case "the legacy claim leaves one agent_runs_claimed audit row per claim"
-assert_eq "1" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='agent_runs_claimed';")" "later Stops claim nothing new"
-assert_eq "-1|hook:bro-turn-usage|[1,2]|${SESSION}" \
-  "$(sqlite3 -separator '|' "$DB" "SELECT issue_id, from_node, json_extract(content_json,'\$.run_ids'), json_extract(content_json,'\$.session_id') FROM audit WHERE event_type='agent_runs_claimed';")" \
-  "run_ids + session_id recorded; rows without an issue file under the system issue"
-
-# A fresh DB per scenario: one issue, tasks 11-13, session-stamped rows.
-fresh_db() {
-  DB="$TMPDIR_BTU/$1.db"
-  sqlite3 "$DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
-  sqlite3 "$DB" "
-    INSERT INTO issues (id, objective, created_at, updated_at) VALUES (1, 'o', '$(at 0)', '$(at 0)');
-    INSERT INTO tasks (id, issue_id, branch_id, description, status, created_at, updated_at) VALUES
-      (11, 1, 'fix/a', 'd', 'pending', '$(at 0)', '$(at 0)'),
-      (12, 1, 'fix/b', 'd', 'pending', '$(at 0)', '$(at 0)'),
-      (13, 1, 'fix/c', 'd', 'pending', '$(at 0)', '$(at 0)');
-  "
-}
-
-# usage_t <file> <session-tag> <seconds>...: a transcript whose first message is
-# at 0 and with one in=1 assistant message per <seconds>.
-usage_t() {
-  local f="$1" tag="$2" s
-  shift 2
-  printf '{"type":"user","timestamp":"%s","message":{"content":"x"}}\n' "$(at 0)" > "$f"
-  for s in "$@"; do
-    printf '{"type":"assistant","timestamp":"%s","message":{"id":"%s-%s","usage":{"input_tokens":1,"output_tokens":0},"content":[]}}\n' "$(at "$s")" "$tag" "$s" >> "$f"
-  done
-}
-
-tokens_by_task() {
-  sqlite3 -separator ':' "$DB" "SELECT task_id, COALESCE(tokens_in,'null') FROM agent_runs WHERE agent_type='bro' ORDER BY task_id;" | tr '\n' ' '
-}
-
-test_case "rows stamped at open with their session are never cross-claimed"
-fresh_db stamped
-sqlite3 "$DB" "
-  INSERT INTO agent_runs (id, task_id, issue_id, agent_type, started_at, session_id) VALUES
-    (21, 11, 1, 'bro', '$(at 10)', 'sess-x1'),
-    (22, 12, 1, 'bro', '$(at 10)', 'sess-x2');
-"
-usage_t "$TMPDIR_BTU/x1.jsonl" x1 20 30
-usage_t "$TMPDIR_BTU/x2.jsonl" x2 20 30 40
-run_hook "$TMPDIR_BTU/x1.jsonl" sess-x1 >/dev/null
-assert_eq "11:2 12:null " "$(tokens_by_task)" "sess-x1 meters only its own row"
-run_hook "$TMPDIR_BTU/x2.jsonl" sess-x2 >/dev/null
-assert_eq "11:2 12:3 " "$(tokens_by_task)" "sess-x2 meters only its own row"
-assert_eq "sess-x1 sess-x2 " "$(sqlite3 "$DB" "SELECT session_id FROM agent_runs ORDER BY id;" | tr '\n' ' ')" "session stamps unchanged"
-assert_eq "0" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='agent_runs_claimed';")" "no claim, no claim audit"
-
-test_case "batch siblings: the running task's row takes the tokens from the instant it runs"
-fresh_db batch
-sqlite3 "$DB" "
-  INSERT INTO agent_runs (id, task_id, issue_id, agent_type, started_at, session_id) VALUES
-    (31, 11, 1, 'bro', '$(at 10)', 'sess-b'),
-    (32, 12, 1, 'bro', '$(at 10)', 'sess-b'),
-    (33, 13, 1, 'bro', '$(at 10)', 'sess-b');
-  UPDATE tasks SET status = 'running', updated_at = '$(at 25)' WHERE id = 12;
-"
-usage_t "$TMPDIR_BTU/batch.jsonl" b 20 30 40 50
-run_hook "$TMPDIR_BTU/batch.jsonl" sess-b >/dev/null
-assert_eq "11:0 12:3 13:1 " "$(tokens_by_task)" "middle (running since 25) takes msgs 30-50; msg 20 predates it and goes to the newest"
-
-test_case "batch siblings: with none running, the most recently briefed task's row takes the tokens"
-sqlite3 "$DB" "
-  UPDATE tasks SET status = 'pending' WHERE id = 12;
-  INSERT INTO audit (issue_id, from_node, event_type, summary, content_json, created_at) VALUES
-    (1, 'hook:swe-brief-gate', 'swe_brief_fetched', 's', '{\"task_id\":11,\"agent_type\":\"swe\"}', '$(at 15)'),
-    (1, 'hook:swe-brief-gate', 'swe_brief_fetched', 's', '{\"task_id\":12,\"agent_type\":\"swe\"}', '$(at 35)');
-"
-run_hook "$TMPDIR_BTU/batch.jsonl" sess-b >/dev/null
-assert_eq "11:2 12:2 13:0 " "$(tokens_by_task)" "task 11 (briefed at 15) takes msgs 20-30; task 12 (briefed at 35) takes msgs 40-50"
-
-test_case "batch siblings: a task with an open swe row counts as running"
-sqlite3 "$DB" "INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, completed_at) VALUES (13, 1, 'swe', '$(at 28)', '$(at 45)');"
-run_hook "$TMPDIR_BTU/batch.jsonl" sess-b >/dev/null
-assert_eq "11:1 12:1 13:2 " "$(tokens_by_task)" "task 13 takes msgs 30-40 inside its swe window; briefs decide the rest"
-
-test_case "batch siblings: with neither running nor briefed, the newest row takes the tokens"
-sqlite3 "$DB" "DELETE FROM audit WHERE event_type = 'swe_brief_fetched'; DELETE FROM agent_runs WHERE agent_type = 'swe';"
-run_hook "$TMPDIR_BTU/batch.jsonl" sess-b >/dev/null
-assert_eq "11:0 12:0 13:4 " "$(tokens_by_task)" "same started_at: the highest id wins"
+test_case "root_dir is the project holding the trajectory DB"
+PROJ="$TMPDIR_BTU/proj"
+PROJ_DB="$PROJ/.claude/tmb/trajectory.db"
+mkdir -p "$(dirname "$PROJ_DB")"
+sqlite3 "$PROJ_DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+run_hook "$TRANSCRIPT" "$SESSION" "$PROJ_DB" >/dev/null
+assert_eq "$PROJ" "$(sqlite3 "$PROJ_DB" "SELECT root_dir FROM agent_runs WHERE agent_type='bro' AND session_id='${SESSION}';")" "root_dir = project root"
 
 summarize

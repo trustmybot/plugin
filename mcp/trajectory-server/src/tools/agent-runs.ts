@@ -84,13 +84,14 @@ export function sweepRunsOfTerminalTasks(db: TrajectoryDB, now: string): number 
 
 const RUN_SESSION_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 
-// JSON-Schema of the optional session_id arg the planning tools accept: the
-// caller's host session, stamped on the bro row at open.
+// JSON-Schema of the optional session_id arg the planning tools still accept
+// so existing callers keep working; bro usage is metered per session by the
+// bro-turn-usage Stop hook, not per task.
 export const RUN_SESSION_ID_SCHEMA = {
   type: 'string',
   pattern: '^[A-Za-z0-9_-]{8,64}$',
   description:
-    "Optional: your host session id (the session_id=<id> the activation routine injects each turn). Stamps the task's bro agent_runs row so its usage is attributed to this session.",
+    "Optional: your host session id (the session_id=<id> the activation routine injects each turn). Validated and otherwise unused: bro usage is metered per session by the bro-turn-usage Stop hook, not per task.",
 } as const;
 
 // Validates the optional session_id arg. Returns null when omitted; throws on
@@ -101,23 +102,6 @@ export function parseRunSessionId(value: unknown): string | null {
     throw new Error('session_id must be 8–64 characters of [A-Za-z0-9_-].');
   }
   return value;
-}
-
-// Opens the bro row of a task at planning time; root_dir is the project root
-// and session_id the caller's session (null leaves it for the Stop hook's
-// legacy claim).
-export function openBroRun(
-  db: TrajectoryDB,
-  task: { id: number; issue_id: number; repo: string | null },
-  now: string,
-  ctx: RunContext,
-  sessionId: string | null = null,
-): void {
-  db.run(
-    `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host, session_id)
-     VALUES (?, ?, 'bro', ?, ?, ?, ?, ?)`,
-    [task.id, task.issue_id, now, task.repo, ctx.projectRoot, ctx.host, sessionId],
-  );
 }
 
 // Opens the swe row for a task unless one is already open; root_dir is the

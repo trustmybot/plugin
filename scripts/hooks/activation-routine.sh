@@ -20,7 +20,8 @@
 #
 # Session id: the context ends with session_id=<id> (the payload's session_id,
 # when it is 8–64 chars of [A-Za-z0-9_-]) so bro can pass it to task_provision /
-# task_create_batch / task_retry, which stamp it on the task's bro agent_runs row.
+# task_create_batch / task_reopen / task_retry, which validate it; bro usage is
+# metered per session by the bro-turn-usage Stop hook.
 #
 # Silent no-op when:
 #   - not in bro mode

@@ -7,14 +7,11 @@ import { serverLog } from '../logger.js';
 import { insertAudit } from './audit.js';
 import { recordReviewBypassIfUnreviewed } from './lifecycle.js';
 import {
-  claudeRunContext,
   closeOpenRunsForTask,
   exitReasonForStatus,
-  openBroRun,
   parseRunSessionId,
   RUN_SESSION_ID_SCHEMA,
   TERMINAL_TASK_STATUSES,
-  type RunContext,
 } from './agent-runs.js';
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
@@ -291,10 +288,7 @@ export function insertSpecShapeWaiver(
   });
 }
 
-export function taskTools(
-  db: TrajectoryDB,
-  runContext: RunContext = claudeRunContext(db),
-): {
+export function taskTools(db: TrajectoryDB): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
 } {
@@ -489,7 +483,7 @@ export function taskTools(
       }
 
       const taskInputs = args['tasks'] as TaskInput[];
-      const sessionId = parseRunSessionId(args['session_id']);
+      parseRunSessionId(args['session_id']);
 
       if (!Array.isArray(taskInputs) || taskInputs.length === 0) {
         return ok([]);
@@ -927,14 +921,7 @@ export function taskTools(
           const row = db.get<Task>(
             'SELECT * FROM tasks WHERE rowid = last_insert_rowid()',
           );
-          if (row) {
-            results.push(row);
-            // Bro-as-agent_run (#2886): open a bro row per task at planning
-            // time. `completed_at` stays NULL until bro_atomic_close finalizes
-            // the row with duration + (eventually) tokens. Makes bro's
-            // skill/rule invocations attributable to a tracked agent_run.
-            openBroRun(db, { id: row.id, issue_id: Number(issueId), repo: row.repo ?? null }, now, runContext, sessionId);
-          }
+          if (row) results.push(row);
         }
 
         // Audit rows for any branches auto-created by ensureBranchInRepo (#529).

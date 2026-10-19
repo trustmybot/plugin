@@ -88,19 +88,8 @@ describe('taskTools', () => {
     assert.equal(inserted[2].branch_id, 'feat/task-three');
     assert.ok(inserted.every((t) => (t as { status: string }).status === 'pending'));
 
-    const broRuns = db
-      .all<Record<string, unknown>>(
-        "SELECT tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, usage_source FROM agent_runs WHERE agent_type = 'bro'",
-      )
-      .map((r) => ({ ...r }));
-    assert.equal(broRuns.length, 3, 'one open bro agent_runs row per task');
-    for (const run of broRuns) {
-      assert.deepEqual(
-        run,
-        { tokens_in: null, tokens_out: null, cache_read_tokens: null, cache_creation_tokens: null, usage_source: null },
-        'an open bro row starts unmeasured (NULL tokens)',
-      );
-    }
+    const broRuns = db.get<{ c: number }>("SELECT COUNT(*) AS c FROM agent_runs WHERE agent_type = 'bro'")!.c;
+    assert.equal(broRuns, 0, 'bro is metered per session by the Stop hook, not per task');
 
     db.close();
   });
