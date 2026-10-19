@@ -50,12 +50,55 @@ function gitProject(options = {}) {
     }
     return root;
 }
-function manager(capacity = 4, now) {
+function manager(capacity = 4, now, gitTimeoutMs) {
     return new CodexRuntimeManager({
         plugin: readCodexPackageMetadata(import.meta.url),
         capacity,
         ...(now ? { now } : {}),
+        ...(gitTimeoutMs ? { gitTimeoutMs } : {}),
     });
+}
+/**
+ * Puts a `git` shim first on PATH. Once `block()` is called, the next
+ * `git ls-files -z -- .tmb` touches `blocked` and waits until `release()`.
+ */
+function blockingGitShim() {
+    const shimDir = mkdtempSync(join(tmpdir(), 'tmb-codex-blocking-git-'));
+    cleanup.push(shimDir);
+    const armed = join(shimDir, 'armed');
+    const blocked = join(shimDir, 'blocked');
+    const released = join(shimDir, 'released');
+    writeFileSync(join(shimDir, 'git'), [
+        '#!/bin/bash',
+        `if [ -e "${armed}" ] && [[ " $* " == *" ls-files -z -- .tmb "* ]]; then`,
+        `  rm -f "${armed}"; touch "${blocked}"`,
+        `  while [ ! -e "${released}" ]; do sleep 0.02; done`,
+        'fi',
+        `PATH="\${PATH#"${shimDir}":}" exec git "$@"`,
+        '',
+    ].join('\n'));
+    chmodSync(join(shimDir, 'git'), 0o755);
+    const priorPath = process.env['PATH'];
+    process.env['PATH'] = `${shimDir}:${priorPath ?? ''}`;
+    return {
+        blocked,
+        block: () => writeFileSync(armed, ''),
+        release: () => writeFileSync(released, ''),
+        restore: () => {
+            if (priorPath === undefined)
+                delete process.env['PATH'];
+            else
+                process.env['PATH'] = priorPath;
+        },
+    };
+}
+async function waitForPath(path, deadlineMs = 30_000) {
+    const deadline = Date.now() + deadlineMs;
+    while (!existsSync(path)) {
+        if (Date.now() > deadline)
+            assert.fail(`${path} did not appear`);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+    }
 }
 async function expectRuntimeError(promise, code) {
     await assert.rejects(promise, (error) => error instanceof CodexRuntimeError && error.code === code);
@@ -400,6 +443,47 @@ describe('Codex runtime manager', () => {
             assert.equal(existsSync(marker), false);
         }
         finally {
+            runtimeManager.close();
+        }
+    });
+    it('waits for a blocked Git validation that finishes within the limit (GH 1523)', async () => {
+        const project = gitProject();
+        const git = blockingGitShim();
+        const runtimeManager = manager(4, undefined, 30_000);
+        try {
+            assert.equal((await runtimeManager.initialize(project)).status, 'created');
+            git.block();
+            const reached = runtimeManager.withRuntime(project, () => 'reached');
+            await waitForPath(git.blocked);
+            git.release();
+            assert.equal(await reached, 'reached');
+        }
+        finally {
+            git.restore();
+            runtimeManager.close();
+        }
+    });
+    it('reports a Git validation that outlives the limit as project_validation_timeout (GH 1523)', async () => {
+        const project = gitProject();
+        const git = blockingGitShim();
+        const runtimeManager = manager(4, undefined, 200);
+        try {
+            const registry = createCodexToolRegistry(runtimeManager);
+            git.block();
+            const inventory = await registry.call('project_inventory', {
+                project_root: project,
+            });
+            assert.equal(inventory.isError, true);
+            const error = toolPayload(inventory)['error'];
+            assert.notEqual(error['code'], 'project_state_not_ignored');
+            assert.notEqual(error['code'], 'project_root_not_git_toplevel');
+            assert.equal(error['code'], 'project_validation_timeout');
+            assert.match(String(error['message']), /^git .+ did not finish within 200 ms/);
+            assert.equal(existsSync(join(project, '.tmb')), false);
+        }
+        finally {
+            git.release();
+            git.restore();
             runtimeManager.close();
         }
     });
@@ -1148,6 +1232,7 @@ describe('Codex tool surface', () => {
             const inventory = await registry.call('project_inventory', {
                 project_root: project,
             });
+            assert.notEqual(inventory.isError, true, `project_inventory failed: ${JSON.stringify(toolPayload(inventory)['error'])}`);
             const inventoryData = toolPayload(inventory)['data'];
             assert.equal(inventoryData.repos.length, 1);
             assert.equal(inventoryData.repos[0]?.path, realpathSync(project));

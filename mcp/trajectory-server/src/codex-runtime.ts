@@ -13,8 +13,8 @@ import {
   type CodexRuntimeContext,
 } from './platform.js';
 
-const GIT_TIMEOUT_MS = 5_000;
 const GIT_MAX_BUFFER_BYTES = 64 * 1024;
+const DEFAULT_GIT_TIMEOUT_MS = 60_000;
 
 export type RuntimeInitializeStatus = 'created' | 'reused';
 export type RuntimeGraphStatus = 'deferred' | 'unavailable';
@@ -26,6 +26,7 @@ export type CodexRuntimeErrorCode =
   | 'project_root_not_directory'
   | 'project_root_not_git_toplevel'
   | 'project_state_not_ignored'
+  | 'project_validation_timeout'
   | 'unsafe_project_state_path'
   | 'runtime_initialization_failed'
   | 'runtime_capacity_exceeded';
@@ -55,12 +56,20 @@ interface RuntimeResources {
 
 export interface CodexProjectRootValidationOptions {
   readonly runGit?: CodexGitRunner;
+  readonly gitTimeoutMs?: number;
+}
+
+export interface CodexGitResult {
+  readonly ok: boolean;
+  readonly stdout: string;
+  readonly timedOut?: boolean;
 }
 
 export type CodexGitRunner = (
   cwd: string,
   args: readonly string[],
-) => Promise<{ readonly ok: boolean; readonly stdout: string }>;
+  timeoutMs: number,
+) => Promise<CodexGitResult>;
 
 export interface CodexRuntimeAccess {
   readonly context: CodexRuntimeContext;
@@ -82,6 +91,7 @@ export interface CodexRuntimeManagerOptions {
   readonly plugin: CodexPluginMetadata;
   readonly capacity?: number;
   readonly now?: () => number;
+  readonly gitTimeoutMs?: number;
   readonly graphHolderFactory?: (
     context: CodexRuntimeContext,
   ) => GraphHolder;
@@ -95,6 +105,7 @@ export class CodexRuntimeManager {
   private readonly plugin: CodexPluginMetadata;
   private readonly capacity: number;
   private readonly now: () => number;
+  private readonly gitTimeoutMs: number;
   private readonly graphHolderFactory?: (
     context: CodexRuntimeContext,
   ) => GraphHolder;
@@ -114,6 +125,7 @@ export class CodexRuntimeManager {
     this.plugin = opts.plugin;
     this.capacity = opts.capacity ?? 4;
     this.now = opts.now ?? Date.now;
+    this.gitTimeoutMs = gitTimeoutOption(opts.gitTimeoutMs);
     this.graphHolderFactory = opts.graphHolderFactory;
   }
 
@@ -217,7 +229,7 @@ export class CodexRuntimeManager {
     projectRoot: string,
   ): Promise<RuntimeInitializeResult> {
     try {
-      await validateGitProjectRoot(projectRoot, runGit);
+      await validateGitProjectRoot(projectRoot, runGit, this.gitTimeoutMs);
     } catch (error) {
       throw normalizeRuntimeError(error);
     }
@@ -318,7 +330,11 @@ export async function validateCodexProjectRoot(
   let canonical: string;
   try {
     canonical = canonicalizeProjectRootInput(input);
-    await validateGitProjectRoot(canonical, options.runGit ?? runGit);
+    await validateGitProjectRoot(
+      canonical,
+      options.runGit ?? runGit,
+      gitTimeoutOption(options.gitTimeoutMs),
+    );
   } catch (error) {
     throw normalizeRuntimeError(error);
   }
@@ -372,11 +388,31 @@ function canonicalizeProjectRootInput(input: unknown): string {
   return canonical;
 }
 
+function gitTimeoutOption(value: number | undefined): number {
+  const timeoutMs = value ?? DEFAULT_GIT_TIMEOUT_MS;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+    throw new Error('Codex Git timeout must be a positive integer of milliseconds');
+  }
+  return timeoutMs;
+}
+
 async function validateGitProjectRoot(
   canonical: string,
-  git: CodexGitRunner,
+  runner: CodexGitRunner,
+  timeoutMs: number,
 ): Promise<void> {
-  const topLevel = await git(canonical, ['rev-parse', '--show-toplevel']);
+  const git = async (args: readonly string[]): Promise<CodexGitResult> => {
+    const result = await runner(canonical, args, timeoutMs);
+    if (result.timedOut === true) {
+      throw new CodexRuntimeError(
+        'project_validation_timeout',
+        `git ${args.join(' ')} did not finish within ${timeoutMs} ms, so project_root could not be validated.`,
+      );
+    }
+    return result;
+  };
+
+  const topLevel = await git(['rev-parse', '--show-toplevel']);
   if (!topLevel.ok) {
     throw new CodexRuntimeError(
       'project_root_not_git_toplevel',
@@ -400,7 +436,7 @@ async function validateGitProjectRoot(
     );
   }
 
-  const ignored = await git(canonical, [
+  const ignored = await git([
     'check-ignore',
     '--no-index',
     '--quiet',
@@ -410,7 +446,7 @@ async function validateGitProjectRoot(
     throw stateNotIgnoredError();
   }
 
-  const tracked = await git(canonical, ['ls-files', '-z', '--', '.tmb']);
+  const tracked = await git(['ls-files', '-z', '--', '.tmb']);
   if (!tracked.ok || tracked.stdout.length > 0) {
     throw stateNotIgnoredError();
   }
@@ -419,7 +455,8 @@ async function validateGitProjectRoot(
 const runGit: CodexGitRunner = (
   cwd: string,
   args: readonly string[],
-): Promise<{ readonly ok: boolean; readonly stdout: string }> => {
+  timeoutMs: number,
+): Promise<CodexGitResult> => {
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')),
   );
@@ -429,7 +466,8 @@ const runGit: CodexGitRunner = (
   env['LC_ALL'] = 'C';
 
   return new Promise((resolve) => {
-    execFile(
+    let settled = false;
+    const child = execFile(
       'git',
       [
         '-c',
@@ -445,16 +483,26 @@ const runGit: CodexGitRunner = (
       {
         encoding: 'utf8',
         env,
-        timeout: GIT_TIMEOUT_MS,
         maxBuffer: GIT_MAX_BUFFER_BYTES,
       },
       (error, stdout) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         resolve({
           ok: error === null,
           stdout: stdout.trim(),
         });
       },
     );
+    // Settle on the timer itself: execFile's own timeout waits for stdio to
+    // close, which a stalled git or an orphaned grandchild can hold open.
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill('SIGKILL');
+      resolve({ ok: false, stdout: '', timedOut: true });
+    }, timeoutMs);
   });
 };
 

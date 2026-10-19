@@ -24758,8 +24758,8 @@ var GraphHolder = class _GraphHolder {
 };
 
 // src/codex-runtime.ts
-var GIT_TIMEOUT_MS = 5e3;
 var GIT_MAX_BUFFER_BYTES = 64 * 1024;
+var DEFAULT_GIT_TIMEOUT_MS = 6e4;
 var CodexRuntimeError = class extends Error {
   constructor(code, message2) {
     super(message2);
@@ -24771,6 +24771,7 @@ var CodexRuntimeManager = class {
   plugin;
   capacity;
   now;
+  gitTimeoutMs;
   graphHolderFactory;
   runtimes = /* @__PURE__ */ new Map();
   requests = /* @__PURE__ */ new Map();
@@ -24784,6 +24785,7 @@ var CodexRuntimeManager = class {
     this.plugin = opts.plugin;
     this.capacity = opts.capacity ?? 4;
     this.now = opts.now ?? Date.now;
+    this.gitTimeoutMs = gitTimeoutOption(opts.gitTimeoutMs);
     this.graphHolderFactory = opts.graphHolderFactory;
   }
   initialize(projectRootInput) {
@@ -24872,7 +24874,7 @@ var CodexRuntimeManager = class {
   }
   async initializeCanonical(projectRoot) {
     try {
-      await validateGitProjectRoot(projectRoot, runGit);
+      await validateGitProjectRoot(projectRoot, runGit, this.gitTimeoutMs);
     } catch (error2) {
       throw normalizeRuntimeError(error2);
     }
@@ -24948,7 +24950,11 @@ async function validateCodexProjectRoot(input, options = {}) {
   let canonical;
   try {
     canonical = canonicalizeProjectRootInput(input);
-    await validateGitProjectRoot(canonical, options.runGit ?? runGit);
+    await validateGitProjectRoot(
+      canonical,
+      options.runGit ?? runGit,
+      gitTimeoutOption(options.gitTimeoutMs)
+    );
   } catch (error2) {
     throw normalizeRuntimeError(error2);
   }
@@ -24999,8 +25005,25 @@ function canonicalizeProjectRootInput(input) {
   }
   return canonical;
 }
-async function validateGitProjectRoot(canonical, git) {
-  const topLevel = await git(canonical, ["rev-parse", "--show-toplevel"]);
+function gitTimeoutOption(value) {
+  const timeoutMs = value ?? DEFAULT_GIT_TIMEOUT_MS;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+    throw new Error("Codex Git timeout must be a positive integer of milliseconds");
+  }
+  return timeoutMs;
+}
+async function validateGitProjectRoot(canonical, runner, timeoutMs) {
+  const git = async (args) => {
+    const result2 = await runner(canonical, args, timeoutMs);
+    if (result2.timedOut === true) {
+      throw new CodexRuntimeError(
+        "project_validation_timeout",
+        `git ${args.join(" ")} did not finish within ${timeoutMs} ms, so project_root could not be validated.`
+      );
+    }
+    return result2;
+  };
+  const topLevel = await git(["rev-parse", "--show-toplevel"]);
   if (!topLevel.ok) {
     throw new CodexRuntimeError(
       "project_root_not_git_toplevel",
@@ -25022,7 +25045,7 @@ async function validateGitProjectRoot(canonical, git) {
       "project_root must be the Git worktree top level, not a nested directory."
     );
   }
-  const ignored = await git(canonical, [
+  const ignored = await git([
     "check-ignore",
     "--no-index",
     "--quiet",
@@ -25031,12 +25054,12 @@ async function validateGitProjectRoot(canonical, git) {
   if (!ignored.ok) {
     throw stateNotIgnoredError();
   }
-  const tracked = await git(canonical, ["ls-files", "-z", "--", ".tmb"]);
+  const tracked = await git(["ls-files", "-z", "--", ".tmb"]);
   if (!tracked.ok || tracked.stdout.length > 0) {
     throw stateNotIgnoredError();
   }
 }
-var runGit = (cwd, args) => {
+var runGit = (cwd, args, timeoutMs) => {
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_"))
   );
@@ -25045,7 +25068,8 @@ var runGit = (cwd, args) => {
   env["GIT_CONFIG_GLOBAL"] = "/dev/null";
   env["LC_ALL"] = "C";
   return new Promise((resolve2) => {
-    execFile(
+    let settled = false;
+    const child = execFile(
       "git",
       [
         "-c",
@@ -25061,16 +25085,24 @@ var runGit = (cwd, args) => {
       {
         encoding: "utf8",
         env,
-        timeout: GIT_TIMEOUT_MS,
         maxBuffer: GIT_MAX_BUFFER_BYTES
       },
       (error2, stdout) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         resolve2({
           ok: error2 === null,
           stdout: stdout.trim()
         });
       }
     );
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGKILL");
+      resolve2({ ok: false, stdout: "", timedOut: true });
+    }, timeoutMs);
   });
 };
 function openRuntime(projectRoot, plugin2, now2, lastUsedOrder, graphHolderFactory) {

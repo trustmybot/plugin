@@ -516,11 +516,15 @@ describe('Scope 4 tool and root contracts', () => {
             { args: ['rev-parse'], code: 'project_root_not_git_toplevel' },
             { args: ['check-ignore'], code: 'project_state_not_ignored' },
             { args: ['ls-files'], code: 'project_state_not_ignored' },
+            { args: ['rev-parse'], timedOut: true, code: 'project_validation_timeout' },
+            { args: ['check-ignore'], timedOut: true, code: 'project_validation_timeout' },
+            { args: ['ls-files'], timedOut: true, code: 'project_validation_timeout' },
         ]) {
             await assert.rejects(validateCodexProjectRoot(project, {
                 runGit: async (_cwd, args) => {
-                    if (args[0] === simulated.args[0])
-                        return { ok: false, stdout: '' };
+                    if (args[0] === simulated.args[0]) {
+                        return { ok: false, stdout: '', timedOut: simulated.timedOut };
+                    }
                     if (args[0] === 'rev-parse')
                         return { ok: true, stdout: canonical };
                     return { ok: true, stdout: '' };

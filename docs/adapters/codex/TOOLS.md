@@ -151,7 +151,11 @@ is used when a target cannot be checked safely after the failure.
 Project-root and schema failures continue to use the existing stable codes,
 including `missing_project_root`, `invalid_arguments`,
 `unsupported_identity_claim`, `project_root_not_absolute`,
-`project_root_not_git_toplevel`, and `project_state_not_ignored`.
+`project_root_not_git_toplevel`, `project_state_not_ignored`, and
+`project_validation_timeout`. Each tool call checks the project root with local
+`git` commands; one that runs past 60 seconds is stopped and reported as
+`project_validation_timeout`, naming the command and the limit, never as one of
+the other root or state codes.
 
 ## Deliberate limits
 
