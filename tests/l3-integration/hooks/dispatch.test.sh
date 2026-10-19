@@ -563,9 +563,10 @@ out=$(tpayload task_update_status tu-c17 | PATH="$NOPG" FX_SLOW=agent-arg-matche
 assert_contains "$out" "agent-arg-matches-caller ran past its 6 s budget" "overrun denies"
 assert_eq "0" "$(survivors "12.3$$")" "the gate's sleep was killed with it"
 reset_runs
+before=$(survivors 1830)
 out=$(tpayload task_update_status tu-c18 | PATH="$NOPG" CLAUDE_PLUGIN_ROOT="$C" bash "$C/scripts/hooks/dispatch.sh" trajectory-gates 2>/dev/null)
 assert_eq "agent-arg-matches-caller,swe-brief-gate,swe-verification-gate" "$(ran)" "the allow ran every gate"
-assert_eq "0" "$(survivors 1830)" "no watchdog sleep left behind"
+assert_eq "$before" "$(survivors 1830)" "no watchdog sleep left behind"
 
 test_case "chain watchdog: no kill once its chain subshell is gone or its pid no longer leads a group"
 lw="23.7$$" rw="23.8$$"

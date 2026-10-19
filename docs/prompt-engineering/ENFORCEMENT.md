@@ -62,6 +62,7 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | Atomic close — never self-validation_record | 1 | `requireRoles` rejects bro/swe writing pr-reviewer-only tools |
 | Verification gate — SWE `task_update_status(completed)` runs the task's typed `verification[]` commands in the worktree; denies on any non-zero exit | 2 | `scripts/hooks/swe-verification-gate.sh` |
 | Worktree created at the canonical slug path at swe-spawn time (`claude -p` skips the native WorktreeCreate tool) | 2 | `scripts/hooks/ensure-swe-worktree.sh` (PREPARE step run by `agent-spawn-dispatch.sh`) |
+| Task moved to `running` and its swe `agent_runs` row opened (`spawn_id`, `session_id`, `effort`) at swe-spawn time | 2 | `scripts/hooks/record-swe-spawn.sh` (PREPARE step run by `agent-spawn-dispatch.sh`) |
 | Task spec compliance (only edits `## Files`) | 6 only | `agents/swe.md` |
 
 ### pr-reviewer

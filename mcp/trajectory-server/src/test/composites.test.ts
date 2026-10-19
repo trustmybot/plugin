@@ -3525,6 +3525,45 @@ describe('agent_runs lifecycle — rows open with their run and close with their
     assert.equal(rows[0]!.exit_reason, null);
     db.close();
   });
+
+  it('task_brief sweeps an unbound spawn row (spawn_id tool_use:*) older than 10 minutes', async () => {
+    const db = tempDB();
+    const id = seed(db);
+    db.run(
+      `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, spawn_id) VALUES (?, 1, 'swe', strftime('%Y-%m-%dT%H:%M:%fZ','now','-11 minutes'), 'tool_use:toolu_1')`,
+      [id],
+    );
+    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+    await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
+    const rows = db.all<{ exit_reason: string | null; completed_at: string | null }>(
+      'SELECT exit_reason, completed_at FROM agent_runs WHERE task_id = ? ORDER BY id',
+      [id],
+    );
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0]!.exit_reason, 'swept_orphan');
+    assert.equal(rows[1]!.completed_at, null, 'the new spawn has an open row');
+    db.close();
+  });
+
+  it('task_brief keeps an open swe row bound to an agent_id however old it is', async () => {
+    const db = tempDB();
+    const id = seed(db);
+    db.run(
+      `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, spawn_id) VALUES (?, 1, 'swe', strftime('%Y-%m-%dT%H:%M:%fZ','now','-11 minutes'), 'agent-live')`,
+      [id],
+    );
+    const tools = compositeTools(db, '/tmp/.claude/tmb/trajectory.db', null);
+    await tools.handlers['task_brief']!({ agent: 'swe', task_id: id });
+    const rows = db.all<{ spawn_id: string; exit_reason: string | null; completed_at: string | null }>(
+      'SELECT spawn_id, exit_reason, completed_at FROM agent_runs WHERE task_id = ? ORDER BY id',
+      [id],
+    );
+    assert.equal(rows.length, 1, 'no new row opens');
+    assert.equal(rows[0]!.spawn_id, 'agent-live');
+    assert.equal(rows[0]!.completed_at, null, 'the live spawn row stays open');
+    assert.equal(rows[0]!.exit_reason, null, 'a bound row is never swept_orphan');
+    db.close();
+  });
 });
 
 describe('scopeSurface', () => {

@@ -1,0 +1,2 @@
+### Fixed
+- **swe runs are identified from the spawn** (GH 1502): the Agent spawn now moves a pending task to `running` and opens its swe `agent_runs` row with `spawn_id`, `session_id` and `effort`, and a committing swe stop completes the `running` task. The swe's `task_brief` adopts that row by binding it to its `agent_id`, and the orphan sweep closes only unbound rows, so a live spawn is no longer swept as an orphan after 10 minutes.

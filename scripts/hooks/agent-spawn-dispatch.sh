@@ -16,9 +16,10 @@
 #
 # Silent on success (no context gathered); emits deny verbatim on first block.
 #
-# After all gates pass, a final PREPARE step runs (ensure-swe-worktree.sh). It
-# ACTS — deterministically creates swe's worktree at the canonical slug — rather
-# than gates: it is non-blocking and fail-open, so it never denies a spawn.
+# After all gates pass, the PREPARE steps run: ensure-swe-worktree.sh creates
+# swe's worktree at the canonical slug, then record-swe-spawn.sh moves a pending
+# task to running and opens the spawn's swe agent_runs row. They ACT rather than
+# gate: non-blocking and fail-open, so they never deny a spawn.
 
 set -uo pipefail
 
@@ -53,13 +54,13 @@ for hook in "${HOOKS[@]}"; do
   [ -n "$CTX" ] && CONTEXT_PARTS+=("$CTX")
 done
 
-# PREPARE step — all gates passed. Deterministically create swe's worktree at
-# the canonical slug so the non-interactive `claude -p` path is isolated and the
-# verification gate finds the right slug. Fail-open: never denies the spawn.
-PREPARE="$SCRIPT_DIR/ensure-swe-worktree.sh"
-if [ -x "$PREPARE" ]; then
+# PREPARE steps — all gates passed. Create swe's worktree at the canonical slug
+# (so the non-interactive `claude -p` path is isolated and the verification gate
+# finds the right slug), then record the spawn. Fail-open: never deny the spawn.
+for PREPARE in "$SCRIPT_DIR/ensure-swe-worktree.sh" "$SCRIPT_DIR/record-swe-spawn.sh"; do
+  [ -x "$PREPARE" ] || continue
   printf '%s' "$INPUT" | bash "$PREPARE" >/dev/null 2>&1 || true
-fi
+done
 
 if [ "${#CONTEXT_PARTS[@]}" -gt 0 ]; then
   MERGED=""
