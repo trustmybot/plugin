@@ -21174,7 +21174,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "issue_close_remote_skipped", writers: ["server"], description: "`issue_close`, `bro_atomic_close` or `task_recover` closed an issue locally but no linked remote because the remote-sync gate is off: `reason` is `issue_sync_off` (`plugin_config.issue_sync` unset or `off`), `env_disabled` (`TMB_DISABLE_REMOTE_SYNC` set) or `no_backend` (no usable gh/glab for the issue repo's remotes); `content_json` carries `reason`, `remotes`" },
   { type: "issue_linked", writers: ["bro"], description: "`issue_link` bound a local issue to a remote issue; `content_json` carries `issue_id`, `backend`, `iid`, `forced`" },
   { type: "issue_updated", writers: ["bro"], description: "bro changed an issue's milestone, labels or objective after creation" },
-  { type: "legacy_event", writers: ["server"], description: "The v38 migration re-typed an audit row whose `event_type` was outside the closed set (written by v1.0.x, before the set closed); `content_json` keeps the original content and carries `legacy_event_type` (the old type), plus `legacy_content` when the old content was not valid JSON. Filed under the row's original issue; `audit_append` refuses this event" },
+  { type: "legacy_event", writers: ["server"], description: "A migration re-typed a legacy audit row: v38 one whose `event_type` was outside the closed set (written by v1.0.x, before the set closed), v39 a swe-written `verification_gate_waived` row without a `commit_sha` that repeated an earlier one for its task; `content_json` keeps the original content and carries `legacy_event_type` (the old type), plus `legacy_content` when the old content was not valid JSON. Filed under the row's original issue; `audit_append` refuses this event" },
   { type: "mcp_unavailable_fallback_invoked", writers: ["bro", "swe", "pr-reviewer", "consultant"], description: "The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1`" },
   { type: "milestone_closed", writers: ["bro"], description: "`milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed`" },
   { type: "milestone_reconcile_failed", writers: ["bro"], description: "`scan_run` could not read a repo's remote milestones; `content_json` carries `repo`, `backend`, `reason` (the scan still succeeds)" },
@@ -21341,7 +21341,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 38;
+var TARGET_SCHEMA_VERSION = 39;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
 }
@@ -21754,6 +21754,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 38 && toVersion >= 38) {
     migrateV37toV38(db2);
+  }
+  if (fromVersion < 39 && toVersion >= 39) {
+    migrateV38toV39(db2);
   }
 }
 function hasColumn(db2, table, column) {
@@ -23210,6 +23213,34 @@ function migrateV37toV38(db2) {
               event_type = 'legacy_event'
         WHERE event_type NOT IN (${placeholders})`
     ).run(...documented);
+    db2.exec("COMMIT");
+  } catch (err20) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err20;
+  }
+}
+function migrateV38toV39(db2) {
+  if (!tableExists(db2, "audit")) return;
+  const legacyWaiver = (alias) => `${alias}.event_type = 'verification_gate_waived' AND ${alias}.from_node = 'swe'
+          AND (CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.commit_sha') END) IS NULL`;
+  const taskId = (alias) => `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.task_id') END`;
+  db2.exec("BEGIN");
+  try {
+    db2.exec(
+      `UPDATE audit
+          SET content_json = json_set(
+                CASE WHEN json_valid(content_json) THEN content_json ELSE json_object('legacy_content', content_json) END,
+                '$.legacy_event_type', event_type),
+              event_type = 'legacy_event'
+        WHERE ${legacyWaiver("audit")}
+          AND EXISTS (SELECT 1 FROM audit k
+                       WHERE ${legacyWaiver("k")}
+                         AND ${taskId("k")} IS ${taskId("audit")}
+                         AND k.id < audit.id)`
+    );
     db2.exec("COMMIT");
   } catch (err20) {
     try {
@@ -38205,12 +38236,17 @@ var FIXTURE_INVENTORY_ROW = (alias) => `${alias}.kind IN ('plugin','mcp')
                AND (${alias}.name IN ('alpha','beta','alpha-server')
                     OR ${alias}.name GLOB 'fixture-*' OR ${alias}.name GLOB 'test-plugin*'
                     OR COALESCE(${alias}.source_url, '') LIKE '%@tmb-test-market')`;
+var V33_RUN_WRITERS_SINCE = {
+  sql: `(SELECT MIN(${ts("started_at")}) FROM agent_runs WHERE root_dir IS NOT NULL)`,
+  label: "the first run carrying a root_dir",
+  min_schema: 33
+};
 var POPULATED_COLUMNS = [
-  { table: "agent_runs", column: "session_id", created_column: "started_at", floor: 0.2, min_schema: 30 },
+  { table: "agent_runs", column: "session_id", created_column: "started_at", writer_since: V33_RUN_WRITERS_SINCE, floor: 0.2, min_schema: 30 },
   { table: "agent_runs", column: "usage_source", created_column: "started_at", scope: "completed_at IS NOT NULL", scope_label: "completed rows", floor: 0.05, min_schema: 30 },
-  { table: "agent_runs", column: "model", created_column: "started_at", scope: "usage_source IN ('transcript','subagent_stop','backfill')", scope_label: "measured rows", floor: 0.1, min_schema: 33 },
+  { table: "agent_runs", column: "model", created_column: "started_at", scope: "usage_source IN ('transcript','subagent_stop','backfill')", scope_label: "measured rows", writer_since: V33_RUN_WRITERS_SINCE, floor: 0.1, min_schema: 33 },
   { table: "agent_runs", column: "host", created_column: "started_at", floor: 0, min_schema: 33 },
-  { table: "agent_runs", column: "root_dir", created_column: "started_at", floor: 0.05, min_schema: 33 },
+  { table: "agent_runs", column: "root_dir", created_column: "started_at", writer_since: V33_RUN_WRITERS_SINCE, floor: 0.05, min_schema: 33 },
   { table: "agent_runs", column: "exit_reason", created_column: "started_at", scope: "completed_at IS NOT NULL", scope_label: "completed rows", floor: 0.05, min_schema: 33 },
   { table: "tasks", column: "prompt_bearing", created_column: "created_at", floor: 0, min_schema: 0 },
   // The v37 migration keeps no applied-at timestamp, so the first run carrying
@@ -38227,15 +38263,21 @@ var POPULATED_COLUMNS = [
   }
 ];
 function populatedContract(c) {
-  const where = [`${ts(c.created_column)} >= ${daysAgo(30)}`, ...c.scope ? [c.scope] : []].join(" AND ");
+  const where = [
+    `${ts(c.created_column)} >= ${daysAgo(30)}`,
+    ...c.writer_since ? [`${ts(c.created_column)} >= ${c.writer_since.sql}`] : [],
+    ...c.scope ? [c.scope] : []
+  ].join(" AND ");
+  const since = c.writer_since ? ` and not before ${c.writer_since.label}` : "";
+  const minSchema = Math.max(c.min_schema, c.writer_since?.min_schema ?? 0);
   return {
     id: `populated_${c.table}_${c.column}`,
     severity: "warn",
-    description: `${c.table}.${c.column} NULL rate over ${c.scope_label ?? "rows"} created in the last 30 days stays at or under ${c.floor}`,
+    description: `${c.table}.${c.column} NULL rate over ${c.scope_label ?? "rows"} created in the last 30 days${since} stays at or under ${c.floor}`,
     sql: `SELECT COALESCE(AVG(CASE WHEN ${c.column} IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM ${c.table} WHERE ${where}`,
     expect: { op: "<=", value: c.floor },
     sample_sql: `SELECT id FROM ${c.table} WHERE ${where} AND ${c.column} IS NULL ORDER BY id DESC LIMIT 5`,
-    ...c.min_schema > 0 ? { min_schema: c.min_schema } : {}
+    ...minSchema > 0 ? { min_schema: minSchema } : {}
   };
 }
 function eventTypeList(types) {

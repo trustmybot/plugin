@@ -144,7 +144,7 @@ describe('audit_append — who may write which event', () => {
   });
 });
 
-describe('legacy_event — written only by the schema-38 migration', () => {
+describe('legacy_event — written only by the schema-38 and schema-39 migrations', () => {
   for (const agent of ['bro', 'swe', 'pr-reviewer', 'architect']) {
     it(`audit_append refuses legacy_event for ${agent}`, async () => {
       const db = tempDB();

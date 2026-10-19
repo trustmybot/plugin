@@ -4,7 +4,7 @@ import { assertV36Shape } from './v36-shape.js';
 /** Every v37 DDL item (plus all of v29–v36), asserted identically on fresh and migrated DBs. */
 export function assertV37Shape(db) {
     const meta = db.get('SELECT schema_version FROM plugin_meta LIMIT 1');
-    assert.equal(meta.schema_version, 38, 'schema_version must be 38');
+    assert.equal(meta.schema_version, 39, 'schema_version must be 39');
     assertV36Shape(db);
     const column = (table, name) => db
         .all(`PRAGMA table_info(${table})`)

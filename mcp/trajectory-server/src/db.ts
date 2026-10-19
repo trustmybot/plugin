@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 38;
+export const TARGET_SCHEMA_VERSION = 39;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -618,6 +618,9 @@ function runMigrations(
   }
   if (fromVersion < 38 && toVersion >= 38) {
     migrateV37toV38(db);
+  }
+  if (fromVersion < 39 && toVersion >= 39) {
+    migrateV38toV39(db);
   }
 }
 
@@ -2358,6 +2361,44 @@ function migrateV37toV38(db: DatabaseSync): void {
               event_type = 'legacy_event'
         WHERE event_type NOT IN (${placeholders})`,
     ).run(...documented);
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
+}
+
+// v38→v39: legacy duplicate verification waivers (GH 1492). Before the
+// swe-verification-gate hook became the one writer (one row per task and commit),
+// swe wrote verification_gate_waived rows itself, with no commit_sha and
+// sometimes twice. For each task, the lowest-id such row stays; every later one
+// becomes 'legacy_event' with the same remap as v38 (legacy_event_type keeps the
+// old type), so the audit log stays append-only. A re-run touches nothing.
+function migrateV38toV39(db: DatabaseSync): void {
+  if (!tableExists(db, 'audit')) return;
+  const legacyWaiver = (alias: string): string =>
+    `${alias}.event_type = 'verification_gate_waived' AND ${alias}.from_node = 'swe'
+          AND (CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.commit_sha') END) IS NULL`;
+  const taskId = (alias: string): string =>
+    `CASE WHEN json_valid(${alias}.content_json) THEN json_extract(${alias}.content_json, '$.task_id') END`;
+  db.exec('BEGIN');
+  try {
+    db.exec(
+      `UPDATE audit
+          SET content_json = json_set(
+                CASE WHEN json_valid(content_json) THEN content_json ELSE json_object('legacy_content', content_json) END,
+                '$.legacy_event_type', event_type),
+              event_type = 'legacy_event'
+        WHERE ${legacyWaiver('audit')}
+          AND EXISTS (SELECT 1 FROM audit k
+                       WHERE ${legacyWaiver('k')}
+                         AND ${taskId('k')} IS ${taskId('audit')}
+                         AND k.id < audit.id)`,
+    );
     db.exec('COMMIT');
   } catch (err) {
     try {

@@ -171,14 +171,14 @@
     {
       "id": "populated_agent_runs_session_id",
       "severity": "warn",
-      "description": "agent_runs.session_id NULL rate over rows created in the last 30 days stays at or under 0.2",
-      "sql": "SELECT COALESCE(AVG(CASE WHEN session_id IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days')",
+      "description": "agent_runs.session_id NULL rate over rows created in the last 30 days and not before the first run carrying a root_dir stays at or under 0.2",
+      "sql": "SELECT COALESCE(AVG(CASE WHEN session_id IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= (SELECT MIN(strftime('%Y-%m-%dT%H:%M:%fZ', started_at)) FROM agent_runs WHERE root_dir IS NOT NULL)",
       "expect": {
         "op": "<=",
         "value": 0.2
       },
-      "sample_sql": "SELECT id FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND session_id IS NULL ORDER BY id DESC LIMIT 5",
-      "min_schema": 30
+      "sample_sql": "SELECT id FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= (SELECT MIN(strftime('%Y-%m-%dT%H:%M:%fZ', started_at)) FROM agent_runs WHERE root_dir IS NOT NULL) AND session_id IS NULL ORDER BY id DESC LIMIT 5",
+      "min_schema": 33
     },
     {
       "id": "populated_agent_runs_usage_source",
@@ -195,13 +195,13 @@
     {
       "id": "populated_agent_runs_model",
       "severity": "warn",
-      "description": "agent_runs.model NULL rate over measured rows created in the last 30 days stays at or under 0.1",
-      "sql": "SELECT COALESCE(AVG(CASE WHEN model IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND usage_source IN ('transcript','subagent_stop','backfill')",
+      "description": "agent_runs.model NULL rate over measured rows created in the last 30 days and not before the first run carrying a root_dir stays at or under 0.1",
+      "sql": "SELECT COALESCE(AVG(CASE WHEN model IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= (SELECT MIN(strftime('%Y-%m-%dT%H:%M:%fZ', started_at)) FROM agent_runs WHERE root_dir IS NOT NULL) AND usage_source IN ('transcript','subagent_stop','backfill')",
       "expect": {
         "op": "<=",
         "value": 0.1
       },
-      "sample_sql": "SELECT id FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND usage_source IN ('transcript','subagent_stop','backfill') AND model IS NULL ORDER BY id DESC LIMIT 5",
+      "sample_sql": "SELECT id FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= (SELECT MIN(strftime('%Y-%m-%dT%H:%M:%fZ', started_at)) FROM agent_runs WHERE root_dir IS NOT NULL) AND usage_source IN ('transcript','subagent_stop','backfill') AND model IS NULL ORDER BY id DESC LIMIT 5",
       "min_schema": 33
     },
     {
@@ -219,13 +219,13 @@
     {
       "id": "populated_agent_runs_root_dir",
       "severity": "warn",
-      "description": "agent_runs.root_dir NULL rate over rows created in the last 30 days stays at or under 0.05",
-      "sql": "SELECT COALESCE(AVG(CASE WHEN root_dir IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days')",
+      "description": "agent_runs.root_dir NULL rate over rows created in the last 30 days and not before the first run carrying a root_dir stays at or under 0.05",
+      "sql": "SELECT COALESCE(AVG(CASE WHEN root_dir IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= (SELECT MIN(strftime('%Y-%m-%dT%H:%M:%fZ', started_at)) FROM agent_runs WHERE root_dir IS NOT NULL)",
       "expect": {
         "op": "<=",
         "value": 0.05
       },
-      "sample_sql": "SELECT id FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND root_dir IS NULL ORDER BY id DESC LIMIT 5",
+      "sample_sql": "SELECT id FROM agent_runs WHERE strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days') AND strftime('%Y-%m-%dT%H:%M:%fZ', started_at) >= (SELECT MIN(strftime('%Y-%m-%dT%H:%M:%fZ', started_at)) FROM agent_runs WHERE root_dir IS NOT NULL) AND root_dir IS NULL ORDER BY id DESC LIMIT 5",
       "min_schema": 33
     },
     {

@@ -1,6 +1,6 @@
 # Trajectory DB — Entity Relationship Diagram
 
-SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 38`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
+SQLite schema (`mcp/trajectory-server/src/schema.sql`, `schema_version = 39`). Persistent at `<project-root>/.claude/<plugin-name>/trajectory.db` — project-local, per-user, gitignored; the server and hooks find it by one rule, [Where the trajectory DB lives](../reference/TRAJECTORY_DB_LOCATION.md). The `<plugin-name>` segment resolves from `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json`'s `name` field; today that's `tmb` for both stable and RC channels, so both write to `.claude/tmb/`. True channel isolation (`tmb/` vs `tmb-rc/`) is tracked in issue #1. Override with `TRAJECTORY_DB_PATH` for CI / ephemeral runs (`:memory:`, custom file).
 
 ## Overview
 
@@ -28,7 +28,7 @@ The onboarded marker lives at `plugin_config('onboarded': true)`. Scan-side drif
 `issues.labels` (#53, schema v28) is a nullable `TEXT` column holding the validated label set from `issue_create` as a JSON array string. `issue_sync_retry` replays it verbatim so a retried remote create carries the original labels rather than re-deriving them; a `NULL` value marks a pre-v28 row and falls back to the taxonomy-derived default label pair.
 
 <!-- erd:generated:start -->
-_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 38`; edit the schema, then rerun the script._
+_Generated from `mcp/trajectory-server/src/schema.sql` by `scripts/maintenance/gen-erd-doc.mjs` at `schema_version = 39`; edit the schema, then rerun the script._
 
 ## Diagram
 
@@ -803,18 +803,18 @@ The schema says what a row may hold; the data contracts say what the rows TMB wr
 | `single_tmb_plugin_enabled` | error | file contract: at most one enabled copy of the plugin applies to `CLAUDE_PROJECT_DIR`, read from `installed_plugins.json` and the `enabledPlugins` maps (rules in `src/utils/plugin-installs.ts`, mirrored by `tmb_duplicate_installs`); skipped when `CLAUDE_PROJECT_DIR` is unset or `installed_plugins.json` is unreadable |
 | `no_stale_running` | warn | no `running` task has gone `TMB_STALE_RUNNING_HOURS` (default 6) without an update and without an open swe `agent_runs` row |
 | `scan_fresh` | warn | some `repos.last_scanned_at` is within 7 days (passes with no repo row) |
-| `waiver_not_duplicated` | warn | no `(task_id, commit_sha)` has two `verification_gate_waived` rows |
+| `waiver_not_duplicated` | warn | no `(task_id, commit_sha)` has two `verification_gate_waived` rows (the v39 migration re-typed the legacy swe-written duplicates as `legacy_event`) |
 | `spec_shape_waived_rows_name_a_task` | warn | every `spec_shape_gate_waived` audit row names an existing task: `content_json.task_id` is a positive integer (or its decimal string) matching a `tasks` row and `content_json.gate` is `spec_shape` — the shape `require-task-spec` reads; batch-level rows written before the per-task writer are reported, not backfilled |
 | `no_unconsumed_reviewer_observations` | warn | no `reviewer_identity_observed` audit row older than 1 hour is still unconsumed and unsuperseded (a pr-reviewer `validation_record` call that never recorded a verdict; `validation_record` never consumes a row past its 600 s freshness window, and a row left by a retried call is superseded when the retry's row is consumed) |
 | `verification_recorded_for_closed_tasks` | warn | every task closed in the last 7 days, and not before the first recorded run (`MIN(verification_runs.started_at)`: the v36 migration keeps no applied-at timestamp), with a `commit_sha`, a non-empty `verification[]` and no `verification_gate_waived` row has a `verification_runs` row for that commit (a run's full sha matches a short `tasks.commit_sha` by prefix; min_schema 36); skipped as `no_v36_timestamp` while no run is recorded |
 | `no_unfinished_verification_runs` | warn | no `verification_runs` row started more than 2 hours ago still has `finished_at` NULL — the gate was killed, or its finish write failed after its retries (min_schema 36) |
 | `no_fixture_rows_in_inventory` | warn | no `plugin` / `mcp` `cheatcodes` row carries a scan test-fixture name (`alpha`, `beta`, `alpha-server`, `fixture-*`, `test-plugin*`, or a `<name>@tmb-test-market` ref) — such a row means a test's `scan.sh` run reached this DB; report only: agents never delete these rows, the Human decides |
 | `embeddings_not_degraded` | warn | no `embeddings_degraded` audit row from the last 24 hours lacks a later `embeddings_recovered` row (semantic search is on its FTS fallback) |
-| `populated_agent_runs_session_id` | warn | NULL rate over rows started in the last 30 days ≤ 0.2 |
+| `populated_agent_runs_session_id` | warn | NULL rate over rows started in the last 30 days, and not before the first run carrying a `root_dir` (plugin_meta keeps no applied-at timestamp; earlier rows predate the writers; min_schema 33) ≤ 0.2 |
 | `populated_agent_runs_usage_source` | warn | NULL rate over completed rows started in the last 30 days ≤ 0.05 |
-| `populated_agent_runs_model` | warn | NULL rate over measured rows (`transcript` / `subagent_stop` / `backfill`) started in the last 30 days ≤ 0.1 |
+| `populated_agent_runs_model` | warn | NULL rate over measured rows (`transcript` / `subagent_stop` / `backfill`) started in the last 30 days, and not before the first run carrying a `root_dir` (plugin_meta keeps no applied-at timestamp; earlier rows predate the writers; min_schema 33) ≤ 0.1 |
 | `populated_agent_runs_host` | warn | NULL rate over rows started in the last 30 days = 0 |
-| `populated_agent_runs_root_dir` | warn | NULL rate over rows started in the last 30 days ≤ 0.05 |
+| `populated_agent_runs_root_dir` | warn | NULL rate over rows started in the last 30 days, and not before the first run carrying a `root_dir` (plugin_meta keeps no applied-at timestamp; earlier rows predate the writers; min_schema 33) ≤ 0.05 |
 | `populated_agent_runs_exit_reason` | warn | NULL rate over completed rows started in the last 30 days ≤ 0.05 |
 | `populated_tasks_prompt_bearing` | warn | NULL rate over tasks created in the last 30 days = 0 |
 
