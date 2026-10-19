@@ -46,4 +46,4 @@ Exhaustive quality hunting is the audit's job, run separately against live data.
 
 ## 6. Remove cleanly
 
-When a design is replaced, delete the old one outright. Code, prompts and docs describe only what is true now: no "no longer", "used to", "deprecated" or "previously" notes, and no commented-out remnants. The reason for the removal lives in the commit message and PR description, where history belongs.
+When a design is replaced, delete the old one outright. Code, prompts and docs describe only what is true now: no `no longer`, `used to`, `deprecated` or `previously` notes, and no commented-out remnants. The reason for the removal lives in the commit message and PR description, where history belongs.
