@@ -5,8 +5,9 @@
 #      prompt (plain-string or block content), for any task status; a spawn
 #      with no task id writes an agent_runs_capture_skipped audit row and no
 #      agent_runs row.
-#   2. Status — a SWE that stops while its task is running or failed gets
-#      metrics only, never an auto-complete.
+#   2. Status — a SWE that stops with commits while its task is running (the
+#      spawn set it) auto-completes it; one that stops while its task is failed
+#      gets metrics only.
 #   3. One row per spawn — the row task_brief opened is UPDATEd (started_at
 #      preserved); a re-fire with the same agent_id updates, never duplicates.
 #   4. Measures — every token column is a per-message sum (the bro-row units).
@@ -52,8 +53,8 @@ sqlite3 "$DB" "
 "
 export TRAJECTORY_DB_PATH="$DB"
 
-# Task 140 (running) has a commit in its worktree: a pending task would be
-# auto-completed, a running one must not be.
+# Task 140 (running, as the spawn left it) has a commit in its worktree: the
+# stop auto-completes it as it would a pending task.
 git -C "$REPO" branch fix/task-140 HEAD
 git -C "$REPO" worktree add -q "$REPO/.claude/worktrees/task-140" fix/task-140
 (cd "$REPO/.claude/worktrees/task-140" && echo w > w.txt && git add w.txt && git commit -qm "feat: w")
@@ -163,13 +164,22 @@ assert_eq "40|agent-141" "$(sqlite3 "$DB" "SELECT tokens_in, spawn_id FROM agent
 test_case "a failed task gets metrics only — status unchanged"
 assert_eq "failed" "$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=141;")" "still failed"
 
-test_case "a running task with commits gets metrics only — no auto-complete"
+test_case "a running task with commits is auto-completed"
 T140="$TMPDIR/t140.jsonl"
 transcript 140 "$T140"
 OUT=$(run_hook "$(stop_input "$T140" agent-140)")
 assert_eq "" "$OUT" "no additionalContext"
-assert_eq "running|" "$(sqlite3 "$DB" "SELECT status, COALESCE(commit_sha, '') FROM tasks WHERE id=140;")" "running, no commit_sha"
+assert_eq "completed|$(git -C "$REPO/.claude/worktrees/task-140" rev-parse HEAD)" \
+  "$(sqlite3 "$DB" "SELECT status, COALESCE(commit_sha, '') FROM tasks WHERE id=140;")" "completed at the worktree HEAD"
 assert_eq "1" "$(runs 140)" "metrics row written for the running task"
+
+test_case "a running task with no commits stays running and bro is warned"
+sqlite3 "$DB" "INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at) VALUES (145, 1, 'fix/task-145', 'dev', 'd', 'running', '$NOW', '$NOW');"
+T145="$TMPDIR/t145.jsonl"
+transcript 145 "$T145"
+OUT=$(run_hook "$(stop_input "$T145" agent-145)")
+assert_contains "$OUT" "stopped without committing" "warn-no-commits context"
+assert_eq "running" "$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=145;")" "still running"
 
 # ---- no task id → capture-skipped audit row, no agent_runs write --------
 TRANSCRIPT_NO_ID="$TMPDIR/transcript-no-id.jsonl"
@@ -202,7 +212,8 @@ run_hook "$(stop_input "$T143" agent-143)" >/dev/null
 assert_eq "claude-big-9|claude|$(cd "$REPO" && pwd -P)/.claude/worktrees/task-143|completed" \
   "$(sqlite3 "$DB" "SELECT model, host, root_dir, exit_reason FROM agent_runs WHERE task_id=143;")" \
   "model by tokens (<synthetic> ignored); root_dir = the task worktree; a completed task ends completed"
-assert_eq "failed" "$(sqlite3 "$DB" "SELECT exit_reason FROM agent_runs WHERE task_id=140;")" "a spawn that stops on a running task ends failed"
+assert_eq "completed" "$(sqlite3 "$DB" "SELECT exit_reason FROM agent_runs WHERE task_id=140;")" "a spawn that auto-completes its task ends completed"
+assert_eq "failed" "$(sqlite3 "$DB" "SELECT exit_reason FROM agent_runs WHERE task_id=145;")" "a spawn that stops on a running task without commits ends failed"
 assert_eq "claude" "$(sqlite3 "$DB" "SELECT DISTINCT host FROM agent_runs WHERE task_id IS NOT NULL;")" "every spawn row carries host claude"
 
 # ---- effort ------------------------------------------------------------------

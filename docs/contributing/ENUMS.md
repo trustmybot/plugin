@@ -291,9 +291,9 @@ Currently `37`. Bumped on any breaking schema change. **NOT free-form** — ever
 | Value | Set by |
 |---|---|
 | `completed` | `bro_atomic_close`; `close-issue-on-merge` closing a merged task; a swe SubagentStop whose task is completed/closed; every pr-reviewer SubagentStop |
-| `failed` | `task_update_status` → `failed`; a SubagentStop whose task is still pending/running |
+| `failed` | `task_update_status` → `failed`; a swe SubagentStop whose task is still pending/running (a resumed spawn's next stop overwrites it) |
 | `escalated` | `task_update_status` → `escalated` |
-| `swept_orphan` | `task_recover` sweeping a never-measured row; `task_brief` closing an earlier spawn's open swe row (older than 10 min); v33 backfill of an `unmeasured` row |
+| `swept_orphan` | `task_recover` sweeping a never-measured row; `task_brief` closing an earlier spawn's open swe row that no subagent bound (`spawn_id` NULL or `tool_use:*`, older than 10 min); v33 backfill of an `unmeasured` row |
 | `swept_stale` | `task_recover` sweeping a measured row left open on a terminal task, or the open runs of a stale `running` task it swept to `failed` |
 | `issue_closed` | The row's issue was closed under it (the v33 GH 1212 repair; `issue_close(cascade: true)`) |
 

@@ -12,9 +12,14 @@ export function exitReasonForStatus(status) {
         return 'escalated';
     return 'completed';
 }
-// An open swe row older than this belongs to an earlier spawn that never
-// reached SubagentStop; the next task_brief closes it as swept_orphan.
+// An open swe row older than this that no subagent ever bound (spawn_id NULL
+// or tool_use:*) belongs to a spawn that never started or never reached
+// SubagentStop; the next task_brief closes it as swept_orphan.
 export const SWE_ORPHAN_AFTER_MS = 10 * 60 * 1000;
+// A swe row no subagent has bound yet: opened by task_brief without a spawn
+// (spawn_id NULL) or by the Agent spawn hook (spawn_id tool_use:<id>). The
+// swe's first task_brief rebinds it to spawn_id = its agent_id.
+const UNBOUND_SWE_RUN_SQL = "(spawn_id IS NULL OR spawn_id GLOB 'tool_use:*')";
 const WINDOW_MS_SQL = "COALESCE(CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)";
 // Closes every open agent_runs row (bro and swe) of a task at `now` with
 // `exitReason`. A row with no measured duration takes its window length.
@@ -66,8 +71,10 @@ export function openBroRun(db, task, now, ctx, sessionId = null) {
      VALUES (?, ?, 'bro', ?, ?, ?, ?, ?)`, [task.id, task.issue_id, now, task.repo, ctx.projectRoot, ctx.host, sessionId]);
 }
 // Opens the swe row for a task unless one is already open; root_dir is the
-// task's worktree. An open swe row older than SWE_ORPHAN_AFTER_MS is an
-// earlier spawn's orphan: it is closed as swept_orphan and a fresh row opens.
+// task's worktree. The Agent spawn hook normally opened it already and
+// swe-brief-gate bound it to the swe's agent_id. An open unbound swe row older
+// than SWE_ORPHAN_AFTER_MS is an earlier spawn's orphan: it is closed as
+// swept_orphan and a fresh row opens; a bound row is a live spawn and is kept.
 // The SubagentStop hook later UPDATEs the open row with the spawn's totals.
 // Returns true when a row was inserted.
 export function openSweRun(db, task, now, ctx, rootDir) {
@@ -77,6 +84,7 @@ export function openSweRun(db, task, now, ctx, rootDir) {
             duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
             exit_reason = 'swept_orphan'
       WHERE task_id = ? AND agent_type = 'swe' AND completed_at IS NULL
+        AND ${UNBOUND_SWE_RUN_SQL}
         AND started_at IS NOT NULL AND started_at < ?`, [now, now, task.id, orphanBefore]);
     const open = db.get(`SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'swe' AND completed_at IS NULL LIMIT 1`, [task.id]);
     if (open)

@@ -25861,6 +25861,7 @@ function exitReasonForStatus(status) {
   return "completed";
 }
 var SWE_ORPHAN_AFTER_MS = 10 * 60 * 1e3;
+var UNBOUND_SWE_RUN_SQL = "(spawn_id IS NULL OR spawn_id GLOB 'tool_use:*')";
 var WINDOW_MS_SQL = "COALESCE(CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000) AS INTEGER), duration_ms)";
 function closeOpenRunsForTask(db2, taskId, now2, exitReason) {
   return db2.run(
@@ -25914,6 +25915,7 @@ function openSweRun(db2, task, now2, ctx, rootDir) {
             duration_ms = CASE WHEN duration_ms = 0 THEN ${WINDOW_MS_SQL} ELSE duration_ms END,
             exit_reason = 'swept_orphan'
       WHERE task_id = ? AND agent_type = 'swe' AND completed_at IS NULL
+        AND ${UNBOUND_SWE_RUN_SQL}
         AND started_at IS NOT NULL AND started_at < ?`,
     [now2, now2, task.id, orphanBefore]
   );

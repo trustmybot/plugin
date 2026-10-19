@@ -55,7 +55,7 @@ At SessionStart, `mcp-health-check.sh` says once per session when a user-scope i
 
 The invariant above covers what TMB itself writes. The agents it runs are held to the same boundary, in three layers.
 
-**Run root.** Every `agent_runs` row carries `root_dir`: the project root for bro rows (opened by `task_create_batch`, `task_provision`, `task_retry`), the task's worktree (`<repo>/.claude/worktrees/<slug>`) for the swe row `task_brief` opens. Rows also carry `host`, the dominant `model` and, once closed, an `exit_reason` (see [`../contributing/ENUMS.md`](../contributing/ENUMS.md)).
+**Run root.** Every `agent_runs` row carries `root_dir`: the project root for bro rows (opened by `task_create_batch`, `task_provision`, `task_retry`), the task's worktree (`<repo>/.claude/worktrees/<slug>`) for the swe row the Agent spawn opens (`record-swe-spawn.sh`; `task_brief` opens it when the spawn did not). Rows also carry `host`, the dominant `model` and, once closed, an `exit_reason` (see [`../contributing/ENUMS.md`](../contributing/ENUMS.md)).
 
 | Tier | Layer | What it holds |
 |---|---|---|

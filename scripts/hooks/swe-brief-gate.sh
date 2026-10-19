@@ -21,9 +21,17 @@
 #
 # Decision logic (both matchers share the same sentinel check):
 #   1. Non-SWE caller             → allow (pass-through)
-#   2. Tool is task_brief          → allow (the handler writes the sentinel)
+#   2. Tool is task_brief          → bind the run row, then allow (the handler
+#                                    writes the sentinel)
 #   3. Sentinel exists             → allow (brief already fetched for this task)
 #   4. No sentinel + blocked tool  → DENY with recovery instruction
+#
+# Run binding (task_brief only, fail-open, never denies): the payload's
+# agent_id keys the spawn's swe agent_runs row. A row of the task already keyed
+# by that agent_id (a resumed spawn) is reopened (completed_at and exit_reason
+# NULL); otherwise the task's newest open swe row whose spawn_id is NULL or
+# tool_use:* (opened by record-swe-spawn.sh) is rebound to spawn_id = agent_id.
+# Either way task_brief's openSweRun finds an open row and inserts none.
 #
 # Skips:
 #   - Non-SWE callers (bro, pr-reviewer, etc.)
@@ -106,6 +114,19 @@ if [ -z "$IS_TASK_BRIEF" ] && [ -z "$IS_BLOCKED_MUTATION" ] && [ -z "$IS_MCP_TRA
 fi
 
 if [ "$IS_TASK_BRIEF" = "yes" ]; then
+  AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null || true)
+  if [ -n "$AGENT_ID" ]; then
+    SAFE_AGENT_ID=$(tmb_sql_quote "$AGENT_ID")
+    tmb_db_write "$DB" "
+UPDATE agent_runs SET completed_at = NULL, exit_reason = NULL
+ WHERE task_id = ${TASK_ID} AND agent_type = 'swe' AND spawn_id = '${SAFE_AGENT_ID}';
+UPDATE agent_runs SET spawn_id = '${SAFE_AGENT_ID}'
+ WHERE (SELECT changes()) = 0
+   AND id = (SELECT id FROM agent_runs
+              WHERE task_id = ${TASK_ID} AND agent_type = 'swe' AND completed_at IS NULL
+                AND (spawn_id IS NULL OR spawn_id GLOB 'tool_use:*')
+              ORDER BY id DESC LIMIT 1);" >/dev/null 2>&1 || true
+  fi
   exit 0
 fi
 
