@@ -40,6 +40,13 @@
 #   Bash deny records: a denied Bash command that writes a path leaves one
 #     <state>/locks/boundary-denies/<session>/<digest> record for it; an allow
 #     and a denied non-Bash tool leave none
+#   Deny audit: one hook_denied row per deny (hook, rule, tool, agent_type,
+#     cwd), none for an allow or a replayed duplicate; an exit-2 block and a
+#     fail-closed deny count; a task's deny lands on its issue with the rule
+#     capped at 200 characters; a failed write leaves the decision unchanged;
+#     a fail-open gate's exit 1 writes none; on a write-locked DB a chain
+#     member denying near its budget returns one deny JSON and nothing on
+#     stderr, and a deny takes no longer than an allow (the write is detached)
 #   Parity: every PreToolUse gate in hooks.json gives the same stdout + exit
 #   code through the dispatcher as run directly.
 set -euo pipefail
@@ -64,7 +71,7 @@ make_install() {
   local root="$1" label="$2"
   mkdir -p "$root/scripts/hooks/lib" "$root/.claude-plugin" "$root/hooks"
   cp "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" "$root/scripts/hooks/"
-  cp "$PLUGIN_ROOT/scripts/hooks/lib/"*.sh "$root/scripts/hooks/lib/"
+  cp "$PLUGIN_ROOT/scripts/hooks/lib/"*.sh "$PLUGIN_ROOT/scripts/hooks/lib/audit-events.txt" "$root/scripts/hooks/lib/"
   printf '{"name":"tmb"}\n' > "$root/.claude-plugin/plugin.json"
   cat > "$root/hooks/hooks.json" <<'EOF'
 {"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[
@@ -645,7 +652,7 @@ brief() {
   jq -nc --arg a "$1" --arg id "$2" '{hook_event_name:"PreToolUse",session_id:"s-r",agent_type:"swe",agent_id:"ag1",
     tool_name:"mcp__plugin_tmb_trajectory-server__task_brief",tool_input:{agent:$a,task_id:42},tool_use_id:$id}'
 }
-sentinels() { sqlite3 "$RDB" "SELECT COUNT(*) FROM audit WHERE event_type = 'swe_brief_fetched';"; }
+sentinels() { sqlite3 -cmd ".timeout 3000" "$RDB" "SELECT COUNT(*) FROM audit WHERE event_type = 'swe_brief_fetched';"; }
 out=$(cd "$RP" && brief bro tu-r1 | CLAUDE_PROJECT_DIR="$RP" bash "$PLUGIN_ROOT/scripts/hooks/dispatch.sh" trajectory-gates 2>/dev/null)
 assert_contains "$out" "pass agent='swe'" "agent-arg-matches-caller denied"
 assert_eq "0" "$(sentinels)" "no swe_brief_fetched sentinel"
@@ -741,6 +748,142 @@ FX_SLEEP=0 dispatch "$A" fx-deny "$(jq -nc --arg p "$X" '{hook_event_name:"PreTo
 [ ! -e "$DENIES" ] && _pass || _fail "a denied non-Bash tool left a record"
 FX_SLEEP=0 dispatch "$A" fx-deny "$(jq -nc --arg c "$CMD" '{hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$c},tool_use_id:"tu-rec4"}')" > /dev/null
 [ ! -e "$DENIES" ] && _pass || _fail "a payload without session_id left a record"
+
+# ===========================================================================
+AP="$TMP/audit-proj"
+mkdir -p "$AP/.claude/tmb"
+ADB="$AP/.claude/tmb/trajectory.db"
+sqlite3 "$ADB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
+sqlite3 "$ADB" "
+  INSERT INTO issues (id, objective, status, created_at, updated_at) VALUES (7, 'o', 'open', 'x', 'x');
+  INSERT INTO tasks (id, issue_id, branch_id, parent_branch_id, description, status, created_at, updated_at)
+    VALUES (42, 7, 'fix/x', 'dev', 'd', 'running', 'x', 'x');"
+denied_rows() { sqlite3 -cmd ".timeout 3000" "$ADB" "SELECT COUNT(*) FROM audit WHERE event_type = 'hook_denied';"; }
+last_denied() { sqlite3 -cmd ".timeout 3000" "$ADB" "SELECT $1 FROM audit WHERE event_type = 'hook_denied' ORDER BY id DESC LIMIT 1;"; }
+# rows_after <n> — the hook_denied count once it reaches <n> (the detached
+# writer lands after the hook exits) or after 5 s, then 0.3 s more for a
+# surplus row to show.
+rows_after() {
+  local i
+  for i in $(seq 1 50); do
+    [ "$(denied_rows)" -ge "$1" ] && break
+    sleep 0.1
+  done
+  sleep 0.3
+  denied_rows
+}
+apayload() {
+  jq -nc --arg c "$1" --arg id "$2" --arg cwd "$AP" \
+    '{hook_event_name:"PreToolUse",session_id:"s-a",agent_type:"bro",cwd:$cwd,tool_name:"Bash",tool_input:{command:$c},tool_use_id:$id}'
+}
+
+test_case "deny audit: one hook_denied row per deny, with hook, rule, tool, agent_type and cwd"
+before=$(denied_rows)
+out=$(FX_SLEEP=0 CLAUDE_PROJECT_DIR="$AP" dispatch "$A" fx-deny "$(apayload "ls a1" tu-a1)" 2>/dev/null)
+is_deny "$out" && _pass || _fail "no deny: $out"
+assert_eq "$((before + 1))" "$(rows_after $((before + 1)))" "exactly one row"
+assert_eq "hook:dispatch|-1" "$(last_denied "from_node || '|' || issue_id")" "from hook:dispatch on the system issue"
+assert_eq "fx-deny|fx|Bash|bro|$AP" "$(last_denied "content_json" | jq -r '[.hook, .rule, .tool, .agent_type, .cwd] | join("|")')" "content names the deny"
+
+test_case "deny audit: an allow writes no row"
+before=$(denied_rows)
+out=$(FX_SLEEP=0 CLAUDE_PROJECT_DIR="$AP" dispatch "$A" fx-allow "$(apayload "ls a2" tu-a2)" 2>/dev/null)
+assert_contains "$out" "fx banner" "the gate allowed"
+assert_eq "$before" "$(rows_after "$before")" "no row"
+
+test_case "deny audit: a replayed duplicate writes no second row"
+P=$(apayload "ls a3" tu-a3)
+before=$(denied_rows)
+FX_SLEEP=0 CLAUDE_PROJECT_DIR="$AP" dispatch "$A" fx-deny "$P" >/dev/null 2>&1
+rows_after $((before + 1)) >/dev/null
+out=$(FX_SLEEP=0 CLAUDE_PROJECT_DIR="$AP" dispatch "$A" fx-deny "$P" 2>/dev/null)
+is_deny "$out" && _pass || _fail "duplicate did not replay the deny: $out"
+assert_eq "$((before + 1))" "$(rows_after $((before + 2)))" "one row for the decision"
+
+test_case "deny audit: an exit-2 block and a fail-closed deny each write one row"
+before=$(denied_rows)
+CLAUDE_PROJECT_DIR="$AP" dispatch "$A" fx-rc2 "$(apayload "ls a4" tu-a4)" >/dev/null 2>&1 || true
+assert_eq "$((before + 1))" "$(rows_after $((before + 1)))" "one row for exit 2"
+assert_eq "fx-rc2|fx blocked" "$(last_denied "content_json" | jq -r '[.hook, .rule] | join("|")')" "the rule is the gate's stderr"
+out=$(CLAUDE_PROJECT_DIR="$AP" dispatch "$A" fx-gate-dies "$(apayload "ls a5" tu-a5)" 2>/dev/null)
+is_deny "$out" && _pass || _fail "no deny: $out"
+assert_eq "$((before + 2))" "$(rows_after $((before + 2)))" "one row for the fail-closed deny"
+assert_contains "$(last_denied "content_json" | jq -r '.hook + " " + .rule')" "fx-gate-dies BLOCKED: TMB gate fx-gate-dies exited 1" "hook and rule name the dead gate"
+
+test_case "deny audit: the task's issue carries the row; the rule is capped at 200 characters"
+long=$(printf 'x%.0s' $(seq 1 300))
+cat > "$A/scripts/hooks/fx-deny-long.sh" <<EOF
+#!/usr/bin/env bash
+cat >/dev/null
+printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$long"
+EOF
+chmod +x "$A/scripts/hooks/fx-deny-long.sh"
+P=$(jq -nc --arg cwd "$AP" '{hook_event_name:"PreToolUse",session_id:"s-a",agent_type:"bro",cwd:$cwd,
+  tool_name:"mcp__plugin_tmb_trajectory-server__task_update_status",tool_input:{task_id:42,status:"closed"},tool_use_id:"tu-a6"}')
+before=$(denied_rows)
+CLAUDE_PROJECT_DIR="$AP" dispatch "$A" fx-deny-long "$P" >/dev/null 2>&1
+assert_eq "$((before + 1))" "$(rows_after $((before + 1)))" "one row"
+assert_eq "7" "$(last_denied issue_id)" "on task 42's issue"
+assert_eq "42|200" "$(last_denied content_json | jq -r '"\(.task_id)|\(.rule | length)"')" "task_id recorded, rule truncated"
+
+test_case "deny audit: a failed write leaves the decision unchanged"
+rc=0
+out=$(FX_SLEEP=0 CLAUDE_PROJECT_DIR="$PROJ" dispatch "$A" fx-deny "$(payload "ls a7" tu-a7)" 2>"$TMP/err") || rc=$?
+assert_eq "0" "$rc" "exit 0 with no audit table"
+is_deny "$out" && _pass || _fail "no deny: $out"
+assert_eq "" "$(cat "$TMP/err")" "nothing on stderr"
+
+test_case "deny audit: a fail-open gate that exits 1 writes no row"
+cat > "$A/scripts/hooks/fx-open-dies-deny.sh" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"fx open"}}'
+exit 1
+EOF
+chmod +x "$A/scripts/hooks/fx-open-dies-deny.sh"
+before=$(denied_rows)
+rc=0
+CLAUDE_PROJECT_DIR="$AP" dispatch "$A" fx-open-dies-deny "$(apayload "ls a8" tu-a8)" >/dev/null 2>&1 || rc=$?
+assert_eq "1" "$rc" "the gate's exit 1 passes through"
+assert_eq "$before" "$(rows_after "$before")" "no row"
+
+# lock_adb <s> — holds the audit DB's write lock for <s> seconds; returns once held.
+lock_adb() {
+  ( printf 'BEGIN IMMEDIATE;\n'; sleep "$1"; printf 'COMMIT;\n' ) | sqlite3 "$ADB" >/dev/null 2>&1 &
+  LOCKER=$!
+  local i
+  for i in $(seq 1 50); do
+    sqlite3 -cmd '.timeout 0' "$ADB" 'BEGIN IMMEDIATE; ROLLBACK;' >/dev/null 2>&1 || return 0
+    sleep 0.1
+  done
+}
+
+test_case "deny audit: a chain member denying near its budget on a write-locked DB returns one deny JSON"
+reset_runs
+lock_adb 12
+rc=0
+out=$(FX_SLOW=swe-brief-gate FX_SLOW_S=5.5 FX_DENY=swe-brief-gate CLAUDE_PROJECT_DIR="$AP" \
+  dispatch "$C" trajectory-gates "$(tpayload task_update_status tu-a9)" 2>"$TMP/err") || rc=$?
+assert_eq "0" "$rc" "exit 0"
+assert_eq "1" "$(printf '%s' "$out" | jq -s 'length' 2>/dev/null)" "exactly one parseable JSON object"
+is_deny "$out" && _pass || _fail "no deny: $out"
+assert_contains "$out" "denied by swe-brief-gate" "the member's own deny"
+assert_eq "" "$(cat "$TMP/err")" "nothing on stderr"
+
+test_case "deny audit: the hook's wall time does not include the audit write"
+dur() {
+  local a b
+  a=$(ms)
+  FX_SLEEP=0 CLAUDE_PROJECT_DIR="$AP" dispatch "$A" "$1" "$(apayload "ls $2" "$2")" >/dev/null 2>&1
+  b=$(ms)
+  echo $((b - a))
+}
+allow_ms=$(for i in 1 2 3; do dur fx-allow "tu-w-a$i"; done | median)
+deny_ms=$(for i in 1 2 3; do dur fx-deny "tu-w-d$i"; done | median)
+[ "$deny_ms" -lt $((allow_ms + 300)) ] && _pass \
+  || _fail "a deny took ${deny_ms} ms against ${allow_ms} ms for an allow on a write-locked DB"
+kill "$LOCKER" 2>/dev/null || true
+wait "$LOCKER" 2>/dev/null || true
 
 # ===========================================================================
 test_case "parity: every PreToolUse gate gives the same result through the dispatcher"
