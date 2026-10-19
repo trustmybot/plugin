@@ -95,6 +95,7 @@ The "Layer" column names the **strongest currently deployed** for each interacti
 | Naming conventions (file/identifier kebab/snake/Pascal per language) | 2 | `scripts/hooks/naming-lint.sh` |
 | Conventional-commit subject format | 2 | `scripts/hooks/commit-msg-lint.sh` |
 | Mechanical code-quality patterns (bare except, mutable defaults, missing timeout, f-string SQL, etc.) | 2 | `scripts/hooks/code-quality-lint.sh` |
+| bro's persona in every session (the plugin's `CLAUDE.md`, which Claude Code never loads) | 2 | `scripts/hooks/session-start-persona.sh`; once-per-session fallback `scripts/hooks/user-prompt-persona.sh` |
 | Project inventory at session start | 2 | `scripts/hooks/session-start-prescan.sh` (reports world-model `cold`/`warm`; bulk population belongs to `/scan`) |
 | Domain-expert prompt → suggest spawning consultant | 5 (UserPromptSubmit injection) | `scripts/hooks/prompt-intent-hints.sh` |
 | Roundtable capture-surface verification on `roundtable_close` | 2 | `scripts/hooks/roundtable-cleanup-postcheck.sh` |

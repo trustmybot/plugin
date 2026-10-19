@@ -161,7 +161,7 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `milestone_seed_skipped` | `bro` | `scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`) |
 | `milestone_seeded` | `bro` | `scan_run` seeded `v<next-patch>` for a repo with no milestones; `content_json` carries `name`, `repo`, `source`, `remote_created` |
 | `milestones_reconciled` | `bro` | `scan_run` imported a repo's remote milestones; `content_json` carries `imported`, `closed`, `repo` |
-| `persona_block_written` | `bro` | `onboard_apply` changed the bro persona block in the project's `CLAUDE.md` (the plugin's `CLAUDE.md` body between `<!-- tmb:persona start v<version> -->` and `<!-- tmb:persona end -->`): appended, replaced on a version or body change, or removed by `persona: false`; no row when the file is unchanged or the project root is the plugin root; filed under the system issue `-1` by `bro`; `content_json` carries `action` (`appended`, `replaced`, `removed`), `version` |
+| `persona_block_written` | `server` | reserved — Legacy type kept for historical rows: in v1.1.0-rc.1 `onboard_apply` copied bro's persona block into the project's `CLAUDE.md`; nothing writes it now and `audit_append` refuses it; `content_json` carries `action` (`appended`, `replaced`), `version` |
 | `planning_complete` | `bro` | Bro finished planning: batched `task_create_batch` + SWE spawn |
 | `readme_staleness_surfaced` | `hook` | `post-atomic-close-readme` surfaced READMEs a closed task may have left stale |
 | `registry_gate_waived` | `bro` | `task_create_batch` ran with `waive_registry_gate`; `content_json` carries the waiver reason |

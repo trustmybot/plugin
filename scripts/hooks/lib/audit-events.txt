@@ -37,7 +37,7 @@ milestone_reconcile_failed	bro
 milestone_seed_skipped	bro
 milestone_seeded	bro
 milestones_reconciled	bro
-persona_block_written	bro
+persona_block_written	server
 planning_complete	bro
 readme_staleness_surfaced	hook
 registry_gate_waived	bro

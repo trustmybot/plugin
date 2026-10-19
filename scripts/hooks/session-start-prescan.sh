@@ -246,23 +246,6 @@ DUP_INSTALLS=$(tmb_duplicate_installs "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null 
 [ -n "$DUP_INSTALLS" ] && COLD_SUFFIX="${COLD_SUFFIX}
 Plugin: duplicate $(_tmb_install_plugin_name) copies enabled ($(printf '%s\n' "$DUP_INSTALLS" | cut -f1 | paste -sd, - | sed 's/,/, /g')) — hooks from one are dropped; run /plugin"
 
-# Persona block: Claude Code loads only the project's CLAUDE.md, so /onboard
-# copies the plugin's CLAUDE.md there between tmb:persona markers. File-based;
-# silent when current or when the project root is the plugin root (the source).
-PERSONA_PROJECT="${CLAUDE_PROJECT_DIR:-$PWD}"
-if [ -n "$PLUGIN_VERSION" ] && [ -d "$PERSONA_PROJECT" ] \
-  && [ "$(cd "$PERSONA_PROJECT" && pwd -P)" != "$(cd "$CLAUDE_PLUGIN_ROOT" && pwd -P)" ]; then
-  PERSONA_VERSION=""
-  [ -f "$PERSONA_PROJECT/CLAUDE.md" ] && PERSONA_VERSION=$(sed -n 's/.*<!-- tmb:persona start v\([^[:space:]>]*\) -->.*/\1/p' "$PERSONA_PROJECT/CLAUDE.md" 2>/dev/null | head -1)
-  if [ -z "$PERSONA_VERSION" ]; then
-    COLD_SUFFIX="${COLD_SUFFIX}
-Persona: project CLAUDE.md has no tmb persona block; tell the Human that the Human can run /onboard to add it"
-  elif [ "$PERSONA_VERSION" != "$PLUGIN_VERSION" ]; then
-    COLD_SUFFIX="${COLD_SUFFIX}
-Persona: tmb persona block is v${PERSONA_VERSION}, plugin is v${PLUGIN_VERSION}; tell the Human that the Human can run /onboard to refresh it"
-  fi
-fi
-
 PLUGIN_VERSION_LINE="(unknown)"
 [ -n "$PLUGIN_VERSION" ] && PLUGIN_VERSION_LINE="$PLUGIN_VERSION"
 

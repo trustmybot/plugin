@@ -4,7 +4,7 @@
  * via the generated `scripts/hooks/lib/audit-events.txt`) and the
  * `audit.event_type` section of `docs/contributing/ENUMS.md` — derives from
  * this list. `reserved` marks an event no code literal writes: an agent records
- * it through `audit_append`.
+ * it through `audit_append`, or it is a legacy type kept for historical rows.
  *
  * `writers` names who may author the event: an agent role (the role of the
  * role-gated tool whose handler writes it, or the agent that records it
@@ -62,7 +62,7 @@ export const AUDIT_EVENT_TYPES = [
   { type: 'milestone_seed_skipped', writers: ['bro'], description: '`scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`)' },
   { type: 'milestone_seeded', writers: ['bro'], description: '`scan_run` seeded `v<next-patch>` for a repo with no milestones; `content_json` carries `name`, `repo`, `source`, `remote_created`' },
   { type: 'milestones_reconciled', writers: ['bro'], description: '`scan_run` imported a repo\'s remote milestones; `content_json` carries `imported`, `closed`, `repo`' },
-  { type: 'persona_block_written', writers: ['bro'], description: '`onboard_apply` changed the bro persona block in the project\'s `CLAUDE.md` (the plugin\'s `CLAUDE.md` body between `<!-- tmb:persona start v<version> -->` and `<!-- tmb:persona end -->`): appended, replaced on a version or body change, or removed by `persona: false`; no row when the file is unchanged or the project root is the plugin root; filed under the system issue `-1` by `bro`; `content_json` carries `action` (`appended`, `replaced`, `removed`), `version`' },
+  { type: 'persona_block_written', writers: ['server'], description: 'Legacy type kept for historical rows: in v1.1.0-rc.1 `onboard_apply` copied bro\'s persona block into the project\'s `CLAUDE.md`; nothing writes it now and `audit_append` refuses it; `content_json` carries `action` (`appended`, `replaced`), `version`', reserved: true },
   { type: 'planning_complete', writers: ['bro'], description: 'Bro finished planning: batched `task_create_batch` + SWE spawn' },
   { type: 'readme_staleness_surfaced', writers: ['hook'], description: '`post-atomic-close-readme` surfaced READMEs a closed task may have left stale' },
   { type: 'registry_gate_waived', writers: ['bro'], description: '`task_create_batch` ran with `waive_registry_gate`; `content_json` carries the waiver reason' },

@@ -73,7 +73,9 @@ Bro is the only agent allowed to call:
 
 | Hook | When | Effect |
 |---|---|---|
+| `user-prompt-persona.sh` | UserPromptSubmit | Inject bro's persona once in a session with no persona marker (plugin installed mid-session, then `/reload-plugins`) and mark it; a one-time notice to start a new session when the plugin's `CLAUDE.md` cannot be read |
 | `activation-routine.sh` | UserPromptSubmit | Inject onboarded marker + pending issue as context |
+| `session-start-persona.sh` | SessionStart | Inject bro's persona (the plugin's `CLAUDE.md`) on every source, plus a one-line note when the project's `CLAUDE.md` holds an old tmb persona block; mark the session (`<project>/.claude/tmb/sessions/<id>.persona`); silent when the project is the plugin root |
 | `session-start-prescan.sh` | SessionStart | Inject project inventory (git state, stacks, world-model warmth); emit the active `Plugin version:` line, plus a "restart to apply" note when a newer version sits in the marketplace cache (#602) |
 | `ensure-gitignore.sh` | SessionStart | Ensure `.claude/` is gitignored |
 | `no-source-edit-from-main.sh` | PreToolUse Edit/Write | Deny bro source edits outside SWE worktree, scoped by registration: Rule 1 only guards registered repo subtrees (a `repos` row matched by path), so absolute edits to unregistered sibling repos in a multi-repo workspace are allowed (#592) |

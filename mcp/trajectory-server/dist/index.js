@@ -6799,7 +6799,7 @@ var require_dist = __commonJS({
 
 // src/index.ts
 import path from "node:path";
-import { mkdirSync as mkdirSync8, readFileSync as readFileSync13 } from "node:fs";
+import { mkdirSync as mkdirSync8, readFileSync as readFileSync11 } from "node:fs";
 import { performance as performance3 } from "node:perf_hooks";
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
@@ -21181,7 +21181,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "milestone_seed_skipped", writers: ["bro"], description: "`scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`)" },
   { type: "milestone_seeded", writers: ["bro"], description: "`scan_run` seeded `v<next-patch>` for a repo with no milestones; `content_json` carries `name`, `repo`, `source`, `remote_created`" },
   { type: "milestones_reconciled", writers: ["bro"], description: "`scan_run` imported a repo's remote milestones; `content_json` carries `imported`, `closed`, `repo`" },
-  { type: "persona_block_written", writers: ["bro"], description: "`onboard_apply` changed the bro persona block in the project's `CLAUDE.md` (the plugin's `CLAUDE.md` body between `<!-- tmb:persona start v<version> -->` and `<!-- tmb:persona end -->`): appended, replaced on a version or body change, or removed by `persona: false`; no row when the file is unchanged or the project root is the plugin root; filed under the system issue `-1` by `bro`; `content_json` carries `action` (`appended`, `replaced`, `removed`), `version`" },
+  { type: "persona_block_written", writers: ["server"], description: "Legacy type kept for historical rows: in v1.1.0-rc.1 `onboard_apply` copied bro's persona block into the project's `CLAUDE.md`; nothing writes it now and `audit_append` refuses it; `content_json` carries `action` (`appended`, `replaced`), `version`", reserved: true },
   { type: "planning_complete", writers: ["bro"], description: "Bro finished planning: batched `task_create_batch` + SWE spawn" },
   { type: "readme_staleness_surfaced", writers: ["hook"], description: "`post-atomic-close-readme` surfaced READMEs a closed task may have left stale" },
   { type: "registry_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_registry_gate`; `content_json` carries the waiver reason" },
@@ -33223,7 +33223,9 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
 
 // src/tools/onboard.ts
 import { spawnSync as spawnSync7 } from "node:child_process";
-import { join as join12 } from "node:path";
+import { existsSync as existsSync7 } from "node:fs";
+import { dirname as dirname9, join as join11 } from "node:path";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/tools/onboard-hooks-shim.ts
 import { readFileSync as readFileSync4, writeFileSync as writeFileSync2, mkdirSync as mkdirSync4, existsSync as existsSync5, chmodSync, rmSync } from "node:fs";
@@ -33306,10 +33308,10 @@ function resolverPathFor(projectRoot, pluginName2) {
   return join9(projectRoot, ".claude", pluginName2, RESOLVER_NAME);
 }
 function materializeResolver(pluginRoot, resolverPath) {
-  const canonical2 = join9(pluginRoot, ...CANONICAL_RESOLVER_REL);
-  if (!existsSync5(canonical2)) return null;
+  const canonical = join9(pluginRoot, ...CANONICAL_RESOLVER_REL);
+  if (!existsSync5(canonical)) return null;
   mkdirSync4(dirname7(resolverPath), { recursive: true });
-  writeFileSync2(resolverPath, readFileSync4(canonical2, "utf8"));
+  writeFileSync2(resolverPath, readFileSync4(canonical, "utf8"));
   chmodSync(resolverPath, 493);
   return resolverPath;
 }
@@ -33529,85 +33531,10 @@ function removeProjectSandbox(opts) {
   return { removed: true, settings_path: path2 };
 }
 
-// src/tools/onboard-persona.ts
-import { chmodSync as chmodSync2, existsSync as existsSync7, lstatSync as lstatSync4, readFileSync as readFileSync6, realpathSync as realpathSync4, renameSync, statSync as statSync3, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname9, join as join11 } from "node:path";
-import { fileURLToPath as fileURLToPath3 } from "node:url";
-
-// src/persona-block.ts
-var PERSONA_END_MARKER = "<!-- tmb:persona end -->";
-var START_RE = /<!-- tmb:persona start v([^\s>]+) -->/g;
-var END_LITERAL = PERSONA_END_MARKER;
-var PersonaBlockError = class extends Error {
-};
-function personaStartMarker(version2) {
-  return `<!-- tmb:persona start v${version2} -->`;
-}
-function renderPersonaBlock(body, version2) {
-  if (!/^[^\s>]+$/.test(version2)) throw new PersonaBlockError(`invalid persona version '${version2}'`);
-  const normalized = body.replace(/\r\n/g, "\n").replace(/\n+$/, "");
-  return `${personaStartMarker(version2)}
-${normalized}
-${PERSONA_END_MARKER}`;
-}
-function eolOf(text) {
-  return text.includes("\r\n") ? "\r\n" : "\n";
-}
-function findBlock(text) {
-  const starts = [...text.matchAll(START_RE)];
-  const endIdx = text.indexOf(END_LITERAL);
-  if (starts.length === 0) {
-    if (endIdx >= 0) throw new PersonaBlockError("CLAUDE.md has a tmb persona end marker without a start marker");
-    return null;
-  }
-  if (starts.length > 1) throw new PersonaBlockError("CLAUDE.md holds more than one tmb persona start marker");
-  const start = starts[0].index ?? 0;
-  const end = text.indexOf(END_LITERAL, start);
-  if (end < 0) throw new PersonaBlockError("CLAUDE.md has a tmb persona start marker without an end marker");
-  if (text.indexOf(END_LITERAL, end + END_LITERAL.length) >= 0) {
-    throw new PersonaBlockError("CLAUDE.md holds more than one tmb persona end marker");
-  }
-  return { start, end: end + END_LITERAL.length, version: starts[0][1] };
-}
-function personaBlockVersion(text) {
-  if (!text) return null;
-  return findBlock(text)?.version ?? null;
-}
-function applyPersonaBlock(existing, block) {
-  if (existing === null || existing.length === 0) {
-    return { text: `${block}
-`, action: "appended" };
-  }
-  const eol = eolOf(existing);
-  const local = block.replace(/\r\n/g, "\n").split("\n").join(eol);
-  const span = findBlock(existing);
-  if (span) {
-    if (existing.slice(span.start, span.end) === local) return { text: existing, action: "unchanged" };
-    return { text: existing.slice(0, span.start) + local + existing.slice(span.end), action: "replaced" };
-  }
-  if (!existing.endsWith(eol)) return { text: `${existing}${eol}${eol}${local}`, action: "appended" };
-  const head = existing.endsWith(eol + eol) ? existing : existing + eol;
-  return { text: `${head}${local}${eol}`, action: "appended" };
-}
-function removePersonaBlock(text) {
-  const span = findBlock(text);
-  if (!span) return { text, action: "unchanged" };
-  const eol = eolOf(text);
-  let before = text.slice(0, span.start);
-  let after = text.slice(span.end);
-  const endedWithEol = after.startsWith(eol);
-  if (endedWithEol) after = after.slice(eol.length);
-  if (after.length === 0 && before.endsWith(eol + eol)) {
-    before = before.slice(0, before.length - eol.length);
-    if (!endedWithEol) before = before.slice(0, before.length - eol.length);
-  }
-  return { text: before + after, action: "removed" };
-}
-
-// src/tools/onboard-persona.ts
-function resolvePluginRoot2(env = process.env) {
-  const fromEnv = env["CLAUDE_PLUGIN_ROOT"];
-  if (fromEnv && existsSync7(join11(fromEnv, ".claude-plugin", "plugin.json"))) return fromEnv;
+// src/tools/onboard.ts
+function resolvePluginRoot2() {
+  const env = process.env["CLAUDE_PLUGIN_ROOT"];
+  if (env && existsSync7(join11(env, ".claude-plugin", "plugin.json"))) return env;
   let dir = dirname9(fileURLToPath3(import.meta.url));
   for (; ; ) {
     if (existsSync7(join11(dir, ".claude-plugin", "plugin.json"))) return dir;
@@ -33617,68 +33544,6 @@ function resolvePluginRoot2(env = process.env) {
   }
   return null;
 }
-function readPersonaSource(pluginRoot) {
-  if (!pluginRoot) return { reason: "plugin root not resolved" };
-  try {
-    const manifest = JSON.parse(readFileSync6(join11(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
-    if (typeof manifest.version !== "string" || manifest.version.length === 0) return { reason: "plugin.json has no version" };
-    const body = readFileSync6(join11(pluginRoot, "CLAUDE.md"), "utf8");
-    return { body, version: manifest.version };
-  } catch {
-    return { reason: "plugin CLAUDE.md or plugin.json unreadable" };
-  }
-}
-function canonical(dir) {
-  try {
-    return realpathSync4(dir);
-  } catch {
-    return dir;
-  }
-}
-function isPluginRoot(projectRoot, pluginRoot) {
-  return canonical(projectRoot) === canonical(pluginRoot);
-}
-function writeAtomic(path2, text) {
-  const mode = existsSync7(path2) ? statSync3(path2).mode & 4095 : null;
-  const tmp = join11(dirname9(path2), `.CLAUDE.md.tmb-${process.pid}-${Date.now()}.tmp`);
-  try {
-    writeFileSync4(tmp, text);
-    if (mode !== null) chmodSync2(tmp, mode);
-    renameSync(tmp, path2);
-  } catch (e) {
-    if (existsSync7(tmp)) unlinkSync(tmp);
-    throw e;
-  }
-}
-function syncProjectPersona(opts) {
-  const { pluginRoot, projectRoot, enabled } = opts;
-  if (!projectRoot) return { action: "skipped", version: null, path: null, reason: "no project root" };
-  const path2 = join11(projectRoot, "CLAUDE.md");
-  if (!existsSync7(projectRoot) || !statSync3(projectRoot).isDirectory()) {
-    return { action: "skipped", version: null, path: path2, reason: "project root does not exist" };
-  }
-  const source = readPersonaSource(pluginRoot);
-  if (pluginRoot && isPluginRoot(projectRoot, pluginRoot)) {
-    return { action: "skipped_source", version: "version" in source ? source.version : null, path: path2 };
-  }
-  const entry = lstatSync4(path2, { throwIfNoEntry: false });
-  if (entry?.isSymbolicLink()) return { action: "skipped", version: null, path: path2, reason: "CLAUDE.md is a symlink; not rewritten" };
-  if (entry && (entry.mode & 128) === 0) return { action: "skipped", version: null, path: path2, reason: "CLAUDE.md is read-only; not rewritten" };
-  const existing = entry ? readFileSync6(path2, "utf8") : null;
-  if (!enabled) {
-    if (existing === null) return { action: "unchanged", version: null, path: path2 };
-    const removedVersion = personaBlockVersion(existing);
-    const removed = removePersonaBlock(existing);
-    if (removed.action === "removed") writeAtomic(path2, removed.text);
-    return { action: removed.action, version: removedVersion, path: path2 };
-  }
-  if ("reason" in source) return { action: "skipped", version: null, path: path2, reason: source.reason };
-  const applied = applyPersonaBlock(existing, renderPersonaBlock(source.body, source.version));
-  if (applied.action !== "unchanged") writeAtomic(path2, applied.text);
-  return { action: applied.action, version: source.version, path: path2 };
-}
-
-// src/tools/onboard.ts
 function ok16(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
@@ -34093,10 +33958,6 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             enum: ["yes", "no"],
             description: "Optional. 'yes' writes Claude Code's Bash sandbox block (sandbox.enabled + filesystem.allowWrite = the project and the model cache) into the project's .claude/settings.local.json; 'no' removes what TMB wrote. Omit to keep the stored answer (default 'no')."
           },
-          persona: {
-            type: "boolean",
-            description: "Optional, default true. true writes the bro persona block (the plugin's CLAUDE.md between `<!-- tmb:persona start v<version> -->` / `<!-- tmb:persona end -->`) into the project's CLAUDE.md; false removes that block. Text outside the markers is never changed; skipped when the project root is the plugin root."
-          },
           repo: {
             type: "string",
             description: "Optional. Scope the write to a single repos row: only that row's target_branch/branching_model/protected_branches are updated; other repos rows, remotes, issue_sync, and the onboarded marker are NOT touched. Must match an existing repos.name. Omit for the workspace-wide apply."
@@ -34231,6 +34092,11 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
       "onboard_apply",
       ["bro"],
       wrapHandler13(async (args) => {
+        if ("persona" in args) {
+          throw new Error(
+            "persona_input_removed: onboard_apply takes no 'persona' input \u2014 bro's persona loads from the plugin through its SessionStart and UserPromptSubmit hooks, and TMB never writes the project's CLAUDE.md"
+          );
+        }
         const shape = args["shape"];
         if (shape !== "local" && shape !== "remote") {
           throw new Error(`shape must be 'local' or 'remote' (got '${shape}')`);
@@ -34458,32 +34324,9 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         } catch (e) {
           sandbox = { reason: e.message };
         }
-        const personaEnabled = args["persona"] !== false;
-        let persona;
-        try {
-          persona = syncProjectPersona({
-            pluginRoot: shimOptions().pluginRoot,
-            projectRoot: sandboxProjectRoot(),
-            enabled: personaEnabled
-          });
-          if (persona.action === "appended" || persona.action === "replaced" || persona.action === "removed") {
-            insertAudit(db2, {
-              issue_id: -1,
-              from_node: "bro",
-              event_type: "persona_block_written",
-              summary: `Persona block ${persona.action} in ${persona.path}`,
-              content_json: JSON.stringify({ action: persona.action, version: persona.version }),
-              writer: "bro"
-            });
-          }
-        } catch (e) {
-          const root = sandboxProjectRoot();
-          persona = { action: "skipped", version: null, path: root ? join12(root, "CLAUDE.md") : null, reason: e.message };
-        }
         return ok16({
           ok: true,
           ...warning ? { warning } : {},
-          persona,
           applied: {
             onboarded: true,
             branching_model,
@@ -34506,8 +34349,8 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
 
 // src/tools/scan.ts
 import { spawn, spawnSync as spawnSync8 } from "node:child_process";
-import { closeSync as closeSync2, existsSync as existsSync9, openSync as openSync2, readFileSync as readFileSync7, readSync, realpathSync as realpathSync5, writeFileSync as writeFileSync5, unlinkSync as unlinkSync2 } from "node:fs";
-import { dirname as dirname11, join as join13 } from "node:path";
+import { closeSync as closeSync2, existsSync as existsSync9, openSync as openSync2, readFileSync as readFileSync6, readSync, realpathSync as realpathSync4, writeFileSync as writeFileSync4, unlinkSync } from "node:fs";
+import { dirname as dirname11, join as join12 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
 // src/graph-db.ts
@@ -35237,13 +35080,13 @@ function wrap4(fn) {
 function resolveScanScript() {
   const here = dirname11(fileURLToPath4(import.meta.url));
   const candidates = [
-    join13(here, "..", "..", "..", "..", "scripts", "scan.sh"),
-    join13(here, "..", "..", "..", "scripts", "scan.sh")
+    join12(here, "..", "..", "..", "..", "scripts", "scan.sh"),
+    join12(here, "..", "..", "..", "scripts", "scan.sh")
   ];
   for (const c of candidates) if (existsSync9(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join13(pluginRoot, "scripts", "scan.sh");
+    const c = join12(pluginRoot, "scripts", "scan.sh");
     if (existsSync9(c)) return c;
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
@@ -35371,7 +35214,7 @@ function deriveDirectoryEntries(out) {
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = []) {
   const leaf = dirPath === "" ? "(repo root)" : basename3(dirPath);
-  const join19 = (names) => {
+  const join17 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
@@ -35382,19 +35225,19 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = 
     const shown = filePurposes.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STRUCTURAL_PURPOSES_MAX).map((f) => `${f.name}: ${f.purpose}`);
     parts.push(fileCount, frameUntrusted("file-purpose", shown.join("; ")).replace(/\n/g, " "));
   } else if (fileNames.length > 0) {
-    parts.push(`${fileCount} (${join19(fileNames.slice().sort())})`);
+    parts.push(`${fileCount} (${join17(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts.push(`subdirs: ${join19(subdirNames.slice().sort())}`);
+    parts.push(`subdirs: ${join17(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts.length > 0 ? parts.join("; ") : "empty directory"}`;
 }
 function readReadmeSummary(absDirPath) {
   for (const candidate of README_CANDIDATES) {
-    const readmePath = join13(absDirPath, candidate);
+    const readmePath = join12(absDirPath, candidate);
     if (!existsSync9(readmePath)) continue;
     try {
-      const raw = readFileSync7(readmePath, "utf8");
+      const raw = readFileSync6(readmePath, "utf8");
       const clipped = raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
       return frameUntrusted("readme", clipped);
     } catch {
@@ -35420,7 +35263,7 @@ function persistDirectoriesGraph(graph, out, now2, purposesByDir = /* @__PURE__ 
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join13(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join12(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(
@@ -35498,7 +35341,7 @@ function planFiles(graph, out, now2) {
     if (prev?.purpose_source === "swe") {
       node = { ...facts, purpose: prev.purpose, purpose_source: prev.purpose_source };
     } else {
-      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join13(repoPath, f.path))) : { purpose: "", source: "none" };
+      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join12(repoPath, f.path))) : { purpose: "", source: "none" };
       node = { ...facts, purpose: extracted.purpose, purpose_source: extracted.source };
       plan.extracted++;
     }
@@ -35555,7 +35398,7 @@ function readRepoRemotes(path2) {
 }
 function canonicalPath2(p) {
   try {
-    return realpathSync5(p);
+    return realpathSync4(p);
   } catch {
     return p.replace(/\/+$/, "");
   }
@@ -35718,7 +35561,7 @@ function persistScan(db2, graph, out, sessionDir) {
 var SCAN_TIMEOUT_MS = 10 * 60 * 1e3;
 function readLock(lockPath) {
   try {
-    return JSON.parse(readFileSync7(lockPath, "utf8"));
+    return JSON.parse(readFileSync6(lockPath, "utf8"));
   } catch {
     return null;
   }
@@ -35735,14 +35578,14 @@ function acquireLock(lockPath) {
   const existing = readLock(lockPath);
   if (existing) {
     if (pidAlive(existing.pid)) return false;
-    unlinkSync2(lockPath);
+    unlinkSync(lockPath);
   }
-  writeFileSync5(lockPath, JSON.stringify({ pid: process.pid, started_at: nowISO() }), { flag: "wx" });
+  writeFileSync4(lockPath, JSON.stringify({ pid: process.pid, started_at: nowISO() }), { flag: "wx" });
   return true;
 }
 function releaseLock(lockPath) {
   try {
-    unlinkSync2(lockPath);
+    unlinkSync(lockPath);
   } catch {
   }
 }
@@ -35795,7 +35638,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
             `graph_db_open_failed: ${graphOpenError} \u2014 another process holds the world-model lock (identify the holder by running lsof on the world-model graph file); the server retries automatically on the next call once the holder exits`
           );
         }
-        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join13(dirname11(dbPath2), "scan.lock") : "";
+        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join12(dirname11(dbPath2), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -36059,15 +35902,15 @@ function repoTools(db2, graphHolder2 = null) {
 
 // src/tools/cheatcode.ts
 import { spawn as spawn2 } from "node:child_process";
-import { existsSync as existsSync11, mkdirSync as mkdirSync7, readFileSync as readFileSync9, writeFileSync as writeFileSync6 } from "node:fs";
-import { dirname as dirname12, join as join15 } from "node:path";
+import { existsSync as existsSync11, mkdirSync as mkdirSync7, readFileSync as readFileSync8, writeFileSync as writeFileSync5 } from "node:fs";
+import { dirname as dirname12, join as join14 } from "node:path";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
 
 // src/tools/cheatcode-reconcile.ts
 import { execFile } from "node:child_process";
-import { existsSync as existsSync10, readFileSync as readFileSync8 } from "node:fs";
+import { existsSync as existsSync10, readFileSync as readFileSync7 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { isAbsolute as isAbsolute3, join as join14 } from "node:path";
+import { isAbsolute as isAbsolute3, join as join13 } from "node:path";
 var DEFAULT_TIMEOUT_SEC = 4;
 var MAX_LISTING_BYTES = 8 * 1024 * 1024;
 function healthcheckTimeoutSec() {
@@ -36108,7 +35951,7 @@ function parseMcpListing(text) {
 }
 function claudeJsonMcpKeys() {
   try {
-    const parsed = JSON.parse(readFileSync8(join14(homedir3(), ".claude.json"), "utf8"));
+    const parsed = JSON.parse(readFileSync7(join13(homedir3(), ".claude.json"), "utf8"));
     const servers = parsed?.mcpServers;
     if (servers && typeof servers === "object") return new Set(Object.keys(servers));
   } catch {
@@ -36153,7 +35996,7 @@ function computeStatus(row, evidence, pluginRoot) {
   switch (row.kind) {
     case "skill": {
       if (!row.file_path) return "broken";
-      const resolved = isAbsolute3(row.file_path) || !pluginRoot ? row.file_path : join14(pluginRoot, row.file_path);
+      const resolved = isAbsolute3(row.file_path) || !pluginRoot ? row.file_path : join13(pluginRoot, row.file_path);
       return existsSync10(resolved) ? "active" : "broken";
     }
     case "mcp": {
@@ -36239,13 +36082,13 @@ function wrap5(fn) {
 function resolveScriptsFile(name) {
   const here = dirname12(fileURLToPath5(import.meta.url));
   const candidates = [
-    join15(here, "..", "..", "..", "..", "scripts", name),
-    join15(here, "..", "..", "..", "scripts", name)
+    join14(here, "..", "..", "..", "..", "scripts", name),
+    join14(here, "..", "..", "..", "scripts", name)
   ];
   for (const c of candidates) if (existsSync11(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join15(pluginRoot, "scripts", name);
+    const c = join14(pluginRoot, "scripts", name);
     if (existsSync11(c)) return c;
   }
   throw new Error(`${name} not found \u2014 expected at <plugin>/scripts/${name}`);
@@ -36501,18 +36344,18 @@ function parseInstallCandidate(raw) {
 function resolveGlobalAgentMd(target) {
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c2 = join15(pluginRoot, "agents", `${target}.md`);
+    const c2 = join14(pluginRoot, "agents", `${target}.md`);
     if (existsSync11(c2)) return c2;
   }
   const here = dirname12(fileURLToPath5(import.meta.url));
-  const c = join15(here, "..", "..", "..", "..", "agents", `${target}.md`);
+  const c = join14(here, "..", "..", "..", "..", "agents", `${target}.md`);
   if (existsSync11(c)) return c;
   return null;
 }
 function readManifestProvidedTools(manifestPath) {
   let manifest;
   try {
-    manifest = JSON.parse(readFileSync9(manifestPath, "utf8"));
+    manifest = JSON.parse(readFileSync8(manifestPath, "utf8"));
   } catch {
     return [];
   }
@@ -36528,12 +36371,12 @@ function readManifestProvidedTools(manifestPath) {
 function resolveInstalledPluginManifest(name) {
   const override = process.env["TMB_CHEATCODE_PLUGIN_MANIFEST"];
   if (override) return existsSync11(override) ? override : null;
-  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join15(process.env["HOME"] || "", ".claude");
-  const registry2 = join15(claudeHome, "plugins", "installed_plugins.json");
+  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join14(process.env["HOME"] || "", ".claude");
+  const registry2 = join14(claudeHome, "plugins", "installed_plugins.json");
   if (!existsSync11(registry2)) return null;
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync9(registry2, "utf8"));
+    parsed = JSON.parse(readFileSync8(registry2, "utf8"));
   } catch {
     return null;
   }
@@ -36545,7 +36388,7 @@ function resolveInstalledPluginManifest(name) {
     for (const e of list) {
       const installPath = e?.installPath;
       if (typeof installPath !== "string" || installPath.length === 0) continue;
-      const manifest = join15(installPath, ".claude-plugin", "plugin.json");
+      const manifest = join14(installPath, ".claude-plugin", "plugin.json");
       if (existsSync11(manifest)) return manifest;
     }
   }
@@ -36631,29 +36474,29 @@ function removeSkillFromAgentFrontmatter(content, skillName) {
 function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools = []) {
   const projectRoot = projectRootFromDbPath(dbPath2);
   if (!projectRoot) return null;
-  const claudeDir = join15(projectRoot, ".claude");
+  const claudeDir = join14(projectRoot, ".claude");
   if (target === "bro") {
-    const claudeMd = join15(claudeDir, "CLAUDE.md");
+    const claudeMd = join14(claudeDir, "CLAUDE.md");
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    let body = existsSync11(claudeMd) ? readFileSync9(claudeMd, "utf8") : "";
+    let body = existsSync11(claudeMd) ? readFileSync8(claudeMd, "utf8") : "";
     if (!body.includes(reference)) {
       const prefix = body.length === 0 || body.endsWith("\n") ? "" : "\n";
       body = body.length === 0 ? `${reference}
 ` : `${body}${prefix}${reference}
 `;
       mkdirSync7(claudeDir, { recursive: true });
-      writeFileSync6(claudeMd, body);
+      writeFileSync5(claudeMd, body);
     }
     return { target: "bro", artifact: "claude-md:.claude/CLAUDE.md", path: claudeMd };
   }
-  const localAgentMd = join15(claudeDir, "agents", `${target}.md`);
+  const localAgentMd = join14(claudeDir, "agents", `${target}.md`);
   let content;
   if (existsSync11(localAgentMd)) {
-    content = readFileSync9(localAgentMd, "utf8");
+    content = readFileSync8(localAgentMd, "utf8");
   } else {
     const globalAgentMd = resolveGlobalAgentMd(target);
     if (!globalAgentMd) return null;
-    content = readFileSync9(globalAgentMd, "utf8");
+    content = readFileSync8(globalAgentMd, "utf8");
   }
   let updated = content;
   if (providedTools.length > 0) {
@@ -36662,7 +36505,7 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
     updated = addSkillToAgentFrontmatter(updated, cheatcodeName);
   }
   mkdirSync7(dirname12(localAgentMd), { recursive: true });
-  writeFileSync6(localAgentMd, updated);
+  writeFileSync5(localAgentMd, updated);
   return {
     target,
     artifact: `agent-md:.claude/agents/${target}.md`,
@@ -36674,23 +36517,23 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   if (!projectRoot) return;
   if (artifact.startsWith("agent-md:")) {
     const rel = artifact.slice("agent-md:".length);
-    const filePath = join15(projectRoot, rel);
+    const filePath = join14(projectRoot, rel);
     if (!existsSync11(filePath)) return;
-    const content = readFileSync9(filePath, "utf8");
+    const content = readFileSync8(filePath, "utf8");
     let updated = removeSkillFromAgentFrontmatter(content, cheatcodeName);
     for (const tool of providedTools) updated = removeToolFromAgentFrontmatter(updated, tool);
-    if (updated !== content) writeFileSync6(filePath, updated);
+    if (updated !== content) writeFileSync5(filePath, updated);
     return;
   }
   if (artifact.startsWith("claude-md:")) {
     const rel = artifact.slice("claude-md:".length);
-    const filePath = join15(projectRoot, rel);
+    const filePath = join14(projectRoot, rel);
     if (!existsSync11(filePath)) return;
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    const body = readFileSync9(filePath, "utf8");
+    const body = readFileSync8(filePath, "utf8");
     if (!body.includes(reference)) return;
     const updated = body.split("\n").filter((line) => line !== reference).join("\n");
-    writeFileSync6(filePath, updated);
+    writeFileSync5(filePath, updated);
   }
 }
 function cheatcodeTools(db2) {
@@ -36998,9 +36841,9 @@ function cheatcodeTools(db2) {
         const projectRoot = projectRootFromDbPath(db2.dbPath);
         const writesOutside = (targets) => {
           if (projectRoot === null) return null;
-          const paths = [join15(projectRoot, ".claude", "skills", name, "SKILL.md")];
+          const paths = [join14(projectRoot, ".claude", "skills", name, "SKILL.md")];
           for (const t of targets) {
-            paths.push(t === "bro" ? join15(projectRoot, ".claude", "CLAUDE.md") : join15(projectRoot, ".claude", "agents", `${t}.md`));
+            paths.push(t === "bro" ? join14(projectRoot, ".claude", "CLAUDE.md") : join14(projectRoot, ".claude", "agents", `${t}.md`));
           }
           for (const path2 of paths) {
             const refusal2 = outsideProject("cheatcode_install", projectRoot, path2);
@@ -37575,15 +37418,15 @@ function worldModelTools(db2, graphHolder2) {
 }
 
 // src/tools/agent-runs-backfill.ts
-import { existsSync as existsSync12, readdirSync as readdirSync2, readFileSync as readFileSync10, statSync as statSync4 } from "node:fs";
+import { existsSync as existsSync12, readdirSync as readdirSync2, readFileSync as readFileSync9, statSync as statSync3 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { basename as basename4, join as join16 } from "node:path";
+import { basename as basename4, join as join15 } from "node:path";
 var UNBOUND_SAMPLE = 20;
 var BACKFILL_AGENTS = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
 function readRecords(path2) {
   let text;
   try {
-    text = readFileSync10(path2, "utf8");
+    text = readFileSync9(path2, "utf8");
   } catch {
     return [];
   }
@@ -37606,7 +37449,7 @@ function messageOf(r) {
 function taskIdFromTranscript(path2) {
   let text;
   try {
-    text = readFileSync10(path2, "utf8");
+    text = readFileSync9(path2, "utf8");
   } catch {
     return null;
   }
@@ -37742,22 +37585,22 @@ function sessionSpawnTypes(records) {
   return out;
 }
 function defaultTranscriptsDir(projectRoot) {
-  const configDir = process.env["CLAUDE_CONFIG_DIR"] || join16(homedir4(), ".claude");
-  return join16(configDir, "projects", projectRoot.replace(/[^A-Za-z0-9]/g, "-"));
+  const configDir = process.env["CLAUDE_CONFIG_DIR"] || join15(homedir4(), ".claude");
+  return join15(configDir, "projects", projectRoot.replace(/[^A-Za-z0-9]/g, "-"));
 }
 function listTranscripts(dir) {
   const sessions = [];
   const subagents = [];
   for (const name of readdirSync2(dir).sort()) {
-    const p = join16(dir, name);
+    const p = join15(dir, name);
     if (name.endsWith(".jsonl")) {
       sessions.push(p);
       continue;
     }
-    const sub = join16(p, "subagents");
-    if (!existsSync12(sub) || !statSync4(sub).isDirectory()) continue;
+    const sub = join15(p, "subagents");
+    if (!existsSync12(sub) || !statSync3(sub).isDirectory()) continue;
     for (const f of readdirSync2(sub).sort()) {
-      if (/^agent-.+\.jsonl$/.test(f)) subagents.push({ path: join16(sub, f), session: name });
+      if (/^agent-.+\.jsonl$/.test(f)) subagents.push({ path: join15(sub, f), session: name });
     }
   }
   return { sessions, subagents };
@@ -37766,7 +37609,7 @@ function spawnAgentType(path2, sessionTypes) {
   const meta3 = path2.replace(/\.jsonl$/, ".meta.json");
   if (existsSync12(meta3)) {
     try {
-      const t = normalizeRole(JSON.parse(readFileSync10(meta3, "utf8"))["agentType"]);
+      const t = normalizeRole(JSON.parse(readFileSync9(meta3, "utf8"))["agentType"]);
       if (t) return t;
     } catch {
     }
@@ -38097,7 +37940,7 @@ function agentRunsBackfillTools(db2, dbPath2) {
           if (!root) return errResult("no project root for this DB; pass transcripts_dir");
           dir = defaultTranscriptsDir(root);
         }
-        if (!existsSync12(dir) || !statSync4(dir).isDirectory()) return errResult(`transcripts_dir not found: ${dir}`);
+        if (!existsSync12(dir) || !statSync3(dir).isDirectory()) return errResult(`transcripts_dir not found: ${dir}`);
         return okResult(agentRunsBackfill(db2, { dryRun, since, transcriptsDir: dir, now: (/* @__PURE__ */ new Date()).toISOString() }));
       } catch (e) {
         return errResult(e.message);
@@ -38111,24 +37954,24 @@ function agentRunsBackfillTools(db2, dbPath2) {
 import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
 
 // src/utils/plugin-installs.ts
-import { readFileSync as readFileSync11, realpathSync as realpathSync6 } from "node:fs";
-import { join as join17 } from "node:path";
+import { readFileSync as readFileSync10, realpathSync as realpathSync5 } from "node:fs";
+import { join as join16 } from "node:path";
 function claudeConfigDir(env) {
-  return env["CLAUDE_CONFIG_DIR"] || join17(env["HOME"] || "", ".claude");
+  return env["CLAUDE_CONFIG_DIR"] || join16(env["HOME"] || "", ".claude");
 }
 function installedPluginsJsonPath(env = process.env) {
-  return env["TMB_INSTALLED_JSON"] || join17(claudeConfigDir(env), "plugins", "installed_plugins.json");
+  return env["TMB_INSTALLED_JSON"] || join16(claudeConfigDir(env), "plugins", "installed_plugins.json");
 }
 function canonicalDir(dir) {
   try {
-    return realpathSync6(dir);
+    return realpathSync5(dir);
   } catch {
     return dir;
   }
 }
 function readJsonObject(path2) {
   try {
-    const parsed = JSON.parse(readFileSync11(path2, "utf8"));
+    const parsed = JSON.parse(readFileSync10(path2, "utf8"));
     return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
   } catch {
     return null;
@@ -38136,9 +37979,9 @@ function readJsonObject(path2) {
 }
 function enabledMap(project, env) {
   const files = [
-    join17(claudeConfigDir(env), "settings.json"),
-    join17(project, ".claude", "settings.json"),
-    join17(project, ".claude", "settings.local.json")
+    join16(claudeConfigDir(env), "settings.json"),
+    join16(project, ".claude", "settings.json"),
+    join16(project, ".claude", "settings.local.json")
   ];
   const merged = {};
   for (const file2 of files) {
@@ -38186,30 +38029,10 @@ function enabledPluginCopies(env = process.env) {
 }
 
 // src/data-contracts.ts
-import { existsSync as existsSync13, readFileSync as readFileSync12 } from "node:fs";
-import { join as join18 } from "node:path";
 function singleTmbPluginEnabled(env) {
   const result2 = enabledPluginCopies(env);
   if ("skipped" in result2) return { skipped: result2.skipped };
   return { actual: result2.copies.length, sample: result2.copies.map((c) => ({ ...c })) };
-}
-function personaBlockCurrent(env) {
-  const projectDir = env["CLAUDE_PROJECT_DIR"];
-  if (!projectDir) return { skipped: "CLAUDE_PROJECT_DIR is unset" };
-  const pluginRoot = resolvePluginRoot2(env);
-  if (!pluginRoot) return { skipped: "plugin root not resolved" };
-  if (isPluginRoot(projectDir, pluginRoot)) return { skipped: "project root is the plugin root (its CLAUDE.md is the persona source)" };
-  const source = readPersonaSource(pluginRoot);
-  if ("reason" in source) return { skipped: source.reason };
-  const path2 = join18(projectDir, "CLAUDE.md");
-  let blockVersion;
-  try {
-    blockVersion = existsSync13(path2) ? personaBlockVersion(readFileSync12(path2, "utf8")) : null;
-  } catch (e) {
-    return { actual: 1, sample: [{ path: path2, error: e.message, plugin_version: source.version }] };
-  }
-  if (blockVersion === source.version) return { actual: 0, sample: [] };
-  return { actual: 1, sample: [{ path: path2, block_version: blockVersion, plugin_version: source.version }] };
 }
 var daysAgo = (days) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${days} days')`;
 var hoursAgo = (hours) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${hours} hours')`;
@@ -38469,14 +38292,6 @@ function buildDataContracts(documentedEventTypes) {
       description: "at most one enabled copy of this plugin applies to CLAUDE_PROJECT_DIR (installed_plugins.json + enabledPlugins in the project settings.local.json / settings.json and the user settings.json, read-only); Claude Code registers the hooks of only one copy per manifest name, so a second copy silently drops TMB's gates \u2014 run /plugin and disable the extra copy. Skipped when CLAUDE_PROJECT_DIR is unset or installed_plugins.json is unreadable",
       expect: { op: "<=", value: 1 },
       check: singleTmbPluginEnabled
-    },
-    {
-      source: "files",
-      id: "persona_block_current",
-      severity: "warn",
-      description: "the project CLAUDE.md holds the tmb persona block (`<!-- tmb:persona start v<version> -->` \u2026 `<!-- tmb:persona end -->`) at the running plugin version; Claude Code loads only the project CLAUDE.md, so a missing or stale block leaves bro without its current doctrine \u2014 run /onboard. Skipped when CLAUDE_PROJECT_DIR is unset or is the plugin root",
-      expect: { op: "=", value: 0 },
-      check: personaBlockCurrent
     }
   ];
 }
@@ -38857,7 +38672,7 @@ function readPackageVersion() {
   try {
     const here = path.dirname(new URL(import.meta.url).pathname);
     const pkgPath = path.join(here, "..", "package.json");
-    const pkg = JSON.parse(readFileSync13(pkgPath, "utf8"));
+    const pkg = JSON.parse(readFileSync11(pkgPath, "utf8"));
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch {
     return "0.0.0";
