@@ -37,6 +37,10 @@ Paths are relative to the project root; `<state>` is `.claude/<plugin>/` (Claude
 
 A user project's `CLAUDE.md` is never written: no hook, no agent and no tool writes, edits or removes anything in it. bro's persona reaches a session as injected context, from `session-start-persona.sh` (SessionStart) and, for a session with no persona marker, once from `user-prompt-persona.sh` (UserPromptSubmit); both read the plugin's `CLAUDE.md` and write only the session marker. `onboard_apply` takes no `persona` argument.
 
+## No context or effort settings
+
+TMB never writes Claude Code's context or effort settings (`autoCompactWindow`, `model`, `effortLevel`) into the user's project or user settings. Token savings come from TMB's own design, not from changing how the user's Claude Code runs.
+
 ## One install, one dispatcher, one execution
 
 A hook can be registered more than once for the same event: a project install beside a user-scope one, two channels, the headless shim beside the plugin's own hooks. Three rules keep that from running a gate twice or at two versions.

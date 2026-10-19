@@ -100,6 +100,11 @@ and regular files survive installation unchanged. Symlink packaging remains the
 installer's responsibility. The smoke never reads or writes the user's normal
 Codex home.
 
+## Test-environment posture
+
+- **Issue sync is off by default.** `run-all.sh` exports `TMB_DISABLE_REMOTE_SYNC=1`. A test of the sync feature itself keeps sync on and injects a fake spawn function (`_spawnFn` / `makeSpawnFn` in `mcp/trajectory-server/src/test/sync-issue.test.ts`), so no real remote is hit.
+- **CI is not your laptop.** GitHub runners have no `rg`, so scripts and lints use `grep`. `l1-lint/no-grep-q-in-pipelines.sh` is textual: even a string literal, such as a fixture's verify command, must use `| grep PAT >/dev/null`. `gh --jq` separates expressions with `,`.
+
 ## Run an individual suite
 
 ```bash
