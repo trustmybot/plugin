@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
-# Headless sandbox network probe (GH 1252).
+# Headless sandbox network probe (GH 1252, GH 1549).
 #
 # Measures which of TMB's remote commands still work under Claude Code's Bash
 # sandbox, in two settings.local.json setups:
 #   A — the filesystem-only block /onboard wrote before GH 1252
-#   B — A plus TMB's sandbox.network.allowedDomains allow-list
+#   B — the block /onboard writes today, produced by writeProjectSandbox in the
+#       committed dist (allow-list, cache env, macOS trust-service access)
 # Each setup runs one `claude -p --model haiku` session in a fresh temp project
 # (git init'd, origin = https://github.com/trustmybot/plugin.git) that runs
 # every probe command in its own Bash call. Exit codes are read from the
 # session's tool results, not from the model's prose. A Bash call that set
 # dangerouslyDisableSandbox is reported as `unsandboxed`, never as a pass.
-# The `host` column runs the same commands outside Claude Code as a control.
+# The `host` column runs the same commands outside Claude Code as a control:
+# a B row counts as failed only when the same command passes on the host.
 #
-# Usage: bash tests/l5-l6/probes/sandbox-network-probe.sh [--keep]
-# Needs claude, jq, git, gh, npm, bun. Auth: CLAUDE_CODE_OAUTH_TOKEN or
+# Usage: bash tests/l5-l6/probes/sandbox-network-probe.sh [--keep] [--check-recorded]
+#   --check-recorded  exit 1 only when a B failure is not in the recorded
+#                     SANDBOX_NETWORK_PROBE.failed (all count on another platform)
+# Needs claude, jq, git, gh, npm, bun, node. Auth: CLAUDE_CODE_OAUTH_TOKEN or
 # ANTHROPIC_API_KEY in the environment, else the plugin checkout's .env.
 # The push is `--dry-run`: it updates no ref.
 
@@ -21,26 +25,34 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
+SANDBOX_MODULE="$PLUGIN_ROOT/mcp/trajectory-server/dist/tools/onboard-sandbox.js"
 ORIGIN_URL="https://github.com/trustmybot/plugin.git"
 CMD_TIMEOUT=120
 SESSION_TIMEOUT=600
 KEEP=0
-[ "${1:-}" = "--keep" ] && KEEP=1
+CHECK_RECORDED=0
+for arg in "$@"; do
+  case "$arg" in
+    --keep) KEEP=1 ;;
+    --check-recorded) CHECK_RECORDED=1 ;;
+    *) echo "sandbox-network-probe: unknown argument $arg" >&2; exit 2 ;;
+  esac
+done
 
 # shellcheck disable=SC1091
 . "$PLUGIN_ROOT/tests/l5-l6/lib/timeout-shim.sh"
 
 COMMANDS=(
-  "gh api user --jq .login"
+  "gh api repos/trustmybot/plugin --jq .name"
   "git ls-remote origin HEAD"
   "git push --dry-run origin HEAD:refs/heads/tmb-probe-noop"
   "npm view is-number version"
   "bun add is-number"
 )
 
-TMB_DOMAINS='["github.com","api.github.com","*.githubusercontent.com","registry.npmjs.org"]'
+[ -f "$SANDBOX_MODULE" ] || { echo "sandbox-network-probe: $SANDBOX_MODULE missing (build dist)" >&2; exit 2; }
 
-for tool in claude jq git gh npm bun; do
+for tool in claude jq git gh npm bun node; do
   command -v "$tool" >/dev/null 2>&1 || { echo "sandbox-network-probe: $tool not on PATH" >&2; exit 2; }
 done
 
@@ -85,19 +97,35 @@ cache_dir() {
   else echo "$HOME/.cache/huggingface"; fi
 }
 
+# B is what /onboard writes on yes: writeProjectSandbox from the committed dist,
+# logging into the temp project.
 write_settings() {
   local dir="$1" setup="$2"
-  local fs
-  fs="$(jq -n --arg p "$dir" --arg c "$(cache_dir)" '{enabled: true, filesystem: {allowWrite: [$p, $c]}}')"
-  if [ "$setup" = B ]; then
-    fs="$(jq --argjson d "$TMB_DOMAINS" '. + {network: {allowedDomains: $d}}' <<<"$fs")"
+  if [ "$setup" = A ]; then
+    jq -n --arg p "$dir" --arg c "$(cache_dir)" \
+      '{sandbox: {enabled: true, filesystem: {allowWrite: [$p, $c]}}}' >"$dir/.claude/settings.local.json"
+    return
   fi
-  jq -n --argjson s "$fs" '{sandbox: $s}' >"$dir/.claude/settings.local.json"
+  # shellcheck disable=SC2016
+  TRAJECTORY_DB_PATH="$dir/.claude/tmb/trajectory.db" node --input-type=module -e '
+    const [mod, projectRoot, origin] = process.argv.slice(1);
+    const { writeProjectSandbox } = await import(mod);
+    const r = writeProjectSandbox({ projectRoot, remoteUrls: [origin], previous: null });
+    if (!r.written) { console.error(`writeProjectSandbox: ${r.reason}`); process.exit(1); }
+  ' "$SANDBOX_MODULE" "$dir" "$ORIGIN_URL" || { echo "sandbox-network-probe: could not write setup B" >&2; exit 2; }
+}
+
+recorded_probe() {
+  # shellcheck disable=SC2016
+  node --input-type=module -e '
+    const { SANDBOX_NETWORK_PROBE } = await import(process.argv[1]);
+    console.log(JSON.stringify(SANDBOX_NETWORK_PROBE));
+  ' "$SANDBOX_MODULE"
 }
 
 prompt_for() {
   local i=1 c
-  printf '%s\n' "You are a network probe. Run each command below with the Bash tool, one Bash call per command, in order, exactly as written (the text between the backticks, verbatim). Do not retry, do not change a command, and never set dangerouslyDisableSandbox. After all five, print one line per command: RESULT <n> <exit code>."
+  printf '%s\n' "You are a network probe. Run each command below with the Bash tool, one Bash call per command, in order, exactly as written (the text between the backticks, verbatim). Do not retry, do not change a command, and never set dangerouslyDisableSandbox. After the last one, print one line per command: RESULT <n> <exit code>."
   for c in "${COMMANDS[@]}"; do
     # shellcheck disable=SC2016
     printf '%d. `%s; echo "TMB_PROBE_%d_EXIT=$?"`\n' "$i" "$c" "$i"
@@ -153,18 +181,38 @@ run_host
 run_setup A
 run_setup B
 
-echo "Claude Code $(claude --version 2>/dev/null | awk '{print $1}'), $(date +%Y-%m-%d)"
+PLATFORM="$(node -p process.platform)"
+echo "Claude Code $(claude --version 2>/dev/null | awk '{print $1}'), $PLATFORM, $(date +%Y-%m-%d)"
 echo
-echo "| Command | host | A: filesystem only | B: A + allowedDomains |"
+echo "| Command | host | A: filesystem only | B: /onboard's block |"
 echo "|---|---|---|---|"
-b_failed=0
+b_failed=()
 for i in $(seq 1 "${#COMMANDS[@]}"); do
   h="$(sed -n "${i}p" "$WORK/host.result")"
   a="$(sed -n "${i}p" "$WORK/A.result")"
   b="$(sed -n "${i}p" "$WORK/B.result")"
-  [ "$b" = 0 ] || b_failed=1
-  echo "| \`${COMMANDS[$((i - 1))]}\` | $(cell "$h") | $(cell "$a") | $(cell "$b") |"
+  b_cell="$(cell "$b")"
+  if [ "$b" != 0 ]; then
+    if [ "$h" = 0 ]; then b_failed+=("${COMMANDS[$((i - 1))]}"); else b_cell="$b_cell, not counted: host fails"; fi
+  fi
+  echo "| \`${COMMANDS[$((i - 1))]}\` | $(cell "$h") | $(cell "$a") | $b_cell |"
 done
 echo
-if [ "$b_failed" = 0 ]; then echo "B: every command passed"; else echo "B: at least one command failed"; fi
-exit "$b_failed"
+failed_json="$(printf '%s\n' "${b_failed[@]+"${b_failed[@]}"}" | jq -R . | jq -sc 'map(select(length > 0))')"
+echo "platform: $PLATFORM"
+echo "B failed: $failed_json"
+if [ "${#b_failed[@]}" = 0 ]; then echo "B: every command that passes on the host passed"; else echo "B: at least one command failed"; fi
+
+if [ "$CHECK_RECORDED" = 1 ]; then
+  recorded="$(recorded_probe)" || { echo "sandbox-network-probe: cannot read SANDBOX_NETWORK_PROBE" >&2; exit 2; }
+  regressions="$(jq -nc --argjson rec "$recorded" --argjson now "$failed_json" --arg plat "$PLATFORM" '
+    $now - (if $rec.platform == $plat then $rec.failed else [] end)')"
+  echo "recorded: $recorded"
+  if [ "$regressions" = "[]" ]; then
+    echo "B: no regression against SANDBOX_NETWORK_PROBE"
+    exit 0
+  fi
+  echo "B: regressed against SANDBOX_NETWORK_PROBE: $regressions"
+  exit 1
+fi
+[ "${#b_failed[@]}" = 0 ]

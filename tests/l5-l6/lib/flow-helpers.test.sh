@@ -43,6 +43,9 @@ test_case "compose: starts with the unchanged preamble"
 COMPOSED=$(l5_compose_test_prompt "/roundtable topic")
 assert_eq "$PREAMBLE" "${COMPOSED:0:${#PREAMBLE}}" "preamble prefix"
 
+test_case "preamble pins the /onboard sandbox answer to no (GH 1549)"
+assert_contains "$PREAMBLE" "sandbox_enforcement: 'no'" "sandbox pin"
+
 test_case "compose: row prompt follows after exactly one blank line"
 assert_eq "$PREAMBLE"$'\n\n'"/roundtable topic" "$COMPOSED" "preamble, blank line, prompt"
 

@@ -480,9 +480,14 @@ function headlessQuestion(current: string | null, isReonboard: boolean, entries:
   };
 }
 
-function sandboxQuestion(current: string | null, isReonboard: boolean, remoteUrls: readonly string[]): BuiltQuestion {
+function sandboxQuestion(
+  current: string | null,
+  isReonboard: boolean,
+  remoteUrls: readonly string[],
+  platform: NodeJS.Platform,
+): BuiltQuestion {
   const keep = isReonboard && current !== null;
-  const recommended = !keep && sandboxRecommended(remoteUrls);
+  const recommended = !keep && sandboxRecommended(remoteUrls, platform);
   const ssh = remoteUrls.some(isSshRemote);
   const no: QuestionOption = {
     label: 'No',
@@ -493,6 +498,7 @@ function sandboxQuestion(current: string | null, isReonboard: boolean, remoteUrl
     label: recommended ? SANDBOX_YES_RECOMMENDED : 'Yes',
     description:
       'Bash may write only in this project and the model cache, and reach only GitHub, the npm registry and your HTTPS remotes.' +
+      (platform === 'darwin' ? " gh needs macOS's TLS trust service, which slightly weakens isolation." : '') +
       (ssh ? ' Git over SSH bypasses the sandbox proxy, so your SSH remote fails: switch it to HTTPS.' : ''),
     wire: 'yes',
   };
@@ -565,6 +571,8 @@ const SANDBOX_OPTIONS: QuestionOption[] = [
 
 export interface OnboardShimEnv {
   pluginRoot?: string | null;
+  /** The platform the sandbox question and block are built for (default `process.platform`). */
+  platform?: NodeJS.Platform;
 }
 
 // ---- Tool definitions ----------------------------------------------------
@@ -596,7 +604,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             type: 'string',
             enum: ['shape', 'main', 'sync', 'headless', 'sandbox'],
             description:
-              "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only — issue_sync). 'headless' = headless_enforcement (any shape; default No). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only when the recorded sandbox network probe passed and no remote is SSH, else No; re-onboard defaults to Keep).",
+              "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only — issue_sync). 'headless' = headless_enforcement (any shape; default No). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep).",
           },
           repo: {
             type: 'string',
@@ -641,7 +649,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             type: 'string',
             enum: ['yes', 'no'],
             description:
-              "Optional. 'yes' writes Claude Code's Bash sandbox block (sandbox.enabled + filesystem.allowWrite = the project and the model cache + network.allowedDomains = GitHub, the npm registry and each HTTPS remote's host) into the project's .claude/settings.local.json; 'no' removes what TMB wrote. Omit to keep the stored answer (default 'no').",
+              "Optional. 'yes' writes Claude Code's Bash sandbox block (sandbox.enabled + filesystem.allowWrite = the project and the model cache + network.allowedDomains = GitHub, the npm registry and each HTTPS remote's host + enableWeakerNetworkIsolation on macOS, plus env npm/bun caches under the project) into the project's .claude/settings.local.json; 'no' removes what TMB wrote. Omit to keep the stored answer (default 'no').",
           },
           repo: {
             type: 'string',
@@ -750,7 +758,9 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
         if (round === 'sandbox') {
           const current = readConfig(db, 'sandbox_enforcement') as string | null;
           const detected = git.detected_remotes.map((r) => r.url);
-          return ok({ questions: [sandboxQuestion(current, readOnboardedFlag(db), knownRemoteUrls(detected))] });
+          return ok({
+            questions: [sandboxQuestion(current, readOnboardedFlag(db), knownRemoteUrls(detected), shimEnv.platform ?? process.platform)],
+          });
         }
         if (round === 'headless') {
           const current = readConfig(db, 'headless_enforcement') as string | null;
@@ -1114,10 +1124,20 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             const result = writeProjectSandbox({
               projectRoot: sandboxProjectRoot(),
               remoteUrls: knownRemoteUrls(remotes.map((r) => r.url)),
+              toolCacheDir: join(dirname(dbPath), 'cache'),
+              platform: shimEnv.platform ?? process.platform,
               previous: record,
             });
             if (result.record) writeConfig(db, 'sandbox_settings', result.record);
-            sandbox = { written: result.written, ...(result.settings_path ? { settings_path: result.settings_path } : {}), ...(result.allow_write ? { allow_write: result.allow_write } : {}), ...(result.allowed_domains ? { allowed_domains: result.allowed_domains } : {}), ...(result.reason ? { reason: result.reason } : {}) };
+            sandbox = {
+              written: result.written,
+              ...(result.settings_path ? { settings_path: result.settings_path } : {}),
+              ...(result.allow_write ? { allow_write: result.allow_write } : {}),
+              ...(result.allowed_domains ? { allowed_domains: result.allowed_domains } : {}),
+              ...(result.env ? { env: result.env } : {}),
+              ...(result.weaker_network_isolation !== undefined ? { weaker_network_isolation: result.weaker_network_isolation } : {}),
+              ...(result.reason ? { reason: result.reason } : {}),
+            };
           } else {
             const result = removeProjectSandbox({ projectRoot: sandboxProjectRoot(), record });
             if (result.removed) writeConfig(db, 'sandbox_settings', null);

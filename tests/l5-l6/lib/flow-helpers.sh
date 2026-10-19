@@ -87,7 +87,7 @@ l5_preserve_trajectory() {
 # by the L1 auq-shape lint.
 _l5_test_prompt_prefix() {
   cat <<'EOF'
-[TEST MODE] Do not call AskUserQuestion. Apply sensible defaults and continue; where a skill's normal flow is to hold for the Human (e.g. concerns-protocol), record the note and hold — don't push past it. The Human is not in the loop here. TEST MODE does NOT bypass routing hints from PreToolUse / UserPromptSubmit hooks — when a hook injects a `[tmb consultant-spawn enforcement]` or similar enforcement context, follow it exactly as you would in production. The ceremony (e.g. `/tmb:agent-create`) is the test purpose.
+[TEST MODE] Do not call AskUserQuestion. Apply sensible defaults and continue; where a skill's normal flow is to hold for the Human (e.g. concerns-protocol), record the note and hold — don't push past it. The Human is not in the loop here. TEST MODE does NOT bypass routing hints from PreToolUse / UserPromptSubmit hooks — when a hook injects a `[tmb consultant-spawn enforcement]` or similar enforcement context, follow it exactly as you would in production. The ceremony (e.g. `/tmb:agent-create`) is the test purpose. If you run `/onboard`, answer its Bash sandbox question No: pass `sandbox_enforcement: 'no'` to `onboard_apply`.
 
 EOF
 }
@@ -163,6 +163,7 @@ l5_run_claude() {
 #   7. git                  — git-state invariants (opt-in via outcome-git.json) — catches base-branch contamination + worktree-on-wrong-branch
 #   8. usage                — skill/plugin usage from the stream-json run log (opt-in via outcome-usage.json) — replaces skill_invocations (#118/#119)
 #   9. materialized         — on-disk consuming-agent materialization (opt-in via outcome-materialized.json) — proves a targeted cheatcode install copied the agent md + skill header (#95)
+#  10. no_sandbox           — always on: no sandbox block or sandbox_enforcement=yes in the scratch project (TEST MODE pins it to no, GH 1549)
 l5_score_flow() {
   local project="$1" flow="$2" scorer_dir="$3" run_id="$4"
   local total_fail=0
@@ -176,6 +177,7 @@ l5_score_flow() {
   l5_score_git                  "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
   l5_score_usage                "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
   l5_score_materialized         "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
+  l5_score_no_sandbox           "$project" "$flow" "$scorer_dir" "$run_id" || total_fail=$((total_fail + 1))
 
   return "$total_fail"
 }

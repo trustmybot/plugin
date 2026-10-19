@@ -152,6 +152,41 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  sandbox-probe:
+    name: macOS Bash sandbox network probe
+    # Fails when a command that passes on the host fails under /onboard's
+    # sandbox block and isn't in the recorded SANDBOX_NETWORK_PROBE (GH 1549).
+    needs: verdict-check
+    if: ${{ needs.verdict-check.outputs.short_circuit != 'true' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) }}
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install deps
+        run: bun install --frozen-lockfile
+
+      - name: Build dist
+        run: bun run build
+
+      - name: Install Claude Code CLI
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude --version
+
+      - name: Run sandbox network probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tests/l5-l6/probes/sandbox-network-probe.sh --check-recorded
+
   install-smoke:
     name: L0 docker install-smoke
     # L0 docker smoke stays release-only; PR gate is L1–L4 (run-all.sh).

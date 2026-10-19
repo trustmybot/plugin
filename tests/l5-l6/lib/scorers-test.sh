@@ -214,6 +214,25 @@ l5_score_trajectory_required "$P" "test" "$FD" "run-tr9" >/dev/null 2>&1
 assert_exit 0 $? "pre-step DB with a closed task and a swe run, neither tool called → pass"
 rm -rf "$P" "$FD"
 
+# ---- no_sandbox scorer (GH 1549) ------------------------------------------
+
+echo "== no_sandbox: TEST MODE pins the sandbox answer to no =="
+P=$(mk_project) && FD=$(mk_flow_dir)
+l5_score_no_sandbox "$P" "test" "$FD" "run-ns1" >/dev/null 2>&1
+assert_exit 0 $? "no settings.local.json, no answer → pass"
+sqlite3 "$P/.claude/tmb/trajectory.db" "INSERT INTO plugin_config (key, value_json) VALUES ('sandbox_enforcement', '\"no\"');"
+echo '{"permissions":{"allow":["Bash"]}}' > "$P/.claude/settings.local.json"
+l5_score_no_sandbox "$P" "test" "$FD" "run-ns2" >/dev/null 2>&1
+assert_exit 0 $? "settings without a sandbox block, answer no → pass"
+echo '{"sandbox":{"enabled":true}}' > "$P/.claude/settings.local.json"
+l5_score_no_sandbox "$P" "test" "$FD" "run-ns3" >/dev/null 2>&1
+assert_exit 1 $? "sandbox block present → fail"
+echo '{}' > "$P/.claude/settings.local.json"
+sqlite3 "$P/.claude/tmb/trajectory.db" "UPDATE plugin_config SET value_json = '\"yes\"' WHERE key = 'sandbox_enforcement';"
+l5_score_no_sandbox "$P" "test" "$FD" "run-ns4" >/dev/null 2>&1
+assert_exit 1 $? "sandbox_enforcement = yes → fail"
+rm -rf "$P" "$FD"
+
 # ---- summary --------------------------------------------------------------
 
 echo

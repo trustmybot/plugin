@@ -698,3 +698,29 @@ l5_score_materialized() {
     return 1
   fi
 }
+
+# l5_score_no_sandbox <project_dir> <flow> <scorer_dir> <run_id>
+# TEST MODE pins /onboard's sandbox answer to no (GH 1549): a sandbox block in
+# the project's .claude/settings.local.json, or a stored sandbox_enforcement of
+# yes, means the default leaked into a scratch project. Always on.
+l5_score_no_sandbox() {
+  local project="$1" flow="$2" run_id="$4"
+  local db="$project/.claude/tmb/trajectory.db"
+  local settings="$project/.claude/settings.local.json"
+  local found=""
+
+  if [ -f "$settings" ] && jq -e 'has("sandbox")' "$settings" >/dev/null 2>&1; then
+    found="sandbox block in .claude/settings.local.json"
+  fi
+  if [ -f "$db" ] && [ "$(sqlite3 "$db" "SELECT value_json FROM plugin_config WHERE key = 'sandbox_enforcement';" 2>/dev/null)" = '"yes"' ]; then
+    found="${found:+$found; }sandbox_enforcement = yes"
+  fi
+
+  if [ -z "$found" ]; then
+    echo "  ✓ no_sandbox: no sandbox block"
+    return 0
+  fi
+  echo "  ✗ no_sandbox: $found (TEST MODE pins the sandbox answer to no)" >&2
+  l5_record_score "$db" "$run_id" "$flow" "no_sandbox" 0 "present" "$found"
+  return 1
+}
