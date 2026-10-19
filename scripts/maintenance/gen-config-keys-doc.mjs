@@ -68,7 +68,7 @@ export const KEYS = [
   },
   {
     name: 'sandbox_settings',
-    type: 'object: `{enabled_set, allow_write, allowed_domains}`',
+    type: 'object: `{enabled_set, allow_write, allowed_domains, weaker_network_isolation_set, env}`',
     defaultText: 'unset',
     setBy: '`onboard_apply`',
     effect: 'Records exactly what TMB added to the sandbox block, so answering `no` removes only that.',

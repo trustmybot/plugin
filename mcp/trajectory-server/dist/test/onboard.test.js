@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { onboardTools } from '../tools/onboard.js';
 import { tempDB } from './helpers.js';
 import { repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
-import { isSshRemote, removeProjectSandbox, SANDBOX_NETWORK_PROBE, sandboxRecommended, TMB_ALLOWED_DOMAINS, } from '../tools/onboard-sandbox.js';
+import { isSshRemote, removeProjectSandbox, SANDBOX_NETWORK_PROBE, sandboxRecommended, sandboxToolEnv, TMB_ALLOWED_DOMAINS, } from '../tools/onboard-sandbox.js';
 // No onboard test may reach the real ~/.claude: HOME is a fresh temp dir and no
 // inherited plugin root survives, so os.homedir() and resolvePluginRoot() land
 // in a sandbox even for apply calls that pass no shim environment.
@@ -919,13 +919,14 @@ describe('onboard tools', () => {
             mkdirSync(proj);
             return { base, proj, dbPath: join(proj, '.claude', 'tmb', 'trajectory.db'), settings: join(proj, '.claude', 'settings.local.json') };
         }
-        it('round=sandbox returns one question, default No', async () => {
+        it('round=sandbox returns one question, default No off the probed platform', async () => {
             const db = tempDB();
             const { base, dbPath } = project();
-            const data = parse(await call(onboardTools(db, dbPath).handlers, 'onboard_get_questions', { round: 'sandbox' }));
+            const data = parse(await call(onboardTools(db, dbPath, { platform: 'linux' }).handlers, 'onboard_get_questions', { round: 'sandbox' }));
             const q = data.questions[0];
             assert.equal(q.header, 'Sandbox');
             assert.equal(q.options[q.default_index].wire, 'no');
+            assert.ok(!q.options.some((o) => /Recommended/.test(o.label)));
             rmSync(base, { recursive: true, force: true });
             db.close();
         });
@@ -943,7 +944,7 @@ describe('onboard tools', () => {
             const { base, proj, dbPath, settings } = project();
             mkdirSync(join(proj, '.claude'), { recursive: true });
             writeFileSync(settings, JSON.stringify({ model: 'x', sandbox: { filesystem: { allowWrite: ['/user/own'] } } }));
-            const tools = onboardTools(db, dbPath);
+            const tools = onboardTools(db, dbPath, { platform: 'darwin' });
             const data = parse(await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'yes' }));
             const applied = data.applied;
             assert.equal(applied.sandbox_enforcement, 'yes');
@@ -953,6 +954,17 @@ describe('onboard tools', () => {
             assert.equal(written.sandbox.filesystem.allowWrite[0], '/user/own', 'the user entry is kept first');
             assert.ok(written.sandbox.filesystem.allowWrite.includes(proj), 'the project is writable');
             assert.equal(written.sandbox.filesystem.allowWrite.length, 3, 'project + model cache added');
+            assert.equal(written.sandbox.enableWeakerNetworkIsolation, true, 'macOS: gh can reach the TLS trust service');
+            assert.deepEqual(written.env, {
+                npm_config_cache: join(proj, '.claude', 'tmb', 'cache', 'npm'),
+                BUN_INSTALL_CACHE_DIR: join(proj, '.claude', 'tmb', 'cache', 'bun'),
+            });
+            for (const value of Object.values(written.env)) {
+                assert.ok(value.startsWith(proj + '/'), `${value} is inside the project`);
+            }
+            const sandboxResult = applied.sandbox;
+            assert.deepEqual(sandboxResult.env, written.env);
+            assert.equal(sandboxResult.weaker_network_isolation, true);
             await call(tools.handlers, 'onboard_apply', { shape: 'local' });
             assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), written, 'a re-apply keeps the stored yes and is idempotent');
             await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'No' });
@@ -961,6 +973,65 @@ describe('onboard tools', () => {
             assert.equal(state.current.sandbox_enforcement, 'no');
             rmSync(base, { recursive: true, force: true });
             db.close();
+        });
+        it('on linux the block carries the cache env but not the macOS-only enableWeakerNetworkIsolation', async () => {
+            const db = tempDB();
+            const { base, proj, dbPath, settings } = project();
+            const tools = onboardTools(db, dbPath, { platform: 'linux' });
+            await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'yes' });
+            const written = JSON.parse(readFileSync(settings, 'utf8'));
+            assert.equal(written.sandbox.enableWeakerNetworkIsolation, undefined);
+            assert.deepEqual(written.env, sandboxToolEnv(join(proj, '.claude', 'tmb', 'cache')));
+            await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'no' });
+            assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), {}, 'no leaves nothing TMB wrote');
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it("yes keeps the user's env values and enableWeakerNetworkIsolation; no removes only TMB's", async () => {
+            const db = tempDB();
+            const { base, proj, dbPath, settings } = project();
+            mkdirSync(join(proj, '.claude'), { recursive: true });
+            const user = {
+                env: { npm_config_cache: '/user/npm-cache', FOO: 'bar' },
+                sandbox: { enableWeakerNetworkIsolation: false },
+            };
+            writeFileSync(settings, JSON.stringify(user));
+            const tools = onboardTools(db, dbPath, { platform: 'darwin' });
+            await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'yes' });
+            const written = JSON.parse(readFileSync(settings, 'utf8'));
+            assert.equal(written.env.npm_config_cache, '/user/npm-cache', "the user's npm cache is kept");
+            assert.equal(written.env.FOO, 'bar');
+            assert.equal(written.env.BUN_INSTALL_CACHE_DIR, join(proj, '.claude', 'tmb', 'cache', 'bun'));
+            assert.equal(written.sandbox.enableWeakerNetworkIsolation, false, "the user's explicit false is kept");
+            const record = sandboxRecord(db);
+            assert.deepEqual(record.env, { BUN_INSTALL_CACHE_DIR: join(proj, '.claude', 'tmb', 'cache', 'bun') });
+            assert.equal(record.weaker_network_isolation_set, false);
+            await call(tools.handlers, 'onboard_apply', { shape: 'local' });
+            assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), written, 'a re-apply is idempotent');
+            await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'no' });
+            assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), user, 'no leaves exactly the user settings');
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('no keeps an env value the user changed after TMB wrote it', () => {
+            const { base, proj, settings } = project();
+            mkdirSync(join(proj, '.claude'), { recursive: true });
+            writeFileSync(settings, JSON.stringify({
+                sandbox: { enabled: true, enableWeakerNetworkIsolation: true },
+                env: { npm_config_cache: '/edited', BUN_INSTALL_CACHE_DIR: '/tmb/bun' },
+            }));
+            const result = removeProjectSandbox({
+                projectRoot: proj,
+                record: {
+                    enabled_set: true,
+                    allow_write: [],
+                    weaker_network_isolation_set: true,
+                    env: { npm_config_cache: '/tmb/npm', BUN_INSTALL_CACHE_DIR: '/tmb/bun' },
+                },
+            });
+            assert.equal(result.removed, true);
+            assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), { env: { npm_config_cache: '/edited' } });
+            rmSync(base, { recursive: true, force: true });
         });
         it('writes nothing without a project derived from the DB path', async () => {
             const db = tempDB();
@@ -988,7 +1059,7 @@ describe('onboard tools', () => {
                 sandbox: { excludedCommands: ['docker'], network: { allowedDomains: ['example.org', 'github.com'] } },
             };
             writeFileSync(settings, JSON.stringify(user));
-            const tools = onboardTools(db, dbPath);
+            const tools = onboardTools(db, dbPath, { platform: 'darwin' });
             const data = parse(await call(tools.handlers, 'onboard_apply', {
                 shape: 'remote',
                 branching_model: 'github-flow',
@@ -1034,22 +1105,40 @@ describe('onboard tools', () => {
             rmSync(base, { recursive: true, force: true });
             db.close();
         });
-        it('the fresh default follows the recorded probe: B failed a command, so No', async () => {
-            assert.deepEqual([...SANDBOX_NETWORK_PROBE.failed], ['gh api user --jq .login', 'npm view is-number version', 'bun add is-number']);
+        it('the recorded probe names its platform, CC version and date', () => {
+            assert.equal(SANDBOX_NETWORK_PROBE.platform, 'darwin');
+            assert.match(SANDBOX_NETWORK_PROBE.cc_version, /^\d+\.\d+\.\d+$/);
+            assert.match(SANDBOX_NETWORK_PROBE.date, /^\d{4}-\d{2}-\d{2}$/);
+            assert.deepEqual([...SANDBOX_NETWORK_PROBE.failed], []);
+        });
+        it('the fresh default on the probed platform with an HTTPS remote is Yes (Recommended)', async () => {
             const db = tempDB();
             const { base, dbPath } = gitProject('https://github.com/acme/app.git');
-            const data = parse(await call(onboardTools(db, dbPath).handlers, 'onboard_get_questions', { round: 'sandbox' }));
+            const tools = onboardTools(db, dbPath, { platform: SANDBOX_NETWORK_PROBE.platform });
+            const data = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'sandbox' }));
             const q = data.questions[0];
-            assert.equal(q.options[q.default_index].wire, SANDBOX_NETWORK_PROBE.failed.length === 0 ? 'yes' : 'no');
+            assert.equal(q.options[q.default_index].wire, 'yes');
+            assert.equal(q.options[q.default_index].label, 'Yes (Recommended)');
+            assert.match(q.options[q.default_index].description, /gh needs macOS's TLS trust service, which slightly weakens isolation/);
+            rmSync(base, { recursive: true, force: true });
+            db.close();
+        });
+        it('the fresh default on linux with an HTTPS remote stays No', async () => {
+            const db = tempDB();
+            const { base, dbPath } = gitProject('https://github.com/acme/app.git');
+            const data = parse(await call(onboardTools(db, dbPath, { platform: 'linux' }).handlers, 'onboard_get_questions', { round: 'sandbox' }));
+            const q = data.questions[0];
             assert.equal(q.options[q.default_index].wire, 'no');
             assert.ok(!q.options.some((o) => /Recommended/.test(o.label)));
+            assert.doesNotMatch(q.options.find((o) => o.wire === 'yes').description, /trust service/);
             rmSync(base, { recursive: true, force: true });
             db.close();
         });
         it('an SSH remote keeps the fresh default at No and the Yes option says why', async () => {
             const db = tempDB();
             const { base, dbPath } = gitProject('git@github.com:acme/app.git');
-            const data = parse(await call(onboardTools(db, dbPath).handlers, 'onboard_get_questions', { round: 'sandbox' }));
+            const tools = onboardTools(db, dbPath, { platform: SANDBOX_NETWORK_PROBE.platform });
+            const data = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'sandbox' }));
             const q = data.questions[0];
             assert.equal(q.options[q.default_index].wire, 'no');
             assert.match(q.options.find((o) => o.wire === 'yes').description, /Git over SSH bypasses the sandbox proxy/);
@@ -1067,12 +1156,16 @@ describe('onboard tools', () => {
             rmSync(base, { recursive: true, force: true });
             db.close();
         });
-        it('sandboxRecommended: yes only when the probe passed and no remote is SSH', () => {
-            assert.equal(sandboxRecommended(['https://github.com/a/b.git'], []), true);
-            assert.equal(sandboxRecommended([], []), true);
-            assert.equal(sandboxRecommended(['git@github.com:a/b.git'], []), false);
-            assert.equal(sandboxRecommended(['ssh://git@github.com/a/b.git'], []), false);
-            assert.equal(sandboxRecommended(['https://github.com/a/b.git'], ['bun add is-number']), false);
+        it('sandboxRecommended: yes only on the probed platform, when the probe passed and no remote is SSH', () => {
+            const passed = { platform: 'darwin', failed: [] };
+            assert.equal(sandboxRecommended(['https://github.com/a/b.git'], 'darwin', passed), true);
+            assert.equal(sandboxRecommended([], 'darwin', passed), true);
+            assert.equal(sandboxRecommended(['https://github.com/a/b.git'], 'linux', passed), false);
+            assert.equal(sandboxRecommended(['https://github.com/a/b.git'], 'win32', passed), false);
+            assert.equal(sandboxRecommended(['git@github.com:a/b.git'], 'darwin', passed), false);
+            assert.equal(sandboxRecommended(['ssh://git@github.com/a/b.git'], 'darwin', passed), false);
+            assert.equal(sandboxRecommended(['https://github.com/a/b.git'], 'darwin', { platform: 'darwin', failed: ['bun add is-number'] }), false);
+            assert.equal(sandboxRecommended(['https://github.com/a/b.git']), process.platform === SANDBOX_NETWORK_PROBE.platform);
             assert.equal(isSshRemote('https://github.com/a/b.git'), false);
         });
         it('a record from before GH 1252 (no allowed_domains) still removes cleanly', () => {

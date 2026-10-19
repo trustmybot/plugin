@@ -7,19 +7,23 @@
 // `sandbox.network.allowedDomains`. On yes, /onboard merges
 //
 //   { "sandbox": { "enabled": true,
+//                  "enableWeakerNetworkIsolation": true,            (macOS only)
 //                  "filesystem": { "allowWrite": [<project>, <model cache>] },
-//                  "network": { "allowedDomains": [<TMB's hosts>, <HTTPS remote hosts>] } } }
+//                  "network": { "allowedDomains": [<TMB's hosts>, <HTTPS remote hosts>] } },
+//     "env": { "npm_config_cache": <plugin state dir>/cache/npm,
+//              "BUN_INSTALL_CACHE_DIR": <plugin state dir>/cache/bun } }
 //
 // into <project>/.claude/settings.local.json, keeping every other key and
-// every allowWrite path and domain already there. It never writes
+// every allowWrite path, domain and env value already there. It never writes
 // `excludedCommands`. What it added is returned as a record (stored in
 // plugin_config.sandbox_settings) so answering no removes exactly that —
-// never a key, path or domain the user set.
+// never a key, path, domain or env value the user set.
 
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { TMB_MODEL_CACHE_DIR } from '../embeddings/model.js';
 import { serverLog } from '../logger.js';
+import { resolveClaudePluginName } from '../platform.js';
 
 export interface SandboxRecord {
   /** True when TMB set sandbox.enabled (it was absent before). */
@@ -28,6 +32,10 @@ export interface SandboxRecord {
   readonly allow_write: readonly string[];
   /** The network.allowedDomains entries TMB added (absent before). Missing in records written before GH 1252. */
   readonly allowed_domains?: readonly string[];
+  /** True when TMB set sandbox.enableWeakerNetworkIsolation (absent before). Missing in records written before GH 1549. */
+  readonly weaker_network_isolation_set?: boolean;
+  /** The top-level env entries TMB added (absent before), name → value. Missing in records written before GH 1549. */
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 export interface SandboxWriteResult {
@@ -35,6 +43,8 @@ export interface SandboxWriteResult {
   readonly settings_path?: string;
   readonly allow_write?: readonly string[];
   readonly allowed_domains?: readonly string[];
+  readonly env?: Readonly<Record<string, string>>;
+  readonly weaker_network_isolation?: boolean;
   readonly record?: SandboxRecord;
   readonly reason?: string;
 }
@@ -93,16 +103,24 @@ export const TMB_ALLOWED_DOMAINS: readonly string[] = [
   'registry.npmjs.org',
 ];
 
+export interface SandboxProbe {
+  readonly cc_version: string;
+  readonly date: string;
+  /** The `process.platform` the probe ran on; the recommendation holds only there. */
+  readonly platform: NodeJS.Platform;
+  /** The setup-B commands that failed while passing on the host. */
+  readonly failed: readonly string[];
+}
+
 /**
- * The last run of tests/l5-l6/probes/sandbox-network-probe.sh: the setup-B
- * commands (filesystem block + allow-list) that failed. Each failure is local
- * to the sandbox, not a missing host: gh cannot reach the macOS TLS trust
- * service, npm cannot write its ~/.npm cache, bun cannot open its temp dir.
+ * The last run of tests/l5-l6/probes/sandbox-network-probe.sh, whose setup B
+ * is the block writeProjectSandbox writes. Hand-recorded from its output.
  */
-export const SANDBOX_NETWORK_PROBE: { readonly cc_version: string; readonly date: string; readonly failed: readonly string[] } = {
+export const SANDBOX_NETWORK_PROBE: SandboxProbe = {
   cc_version: '2.1.303',
-  date: '2026-10-18',
-  failed: ['gh api user --jq .login', 'npm view is-number version', 'bun add is-number'],
+  date: '2026-10-19',
+  platform: 'darwin',
+  failed: [],
 };
 
 /** Git over SSH bypasses the sandbox's network proxy. */
@@ -125,12 +143,30 @@ export function sandboxAllowedDomains(remoteUrls: readonly string[]): string[] {
   return [...new Set([...TMB_ALLOWED_DOMAINS, ...hosts])];
 }
 
-/** A fresh onboard recommends yes only when the probe passed every command and no remote is SSH. */
+/**
+ * A fresh onboard recommends yes only on the platform the probe ran on, when
+ * it passed every command, and when no remote is SSH.
+ */
 export function sandboxRecommended(
   remoteUrls: readonly string[],
-  probeFailed: readonly string[] = SANDBOX_NETWORK_PROBE.failed,
+  platform: NodeJS.Platform = process.platform,
+  probe: Pick<SandboxProbe, 'platform' | 'failed'> = SANDBOX_NETWORK_PROBE,
 ): boolean {
-  return probeFailed.length === 0 && !remoteUrls.some(isSshRemote);
+  return platform === probe.platform && probe.failed.length === 0 && !remoteUrls.some(isSshRemote);
+}
+
+/** Where sandboxed npm and bun keep their caches: inside the project, which the sandbox lets Bash write. */
+export function sandboxToolCacheDir(projectRoot: string): string {
+  return join(projectRoot, '.claude', resolveClaudePluginName(), 'cache');
+}
+
+/**
+ * The env the block sets so npm and bun cache inside the project: the sandbox
+ * denies writes to ~/.npm, and bun needs its temp dir on the same volume as
+ * a writable install cache.
+ */
+export function sandboxToolEnv(toolCacheDir: string): Record<string, string> {
+  return { npm_config_cache: join(toolCacheDir, 'npm'), BUN_INSTALL_CACHE_DIR: join(toolCacheDir, 'bun') };
 }
 
 function stringList(v: unknown): string[] {
@@ -146,6 +182,8 @@ export function writeProjectSandbox(opts: {
   projectRoot: string | null;
   cacheDir?: string;
   remoteUrls?: readonly string[];
+  toolCacheDir?: string;
+  platform?: NodeJS.Platform;
   previous: SandboxRecord | null;
 }): SandboxWriteResult {
   if (!projectUsable(opts.projectRoot)) {
@@ -158,6 +196,11 @@ export function writeProjectSandbox(opts: {
     return { written: false, reason: read.reason };
   }
   const settings = read.settings;
+  if (settings['env'] !== undefined && !isObject(settings['env'])) {
+    const reason = 'existing settings.local.json env is not a JSON object';
+    serverLog({ event: 'onboard_sandbox_skip', reason });
+    return { written: false, reason };
+  }
   const sandbox: Json = isObject(settings['sandbox']) ? (settings['sandbox'] as Json) : {};
   const filesystem: Json = isObject(sandbox['filesystem']) ? (sandbox['filesystem'] as Json) : {};
   const existing = stringList(filesystem['allowWrite']);
@@ -174,21 +217,56 @@ export function writeProjectSandbox(opts: {
   );
   const addedDomains = wantedDomains.filter((d) => !existingDomains.includes(d) || ownedDomainsBefore.has(d));
 
+  const env: Json = isObject(settings['env']) ? (settings['env'] as Json) : {};
+  const wantedEnv = sandboxToolEnv(opts.toolCacheDir ?? sandboxToolCacheDir(opts.projectRoot));
+  const ownedEnvBefore = opts.previous?.env ?? {};
+  for (const [name, value] of Object.entries(ownedEnvBefore)) {
+    if (!(name in wantedEnv) && env[name] === value) delete env[name];
+  }
+  const addedEnv: Record<string, string> = {};
+  for (const [name, value] of Object.entries(wantedEnv)) {
+    if (env[name] === undefined || env[name] === ownedEnvBefore[name]) {
+      env[name] = value;
+      addedEnv[name] = value;
+    }
+  }
+
+  const weaker = (opts.platform ?? process.platform) === 'darwin';
+  const weakerOwnedBefore = opts.previous?.weaker_network_isolation_set === true;
+  const weakerSet = weaker && (sandbox['enableWeakerNetworkIsolation'] === undefined || weakerOwnedBefore);
+  if (weakerSet) sandbox['enableWeakerNetworkIsolation'] = true;
+  else if (!weaker && weakerOwnedBefore) delete sandbox['enableWeakerNetworkIsolation'];
+
   if (sandbox['enabled'] === undefined) sandbox['enabled'] = true;
   filesystem['allowWrite'] = [...existing, ...wanted.filter((p) => !existing.includes(p))];
   sandbox['filesystem'] = filesystem;
   network['allowedDomains'] = [...existingDomains, ...wantedDomains.filter((d) => !existingDomains.includes(d))];
   sandbox['network'] = network;
   settings['sandbox'] = sandbox;
+  settings['env'] = env;
 
   const failure = writeSettings(path, settings);
   if (failure) {
     serverLog({ event: 'onboard_sandbox_skip', reason: failure });
     return { written: false, reason: failure };
   }
-  const record: SandboxRecord = { enabled_set: enabledSet, allow_write: added, allowed_domains: addedDomains };
-  serverLog({ event: 'onboard_sandbox_written', settingsPath: path, allowWrite: wanted, allowedDomains: wantedDomains });
-  return { written: true, settings_path: path, allow_write: wanted, allowed_domains: wantedDomains, record };
+  const record: SandboxRecord = {
+    enabled_set: enabledSet,
+    allow_write: added,
+    allowed_domains: addedDomains,
+    weaker_network_isolation_set: weakerSet,
+    env: addedEnv,
+  };
+  serverLog({ event: 'onboard_sandbox_written', settingsPath: path, allowWrite: wanted, allowedDomains: wantedDomains, env: wantedEnv });
+  return {
+    written: true,
+    settings_path: path,
+    allow_write: wanted,
+    allowed_domains: wantedDomains,
+    env: wantedEnv,
+    weaker_network_isolation: sandbox['enableWeakerNetworkIsolation'] === true,
+    record,
+  };
 }
 
 export function removeProjectSandbox(opts: {
@@ -225,7 +303,15 @@ export function removeProjectSandbox(opts: {
     if (Object.keys(network).length === 0) delete sandbox['network'];
   }
   if (opts.record.enabled_set) delete sandbox['enabled'];
+  if (opts.record.weaker_network_isolation_set) delete sandbox['enableWeakerNetworkIsolation'];
   if (Object.keys(sandbox).length === 0) delete settings['sandbox'];
+  if (isObject(settings['env'])) {
+    const env = settings['env'] as Json;
+    for (const [name, value] of Object.entries(opts.record.env ?? {})) {
+      if (env[name] === value) delete env[name];
+    }
+    if (Object.keys(env).length === 0) delete settings['env'];
+  }
 
   const failure = writeSettings(path, settings);
   if (failure) return { removed: false, reason: failure };
