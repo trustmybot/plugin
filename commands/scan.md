@@ -1,5 +1,5 @@
 ---
-description: Populate the world model — a kuzu graph of the project's directories — by walking the session dir for git repos and pulling each dir's README.md into a summary. Single phase — no background fill required for the primary navigation surface.
+description: Populate the world model — a kuzu graph of the project's directories — by walking the project root for git repos and pulling each dir's README.md into a summary. Single phase — no background fill required for the primary navigation surface.
 argument-hint: (none)
 allowed-tools: mcp__plugin_tmb_trajectory-server__scan_run
 ---

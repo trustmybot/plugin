@@ -69,7 +69,7 @@ Approval is a hard gate: `cheatcode_approve` records the per-candidate Human app
 
 Once approved, `cheatcode_install` runs the marketplace/MCP path (no seed/copy), idempotent on (name, source_url), recording the `cheatcodes` row + attachments + audit in one transaction. It materializes the attachment IN THE USER PROJECT (never the plugin repo):
 
-- **skill** (or skill-contributing plugin): `target=bro` adds a reference to `.claude/CLAUDE.md`; any other target copies the global `agents/<target>.md` into `.claude/agents/<target>.md` (if absent) and adds the name to its `skills:` frontmatter. A skill with no resolved target is hard-rejected — no orphan can land.
+- **skill** (or skill-contributing plugin): `target=bro` adds a reference to `<project>/.claude/CLAUDE.md`; any other target copies the global `agents/<target>.md` into `<project>/.claude/agents/<target>.md` (if absent) and adds the name to its `skills:` frontmatter. A skill with no resolved target is hard-rejected — no orphan can land.
 - **mcp / pure-server plugin**: its registration IS its attachment — no target, no `skills:` entry needed.
 
 Then `cheatcode_activate`: a skill is usable in-session immediately; an MCP/plugin returns `restart_required` and loads on the next cold start.

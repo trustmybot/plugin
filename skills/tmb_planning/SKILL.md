@@ -110,7 +110,7 @@ The Agent PreToolUse gates enforce a spawn contract:
 
 Verify, close and review each task as it returns; a task's close waits on nothing but its own review.
 
-After SWE returns `status=completed`, pull the work (`task_brief` plus a `git diff` of the commit) and judge it against the spec on four counts:
+After SWE returns `status=completed`, pull the work (`task_brief` plus a `git -C <repo path> diff` of the commit, the repo path from `repos_list`) and judge it against the spec on four counts:
 
 1. Every changed path outside `files[]` is one the swe reported with a reason you accept. `bro_atomic_close` refuses the close and lists the extras grouped by surface; it closes on a retry with `waive_scope_gate: true` and a `scope_waiver_reason` of at least 10 characters, and afterwards `task_brief.scope` carries `extras_accepted` and `base_moved`.
 2. `task_brief.verification_run` holds the gate's recorded run for this `commit_sha` with `exit_code` 0 and `timed_out` false. The gate reuses a passing run for the same task and commit, so a reused run is normal.
