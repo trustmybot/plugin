@@ -6,6 +6,8 @@ model: opus
 effort: high
 tools: Read, Glob, Grep, Bash, Task, mcp__plugin_tmb_trajectory-server__task_brief, mcp__plugin_tmb_trajectory-server__validation_record, mcp__plugin_tmb_trajectory-server__discussion_search, mcp__plugin_tmb_trajectory-server__audit_search, mcp__plugin_tmb_trajectory-server__validation_history, mcp__plugin_tmb_trajectory-server__issue_get_with_discussions, mcp__plugin_tmb_trajectory-server__task_get, mcp__plugin_tmb_trajectory-server__discussion_list, mcp__plugin_tmb_trajectory-server__audit_list, mcp__plugin_tmb_trajectory-server__pr_monitor_worktree
 skills: [tmb_review]
+experimental:
+  cacheTtl: 5m
 ---
 
 # PR Reviewer — Push Gate

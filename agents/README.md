@@ -9,7 +9,7 @@ The plugin's shipped subagents — the roles bro dispatches a code-touching task
 | `swe.md` | Executor — implements one task spec in an isolated git worktree, then closes it atomically. Every production code change routes through swe. | Read/Glob/Grep/Bash/Write/Edit plus `task_brief` + `task_update_status`; attached skills `tmb_swe-checklist`, `tmb_docs-conventions`. |
 | `pr-reviewer.md` | Push gate — independently reviews a committed task against its spec and records the `validation_record` verdict that gates the push. Read-only on files by design (no Write/Edit). | Read/Glob/Grep/Bash/Task plus the review + audit MCP tools; attached skill `tmb_review`. |
 
-Both carry `tmb_owner: bro` in frontmatter, marking them plugin-managed.
+Both carry `tmb_owner: bro` in frontmatter, marking them plugin-managed. Each also declares its Claude Code subagent prompt-cache TTL under `experimental.cacheTtl`: `1h` for swe, which idles through multi-minute builds and test suites, and `5m` for pr-reviewer; a user's `subagentPromptCacheTtl` setting or env var still overrides it.
 
 ## Consultants
 

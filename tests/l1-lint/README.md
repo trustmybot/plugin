@@ -37,6 +37,7 @@ bash tests/l1-lint/link-check.sh
 | Script | Catches |
 |---|---|
 | [`agent-line-budget.sh`](./agent-line-budget.sh) | Agent prompt files over their line cap |
+| [`agent-cache-ttl.sh`](./agent-cache-ttl.sh) | A shipped agent or agent template whose frontmatter lacks `experimental.cacheTtl`, has a value other than `1h` or `5m`, or gives `swe` anything but `1h`; takes an optional plugin-root argument, and `fixtures/agent-cache-ttl/` holds the failure cases |
 | [`agent-task-brief-contract.sh`](./agent-task-brief-contract.sh) | Agent/task-brief contract drift |
 | [`agent-template-byte-identity.sh`](./agent-template-byte-identity.sh) | Shipped vs template agent byte mismatch |
 | [`command-frontmatter.sh`](./command-frontmatter.sh) | Malformed command frontmatter |

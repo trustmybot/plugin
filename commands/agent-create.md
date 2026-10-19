@@ -35,6 +35,10 @@ If the user wants a consultant that writes source code, warn:
 
 If they confirm, add `isolation: worktree` to frontmatter and `Write, Edit` to tools.
 
+## Prompt-cache TTL
+
+Every agent written by template-copy or from-scratch keeps the `experimental:` / `  cacheTtl:` block as the last frontmatter key. Use `5m` by default; choose `1h` only for an agent expected to run multi-minute commands (builds, full test suites) between turns.
+
 ## Post-create reminder
 
 After creation completes, emit (interactive only):
