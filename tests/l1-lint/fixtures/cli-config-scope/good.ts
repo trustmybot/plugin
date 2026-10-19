@@ -16,3 +16,14 @@ const h = runClaude(['mcp', 'list'], t);
 const i = runClaude(['plugin', 'marketplace', 'list', '--json'], t);
 const j = runClaude(['mcp', 'get', name], t);
 const kind: 'plugin' | 'mcp' = 'plugin';
+const k = runClaude(['plugin', 'install', ref, '-s', 'project'], t);
+const l = runClaude(['plugin', sub, name, '--scope', 'project'], t);
+const m = runClaude(['--debug', 'mcp', 'remove', name, '-s', 'project'], t);
+const n = runClaude(['plugin', 'details', name], t);
+const o = runClaude(['plugin', 'validate', dir], t);
+const p = 'a # b'; execSync(`claude plugin install ${ref} --scope project`);
+const q = 'https://example.com'; // claude mcp remove x in a trailing comment
+/* claude mcp remove x in a block comment */
+const kinds = ['skill', 'mcp', 'plugin'];
+const r = execSync(`${claudeBin} mcp remove ${name} --scope project`);
+const s = runClaude(['plugin', 'install', ref, '--scope', 'user', '--scope=project'], t);
