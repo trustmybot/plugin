@@ -221,6 +221,13 @@ These don't appear in the chain manifest. They test isolated behaviours that don
 | `01.01-anonymous-cold-restart` | Anonymous session cold-restart regression |
 | `05.07-halt-on-error` | Halt-on-error doctrine |
 | `12.02-consultant-ad-hoc` | Ad-hoc consultant (architect) ask |
+| `16-concurrent-tasks` | Two independent tasks dispatched concurrently in one turn |
+| `17-audit-request` | `tmb_audit` tests an invariant against live data first |
+| `18-spec-shape-gate` | `Writer:` + `Populated:` spec contract for a schema change |
+| `19-review-fail-rework` | Failed review reworked via `task_reopen` in the same worktree |
+| `20-containment-recovery` | Recovery from a `/tmp` write denied by the containment guard |
+| `21-move-milestone` | Issue re-triaged to the next milestone at low priority |
+| `22-onboard-persona` | `/tmb:onboard` leaves an existing `CLAUDE.md` untouched |
 | `02.02-reonboard-redirect` | Reonboard routing redirect |
 | `13.01-roundtable-routing-redirect` | Roundtable routing redirect |
 | `05.08-skill-register-on-creation` | Skill auto-register on creation |
