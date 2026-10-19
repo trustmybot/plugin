@@ -111,7 +111,8 @@ _batch_md5() {
   # xargs: -0 NUL-delimited (paths may contain spaces), -P4 parallel workers,
   # -n50 files per invocation.
   # BSD/GNU both produce "hash path" (md5 -r) or "hash  path" (md5sum).
-  # awk flips to "path\thash".
+  # awk flips to "path\thash". MD5_CMD ("md5 -r") splits into command + flag.
+  # shellcheck disable=SC2086
   while IFS= read -r p; do printf '%s\0' "$p"; done < "$abs_list_file" \
   | xargs -0 -P4 -n50 $MD5_CMD 2>/dev/null \
   | awk '{hash=$1; sub(/^[^ ]+ +/,""); print $0 "\t" hash}'
@@ -140,11 +141,47 @@ _batch_stat() {
   esac
 }
 
+# One scan_skipped audit row per skipped path and reason; a re-scan that skips
+# the same path writes nothing. Best-effort: no DB or no audit table, no row.
+_audit_skip() {
+  local path="$1" reason="$2" db content
+  # shellcheck source=scripts/hooks/lib/db-write.sh
+  . "$SCRIPT_DIR/hooks/lib/db-write.sh" 2>/dev/null || return 0
+  tmb_have_sqlite || return 0
+  db=$(tmb_db_path 2>/dev/null) || return 0
+  [ -n "$(tmb_sqlite_ro "$db" "SELECT name FROM sqlite_master WHERE type='table' AND name='audit';")" ] || return 0
+  content=$(jq -nc --arg path "$path" --arg reason "$reason" '{path:$path,reason:$reason}')
+  tmb_audit_append "$db" -1 '' "hook:scan" "scan_skipped" "$path: skipped ($reason)" "$content" '$.path' '$.reason'
+}
+
+# The reason a discovered repo below SESSION_DIR is left out of the scan, or
+# nothing when it is scanned: dot_dir (a dot-prefixed path segment below
+# SESSION_DIR), git_ignored (the nearest enclosing repo up to SESSION_DIR
+# ignores it) or no_commits (no HEAD commit).
+_skip_reason() {
+  local repo="$1" rel="${1#"$SESSION_DIR"/}" enclosing
+  case "/$rel" in
+    */.*) echo dot_dir; return ;;
+  esac
+  enclosing=$(dirname "$repo")
+  while :; do
+    if [ -e "$enclosing/.git" ]; then
+      git -C "$enclosing" check-ignore -q "$repo" 2>/dev/null && { echo git_ignored; return; }
+      break
+    fi
+    [ "$enclosing" = "$SESSION_DIR" ] && break
+    enclosing=$(dirname "$enclosing")
+  done
+  git -C "$repo" rev-parse --verify -q HEAD >/dev/null 2>&1 || echo no_commits
+}
+
 # Discover git repos under SESSION_DIR (max depth 4). Excludes worktrees and
 # common build artefacts below SESSION_DIR; the prune patterns match paths
 # relative to it, so a SESSION_DIR that itself sits under .claude/worktrees/
-# is still scanned (GH 1550).
+# is still scanned (GH 1550). SESSION_DIR itself is always scanned; a repo
+# below it with a _skip_reason is left out and audited (GH 1551).
 discover_repos() {
+  local repo reason
   (cd "$SESSION_DIR" && find . -maxdepth 4 \
     \( -path '*/node_modules' -o -path '*/.claude/worktrees*' \
        -o -path '*/dist' -o -path '*/build' -o -path '*/.next' \
@@ -157,7 +194,17 @@ discover_repos() {
         ./*) printf '%s/%s\n' "$SESSION_DIR" "${rel#./}" ;;
       esac
     done \
-  | sort -u
+  | sort -u \
+  | while IFS= read -r repo; do
+      if [ "$repo" != "$SESSION_DIR" ]; then
+        reason=$(_skip_reason "$repo")
+        if [ -n "$reason" ]; then
+          _audit_skip "$repo" "$reason" >/dev/null 2>&1 || true
+          continue
+        fi
+      fi
+      printf '%s\n' "$repo"
+    done
 }
 
 repos_jsonl=$(mktemp -t tmb-scan-repos.XXXXXX.jsonl)

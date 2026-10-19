@@ -589,10 +589,18 @@ function detectRenames(
   return candidates;
 }
 
+export interface StaleRepoKept {
+  name: string;
+  path: string;
+  reason: 'task_referenced' | 'row_referenced';
+}
+
 // Persist repos[] to SQLite (transactional) and Directory + File nodes to the
 // kuzu world model.
 // sessionDir is used to scope repo retirement: repos in the DB whose path
-// falls under sessionDir but are absent from this scan's result are retired.
+// falls under sessionDir but are absent from this scan's result are retired,
+// unless a task or another row still references them; those are kept and
+// reported in repos_stale_kept (GH 1551).
 function persistScan(
   db: TrajectoryDB,
   graph: WorldModelGraph | null,
@@ -602,6 +610,7 @@ function persistScan(
   repos_discovered: number;
   repos_upserted: number;
   repos_retired: number;
+  repos_stale_kept: StaleRepoKept[];
   dirs_upserted: number;
   dirs_retired: number;
   dirs_readme_summarized: number;
@@ -639,6 +648,7 @@ function persistScan(
   let repos_retired = 0;
   let dirs_retired = 0;
   const retired: Array<{ name: string; path: string }> = [];
+  const repos_stale_kept: StaleRepoKept[] = [];
 
   db.transaction(() => {
     for (const r of persisted.repos) {
@@ -655,6 +665,10 @@ function persistScan(
       repos_upserted++;
     }
     for (const r of toRetire) {
+      if (db.get(`SELECT 1 FROM tasks WHERE repo = ? LIMIT 1`, [r.name])) {
+        repos_stale_kept.push({ name: r.name, path: r.path, reason: 'task_referenced' });
+        continue;
+      }
       // Milestones no issue references (e.g. a scan-seeded one) go with the
       // repo; the savepoint restores them when the repo itself can't retire.
       db.run(`SAVEPOINT retire_repo`);
@@ -675,6 +689,7 @@ function persistScan(
         // remaining repos.
         db.run(`ROLLBACK TO retire_repo`);
         db.run(`RELEASE retire_repo`);
+        repos_stale_kept.push({ name: r.name, path: r.path, reason: 'row_referenced' });
       }
     }
     for (const c of rename_candidates) {
@@ -734,6 +749,7 @@ function persistScan(
     repos_discovered: out.repos.length,
     repos_upserted,
     repos_retired,
+    repos_stale_kept,
     dirs_upserted,
     dirs_retired,
     dirs_readme_summarized,
@@ -1003,7 +1019,7 @@ export function scanTools(
             issue_id: -1,
             from_node: 'bro',
             event_type: 'deep_scan_completed',
-            summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired}; files upserted ${stats.files_upserted} (${stats.files_extracted} extracted), retired ${stats.files_retired} — source=${source}${structuralChange ? ', structural-change' : ''}${pluginNote}${mcpNote}`,
+            summary: `Scan: discovered ${stats.repos_discovered} repos, upserted ${stats.repos_upserted}, retired ${stats.repos_retired}${stats.repos_stale_kept.length ? ` (kept ${stats.repos_stale_kept.length} stale, still referenced)` : ''}; ${out.files.length} files; dirs upserted ${stats.dirs_upserted} (${stats.dirs_readme_summarized} README + ${stats.dirs_structural_summarized} structural), retired ${stats.dirs_retired}; files upserted ${stats.files_upserted} (${stats.files_extracted} extracted), retired ${stats.files_retired} — source=${source}${structuralChange ? ', structural-change' : ''}${pluginNote}${mcpNote}`,
             content_json: JSON.stringify({
               ...stats,
               session_dir: out.session_dir,
