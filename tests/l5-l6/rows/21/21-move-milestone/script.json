@@ -1,0 +1,5 @@
+{
+  "max_turns": 1,
+  "user_after_bro": [],
+  "terminal_pattern": "milestone|v0\\.2\\.0|low priority|Priority: Low|moved|updated"
+}
