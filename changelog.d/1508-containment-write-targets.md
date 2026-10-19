@@ -1,2 +1,0 @@
-### Security
-- **Containment judges the dirs a command writes by option and the tree a mutating git writes** (GH 1508): `tar`/`make -C`, `env -C` and `npm --prefix` dirs and the working tree of a mutating git subcommand (`commit`, `checkout`, `stash`, `reset`, `clean`, …, in its `--work-tree`, its `-C` dir or its own dir) are now write targets, so a bound swe can no longer commit or stash in the main checkout or in another worktree; read-only git (`status`, `log`, `diff`, `stash list`, `apply --check`) and `push` write none.

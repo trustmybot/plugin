@@ -1,2 +1,0 @@
-### Fixed
-- **`integrate.sh` verification sees the main checkout's `node_modules`** (GH 1541): the temporary worktree bro rebases a reviewed task in had no untracked `node_modules`, so a verification command that builds a TypeScript package (such as `mcp/trajectory-server`) failed on a correct rebase. integrate.sh now symlinks each `node_modules` from the main checkout beside every tracked `package.json` before running `verification[]`; nothing is installed, and the links go away with the worktree without touching the main checkout's install.

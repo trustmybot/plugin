@@ -1,2 +1,0 @@
-### Fixed
-- **Bro proceeds on its recommended default when the Human said not to ask** (GH 1475): the concerns protocol's only exit was to surface the concern and wait, so bro stopped with questions even after "Don't ask questions." Under a no-questions instruction bro now states the concern once, records it with the recommended option as a decision, carries both into the spec's Assumptions, and continues planning.

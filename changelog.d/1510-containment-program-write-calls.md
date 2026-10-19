@@ -1,2 +1,0 @@
-### Security
-- **Containment judges an interpreter program by the paths its write calls take** (GH 1510): python, node and perl one-liners and heredoc programs are judged by the path arguments of `open(p, 'w')`, `Path(p).write_text`, `fs.writeFileSync`, `os.rename`, a `shutil.copy` destination and the like, so a config read, an `os.listdir` or `sys.path` entry outside the root, or a `/` inside edited text, no longer denies a write inside it; a write path that is not a string literal still fails closed to every path-like literal the program does not only read.
