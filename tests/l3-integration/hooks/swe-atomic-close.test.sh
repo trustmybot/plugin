@@ -863,4 +863,95 @@ assert_contains "$out" "stopped without committing" "warn body present"
 ep2_status=$(sqlite3 "$EP2_DB" "SELECT status FROM tasks WHERE id=801;")
 assert_eq "pending" "$ep2_status" "task 801 stays pending (no false-positive auto-close)"
 
+# ========================================================
+# GH 1511: commits are counted by ancestry against the local AND origin parent
+# tips. A worktree provisioned from origin/<parent> while the local <parent>
+# is stale (or the reverse) carries zero commits and must never auto-complete.
+# ========================================================
+
+# anc_repo <name>: a repo on dev with a bare origin, dev pushed. Prints its path.
+anc_repo() {
+  local repo="$TMPDIR/$1" remote="$TMPDIR/$1-remote.git"
+  git init -q --bare "$remote"
+  git init -q -b dev "$repo"
+  git -C "$repo" config user.email t@t.io
+  git -C "$repo" config user.name t
+  git -C "$repo" remote add origin "$remote"
+  echo base > "$repo/base.txt"
+  git -C "$repo" add .
+  git -C "$repo" commit -qm base
+  git -C "$repo" push -q origin dev
+  mkdir -p "$repo/.claude/tmb"
+  sqlite3 "$repo/.claude/tmb/trajectory.db" "$(min_schema)"
+  printf '%s\n' "$repo"
+}
+
+# anc_commits <repo> <n>: n commits on the repo's checked-out branch.
+anc_commits() {
+  local i
+  for i in $(seq 1 "$2"); do
+    echo "$i-$RANDOM" >> "$1/dev-$i.txt"
+    git -C "$1" add "dev-$i.txt"
+    git -C "$1" commit -qm "dev $i"
+  done
+}
+
+auto_completed_rows() {
+  sqlite3 "$1" "SELECT COUNT(*) FROM audit WHERE event_type='swe_atomic_close_auto_completed' AND json_extract(content_json, '\$.task_id')=$2;"
+}
+
+echo '--- Test: GH 1511: local parent 3 behind origin, worktree from origin/<parent> ---'
+
+STALE_REPO=$(anc_repo stale-parent-repo)
+STALE_DB="$STALE_REPO/.claude/tmb/trajectory.db"
+anc_commits "$STALE_REPO" 3
+git -C "$STALE_REPO" push -q origin dev
+git -C "$STALE_REPO" reset -q --hard HEAD~3
+STALE_LOCAL_TIP=$(git -C "$STALE_REPO" rev-parse refs/heads/dev)
+STALE_ORIGIN_TIP=$(git -C "$STALE_REPO" rev-parse refs/remotes/origin/dev)
+sqlite3 "$STALE_DB" "INSERT INTO tasks (id, branch_id, parent_branch_id, status) VALUES (900, 'fix/stale-task', 'dev', 'running');"
+STALE_WT="$STALE_REPO/.claude/worktrees/stale-task"
+git -C "$STALE_REPO" branch -q --no-track fix/stale-task origin/dev
+git -C "$STALE_REPO" worktree add -q "$STALE_WT" fix/stale-task
+
+test_case "GH 1511 (a): fixture — local dev is 3 commits behind origin/dev"
+assert_eq "3" "$(git -C "$STALE_REPO" rev-list --count "$STALE_LOCAL_TIP..$STALE_ORIGIN_TIP")" "origin/dev 3 ahead of local dev"
+assert_eq "0" "$(git -C "$STALE_REPO" rev-list --count "$STALE_ORIGIN_TIP..$STALE_LOCAL_TIP")" "local dev not ahead"
+
+test_case "GH 1511 (a): zero swe commits → warn-no-commits, task stays running, no commit_sha, no audit row"
+out=$(run_hook_in_dir "$STALE_REPO" "$(spawn_input 900 tmb:swe)" "$STALE_DB")
+assert_contains "$out" "stopped without committing" "bro warning emitted"
+assert_eq "running" "$(sqlite3 "$STALE_DB" "SELECT status FROM tasks WHERE id=900;")" "task not completed"
+assert_eq "1" "$(sqlite3 "$STALE_DB" "SELECT commit_sha IS NULL FROM tasks WHERE id=900;")" "commit_sha stays NULL"
+assert_eq "0" "$(auto_completed_rows "$STALE_DB" 900)" "no swe_atomic_close_auto_completed row"
+
+test_case "GH 1511 (b): one swe commit on the same setup → completed at that commit, one audit row"
+(cd "$STALE_WT" && echo "$RANDOM" >> stale-work.txt && git add stale-work.txt && git commit -qm "feat: stale work")
+STALE_WT_HEAD=$(git -C "$STALE_WT" rev-parse HEAD)
+out=$(run_hook_in_dir "$STALE_REPO" "$(spawn_input 900 tmb:swe)" "$STALE_DB")
+assert_eq "" "$out" "no additionalContext on auto-close"
+assert_eq "completed" "$(sqlite3 "$STALE_DB" "SELECT status FROM tasks WHERE id=900;")" "task auto-completed"
+assert_eq "$STALE_WT_HEAD" "$(sqlite3 "$STALE_DB" "SELECT commit_sha FROM tasks WHERE id=900;")" "commit_sha is the swe commit"
+assert_eq "1" "$(auto_completed_rows "$STALE_DB" 900)" "one swe_atomic_close_auto_completed row"
+STALE_AUDIT=$(sqlite3 "$STALE_DB" "SELECT json_extract(content_json, '\$.commit_sha') || '|' || json_extract(content_json, '\$.parent_tip_local') || '|' || json_extract(content_json, '\$.parent_tip_origin') || '|' || from_node || '|' || branch_id || '|' || issue_id FROM audit WHERE event_type='swe_atomic_close_auto_completed';")
+assert_eq "$STALE_WT_HEAD|$STALE_LOCAL_TIP|$STALE_ORIGIN_TIP|hook:swe-atomic-close|fix/stale-task|1" "$STALE_AUDIT" "content_json carries the commit sha and both parent tips"
+
+echo '--- Test: GH 1511: local parent ahead of origin, zero commits ---'
+
+AHEAD_REPO=$(anc_repo ahead-parent-repo)
+AHEAD_DB="$AHEAD_REPO/.claude/tmb/trajectory.db"
+anc_commits "$AHEAD_REPO" 2
+sqlite3 "$AHEAD_DB" "INSERT INTO tasks (id, branch_id, parent_branch_id, status) VALUES (901, 'fix/ahead-task', 'dev', 'running');"
+AHEAD_WT="$AHEAD_REPO/.claude/worktrees/ahead-task"
+git -C "$AHEAD_REPO" branch -q --no-track fix/ahead-task origin/dev
+git -C "$AHEAD_REPO" worktree add -q "$AHEAD_WT" fix/ahead-task
+
+test_case "GH 1511 (c): local dev ahead of origin/dev + zero swe commits → not completed"
+assert_eq "2" "$(git -C "$AHEAD_REPO" rev-list --count origin/dev..dev)" "fixture: local dev 2 ahead of origin"
+out=$(run_hook_in_dir "$AHEAD_REPO" "$(spawn_input 901 tmb:swe)" "$AHEAD_DB")
+assert_contains "$out" "stopped without committing" "bro warning emitted"
+assert_eq "running" "$(sqlite3 "$AHEAD_DB" "SELECT status FROM tasks WHERE id=901;")" "task not completed"
+assert_eq "1" "$(sqlite3 "$AHEAD_DB" "SELECT commit_sha IS NULL FROM tasks WHERE id=901;")" "commit_sha stays NULL"
+assert_eq "0" "$(auto_completed_rows "$AHEAD_DB" 901)" "no swe_atomic_close_auto_completed row"
+
 summarize

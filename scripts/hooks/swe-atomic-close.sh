@@ -13,6 +13,7 @@
 # Decision matrix (status side-effects, swe only; the spawn already moved a
 # pending task to running, record-swe-spawn.sh):
 #   pending|running + HAS_COMMITS=true  → status='completed' + commit_sha
+#                                         + swe_atomic_close_auto_completed audit row
 #   pending|running + HAS_COMMITS=false → additionalContext warning to bro
 #   any other status                    → metrics only, status unchanged
 #   subagent_type pr-reviewer   → metrics only
@@ -260,29 +261,56 @@ SAFE_ROOT_DIR=$(tmb_sql_quote "$WT_PATH")
 # Read the SWE's worktree HEAD.
 WT_HEAD=$(git -C "$WT_PATH" rev-parse HEAD 2>/dev/null || true)
 
-# HAS_COMMITS: SWE committed in the worktree.
+# head_within <head> <tip>...: 0 when <head> equals or is an ancestor of any
+# non-empty <tip> — the head carries no commit beyond that tip.
+head_within() {
+  local head="$1" tip
+  shift
+  for tip in "$@"; do
+    [ -n "$tip" ] || continue
+    git -C "$REPO_ROOT" merge-base --is-ancestor "$head" "$tip" 2>/dev/null && return 0
+  done
+  return 1
+}
+
+# branch_tips <branch>: sets TIP_LOCAL / TIP_ORIGIN to refs/heads/<branch> and
+# refs/remotes/origin/<branch> (empty when absent).
+branch_tips() {
+  TIP_LOCAL=$(git -C "$REPO_ROOT" rev-parse -q --verify "refs/heads/$1^{commit}" 2>/dev/null || true)
+  TIP_ORIGIN=$(git -C "$REPO_ROOT" rev-parse -q --verify "refs/remotes/origin/$1^{commit}" 2>/dev/null || true)
+}
+
+# HAS_COMMITS: SWE committed in the worktree, decided by ancestry, never by
+# inequality: the worktree has commits only when its HEAD is neither equal to
+# nor an ancestor of any parent tip that exists, local or origin. A worktree
+# provisioned from origin/<parent> while the local <parent> is stale (or the
+# reverse) carries no commits (GH 1511).
 #
 # Attached-worktree model: SWE's commits advance the branch ref directly,
-# so the worktree HEAD == the branch ref tip. Compare HEAD to the parent
-# branch — if HEAD is ahead, SWE committed.
+# so the worktree HEAD == the branch ref tip, and the parent tips decide.
 #
-# Fallback (legacy DBs without parent_branch_id recorded): compare against
-# the local branch ref. This catches the older detached-HEAD layout where
-# worktree HEAD diverges from the branch ref.
+# Legacy detached-HEAD layout: HEAD ahead of the local branch ref.
+# Empty parent_branch_id: the repo base (below) stands in for the parent.
 HAS_COMMITS="false"
+PARENT_TIP_LOCAL=""
+PARENT_TIP_ORIGIN=""
+if [ -n "$PARENT_BRANCH" ]; then
+  branch_tips "$PARENT_BRANCH"
+  PARENT_TIP_LOCAL="$TIP_LOCAL"
+  PARENT_TIP_ORIGIN="$TIP_ORIGIN"
+fi
 if [ -n "$WT_HEAD" ]; then
-  if [ -n "$PARENT_BRANCH" ]; then
-    PARENT_TIP=$(git -C "$REPO_ROOT" rev-parse "refs/heads/${PARENT_BRANCH}" 2>/dev/null || true)
-    if [ -z "$PARENT_TIP" ]; then
-      PARENT_TIP=$(git -C "$REPO_ROOT" rev-parse "refs/remotes/origin/${PARENT_BRANCH}" 2>/dev/null || true)
-    fi
-    if [ -n "$PARENT_TIP" ] && [ "$WT_HEAD" != "$PARENT_TIP" ]; then
+  HEAD_IN_PARENT="false"
+  if [ -n "${PARENT_TIP_LOCAL}${PARENT_TIP_ORIGIN}" ]; then
+    if head_within "$WT_HEAD" "$PARENT_TIP_LOCAL" "$PARENT_TIP_ORIGIN"; then
+      HEAD_IN_PARENT="true"
+    else
       HAS_COMMITS="true"
     fi
   fi
-  if [ "$HAS_COMMITS" = "false" ]; then
-    LOCAL_FEATURE=$(git -C "$REPO_ROOT" rev-parse "refs/heads/${BRANCH}" 2>/dev/null || true)
-    if [ -n "$LOCAL_FEATURE" ] && [ "$WT_HEAD" != "$LOCAL_FEATURE" ]; then
+  if [ "$HAS_COMMITS" = "false" ] && [ "$HEAD_IN_PARENT" = "false" ]; then
+    LOCAL_FEATURE=$(git -C "$REPO_ROOT" rev-parse -q --verify "refs/heads/${BRANCH}^{commit}" 2>/dev/null || true)
+    if [ -n "$LOCAL_FEATURE" ] && ! head_within "$WT_HEAD" "$LOCAL_FEATURE"; then
       HAS_COMMITS="true"
     fi
     # Empty-parent_branch_id fallback: in the attached-worktree model SWE's
@@ -301,12 +329,15 @@ if [ -n "$WT_HEAD" ]; then
         FALLBACK_BASE=$(tmb_repo_default_branch "$REPO_ROOT" 2>/dev/null || true)
       fi
       if [ -n "$FALLBACK_BASE" ]; then
+        branch_tips "$FALLBACK_BASE"
+        PARENT_TIP_LOCAL="$TIP_LOCAL"
+        PARENT_TIP_ORIGIN="$TIP_ORIGIN"
         AHEAD=$(git -C "$WT_PATH" rev-list --count "origin/${FALLBACK_BASE}..HEAD" 2>/dev/null || true)
         if [ -z "$AHEAD" ]; then
           AHEAD=$(git -C "$WT_PATH" rev-list --count "${FALLBACK_BASE}..HEAD" 2>/dev/null || true)
         fi
         case "${AHEAD:-0}" in (''|*[!0-9]*) AHEAD=0 ;; esac
-        if [ "${AHEAD:-0}" -gt 0 ]; then
+        if [ "${AHEAD:-0}" -gt 0 ] && ! head_within "$WT_HEAD" "$PARENT_TIP_LOCAL" "$PARENT_TIP_ORIGIN"; then
           HAS_COMMITS="true"
         fi
       fi
@@ -315,15 +346,11 @@ if [ -n "$WT_HEAD" ]; then
 else
   # No-worktree fallback: SWE committed directly in REPO_ROOT on the feature
   # branch (e.g. planning skill's project-root path with "do not use worktrees").
-  # Detect commits by comparing REPO_ROOT HEAD against parent_branch tip.
+  # Same ancestry rule, with REPO_ROOT HEAD against the parent tips.
   ROOT_CURRENT_BRANCH=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
-  if [ "$ROOT_CURRENT_BRANCH" = "$BRANCH" ] && [ -n "$PARENT_BRANCH" ]; then
+  if [ "$ROOT_CURRENT_BRANCH" = "$BRANCH" ] && [ -n "${PARENT_TIP_LOCAL}${PARENT_TIP_ORIGIN}" ]; then
     ROOT_HEAD=$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)
-    PARENT_TIP=$(git -C "$REPO_ROOT" rev-parse "refs/heads/${PARENT_BRANCH}" 2>/dev/null || true)
-    if [ -z "$PARENT_TIP" ]; then
-      PARENT_TIP=$(git -C "$REPO_ROOT" rev-parse "refs/remotes/origin/${PARENT_BRANCH}" 2>/dev/null || true)
-    fi
-    if [ -n "$ROOT_HEAD" ] && [ -n "$PARENT_TIP" ] && [ "$ROOT_HEAD" != "$PARENT_TIP" ]; then
+    if [ -n "$ROOT_HEAD" ] && ! head_within "$ROOT_HEAD" "$PARENT_TIP_LOCAL" "$PARENT_TIP_ORIGIN"; then
       HAS_COMMITS="true"
       WT_HEAD="$ROOT_HEAD"
     fi
@@ -335,13 +362,23 @@ CONTEXT=""
 
 if [ "$TASK_STATUS" = "pending" ] || [ "$TASK_STATUS" = "running" ]; then
   if [ "$HAS_COMMITS" = "true" ]; then
-    # Auto-close: write status='completed' + commit_sha via sqlite3.
+    # Auto-close: status='completed' + commit_sha, and one audit row naming the
+    # parent tips the commit was judged against, in one transaction.
     DECISION="auto-completed"
     SAFE_WT_HEAD=$(tmb_sql_quote "$WT_HEAD")
     SAFE_NOW=$(tmb_sql_quote "$(tmb_now_iso)")
     SAFE_CLOSE_TASK_ID=$(tmb_sql_int "$TASK_ID")
+    CLOSE_JSON=$(jq -cn --argjson tid "$SAFE_CLOSE_TASK_ID" --arg sha "$WT_HEAD" \
+      --arg pl "$PARENT_TIP_LOCAL" --arg po "$PARENT_TIP_ORIGIN" \
+      '{task_id:$tid, commit_sha:$sha,
+        parent_tip_local:(if $pl == "" then null else $pl end),
+        parent_tip_origin:(if $po == "" then null else $po end)}')
+    CLOSE_AUDIT_SQL=$(tmb_audit_sql "$SAFE_ISSUE_ID" "$BRANCH" "hook:swe-atomic-close" "swe_atomic_close_auto_completed" \
+      "Task #${SAFE_CLOSE_TASK_ID} auto-completed at ${WT_HEAD} on SubagentStop" "$CLOSE_JSON" \
+      "(SELECT changes()) > 0") || CLOSE_AUDIT_SQL=""
     tmb_db_write "$DB" \
-      "UPDATE tasks SET status='completed', commit_sha='${SAFE_WT_HEAD}', updated_at='${SAFE_NOW}', completed_at='${SAFE_NOW}' WHERE id=${SAFE_CLOSE_TASK_ID};" \
+      "UPDATE tasks SET status='completed', commit_sha='${SAFE_WT_HEAD}', updated_at='${SAFE_NOW}', completed_at='${SAFE_NOW}' WHERE id=${SAFE_CLOSE_TASK_ID};
+${CLOSE_AUDIT_SQL}" \
       || DECISION="auto-complete-failed"
   else
     # No commits in worktree beyond the local branch ref.

@@ -54,6 +54,7 @@ scan_discovered_repair	server
 scope_gate_waived	bro
 skill_creator_blocked	bro
 spec_shape_gate_waived	bro
+swe_atomic_close_auto_completed	hook
 swe_brief_fetched	swe
 sync_skipped	bro
 task_effort_raised	bro
