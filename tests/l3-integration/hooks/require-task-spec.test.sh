@@ -2,7 +2,7 @@
 # Tests for scripts/hooks/require-task-spec.sh (DB-backed form)
 # Hook contract: block SWE spawns unless the prompt cites a valid
 # task_id=<N> whose row in tasks table is pending, or running with no live swe
-# agent_runs row (an unbound row older than 10 minutes is not live), AND has a non-empty spec_body. A pending task whose repo is a git
+# agent_runs row (an unbound row older than 90 s is not live), AND has a non-empty spec_body. A pending task whose repo is a git
 # work tree must also have its branch checked out in a linked worktree. A schema-touching (a .sql file, a schema.* basename,
 # a migrations/migration/migrate directory, db.ts) or column-adding task also needs Writer: + Populated: lines or a Nullable: line,
 # unless a spec_shape_gate_waived audit row with from_node = 'bro' names the task
@@ -57,7 +57,7 @@ sqlite3 "$DB" "
   INSERT INTO agent_runs VALUES (10, 3, 'swe', '2026-10-01T00:00:00.000Z', '2026-10-01T01:00:00.000Z', 'agent-10');
   INSERT INTO agent_runs VALUES (11, 3, 'bro', '2026-10-01T00:00:00.000Z', NULL, NULL);
   INSERT INTO agent_runs VALUES (12, 6, 'swe', '2026-10-11T09:00:00.000Z', NULL, 'agent-12');
-  INSERT INTO agent_runs VALUES (13, 8, 'swe', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-11 minutes'), NULL, 'tool_use:toolu_13');
+  INSERT INTO agent_runs VALUES (13, 8, 'swe', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 minutes'), NULL, 'tool_use:toolu_13');
   INSERT INTO agent_runs VALUES (14, 9, 'swe', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 minutes'), NULL, 'tool_use:toolu_14');
 "
 sqlite3 "$DB" <<'SQL'
@@ -190,7 +190,7 @@ out=$(run_hook "$(swe_input 'task_id=6 please do the thing')")
 assert_contains "$out" '"permissionDecision":"deny"' "permissionDecision deny"
 assert_contains "$out" "live swe run: agent_runs 12" "reason names the live run"
 
-test_case "SWE on a running task whose only open run is unbound and older than 10 minutes passes silently"
+test_case "SWE on a running task whose only open run is unbound and older than 90 s passes silently"
 out=$(run_hook "$(swe_input 'task_id=8 please do the thing')")
 assert_eq "" "$out" "a spawn that never started does not block a respawn"
 

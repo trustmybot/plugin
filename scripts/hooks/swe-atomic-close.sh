@@ -404,7 +404,10 @@ esac
 # (swe-brief-gate.sh); a spawn with no agent_id can still leave a second
 # unkeyed row, and the hook can meter only one row, so a final statement marks
 # every other zero-token unkeyed swe row of this task from the spawn's window
-# unmeasured, keeping the swe_runs_metered doctor contract clean.
+# unmeasured, keeping the swe_runs_metered doctor contract clean. It also closes
+# the task's open zero-token tool_use:* rows older than 90 s as swept_orphan:
+# spawns no subagent ever bound (a refused spawn). A row bound to an agent id
+# is never matched.
 if ! tmb_db_write "$DB" "
 UPDATE agent_runs
    SET tokens_in = ${SAFE_TOKENS_IN},
@@ -446,10 +449,12 @@ UPDATE agent_runs
        completed_at = COALESCE(completed_at, '${SAFE_NOW}')
  WHERE task_id = ${SAFE_TASK_ID}
    AND agent_type = 'swe'
-   AND spawn_id IS NULL
+   AND ((spawn_id IS NULL
+         AND started_at >= strftime('%Y-%m-%dT%H:%M:%fZ', '${SAFE_FIRST_TS}', '-2 seconds'))
+        OR (spawn_id GLOB 'tool_use:*' AND completed_at IS NULL
+            AND started_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-90 seconds')))
    AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0
    AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0
-   AND started_at >= strftime('%Y-%m-%dT%H:%M:%fZ', '${SAFE_FIRST_TS}', '-2 seconds')
    AND COALESCE(usage_source, '') <> 'subagent_stop';"; then
   jq -cn --arg ts "$ts" --argjson tid "$TASK_ID" \
     '{ts:$ts,kind:"agent-runs-write-failed",task_id:$tid}' \
