@@ -176,6 +176,13 @@ assert_contains "$(wpaths "$(heredoc 'python3 -' "$(printf '%s\n' "import re" "p
 assert_contains "$(wpaths "$(heredoc 'node -' "const fs = require('fs'); const p = 'notes.txt'; const s = fs.readFileSync(p, 'utf8').replace('a', '/user/own'); fs.writeFileSync(p, s);")" /w)" "/user/own" "GH 1550: node, a write through a const counts the replace text"
 assert_eq "/outside/f" "$(wpaths "echo x > /outside/f" /w)" "GH 1550: a redirect stays a target"
 
+test_case "tmb_cmd_write_paths: a path inside a larger string literal is not a literal of its own (GH 1567)"
+assert_eq "/w/a.sh" "$(wpaths "$(heredoc 'python3 -' "$(printf '%s\n' "p='a.sh'" "new='''" 'x "$P" "/onboard"' "'''" "open(p,'w').write(new)")")" /w)" "a triple-quoted string quoting /onboard"
+assert_eq "/w/a.txt" "$(wpaths "$(heredoc 'node -' "$(printf '%s\n' "const fs = require('fs'); const p = 'a.txt';" 'const s = `x "/abs" y`;' "fs.writeFileSync(p, s);")")" /w)" "node: a template literal quoting /abs"
+assert_eq "/w/a.txt" "$(wpaths "$(heredoc 'perl' "$(printf '%s\n' 'my $p = "a.txt";' "my \$s = 'one" 'two "/abs" three' "';" 'open(my $f, ">", $p); print $f $s;')")" /w)" "perl: a multi-line string quoting /abs"
+assert_contains "$(wpaths "$(heredoc 'python3 -' "$(printf '%s\n' "p = 'a.txt'" 'q = "/abs/x"' "open(p, 'w').write('1')")")" /w)" "/abs/x" "a standalone literal with a write through a variable counts"
+assert_contains "$(wpaths "$(heredoc 'python3 -' "$(printf '%s\n' "p = 'a.txt'" "open(p, 'w').write('1')" "s = 'see \"/abs/y\" here")")" /w)" "/abs/y" "a program that does not parse counts quoted sub-tokens"
+
 test_case "tmb_cmd_write_paths: a variable rebound unseen still counts every literal (GH 1550)"
 assert_contains "$(wpaths "python3 -c \"import cProfile; p='notes.txt'; cProfile.run('p=%r' % '/etc/evil'); open(p,'w').write('1')\"" /w)" "/etc/evil" "python -c: cProfile.run rebinds the variable"
 assert_contains "$(wpaths "$(heredoc 'python3 -' "$(printf '%s\n' "import cProfile" "p = 'notes.txt'" "cProfile.run('p=%r' % '/etc/evil')" "open(p, 'w').write('1')")")" /w)" "/etc/evil" "cProfile.run rebinds the variable"

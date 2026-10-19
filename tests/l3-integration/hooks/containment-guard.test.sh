@@ -190,6 +190,15 @@ assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$SH_OUT")")")"
 DATA=$(printf '%s\n' "cat > notes.py <<'EOF'" "open('/etc/passwd', 'w')" 'EOF')
 assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$DATA")")")" "a data heredoc is never scanned"
 
+test_case "GH 1567: /onboard quoted inside a larger string literal is not a write target"
+PROSE=$(printf '%s\n' "p = 'src/x.sh'" "s = open(p).read()" "old = '''x'''" "new = old + '''" 'assert_not_contains "$PREAMBLE" "/onboard" "preamble /onboard token"' 'If you run `/onboard`, answer No' "'''")
+PY_PROSE=$(printf '%s\n' "python3 - <<'EOF'" "$PROSE" "open(p, 'w').write(s.replace(old, new))" 'EOF')
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$PY_PROSE")")")" "swe editing a relative file through a variable path"
+PY_PROSE_OUT=$(printf '%s\n' "python3 - <<'EOF'" "$PROSE" "open(p, 'w').write(s.replace(old, new))" "open(\"/onboard/x\", \"w\")" 'EOF')
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$PY_PROSE_OUT")")")" "the same edit with a literal write to /onboard/x"
+PY_PROSE_LIT=$(printf '%s\n' "python3 - <<'EOF'" "$PROSE" "q = \"/onboard\"" "open(p, 'w').write(s.replace(old, new))" 'EOF')
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$PY_PROSE_LIT")")")" "the same edit with a standalone /onboard literal"
+
 test_case "GH 1510: a program is judged by its write calls' own path arguments"
 py() { printf '%s\n' "python3 - <<'EOF'" "$@" 'EOF'; }
 assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import json' "cfg = json.load(open('/etc/tmb-cg/config.json', encoding='utf-8'))" "open('out.txt','w').write(str(cfg))")")")")" "swe reading a config outside, writing out.txt inside"

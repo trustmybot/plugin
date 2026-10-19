@@ -1141,14 +1141,16 @@ _tmb_cmd_interp_writes() {
 # cannot parse the program, or a write shape shows that no call was found
 # for. A path held in a variable is never resolved, however it is bound:
 # python can rebind a global unseen (cProfile.run, trace, pdb, gc.get_objects,
-# pickle), so a write through a variable counts every literal (GH 1550). The
+# pickle), so a write through a variable counts every literal (GH 1550). A
+# literal counts whole: a quoted path inside a larger string (prose in a
+# triple-quoted or template string) is not a literal of its own (GH 1567). The
 # literals of the data a call writes (write / writelines /
 # write_text / write_bytes, fs.writeFile* / appendFile* data) are content and
-# never count; a program that does not parse counts all of them. With
+# never count; a program that does not parse counts every quoted token. With
 # `operands`, a program that writes but names no literal prints `-` so the
 # caller still judges its operands.
 _tmb_cmd_prog_writes() {
-  local lang="${1:-}" prog="${2:-}" q="['\"]" sp="[[:space:]]*" reads writes fn scan out="" fail=0 lit src="" cd=0
+  local lang="${1:-}" prog="${2:-}" q="['\"]" sp="[[:space:]]*" reads writes fn scan out="" fail=0 lit src="" cd=0 raw=""
   scan=$(_tmb_cmd_prog_calls "$lang" "$prog")
   case $'\n'"$scan"$'\n' in *$'\n'A$'\n'*|*$'\n'F$'\n'*) fail=1 ;; esac
   case $'\n'"$scan"$'\n' in *$'\n'C$'\n'*) cd=1 ;; esac
@@ -1170,12 +1172,12 @@ _tmb_cmd_prog_writes() {
       Q$'\t'?*) src="${src}${lit#Q$'\t'}"$'\n' ;;
     esac
   done <<< "$scan"
-  case $'\n'"$scan"$'\n' in *$'\n'A$'\n'*) src="$prog" ;; esac
+  case $'\n'"$scan"$'\n' in *$'\n'A$'\n'*) src="$prog"; raw=raw ;; esac
   if [ "$fail" = 1 ]; then
     writes=$(printf '%s\n' "$prog" | grep -oE "open${sp}\(${sp}${q}[^'\"]+${q}${sp},${sp}(mode${sp}=${sp})?${q}[rbt]*[wax+]|(${fn})${sp}\(${sp}${q}[^'\"]+${q}|Path${sp}\(${sp}${q}[^'\"]+${q}${sp}\)${sp}\.${sp}(write_text|write_bytes|mkdir|touch|unlink|rmdir|rename)" || true)
     reads=$(printf '%s\n' "$prog" | grep -oE "open${sp}\(${sp}${q}[^'\"]+${q}${sp}(,${sp}${q}r[bt]?${q}${sp})?\)|(readFileSync|readFile|createReadStream|existsSync|statSync)${sp}\(${sp}${q}[^'\"]+${q}|Path${sp}\(${sp}${q}[^'\"]+${q}${sp}\)${sp}\.${sp}(read_text|read_bytes|exists)" | grep -oE "${q}[^'\"]+${q}" || true)
     writes=$(printf '%s\n' "$writes" | grep -oE "^[^'\"]*${q}[^'\"]+${q}" | grep -oE "${q}[^'\"]+${q}\$" || true)
-    out="${out}$(_tmb_cmd_prog_literals "$src" "$reads" "$writes")"
+    out="${out}$(_tmb_cmd_prog_literals "$src" "$reads" "$writes" "$raw")"
   fi
   [ "$cd" = 0 ] || out=$(printf '%s' "$out" | awk 'NF { print (/^[\/~$]/ ? "" : "$()/") $0 }')
   out=$(printf '%s' "$out" | awk 'NF && !seen[$0]++')
@@ -1723,11 +1725,14 @@ _tmb_cmd_proc_writes() {
   done < <(_tmb_cmd_write_paths_in "$cmd" "$base" "@" 0)
 }
 
-# _tmb_cmd_prog_literals <program> <read-literals> <write-literals>
-# Every path-like string literal of <program> that is not only read.
+# _tmb_cmd_prog_literals <literals> <read-literals> <write-literals> [raw]
+# Every path-like literal of <literals> — one quoted literal per line, judged
+# whole — that is not only read. With `raw`, <literals> is a program that does
+# not parse and each quoted token in it counts as a literal.
 _tmb_cmd_prog_literals() {
   local lit q="['\"]"
-  printf '%s\n' "${1:-}" | grep -oE "${q}[^'\"[:space:]]+${q}" | while IFS= read -r lit; do
+  if [ "${4:-}" = raw ]; then printf '%s\n' "${1:-}" | grep -oE "${q}[^'\"[:space:]]+${q}"; else printf '%s\n' "${1:-}"; fi | while IFS= read -r lit; do
+    [ "${#lit}" -ge 2 ] || continue
     if printf '%s\n' "${2:-}" | grep -xF -- "$lit" >/dev/null && ! printf '%s\n' "${3:-}" | grep -xF -- "$lit" >/dev/null; then continue; fi
     lit="${lit:1:${#lit}-2}"
     lit="${lit#+}"; lit="${lit#>}"; lit="${lit#>}"
