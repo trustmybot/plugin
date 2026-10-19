@@ -746,6 +746,11 @@ out=$(run_in "$WT_PLAIN" 'echo y >> docs/once.md')
 assert_not_contains "$out" "outside this task's files[]" "the second write to the same path is silent"
 assert_eq "$([ -d "$TMPDIR/locks/scope-notes/20" ] && echo yes)" "yes" "the marker lives under the state dir's locks/"
 
+test_case "GH 1531 text a program writes is content: no scope note for the paths it mentions"
+out=$(run_in "$WT_PLAIN" "$(printf '%s\n' "python3 - <<'EOF'" "p = 'src/a.ts'" "with open(p, 'w') as f:" "    f.write(\"const root = '/work/proj'; const branch = 'fix/sess-a';\")" 'EOF')")
+assert_not_contains "$out" '"permissionDecision":"deny"' "a write into files[] is allowed"
+assert_not_contains "$out" "outside this task's files[]" "the content's path-like text draws no note"
+
 test_case "GH 1295 Edit outside the worktree and prompt surface on a non-bearing task stay DENIED"
 out=$(cd "$WT_PLAIN" && echo "$(make_edit_input swe '/tmp/elsewhere.ts')" | bash "$HOOK" 2>&1 || true)
 assert_contains "$out" "outside the worktree" "outside-worktree Edit is denied"
