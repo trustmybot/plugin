@@ -254,6 +254,39 @@ glob_climbs() {
   return 1
 }
 
+# climbs_back <absolute-path> — a .. leaves the root and a later name enters
+# it again (cd .. && rm -rf <root-name>): the write lands on the root from
+# outside it.
+climbs_back() {
+  local acc="" part left=0 inside=0
+  local -a parts
+  case "/$1/" in */../*) ;; *) return 1 ;; esac
+  [ -n "$ROOT" ] || return 1
+  IFS=/ read -r -a parts <<< "${1#/}"
+  for part in ${parts[@]+"${parts[@]}"}; do
+    case "$part" in
+      ''|.) continue ;;
+      ..) acc="${acc%/*}" ;;
+      *) acc="$acc/$part" ;;
+    esac
+    if under "${acc:-/}" "${ROOT%/}" || under "${acc:-/}" "${ROOT_C%/}"; then
+      inside=1
+    else
+      [ "$inside" = 1 ] && left=1
+      inside=0
+    fi
+  done
+  [ "$left" = 1 ] && [ "$inside" = 1 ]
+}
+
+# judge <absolute-path>
+judge() {
+  if climbs_back "$1"; then
+    deny "$1" "BLOCKED: containment — write target \"$1\" leaves this run's root ${ROOT} with .. and comes back into it, so it lands on the root from outside. Name the path from inside the root."
+  fi
+  allowed "$1" || deny "$1"
+}
+
 SEEN=$'\n'
 while IFS= read -r word; do
   [ -n "$word" ] || continue
@@ -265,12 +298,12 @@ while IFS= read -r word; do
   case "$word" in
     UNRESOLVED:*)
       word="${word#UNRESOLVED:*:}"
-      if path=$(expand "$word"); then allowed "$path" || deny "$path"; else unresolved "$word"; fi
+      if path=$(expand "$word"); then judge "$path"; else unresolved "$word"; fi
       continue
       ;;
   esac
   path=$(expand "$word") || continue
-  allowed "$path" || deny "$path"
+  judge "$path"
 done < <(tmb_cmd_write_paths "$COMMAND" "$CWD" raw "$ROOT")
 
 exit 0

@@ -279,6 +279,27 @@ for pair in "import os|os.truncate('/etc/tmb-cg', 0)|/etc/tmb-cg" "import subpro
   assert_contains "$OUT" "$want" "the reason names $want"
 done
 
+test_case "GH 1531: a process call is judged as the shell command it runs"
+for pair in "import subprocess|subprocess.run(['rm', '-rf', '..'])" "import subprocess|subprocess.run(['rm', '-rf', 'x'], cwd='..')" \
+  "import os|os.system('rm -rf ~')" "import os|os.system('cd .. && rm -rf cg-task')" \
+  "import subprocess as sp|sp.run(['rm', '-rf', '..'])" "from subprocess import run as r|r(['rm', '-rf', '..'])" \
+  "import subprocess|subprocess.run(['rm', '-rf', d])" "import subprocess|f = subprocess.run; f(['touch', 'x'])"; do
+  assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "${pair%%|*}" "${pair#*|}")")")")" "swe: ${pair#*|}"
+done
+node_prog() { printf '%s\n' "node - <<'EOF'" "$@" 'EOF'; }
+for prog in "const {execSync: x} = require('child_process'); x('rm -rf ..')" "const cp = require('child_process'); cp.execSync('rm -rf ..')" \
+  "require('child_process').spawnSync('rm', ['-rf', 'x'], { cwd: '..' })"; do
+  assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(node_prog "$prog")")")")" "swe: $prog"
+done
+for pair in "import subprocess|subprocess.run(['rm', '-rf', 'build'])" "import subprocess|subprocess.run(['touch', 'x'], cwd='src')" \
+  "import os|os.system('cd src && touch x')" "import subprocess as sp|sp.run(['git', 'status'], check=True)"; do
+  assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "${pair%%|*}" "${pair#*|}")")")")" "swe inside its worktree: ${pair#*|}"
+done
+OUT=$(run "$WT" "swe" Bash "$(bash_cmd 'cd .. && rm -rf cg-task')")
+assert_eq "deny" "$(decision "$OUT")" "swe: cd .. && rm -rf <its own worktree>"
+assert_contains "$OUT" "comes back into it" "the reason names the climb"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd 'mkdir -p src && cd src/.. && touch x')")")" "swe: a .. that stays inside its worktree"
+
 test_case "GH 1531: text a program writes is content, not a target"
 CONTENT="const root = '/work/proj'; const branch = 'fix/sess-a';"
 assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "p = '$WT/a.ts'" "with open(p, 'w') as f:" "    f.write(\"$CONTENT\")")")")")" "swe writing path-like text into its worktree"
