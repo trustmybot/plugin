@@ -300,6 +300,28 @@ assert_eq "deny" "$(decision "$OUT")" "swe: cd .. && rm -rf <its own worktree>"
 assert_contains "$OUT" "comes back into it" "the reason names the climb"
 assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd 'mkdir -p src && cd src/.. && touch x')")")" "swe: a .. that stays inside its worktree"
 
+test_case "GH 1531: a process call is judged only when every part is a plain literal"
+interp_prog() { printf '%s\n' "$1 - <<'EOF'"; shift; printf '%s\n' "$@" 'EOF'; }
+for pair in "import os|os.system('rm -rf %s' % '..')" "import subprocess|subprocess.run('rm -rf %s' % '..', shell=True)" \
+  "import os|os.system('rm -rf {}'.format('..'))" "import subprocess|subprocess.run(['rm', '-rf', '..'.strip()])" \
+  "import subprocess|kw = {'cwd': '..'}; subprocess.run(['rm', '-rf', 'x'], **kw)" \
+  "import os|os.chdir('..'); os.system('rm -rf cg-task')" "import os|exec(\"os.system('rm -rf ..')\")"; do
+  assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "${pair%%|*}" "${pair#*|}")")")")" "swe: ${pair#*|}"
+done
+for prog in "const { execSync } = require('child_process'); const o = { cwd: '..' }; execSync('rm -rf x', o)" \
+  "const { execSync } = require('child_process'); execSync('rm -rf x', { ...{ cwd: '..' } })" \
+  "process.chdir('..'); require('child_process').execSync('rm -rf cg-task')" \
+  "import cp from 'child_process'; cp.execSync('rm -rf ..')" "eval(\"require('child_process').execSync('rm -rf ..')\")"; do
+  assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(node_prog "$prog")")")")" "swe: $prog"
+done
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(interp_prog perl "chdir '..'; system('rm', '-rf', 'cg-task');")")")")" "swe: perl chdir then system"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(interp_prog ruby "Dir.chdir('..')" "system('rm -rf cg-task')")")")")" "swe: ruby Dir.chdir then system"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(interp_prog perl 'my $o = qx(rm -rf ..);')")")")" "swe: perl qx()"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(interp_prog ruby 'o = %x(rm -rf ..)')")")")" "swe: ruby %x()"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import subprocess' "subprocess.run(['touch', 'x'], cwd='src', check=True, capture_output=True, text=True)")")")")" "swe: plain literals with ordinary options inside its worktree"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(node_prog "import cp from 'child_process'; cp.execSync('touch x', { stdio: 'inherit' })")")")")" "swe: a node default import inside its worktree"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "print('%s' % 'x'.strip())")")")")" "swe: a program without process calls"
+
 test_case "GH 1531: text a program writes is content, not a target"
 CONTENT="const root = '/work/proj'; const branch = 'fix/sess-a';"
 assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "p = '$WT/a.ts'" "with open(p, 'w') as f:" "    f.write(\"$CONTENT\")")")")")" "swe writing path-like text into its worktree"

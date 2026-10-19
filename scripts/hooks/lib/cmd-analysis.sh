@@ -1122,13 +1122,18 @@ _tmb_cmd_interp_writes() {
 # of a copy, both paths of a move), zipfile.ZipFile(p, 'w'|'a'|'x'). A call
 # that runs a process (subprocess.run / call / check_call / Popen, os.system /
 # popen / exec* / spawn*, node exec* / spawn* / fork, perl / ruby system /
-# exec / spawn and backticks, under any import alias) writes what its command
-# writes (_tmb_cmd_proc_writes): a shell string as written, a list argv quoted
-# and joined, its cwd= / {cwd} / chdir: a leading cd, its env= and other
-# options aside. A part of the command that is not a literal reads `$()`
-# (unresolvable) and fails closed, as does a process function or module the
-# program reaches some other way (`f = subprocess.run`, getattr(os, …),
-# __import__, a dynamic import). A program a read only names (open(p),
+# exec / spawn, backticks, perl qx and ruby %x, under any import alias) writes
+# what its command writes (_tmb_cmd_proc_writes): a shell string as written, a
+# list argv quoted and joined, its cwd= / {cwd} / chdir: a leading cd. That
+# holds only while its command and cwd are plain string literals or lists of
+# them with nothing applied, and every other argument is a literal, a known
+# option whose value cannot move the process (env=, stdout=, stdio, …), or a
+# node callback; anything else makes the call `$()` (unresolvable), as does a
+# process function or module the program reaches some other way
+# (`f = subprocess.run`, getattr(os, …), __import__, a dynamic import) and a
+# string it evaluates (exec / eval, new Function). A chdir (os.chdir,
+# process.chdir, perl chdir, Dir.chdir) makes every process call and every
+# relative path the program writes unresolvable. A program a read only names (open(p),
 # json.load(open(p)), os.listdir(p), sys.path.insert(0, p)) adds nothing.
 # Fail-closed — every path-like string literal not only read (open(p) /
 # open(p, 'r'), readFileSync, read_text, perl '<') — when a write call's path
@@ -1140,9 +1145,10 @@ _tmb_cmd_interp_writes() {
 # `operands`, a program that writes but names no literal prints `-` so the
 # caller still judges its operands.
 _tmb_cmd_prog_writes() {
-  local lang="${1:-}" prog="${2:-}" q="['\"]" sp="[[:space:]]*" reads writes fn scan out="" fail=0 lit src=""
+  local lang="${1:-}" prog="${2:-}" q="['\"]" sp="[[:space:]]*" reads writes fn scan out="" fail=0 lit src="" cd=0
   scan=$(_tmb_cmd_prog_calls "$lang" "$prog")
   case $'\n'"$scan"$'\n' in *$'\n'A$'\n'*|*$'\n'F$'\n'*) fail=1 ;; esac
+  case $'\n'"$scan"$'\n' in *$'\n'C$'\n'*) cd=1 ;; esac
   fn="writeFileSync|appendFileSync|writeFile|appendFile|createWriteStream|mkdirSync|renameSync|rmSync|rmdirSync|unlinkSync|copyFileSync|cpSync|fs\.(mkdir|rename|rm|rmdir|unlink|copyFile|cp)|makedirs|rmtree|(File|IO)\.(bin)?write|os\.(remove|unlink|mkdir|rename|replace|rmdir)|shutil\.(copy|copyfile|copy2|copytree|move)"
   case $'\n'"$scan"$'\n' in
     *$'\n'W$'\n'*) ;;
@@ -1154,7 +1160,9 @@ _tmb_cmd_prog_writes() {
   while IFS= read -r lit; do
     case "$lit" in
       T$'\t'?*) out="${out}${lit#T$'\t'}"$'\n' ;;
-      S$'\t'?*) out="${out}$(_tmb_cmd_proc_writes "$(printf '%s' "${lit#S$'\t'}" | tr '\037' '\n')")"$'\n' ;;
+      S$'\t'?*)
+        if [ "$cd" = 1 ]; then out="${out}\$()"$'\n'
+        else out="${out}$(_tmb_cmd_proc_writes "$(printf '%s' "${lit#S$'\t'}" | tr '\037' '\n')")"$'\n'; fi ;;
       U) out="${out}\$()"$'\n' ;;
       Q$'\t'?*) src="${src}${lit#Q$'\t'}"$'\n' ;;
     esac
@@ -1166,6 +1174,7 @@ _tmb_cmd_prog_writes() {
     writes=$(printf '%s\n' "$writes" | grep -oE "^[^'\"]*${q}[^'\"]+${q}" | grep -oE "${q}[^'\"]+${q}\$" || true)
     out="${out}$(_tmb_cmd_prog_literals "$src" "$reads" "$writes")"
   fi
+  [ "$cd" = 0 ] || out=$(printf '%s' "$out" | awk 'NF { print (/^[\/~$]/ ? "" : "$()/") $0 }')
   out=$(printf '%s' "$out" | awk 'NF && !seen[$0]++')
   if [ -n "$out" ]; then printf '%s\n' "$out"; elif [ "${3:-}" = "operands" ]; then printf -- '-\n'; fi
 }
@@ -1176,11 +1185,12 @@ _tmb_cmd_prog_writes() {
 # and its path argument: `T<TAB><literal>`, or `F` when that argument is not
 # a lone string literal (a variable, an f-string, a concatenation) or the
 # receiver is unknown. A process call prints `S<TAB><command>` (newlines as
-# \037; a non-literal part as `$()`), then `W`, and `F` when a part is not a
-# literal; `W` and `U` for a process function or module referenced some way
-# the scan cannot resolve. Import aliases (import subprocess as sp, from
-# subprocess / os import f as g, node require / import of child_process)
-# resolve to the module's own names.
+# \037) and `W` when every part it is judged on is a plain literal (an
+# allowlist per argument and option key: see keyrole / slotstart), else `W`
+# and `U`; so does a process function or module referenced some way the scan
+# cannot resolve, and an exec / eval of a string. `C` for a chdir. Import
+# aliases (import subprocess as sp, from subprocess / os import f as g, node
+# require / import of child_process) resolve to the module's own names.
 # `Q<TAB><quoted literal>` for each string literal outside the data a write
 # call writes. `A` when the program does not parse (an unterminated string,
 # unbalanced brackets).
@@ -1198,74 +1208,134 @@ _tmb_cmd_prog_calls() {
       fname[nf] = name; frecv[nf] = rk; frecvv[nf] = rv; np[nf] = 0
       resetarg(nf)
       fcs[nf] = (type == "group") ? 0 : contentstart(name, rk)
-      if (type == "group") {
-        if (spx && !spskip && !spign && !spcap && !spopt && cl == "}") spopt = d
-        return
-      }
-      if (spx && !spskip) {
-        if (spcap || spsel()) { spadd("P", ""); spskip = d }
-        return
-      }
-      if (!spx && isproc(canon(name))) spstart(canon(name))
+      isopt[d] = 0
+      if (spx) { spnest(type, cl, name); return }
+      if (type != "group" && isproc(canon(name))) spstart(canon(name))
+    }
+    function spnest(type, cl, name,   pr) {
+      pr = role[d - 1]; role[d] = "ign"
+      if (pr == "ign") { if (type != "group" && isproc(canon(name))) spbad = 1; return }
+      if (type != "group" || pr == "key") { spbad = 1; return }
+      if (++nat[d - 1] > 1) { spbad = 1; return }
+      nat[d] = 0
+      if (pr == "cmd" && cl != "}") { role[d] = "elem"; splist = 1 }
+      else if (cl == "}" && (pr == "opt" || (pr == "cmd" && lang ~ /^(node|ruby)$/))) { role[d] = "key"; isopt[d] = 1 }
+      else spbad = 1
     }
     function spstart(cn) {
-      spx = d; spf = 0; spign = 0; spcap = 0; spopt = 0; spskip = 0; spai = 1; spkwsel = 0
-      spe = 0; cq = ""; cr = ""; chas = 0; splist = 0; spshell = 0; spraw = 0; spcw = ""; spcwh = 0
-      splitname(cn); spalo = 1; spahi = 0
+      spx = d; spbad = 0; spai = 1; spkind = ""
+      spe = 0; splist = 0; spshell = 0; spraw = 0; spcw = ""; spcwh = 0
+      splitname(cn)
       if (lang == "py") {
-        if (sn_last ~ /^exec/) spalo = 2
-        else if (sn_last ~ /^spawn/) spalo = 3
-        else if (sn_last ~ /^posix_spawn/) { spalo = 2; spahi = 2 }
-        else spahi = 1
+        if (sn_pre ~ /(^|[.])os$/) spkind = sn_last
         spraw = (sn_last ~ /^(system|popen|getoutput|getstatusoutput)$/)
       } else if (lang == "node") {
-        if (sn_last ~ /^(exec|execSync)$/) { spahi = 1; spraw = 1 } else spahi = 2
+        spkind = sn_last
+        spraw = (sn_last ~ /^(exec|execSync)$/)
       }
+      slotstart(ip)
     }
-    function spsel() { return !spskip && !spign && !spcap && !spopt && (spkwsel || (spai >= spalo && (!spahi || spai <= spahi))) }
+    function slotstart(p,   r) {
+      r = "cmd"
+      if (lang == "py") {
+        if (spkind ~ /^spawn/) r = (spai == 1) ? "lit" : "cmd"
+        else if (spkind ~ /^posix_spawn/) r = (spai <= 2) ? "cmd" : (spai == 3 ? "lit" : "none")
+        else if (spkind == "popen") r = (spai == 1) ? "cmd" : "lit"
+        else if (spkind !~ /^exec/) r = (spai == 1) ? "cmd" : "none"
+      } else if (lang == "node") {
+        if (spkind ~ /^(exec|execSync)$/) r = (spai == 1) ? "cmd" : (spai <= 3 ? "opt" : "none")
+        else r = (spai <= 2) ? "cmd" : (spai <= 4 ? "opt" : "none")
+        if (r == "opt" || (r == "cmd" && spai == 2)) {
+          if (substr(s, p) ~ /^[ \t\n]*(async[ \t\n]+)?(function[^A-Za-z0-9_$]|[(][^()]*[)][ \t\n]*=>|[A-Za-z_$][A-Za-z0-9_$]*[ \t\n]*=>)/) r = "ign"
+        }
+      }
+      role[spx] = r; nat[spx] = 0
+    }
+    function keyrole(nm) {
+      if (lang == "py") {
+        if (nm == "args") return "cmd"
+        if (nm == "cwd") return "cwd"
+        if (nm == "shell") return "shell"
+        if (nm ~ /^(stdin|stdout|stderr|input|timeout|check|text|capture_output|encoding|errors|universal_newlines|env|bufsize|close_fds|pass_fds|restore_signals|start_new_session|process_group|startupinfo|creationflags|user|group|extra_groups|umask|pipesize)$/) return "ign"
+        if (nm ~ /^(executable|preexec_fn)$/) return "bad"
+        return "lit"
+      }
+      if (lang == "node") {
+        if (nm == "cwd") return "cwd"
+        if (nm == "shell") return "shell"
+        if (nm ~ /^(stdio|env|encoding|timeout|maxBuffer|killSignal|windowsHide|windowsVerbatimArguments|detached|uid|gid|input|signal|serialization|argv0|silent)$/) return "ign"
+        if (nm ~ /^(execArgv|execPath)$/) return "bad"
+        return "lit"
+      }
+      if (nm == "chdir") return "cwd"
+      if (nm ~ /^(in|out|err)$/) return "redir"
+      if (nm ~ /^(unsetenv_others|pgroup|new_pgroup|umask|close_others|exception|rlimit_[a-z]+)$/) return "ign"
+      return "lit"
+    }
+    function setkey(nm,   r) {
+      r = keyrole(nm)
+      if (r == "bad") { spbad = 1; r = "ign" }
+      role[d] = r; nat[d] = 0
+    }
+    function skey(v,   k) {
+      k = ip; while (substr(s, k, 1) ~ /[ \t\n]/) k++
+      if (substr(s, k, 1) == ":" && substr(s, k + 1, 1) != ":" && lang ~ /^(node|ruby)$/) { setkey(v); ip = k + 1 }
+      else if (lang == "ruby" && substr(s, k, 2) == "=>") { role[d] = "ign"; ip = k + 2 }
+      else spbad = 1
+    }
+    function satom(kind, v,   r) {
+      if (!spx) return
+      r = role[d]
+      if (r == "ign") return
+      if (r == "key" || ++nat[d] > 1) { spbad = 1; return }
+      if (r == "cmd" || r == "elem") {
+        if (kind ~ /^[SNX]$/) { spe++; sr[spe] = v; sq[spe] = sqt(v) } else spbad = 1
+      } else if (r == "cwd") {
+        if (kind == "S") { spcw = sqt(v); spcwh = 1 } else if (!(kind == "K" && v ~ /^(None|null|undefined|nil)$/)) spbad = 1
+      } else if (r == "shell") {
+        if (kind ~ /^[SNK]$/) { if (v !~ /^(False|false|None|null|undefined|nil)$/) spshell = 1 } else spbad = 1
+      } else if (r == "redir") {
+        if (kind != "K" && kind != "N") spbad = 1
+      } else if (r == "lit" || r == "opt") {
+        if (kind !~ /^[SNK]$/) spbad = 1
+      } else spbad = 1
+    }
     function sqt(v,   o, i) {
       o = ""
       while ((i = index(v, q1)) > 0) { o = o substr(v, 1, i - 1) q1 "\\" q1 q1; v = substr(v, i + 1) }
       return q1 o v q1
     }
-    function iquote(v,   o, i) {
-      o = ""
-      while ((i = index(v, PH)) > 0) { o = o (i > 1 ? sqt(substr(v, 1, i - 1)) : "") PH; v = substr(v, i + length(PH)) }
-      return o (v != "" ? sqt(v) : "")
-    }
-    function interpph(v) {
-      if (lang == "py") gsub(/[{][^{}]*[}]/, PH, v)
-      else if (lang == "node") gsub(/[$][{][^}]*[}]/, PH, v)
-      else if (lang == "ruby") gsub(/#[{][^}]*[}]/, PH, v)
-      else gsub(/[$@][{]?[A-Za-z_][A-Za-z0-9_:]*[}]?/, PH, v)
-      return v
-    }
-    function spadd(k, v,   pq) {
-      if (!spx || spskip || spign) return
-      pq = (k == "P") ? PH : (k == "I" ? iquote(v) : sqt(v))
-      if (spcap) { spcw = spcw pq; spcwh = 1; if (k != "L") spf = 1; return }
-      if (!spsel()) return
-      if (k != "L") spf = 1
-      cr = cr (k == "P" ? PH : v); cq = cq pq; chas = 1
-      if (d > spx) splist = 1
-    }
-    function spend() { if (chas) { spe++; sr[spe] = cr; sq[spe] = cq }; cr = ""; cq = ""; chas = 0 }
-    function spkey(nm) {
-      if ((lang == "node" && nm == "cwd") || (lang == "ruby" && nm == "chdir") || (lang == "py" && nm == "cwd")) { spcap = 1; spcapd = d }
-      else if (lang == "py" && nm == "args") spkwsel = 1
-      else { spign = 1; spigd = d; spigname = nm }
-    }
     function spfin(   cmd, j) {
-      spend()
-      if (spe > 0) {
+      if (!spbad && spe > 0) {
         cmd = ""
         for (j = 1; j <= spe; j++) cmd = cmd (j > 1 ? " " : "") ((spshell || spraw || (spe == 1 && !splist)) ? sr[j] : sq[j])
         if (spcwh) cmd = "cd " spcw " && " cmd
         gsub(/\n/, "\037", cmd)
-        print "S\t" cmd
+        print "S\t" cmd; print "W"
+      } else unres()
+      spx = 0
+    }
+    function bt(v, interp,   cmd) {
+      if (interp) unres()
+      else { cmd = v; gsub(/\n/, "\037", cmd); print "S\t" cmd; print "W" }
+      if (spx && role[d] != "ign") spbad = 1
+    }
+    function qlike(p,   o, c, dep, j, ch, v) {
+      o = substr(s, p, 1); c = o
+      if (o == "(") c = ")"; else if (o == "[") c = "]"; else if (o == "{") c = "}"; else if (o == "<") c = ">"
+      dep = 1; v = ""; j = p + 1
+      while (j <= length(s)) {
+        ch = substr(s, j, 1)
+        if (ch == "\\") { v = v substr(s, j, 2); j += 2; continue }
+        if (ch == c && c != o) { if (--dep == 0) break }
+        else if (ch == c) { dep = 0; break }
+        else if (ch == o) dep++
+        v = v ch; j++
       }
-      print "W"; if (spf) print "F"
-      spx = 0; spign = 0; spcap = 0; spopt = 0; spskip = 0
+      if (dep) { anom = 1; ip = length(s) + 1; return }
+      ip = j + 1; pc = 0
+      bt(v, (lang == "perl") ? (o != q1 && v ~ /[$@]/) : (index(v, "#{") > 0))
+      tok("E", "")
     }
     function canon(nm,   f, r) {
       if (nm in fal) return fal[nm]
@@ -1274,7 +1344,7 @@ _tmb_cmd_prog_calls() {
       if (f in mal) return mal[f] r
       if (lang == "py" && r == "") {
         if (("subprocess" in star) && nm ~ /^(run|call|check_call|check_output|Popen|getoutput|getstatusoutput)$/) return "subprocess." nm
-        if (("os" in star) && nm ~ procos) return "os." nm
+        if (("os" in star) && (nm ~ procos || nm ~ /^f?chdir$/)) return "os." nm
       }
       return nm
     }
@@ -1334,15 +1404,16 @@ _tmb_cmd_prog_calls() {
         if (nm != "" && al != "") fal[al] = "child_process." nm
       }
     }
-    function prescan(   off, st, m, re, cnt, seen, qq) {
+    function prescan(   off, st, ln, m, re, cnt, seen, qq) {
       qq = "[" q1 "\"]"
+      exeset = (lang == "py" && s ~ /sys[.]executable[ \t]*=[^=]/) || (lang == "node" && s ~ /process[.]execPath[ \t]*=[^=]/)
       if (lang == "py") {
         re = "(^|[\n;])[ \t]*(from[ \t]+[A-Za-z_][A-Za-z0-9_.]*[ \t]+import[ \t]*([(][^)]*[)]|[^\n;]*)|import[ \t]+[^\n;]*)"
         off = 1
         while (off <= length(s) && match(substr(s, off), re)) {
-          st = off + RSTART - 1; m = substr(s, st, RLENGTH)
-          addrange(st, RLENGTH); pyimport(m)
-          off = st + (RLENGTH > 0 ? RLENGTH : 1)
+          st = off + RSTART - 1; ln = RLENGTH; m = substr(s, st, ln)
+          addrange(st, ln); pyimport(m)
+          off = st + (ln > 0 ? ln : 1)
         }
         return
       }
@@ -1350,9 +1421,9 @@ _tmb_cmd_prog_calls() {
       re = "((const|let|var)[ \t]+([A-Za-z_$][A-Za-z0-9_$]*|[{][^}]*[}])[ \t\n]*=[ \t\n]*require[ \t]*[(][ \t]*" qq "(node:)?child_process" qq "[ \t]*[)]|import[ \t]+[^;\n]*from[ \t]*" qq "(node:)?child_process" qq ")"
       off = 1; seen = 0
       while (off <= length(s) && match(substr(s, off), re)) {
-        st = off + RSTART - 1; m = substr(s, st, RLENGTH)
-        addrange(st, RLENGTH); nodeimport(m); seen++
-        off = st + RLENGTH
+        st = off + RSTART - 1; ln = RLENGTH; m = substr(s, st, ln)
+        addrange(st, ln); nodeimport(m); seen++
+        off = st + (ln > 0 ? ln : 1)
       }
       re = "require[ \t]*[(][ \t]*" qq "(node:)?child_process" qq "[ \t]*[)][ \t\n]*[.]"
       off = 1
@@ -1373,13 +1444,6 @@ _tmb_cmd_prog_calls() {
       t = fid[d]; ty = ftype[d]
       endarg(t)
       if (spx == d) spfin()
-      else if (spx && spskip == d) spskip = 0
-      else if (spx && !spskip) {
-        if (ty == "group" && !spign && !spcap && !spopt) spend()
-        if (spign && spigd == d) spign = 0
-        if (spcap && spcapd == d) spcap = 0
-        if (spopt == d) spopt = 0
-      }
       d--
       lastk = "U"; lastv = ""
       if (ty == "call" || ty == "pseudo") {
@@ -1481,7 +1545,7 @@ _tmb_cmd_prog_calls() {
       if (last ~ /^(copyFileSync|cpSync|copyFile|copyfile|copy2|copytree|symlinkSync|linkSync|symlink|link)$/ || (last ~ /^(copy|cp|cp_r)$/ && (pre == "" || pre ~ /(^|[.:])(shutil|fs|fsp|promises|\?\(\)|FileUtils|Copy)$/))) { arg(t, 2, "dst dest"); return }
       if (last ~ /^(renameSync|rename|renames)$/ || (last == "replace" && pre ~ /(^|\.)os$/) || (last ~ /^(move|mv)$/ && (pre == "" || pre ~ /(^|[.:])(shutil|FileUtils|Copy)$/))) { arg(t, 1, "src"); arg(t, 2, "dst dest"); return }
     }
-    function str(qc, pfx,   n, j, v, tq, ch, closed, interp, cmd, k) {
+    function str(qc, pfx,   n, j, v, tq, ch, closed, interp) {
       n = length(s); tq = 0; closed = 0; v = ""
       if (lang == "py" && substr(s, ip, 3) == qc qc qc) { tq = 1; j = ip + 3 } else j = ip + 1
       while (j <= n) {
@@ -1497,21 +1561,13 @@ _tmb_cmd_prog_calls() {
       if (lang == "perl" && (qc == "\"" || qc == "`") && v ~ /[$@]/) interp = 1
       if (lang == "ruby" && (qc == "\"" || qc == "`") && index(v, "#{")) interp = 1
       if (lang == "node" && qc == "`" && index(v, "${")) interp = 1
-      if (qc == "`" && (lang == "perl" || lang == "ruby")) {
-        cmd = interp ? interpph(v) : v; gsub(/\n/, "\037", cmd)
-        print "S\t" cmd; print "W"; if (interp) print "F"
-        spadd("P", "")
-      } else if (interp) spadd("I", interpph(v))
-      else spadd("L", v)
-      if (spx && !spskip && spign && spigname == "shell") spshell = 1
       if (lang == "py" && d > 0 && fname[fid[d]] ~ /(^|[.])(__import__|import_module)$/ && v ~ /^(os|subprocess)$/) unres()
       if (!incontent()) { qv = v; gsub(/\n/, " ", qv); print "Q\t" qc qv qc }
       tok(interp ? "E" : "L", v)
       ip = j; pc = 0
-      if (lang == "node" && spx && !spskip && spopt == d) {
-        k = ip; while (substr(s, k, 1) ~ /[ \t\n]/) k++
-        if (substr(s, k, 1) == ":") { spkey(v); ip = k + 1 }
-      }
+      if (qc == "`" && (lang == "perl" || lang == "ruby")) bt(v, interp)
+      else if (spx && role[d] == "key") skey(v)
+      else satom(interp ? "I" : "S", v)
     }
     function name(rk, rv, pfx,   j, n, ch, nm, k, t, st, cn) {
       n = length(s); j = ip + 1; st = ip
@@ -1527,36 +1583,39 @@ _tmb_cmd_prog_calls() {
       k = ip; while (substr(s, k, 1) ~ /[ \t]/) k++
       ch = substr(s, k, 1)
       if (lang == "py" && k == ip && (ch == q1 || ch == "\"") && nm ~ /^[rRbBuUfF][rRbBfF]?$/) { str(ch, nm); return }
-      if (lang ~ /^(py|node)$/ && !inimport(st)) {
-        cn = canon(nm)
-        if (procref(cn) && !(ch == "(" && isproc(cn))) unres()
-      }
+      if (lang == "perl" && nm == "qx" && ch != "" && index("()[]{}<>/|!~^%+@:-\"" q1, ch)) { qlike(k); return }
+      cn = (lang == "py") ? canon(nm) : nm
+      if (lang ~ /^(py|node)$/ && !inimport(st) && procref(canon(nm)) && !(ch == "(" && isproc(canon(nm)))) unres()
+      if ((lang == "py" && ch == "(" && nm ~ /^(builtins[.])?(exec|eval)$/) || (lang == "node" && ((nm == "eval" && ch == "(") || nm == "Function")) || (lang == "perl" && nm == "eval" && ch != "{") || (lang == "ruby" && nm == "eval")) unres()
+      if ((lang == "py" && cn ~ /^os[.]f?chdir$/) || (lang == "node" && nm == "process.chdir") || (lang == "perl" && nm == "chdir") || (lang == "ruby" && nm ~ /^(Dir[.]chdir|FileUtils[.](cd|chdir))$/)) print "C"
       if (ch == "(") { opn("call", ")", nm, rk, rv); ip = k + 1; return }
       if (ch == "=" && substr(s, k + 1, 1) != "=" && d > 0 && ftype[d] == "call" && nm ~ /^[A-Za-z_][A-Za-z0-9_]*$/) {
         t = fid[d]
         if (atok[t] == 0 && !aoth[t] && akw[t] == "") {
           akw[t] = nm; ip = k + 1
-          if (spx == d) spkey(nm)
+          if (spx == d) setkey(nm)
           return
         }
       }
-      if (ch == ":" && substr(s, k + 1, 1) != ":" && spx && !spskip && ((lang == "node" && spopt && d == spopt) || (lang == "ruby" && (d == spx || (spopt && d == spopt))))) {
-        spkey(nm); ip = k + 1; return
+      if (ch == ":" && substr(s, k + 1, 1) != ":" && spx && role[d] != "ign" && ((lang == "node" && role[d] == "key") || (lang == "ruby" && (d == spx || role[d] == "key")))) {
+        setkey(nm); ip = k + 1; return
       }
       if ((lang == "perl" || lang == "ruby") && k > ip && (ch == q1 || ch == "`" || ch ~ /["$@A-Za-z_]/) && nm ~ /^(open|unlink|mkdir|rmdir|rename|link|symlink|copy|move|mkpath|make_path|remove_tree|rmtree|system|exec|spawn|(File|IO|FileUtils|Dir)\.[a-z_]+|File::(Copy|Path)::[a-z_]+)$/) {
         opn("pseudo", "", nm, "", ""); ip = k; return
       }
-      if (spx && !spskip && spign && spigname == "shell" && nm !~ /^(False|false|None|nil|null|undefined)$/) spshell = 1
-      if (spx && !spskip && lang == "node" && spopt == d && nm == "cwd") { spcw = PH; spcwh = 1; spf = 1 }
-      if (lang == "py" && nm == "sys.executable") spadd("L", "python3")
-      else if (lang == "node" && nm == "process.execPath") spadd("L", "node")
-      else if (nm !~ /^(True|False|None|true|false|nil|null|undefined)$/) spadd("P", "")
+      if (spx && role[d] != "ign") {
+        if (role[d] == "key") { if (keyrole(nm) != "ign") spbad = 1 }
+        else if (nm ~ /^(True|False|None|true|false|nil|null|undefined)$/) satom("K", nm)
+        else if (!exeset && ((lang == "py" && nm == "sys.executable") || (lang == "node" && nm == "process.execPath"))) satom("X", lang == "py" ? "python3" : "node")
+        else if (lang == "py" && cn ~ /^(os[.](environ|P_[A-Z]+)|subprocess[.](PIPE|STDOUT|DEVNULL))$/) satom("K", cn)
+        else spbad = 1
+      }
       tok("E", "")
     }
     { s = s (NR > 1 ? "\n" : "") $0 }
     END {
       q1 = sprintf("%c", 39); n = length(s); ip = 1; d = 0; pc = 0; anom = 0
-      spx = 0; spf = 0; spign = 0; spcap = 0; spopt = 0; spskip = 0; nimp = 0; PH = "$()"
+      spx = 0; nimp = 0
       procos = "^(system|popen|exec[lv]p?e?|spawn[lv]p?e?|posix_spawnp?)$"
       prescan()
       while (ip <= n && !anom) {
@@ -1576,6 +1635,14 @@ _tmb_cmd_prog_calls() {
           ip += j + 3; continue
         }
         if (c == q1 || c == "\"" || (c == "`" && lang != "py")) { str(c, ""); continue }
+        if (lang == "ruby" && c == "%" && substr(s, ip + 1, 1) == "x" && substr(s, ip + 2, 1) ~ /[][(){}<>\/|!~^]/) { qlike(ip + 2); continue }
+        if (lang == "ruby" && c == ":" && substr(s, ip + 1, 1) ~ /[A-Za-z_]/ && spx && role[d] != "ign") {
+          j = ip + 1; while (substr(s, j, 1) ~ /[A-Za-z0-9_]/) j++
+          k = j; while (substr(s, k, 1) ~ /[ \t\n]/) k++
+          if (substr(s, k, 2) == "=>" && (d == spx || role[d] == "key")) { setkey(substr(s, ip + 1, j - ip - 1)); ip = k + 2 }
+          else { satom("K", substr(s, ip, j - ip)); ip = j }
+          oth(); pc = 0; continue
+        }
         if (c ~ /[A-Za-z_]/ || (lang != "py" && c ~ /[$@]/)) { name("", "", ""); continue }
         if (c == "." && substr(s, ip + 1, 1) ~ /[A-Za-z_]/) {
           rk = pc ? lastk : "U"; rv = pc ? lastv : ""
@@ -1585,7 +1652,7 @@ _tmb_cmd_prog_calls() {
         if (c ~ /[0-9]/) {
           j = ip
           while (ip <= n && substr(s, ip, 1) ~ /[0-9A-Za-z_.]/) ip++
-          spadd("L", substr(s, j, ip - j))
+          satom("N", substr(s, j, ip - j))
           tok("E", ""); pc = 0; continue
         }
         if (c == "(" || c == "[" || c == "{") {
@@ -1598,16 +1665,19 @@ _tmb_cmd_prog_calls() {
         }
         if (c == ",") {
           if (d > 0 && (ftype[d] == "call" || ftype[d] == "pseudo")) endarg(fid[d]); else oth()
-          if (spx && !spskip) {
-            if (spign && d == spigd) spign = 0
-            if (spcap && d == spcapd) spcap = 0
-            spend()
-            if (d == spx) { spai++; spkwsel = 0 }
+          if (spx) {
+            if (d == spx) { spai++; slotstart(ip + 1) }
+            else if (isopt[d]) { role[d] = "key"; nat[d] = 0 }
+            else if (role[d] == "elem") nat[d] = 0
           }
           ip++; pc = 0; continue
         }
-        if (c == ";" || substr(s, ip, 2) == "||" || substr(s, ip, 2) == "&&") { endpseudo(); oth(); ip += (c == ";") ? 1 : 2; continue }
-        if (spx && (spcap || spsel()) && c !~ /[+\n]/) spf = 1
+        if (c == ";" || substr(s, ip, 2) == "||" || substr(s, ip, 2) == "&&") {
+          endpseudo(); oth(); ip += (c == ";") ? 1 : 2
+          if (spx && role[d] != "ign") spbad = 1
+          continue
+        }
+        if (spx && role[d] != "ign") spbad = 1
         oth(); pc = 0; ip++
       }
       if (!anom) endpseudo()
