@@ -128,6 +128,7 @@ run_step "L1 lint: no audit_append without from_node" bash "$HERE/l1-lint/no-aud
 run_step "L1 lint: no citations in prompts"           bash "$HERE/l1-lint/no-citations-in-prompts.sh"
 run_step "L1 lint: no repo paths in prompts (self-test)" bash "$HERE/l1-lint/no-repo-paths-in-prompts.sh" --self-test
 run_step "L1 lint: no repository paths in prompts" bash "$HERE/l1-lint/no-repo-paths-in-prompts.sh"
+run_step "L1 lint: explicit paths and git -C in prompts" bash "$HERE/l1-lint/prompt-explicit-paths.sh"
 run_step "L1 lint: no file_registry refs (v7 retirement)"  bash "$HERE/l1-lint/no-file-registry-refs.sh"
 run_step "L1 lint: kuzu trustedDependencies declared"  bash "$HERE/l1-lint/kuzu-trusted-dep.sh"
 run_step "L1 lint: no audit_append kind= arg"         bash "$HERE/l1-lint/no-audit-log-kind.sh"

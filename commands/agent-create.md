@@ -1,6 +1,6 @@
 ---
 name: agent-create
-description: Create or copy an agent into the project's <project>/.claude/agents/ directory and (optionally) spawn it on a consultant question.
+description: Create or copy an agent into <project>/.claude/agents/ and (optionally) spawn it on a consultant question.
 argument-hint: <kebab-case agent name> [optional consultant question]
 ---
 

@@ -13,7 +13,7 @@ Both carry `tmb_owner: bro` in frontmatter, marking them plugin-managed. Each al
 
 ## Consultants
 
-Domain experts (security, performance, legal, and the like) are not shipped here. The Human creates them on demand with the `/tmb:agent-create` command, which writes the new agent into the project's own `.claude/agents/` directory and registers it. A project may also place a local override of `swe` or `pr-reviewer` at that same path.
+Domain experts (security, performance, legal, and the like) are not shipped here. The Human creates them on demand with the `/tmb:agent-create` command, which writes the new agent into the project's own `<project>/.claude/agents/` directory and registers it. A project may also place a local override of `swe` or `pr-reviewer` at that same path.
 
 ## How it fits
 

@@ -11,7 +11,7 @@
 #   2. require-spawn-effort           — swe/pr-reviewer effort must match the DB
 #   3. require-feature-branch-active  — task's branch must already exist
 #   4. pr-reviewer-no-worktree        — pr-reviewer must not run in worktree
-#   5. pr-reviewer-spawn-prompt-shape — pr-reviewer prompt must have six anchors
+#   5. pr-reviewer-spawn-prompt-shape — pr-reviewer prompt must have seven anchors
 #   6. pr-reviewer-after-atomic-close — pr-reviewer task must be status=closed
 #
 # Silent on success (no context gathered); emits deny verbatim on first block.

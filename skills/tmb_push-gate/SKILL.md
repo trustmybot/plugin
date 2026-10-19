@@ -41,9 +41,9 @@ Read the verdict + `mcp_available` off each task's validation row via `validatio
 
 ### Outcomes
 
-`<repo path>` is the task's repo `path` from `repos_list`.
+`<repo path>` is the task's repo `path` from `repos_list`; `<slug>` is that repo's `owner/name` from `git -C <repo path> remote get-url origin`.
 
-- All-pass → `git -C <repo path> push origin <feature>`, then `gh pr create` / `glab mr create`, surface URL. After merge, run post-merge cleanup below.
+- All-pass → `git -C <repo path> push origin <feature>`, then `gh pr create -R <slug> --head <feature> --base <pr_target>` / `glab mr create -R <slug> --source-branch <feature> --target-branch <pr_target>`, surface URL. After merge, run post-merge cleanup below.
 - Any fail → surface verbatim. AUQ: `"PR-reviewer failed on N task(s). Spawn SWE to fix, or abort the push?"` options: `[Spawn SWE to fix | Abort push]`.
 - Rework on a branch with an open PR → `git -C <repo path> push origin <feature>`, then confirm `git -C <repo path> rev-parse origin/<feature>` equals the local tip (`git -C <repo path> rev-parse <feature>`) before telling the Human the PR is updated.
 
