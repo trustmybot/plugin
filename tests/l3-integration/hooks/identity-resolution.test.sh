@@ -242,14 +242,18 @@ for H in "$BOUNDARY" "$CONTAIN"; do
 done
 
 test_case "heredoc program text is data; a redirect is a target"
-PROG=$(printf '%s\n' "python3 - <<'PY'" "p = '$WT_A/notes.txt'" "s = open(p).read()" "s = s.replace('x', '/user/own')" "open(p, 'w').write(s)" "PY")
+PROG=$(printf '%s\n' "python3 - <<'PY'" "s = open('$WT_A/notes.txt').read()" "s = s.replace('x', '/user/own')" "open('$WT_A/notes.txt', 'w').write(s)" "PY")
 OUT=$(hook "$CONTAIN" "$A_PROJ" "$A_DB" "$A_PROJ" "$(payload swe "$(transcript 1)" "$A_PROJ" Bash "$(bash_cmd "$PROG")")")
 assert_eq "allow" "$(decision "$OUT")" "a replace() argument naming /user/own is not a write target"
+PROGVAR=$(printf '%s\n' "python3 - <<'PY'" "p = '$WT_A/notes.txt'" "s = open(p).read()" "s = s.replace('x', '/user/own')" "open(p, 'w').write(s)" "PY")
+OUT=$(hook "$CONTAIN" "$A_PROJ" "$A_DB" "$A_PROJ" "$(payload swe "$(transcript 1)" "$A_PROJ" Bash "$(bash_cmd "$PROGVAR")")")
+assert_eq "deny" "$(decision "$OUT")" "a write through a variable counts every literal"
+assert_contains "$(reason "$OUT")" "/user/own" "the reason names /user/own"
 OUT=$(hook "$CONTAIN" "$A_PROJ" "$A_DB" "$A_PROJ" "$(payload swe "$(transcript 1)" "$A_PROJ" Bash "$(bash_cmd "echo x > /outside/f")")")
 assert_eq "deny" "$(decision "$OUT")" "echo x > /outside/f is a write target"
 assert_contains "$(reason "$OUT")" "/outside/f" "the reason names /outside/f"
 
-test_case "a path routed through a text call is still a write target"
+test_case "a path routed through a text call or a rebound variable is still a write target"
 # containment denies a write outside the worktree; swe-boundary judges Bash
 # writes by the prompt surface (rule e), so its target is the worktree's CLAUDE.md.
 for H in "$BOUNDARY" "$CONTAIN"; do
@@ -259,7 +263,11 @@ for H in "$BOUNDARY" "$CONTAIN"; do
     "python3 -c \"p='x'.replace('x','$T'); open(p,'w').write('1')\"" \
     "$(printf '%s\n' "python3 - <<'PY'" "p='x'.replace('x','$T'); open(p,'w').write('1')" "PY")" \
     "python3 -c \"open('x'.replace('x','$T'),'w')\"" \
-    "node -e \"const p='x'.replace('x','$T'); require('fs').writeFileSync(p,'1')\""; do
+    "node -e \"const p='x'.replace('x','$T'); require('fs').writeFileSync(p,'1')\"" \
+    "python3 -c \"import cProfile; p='notes.txt'; cProfile.run('p=%r' % '$T'); open(p,'w').write('1')\"" \
+    "$(printf '%s\n' "python3 - <<'PY'" "import cProfile" "p = 'notes.txt'" "cProfile.run('p=%r' % '$T')" "open(p, 'w').write('1')" "PY")" \
+    "$(printf '%s\n' "python3 - <<'PY'" "import trace" "p = 'notes.txt'" "trace.Trace(count=0, trace=0).run('p=%r' % '$T')" "open(p, 'w').write('1')" "PY")" \
+    "$(printf '%s\n' "python3 - <<'PY'" "import gc" "p = 'notes.txt'" "for o in gc.get_objects():" "    if isinstance(o, dict) and o.get('p') == 'notes.txt': o['p'] = '$T'" "open(p, 'w').write('1')" "PY")"; do
     OUT=$(hook "$H" "$A_PROJ" "$A_DB" "$WT_A" "$(payload swe "$(transcript 1)" "$WT_A" Bash "$(bash_cmd "$CMD")")")
     assert_eq "deny" "$(decision "$OUT")" "$name: ${CMD%%$'\n'*}"
   done
