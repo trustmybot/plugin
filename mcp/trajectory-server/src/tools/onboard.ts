@@ -499,7 +499,7 @@ function sandboxQuestion(
     description:
       'Bash may write only in this project and the model cache, and reach only GitHub, the npm registry and your HTTPS remotes.' +
       (platform === 'darwin' ? " gh needs macOS's TLS trust service, which slightly weakens isolation." : '') +
-      (ssh ?' Git over SSH bypasses the sandbox proxy, so your SSH remote fails: switch it to HTTPS.' : ''),
+      (ssh ? ' Git over SSH bypasses the sandbox proxy, so your SSH remote fails: switch it to HTTPS.' : ''),
     wire: 'yes',
   };
   const options: QuestionOption[] = keep

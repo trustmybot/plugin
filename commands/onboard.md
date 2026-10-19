@@ -56,7 +56,7 @@ Call `onboard_get_questions(agent='bro', round='headless')` and feed the returne
 
 ### Round 5 — Bash sandbox
 
-Call `onboard_get_questions(agent='bro', round='sandbox')` and feed the returned question into `AskUserQuestion`. Store the answer as `sandbox_enforcement` (default: the question's first option). `yes` writes a Claude Code sandbox block into `<project>/.claude/settings.local.json` that keeps Bash writes in this project and the model cache, and gives Bash a network allow-list of the hosts TMB needs plus the host of each of the repo's HTTPS remotes.
+Call `onboard_get_questions(agent='bro', round='sandbox')` and feed the returned question into `AskUserQuestion`. Store the answer as `sandbox_enforcement` (default: the question's first option). `yes` writes a Claude Code sandbox block into `<project>/.claude/settings.local.json` that keeps Bash writes in this project and the model cache, and gives Bash a network allow-list of the hosts TMB needs plus the host of each of the repo's HTTPS remotes. On a fresh onboard the question defaults to `Yes (Recommended)` only on the platform the recorded sandbox probe measured (macOS today) and only when no git remote uses SSH; otherwise it defaults to `No`. `yes` also sets `env` entries `npm_config_cache` and `BUN_INSTALL_CACHE_DIR` pointing under the plugin state dir's `cache/`, and on macOS only `sandbox.enableWeakerNetworkIsolation`, which slightly weakens isolation so Go tools such as `gh` can reach the TLS trust service.
 
 ## 3. Apply (transactional)
 

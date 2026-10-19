@@ -1141,7 +1141,7 @@ describe('onboard tools', () => {
             const data = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'sandbox' }));
             const q = data.questions[0];
             assert.equal(q.options[q.default_index].wire, 'no');
-            assert.match(q.options.find((o) => o.wire === 'yes').description, /Git over SSH bypasses the sandbox proxy/);
+            assert.match(q.options.find((o) => o.wire === 'yes').description, /\. Git over SSH bypasses the sandbox proxy/);
             rmSync(base, { recursive: true, force: true });
             db.close();
         });
