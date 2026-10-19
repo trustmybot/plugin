@@ -1,4 +1,5 @@
 import { resolveRepoForSync } from '../utils/repo-paths.js';
+import { projectRootFromDbPath } from './containment.js';
 import { repoRemotes } from '../repos/remotes.js';
 import { nowISO } from '../db.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
@@ -850,7 +851,7 @@ export function issueTools(db, dbPath = '', options = {}) {
                 });
                 // Surface a warning when the project clearly looks remote-tracked (git
                 // origin is gh/glab) but sync is disabled, so bro can mention the drift.
-                const preferred = detectPreferred();
+                const preferred = detectPreferred(resolveRepoForSync(db, issueRepo)?.path ?? projectRootFromDbPath(dbPath || db.dbPath));
                 if (preferred !== null) {
                     syncDiagnostic = {
                         sync_skipped: true,

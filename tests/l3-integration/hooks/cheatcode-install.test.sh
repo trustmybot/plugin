@@ -21,6 +21,8 @@ command -v jq >/dev/null 2>&1 || { printf "FAIL jq not found — required depend
 
 WORKSPACE=$(mktemp -d)
 trap 'rm -rf "$WORKSPACE"' EXIT
+export TMB_PROJECT_ROOT="$WORKSPACE/project"
+mkdir -p "$TMB_PROJECT_ROOT"
 
 # ---------------------------------------------------------------------------
 # Part A — install script (fixture-stubbed marketplace).
@@ -57,10 +59,12 @@ assert_eq "local" "$(printf '%s' "$OUT" | jq -r '.scope')" "scope"
 # names the marketplace it registered.
 SHIM_DIR="$WORKSPACE/shim"
 ARGV_LOG="$WORKSPACE/claude-argv.log"
+PWD_LOG="$WORKSPACE/claude-pwd.log"
 mkdir -p "$SHIM_DIR"
 cat > "$SHIM_DIR/claude" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$CLAUDE_ARGV_LOG"
+pwd -P >> "$CLAUDE_PWD_LOG"
 case "$*" in
   "plugin marketplace list"*) printf '[]\n' ;;
   "plugin marketplace add"*) printf "Successfully added marketplace 'x-mkt'\n" ;;
@@ -71,12 +75,15 @@ chmod +x "$SHIM_DIR/claude"
 NOFIX_CWD="$WORKSPACE/live"
 mkdir -p "$NOFIX_CWD"
 
-# run_live <args...> — runs the install with no fixture and the shim on PATH.
+# run_live <args...> — runs the install with no fixture and the shim on PATH,
+# from a working directory that is not the project.
 run_live() {
   : > "$ARGV_LOG"
+  : > "$PWD_LOG"
   (cd "$NOFIX_CWD" && env -u TMB_CHEATCODE_INSTALL_FIXTURE \
-    PATH="$SHIM_DIR:$PATH" CLAUDE_ARGV_LOG="$ARGV_LOG" bash "$SCRIPT" "$@")
+    PATH="$SHIM_DIR:$PATH" CLAUDE_ARGV_LOG="$ARGV_LOG" CLAUDE_PWD_LOG="$PWD_LOG" bash "$SCRIPT" "$@")
 }
+PROJECT_REAL=$(cd "$TMB_PROJECT_ROOT" && pwd -P)
 
 test_case "--scope global is refused with outside_project before any claude call"
 set +e
@@ -95,10 +102,25 @@ assert_eq "plugin marketplace list --json
 plugin marketplace add https://x.test/pdf --scope project
 plugin install pdf-plugin@x-mkt --scope project" "$(cat "$ARGV_LOG")" "plugin argv"
 
+test_case "plugin kind: every claude call runs in TMB_PROJECT_ROOT, not the caller cwd"
+assert_eq "$PROJECT_REAL
+$PROJECT_REAL
+$PROJECT_REAL" "$(cat "$PWD_LOG")" "plugin claude cwd"
+
 test_case "mcp kind: mcp add runs with --scope project"
 OUT_MCP_LIVE=$(run_live --candidate '{"name":"pdf-mcp","kind":"mcp","source_url":"https://x.test/pdf-mcp"}')
 assert_eq "true" "$(printf '%s' "$OUT_MCP_LIVE" | jq -r '.installed')" "live mcp installed"
 assert_eq "mcp add --scope project pdf-mcp https://x.test/pdf-mcp" "$(cat "$ARGV_LOG")" "mcp argv"
+assert_eq "$PROJECT_REAL" "$(cat "$PWD_LOG")" "mcp claude cwd"
+
+test_case "TMB_PROJECT_ROOT unset fails non-zero with a clear message"
+set +e
+ERR_NOROOT=$(env -u TMB_PROJECT_ROOT TMB_CHEATCODE_INSTALL_FIXTURE="$FIXTURE" bash "$SCRIPT" \
+  --candidate '{"name":"pdf-plugin","kind":"plugin","source_url":"https://x.test/pdf"}' 2>&1 >/dev/null)
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then _pass; else _fail "expected non-zero exit with TMB_PROJECT_ROOT unset"; fi
+assert_contains "$ERR_NOROOT" "TMB_PROJECT_ROOT is unset" "unset-root message"
 
 test_case "invalid scope fails non-zero"
 set +e
@@ -161,9 +183,9 @@ assert_eq "1.2.3" "$(printf '%s' "$OUT_FLAT_REGRESS" | jq -r '.version')" "flat 
 assert_eq "plugin" "$(printf '%s' "$OUT_FLAT_REGRESS" | jq -r '.attachments[0].target')" "flat default attachment"
 
 # Env-unset default-path probe: when TMB_CHEATCODE_INSTALL_FIXTURE is unset/empty
-# the script falls back to "$PWD/.tmb-cheatcode-install-fixture.json" (the path the
-# row setup-l5.sh stages in the step's CWD) and uses it if present. Run from a CWD
-# that holds the default-named file, with the env var explicitly unset.
+# the script falls back to "$TMB_PROJECT_ROOT/.tmb-cheatcode-install-fixture.json"
+# (the path the row setup-l5.sh stages in the project) and uses it if present.
+# Run from an unrelated cwd with TMB_PROJECT_ROOT at the dir holding the file.
 PROBE_DIR="$WORKSPACE/probe"
 mkdir -p "$PROBE_DIR"
 cat > "$PROBE_DIR/.tmb-cheatcode-install-fixture.json" <<'JSON'
@@ -171,7 +193,7 @@ cat > "$PROBE_DIR/.tmb-cheatcode-install-fixture.json" <<'JSON'
   "attachments": [ { "target": "swe", "artifact": "marketplace-plugin:feature-dev" } ] }
 JSON
 
-OUT_PROBE=$(cd "$PROBE_DIR" && env -u TMB_CHEATCODE_INSTALL_FIXTURE bash "$SCRIPT" \
+OUT_PROBE=$(cd "$NOFIX_CWD" && TMB_PROJECT_ROOT="$PROBE_DIR" env -u TMB_CHEATCODE_INSTALL_FIXTURE bash "$SCRIPT" \
   --candidate '{"name":"feature-dev","kind":"plugin","source_url":"https://x.test/feature-dev"}')
 
 test_case "env unset + default fixture file present → fixture used"
@@ -179,25 +201,30 @@ assert_eq "true" "$(printf '%s' "$OUT_PROBE" | jq -r '.installed')" "probe insta
 assert_eq "9.9.9" "$(printf '%s' "$OUT_PROBE" | jq -r '.version')" "probe version"
 assert_eq "swe" "$(printf '%s' "$OUT_PROBE" | jq -r '.attachments[0].target')" "probe attachment target"
 
+test_case "a default fixture in the caller cwd (not the project) is ignored"
+OUT_CWD_FIX=$(cd "$PROBE_DIR" && env -u TMB_CHEATCODE_INSTALL_FIXTURE bash "$SCRIPT" \
+  --candidate '{"name":"pdf-skill","kind":"skill","source_url":"https://x.test/pdf-skill"}')
+assert_eq "false" "$(printf '%s' "$OUT_CWD_FIX" | jq -r '.installed')" "cwd fixture ignored"
+
 # Env-set still wins over the default file: with the env pointing at a DIFFERENT
-# fixture, the default file in CWD is ignored.
+# fixture, the default file in the project is ignored.
 WINS_FIXTURE="$WORKSPACE/wins.json"
 cat > "$WINS_FIXTURE" <<'JSON'
 { "installed": true, "version": "1.1.1", "error": null }
 JSON
 
-OUT_WINS=$(cd "$PROBE_DIR" && TMB_CHEATCODE_INSTALL_FIXTURE="$WINS_FIXTURE" bash "$SCRIPT" \
+OUT_WINS=$(TMB_PROJECT_ROOT="$PROBE_DIR" TMB_CHEATCODE_INSTALL_FIXTURE="$WINS_FIXTURE" bash "$SCRIPT" \
   --candidate '{"name":"feature-dev","kind":"plugin","source_url":"https://x.test/feature-dev"}')
 
-test_case "env-set fixture wins over the default file in CWD"
+test_case "env-set fixture wins over the default file in the project"
 assert_eq "1.1.1" "$(printf '%s' "$OUT_WINS" | jq -r '.version')" "env wins version"
 
 # No env and no default file: the no-fixture path is unchanged. Use a skill kind
-# (which never calls the marketplace) from a CWD with no default file so the probe
-# misses and nothing is installed — fast and network-free.
+# (which never calls the marketplace) with a project holding no default file so
+# the probe misses and nothing is installed — fast and network-free.
 NOFIX_DIR="$WORKSPACE/nofix"
 mkdir -p "$NOFIX_DIR"
-OUT_NOFIX=$(cd "$NOFIX_DIR" && env -u TMB_CHEATCODE_INSTALL_FIXTURE bash "$SCRIPT" \
+OUT_NOFIX=$(TMB_PROJECT_ROOT="$NOFIX_DIR" env -u TMB_CHEATCODE_INSTALL_FIXTURE bash "$SCRIPT" \
   --candidate '{"name":"pdf-skill","kind":"skill","source_url":"https://x.test/pdf-skill"}')
 
 test_case "no env + no default file → no-fixture path unchanged (not installed)"

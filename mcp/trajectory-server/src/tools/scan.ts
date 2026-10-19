@@ -16,6 +16,7 @@ import { serverLog } from '../logger.js';
 import type { SpawnFn } from '../sync/issue_sync.js';
 import { syncRepoMilestones } from './milestones.js';
 import { primaryIndex, repoRemotes, upsertRepoRemotes, type Remote } from '../repos/remotes.js';
+import { projectRootFromDbPath } from './containment.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -83,9 +84,17 @@ function resolveScanScript(): string {
   throw new Error('scan.sh not found — expected at <plugin>/scripts/scan.sh');
 }
 
-export function runScanWithScript(script: string, sessionDir: string, timeoutMs: number): Promise<ScanOutput> {
+export function runScanWithScript(
+  script: string,
+  sessionDir: string,
+  timeoutMs: number,
+  dbPath = '',
+): Promise<ScanOutput> {
   return new Promise<ScanOutput>((resolve, reject) => {
+    const env = dbPath && dbPath !== ':memory:' ? { ...process.env, TRAJECTORY_DB_PATH: dbPath } : process.env;
     const child = spawn('bash', [script, sessionDir], {
+      cwd: sessionDir,
+      env,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -150,8 +159,8 @@ export function runScanWithScript(script: string, sessionDir: string, timeoutMs:
   });
 }
 
-function runScan(sessionDir: string, timeoutMs: number): Promise<ScanOutput> {
-  return runScanWithScript(resolveScanScript(), sessionDir, timeoutMs);
+function runScan(sessionDir: string, timeoutMs: number, dbPath: string): Promise<ScanOutput> {
+  return runScanWithScript(resolveScanScript(), sessionDir, timeoutMs, dbPath);
 }
 
 // Valid `source` values for scan_run (#2881). The default — bro_auto_initial —
@@ -870,7 +879,7 @@ export function scanTools(
           session_dir: {
             type: 'string',
             description:
-              'Absolute path to the session directory (workspace root). Defaults to the MCP server\'s CWD.',
+              'Absolute path to the session directory (workspace root). Defaults to the project root (the directory holding the trajectory DB\'s .claude/).',
           },
           source: {
             type: 'string',
@@ -900,7 +909,10 @@ export function scanTools(
       'scan_run',
       ['bro'],
       wrap(async (args) => {
-        const sessionDir = (args['session_dir'] as string | undefined) ?? process.cwd();
+        const sessionDir = (args['session_dir'] as string | undefined) ?? projectRootFromDbPath(dbPath);
+        if (!sessionDir) {
+          return err('session_dir is required: the project root is unknown for this trajectory DB');
+        }
         const rawSource = (args['source'] as string | undefined) ?? 'bro_auto_initial';
         const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : 'bro_auto_initial';
 
@@ -955,7 +967,7 @@ export function scanTools(
         }
 
         try {
-          const out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
+          const out = await runScan(sessionDir, SCAN_TIMEOUT_MS, dbPath);
           const stats = persistScan(db, graph, out, sessionDir);
 
           // Milestones: reconcile from each repo's remote, then seed one

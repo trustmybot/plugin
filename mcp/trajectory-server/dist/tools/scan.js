@@ -12,6 +12,7 @@ import { frameUntrusted } from '../utils/untrusted.js';
 import { serverLog } from '../logger.js';
 import { syncRepoMilestones } from './milestones.js';
 import { primaryIndex, repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
+import { projectRootFromDbPath } from './containment.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -53,9 +54,12 @@ function resolveScanScript() {
     }
     throw new Error('scan.sh not found — expected at <plugin>/scripts/scan.sh');
 }
-export function runScanWithScript(script, sessionDir, timeoutMs) {
+export function runScanWithScript(script, sessionDir, timeoutMs, dbPath = '') {
     return new Promise((resolve, reject) => {
+        const env = dbPath && dbPath !== ':memory:' ? { ...process.env, TRAJECTORY_DB_PATH: dbPath } : process.env;
         const child = spawn('bash', [script, sessionDir], {
+            cwd: sessionDir,
+            env,
             detached: true,
             stdio: ['ignore', 'pipe', 'pipe'],
         });
@@ -116,8 +120,8 @@ export function runScanWithScript(script, sessionDir, timeoutMs) {
         });
     });
 }
-function runScan(sessionDir, timeoutMs) {
-    return runScanWithScript(resolveScanScript(), sessionDir, timeoutMs);
+function runScan(sessionDir, timeoutMs, dbPath) {
+    return runScanWithScript(resolveScanScript(), sessionDir, timeoutMs, dbPath);
 }
 // Valid `source` values for scan_run (#2881). The default — bro_auto_initial —
 // matches the historical un-tagged behavior (bro hit the registry-cold gate
@@ -711,7 +715,7 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
                     agent: { type: 'string' },
                     session_dir: {
                         type: 'string',
-                        description: 'Absolute path to the session directory (workspace root). Defaults to the MCP server\'s CWD.',
+                        description: 'Absolute path to the session directory (workspace root). Defaults to the project root (the directory holding the trajectory DB\'s .claude/).',
                     },
                     source: {
                         type: 'string',
@@ -736,7 +740,10 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
     ];
     const handlers = {
         scan_run: requireRoles('scan_run', ['bro'], wrap(async (args) => {
-            const sessionDir = args['session_dir'] ?? process.cwd();
+            const sessionDir = args['session_dir'] ?? projectRootFromDbPath(dbPath);
+            if (!sessionDir) {
+                return err('session_dir is required: the project root is unknown for this trajectory DB');
+            }
             const rawSource = args['source'] ?? 'bro_auto_initial';
             const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : 'bro_auto_initial';
             // #590/#591: when the server lost the cold-start kuzu write-lock race
@@ -787,7 +794,7 @@ export function scanTools(db, graphHolder = null, dbPath = '') {
                 }
             }
             try {
-                const out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
+                const out = await runScan(sessionDir, SCAN_TIMEOUT_MS, dbPath);
                 const stats = persistScan(db, graph, out, sessionDir);
                 // Milestones: reconcile from each repo's remote, then seed one
                 // v<next-patch> where none exist. Never fails the scan.

@@ -200,7 +200,7 @@ function fetchGithubComments(
 ): PrCommentsResult | null {
   const opts: SpawnSyncOptions = { timeout: 15000, encoding: 'utf8' };
   const ghArgs = ['pr', 'view', String(prNumber), '--json', 'comments,state,reviews,headRefName'];
-  if (repo) ghArgs.splice(2, 0, '-R', repo);
+  ghArgs.splice(2, 0, '-R', repo);
   const result = spawnFn('gh', ghArgs, opts);
 
   if (result.status !== 0) return null;
@@ -285,7 +285,7 @@ function fetchGitlabComments(
 ): PrCommentsResult | null {
   const opts: SpawnSyncOptions = { timeout: 15000, encoding: 'utf8' };
   const glabArgs = ['mr', 'view', String(prNumber), '--comments', '--output', 'json'];
-  if (repo) glabArgs.splice(2, 0, '-R', repo);
+  glabArgs.splice(2, 0, '-R', repo);
   const result = spawnFn('glab', glabArgs, opts);
 
   if (result.status !== 0) return null;
@@ -379,7 +379,7 @@ export function prMonitorTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
           },
           repo: {
             type: 'string',
-            description: 'Optional repo slug (owner/repo) passed to gh -R / glab -R. When omitted, resolves to the sole registered repo\'s remote slug; in a multi-repo workspace it is required (a named error is returned otherwise). The cwd git remote is never used in a multi-repo workspace.',
+            description: 'Optional repo slug (owner/repo) passed to gh -R / glab -R. When omitted, resolves to the sole registered repo\'s remote slug; a named error is returned when no slug resolves or several repos are registered. The cwd git remote is never used.',
           },
           since: {
             type: 'string',
@@ -435,16 +435,22 @@ export function prMonitorTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
               'pass repo="owner/repo". The cwd git remote is never used in a multi-repo workspace.',
           );
         }
-        // 0 or 1 repos: derive the sole repo's slug from its remotes; fall back
-        // to '' (cwd remote, no cursor) only when no repo/remote slug resolves
-        // (uninitialized).
+        // 0 or 1 repos: derive the sole repo's slug from its remotes. No slug
+        // → a named error; gh/glab never run against the server cwd's remote.
         const resolved = resolveRepoForSync(db, null);
         const slug = resolved
           ? repoRemotes(db, resolved.name)
               .map((r) => repoSlugFromRemoteUrl(r.url))
               .find((s): s is string => s !== null) ?? null
           : null;
-        repo = slug ?? '';
+        if (slug === null) {
+          return err(
+            resolved
+              ? `pr_monitor_comments_get: repo "${resolved.name}" has no GitHub/GitLab remote slug — pass repo="owner/repo" or run /scan.`
+              : 'pr_monitor_comments_get: no repo is registered — pass repo="owner/repo" or run /scan.',
+          );
+        }
+        repo = slug;
       }
 
       // Wire incremental polling: prefer the explicit `since` arg, otherwise
@@ -512,30 +518,27 @@ export function prMonitorTools(db: TrajectoryDB, _spawnFn?: SpawnFn): {
 
       // Upsert the cursor: a re-fetch of the same (pr_number, repo) overwrites
       // last_fetched_at + last_comment_id rather than inserting a duplicate row
-      // (UNIQUE (pr_number, repo)). The cursor is keyed by repo, so a fetch with
-      // no resolved repo slug (cwd remote) persists no cursor.
+      // (UNIQUE (pr_number, repo)).
       // Resolve the owning task from the PR head branch so the carrier
       // resolution (pr_number → pr_review_runs → tasks → issue) works in
       // production (#1024). Null when unresolvable — COALESCE keeps a
       // previously-resolved task_id rather than nulling it on a later fetch.
-      if (repo !== '') {
-        const taskId = resolveMonitorTaskId(db, fetchResult.head_branch, repo);
-        const existingCursor = db.get<{ id: number }>(
-          'SELECT id FROM pr_review_runs WHERE pr_number = ? AND repo = ?',
-          [prNumber, repo],
+      const taskId = resolveMonitorTaskId(db, fetchResult.head_branch, repo);
+      const existingCursor = db.get<{ id: number }>(
+        'SELECT id FROM pr_review_runs WHERE pr_number = ? AND repo = ?',
+        [prNumber, repo],
+      );
+      if (existingCursor) {
+        db.run(
+          'UPDATE pr_review_runs SET last_fetched_at = ?, last_comment_id = ?, task_id = COALESCE(?, task_id) WHERE id = ?',
+          [now, lastCommentId, taskId, existingCursor.id],
         );
-        if (existingCursor) {
-          db.run(
-            'UPDATE pr_review_runs SET last_fetched_at = ?, last_comment_id = ?, task_id = COALESCE(?, task_id) WHERE id = ?',
-            [now, lastCommentId, taskId, existingCursor.id],
-          );
-        } else {
-          db.run(
-            `INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id, task_id)
-             VALUES (?, ?, ?, ?, ?)`,
-            [prNumber, repo, now, lastCommentId, taskId],
-          );
-        }
+      } else {
+        db.run(
+          `INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id, task_id)
+           VALUES (?, ?, ?, ?, ?)`,
+          [prNumber, repo, now, lastCommentId, taskId],
+        );
       }
 
       const { persisted, duplicates } = persistComments(db, prNumber, repo, fetchResult);

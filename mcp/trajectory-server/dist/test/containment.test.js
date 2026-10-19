@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -43,6 +43,34 @@ describe('canonicalPath — symlinks resolve before `..` applies', () => {
         const alias = join(sandbox, 'alias');
         symlinkSync(root, alias);
         assert.equal(isWithinRoot(root, join(alias, 'a', 'z')), true);
+    });
+});
+describe('relative paths resolve against the project root', () => {
+    let sandbox;
+    let root;
+    let elsewhere;
+    const originalCwd = process.cwd();
+    beforeEach(() => {
+        sandbox = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-containment-rel-')));
+        root = join(sandbox, 'project');
+        elsewhere = join(sandbox, 'elsewhere');
+        mkdirSync(root);
+        mkdirSync(elsewhere);
+        process.chdir(elsewhere);
+    });
+    afterEach(() => {
+        process.chdir(originalCwd);
+        rmSync(sandbox, { recursive: true, force: true });
+    });
+    it('canonicalPath joins a relative path to the project root, not the server cwd', () => {
+        assert.equal(canonicalPath('docs/x.md', root), join(root, 'docs', 'x.md'));
+    });
+    it('a relative path is inside the project root even when the server cwd is elsewhere', () => {
+        assert.equal(isWithinRoot(root, 'docs/x.md'), true);
+        assert.equal(outsideProject('t', root, '../elsewhere/x')?.error, 'outside_project');
+    });
+    it('canonicalPath refuses a relative path with no project root', () => {
+        assert.throws(() => canonicalPath('docs/x.md'), /needs an absolute project root/);
     });
 });
 //# sourceMappingURL=containment.test.js.map

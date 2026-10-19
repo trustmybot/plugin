@@ -61,6 +61,7 @@ case "$KIND" in
   skill|mcp|plugin|any) : ;;
   *) echo "{\"error\":\"invalid kind: $KIND\"}" >&2; exit 1 ;;
 esac
+[ -n "${TMB_PROJECT_ROOT:-}" ] || { echo '{"error":"TMB_PROJECT_ROOT is unset — the trajectory server sets it to the project root"}' >&2; exit 1; }
 
 CURL_TIMEOUT=8
 
@@ -146,14 +147,14 @@ adapter_pulsemcp() {
 }
 
 # Resolve the fixture path. The env var wins when set. When it is unset/empty,
-# probe the deterministic default path "$PWD/.tmb-cheatcode-fixture.json" (the
-# path the row setup-l5.sh stages in the step's CWD) and use it if present —
+# probe the deterministic default path "$TMB_PROJECT_ROOT/.tmb-cheatcode-fixture.json"
+# (the path the row setup-l5.sh stages in the project) and use it if present —
 # this lets the L6 chain reach the fixture even though the runner's subshell
 # export of the env var never reaches the step's `claude -p`. When neither the
 # env nor the default file is present, the live / no-fixture path is unchanged.
 SEARCH_FIXTURE_PATH="${TMB_CHEATCODE_SEARCH_FIXTURE:-}"
-if [ -z "$SEARCH_FIXTURE_PATH" ] && [ -f "$PWD/.tmb-cheatcode-fixture.json" ]; then
-  SEARCH_FIXTURE_PATH="$PWD/.tmb-cheatcode-fixture.json"
+if [ -z "$SEARCH_FIXTURE_PATH" ] && [ -f "$TMB_PROJECT_ROOT/.tmb-cheatcode-fixture.json" ]; then
+  SEARCH_FIXTURE_PATH="$TMB_PROJECT_ROOT/.tmb-cheatcode-fixture.json"
 fi
 
 # Acquire the candidate set. Fixture path (test hook) takes precedence over any

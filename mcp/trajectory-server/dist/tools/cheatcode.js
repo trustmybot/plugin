@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
-import { outsideProject, projectRootFromDbPath } from './containment.js';
+import { outsideProject, projectRootFromDbPath, projectSpawnOptions } from './containment.js';
 import { reconcileNow } from './cheatcode-reconcile.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -51,9 +51,10 @@ const resolveSearchScript = () => resolveScriptsFile('cheatcode-search.sh');
 const resolveVetScript = () => resolveScriptsFile('cheatcode-vet.sh');
 const SEARCH_TIMEOUT_MS = 60 * 1000; // 1-minute hard timeout
 const VET_TIMEOUT_MS = 60 * 1000; // 1-minute hard timeout
-export function runSearchWithScript(script, query, kind, timeoutMs) {
+export function runSearchWithScript(script, query, kind, timeoutMs, projectRoot) {
     return new Promise((resolve, reject) => {
         const child = spawn('bash', [script, '--query', query, '--kind', kind], {
+            ...projectSpawnOptions(projectRoot),
             stdio: ['ignore', 'pipe', 'pipe'],
         });
         const stdoutChunks = [];
@@ -113,9 +114,10 @@ const VALID_TIERS = new Set([
     'untrusted',
     'unknown',
 ]);
-export function runVetWithScript(script, candidate, timeoutMs) {
+export function runVetWithScript(script, candidate, timeoutMs, projectRoot) {
     return new Promise((resolve, reject) => {
         const child = spawn('bash', [script, '--candidate', JSON.stringify(candidate)], {
+            ...projectSpawnOptions(projectRoot),
             stdio: ['ignore', 'pipe', 'pipe'],
         });
         const stdoutChunks = [];
@@ -173,9 +175,9 @@ export function runVetWithScript(script, candidate, timeoutMs) {
         });
     });
 }
-export function runInstallWithScript(script, candidate, scope, timeoutMs) {
+export function runInstallWithScript(script, candidate, scope, timeoutMs, projectRoot) {
     return new Promise((resolve, reject) => {
-        const child = spawn('bash', [script, '--candidate', JSON.stringify(candidate), '--scope', scope], { stdio: ['ignore', 'pipe', 'pipe'] });
+        const child = spawn('bash', [script, '--candidate', JSON.stringify(candidate), '--scope', scope], { ...projectSpawnOptions(projectRoot), stdio: ['ignore', 'pipe', 'pipe'] });
         const stdoutChunks = [];
         const stderrChunks = [];
         child.stdout.on('data', (chunk) => stdoutChunks.push(chunk));
@@ -229,9 +231,10 @@ export function runInstallWithScript(script, candidate, scope, timeoutMs) {
 }
 const resolveInstallScript = () => resolveScriptsFile('cheatcode-install.sh');
 const INSTALL_TIMEOUT_MS = 60 * 1000; // 1-minute hard timeout
-export function runUninstallWithScript(script, candidate, timeoutMs) {
+export function runUninstallWithScript(script, candidate, timeoutMs, projectRoot) {
     return new Promise((resolve, reject) => {
         const child = spawn('bash', [script, '--candidate', JSON.stringify(candidate)], {
+            ...projectSpawnOptions(projectRoot),
             stdio: ['ignore', 'pipe', 'pipe'],
         });
         const stdoutChunks = [];
@@ -628,6 +631,7 @@ function dematerializeAttachment(dbPath, artifact, cheatcodeName, providedTools 
     }
 }
 export function cheatcodeTools(db) {
+    const scriptRoot = () => projectRootFromDbPath(db.dbPath) ?? process.cwd();
     const auditCheatcode = (eventType, summary, contentJson, createdAt) => insertAudit(db, {
         issue_id: -1,
         from_node: 'bro',
@@ -807,7 +811,7 @@ export function cheatcodeTools(db) {
             const kind = VALID_KINDS.has(rawKind)
                 ? rawKind
                 : 'any';
-            const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS);
+            const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS, scriptRoot());
             auditCheatcode('cheatcode_search', `Cheatcode search: '${query}' (kind=${kind}) → ${out.candidates.length} ranked candidate(s)`, JSON.stringify({
                 query,
                 kind,
@@ -838,7 +842,7 @@ export function cheatcodeTools(db) {
             };
             if (typeof tierVal === 'number')
                 candidate.tier = tierVal;
-            const out = await runVetWithScript(resolveVetScript(), candidate, VET_TIMEOUT_MS);
+            const out = await runVetWithScript(resolveVetScript(), candidate, VET_TIMEOUT_MS, scriptRoot());
             auditCheatcode('cheatcode_vet', `Cheatcode vet: '${name}' (kind=${kind}) → trust_tier=${out.trust_tier}`, JSON.stringify({
                 candidate: out.candidate,
                 trust_tier: out.trust_tier,
@@ -937,7 +941,7 @@ export function cheatcodeTools(db) {
             };
             if (typeof tier === 'number')
                 candidate.tier = tier;
-            const out = await runInstallWithScript(resolveInstallScript(), candidate, scope, INSTALL_TIMEOUT_MS);
+            const out = await runInstallWithScript(resolveInstallScript(), candidate, scope, INSTALL_TIMEOUT_MS, scriptRoot());
             // No-phantom-row guard (#148): a plugin/mcp install that the marketplace
             // path could not complete (installed=false WITH an error note) leaves
             // nothing wired — recording a cheatcodes row would be a phantom the
@@ -1071,7 +1075,7 @@ export function cheatcodeTools(db) {
                 kind: existing.kind,
                 source_url: existing.source_url ?? '',
             };
-            const reversal = await runUninstallWithScript(resolveUninstallScript(), candidate, UNINSTALL_TIMEOUT_MS);
+            const reversal = await runUninstallWithScript(resolveUninstallScript(), candidate, UNINSTALL_TIMEOUT_MS, scriptRoot());
             // Honesty gate (#114): only delete the install + attachment rows when the
             // teardown actually removed the artifact. A failed teardown keeps the row,
             // flips status to 'broken' (orphaned install still on disk), and still

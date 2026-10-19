@@ -3578,62 +3578,62 @@ var require_fast_uri = __commonJS({
     function normalize(uri, options) {
       if (typeof uri === "string") {
         uri = /** @type {T} */
-        serialize(parse3(uri, options), options);
+        serialize(parse4(uri, options), options);
       } else if (typeof uri === "object") {
         uri = /** @type {T} */
-        parse3(serialize(uri, options), options);
+        parse4(serialize(uri, options), options);
       }
       return uri;
     }
     function resolve2(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
-      const resolved = resolveComponent(parse3(baseURI, schemelessOptions), parse3(relativeURI, schemelessOptions), schemelessOptions, true);
+      const resolved = resolveComponent(parse4(baseURI, schemelessOptions), parse4(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative3, options, skipNormalization) {
+    function resolveComponent(base, relative4, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
-        base = parse3(serialize(base, options), options);
-        relative3 = parse3(serialize(relative3, options), options);
+        base = parse4(serialize(base, options), options);
+        relative4 = parse4(serialize(relative4, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative3.scheme) {
-        target.scheme = relative3.scheme;
-        target.userinfo = relative3.userinfo;
-        target.host = relative3.host;
-        target.port = relative3.port;
-        target.path = removeDotSegments(relative3.path || "");
-        target.query = relative3.query;
+      if (!options.tolerant && relative4.scheme) {
+        target.scheme = relative4.scheme;
+        target.userinfo = relative4.userinfo;
+        target.host = relative4.host;
+        target.port = relative4.port;
+        target.path = removeDotSegments(relative4.path || "");
+        target.query = relative4.query;
       } else {
-        if (relative3.userinfo !== void 0 || relative3.host !== void 0 || relative3.port !== void 0) {
-          target.userinfo = relative3.userinfo;
-          target.host = relative3.host;
-          target.port = relative3.port;
-          target.path = removeDotSegments(relative3.path || "");
-          target.query = relative3.query;
+        if (relative4.userinfo !== void 0 || relative4.host !== void 0 || relative4.port !== void 0) {
+          target.userinfo = relative4.userinfo;
+          target.host = relative4.host;
+          target.port = relative4.port;
+          target.path = removeDotSegments(relative4.path || "");
+          target.query = relative4.query;
         } else {
-          if (!relative3.path) {
+          if (!relative4.path) {
             target.path = base.path;
-            if (relative3.query !== void 0) {
-              target.query = relative3.query;
+            if (relative4.query !== void 0) {
+              target.query = relative4.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative3.path[0] === "/") {
-              target.path = removeDotSegments(relative3.path);
+            if (relative4.path[0] === "/") {
+              target.path = removeDotSegments(relative4.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative3.path;
+                target.path = "/" + relative4.path;
               } else if (!base.path) {
-                target.path = relative3.path;
+                target.path = relative4.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative3.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative4.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative3.query;
+            target.query = relative4.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -3641,19 +3641,19 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative3.fragment;
+      target.fragment = relative4.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
       if (typeof uriA === "string") {
         uriA = unescape(uriA);
-        uriA = serialize(normalizeComponentEncoding(parse3(uriA, options), true), { ...options, skipEscape: true });
+        uriA = serialize(normalizeComponentEncoding(parse4(uriA, options), true), { ...options, skipEscape: true });
       } else if (typeof uriA === "object") {
         uriA = serialize(normalizeComponentEncoding(uriA, true), { ...options, skipEscape: true });
       }
       if (typeof uriB === "string") {
         uriB = unescape(uriB);
-        uriB = serialize(normalizeComponentEncoding(parse3(uriB, options), true), { ...options, skipEscape: true });
+        uriB = serialize(normalizeComponentEncoding(parse4(uriB, options), true), { ...options, skipEscape: true });
       } else if (typeof uriB === "object") {
         uriB = serialize(normalizeComponentEncoding(uriB, true), { ...options, skipEscape: true });
       }
@@ -3722,7 +3722,7 @@ var require_fast_uri = __commonJS({
       return uriTokens.join("");
     }
     var URI_PARSE = /^(?:([^#/:?]+):)?(?:\/\/((?:([^#/?@]*)@)?(\[[^#/?\]]+\]|[^#/:?]*)(?::(\d*))?))?([^#?]*)(?:\?([^#]*))?(?:#((?:.|[\n\r])*))?/u;
-    function parse3(uri, opts) {
+    function parse4(uri, opts) {
       const options = Object.assign({}, opts);
       const parsed = {
         scheme: void 0,
@@ -3816,7 +3816,7 @@ var require_fast_uri = __commonJS({
       resolveComponent,
       equal,
       serialize,
-      parse: parse3
+      parse: parse4
     };
     module.exports = fastUri;
     module.exports.default = fastUri;
@@ -26640,6 +26640,16 @@ function resolveSoleRepo(db, name) {
   return repos.length === 1 ? { name: repos[0].name, path: repos[0].path } : void 0;
 }
 
+// src/tools/containment.ts
+import { isAbsolute as isAbsolute4, join as join7, parse as parse3, relative as relative3, sep as sep2 } from "node:path";
+function projectRootFromDbPath(dbPath) {
+  if (!dbPath || dbPath === ":memory:") return null;
+  const segments = dbPath.split(sep2);
+  const idx = segments.lastIndexOf(".claude");
+  if (idx <= 0) return null;
+  return segments.slice(0, idx).join(sep2) || sep2;
+}
+
 // src/sync/backend.ts
 import { spawnSync } from "node:child_process";
 
@@ -26684,9 +26694,10 @@ function detectAvailable(_spawnFn) {
   }
   return result2;
 }
-function detectPreferred() {
+function detectPreferred(repoPath) {
   try {
     const result2 = spawnSync("git", ["remote", "get-url", "origin"], {
+      ...repoPath === null ? {} : { cwd: repoPath },
       timeout: SUBPROCESS_TIMEOUT_MS,
       encoding: "utf8"
     });
@@ -26743,7 +26754,7 @@ function remoteSyncGate(db, opts = {}) {
 // src/sync/issue_sync.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync5 } from "node:fs";
-import { join as join7 } from "node:path";
+import { join as join8 } from "node:path";
 function resolveLogDir() {
   if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
   return resolveClaudeLogDir();
@@ -26757,7 +26768,7 @@ function syncLog(entry) {
       readyLogDirs.add(logDir);
     }
     const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-    appendFileSync2(join7(logDir, "issue-sync.log"), line);
+    appendFileSync2(join8(logDir, "issue-sync.log"), line);
   } catch {
   }
 }
@@ -28009,7 +28020,9 @@ function issueTools(db, dbPath = "", options = {}) {
           content_json: JSON.stringify({ issue_id: issueId, reason: "issue_sync_off" }),
           created_at: nowISO()
         });
-        const preferred = detectPreferred();
+        const preferred = detectPreferred(
+          resolveRepoForSync(db, issueRepo)?.path ?? projectRootFromDbPath(dbPath || db.dbPath)
+        );
         if (preferred !== null) {
           syncDiagnostic = {
             sync_skipped: true,
@@ -28630,7 +28643,7 @@ function issueTools(db, dbPath = "", options = {}) {
 // src/tools/scan.ts
 import { spawn, spawnSync as spawnSync4 } from "node:child_process";
 import { closeSync as closeSync3, existsSync as existsSync4, openSync as openSync3, readFileSync as readFileSync6, readSync, realpathSync as realpathSync5, writeFileSync, unlinkSync as unlinkSync2 } from "node:fs";
-import { dirname as dirname6, join as join9 } from "node:path";
+import { dirname as dirname6, join as join10 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/file-purpose.ts
@@ -28854,7 +28867,7 @@ ${UNTRUSTED_CLOSE}`;
 // src/tools/milestones.ts
 import { spawnSync as spawnSync3 } from "node:child_process";
 import { existsSync as existsSync3, readFileSync as readFileSync5 } from "node:fs";
-import { join as join8 } from "node:path";
+import { join as join9 } from "node:path";
 
 // src/sync/milestone_sync.ts
 function splitSlug(slug) {
@@ -29074,10 +29087,10 @@ function highestVersionTag(repoPath) {
 }
 function readRepoVersion(repoPath) {
   const candidates = [
-    ["package.json", () => readJsonVersion(join8(repoPath, "package.json"))],
-    [".claude-plugin/plugin.json", () => readJsonVersion(join8(repoPath, ".claude-plugin", "plugin.json"))],
-    ["pyproject.toml", () => readTomlVersion(join8(repoPath, "pyproject.toml"), "project")],
-    ["Cargo.toml", () => readTomlVersion(join8(repoPath, "Cargo.toml"), "package")],
+    ["package.json", () => readJsonVersion(join9(repoPath, "package.json"))],
+    [".claude-plugin/plugin.json", () => readJsonVersion(join9(repoPath, ".claude-plugin", "plugin.json"))],
+    ["pyproject.toml", () => readTomlVersion(join9(repoPath, "pyproject.toml"), "project")],
+    ["Cargo.toml", () => readTomlVersion(join9(repoPath, "Cargo.toml"), "package")],
     ["git_tag", () => highestVersionTag(repoPath)]
   ];
   for (const [source, read] of candidates) {
@@ -29151,20 +29164,23 @@ function wrap(fn) {
 function resolveScanScript() {
   const here = dirname6(fileURLToPath3(import.meta.url));
   const candidates = [
-    join9(here, "..", "..", "..", "..", "scripts", "scan.sh"),
-    join9(here, "..", "..", "..", "scripts", "scan.sh")
+    join10(here, "..", "..", "..", "..", "scripts", "scan.sh"),
+    join10(here, "..", "..", "..", "scripts", "scan.sh")
   ];
   for (const c of candidates) if (existsSync4(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join9(pluginRoot, "scripts", "scan.sh");
+    const c = join10(pluginRoot, "scripts", "scan.sh");
     if (existsSync4(c)) return c;
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
 }
-function runScanWithScript(script, sessionDir, timeoutMs) {
+function runScanWithScript(script, sessionDir, timeoutMs, dbPath = "") {
   return new Promise((resolve2, reject) => {
+    const env = dbPath && dbPath !== ":memory:" ? { ...process.env, TRAJECTORY_DB_PATH: dbPath } : process.env;
     const child = spawn("bash", [script, sessionDir], {
+      cwd: sessionDir,
+      env,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -29217,8 +29233,8 @@ function runScanWithScript(script, sessionDir, timeoutMs) {
     });
   });
 }
-function runScan(sessionDir, timeoutMs) {
-  return runScanWithScript(resolveScanScript(), sessionDir, timeoutMs);
+function runScan(sessionDir, timeoutMs, dbPath) {
+  return runScanWithScript(resolveScanScript(), sessionDir, timeoutMs, dbPath);
 }
 var VALID_SCAN_SOURCES = /* @__PURE__ */ new Set([
   "user_manual",
@@ -29285,7 +29301,7 @@ function deriveDirectoryEntries(out) {
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = []) {
   const leaf = dirPath === "" ? "(repo root)" : basename3(dirPath);
-  const join10 = (names) => {
+  const join11 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
@@ -29296,16 +29312,16 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = 
     const shown = filePurposes.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STRUCTURAL_PURPOSES_MAX).map((f) => `${f.name}: ${f.purpose}`);
     parts.push(fileCount, frameUntrusted("file-purpose", shown.join("; ")).replace(/\n/g, " "));
   } else if (fileNames.length > 0) {
-    parts.push(`${fileCount} (${join10(fileNames.slice().sort())})`);
+    parts.push(`${fileCount} (${join11(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts.push(`subdirs: ${join10(subdirNames.slice().sort())}`);
+    parts.push(`subdirs: ${join11(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts.length > 0 ? parts.join("; ") : "empty directory"}`;
 }
 function readReadmeSummary(absDirPath) {
   for (const candidate of README_CANDIDATES) {
-    const readmePath = join9(absDirPath, candidate);
+    const readmePath = join10(absDirPath, candidate);
     if (!existsSync4(readmePath)) continue;
     try {
       const raw = readFileSync6(readmePath, "utf8");
@@ -29334,7 +29350,7 @@ function persistDirectoriesGraph(graph, out, now2, purposesByDir = /* @__PURE__ 
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join9(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join10(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(
@@ -29412,7 +29428,7 @@ function planFiles(graph, out, now2) {
     if (prev?.purpose_source === "swe") {
       node = { ...facts, purpose: prev.purpose, purpose_source: prev.purpose_source };
     } else {
-      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join9(repoPath, f.path))) : { purpose: "", source: "none" };
+      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join10(repoPath, f.path))) : { purpose: "", source: "none" };
       node = { ...facts, purpose: extracted.purpose, purpose_source: extracted.source };
       plan.extracted++;
     }
@@ -29671,7 +29687,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
           agent: { type: "string" },
           session_dir: {
             type: "string",
-            description: "Absolute path to the session directory (workspace root). Defaults to the MCP server's CWD."
+            description: "Absolute path to the session directory (workspace root). Defaults to the project root (the directory holding the trajectory DB's .claude/)."
           },
           source: {
             type: "string",
@@ -29699,7 +29715,10 @@ function scanTools(db, graphHolder = null, dbPath = "") {
       "scan_run",
       ["bro"],
       wrap(async (args) => {
-        const sessionDir = args["session_dir"] ?? process.cwd();
+        const sessionDir = args["session_dir"] ?? projectRootFromDbPath(dbPath);
+        if (!sessionDir) {
+          return err3("session_dir is required: the project root is unknown for this trajectory DB");
+        }
         const rawSource = args["source"] ?? "bro_auto_initial";
         const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : "bro_auto_initial";
         const graph = graphHolder?.ensureGraph() ?? null;
@@ -29709,7 +29728,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
             `graph_db_open_failed: ${graphOpenError} \u2014 another process holds the world-model lock (identify the holder by running lsof on the world-model graph file); the server retries automatically on the next call once the holder exits`
           );
         }
-        const lockPath = dbPath && dbPath !== ":memory:" ? join9(dirname6(dbPath), "scan.lock") : "";
+        const lockPath = dbPath && dbPath !== ":memory:" ? join10(dirname6(dbPath), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -29733,7 +29752,7 @@ function scanTools(db, graphHolder = null, dbPath = "") {
           }
         }
         try {
-          const out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
+          const out = await runScan(sessionDir, SCAN_TIMEOUT_MS, dbPath);
           const stats = persistScan(db, graph, out, sessionDir);
           const spawnFn = args["_spawnFn"];
           const renamedTo = new Set(stats.rename_candidates.map((c) => c.new));

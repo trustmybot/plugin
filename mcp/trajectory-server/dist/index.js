@@ -25244,6 +25244,80 @@ function resolveSoleRepo(db2, name) {
   return repos.length === 1 ? { name: repos[0].name, path: repos[0].path } : void 0;
 }
 
+// src/tools/containment.ts
+import { lstatSync as lstatSync3, readlinkSync, realpathSync as realpathSync2 } from "node:fs";
+import { isAbsolute as isAbsolute2, join as join5, parse as parse3, relative as relative2, sep as sep2 } from "node:path";
+function projectRootFromDbPath(dbPath2) {
+  if (!dbPath2 || dbPath2 === ":memory:") return null;
+  const segments = dbPath2.split(sep2);
+  const idx = segments.lastIndexOf(".claude");
+  if (idx <= 0) return null;
+  return segments.slice(0, idx).join(sep2) || sep2;
+}
+function projectSpawnOptions(projectRoot) {
+  return { cwd: projectRoot, env: { ...process.env, TMB_PROJECT_ROOT: projectRoot } };
+}
+function canonicalPath(path2, projectRoot) {
+  if (!isAbsolute2(path2) && (projectRoot === void 0 || !isAbsolute2(projectRoot))) {
+    throw new Error(`canonicalPath: relative path '${path2}' needs an absolute project root`);
+  }
+  const absolute = isAbsolute2(path2) ? path2 : join5(projectRoot, path2);
+  const root = parse3(absolute).root;
+  const pending = absolute.slice(root.length).split(sep2);
+  const real = [];
+  const tail = [];
+  let hops = 0;
+  while (pending.length > 0) {
+    const part = pending.shift();
+    if (part === "" || part === ".") continue;
+    if (tail.length > 0) {
+      if (part === "..") tail.pop();
+      else tail.push(part);
+      continue;
+    }
+    if (part === "..") {
+      real.pop();
+      continue;
+    }
+    const candidate = join5(root, ...real, part);
+    let stat;
+    try {
+      stat = lstatSync3(candidate);
+    } catch {
+      tail.push(part);
+      continue;
+    }
+    if (stat.isSymbolicLink() && hops < 40) {
+      hops += 1;
+      const target = readlinkSync(candidate);
+      if (isAbsolute2(target)) real.length = 0;
+      pending.unshift(...target.slice(isAbsolute2(target) ? parse3(target).root.length : 0).split(sep2));
+      continue;
+    }
+    real.push(part);
+  }
+  let head = join5(root, ...real);
+  try {
+    head = realpathSync2(head);
+  } catch {
+  }
+  return tail.length > 0 ? join5(head, ...tail) : head;
+}
+function isWithinRoot(root, path2) {
+  if (!isAbsolute2(root)) return false;
+  const rel = relative2(canonicalPath(root), canonicalPath(path2, root));
+  return rel === "" || !rel.startsWith(`..${sep2}`) && rel !== ".." && !isAbsolute2(rel);
+}
+function outsideProject(tool, projectRoot, path2) {
+  if (projectRoot === null || isWithinRoot(projectRoot, path2)) return null;
+  return {
+    error: "outside_project",
+    message: `${tool}: ${path2} is outside the project ${projectRoot}; TMB writes only under the project.`,
+    path: path2,
+    project_root: projectRoot
+  };
+}
+
 // src/sync/backend.ts
 import { spawnSync } from "node:child_process";
 
@@ -25289,9 +25363,10 @@ function detectAvailable(_spawnFn) {
   }
   return result2;
 }
-function detectPreferred() {
+function detectPreferred(repoPath) {
   try {
     const result2 = spawnSync("git", ["remote", "get-url", "origin"], {
+      ...repoPath === null ? {} : { cwd: repoPath },
       timeout: SUBPROCESS_TIMEOUT_MS,
       encoding: "utf8"
     });
@@ -25348,7 +25423,7 @@ function remoteSyncGate(db2, opts = {}) {
 // src/sync/issue_sync.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync2 } from "node:fs";
-import { join as join5 } from "node:path";
+import { join as join6 } from "node:path";
 function resolveLogDir() {
   if (process.env.TMB_SYNC_LOG_DIR) return process.env.TMB_SYNC_LOG_DIR;
   return resolveClaudeLogDir();
@@ -25362,7 +25437,7 @@ function syncLog(entry) {
       readyLogDirs.add(logDir);
     }
     const line = JSON.stringify({ ...entry, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-    appendFileSync2(join5(logDir, "issue-sync.log"), line);
+    appendFileSync2(join6(logDir, "issue-sync.log"), line);
   } catch {
   }
 }
@@ -25811,74 +25886,6 @@ async function syncIssueUpdate(backend, iid, fields, opts = {}) {
     syncLog({ event: "issue_update_error", backend, remote_iid: iid, error: message2 });
     return { ok: false, reason: "spawn_error", message: message2 };
   }
-}
-
-// src/tools/containment.ts
-import { lstatSync as lstatSync3, readlinkSync, realpathSync as realpathSync2 } from "node:fs";
-import { isAbsolute as isAbsolute2, join as join6, parse as parse3, relative as relative2, sep as sep2 } from "node:path";
-function projectRootFromDbPath(dbPath2) {
-  if (!dbPath2 || dbPath2 === ":memory:") return null;
-  const segments = dbPath2.split(sep2);
-  const idx = segments.lastIndexOf(".claude");
-  if (idx <= 0) return null;
-  return segments.slice(0, idx).join(sep2) || sep2;
-}
-function canonicalPath(path2) {
-  const absolute = isAbsolute2(path2) ? path2 : join6(process.cwd(), path2);
-  const root = parse3(absolute).root;
-  const pending = absolute.slice(root.length).split(sep2);
-  const real = [];
-  const tail = [];
-  let hops = 0;
-  while (pending.length > 0) {
-    const part = pending.shift();
-    if (part === "" || part === ".") continue;
-    if (tail.length > 0) {
-      if (part === "..") tail.pop();
-      else tail.push(part);
-      continue;
-    }
-    if (part === "..") {
-      real.pop();
-      continue;
-    }
-    const candidate = join6(root, ...real, part);
-    let stat;
-    try {
-      stat = lstatSync3(candidate);
-    } catch {
-      tail.push(part);
-      continue;
-    }
-    if (stat.isSymbolicLink() && hops < 40) {
-      hops += 1;
-      const target = readlinkSync(candidate);
-      if (isAbsolute2(target)) real.length = 0;
-      pending.unshift(...target.slice(isAbsolute2(target) ? parse3(target).root.length : 0).split(sep2));
-      continue;
-    }
-    real.push(part);
-  }
-  let head = join6(root, ...real);
-  try {
-    head = realpathSync2(head);
-  } catch {
-  }
-  return tail.length > 0 ? join6(head, ...tail) : head;
-}
-function isWithinRoot(root, path2) {
-  if (!isAbsolute2(path2)) return false;
-  const rel = relative2(canonicalPath(root), canonicalPath(path2));
-  return rel === "" || !rel.startsWith(`..${sep2}`) && rel !== ".." && !isAbsolute2(rel);
-}
-function outsideProject(tool, projectRoot, path2) {
-  if (projectRoot === null || isWithinRoot(projectRoot, path2)) return null;
-  return {
-    error: "outside_project",
-    message: `${tool}: ${path2} is outside the project ${projectRoot}; TMB writes only under the project.`,
-    path: path2,
-    project_root: projectRoot
-  };
 }
 
 // src/tools/agent-runs.ts
@@ -26813,7 +26820,9 @@ function issueTools(db2, dbPath2 = "", options = {}) {
           content_json: JSON.stringify({ issue_id: issueId, reason: "issue_sync_off" }),
           created_at: nowISO()
         });
-        const preferred = detectPreferred();
+        const preferred = detectPreferred(
+          resolveRepoForSync(db2, issueRepo)?.path ?? projectRootFromDbPath(dbPath2 || db2.dbPath)
+        );
         if (preferred !== null) {
           syncDiagnostic = {
             sync_skipped: true,
@@ -29907,9 +29916,12 @@ function reportTools(db2) {
       }
       const defaultOutputPath = `docs/trustmybot/snapshots/${issueId}.md`;
       const relOutputPath = rawOutputPath ?? defaultOutputPath;
-      const cwd = process.cwd();
-      const allowedBase = resolve2(cwd, "docs/trustmybot") + sep3;
-      const absPath = resolve2(cwd, relOutputPath);
+      const projectRoot = projectRootFromDbPath(db2.dbPath);
+      if (projectRoot === null) {
+        throw new Error("issue_snapshot_md needs the project root, and this trajectory DB is not under a project .claude/ directory");
+      }
+      const allowedBase = resolve2(projectRoot, "docs/trustmybot") + sep3;
+      const absPath = resolve2(projectRoot, relOutputPath);
       if (!absPath.startsWith(allowedBase)) {
         throw new Error(
           `output_path must resolve inside docs/trustmybot/. Got: "${relOutputPath}"`
@@ -31079,7 +31091,7 @@ function normalizePrState(raw) {
 function fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) {
   const opts = { timeout: 15e3, encoding: "utf8" };
   const ghArgs = ["pr", "view", String(prNumber), "--json", "comments,state,reviews,headRefName"];
-  if (repo) ghArgs.splice(2, 0, "-R", repo);
+  ghArgs.splice(2, 0, "-R", repo);
   const result2 = spawnFn("gh", ghArgs, opts);
   if (result2.status !== 0) return null;
   let parsed;
@@ -31128,7 +31140,7 @@ function fetchGithubComments(prNumber, repo, since, botPatterns, spawnFn) {
 function fetchGitlabComments(prNumber, repo, since, botPatterns, spawnFn) {
   const opts = { timeout: 15e3, encoding: "utf8" };
   const glabArgs = ["mr", "view", String(prNumber), "--comments", "--output", "json"];
-  if (repo) glabArgs.splice(2, 0, "-R", repo);
+  glabArgs.splice(2, 0, "-R", repo);
   const result2 = spawnFn("glab", glabArgs, opts);
   if (result2.status !== 0) return null;
   let parsed;
@@ -31185,7 +31197,7 @@ function prMonitorTools(db2, _spawnFn) {
           },
           repo: {
             type: "string",
-            description: "Optional repo slug (owner/repo) passed to gh -R / glab -R. When omitted, resolves to the sole registered repo's remote slug; in a multi-repo workspace it is required (a named error is returned otherwise). The cwd git remote is never used in a multi-repo workspace."
+            description: "Optional repo slug (owner/repo) passed to gh -R / glab -R. When omitted, resolves to the sole registered repo's remote slug; a named error is returned when no slug resolves or several repos are registered. The cwd git remote is never used."
           },
           since: {
             type: "string",
@@ -31231,7 +31243,12 @@ function prMonitorTools(db2, _spawnFn) {
         }
         const resolved = resolveRepoForSync(db2, null);
         const slug = resolved ? repoRemotes(db2, resolved.name).map((r) => repoSlugFromRemoteUrl(r.url)).find((s) => s !== null) ?? null : null;
-        repo = slug ?? "";
+        if (slug === null) {
+          return err14(
+            resolved ? `pr_monitor_comments_get: repo "${resolved.name}" has no GitHub/GitLab remote slug \u2014 pass repo="owner/repo" or run /scan.` : 'pr_monitor_comments_get: no repo is registered \u2014 pass repo="owner/repo" or run /scan.'
+          );
+        }
+        repo = slug;
       }
       let since = typeof args["since"] === "string" ? args["since"] : void 0;
       if (since === void 0) {
@@ -31278,24 +31295,22 @@ function prMonitorTools(db2, _spawnFn) {
       }
       const now2 = nowISO();
       const lastCommentId = fetchResult.comments.length > 0 ? fetchResult.comments[fetchResult.comments.length - 1]?.id ?? null : null;
-      if (repo !== "") {
-        const taskId = resolveMonitorTaskId(db2, fetchResult.head_branch, repo);
-        const existingCursor = db2.get(
-          "SELECT id FROM pr_review_runs WHERE pr_number = ? AND repo = ?",
-          [prNumber, repo]
+      const taskId = resolveMonitorTaskId(db2, fetchResult.head_branch, repo);
+      const existingCursor = db2.get(
+        "SELECT id FROM pr_review_runs WHERE pr_number = ? AND repo = ?",
+        [prNumber, repo]
+      );
+      if (existingCursor) {
+        db2.run(
+          "UPDATE pr_review_runs SET last_fetched_at = ?, last_comment_id = ?, task_id = COALESCE(?, task_id) WHERE id = ?",
+          [now2, lastCommentId, taskId, existingCursor.id]
         );
-        if (existingCursor) {
-          db2.run(
-            "UPDATE pr_review_runs SET last_fetched_at = ?, last_comment_id = ?, task_id = COALESCE(?, task_id) WHERE id = ?",
-            [now2, lastCommentId, taskId, existingCursor.id]
-          );
-        } else {
-          db2.run(
-            `INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id, task_id)
-             VALUES (?, ?, ?, ?, ?)`,
-            [prNumber, repo, now2, lastCommentId, taskId]
-          );
-        }
+      } else {
+        db2.run(
+          `INSERT INTO pr_review_runs (pr_number, repo, last_fetched_at, last_comment_id, task_id)
+           VALUES (?, ?, ?, ?, ?)`,
+          [prNumber, repo, now2, lastCommentId, taskId]
+        );
       }
       const { persisted, duplicates } = persistComments(db2, prNumber, repo, fetchResult);
       return ok14({ ...fetchResult, persisted, duplicates });
@@ -35202,9 +35217,12 @@ function resolveScanScript() {
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
 }
-function runScanWithScript(script, sessionDir, timeoutMs) {
+function runScanWithScript(script, sessionDir, timeoutMs, dbPath2 = "") {
   return new Promise((resolve5, reject) => {
+    const env = dbPath2 && dbPath2 !== ":memory:" ? { ...process.env, TRAJECTORY_DB_PATH: dbPath2 } : process.env;
     const child = spawn("bash", [script, sessionDir], {
+      cwd: sessionDir,
+      env,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -35257,8 +35275,8 @@ function runScanWithScript(script, sessionDir, timeoutMs) {
     });
   });
 }
-function runScan(sessionDir, timeoutMs) {
-  return runScanWithScript(resolveScanScript(), sessionDir, timeoutMs);
+function runScan(sessionDir, timeoutMs, dbPath2) {
+  return runScanWithScript(resolveScanScript(), sessionDir, timeoutMs, dbPath2);
 }
 var VALID_SCAN_SOURCES = /* @__PURE__ */ new Set([
   "user_manual",
@@ -35711,7 +35729,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
           agent: { type: "string" },
           session_dir: {
             type: "string",
-            description: "Absolute path to the session directory (workspace root). Defaults to the MCP server's CWD."
+            description: "Absolute path to the session directory (workspace root). Defaults to the project root (the directory holding the trajectory DB's .claude/)."
           },
           source: {
             type: "string",
@@ -35739,7 +35757,10 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
       "scan_run",
       ["bro"],
       wrap4(async (args) => {
-        const sessionDir = args["session_dir"] ?? process.cwd();
+        const sessionDir = args["session_dir"] ?? projectRootFromDbPath(dbPath2);
+        if (!sessionDir) {
+          return err16("session_dir is required: the project root is unknown for this trajectory DB");
+        }
         const rawSource = args["source"] ?? "bro_auto_initial";
         const source = VALID_SCAN_SOURCES.has(rawSource) ? rawSource : "bro_auto_initial";
         const graph = graphHolder2?.ensureGraph() ?? null;
@@ -35773,7 +35794,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
           }
         }
         try {
-          const out = await runScan(sessionDir, SCAN_TIMEOUT_MS);
+          const out = await runScan(sessionDir, SCAN_TIMEOUT_MS, dbPath2);
           const stats = persistScan(db2, graph, out, sessionDir);
           const spawnFn = args["_spawnFn"];
           const renamedTo = new Set(stats.rename_candidates.map((c) => c.new));
@@ -36028,17 +36049,19 @@ function healthcheckTimeoutSec() {
   const raw = Number(process.env["TMB_CHEATCODE_HEALTHCHECK_TIMEOUT"]);
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TIMEOUT_SEC;
 }
-function probeChildEnv() {
-  return { ...process.env, TMB_DISABLE_CHEATCODE_HEALTHCHECK: "1" };
+function probeChildEnv(projectRoot = null) {
+  const base = projectRoot === null ? process.env : projectSpawnOptions(projectRoot).env;
+  return { ...base, TMB_DISABLE_CHEATCODE_HEALTHCHECK: "1" };
 }
-function runClaude(args, timeoutSec) {
+function runClaude(args, timeoutSec, projectRoot) {
   return new Promise((resolve5) => {
     try {
       const child = execFile(
         "claude",
         args,
         {
-          env: probeChildEnv(),
+          ...projectRoot === null ? {} : { cwd: projectRoot },
+          env: probeChildEnv(projectRoot),
           timeout: timeoutSec * 1e3,
           killSignal: "SIGKILL",
           maxBuffer: MAX_LISTING_BYTES,
@@ -36089,10 +36112,10 @@ function parsePluginListing(text) {
   }
   return plugins;
 }
-async function probeRuntime(timeoutSec) {
+async function probeRuntime(timeoutSec, projectRoot = null) {
   const [mcpText, pluginText] = await Promise.all([
-    runClaude(["mcp", "list"], timeoutSec),
-    runClaude(["plugin", "list", "--json"], timeoutSec)
+    runClaude(["mcp", "list"], timeoutSec, projectRoot),
+    runClaude(["plugin", "list", "--json"], timeoutSec, projectRoot)
   ]);
   const mcpNames = /* @__PURE__ */ new Set([...mcpText === null ? [] : parseMcpListing(mcpText), ...claudeJsonMcpKeys()]);
   return {
@@ -36157,7 +36180,7 @@ function reconcileCheatcodes(db2, evidence, opts) {
   return transitions;
 }
 async function reconcileNow(db2, identity) {
-  const evidence = await probeRuntime(healthcheckTimeoutSec());
+  const evidence = await probeRuntime(healthcheckTimeoutSec(), projectRootFromDbPath(db2.dbPath));
   const transitions = reconcileCheatcodes(db2, evidence, { ...identity, now: nowISO() });
   return { transitions, probed: { mcp: evidence.mcpServers !== null, plugin: evidence.plugins !== null } };
 }
@@ -36208,9 +36231,10 @@ var resolveSearchScript = () => resolveScriptsFile("cheatcode-search.sh");
 var resolveVetScript = () => resolveScriptsFile("cheatcode-vet.sh");
 var SEARCH_TIMEOUT_MS = 60 * 1e3;
 var VET_TIMEOUT_MS = 60 * 1e3;
-function runSearchWithScript(script, query, kind, timeoutMs) {
+function runSearchWithScript(script, query, kind, timeoutMs, projectRoot) {
   return new Promise((resolve5, reject) => {
     const child = spawn2("bash", [script, "--query", query, "--kind", kind], {
+      ...projectSpawnOptions(projectRoot),
       stdio: ["ignore", "pipe", "pipe"]
     });
     const stdoutChunks = [];
@@ -36264,9 +36288,10 @@ var VALID_TIERS = /* @__PURE__ */ new Set([
   "untrusted",
   "unknown"
 ]);
-function runVetWithScript(script, candidate, timeoutMs) {
+function runVetWithScript(script, candidate, timeoutMs, projectRoot) {
   return new Promise((resolve5, reject) => {
     const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
+      ...projectSpawnOptions(projectRoot),
       stdio: ["ignore", "pipe", "pipe"]
     });
     const stdoutChunks = [];
@@ -36318,12 +36343,12 @@ function runVetWithScript(script, candidate, timeoutMs) {
     });
   });
 }
-function runInstallWithScript(script, candidate, scope, timeoutMs) {
+function runInstallWithScript(script, candidate, scope, timeoutMs, projectRoot) {
   return new Promise((resolve5, reject) => {
     const child = spawn2(
       "bash",
       [script, "--candidate", JSON.stringify(candidate), "--scope", scope],
-      { stdio: ["ignore", "pipe", "pipe"] }
+      { ...projectSpawnOptions(projectRoot), stdio: ["ignore", "pipe", "pipe"] }
     );
     const stdoutChunks = [];
     const stderrChunks = [];
@@ -36372,9 +36397,10 @@ function runInstallWithScript(script, candidate, scope, timeoutMs) {
 }
 var resolveInstallScript = () => resolveScriptsFile("cheatcode-install.sh");
 var INSTALL_TIMEOUT_MS = 60 * 1e3;
-function runUninstallWithScript(script, candidate, timeoutMs) {
+function runUninstallWithScript(script, candidate, timeoutMs, projectRoot) {
   return new Promise((resolve5, reject) => {
     const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
+      ...projectSpawnOptions(projectRoot),
       stdio: ["ignore", "pipe", "pipe"]
     });
     const stdoutChunks = [];
@@ -36648,6 +36674,7 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   }
 }
 function cheatcodeTools(db2) {
+  const scriptRoot = () => projectRootFromDbPath(db2.dbPath) ?? process.cwd();
   const auditCheatcode = (eventType, summary, contentJson, createdAt) => insertAudit(db2, {
     issue_id: -1,
     from_node: "bro",
@@ -36827,7 +36854,7 @@ function cheatcodeTools(db2) {
         if (!query) return err17("capability_query is required");
         const rawKind = args["kind"] ?? "any";
         const kind = VALID_KINDS2.has(rawKind) ? rawKind : "any";
-        const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS);
+        const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS, scriptRoot());
         auditCheatcode(
           "cheatcode_search",
           `Cheatcode search: '${query}' (kind=${kind}) \u2192 ${out.candidates.length} ranked candidate(s)`,
@@ -36861,7 +36888,7 @@ function cheatcodeTools(db2) {
           source_url: sourceUrl
         };
         if (typeof tierVal === "number") candidate.tier = tierVal;
-        const out = await runVetWithScript(resolveVetScript(), candidate, VET_TIMEOUT_MS);
+        const out = await runVetWithScript(resolveVetScript(), candidate, VET_TIMEOUT_MS, scriptRoot());
         auditCheatcode(
           "cheatcode_vet",
           `Cheatcode vet: '${name}' (kind=${kind}) \u2192 trust_tier=${out.trust_tier}`,
@@ -36974,7 +37001,8 @@ function cheatcodeTools(db2) {
           resolveInstallScript(),
           candidate,
           scope,
-          INSTALL_TIMEOUT_MS
+          INSTALL_TIMEOUT_MS,
+          scriptRoot()
         );
         if (kind !== "skill" && out.installed === false && out.error) {
           return err17(
@@ -37095,7 +37123,8 @@ function cheatcodeTools(db2) {
         const reversal = await runUninstallWithScript(
           resolveUninstallScript(),
           candidate,
-          UNINSTALL_TIMEOUT_MS
+          UNINSTALL_TIMEOUT_MS,
+          scriptRoot()
         );
         const uninstalledAt = nowISO();
         const auditContent = JSON.stringify({

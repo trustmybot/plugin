@@ -12,6 +12,7 @@ command -v jq >/dev/null 2>&1 || { printf "FAIL jq not found — required depend
 
 WORKSPACE=$(mktemp -d)
 trap 'rm -rf "$WORKSPACE"' EXIT
+export TMB_PROJECT_ROOT="$WORKSPACE"
 
 # An official, popular, well-maintained, no-exec-surface repo → trusted.
 OFFICIAL="$WORKSPACE/official.json"

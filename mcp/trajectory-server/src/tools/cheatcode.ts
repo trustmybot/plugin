@@ -8,7 +8,7 @@ import { nowISO } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { insertAudit } from './audit.js';
 import type { AuditEventType } from '../audit-events.js';
-import { outsideProject, projectRootFromDbPath } from './containment.js';
+import { outsideProject, projectRootFromDbPath, projectSpawnOptions } from './containment.js';
 import { reconcileNow } from './cheatcode-reconcile.js';
 
 type Fn = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -107,9 +107,11 @@ export function runSearchWithScript(
   query: string,
   kind: CheatcodeKind,
   timeoutMs: number,
+  projectRoot: string,
 ): Promise<SearchOutput> {
   return new Promise<SearchOutput>((resolve, reject) => {
     const child = spawn('bash', [script, '--query', query, '--kind', kind], {
+      ...projectSpawnOptions(projectRoot),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -174,9 +176,11 @@ export function runVetWithScript(
   script: string,
   candidate: { name: string; kind: string; source_url: string; tier?: number },
   timeoutMs: number,
+  projectRoot: string,
 ): Promise<VetOutput> {
   return new Promise<VetOutput>((resolve, reject) => {
     const child = spawn('bash', [script, '--candidate', JSON.stringify(candidate)], {
+      ...projectSpawnOptions(projectRoot),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -257,12 +261,13 @@ export function runInstallWithScript(
   candidate: { name: string; kind: string; source_url: string; tier?: number },
   scope: CheatcodeScope,
   timeoutMs: number,
+  projectRoot: string,
 ): Promise<InstallOutput> {
   return new Promise<InstallOutput>((resolve, reject) => {
     const child = spawn(
       'bash',
       [script, '--candidate', JSON.stringify(candidate), '--scope', scope],
-      { stdio: ['ignore', 'pipe', 'pipe'] },
+      { ...projectSpawnOptions(projectRoot), stdio: ['ignore', 'pipe', 'pipe'] },
     );
 
     const stdoutChunks: Buffer[] = [];
@@ -329,9 +334,11 @@ export function runUninstallWithScript(
   script: string,
   candidate: { name: string; kind: string; source_url: string; tier?: number },
   timeoutMs: number,
+  projectRoot: string,
 ): Promise<UninstallOutput> {
   return new Promise<UninstallOutput>((resolve, reject) => {
     const child = spawn('bash', [script, '--candidate', JSON.stringify(candidate)], {
+      ...projectSpawnOptions(projectRoot),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -737,6 +744,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
 } {
+  const scriptRoot = (): string => projectRootFromDbPath(db.dbPath) ?? process.cwd();
   const auditCheatcode = (eventType: AuditEventType, summary: string, contentJson: string, createdAt: string): number =>
     insertAudit(db, {
       issue_id: -1,
@@ -932,7 +940,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
           ? (rawKind as CheatcodeKind)
           : 'any';
 
-        const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS);
+        const out = await runSearchWithScript(resolveSearchScript(), query, kind, SEARCH_TIMEOUT_MS, scriptRoot());
 
         auditCheatcode(
           'cheatcode_search',
@@ -971,7 +979,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
         };
         if (typeof tierVal === 'number') candidate.tier = tierVal;
 
-        const out = await runVetWithScript(resolveVetScript(), candidate, VET_TIMEOUT_MS);
+        const out = await runVetWithScript(resolveVetScript(), candidate, VET_TIMEOUT_MS, scriptRoot());
 
         auditCheatcode(
           'cheatcode_vet',
@@ -1111,6 +1119,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
           candidate,
           scope,
           INSTALL_TIMEOUT_MS,
+          scriptRoot(),
         );
 
         // No-phantom-row guard (#148): a plugin/mcp install that the marketplace
@@ -1291,6 +1300,7 @@ export function cheatcodeTools(db: TrajectoryDB): {
           resolveUninstallScript(),
           candidate,
           UNINSTALL_TIMEOUT_MS,
+          scriptRoot(),
         );
 
         // Honesty gate (#114): only delete the install + attachment rows when the

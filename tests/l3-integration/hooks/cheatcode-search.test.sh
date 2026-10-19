@@ -12,6 +12,7 @@ command -v jq >/dev/null 2>&1 || { printf "FAIL jq not found — required depend
 
 WORKSPACE=$(mktemp -d)
 trap 'rm -rf "$WORKSPACE"' EXIT
+export TMB_PROJECT_ROOT="$WORKSPACE"
 
 FIXTURE="$WORKSPACE/candidates.json"
 # Mixed-tier fixture: the curated (tier 2) candidate is strictly MORE relevant

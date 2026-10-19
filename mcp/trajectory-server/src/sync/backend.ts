@@ -47,9 +47,12 @@ export function detectAvailable(
   return result;
 }
 
-export function detectPreferred(): 'gh' | 'glab' | null {
+// Which CLI the repo at `repoPath` (the issue's repos.path, else the project
+// root) points its origin at. A null path keeps the in-memory test behaviour.
+export function detectPreferred(repoPath: string | null): 'gh' | 'glab' | null {
   try {
     const result = spawnSync('git', ['remote', 'get-url', 'origin'], {
+      ...(repoPath === null ? {} : { cwd: repoPath }),
       timeout: SUBPROCESS_TIMEOUT_MS,
       encoding: 'utf8',
     });

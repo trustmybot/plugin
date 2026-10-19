@@ -60,14 +60,14 @@ WT="$WS/.claude/worktrees/wt-1"
 mkdir -p "$WT"
 
 # ── Test: rescan from worktree cwd finds ≥1 repo ─────────────────────────────
-test_case "rescan from worktree cwd finds ≥1 repo (session_dir walk-up)"
+test_case "rescan from worktree cwd finds ≥1 repo (project root from the argument)"
 
-# Run the invoker with cwd set to the worktree path (inner path).
-# The invoker should walk up from the worktree, find the DB at WS, derive
-# session_dir=$WS, and discover repo-a.
+# Run the invoker with cwd set to the worktree path (inner path) and the
+# project root passed explicitly: it scans session_dir=$WS, not the cwd, and
+# discovers repo-a.
 # Hard timeout of 60s: if scan hangs (kuzu init, lock, git-log) the test
 # fails loudly instead of stalling the entire runner.
-OUT=$( (cd "$WT" && _l5_timeout 60 node --experimental-sqlite "$INVOKER" 2>&1) || true )
+OUT=$( (cd "$WT" && _l5_timeout 60 node --experimental-sqlite "$INVOKER" "$WS" 2>&1) || true )
 
 # The invoker emits a summary line on stderr on success. Check for it.
 if echo "$OUT" | grep "\[post-close-rescan\] OK" >/dev/null; then
