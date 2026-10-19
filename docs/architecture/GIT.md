@@ -42,6 +42,19 @@ Branch policy is **per-repo**, not global. Each registered repo's `repos` row ca
 
 Guard scoping is **registration-based**: a git op is enforced only when its git-root resolves to a registered `repos` row. When the command's git-root is an unregistered sibling tree, the guards no-op — TMB never enforces on a tree it doesn't manage. For a single-repo project the sole repo is the registered root, so the whole tree is guarded; `/scan` is the registration point. See [`REPO_RESOLUTION.md`](./REPO_RESOLUTION.md) for the full resolution contract.
 
+## Rebasing a reviewed task: integrate.sh
+
+SWE never fetches, rebases or pulls. When `<base>` moves after a task passed bro's verify and the pr-reviewer, bro runs `bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_planning/scripts/integrate.sh" <task_id> <base>` from the main checkout. The script:
+
+1. Exits 3 when the task has no passing review for its `commit_sha`.
+2. Prints `commit_sha` and exits 0 when `<base>` is already an ancestor of it. No run is recorded.
+3. Rebases in a temporary worktree under `.claude/worktrees/`, detached at `commit_sha`. The git-guards rebase deny covers the main checkout, not linked worktrees. A conflict aborts the rebase and exits 2.
+4. Exits 2 when the `git patch-id --stable` of the rebased range differs from the reviewed range.
+5. Runs `verification[]` in the temporary worktree and records it in `verification_runs` (source `manual`, the rebased SHA). A failure exits 1 and leaves the branch where it was. A pass moves `refs/heads/<branch_id>` to the rebased SHA, prints the SHA and exits 0. It refuses to move a branch that is checked out anywhere.
+6. Always removes the temporary worktree.
+
+`tasks.commit_sha` keeps the reviewed commit. `git-push-guard.sh` connects the two: a pushed commit that is no task's `commit_sha` but has a task commit's patch-id is that task's work rebased. The guard denies it when the task has no passing review. When the task has a passing review, the guard denies it unless a `verification_runs` row with exit code 0 names that exact SHA. Commits that match no task's patch-id are left alone.
+
 ## Where files live, at a glance
 
 | Path | Belongs to | Lifetime |
@@ -131,8 +144,9 @@ plugin/
 plugin/
 ├── CLAUDE.md                                          # bro verification protocol (V1/V2/V3)
 ├── skills/tmb_push-gate/SKILL.md                    # bro push-gate orchestration
+├── skills/tmb_planning/scripts/integrate.sh          # rebases a reviewed task onto <base>, re-verifies, moves the branch
 ├── scripts/hooks/
-│   ├── git-push-guard.sh                             # blocks push without pass verdicts
+│   ├── git-push-guard.sh                             # blocks push without pass verdicts or a verified rebase
 │   ├── branch-up-to-date-with-remote.sh              # verifies local branch is current
 │   └── post-task-close-rescan.sh                     # PostToolUse: backgrounds /scan to refresh the world model
 └── mcp/trajectory-server/src/tools/

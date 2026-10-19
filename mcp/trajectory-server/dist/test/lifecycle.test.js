@@ -264,6 +264,12 @@ describe('issue_close: review evidence for closed tasks', () => {
         assert.ok(m, '_CWC_HAS_PASS not found in cleanup-worktree-on-task-close.sh');
         assert.equal(m[1].replace(/\\\$/g, '$'), HAS_PASS_SQL);
     });
+    it('integrate.sh carries a byte-identical copy of the pass rule', () => {
+        const script = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', 'skills', 'tmb_planning', 'scripts', 'integrate.sh'), 'utf8');
+        const m = /^_INT_HAS_PASS="([^"]*)"$/m.exec(script);
+        assert.ok(m, '_INT_HAS_PASS not found in integrate.sh');
+        assert.equal(m[1].replace(/\\\$/g, '$'), HAS_PASS_SQL);
+    });
     it('waive_review + reason closes and writes review_gate_waived per task', async () => {
         const db = tempDB();
         const issue = seedIssue(db);

@@ -613,4 +613,98 @@ out=$(run_hook_payload "swe" "$REPO_PATH" "$HEREDOC_CMD" "$db")
 assert_not_contains "$out" '"permissionDecision":"deny"' "heredoc content is data"
 cleanup
 
+# ----- GH 1518: rebased task commits need a verification run ------------
+# feat/r holds task 5's reviewed commit RSHA, cut from origin/main. feat/r-rebased
+# replays it onto main (SHA1, SHA2): REBASED has RSHA's patch-id but is no
+# task's commit_sha. feat/other holds an unrelated commit on main.
+
+setup_rebased_repo() {
+  setup_repo
+  db=$(setup_db "$REPO_PATH")
+  git -C "$REPO_PATH" checkout -q -b feat/r origin/main
+  echo "feat R" > "$REPO_PATH/r.txt"
+  git -C "$REPO_PATH" add r.txt
+  git -C "$REPO_PATH" commit -qm "feat: R"
+  RSHA=$(git -C "$REPO_PATH" rev-parse HEAD)
+  git -C "$REPO_PATH" checkout -q -b feat/r-rebased main
+  git -C "$REPO_PATH" cherry-pick "$RSHA" >/dev/null
+  REBASED=$(git -C "$REPO_PATH" rev-parse HEAD)
+  git -C "$REPO_PATH" checkout -q -b feat/other main
+  echo "other" > "$REPO_PATH/o.txt"
+  git -C "$REPO_PATH" add o.txt
+  git -C "$REPO_PATH" commit -qm "feat: other"
+  insert_task "$db" 5 "$RSHA"
+  sign_task   "$db" 5
+}
+
+record_run() {
+  local db="$1" sha="$2" rc="$3"
+  sqlite3 "$db" "INSERT INTO verification_runs (task_id, commit_sha, source, started_at, finished_at, exit_code, budget_s)
+    VALUES (5, '$sha', 'manual', '2026-10-19T00:00:00.000Z', '2026-10-19T00:01:00.000Z', $rc, 900);" >/dev/null
+}
+
+test_case "GH 1518: the reviewed task commit itself → allowed"
+setup_rebased_repo
+git -C "$REPO_PATH" checkout -q feat/r
+out=$(run_hook "git push origin feat/r" "$db")
+assert_not_contains "$out" '"permissionDecision":"deny"' "the reviewed SHA is covered by its review"
+cleanup
+
+test_case "GH 1518: an integrated rebase (passing run on its SHA) → allowed"
+setup_rebased_repo
+record_run "$db" "$REBASED" 0
+git -C "$REPO_PATH" checkout -q feat/r-rebased
+out=$(run_hook "git push origin feat/r-rebased" "$db")
+assert_not_contains "$out" '"permissionDecision":"deny"' "a rebased SHA with a passing verification run ships"
+cleanup
+
+test_case "GH 1518: a rebased SHA with the reviewed patch-id and no run → BLOCKED"
+setup_rebased_repo
+git -C "$REPO_PATH" checkout -q feat/r-rebased
+out=$(run_hook "git push origin feat/r-rebased" "$db")
+assert_contains "$out" '"permissionDecision":"deny"' "an unverified rebase must block"
+assert_contains "$out" "$REBASED" "the deny names the rebased SHA"
+assert_contains "$out" "task_id=5" "the deny names the reviewed task"
+assert_contains "$out" "integrate.sh" "the deny points at integrate.sh"
+cleanup
+
+test_case "GH 1518: a rebased SHA whose only run failed → BLOCKED"
+setup_rebased_repo
+record_run "$db" "$REBASED" 1
+git -C "$REPO_PATH" checkout -q feat/r-rebased
+out=$(run_hook "git push origin feat/r-rebased" "$db")
+assert_contains "$out" '"permissionDecision":"deny"' "a failing run does not cover the rebase"
+cleanup
+
+test_case "GH 1518: an unrelated commit beside a reviewed task → allowed"
+setup_rebased_repo
+git -C "$REPO_PATH" checkout -q feat/other
+out=$(run_hook "git push origin feat/other" "$db")
+assert_not_contains "$out" '"permissionDecision":"deny"' "a commit matching no reviewed patch-id keeps today's behaviour"
+cleanup
+
+test_case "GH 1518: a rebase of an unreviewed task's commit → BLOCKED even with a passing run"
+setup_rebased_repo
+sqlite3 "$db" "DELETE FROM validation_attempts WHERE task_id = 5;" >/dev/null
+record_run "$db" "$REBASED" 0
+git -C "$REPO_PATH" checkout -q feat/r-rebased
+out=$(run_hook "git push origin feat/r-rebased" "$db")
+assert_contains "$out" '"permissionDecision":"deny"' "an unreviewed task's rebased commit must block"
+assert_contains "$out" "$REBASED" "the deny names the rebased SHA"
+assert_contains "$out" "task_id=5" "the deny names the task"
+assert_contains "$out" "no passing review" "the deny says the task is unreviewed"
+cleanup
+
+test_case "GH 1518: a rebase matching a reviewed and an unreviewed task is judged by the reviewed one"
+setup_rebased_repo
+git -C "$REPO_PATH" checkout -q -b feat/r-again origin/main
+git -C "$REPO_PATH" cherry-pick "$RSHA" >/dev/null
+git -C "$REPO_PATH" commit -q --amend -m "feat: R again"
+insert_task "$db" 4 "$(git -C "$REPO_PATH" rev-parse HEAD)"
+record_run "$db" "$REBASED" 0
+git -C "$REPO_PATH" checkout -q feat/r-rebased
+out=$(run_hook "git push origin feat/r-rebased" "$db")
+assert_not_contains "$out" '"permissionDecision":"deny"' "the reviewed task's integrated rebase ships"
+cleanup
+
 summarize
