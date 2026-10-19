@@ -135,12 +135,16 @@ test_case "empty PR fetch returns empty comments array"
 DB3="$TMPDIR_BASE/db3.db"
 setup_db "$DB3"
 sqlite3 "$DB3" "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '\"gh\"')"
+sqlite3 "$DB3" "INSERT INTO repos (name, path) VALUES ('repo', '$TMPDIR_BASE/repo3');
+  INSERT INTO repo_remotes (repo, name, provider, url, is_primary) VALUES ('repo', 'origin', 'github', 'https://github.com/owner/repo.git', 1);"
+GH3_ARGS="$TMPDIR_BASE/gh3.args"
 
 EMPTY_GH_OUTPUT='{"state":"OPEN","comments":[],"reviews":[]}'
 MOCK_BIN3="$TMPDIR_BASE/bin3"
 mkdir -p "$MOCK_BIN3"
 cat > "$MOCK_BIN3/gh" <<GHEOF
 #!/usr/bin/env bash
+echo "\$*" >> "$GH3_ARGS"
 echo '$EMPTY_GH_OUTPUT'
 exit 0
 GHEOF
@@ -159,6 +163,7 @@ EMPTY_RESULT=$(PATH="$MOCK_BIN3:$PATH" TRAJECTORY_DB_PATH="$DB3" \
   " 2>&1 || echo '{"count":-1}')
 
 assert_contains "$EMPTY_RESULT" '"count":0' "empty fetch returns zero comments"
+assert_contains "$(cat "$GH3_ARGS" 2>/dev/null)" '-R github.com/owner/repo' "gh called with slug from seeded repo_remotes row"
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Test 4: arch-impact heuristic — tasks touching schema.sql are flagged
