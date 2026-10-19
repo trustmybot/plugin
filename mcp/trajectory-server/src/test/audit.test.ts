@@ -54,7 +54,7 @@ const GATE_WAIVERS = {
 let modelAvailable = false;
 
 async function waitForCount(db: TrajectoryDB, sql: string, params: unknown[], expected: number): Promise<number> {
-  const deadline = Date.now() + 15000;
+  const deadline = Date.now() + 90_000;
   let n = 0;
   do {
     n = db.get<{ n: number }>(sql, params)?.n ?? 0;

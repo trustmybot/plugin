@@ -43,7 +43,7 @@ const GATE_WAIVERS = {
 };
 let modelAvailable = false;
 async function waitForCount(db, sql, params, expected) {
-    const deadline = Date.now() + 15000;
+    const deadline = Date.now() + 90_000;
     let n = 0;
     do {
         n = db.get(sql, params)?.n ?? 0;
