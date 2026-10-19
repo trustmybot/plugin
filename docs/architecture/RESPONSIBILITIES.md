@@ -105,7 +105,7 @@ Frontmatter: `model: opus`, `maxTurns: 150`, `tools: Read, Glob, Grep, Bash, Wri
 
 - Work in the worktree per the spec's `## Files`, `## Success Criteria`, `## Verification`. `files[]` is guidance at directory granularity: a write outside it is allowed, and the first write to each such path brings a note asking the swe to list it, and why, in its report.
 - Run the tests and lints for the files it touched; the verification gate runs the spec's `verification[]` once when the swe closes and records the run for the commit (`task_brief.verification_run`).
-- Report every path edited outside `files[]` with its reason; add the changelog entry the way the repo records changes; after a rebase, run the repo's generated-files step.
+- Report every path edited outside `files[]` with its reason; add the changelog entry the way the repo records changes; work on the branch bro provisioned; bro integrates the base after the pr-reviewer pass.
 - Optionally invoke `tmb_swe-checklist` skill when the spec's `## Verification` needs interpretation.
 
 ### Atomic close

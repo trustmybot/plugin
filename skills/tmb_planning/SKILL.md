@@ -95,7 +95,7 @@ Blast-radius (external side effects only): default config is the safe state (opt
 
 Call `task_provision(issue_id, branch_id, decision_body, task, base?)` — it atomically writes the `kind='decision'` discussion, creates the task (with the typed `files[]` + `verification[]` and the planning-complete event), creates the git branch, and creates the worktree. It returns the spawn-ready shape `{task_id, branch_id, worktree_path, ...}` — branch and worktree already exist.
 
-Then spawn SWE with the `task_id` it returned. The swe runs the tests for what it touched while it works; the gate runs `verification[]` once, when the swe closes, and records the run for that commit. Independent tasks run concurrently: provision every one of them, then spawn one swe per task in the same turn — one Agent call each, all in one message. A task waits only when it needs another task's merged output, and its `decision_body` names that dependency. Each spec names the sibling tasks running alongside it and their `files[]`, and tells swe to fetch and rebase onto the base branch inside its worktree, rebuild generated artefacts after the rebase (the repo's generated-files step, where it has one), and re-run the tests for what it touched before closing.
+Then spawn SWE with the `task_id` it returned. The swe runs the tests for what it touched while it works; the gate runs `verification[]` once, when the swe closes, and records the run for that commit. Independent tasks run concurrently: provision every one of them, then spawn one swe per task in the same turn — one Agent call each, all in one message. A task waits only when it needs another task's merged output, and its `decision_body` names that dependency. Each spec names the sibling tasks running alongside it and their `files[]`. You prepare everything: `task_provision` gives swe a ready-to-work branch and worktree cut from the up-to-date base, and a rework spawn gets the same.
 
 ### Spawning SWE
 
@@ -120,6 +120,15 @@ After SWE returns `status=completed`, pull the work (`task_brief` plus a `git di
 All four pass → close with the `bro_atomic_close` composite (`close_issue_if_last_task=true` when it's the last task); the post-close hook re-scans so the world model refreshes. When the closed task was an architectural change (the cases listed under "Architectural changes" above — a new top-level module, dir, or service boundary), also call `scan_run` yourself right after `bro_atomic_close` so the world model reflects the new structure within this session; the background post-close rescan stays the safety net for ordinary changes. Then spawn pr-reviewer for the push gate — the spawn-shape hook enforces the anchors. On a reviewer FAIL: surface it, hold the push, and rework the task (below).
 
 If any of the four checks fails, record it with `bro_verification_fail_record` (name which check and why), leave the task open, and either retry via `task_retry` or escalate.
+
+### Integrate after the review pass
+
+When pr-reviewer passes the task and the base has not moved, push the reviewed commit as is. When the base has moved, run `bash "${CLAUDE_PLUGIN_ROOT}/skills/tmb_planning/scripts/integrate.sh" <task_id> <base>`:
+
+- **Exit 0** — rebased and re-verified; push the SHA it prints.
+- **Exit 1** — `verification[]` failed on the rebased commit; surface the failure and rework the task (below).
+- **Exit 2** — conflict or patch drift; `task_retry` on a fresh branch from the current base, with a spec that points at the reviewed commit. The retry goes through verify and review again.
+- **Exit 3** — the task has no passing review; spawn pr-reviewer first.
 
 ### Rework and spec changes
 

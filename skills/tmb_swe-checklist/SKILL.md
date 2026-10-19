@@ -11,7 +11,6 @@ Before `task_update_status(completed)`, confirm these by reading the diff. Mecha
 - **Scope discipline.** Your close report lists every path you edited outside the typed `files[]`, each with the reason it had to change. No "while I was there" cleanups. No new TODOs.
 - **Tests for what you touched.** Run the tests and lints covering the files you changed and paste their pass/fail with the tail of their output. The gate runs `verification[]` once when you close and records the run for your commit. A dry run or smoke test reports as its command's pass/fail.
 - **Changelog.** Where the repo records changes per PR (a fragment directory or a CHANGELOG section), add the task's entry the way the repo does and leave any generated changelog file to its generator.
-- **After a rebase.** Where the repo has a generated-files step, run it and commit what it regenerated.
 - **Hook blocks.** A PreToolUse block is a hard stop — surface its exact output and wait.
 
 Escalate (not guess) when:
