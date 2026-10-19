@@ -17,9 +17,11 @@
 #   6. stale-state        — orphaned worktrees / pending|running tasks?
 #   7. hook-cache-drift   — running hooks load from the cache, not the dev checkout?
 #
-# Plus one warning, printed only when it applies and never counted as a FAIL:
+# Plus two warnings, printed only when they apply and never counted as a FAIL:
 #   duplicate-plugin — more than one enabled copy of this plugin applies to the
 #   project; Claude Code registers the hooks of only one of them.
+#   legacy-user-hooks — the user-scope settings.json still runs pre-1.1.0
+#   resolve-hook.sh commands in every project (read only; never edited).
 #
 # LOAD-BEARING REMEDIATION RULE
 # ----------------------------
@@ -394,6 +396,20 @@ if [ -n "$DUP_INSTALLS" ]; then
   remediate \
     "Claude Code registers the hooks of only one of them (which one is not documented) and skips the other's with a note under /plugin Errors — TMB's gates may be missing while its MCP tools still work." \
     "Run /plugin and disable the extra copy, then restart Claude Code."
+fi
+
+# ===========================================================================
+# legacy-user-hooks (warning) — pre-1.1.0 hooks left in the user settings.json
+# ===========================================================================
+LEGACY_HOOKS=$(TMB_INSTALLED_JSON="$INSTALLED_JSON" tmb_legacy_user_hooks "$DUP_PROJECT" 2>/dev/null || true)
+if [ -n "$LEGACY_HOOKS" ]; then
+  printf 'WARN  legacy-user-hooks: %s holds %s pre-1.1.0 TMB hook(s) running resolve-hook.sh: %s\n' \
+    "$(tmb_user_settings_json)" "$(printf '%s\n' "$LEGACY_HOOKS" | grep -c '^hook')" "$(tmb_legacy_user_hooks_entries "$LEGACY_HOOKS")"
+  remediate \
+    "They run in every project, so a pre-1.1.0 gate can deny what this version allows. TMB does not edit that file." \
+    "Remove them by hand: $(tmb_legacy_user_hooks_doc)"
+  LEGACY_PROJECTS=$(tmb_legacy_user_hooks_projects "$LEGACY_HOOKS")
+  [ -z "$LEGACY_PROJECTS" ] || remediate "Projects on TMB < 1.1.0 lose them too: ${LEGACY_PROJECTS}"
 fi
 
 printf '\n'

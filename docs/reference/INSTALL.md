@@ -47,4 +47,4 @@ Neither hook runs its injection when the project is the TMB source checkout itse
 
 ## Leftovers from older versions
 
-Older `/onboard` runs wrote TMB gates into `~/.claude/settings.json` (entries stamped `"_tmb_managed": true`) and a resolver under `~/.claude/tmb-hooks/`. Those fire in every project. At SessionStart, `mcp-health-check.sh` names the file and the groups and gives a `jq` filter that removes them; delete `~/.claude/tmb-hooks/` afterwards. TMB does not edit that file itself.
+Older `/onboard` runs wrote TMB gates into `~/.claude/settings.json` (entries stamped `"_tmb_managed": true`) and a resolver under `~/.claude/tmb-hooks/`. Those fire in every project. At SessionStart, `mcp-health-check.sh` names the file and the groups and gives a `jq` filter that removes them; delete `~/.claude/tmb-hooks/` afterwards. Every hook command there that runs `resolve-hook.sh`, stamped or not, is also named by line in the SessionStart inventory and by `scripts/health.sh`; [UPGRADE.md](./UPGRADE.md#upgrading-into-v110--remove-leftover-user-wide-hooks) walks through removing them. TMB does not edit that file itself.

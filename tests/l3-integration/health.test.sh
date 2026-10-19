@@ -9,7 +9,8 @@
 # This test drives health.sh against self-contained fixtures (a temp DB seeded
 # with plugin_meta/tasks/repos/plugin_config, a fake mcp-server.log, a fake
 # cache tree) and asserts the right PASS/FAIL + remediation per scenario across
-# all 7 checks, plus the duplicate-plugin warning, including the three kuzu
+# all 7 checks, plus the duplicate-plugin and legacy-user-hooks warnings,
+# including the three kuzu
 # sub-diagnoses:
 #   - lock-contention   (another process holds the single-writer lock)
 #   - postinstall-skip   (native binding not installed)
@@ -485,6 +486,47 @@ test_case "duplicate-plugin: one enabled copy prints nothing"
 echo '{"enabledPlugins":{"tmb@trustmybot-dev":true,"tmb@trustmybot-rc":false}}' > "$ROOT/.claude/settings.local.json"
 out=$(dup_health || true)
 assert_not_contains "$out" "WARN  duplicate-plugin" "no warning"
+
+# ============================================================================
+# legacy-user-hooks warning — pre-1.1.0 resolve-hook.sh entries in the user
+# settings.json: WARN naming file, lines and hooks; files untouched; exit 0
+# ============================================================================
+test_case "legacy-user-hooks: resolve-hook.sh entries warn with lines, hooks and old projects; files unchanged"
+reset_scenario legacy-user-hooks
+mkdir -p "$ROOT/home/.claude" "$ROOT/old-project"
+OLD_REAL=$(cd "$ROOT/old-project" && pwd -P)
+cp "$HERE/hooks/fixtures/legacy-user-settings.json" "$ROOT/home/.claude/settings.json"
+printf '{"plugins":{"tmb@trustmybot-dev":[{"scope":"local","projectPath":"%s","installPath":"/c/old","version":"1.0.2"},{"scope":"local","projectPath":"%s","installPath":"/c/new","version":"1.1.0"}]}}' \
+  "$ROOT/old-project" "$ROOT" > "$ROOT/installed.json"
+legacy_health() {
+  env -i PATH="$PATH" HOME="$ROOT/home" \
+    TRAJECTORY_DB_PATH="$F_DB" TMB_HEALTH_SERVER_LOG="$F_LOG" \
+    TMB_HEALTH_CACHE_DIR="$F_CACHE" TMB_HEALTH_INTENDED_VERSION="$F_INTENDED" \
+    TMB_HEALTH_PGREP_COUNT="1" TMB_HEALTH_INSTALLED_JSON="$ROOT/installed.json" \
+    CLAUDE_PROJECT_DIR="$ROOT" bash "$HEALTH" 2>&1
+}
+legacy_sums() { cksum "$ROOT/home/.claude/settings.json" "$ROOT/installed.json" 2>/dev/null; }
+BEFORE=$(legacy_sums)
+set +e
+out=$(legacy_health)
+rc=$?
+set -e
+assert_contains "$out" "WARN  legacy-user-hooks: $ROOT/home/.claude/settings.json holds 2 pre-1.1.0 TMB hook(s) running resolve-hook.sh: line 10 git-guards, line 23 agent-spawn-dispatch" "WARN line"
+assert_contains "$out" "Remove them by hand: docs/reference/UPGRADE.md#upgrading-into-v110--remove-leftover-user-wide-hooks" "points to UPGRADE.md"
+assert_contains "$out" "Projects on TMB < 1.1.0 lose them too: $OLD_REAL (1.0.2)" "names the old project only"
+assert_contains "$out" "== all checks passed ==" "a warning is not a failed check"
+assert_exit_code 0 "$rc" "exit code unchanged"
+assert_eq "$BEFORE" "$(legacy_sums)" "settings.json and installed_plugins.json unchanged"
+
+test_case "legacy-user-hooks: clean or missing settings print nothing"
+printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"echo mine"}]}]}}\n' > "$ROOT/home/.claude/settings.json"
+BEFORE=$(legacy_sums)
+out=$(legacy_health || true)
+assert_not_contains "$out" "WARN  legacy-user-hooks" "clean settings: no warning"
+assert_eq "$BEFORE" "$(legacy_sums)" "clean settings: files unchanged"
+rm -f "$ROOT/home/.claude/settings.json"
+out=$(legacy_health || true)
+assert_not_contains "$out" "WARN  legacy-user-hooks" "missing settings: no warning"
 
 # ============================================================================
 # Exit-code contract
