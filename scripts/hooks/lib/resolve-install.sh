@@ -158,3 +158,76 @@ tmb_duplicate_installs() {
 tmb_duplicate_installs_names() {
   printf '%s\n' "${1:-}" | awk -F'\t' 'NF { printf "%s%s@%s", (n++ ? ", " : ""), $1, $2 }'
 }
+
+tmb_user_settings_json() {
+  printf '%s\n' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
+}
+
+tmb_legacy_user_hooks_doc() {
+  printf '%s\n' "docs/reference/UPGRADE.md#upgrading-into-v110--remove-leftover-user-wide-hooks"
+}
+
+# tmb_legacy_user_hooks [project_dir]
+# Before 1.1.0, /onboard wrote hook commands running
+# ~/.claude/tmb-hooks/resolve-hook.sh into the user-scope settings.json, so
+# they fire in every project; 1.1.0 writes its shim only into
+# <project>/.claude/settings.local.json. Every resolve-hook.sh command under
+# .hooks of tmb_user_settings_json is therefore a leftover. One TSV row each:
+#   hook\t<line>\t<--hook name or ?>
+# and, only when there is one, one row per other existing project whose
+# recorded install of this plugin is below 1.1.0 (prerelease tags ignored, so
+# 1.1.0-rc.1 counts as 1.1.0) — they lose those hooks once they are removed:
+#   project\t<canonical projectPath>\t<version>
+# Read-only; a missing or unparsable settings file prints nothing.
+tmb_legacy_user_hooks() {
+  local here="" settings json name hooks rows p v
+  command -v jq >/dev/null 2>&1 || return 0
+  settings=$(tmb_user_settings_json)
+  [ -r "$settings" ] || return 0
+  [ "$(jq '[(.hooks // {}) | objects | .[] | arrays | .[] | objects | .hooks | arrays | .[]
+      | objects | .command | strings | select(contains("resolve-hook.sh"))] | length' "$settings" 2>/dev/null)" \
+    -gt 0 ] 2>/dev/null || return 0
+  hooks=$(awk '
+    /"command"/ && index($0, "resolve-hook.sh") {
+      rest = $0
+      while ((i = index(rest, "resolve-hook.sh")) > 0) {
+        rest = substr(rest, i + 15)
+        seg = rest
+        j = index(seg, "resolve-hook.sh")
+        if (j > 0) seg = substr(seg, 1, j - 1)
+        name = "?"
+        if (match(seg, /--hook[ \t]+[A-Za-z0-9._-]+/)) {
+          name = substr(seg, RSTART, RLENGTH)
+          sub(/^--hook[ \t]+/, "", name)
+        }
+        printf "hook\t%d\t%s\n", NR, name
+      }
+    }' "$settings" 2>/dev/null)
+  [ -n "$hooks" ] || return 0
+  printf '%s\n' "$hooks"
+  [ -n "${1:-}" ] && here=$(_tmb_canonical_dir "$1")
+  json=$(tmb_installed_json)
+  [ -r "$json" ] || return 0
+  name=$(_tmb_install_plugin_name)
+  rows=$(jq -r --arg p "${name}@" '
+    (.plugins // {}) | to_entries[] | select(.key | startswith($p)) | .value[]?
+    | select((.projectPath | type) == "string" and .projectPath != "" and (.version | type) == "string")
+    | select((.version | split("-")[0] | split(".") | map(tonumber? // -1)) < [1, 1, 0])
+    | [.projectPath, .version] | @tsv' "$json" 2>/dev/null)
+  while IFS=$'\t' read -r p v; do
+    [ -n "$p" ] && [ -d "$p" ] || continue
+    p=$(_tmb_canonical_dir "$p")
+    [ "$p" != "$here" ] || continue
+    printf 'project\t%s\t%s\n' "$p" "$v"
+  done <<<"$rows" | awk -F'\t' '!seen[$2]++'
+}
+
+# tmb_legacy_user_hooks_entries <rows> — "line 12 swe-scope-guard, line 20 bash-guard".
+tmb_legacy_user_hooks_entries() {
+  printf '%s\n' "${1:-}" | awk -F'\t' '$1 == "hook" { printf "%sline %s %s", (n++ ? ", " : ""), $2, $3 }'
+}
+
+# tmb_legacy_user_hooks_projects <rows> — "/a (1.0.2), /b (1.0.1)", empty when none.
+tmb_legacy_user_hooks_projects() {
+  printf '%s\n' "${1:-}" | awk -F'\t' '$1 == "project" { printf "%s%s (%s)", (n++ ? ", " : ""), $2, $3 }'
+}

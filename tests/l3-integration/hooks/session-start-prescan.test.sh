@@ -2,8 +2,9 @@
 # Tests for scripts/hooks/session-start-prescan.sh.
 # Covers: output is valid JSON, additionalContext is emitted, cache-friendly
 # ordering, cold-session auto-scan launch, bypass env, and the warm / stale /
-# cold world-model banner, the duplicate-plugin line, and the Tooling line
-# naming a missing jq, and no Persona line (the persona hooks own that).
+# cold world-model banner, the duplicate-plugin line, the pre-1.1.0
+# user-wide hooks line, and the Tooling line naming a missing jq, and no
+# Persona line (the persona hooks own that).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,8 +27,9 @@ cleanup_sidecar_check() {
 trap cleanup_sidecar_check EXIT
 
 DB="$TMPDIR/trajectory.db"
-# Never read the real Claude Code install registry.
+# Never read the real Claude Code install registry or user settings.
 export TMB_INSTALLED_JSON="$TMPDIR/installed_plugins.json"
+export CLAUDE_CONFIG_DIR="$TMPDIR/claude-config"
 
 # ---- fixture workspace --------------------------------------------------
 # A hermetic git repo with benign commits.  Every hook invocation must run
@@ -435,6 +437,55 @@ assert_eq "" "$(dup_line)" "unreadable installed_plugins.json: no Plugin line"
 assert_eq "" "$(cat "$TMPDIR/dup.err")" "unreadable installed_plugins.json: no stderr"
 chmod 600 "$TMB_INSTALLED_JSON"
 rm -f "$TMB_INSTALLED_JSON" "$LOCAL_SETTINGS"
+
+# ---- Pre-1.1.0 resolve-hook.sh entries in the user-scope settings.json ----
+LEGACY_CFG="$CLAUDE_CONFIG_DIR"
+LEGACY_SETTINGS="$LEGACY_CFG/settings.json"
+LEGACY_OLD="$TMPDIR/old-project"
+mkdir -p "$LEGACY_CFG" "$LEGACY_OLD" "$TMPDIR/rc-project"
+LEGACY_OLD_REAL=$(cd "$LEGACY_OLD" && pwd -P)
+legacy_run() {
+  (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$SCHEMA_DB" TMB_SKIP_AUTO_PRESCAN=1 CLAUDE_PROJECT_DIR="$FIXTURE_WS" bash "$HOOK" 2>"$TMPDIR/legacy.err") || true
+}
+legacy_lines() { legacy_run | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null | grep '^Plugin: .*resolve-hook\.sh' || true; }
+legacy_sums() { cksum "$LEGACY_SETTINGS" "$TMB_INSTALLED_JSON" 2>/dev/null; }
+legacy_entry() { printf '{"scope":"local","projectPath":"%s","installPath":"/cache/%s","version":"%s"}' "$1" "$2" "$2"; }
+LEGACY_DOC="docs/reference/UPGRADE.md#upgrading-into-v110--remove-leftover-user-wide-hooks"
+schema_db
+
+test_case "legacy user hooks: resolve-hook.sh entries add one line naming the file, lines, hooks and other old projects"
+cp "$HERE/fixtures/legacy-user-settings.json" "$LEGACY_SETTINGS"
+printf '{"plugins":{"tmb@trustmybot-dev":[%s,%s,%s,%s]}}' \
+  "$(legacy_entry "$LEGACY_OLD" 1.0.2)" "$(legacy_entry "$TMPDIR/rc-project" 1.1.0-rc.1)" \
+  "$(legacy_entry "$FIXTURE_WS" 1.0.3)" "$(legacy_entry "$TMPDIR/gone-project" 1.0.1)" > "$TMB_INSTALLED_JSON"
+BEFORE=$(legacy_sums)
+assert_eq "Plugin: $LEGACY_SETTINGS holds 2 pre-1.1.0 TMB hook(s) running resolve-hook.sh (line 10 git-guards, line 23 agent-spawn-dispatch) — they run in every project and can deny what this version allows; the Human removes them by hand, see $LEGACY_DOC; projects on TMB < 1.1.0 lose them too: $LEGACY_OLD_REAL (1.0.2)" \
+  "$(legacy_lines)" "one legacy line"
+assert_eq "" "$(cat "$TMPDIR/legacy.err")" "no stderr"
+assert_eq "$BEFORE" "$(legacy_sums)" "settings.json and installed_plugins.json unchanged"
+
+test_case "legacy user hooks: no old project installs leaves the project clause off"
+rm -f "$TMB_INSTALLED_JSON"
+assert_eq "Plugin: $LEGACY_SETTINGS holds 2 pre-1.1.0 TMB hook(s) running resolve-hook.sh (line 10 git-guards, line 23 agent-spawn-dispatch) — they run in every project and can deny what this version allows; the Human removes them by hand, see $LEGACY_DOC" \
+  "$(legacy_lines)" "no project clause"
+
+test_case "legacy user hooks: a one-line settings file names each entry on line 1"
+printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"bash ~/.claude/tmb-hooks/resolve-hook.sh --marketplace mp --hook a"},{"type":"command","command":"bash ~/.claude/tmb-hooks/resolve-hook.sh --marketplace mp --hook b"}]}]}}\n' > "$LEGACY_SETTINGS"
+assert_contains "$(legacy_lines)" "holds 2 pre-1.1.0 TMB hook(s) running resolve-hook.sh (line 1 a, line 1 b)" "both entries"
+
+test_case "legacy user hooks: clean, missing or unparsable settings print nothing"
+printf '{"plugins":{"tmb@trustmybot-dev":[%s]}}' "$(legacy_entry "$LEGACY_OLD" 1.0.2)" > "$TMB_INSTALLED_JSON"
+printf '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo mine"}]}]},"permissions":{"allow":["Bash(bash resolve-hook.sh)"]}}\n' > "$LEGACY_SETTINGS"
+BEFORE=$(legacy_sums)
+assert_eq "" "$(legacy_lines)" "clean settings: no line"
+assert_eq "$BEFORE" "$(legacy_sums)" "clean settings: files unchanged"
+printf '{"hooks":' > "$LEGACY_SETTINGS"
+assert_eq "" "$(legacy_lines)" "unparsable settings: no line"
+assert_eq "" "$(cat "$TMPDIR/legacy.err")" "unparsable settings: no stderr"
+rm -f "$LEGACY_SETTINGS"
+assert_eq "" "$(legacy_lines)" "missing settings: no line"
+assert_eq "" "$(cat "$TMPDIR/legacy.err")" "missing settings: no stderr"
+rm -f "$TMB_INSTALLED_JSON"
 
 # ---- Persona: none in the prescan ----
 # A fixture plugin root (v1.0.3) and the fixture project's CLAUDE.md.

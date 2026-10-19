@@ -111,6 +111,20 @@ Claude Code does not load a plugin's `CLAUDE.md`, so bro's persona reaches your 
 
 An earlier release candidate's `/onboard` copied the persona into `<project>/CLAUDE.md` between `<!-- tmb:persona start v<version> -->` and `<!-- tmb:persona end -->`. TMB leaves that block where it is; the injected context notes that it is not needed, and you may delete the marked lines yourself.
 
+### Upgrading into v1.1.0 — remove leftover user-wide hooks
+
+Before v1.1.0, `/onboard` wrote hook commands into the user-wide `~/.claude/settings.json` (`$CLAUDE_CONFIG_DIR/settings.json` when that is set), each running `bash ~/.claude/tmb-hooks/resolve-hook.sh --marketplace <mp> --hook <name>`. Claude Code runs them in every project, so an old gate can deny a call v1.1.0 allows. v1.1.0 writes its headless shim only into `<project>/.claude/settings.local.json`, so every `resolve-hook.sh` command in the user-wide file is a leftover.
+
+TMB reports them and never edits the file. The SessionStart inventory adds one `Plugin:` line, and `scripts/health.sh` prints `WARN  legacy-user-hooks` (exit code unchanged). Both name the file, the count, and the line and `--hook` name of each command. They also list your other projects whose recorded TMB install is below 1.1.0. Those projects lose the user-wide copies once you remove them, so upgrade them first or accept that their headless gates stop.
+
+To remove them:
+
+1. Back up the file: `cp ~/.claude/settings.json ~/.claude/settings.json.bak`.
+2. Open it and, under `"hooks"`, delete each hook object whose `"command"` runs `resolve-hook.sh` (the reported lines). Then delete any group whose `"hooks"` array is now empty, and any event key whose array is now empty. Leave every other entry as it is.
+3. Check the file still parses: `jq empty ~/.claude/settings.json`.
+4. Delete `~/.claude/tmb-hooks/` once nothing references it.
+5. Start a new Claude Code session. The `Plugin:` line is gone.
+
 ### Upgrading into v1.0.3 — recover lost agent_runs
 
 Before v1.0.3 the SubagentStop hook dropped swe rows whose spawn prompt was plain text, and bro rows often metered 0. The Claude Code transcripts still on disk (`~/.claude/projects/<project-slug>/`) hold the real numbers; Claude Code prunes old sessions, so recover them soon after upgrading. From the project directory:

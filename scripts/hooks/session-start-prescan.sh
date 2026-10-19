@@ -246,6 +246,15 @@ DUP_INSTALLS=$(tmb_duplicate_installs "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null 
 [ -n "$DUP_INSTALLS" ] && COLD_SUFFIX="${COLD_SUFFIX}
 Plugin: duplicate $(_tmb_install_plugin_name) copies enabled ($(printf '%s\n' "$DUP_INSTALLS" | cut -f1 | paste -sd, - | sed 's/,/, /g')) — hooks from one are dropped; run /plugin"
 
+# Pre-1.1.0 resolve-hook.sh commands in the user-scope settings.json run in
+# every project; the Human removes them by hand.
+LEGACY_HOOKS=$(tmb_legacy_user_hooks "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null || true)
+if [ -n "$LEGACY_HOOKS" ]; then
+  LEGACY_PROJECTS=$(tmb_legacy_user_hooks_projects "$LEGACY_HOOKS")
+  COLD_SUFFIX="${COLD_SUFFIX}
+Plugin: $(tmb_user_settings_json) holds $(printf '%s\n' "$LEGACY_HOOKS" | grep -c '^hook') pre-1.1.0 TMB hook(s) running resolve-hook.sh ($(tmb_legacy_user_hooks_entries "$LEGACY_HOOKS")) — they run in every project and can deny what this version allows; the Human removes them by hand, see $(tmb_legacy_user_hooks_doc)${LEGACY_PROJECTS:+; projects on TMB < 1.1.0 lose them too: ${LEGACY_PROJECTS}}"
+fi
+
 PLUGIN_VERSION_LINE="(unknown)"
 [ -n "$PLUGIN_VERSION" ] && PLUGIN_VERSION_LINE="$PLUGIN_VERSION"
 
