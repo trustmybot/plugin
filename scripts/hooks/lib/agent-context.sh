@@ -26,14 +26,9 @@
 #       TMB_CTX_MISSING); same return codes.
 #   tmb_ctx_in_worktree <path>
 #       0 when <path> (canonical) lies in TMB_CTX_WORKTREE (canonical).
-#   tmb_repo_for_path <db> <path>
-#       `<name>|<path>` of the repos row whose canonical path is the git
-#       toplevel of <path>, or the toplevel of its main worktree; empty when
-#       none.
 
 declare -F tmb_sqlite_ro >/dev/null 2>&1 || . "$(dirname "${BASH_SOURCE[0]}")/query-task.sh"
 declare -F tmb_agent_role >/dev/null 2>&1 || . "$(dirname "${BASH_SOURCE[0]}")/cmd-analysis.sh"
-declare -F tmb_repo_name_for_root >/dev/null 2>&1 || . "$(dirname "${BASH_SOURCE[0]}")/resolve-repo.sh"
 
 
 tmb_agent_transcript() {
@@ -150,24 +145,4 @@ tmb_ctx_in_worktree() {
   [ "$c" = "$w" ] && return 0
   case "$c" in "${w%/}"/*) return 0 ;; esac
   return 1
-}
-
-tmb_repo_for_path() {
-  local db="${1:-}" dir="${2:-}" top common main name
-  [ -n "$db" ] && [ -n "$dir" ] || return 0
-  while [ ! -d "$dir" ] && [ "$dir" != "/" ] && [ "$dir" != "." ]; do dir=$(dirname "$dir"); done
-  [ -d "$dir" ] || return 0
-  top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || true)
-  common=$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
-  main=""
-  case "$common" in */.git) main="${common%/.git}" ;; esac
-  for root in "$top" "$main"; do
-    [ -n "$root" ] || continue
-    name=$(tmb_repo_name_for_root "$db" "$root")
-    if [ -n "$name" ]; then
-      printf '%s|%s\n' "$name" "$(tmb_repo_path_by_name "$db" "$name")"
-      return 0
-    fi
-  done
-  return 0
 }

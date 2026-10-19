@@ -1139,12 +1139,11 @@ _tmb_cmd_interp_writes() {
 # open(p, 'r'), readFileSync, read_text, perl '<') — when a write call's path
 # is not a string literal, its receiver is unknown (p.write_text), the scan
 # cannot parse the program, or a write shape shows that no call was found
-# for. The literals of the data a call writes (write / writelines /
-# write_text / write_bytes, fs.writeFile* / appendFile* data) are content and
-# never count, nor do the arguments of a text call (replace / sub / gsub,
-# split / strip, startswith / find / match / search / test, print / puts /
-# log), which are data (GH 1550); a program that does not parse counts all
-# of them. With
+# for. A python / node write call whose path is a variable bound once to a
+# plain literal writes that literal (GH 1550; see _tmb_cmd_prog_calls). The
+# literals of the data a call writes (write / writelines / write_text /
+# write_bytes, fs.writeFile* / appendFile* data) are content and never count;
+# a program that does not parse counts all of them. With
 # `operands`, a program that writes but names no literal prints `-` so the
 # caller still judges its operands.
 _tmb_cmd_prog_writes() {
@@ -1187,7 +1186,14 @@ _tmb_cmd_prog_writes() {
 # call, perl / ruby paren-less calls) and prints, for each write call, `W`
 # and its path argument: `T<TAB><literal>`, or `F` when that argument is not
 # a lone string literal (a variable, an f-string, a concatenation) or the
-# receiver is unknown. A process call prints `S<TAB><command>` (newlines as
+# receiver is unknown. A python / node path argument that is a lone variable
+# prints `T<TAB><literal>` when the program binds it exactly once, at top
+# level, as `p = '<literal>'` (node: `const p = '<literal>';`) — a plain
+# literal, no escape or interpolation — every other use of it is a lone
+# argument of a call, and the program has no way to rebind or shadow it
+# unseen (def / lambda / class / function / arrow / method / catch, globals /
+# setattr / exec / eval / dunders, an f-string or template, non-ASCII or
+# escapes outside strings); else `F`. A process call prints `S<TAB><command>` (newlines as
 # \037) and `W` when every part it is judged on is a plain literal (an
 # allowlist per argument and option key: see keyrole / slotstart), else `W`
 # and `U`; so does a process function or module referenced some way the scan
@@ -1202,10 +1208,11 @@ _tmb_cmd_prog_calls() {
     function tok(k, v,   t) {
       if (d == 0) return
       t = fid[d]; atok[t]++
+      anm[t] = (atok[t] == 1 && !aoth[t]) ? tokvar : ""
       if (k == "L") alit[t] = v; else aoth[t] = 1
     }
     function oth() { if (d > 0) aoth[fid[d]] = 1 }
-    function resetarg(t) { atok[t] = 0; aoth[t] = 0; alit[t] = ""; akw[t] = "" }
+    function resetarg(t) { atok[t] = 0; aoth[t] = 0; alit[t] = ""; akw[t] = ""; anm[t] = "" }
     function opn(type, cl, name, rk, rv) {
       d++; fid[d] = ++nf; ftype[d] = type; fclose[d] = cl
       fname[nf] = name; frecv[nf] = rk; frecvv[nf] = rv; np[nf] = 0
@@ -1436,11 +1443,12 @@ _tmb_cmd_prog_calls() {
       while (off <= length(s) && match(substr(s, off), re)) { cnt++; off += RSTART + RLENGTH - 1 }
       if (cnt > seen) unres()
     }
-    function endarg(t,   k) {
+    function endarg(t,   k, v) {
       if (atok[t] == 0 && !aoth[t] && akw[t] == "") return
-      k = (atok[t] == 1 && !aoth[t]) ? "L" : "E"
-      if (akw[t] != "") { kk[t, akw[t]] = k; kv[t, akw[t]] = alit[t] }
-      else { np[t]++; pk[t, np[t]] = k; pv[t, np[t]] = alit[t] }
+      k = (atok[t] == 1 && !aoth[t]) ? "L" : "E"; v = alit[t]
+      if (k == "E" && atok[t] == 1 && anm[t] != "") { k = "V"; v = anm[t] }
+      if (akw[t] != "") { kk[t, akw[t]] = k; kv[t, akw[t]] = v }
+      else { np[t]++; pk[t, np[t]] = k; pv[t, np[t]] = v }
       resetarg(t)
     }
     function endone(   t, ty) {
@@ -1458,7 +1466,12 @@ _tmb_cmd_prog_calls() {
       tok("E", "")
     }
     function endpseudo() { while (d > 0 && ftype[d] == "pseudo") endone(); pc = 0 }
-    function hit(k, v) { print "W"; if (k == "L" && v != "") print "T\t" v; else print "F" }
+    function hit(k, v) {
+      print "W"
+      if (k == "L" && v != "") print "T\t" v
+      else if (k == "V") pend[++npend] = v
+      else print "F"
+    }
     function arg(t, i, kws,   n, a, j) {
       if (np[t] >= i) { hit(pk[t, i], pv[t, i]); return }
       n = split(kws, a, " ")
@@ -1486,10 +1499,56 @@ _tmb_cmd_prog_calls() {
       if (rk == "P" || rk == "PE") return 1
       return (sn_pre == "" || sn_pre ~ /(^|[.:])(os|fs|fsp|promises|File|IO)$/) ? 2 : 1
     }
-    function indata(   t) {
-      if (d == 0 || ftype[d] == "group") return 0
-      t = fid[d]; splitname(fname[t])
-      return sn_last ~ /^(replace|replaceAll|sub|subn|gsub|split|rsplit|startswith|endswith|startsWith|endsWith|strip|lstrip|rstrip|removeprefix|removesuffix|find|rfind|rindex|indexOf|lastIndexOf|includes|count|match|fullmatch|search|test|print|printf|puts|say|warn|log)$/
+    function kwframe(nm) {
+      if (lang == "py") return nm ~ /^(and|as|assert|async|await|case|class|def|del|elif|else|except|for|from|global|if|import|in|is|lambda|match|nonlocal|not|or|raise|return|type|while|with|yield)$/
+      return nm ~ /^(as|async|await|case|catch|class|const|delete|do|else|export|for|function|get|if|import|in|instanceof|let|new|of|return|set|static|super|switch|throw|typeof|var|void|while|with|yield)$/
+    }
+    function badname(nm,   x) {
+      x = nm; gsub(/[abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:$@]/, "", x)
+      if (x != "" || index(nm, "__")) return 1
+      if (lang == "py") return nm ~ /(^|[.])(globals|locals|vars|setattr|getattr|delattr|exec|eval|compile|modules|builtins|inspect|ctypes|importlib|import_module|runpy|_getframe|currentframe|f_globals|f_locals|f_back|def|lambda|class|case|global|nonlocal)([.]|$)/
+      return nm ~ /(^|[.])(globalThis|global|this|eval|Function|Reflect|vm|runInThisContext|runInNewContext|runInContext|compileFunction|Script|_compile|with|function|class|catch|arguments)([.]|$)/
+    }
+    function deflit(k,   j, e, q, v, n) {
+      n = length(s); j = k + 1
+      if (substr(s, j, 1) ~ /[=>]/) return 0
+      while (j <= n && substr(s, j, 1) ~ /[ \t]/) j++
+      q = substr(s, j, 1)
+      if ((q != q1 && q != "\"") || substr(s, j + 1, 2) == q q) return 0
+      e = index(substr(s, j + 1), q); if (!e) return 0
+      v = substr(s, j + 1, e - 1)
+      if (v == "" || index(v, "\\") || index(v, "\n")) return 0
+      j += e + 1
+      while (j <= n && substr(s, j, 1) ~ /[ \t\r]/) j++
+      if (lang == "node") { if (substr(s, j, 1) != ";") return 0 }
+      else if (j <= n && substr(s, j, 1) !~ /[;\n#]/) return 0
+      dlit = v; return 1
+    }
+    function vardef(st, k,   j) {
+      if (d != 0) return 0
+      j = st - 1; while (j >= 1 && substr(s, j, 1) ~ /[ \t\r]/) j--
+      if (lang == "node") {
+        if (j < 5 || substr(s, j - 4, 5) != "const" || substr(s, j - 5, 1) ~ /[A-Za-z0-9_$.]/) return 0
+        return deflit(k)
+      }
+      if (j >= 1 && substr(s, j, 1) == "\n") {
+        j--; while (j >= 1 && substr(s, j, 1) ~ /[ \t\r]/) j--
+        if (j >= 1 && substr(s, j, 1) == "\\") return 0
+      } else if (j >= 1 && substr(s, j, 1) != ";") return 0
+      return deflit(k)
+    }
+    function vartrack(nm, st, k, ch,   r, j, c) {
+      if (badname(nm)) nores = 1
+      r = nm; sub(/[.:].*$/, "", r)
+      if (r == "") return
+      if (r != nm) { vbad[r] = 1; return }
+      if (ch == "=" && vardef(st, k)) { vdef[nm]++; vlit[nm] = dlit; return }
+      if (d > 0 && ftype[d] == "call" && (ch == ")" || ch == ",") && !inimport(st) && !kwframe(fname[fid[d]])) {
+        j = st - 1; while (j >= 1 && substr(s, j, 1) ~ /[ \t\r\n]/) j--
+        c = substr(s, j, 1)
+        if (c == "(" || c == ",") return
+      }
+      vbad[nm] = 1
     }
     function incontent(   k, t) {
       for (k = d; k >= 1; k--) {
@@ -1570,7 +1629,8 @@ _tmb_cmd_prog_calls() {
       if (lang == "ruby" && (qc == "\"" || qc == "`") && index(v, "#{")) interp = 1
       if (lang == "node" && qc == "`" && index(v, "${")) interp = 1
       if (lang == "py" && d > 0 && fname[fid[d]] ~ /(^|[.])(__import__|import_module)$/ && v ~ /^(os|subprocess)$/) unres()
-      if (!incontent() && !indata()) { qv = v; gsub(/\n/, " ", qv); print "Q\t" qc qv qc }
+      if (interp) nores = 1
+      if (!incontent()) { qv = v; gsub(/\n/, " ", qv); print "Q\t" qc qv qc }
       tok(interp ? "E" : "L", v)
       ip = j; pc = 0
       if (qc == "`" && (lang == "perl" || lang == "ruby")) bt(v, interp)
@@ -1593,6 +1653,7 @@ _tmb_cmd_prog_calls() {
       if (lang == "py" && k == ip && (ch == q1 || ch == "\"") && nm ~ /^[rRbBuUfF][rRbBfF]?$/) { str(ch, nm); return }
       if (lang == "perl" && nm == "qx" && ch != "" && index("()[]{}<>/|!~^%+@:-\"" q1, ch)) { qlike(k); return }
       cn = (lang == "py") ? canon(nm) : nm
+      if (lang ~ /^(py|node)$/ && pfx == "") vartrack(nm, st, k, ch)
       if (lang ~ /^(py|node)$/ && !inimport(st) && procref(canon(nm)) && !(ch == "(" && isproc(canon(nm)))) unres()
       if ((lang == "py" && ch == "(" && nm ~ /^(builtins[.])?(exec|eval)$/) || (lang == "node" && ((nm == "eval" && ch == "(") || nm == "Function")) || (lang == "perl" && nm == "eval" && ch != "{") || (lang == "ruby" && nm == "eval")) unres()
       if ((lang == "py" && cn ~ /^os[.]f?chdir$/) || (lang == "node" && nm == "process.chdir") || (lang == "perl" && nm == "chdir") || (lang == "ruby" && nm ~ /^(Dir[.]chdir|FileUtils[.](cd|chdir))$/)) print "C"
@@ -1618,12 +1679,15 @@ _tmb_cmd_prog_calls() {
         else if (lang == "py" && cn ~ /^(os[.](environ|P_[A-Z]+)|subprocess[.](PIPE|STDOUT|DEVNULL))$/) satom("K", cn)
         else spbad = 1
       }
-      tok("E", "")
+      tokvar = (lang ~ /^(py|node)$/ && pfx == "" && nm ~ /^[A-Za-z_$][A-Za-z0-9_$]*$/) ? nm : ""
+      tok("E", ""); tokvar = ""
     }
     { s = s (NR > 1 ? "\n" : "") $0 }
     END {
       q1 = sprintf("%c", 39); n = length(s); ip = 1; d = 0; pc = 0; anom = 0
-      spx = 0; nimp = 0
+      spx = 0; nimp = 0; npend = 0; tokvar = ""
+      asc = "\t\n\r"; for (j = 32; j < 127; j++) asc = asc sprintf("%c", j)
+      nores = (lang == "py" && s ~ /coding[:=]/) || (lang == "node" && (index(s, "=>") || s ~ /[)][ \t\r\n]*[{]/))
       procos = "^(system|popen|exec[lv]p?e?|spawn[lv]p?e?|posix_spawnp?)$"
       prescan()
       while (ip <= n && !anom) {
@@ -1633,7 +1697,7 @@ _tmb_cmd_prog_calls() {
           if (lang == "ruby" && d > 0 && ftype[d] == "pseudo" && (atok[fid[d]] > 0 || aoth[fid[d]])) endpseudo()
           ip++; continue
         }
-        if (c == "\\") { ip += 2; continue }
+        if (c == "\\") { if (lang == "node") nores = 1; ip += 2; continue }
         if ((c == "#" && (lang == "py" || ((lang == "perl" || lang == "ruby") && (ip == 1 || substr(s, ip - 1, 1) !~ /[A-Za-z0-9_$@.#\/{(]/)))) || (lang == "node" && substr(s, ip, 2) == "//")) {
           j = index(substr(s, ip), "\n"); if (!j) break
           ip += j - 1; continue
@@ -1685,10 +1749,15 @@ _tmb_cmd_prog_calls() {
           if (spx && role[d] != "ign") spbad = 1
           continue
         }
+        if (!index(asc, c)) nores = 1
         if (spx && role[d] != "ign") spbad = 1
         oth(); pc = 0; ip++
       }
       if (!anom) endpseudo()
+      for (j = 1; j <= npend; j++) {
+        v = pend[j]
+        if (!anom && !nores && vdef[v] == 1 && !(v in vbad)) print "T\t" vlit[v]; else print "F"
+      }
       if (anom || d > 0) print "A"
     }
   '

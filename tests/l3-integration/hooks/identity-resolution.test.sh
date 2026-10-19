@@ -249,6 +249,24 @@ OUT=$(hook "$CONTAIN" "$A_PROJ" "$A_DB" "$A_PROJ" "$(payload swe "$(transcript 1
 assert_eq "deny" "$(decision "$OUT")" "echo x > /outside/f is a write target"
 assert_contains "$(reason "$OUT")" "/outside/f" "the reason names /outside/f"
 
+test_case "a path routed through a text call is still a write target"
+# containment denies a write outside the worktree; swe-boundary judges Bash
+# writes by the prompt surface (rule e), so its target is the worktree's CLAUDE.md.
+for H in "$BOUNDARY" "$CONTAIN"; do
+  name=$(basename "$H" .sh)
+  if [ "$H" = "$BOUNDARY" ]; then T="$WT_A/CLAUDE.md"; else T="$SB/outside-1550/evil"; fi
+  for CMD in \
+    "python3 -c \"p='x'.replace('x','$T'); open(p,'w').write('1')\"" \
+    "$(printf '%s\n' "python3 - <<'PY'" "p='x'.replace('x','$T'); open(p,'w').write('1')" "PY")" \
+    "python3 -c \"open('x'.replace('x','$T'),'w')\"" \
+    "node -e \"const p='x'.replace('x','$T'); require('fs').writeFileSync(p,'1')\""; do
+    OUT=$(hook "$H" "$A_PROJ" "$A_DB" "$WT_A" "$(payload swe "$(transcript 1)" "$WT_A" Bash "$(bash_cmd "$CMD")")")
+    assert_eq "deny" "$(decision "$OUT")" "$name: ${CMD%%$'\n'*}"
+  done
+  OUT=$(hook "$H" "$A_PROJ" "$A_DB" "$WT_A" "$(payload swe "$(transcript 1)" "$WT_A" Bash "$(bash_cmd "$PROG")")")
+  assert_eq "allow" "$(decision "$OUT")" "$name: the /user/own heredoc stays allowed"
+done
+
 test_case "scan.sh from a session dir under .claude/worktrees/<n> finds the repo"
 mkdir -p "$SB/stub-bin"
 printf '#!/usr/bin/env bash\necho "[]"\n' > "$SB/stub-bin/claude"

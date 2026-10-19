@@ -199,7 +199,7 @@ if [ -z "$VERIFICATION_BLOCK" ]; then
   exit 0
 fi
 
-# Extract the SLUG from branch_id (last path component) to locate worktree.
+# Extract the SLUG from branch_id (minus its first <type>/) to locate worktree.
 SLUG=$(tmb_branch_slug "$BRANCH_ID")
 
 # Resolve the worktree base from the TASK'S REPO, not the workspace root.

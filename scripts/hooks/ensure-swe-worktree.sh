@@ -62,7 +62,7 @@ if [ -z "$BRANCH" ]; then
   exit 0
 fi
 
-# slug = branch's last path component (fix/foo-bar → foo-bar).
+# slug = the branch minus its first <type>/ (fix/foo-bar → foo-bar).
 SLUG=$(tmb_branch_slug "$BRANCH")
 
 # Resolve the repo root via the path-keyed model:
