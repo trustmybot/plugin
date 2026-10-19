@@ -95,6 +95,7 @@ _l1_saved_path="$PATH"
 export PATH="$_stub_dir:$PATH" TMB_L1_OFFLINE=1
 
 run_step "L1 lint: agent template line budget"        bash "$HERE/l1-lint/agent-line-budget.sh"
+run_step "L1 lint: agent frontmatter declares experimental.cacheTtl"  bash "$HERE/l1-lint/agent-cache-ttl.sh"
 run_step "L1 lint: agent template byte-identity (swe + pr-reviewer)"  bash "$HERE/l1-lint/agent-template-byte-identity.sh"
 run_step "L1 lint: local agent overrides retain workflow primitives"   bash "$HERE/l1-lint/local-agent-primitives.sh"
 run_step "L1 lint: shipped swe/pr-reviewer task_brief contract (#300)"  bash "$HERE/l1-lint/agent-task-brief-contract.sh"
