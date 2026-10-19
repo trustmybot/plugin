@@ -56,7 +56,7 @@ Call `onboard_get_questions(agent='bro', round='headless')` and feed the returne
 
 ### Round 5 — Bash sandbox
 
-Call `onboard_get_questions(agent='bro', round='sandbox')` and feed the returned question into `AskUserQuestion`. Store the answer as `sandbox_enforcement` (default `no`). `yes` writes a Claude Code sandbox block into `<project>/.claude/settings.local.json` that lets Bash write only in this project and the model cache.
+Call `onboard_get_questions(agent='bro', round='sandbox')` and feed the returned question into `AskUserQuestion`. Store the answer as `sandbox_enforcement` (default `no`). `yes` writes a Claude Code sandbox block into `<project>/.claude/settings.local.json` that keeps Bash writes in this project and the model cache, and gives Bash a network allow-list of the hosts TMB needs plus the host of each of the repo's HTTPS remotes.
 
 ## 3. Apply (transactional)
 
