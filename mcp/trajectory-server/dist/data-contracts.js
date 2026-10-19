@@ -86,6 +86,16 @@ const FIXTURE_INVENTORY_ROW = (alias) => `${alias}.kind IN ('plugin','mcp')
                AND (${alias}.name IN ('alpha','beta','alpha-server')
                     OR ${alias}.name GLOB 'fixture-*' OR ${alias}.name GLOB 'test-plugin*'
                     OR COALESCE(${alias}.source_url, '') LIKE '%@tmb-test-market')`;
+// The server stamps root_dir and session_id when it opens a run, and the model
+// is metered from the run's window; rows opened before those writers shipped
+// (v1.1.0-rc.1) carry NULLs a later legacy claim cannot fill: batch siblings
+// that owned no message keep a NULL model. plugin_meta keeps no applied-at
+// timestamp, so the first run carrying a root_dir stands in for that date.
+const V33_RUN_WRITERS_SINCE = {
+    sql: `(SELECT MIN(${ts('started_at')}) FROM agent_runs WHERE root_dir IS NOT NULL)`,
+    label: 'the first run carrying a root_dir',
+    min_schema: 33,
+};
 /** Columns added in v29–v33 that stay NULL by design; they get no contract. */
 export const NULLABLE_COLUMNS = [
     { table: 'discussions', column: 'remote_comment_id', reason: 'set only on discussions ingested from a PR/MR comment; NULL for every local discussion' },
@@ -96,11 +106,11 @@ export const NULLABLE_COLUMNS = [
  * in the last 30 days (within `scope`) must stay at or under `floor`.
  */
 const POPULATED_COLUMNS = [
-    { table: 'agent_runs', column: 'session_id', created_column: 'started_at', floor: 0.2, min_schema: 30 },
+    { table: 'agent_runs', column: 'session_id', created_column: 'started_at', writer_since: V33_RUN_WRITERS_SINCE, floor: 0.2, min_schema: 30 },
     { table: 'agent_runs', column: 'usage_source', created_column: 'started_at', scope: 'completed_at IS NOT NULL', scope_label: 'completed rows', floor: 0.05, min_schema: 30 },
-    { table: 'agent_runs', column: 'model', created_column: 'started_at', scope: "usage_source IN ('transcript','subagent_stop','backfill')", scope_label: 'measured rows', floor: 0.1, min_schema: 33 },
+    { table: 'agent_runs', column: 'model', created_column: 'started_at', scope: "usage_source IN ('transcript','subagent_stop','backfill')", scope_label: 'measured rows', writer_since: V33_RUN_WRITERS_SINCE, floor: 0.1, min_schema: 33 },
     { table: 'agent_runs', column: 'host', created_column: 'started_at', floor: 0, min_schema: 33 },
-    { table: 'agent_runs', column: 'root_dir', created_column: 'started_at', floor: 0.05, min_schema: 33 },
+    { table: 'agent_runs', column: 'root_dir', created_column: 'started_at', writer_since: V33_RUN_WRITERS_SINCE, floor: 0.05, min_schema: 33 },
     { table: 'agent_runs', column: 'exit_reason', created_column: 'started_at', scope: 'completed_at IS NOT NULL', scope_label: 'completed rows', floor: 0.05, min_schema: 33 },
     { table: 'tasks', column: 'prompt_bearing', created_column: 'created_at', floor: 0, min_schema: 0 },
     // The v37 migration keeps no applied-at timestamp, so the first run carrying
@@ -117,15 +127,21 @@ const POPULATED_COLUMNS = [
     },
 ];
 function populatedContract(c) {
-    const where = [`${ts(c.created_column)} >= ${daysAgo(30)}`, ...(c.scope ? [c.scope] : [])].join(' AND ');
+    const where = [
+        `${ts(c.created_column)} >= ${daysAgo(30)}`,
+        ...(c.writer_since ? [`${ts(c.created_column)} >= ${c.writer_since.sql}`] : []),
+        ...(c.scope ? [c.scope] : []),
+    ].join(' AND ');
+    const since = c.writer_since ? ` and not before ${c.writer_since.label}` : '';
+    const minSchema = Math.max(c.min_schema, c.writer_since?.min_schema ?? 0);
     return {
         id: `populated_${c.table}_${c.column}`,
         severity: 'warn',
-        description: `${c.table}.${c.column} NULL rate over ${c.scope_label ?? 'rows'} created in the last 30 days stays at or under ${c.floor}`,
+        description: `${c.table}.${c.column} NULL rate over ${c.scope_label ?? 'rows'} created in the last 30 days${since} stays at or under ${c.floor}`,
         sql: `SELECT COALESCE(AVG(CASE WHEN ${c.column} IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM ${c.table} WHERE ${where}`,
         expect: { op: '<=', value: c.floor },
         sample_sql: `SELECT id FROM ${c.table} WHERE ${where} AND ${c.column} IS NULL ORDER BY id DESC LIMIT 5`,
-        ...(c.min_schema > 0 ? { min_schema: c.min_schema } : {}),
+        ...(minSchema > 0 ? { min_schema: minSchema } : {}),
     };
 }
 function eventTypeList(types) {
