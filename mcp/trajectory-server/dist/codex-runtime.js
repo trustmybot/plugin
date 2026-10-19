@@ -6,7 +6,6 @@ import { TrajectoryDB } from './db.js';
 import { GraphHolder, WorldModelGraph } from './graph-db.js';
 import { createProjectLogger } from './logger.js';
 import { createCodexRuntimeContext, assertSafeProjectWritePath, UnsafeProjectWritePathError, } from './platform.js';
-const GIT_TIMEOUT_MS = 5_000;
 const GIT_MAX_BUFFER_BYTES = 64 * 1024;
 export class CodexRuntimeError extends Error {
     code;
@@ -276,7 +275,6 @@ const runGit = (cwd, args) => {
         ], {
             encoding: 'utf8',
             env,
-            timeout: GIT_TIMEOUT_MS,
             maxBuffer: GIT_MAX_BUFFER_BYTES,
         }, (error, stdout) => {
             resolve({

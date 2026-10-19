@@ -492,6 +492,41 @@ describe('Codex runtime manager', () => {
     }
   });
 
+  it('waits for a slow Git validation instead of reporting a false verdict (GH 1523)', { timeout: 60_000 }, async () => {
+    const project = gitProject();
+    const shimDir = mkdtempSync(join(tmpdir(), 'tmb-codex-slow-git-'));
+    cleanup.push(shimDir);
+    const stallBeyondFormerCeilingSeconds = 6;
+    const stall = join(shimDir, 'stall');
+    const stalled = join(shimDir, 'stalled');
+    writeFileSync(
+      join(shimDir, 'git'),
+      [
+        '#!/bin/bash',
+        `if [ -e "${stall}" ] && [[ " $* " == *" ls-files -z -- .tmb "* ]]; then`,
+        `  rm -f "${stall}"; touch "${stalled}"; sleep ${stallBeyondFormerCeilingSeconds}`,
+        'fi',
+        `PATH="\${PATH#"${shimDir}":}" exec git "$@"`,
+        '',
+      ].join('\n'),
+    );
+    chmodSync(join(shimDir, 'git'), 0o755);
+    const priorPath = process.env['PATH'];
+    process.env['PATH'] = `${shimDir}:${priorPath ?? ''}`;
+    const runtimeManager = manager();
+    try {
+      assert.equal((await runtimeManager.initialize(project)).status, 'created');
+      writeFileSync(stall, '');
+      const reached = await runtimeManager.withRuntime(project, () => 'reached');
+      assert.equal(existsSync(stalled), true);
+      assert.equal(reached, 'reached');
+    } finally {
+      if (priorPath === undefined) delete process.env['PATH'];
+      else process.env['PATH'] = priorPath;
+      runtimeManager.close();
+    }
+  });
+
   it('fails closed on unsafe state replacement and remains retryable', async () => {
     const project = gitProject();
     const outside = mkdtempSync(join(tmpdir(), 'tmb-codex-outside-'));
@@ -1468,6 +1503,11 @@ describe('Codex tool surface', () => {
       const inventory = await registry.call('project_inventory', {
         project_root: project,
       });
+      assert.notEqual(
+        inventory.isError,
+        true,
+        `project_inventory failed: ${JSON.stringify(toolPayload(inventory)['error'])}`,
+      );
       const inventoryData = toolPayload(inventory)['data'] as {
         repos: Array<{ path: string }>;
       };

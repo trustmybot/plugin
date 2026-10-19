@@ -13,7 +13,6 @@ import {
   type CodexRuntimeContext,
 } from './platform.js';
 
-const GIT_TIMEOUT_MS = 5_000;
 const GIT_MAX_BUFFER_BYTES = 64 * 1024;
 
 export type RuntimeInitializeStatus = 'created' | 'reused';
@@ -445,7 +444,6 @@ const runGit: CodexGitRunner = (
       {
         encoding: 'utf8',
         env,
-        timeout: GIT_TIMEOUT_MS,
         maxBuffer: GIT_MAX_BUFFER_BYTES,
       },
       (error, stdout) => {

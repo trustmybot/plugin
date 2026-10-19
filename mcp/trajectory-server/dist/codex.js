@@ -24758,7 +24758,6 @@ var GraphHolder = class _GraphHolder {
 };
 
 // src/codex-runtime.ts
-var GIT_TIMEOUT_MS = 5e3;
 var GIT_MAX_BUFFER_BYTES = 64 * 1024;
 var CodexRuntimeError = class extends Error {
   constructor(code, message2) {
@@ -25061,7 +25060,6 @@ var runGit = (cwd, args) => {
       {
         encoding: "utf8",
         env,
-        timeout: GIT_TIMEOUT_MS,
         maxBuffer: GIT_MAX_BUFFER_BYTES
       },
       (error2, stdout) => {
