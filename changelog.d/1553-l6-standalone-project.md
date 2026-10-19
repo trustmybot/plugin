@@ -1,2 +1,0 @@
-### Fixed
-- **L5/L6 scratch projects use their own trajectory DB in a local checkout** (GH 1553): a scratch project created under a TMB workspace's `.claude/tmb/l6-chain-runs/` was resolved by the hooks to the workspace's live DB, so hook hints read the wrong DB and could write to it. Every L5/L6 scratch project now writes a `standalone` marker into its state dir, and `run-l6-chain.sh --self-test` checks the nested resolution.

@@ -1,2 +1,0 @@
-### Fixed
-- **L5/L6 test prompts no longer hide the reonboard hint** (GH 1553): the `[TEST MODE]` preamble named the `/onboard` command, and the reonboard-intent hint deliberately stays quiet when a prompt mentions it, so every composed test prompt suppressed the hint and the L6 reonboard step failed. The preamble now describes the onboard flow without that token, keeps the `sandbox_enforcement: 'no'` pin, and a regression test runs the real hook on a composed prompt.
