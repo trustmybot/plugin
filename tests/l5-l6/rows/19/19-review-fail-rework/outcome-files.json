@@ -1,0 +1,6 @@
+{
+  "files": [
+    { "path": ".git/worktrees/add-count-subcommand/l5-seeded", "must_exist": true },
+    { "path": ".claude/worktrees/add-count-subcommand/src/cli.py", "must_exist": true }
+  ]
+}

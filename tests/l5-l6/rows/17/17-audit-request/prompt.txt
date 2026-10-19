@@ -1,0 +1,3 @@
+@bro audit the todo store: double-check that every item written by "add" can be read back by "list".
+
+Don't ask questions.
