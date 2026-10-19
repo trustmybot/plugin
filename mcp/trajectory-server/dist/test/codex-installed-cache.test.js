@@ -76,6 +76,8 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
         assert.deepEqual(installedSkillEntries, ['tmb-agent-setup', 'tmb-bro']);
         assert.match(readFileSync(join(cacheAdapter, 'skills', 'tmb-bro', 'agents', 'openai.yaml'), 'utf8'), /allow_implicit_invocation: false/);
         assert.match(readFileSync(join(cacheAdapter, 'skills', 'tmb-agent-setup', 'agents', 'openai.yaml'), 'utf8'), /allow_implicit_invocation: false/);
+        const scanPluginJson = join(fixture, 'claude-plugin-list.json');
+        writeFileSync(scanPluginJson, '[]');
         const transport = new StdioClientTransport({
             command: configured.command,
             args: configured.args,
@@ -86,6 +88,8 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
                 CLAUDE_PLUGIN_ROOT: sourceRoot,
                 TRAJECTORY_DB_PATH: join(cacheRoot, 'must-not-be-used.db'),
                 NODE_PATH: '',
+                TMB_FORBID_LIVE_SYNC: '1',
+                TMB_SCAN_PLUGIN_JSON: scanPluginJson,
             },
             stderr: 'pipe',
         });

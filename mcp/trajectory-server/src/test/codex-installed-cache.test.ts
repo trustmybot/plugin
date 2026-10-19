@@ -133,6 +133,8 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
       ),
       /allow_implicit_invocation: false/,
     );
+    const scanPluginJson = join(fixture, 'claude-plugin-list.json');
+    writeFileSync(scanPluginJson, '[]');
     const transport = new StdioClientTransport({
       command: configured.command,
       args: configured.args,
@@ -143,6 +145,8 @@ it('cold-boots from an installed-cache copy without source node_modules', async 
         CLAUDE_PLUGIN_ROOT: sourceRoot,
         TRAJECTORY_DB_PATH: join(cacheRoot, 'must-not-be-used.db'),
         NODE_PATH: '',
+        TMB_FORBID_LIVE_SYNC: '1',
+        TMB_SCAN_PLUGIN_JSON: scanPluginJson,
       },
       stderr: 'pipe',
     });

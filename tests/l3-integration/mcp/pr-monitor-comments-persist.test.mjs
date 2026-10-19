@@ -1,14 +1,16 @@
 // pr_monitor_comments_get persists fetched PR comments server-side as
 // discussions keyed by remote_comment_id, over the real JSON-RPC wire. `gh` is a
 // stub script first on a PATH that holds no real gh, so nothing reaches the
-// network; the server's live-CLI guard is lifted only for this stub.
+// network; the server's live-CLI guard is lifted only for this stub. The DB
+// holds one repo with a github remote, so the tool resolves its `-R` slug from
+// that row (it never falls back to the cwd remote).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { startClient, call } from './harness.mjs';
+import { startClient, call, sqliteRun } from './harness.mjs';
 
 const BRANCH = 'fix/pr-comments-l3';
 
@@ -35,11 +37,13 @@ test('pr_monitor_comments_get persists comments once and dedupes re-fetches (moc
   delete env.TMB_FORBID_LIVE_SYNC;
   delete env.TMB_DISABLE_REMOTE_SYNC;
 
-  const { client, close } = await startClient({ env });
+  const { client, close, dbPath } = await startClient({ env, fileDb: true });
   t.after(async () => {
     await close();
     rmSync(stubDir, { recursive: true, force: true });
   });
+  sqliteRun(dbPath, `INSERT INTO repos (name, path) VALUES ('repo', '${path.join(stubDir, 'repo')}');
+    INSERT INTO repo_remotes (repo, name, provider, url, is_primary) VALUES ('repo', 'origin', 'github', 'https://github.com/owner/repo.git', 1);`);
 
   const issue = await call(client, 'issue_create', {
     agent: 'bro',
@@ -71,14 +75,18 @@ test('pr_monitor_comments_get persists comments once and dedupes re-fetches (moc
   assert.equal(first.data.comments.length, 2);
   assert.equal(first.data.persisted, 2, 'both comments persisted on the first fetch');
   assert.equal(first.data.duplicates, 0);
+  assert.match(readFileSync(ghLog, 'utf8'), /^pr view -R github\.com\/owner\/repo 41 /m, 'gh got the slug from the seeded repo_remotes row');
 
-  const second = await call(client, 'pr_monitor_comments_get', { agent: 'bro', pr_number: 41 });
+  // The resolved slug keys a cursor whose last_fetched_at would filter out these
+  // 2024 fixture comments; an explicit since re-reads them so dedupe is exercised.
+  const refetch = { agent: 'bro', pr_number: 41, since: '2024-01-01T00:00:00Z' };
+  const second = await call(client, 'pr_monitor_comments_get', refetch);
   assert.equal(second.ok, true, `second fetch: ${JSON.stringify(second)}`);
   assert.equal(second.data.persisted, 0, 're-fetch of the same comments inserts nothing');
   assert.equal(second.data.duplicates, 2);
 
   writeFileSync(fixture, prPayload([C1, C2, { id: 'IC_3', author: { login: 'carol' }, body: 'One more nit.', createdAt: '2024-01-15T12:00:00Z' }]));
-  const third = await call(client, 'pr_monitor_comments_get', { agent: 'bro', pr_number: 41 });
+  const third = await call(client, 'pr_monitor_comments_get', refetch);
   assert.equal(third.ok, true, `third fetch: ${JSON.stringify(third)}`);
   assert.equal(third.data.persisted, 1, 'only the new comment is persisted');
   assert.equal(third.data.duplicates, 2);
