@@ -20,8 +20,6 @@ bash tests/l5-l6/run-l6-chain.sh           # full cumulative chain
 | [`fixtures/`](./fixtures/) | SQL fixtures (`empty`, `onboarding-named`, `onboarding-anonymous`) that pre-seed the world-model-cold gate |
 | [`inspect-trajectory.sh`](./inspect-trajectory.sh) | Helper to inspect a run's trajectory DB |
 
-After seeding, `run-l5.sh` calls `l5_write_persona_block` (in [`lib/flow-helpers.sh`](./lib/flow-helpers.sh)) for fixtures whose DB says `onboarded=true`, writing the tmb persona block into the scratch project's `CLAUDE.md` the way `onboard_apply` does; the `empty` fixture stays without one. `lib/flow-helpers.test.sh` covers the helper.
-
 ## When a row fails
 
 - **Fix at the trigger.** When a row flips, localize what triggers it (fixture text, seeded DB state, deny-message text, the row's own prompt) and fix there; a `prompt.txt` change needs Human approval. Never tune the shared TEST MODE preamble for one row: it reaches every row. A deny remedy an agent runs verbatim must be correct for the repo it names.

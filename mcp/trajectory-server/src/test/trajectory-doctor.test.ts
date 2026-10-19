@@ -87,6 +87,7 @@ interface RunOpts {
   rootDir?: string | null;
   exitReason?: string | null;
   effort?: string | null;
+  startedAt?: string;
 }
 
 function seedRun(db: TrajectoryDB, o: RunOpts = {}): void {
@@ -103,7 +104,7 @@ function seedRun(db: TrajectoryDB, o: RunOpts = {}): void {
       tokens,
       tokens,
       tokens,
-      iso(-HOUR),
+      o.startedAt ?? iso(-HOUR),
       completedAt,
       o.sessionId === undefined ? 'sess' : o.sessionId,
       o.usageSource === undefined ? (completedAt ? 'subagent_stop' : null) : o.usageSource,
@@ -114,6 +115,13 @@ function seedRun(db: TrajectoryDB, o: RunOpts = {}): void {
       o.effort === undefined ? 'medium' : o.effort,
     ],
   );
+}
+
+// Runs opened before the first run carrying a root_dir: no writer stamped them.
+function seedLegacyRuns(db: TrajectoryDB): void {
+  for (let i = 0; i < 5; i++) {
+    seedRun(db, { startedAt: iso(-2 * DAY), sessionId: null, model: null, rootDir: null, usageSource: 'transcript', agentType: 'bro' });
+  }
 }
 
 // One violating and one passing fixture per contract id.
@@ -263,6 +271,7 @@ const FIXTURES: Record<string, { violate?: (db: TrajectoryDB) => void; pass: (db
   populated_agent_runs_session_id: {
     violate: (db) => seedRun(db, { sessionId: null }),
     pass: (db) => {
+      seedLegacyRuns(db);
       for (let i = 0; i < 9; i++) seedRun(db);
       seedRun(db, { sessionId: null });
     },
@@ -277,6 +286,7 @@ const FIXTURES: Record<string, { violate?: (db: TrajectoryDB) => void; pass: (db
   populated_agent_runs_model: {
     violate: (db) => seedRun(db, { model: null }),
     pass: (db) => {
+      seedLegacyRuns(db);
       seedRun(db);
       seedRun(db, { model: null, usageSource: 'unmeasured', tokens: null });
     },
@@ -286,8 +296,14 @@ const FIXTURES: Record<string, { violate?: (db: TrajectoryDB) => void; pass: (db
     pass: (db) => seedRun(db),
   },
   populated_agent_runs_root_dir: {
-    violate: (db) => seedRun(db, { rootDir: null }),
-    pass: (db) => seedRun(db),
+    violate: (db) => {
+      seedRun(db);
+      seedRun(db, { rootDir: null });
+    },
+    pass: (db) => {
+      seedLegacyRuns(db);
+      seedRun(db);
+    },
   },
   populated_agent_runs_exit_reason: {
     violate: (db) => seedRun(db, { exitReason: null }),
@@ -547,6 +563,22 @@ describe('data contracts', () => {
     assert.equal(runDataContracts(throwing, [contract('scan_fresh')], { env: {} }).healthy, true);
   });
 
+  for (const [column, nulled] of [
+    ['session_id', { sessionId: null }],
+    ['model', { model: null }],
+    ['root_dir', { rootDir: null }],
+  ] as const) {
+    it(`populated_agent_runs_${column} skips runs before the first run carrying a root_dir and still counts a NULL after it`, () => {
+      const db = tempDB();
+      seedLegacyRuns(db);
+      seedRun(db, { startedAt: iso(-DAY) });
+      assert.equal(violated(db, `populated_agent_runs_${column}`), false, 'legacy NULLs before the cutoff do not count');
+      seedRun(db, nulled);
+      assert.equal(violated(db, `populated_agent_runs_${column}`), true, `a post-cutoff run with a NULL ${column} trips the contract`);
+      db.close();
+    });
+  }
+
   it('declares the nullable v29–v33 columns with a reason and gives them no contract', () => {
     const ids = new Set(DATA_CONTRACTS.map((c) => c.id));
     assert.ok(NULLABLE_COLUMNS.some((n) => n.table === 'discussions' && n.column === 'remote_comment_id'));
@@ -690,84 +722,6 @@ describe('single_tmb_plugin_enabled', () => {
       assert.deepEqual(report.violations, []);
     } finally {
       rmSync(dir, { recursive: true, force: true });
-    }
-  });
-});
-
-describe('persona_block_current', () => {
-  const fileContract = DATA_CONTRACTS.find((c) => c.id === 'persona_block_current')!;
-  const block = (v: string) => `<!-- tmb:persona start v${v} -->\n# bro\n<!-- tmb:persona end -->`;
-
-  function fixture(projectClaudeMd: string | null): { env: NodeJS.ProcessEnv; dir: string; project: string; plugin: string } {
-    const dir = mkdtempSync(join(tmpdir(), 'tmb-persona-'));
-    const plugin = join(dir, 'plugin');
-    const project = join(dir, 'project');
-    mkdirSync(join(plugin, '.claude-plugin'), { recursive: true });
-    mkdirSync(project);
-    writeFileSync(join(plugin, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'tmb', version: '1.0.3' }));
-    writeFileSync(join(plugin, 'CLAUDE.md'), '# bro\n');
-    if (projectClaudeMd !== null) writeFileSync(join(project, 'CLAUDE.md'), projectClaudeMd);
-    return { env: { CLAUDE_PROJECT_DIR: project, CLAUDE_PLUGIN_ROOT: plugin }, dir, project, plugin };
-  }
-
-  function run(env: NodeJS.ProcessEnv) {
-    return runDataContracts(trajectoryDbReader(tempDB()), [fileContract], { env });
-  }
-
-  it('is a warn-severity file contract', () => {
-    assert.equal(fileContract.severity, 'warn');
-    assert.equal(fileContract.source, 'files');
-  });
-
-  it('a current block holds', () => {
-    const fx = fixture(`# Mine\n\n${block('1.0.3')}\n`);
-    try {
-      const report = run(fx.env);
-      assert.deepEqual(report.violations, []);
-      assert.deepEqual(report.skipped, []);
-    } finally {
-      rmSync(fx.dir, { recursive: true, force: true });
-    }
-  });
-
-  it('a stale block is a violation naming both versions', () => {
-    const fx = fixture(`${block('1.0.2')}\n`);
-    try {
-      const v = run(fx.env).violations[0]!;
-      assert.equal(v.id, 'persona_block_current');
-      assert.equal(v.actual, 1);
-      assert.deepEqual(v.sample, [{ path: join(fx.project, 'CLAUDE.md'), block_version: '1.0.2', plugin_version: '1.0.3' }]);
-    } finally {
-      rmSync(fx.dir, { recursive: true, force: true });
-    }
-  });
-
-  it('no CLAUDE.md, or one without a block, is a violation', () => {
-    for (const md of [null, '# Mine\n']) {
-      const fx = fixture(md);
-      try {
-        const v = run(fx.env).violations[0]!;
-        assert.equal(v.id, 'persona_block_current');
-        assert.equal(v.sample[0]!['block_version'], null);
-      } finally {
-        rmSync(fx.dir, { recursive: true, force: true });
-      }
-    }
-  });
-
-  it('is skipped with a reason when CLAUDE_PROJECT_DIR is unset', () => {
-    assert.deepEqual(run({}).skipped, [{ id: 'persona_block_current', reason: 'CLAUDE_PROJECT_DIR is unset' }]);
-  });
-
-  it('is skipped with a reason when the project root is the plugin root', () => {
-    const fx = fixture(null);
-    try {
-      const report = run({ CLAUDE_PROJECT_DIR: fx.plugin, CLAUDE_PLUGIN_ROOT: fx.plugin });
-      assert.deepEqual(report.violations, []);
-      assert.equal(report.skipped[0]!.id, 'persona_block_current');
-      assert.match(report.skipped[0]!.reason, /plugin root/);
-    } finally {
-      rmSync(fx.dir, { recursive: true, force: true });
     }
   });
 });

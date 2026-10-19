@@ -1,11 +1,16 @@
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { tempDB } from './helpers.js';
 import type { TrajectoryDB } from '../db.js';
-import { reconcileCheatcodes, type RuntimeEvidence } from '../tools/cheatcode-reconcile.js';
+import {
+  probeChildEnv,
+  reconcileAtStartup,
+  reconcileCheatcodes,
+  type RuntimeEvidence,
+} from '../tools/cheatcode-reconcile.js';
 
 const NOW = '2026-10-18T12:00:00.000Z';
 
@@ -183,5 +188,56 @@ describe('reconcileCheatcodes', () => {
     assert.throws(() =>
       reconcileCheatcodes(db, evidence({ plugins: plugins({}) }), { fromNode: 'x', writer: 'hook', now: NOW, pluginRoot: root }),
     );
+  });
+});
+
+describe('probeChildEnv', () => {
+  it('disables the healthcheck in any server the probe starts and preserves the parent env', () => {
+    const env = probeChildEnv();
+    assert.equal(env['TMB_DISABLE_CHEATCODE_HEALTHCHECK'], '1');
+    assert.equal(env['PATH'], process.env['PATH']);
+    for (const key of Object.keys(process.env)) {
+      if (key !== 'TMB_DISABLE_CHEATCODE_HEALTHCHECK') assert.equal(env[key], process.env[key], key);
+    }
+  });
+});
+
+describe('reconcileAtStartup', () => {
+  const saved = { flag: process.env['TMB_DISABLE_CHEATCODE_HEALTHCHECK'], path: process.env['PATH'] };
+
+  afterEach(() => {
+    for (const [key, value] of [
+      ['TMB_DISABLE_CHEATCODE_HEALTHCHECK', saved.flag],
+      ['PATH', saved.path],
+    ] as const) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  it('makes no probe and no DB change when TMB_DISABLE_CHEATCODE_HEALTHCHECK=1', async () => {
+    const db = tempDB();
+    db.run('DELETE FROM cheatcodes');
+    const root = mkdtempSync(join(tmpdir(), 'reconcile-startup-'));
+    const res = db.run(
+      `INSERT INTO cheatcodes (name, kind, origin, description, source_url, file_path, scope, status, installed_at, created_at, updated_at)
+       VALUES ('gone', 'skill', 'external', '', 'fixture:gone', ?, 'project-local', 'active', 'then', 'then', 'then')`,
+      [join(root, 'missing', 'SKILL.md')],
+    );
+    const id = Number(res.lastInsertRowid);
+    const bin = join(root, 'bin');
+    mkdirSync(bin);
+    const marker = join(root, 'claude-invoked');
+    writeFileSync(join(bin, 'claude'), `#!/bin/sh\ntouch '${marker}'\n`);
+    chmodSync(join(bin, 'claude'), 0o755);
+    process.env['PATH'] = `${bin}:${saved.path ?? ''}`;
+    process.env['TMB_DISABLE_CHEATCODE_HEALTHCHECK'] = '1';
+
+    await reconcileAtStartup(db);
+
+    assert.equal(existsSync(marker), false);
+    const row = db.get<{ status: string; updated_at: string }>('SELECT status, updated_at FROM cheatcodes WHERE id = ?', [id])!;
+    assert.deepEqual({ ...row }, { status: 'active', updated_at: 'then' });
+    assert.equal(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM audit WHERE event_type = 'cheatcode_healthcheck'`)!.n, 0);
   });
 });

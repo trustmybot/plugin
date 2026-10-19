@@ -18,10 +18,6 @@
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { STALE_RUNNING_HOURS_DEFAULT, reviewSkipAuthoredSql } from './tools/lifecycle.js';
 import { enabledPluginCopies } from './utils/plugin-installs.js';
-import { isPluginRoot, readPersonaSource, resolvePluginRoot } from './tools/onboard-persona.js';
-import { personaBlockVersion } from './persona-block.js';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 export type ContractSeverity = 'error' | 'warn';
 export type ContractOp = '=' | '<=' | '>=';
@@ -79,25 +75,6 @@ export function singleTmbPluginEnabled(env: NodeJS.ProcessEnv): FileCheckResult 
   return { actual: result.copies.length, sample: result.copies.map((c) => ({ ...c })) };
 }
 
-export function personaBlockCurrent(env: NodeJS.ProcessEnv): FileCheckResult {
-  const projectDir = env['CLAUDE_PROJECT_DIR'];
-  if (!projectDir) return { skipped: 'CLAUDE_PROJECT_DIR is unset' };
-  const pluginRoot = resolvePluginRoot(env);
-  if (!pluginRoot) return { skipped: 'plugin root not resolved' };
-  if (isPluginRoot(projectDir, pluginRoot)) return { skipped: 'project root is the plugin root (its CLAUDE.md is the persona source)' };
-  const source = readPersonaSource(pluginRoot);
-  if ('reason' in source) return { skipped: source.reason };
-  const path = join(projectDir, 'CLAUDE.md');
-  let blockVersion: string | null;
-  try {
-    blockVersion = existsSync(path) ? personaBlockVersion(readFileSync(path, 'utf8')) : null;
-  } catch (e) {
-    return { actual: 1, sample: [{ path, error: (e as Error).message, plugin_version: source.version }] };
-  }
-  if (blockVersion === source.version) return { actual: 0, sample: [] };
-  return { actual: 1, sample: [{ path, block_version: blockVersion, plugin_version: source.version }] };
-}
-
 export interface NullableColumn {
   readonly table: string;
   readonly column: string;
@@ -110,6 +87,8 @@ interface PopulatedColumn {
   readonly created_column: string;
   readonly scope?: string;
   readonly scope_label?: string;
+  /** Rows created before this timestamp predate the column's writer and are not counted. */
+  readonly writer_since?: { readonly sql: string; readonly label: string; readonly min_schema: number };
   readonly floor: number;
   readonly min_schema: number;
 }
@@ -162,6 +141,17 @@ const FIXTURE_INVENTORY_ROW = (alias: string): string =>
                     OR ${alias}.name GLOB 'fixture-*' OR ${alias}.name GLOB 'test-plugin*'
                     OR COALESCE(${alias}.source_url, '') LIKE '%@tmb-test-market')`;
 
+// The server stamps root_dir and session_id when it opens a run, and the model
+// is metered from the run's window; rows opened before those writers shipped
+// (v1.1.0-rc.1) carry NULLs a later legacy claim cannot fill: batch siblings
+// that owned no message keep a NULL model. plugin_meta keeps no applied-at
+// timestamp, so the first run carrying a root_dir stands in for that date.
+const V33_RUN_WRITERS_SINCE = {
+  sql: `(SELECT MIN(${ts('started_at')}) FROM agent_runs WHERE root_dir IS NOT NULL)`,
+  label: 'the first run carrying a root_dir',
+  min_schema: 33,
+} as const;
+
 /** Columns added in v29–v33 that stay NULL by design; they get no contract. */
 export const NULLABLE_COLUMNS: readonly NullableColumn[] = [
   { table: 'discussions', column: 'remote_comment_id', reason: 'set only on discussions ingested from a PR/MR comment; NULL for every local discussion' },
@@ -173,11 +163,11 @@ export const NULLABLE_COLUMNS: readonly NullableColumn[] = [
  * in the last 30 days (within `scope`) must stay at or under `floor`.
  */
 const POPULATED_COLUMNS: readonly PopulatedColumn[] = [
-  { table: 'agent_runs', column: 'session_id', created_column: 'started_at', floor: 0.2, min_schema: 30 },
+  { table: 'agent_runs', column: 'session_id', created_column: 'started_at', writer_since: V33_RUN_WRITERS_SINCE, floor: 0.2, min_schema: 30 },
   { table: 'agent_runs', column: 'usage_source', created_column: 'started_at', scope: 'completed_at IS NOT NULL', scope_label: 'completed rows', floor: 0.05, min_schema: 30 },
-  { table: 'agent_runs', column: 'model', created_column: 'started_at', scope: "usage_source IN ('transcript','subagent_stop','backfill')", scope_label: 'measured rows', floor: 0.1, min_schema: 33 },
+  { table: 'agent_runs', column: 'model', created_column: 'started_at', scope: "usage_source IN ('transcript','subagent_stop','backfill')", scope_label: 'measured rows', writer_since: V33_RUN_WRITERS_SINCE, floor: 0.1, min_schema: 33 },
   { table: 'agent_runs', column: 'host', created_column: 'started_at', floor: 0, min_schema: 33 },
-  { table: 'agent_runs', column: 'root_dir', created_column: 'started_at', floor: 0.05, min_schema: 33 },
+  { table: 'agent_runs', column: 'root_dir', created_column: 'started_at', writer_since: V33_RUN_WRITERS_SINCE, floor: 0.05, min_schema: 33 },
   { table: 'agent_runs', column: 'exit_reason', created_column: 'started_at', scope: 'completed_at IS NOT NULL', scope_label: 'completed rows', floor: 0.05, min_schema: 33 },
   { table: 'tasks', column: 'prompt_bearing', created_column: 'created_at', floor: 0, min_schema: 0 },
   // The v37 migration keeps no applied-at timestamp, so the first run carrying
@@ -195,15 +185,21 @@ const POPULATED_COLUMNS: readonly PopulatedColumn[] = [
 ];
 
 function populatedContract(c: PopulatedColumn): SqlContract {
-  const where = [`${ts(c.created_column)} >= ${daysAgo(30)}`, ...(c.scope ? [c.scope] : [])].join(' AND ');
+  const where = [
+    `${ts(c.created_column)} >= ${daysAgo(30)}`,
+    ...(c.writer_since ? [`${ts(c.created_column)} >= ${c.writer_since.sql}`] : []),
+    ...(c.scope ? [c.scope] : []),
+  ].join(' AND ');
+  const since = c.writer_since ? ` and not before ${c.writer_since.label}` : '';
+  const minSchema = Math.max(c.min_schema, c.writer_since?.min_schema ?? 0);
   return {
     id: `populated_${c.table}_${c.column}`,
     severity: 'warn',
-    description: `${c.table}.${c.column} NULL rate over ${c.scope_label ?? 'rows'} created in the last 30 days stays at or under ${c.floor}`,
+    description: `${c.table}.${c.column} NULL rate over ${c.scope_label ?? 'rows'} created in the last 30 days${since} stays at or under ${c.floor}`,
     sql: `SELECT COALESCE(AVG(CASE WHEN ${c.column} IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM ${c.table} WHERE ${where}`,
     expect: { op: '<=', value: c.floor },
     sample_sql: `SELECT id FROM ${c.table} WHERE ${where} AND ${c.column} IS NULL ORDER BY id DESC LIMIT 5`,
-    ...(c.min_schema > 0 ? { min_schema: c.min_schema } : {}),
+    ...(minSchema > 0 ? { min_schema: minSchema } : {}),
   };
 }
 
@@ -397,14 +393,6 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
       description: 'at most one enabled copy of this plugin applies to CLAUDE_PROJECT_DIR (installed_plugins.json + enabledPlugins in the project settings.local.json / settings.json and the user settings.json, read-only); Claude Code registers the hooks of only one copy per manifest name, so a second copy silently drops TMB\'s gates — run /plugin and disable the extra copy. Skipped when CLAUDE_PROJECT_DIR is unset or installed_plugins.json is unreadable',
       expect: { op: '<=', value: 1 },
       check: singleTmbPluginEnabled,
-    },
-    {
-      source: 'files',
-      id: 'persona_block_current',
-      severity: 'warn',
-      description: 'the project CLAUDE.md holds the tmb persona block (`<!-- tmb:persona start v<version> -->` … `<!-- tmb:persona end -->`) at the running plugin version; Claude Code loads only the project CLAUDE.md, so a missing or stale block leaves bro without its current doctrine — run /onboard. Skipped when CLAUDE_PROJECT_DIR is unset or is the plugin root',
-      expect: { op: '=', value: 0 },
-      check: personaBlockCurrent,
     },
   ];
 }

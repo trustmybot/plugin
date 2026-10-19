@@ -154,14 +154,14 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `issue_close_remote_skipped` | `server` | `issue_close`, `bro_atomic_close` or `task_recover` closed an issue locally but no linked remote because the remote-sync gate is off: `reason` is `issue_sync_off` (`plugin_config.issue_sync` unset or `off`), `env_disabled` (`TMB_DISABLE_REMOTE_SYNC` set) or `no_backend` (no usable gh/glab for the issue repo's remotes); `content_json` carries `reason`, `remotes` |
 | `issue_linked` | `bro` | `issue_link` bound a local issue to a remote issue; `content_json` carries `issue_id`, `backend`, `iid`, `forced` |
 | `issue_updated` | `bro` | bro changed an issue's milestone, labels or objective after creation |
-| `legacy_event` | `server` | The v38 migration re-typed an audit row whose `event_type` was outside the closed set (written by v1.0.x, before the set closed); `content_json` keeps the original content and carries `legacy_event_type` (the old type), plus `legacy_content` when the old content was not valid JSON. Filed under the row's original issue; `audit_append` refuses this event |
+| `legacy_event` | `server` | A migration re-typed a legacy audit row: v38 one whose `event_type` was outside the closed set (written by v1.0.x, before the set closed), v39 a swe-written `verification_gate_waived` row without a `commit_sha` that repeated an earlier one for its task; `content_json` keeps the original content and carries `legacy_event_type` (the old type), plus `legacy_content` when the old content was not valid JSON. Filed under the row's original issue; `audit_append` refuses this event |
 | `mcp_unavailable_fallback_invoked` | `bro`, `swe`, `pr-reviewer`, `consultant` | The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1` |
 | `milestone_closed` | `bro` | `milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed` |
 | `milestone_reconcile_failed` | `bro` | `scan_run` could not read a repo's remote milestones; `content_json` carries `repo`, `backend`, `reason` (the scan still succeeds) |
 | `milestone_seed_skipped` | `bro` | `scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`) |
 | `milestone_seeded` | `bro` | `scan_run` seeded `v<next-patch>` for a repo with no milestones; `content_json` carries `name`, `repo`, `source`, `remote_created` |
 | `milestones_reconciled` | `bro` | `scan_run` imported a repo's remote milestones; `content_json` carries `imported`, `closed`, `repo` |
-| `persona_block_written` | `bro` | `onboard_apply` changed the bro persona block in the project's `CLAUDE.md` (the plugin's `CLAUDE.md` body between `<!-- tmb:persona start v<version> -->` and `<!-- tmb:persona end -->`): appended, replaced on a version or body change, or removed by `persona: false`; no row when the file is unchanged or the project root is the plugin root; filed under the system issue `-1` by `bro`; `content_json` carries `action` (`appended`, `replaced`, `removed`), `version` |
+| `persona_block_written` | `server` | reserved — Legacy type kept for historical rows: in v1.1.0-rc.1 `onboard_apply` copied bro's persona block into the project's `CLAUDE.md`; nothing writes it now and `audit_append` refuses it; `content_json` carries `action` (`appended`, `replaced`), `version` |
 | `planning_complete` | `bro` | Bro finished planning: batched `task_create_batch` + SWE spawn |
 | `readme_staleness_surfaced` | `hook` | `post-atomic-close-readme` surfaced READMEs a closed task may have left stale |
 | `registry_gate_waived` | `bro` | `task_create_batch` ran with `waive_registry_gate`; `content_json` carries the waiver reason |
@@ -291,9 +291,9 @@ Currently `37`. Bumped on any breaking schema change. **NOT free-form** — ever
 | Value | Set by |
 |---|---|
 | `completed` | `bro_atomic_close`; `close-issue-on-merge` closing a merged task; a swe SubagentStop whose task is completed/closed; every pr-reviewer SubagentStop |
-| `failed` | `task_update_status` → `failed`; a SubagentStop whose task is still pending/running |
+| `failed` | `task_update_status` → `failed`; a swe SubagentStop whose task is still pending/running (a resumed spawn's next stop overwrites it) |
 | `escalated` | `task_update_status` → `escalated` |
-| `swept_orphan` | `task_recover` sweeping a never-measured row; `task_brief` closing an earlier spawn's open swe row (older than 10 min); v33 backfill of an `unmeasured` row |
+| `swept_orphan` | `task_recover` sweeping a never-measured row; `task_brief` closing an earlier spawn's open swe row that no subagent bound (`spawn_id` NULL or `tool_use:*`, older than 10 min); v33 backfill of an `unmeasured` row |
 | `swept_stale` | `task_recover` sweeping a measured row left open on a terminal task, or the open runs of a stale `running` task it swept to `failed` |
 | `issue_closed` | The row's issue was closed under it (the v33 GH 1212 repair; `issue_close(cascade: true)`) |
 

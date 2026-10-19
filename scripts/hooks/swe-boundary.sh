@@ -30,7 +30,10 @@
 # commits against files[]. Reads and read inputs of a write never fire.
 #
 # SWE context = the agent identity (tmb_agent_role in lib/cmd-analysis.sh) is
-# swe. A path never decides the role. Bash rules judge the command's
+# swe. A path never decides the role. The assigned worktree and task are the
+# caller's own run (tmb_caller_run in lib/query-task.sh, keyed on the payload
+# agent_id); a payload with no bound run falls back to $PWD for rule (c) and
+# to the target's worktree for task lookups. Bash rules judge the command's
 # executable statements only: data heredocs and quoted text are data; a
 # program fed to an interpreter through a heredoc is analysed for the paths it
 # writes, and a variable set earlier in the same command is resolved.
@@ -57,14 +60,46 @@ TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null || true)
 SWE_CTX="no"
 [ "$(tmb_agent_role "$INPUT")" = "swe" ] && SWE_CTX="yes"
 
-# Resolve the assigned worktree root once — used by rule (c).
-# Primary signal: $PWD when it's inside a worktree.
-WORKTREE_ROOT=""
-case "$PWD" in
-  */.claude/worktrees/*)
-    WORKTREE_ROOT=$(echo "$PWD" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|')
-    ;;
-esac
+# The caller's own run (tmb_caller_run: the swe agent_runs row bound to the
+# payload agent_id). When bound, its root and task decide rule (c), the Bash
+# write root and every task lookup below, ahead of $PWD or the target.
+CALLER_TASK=""
+CALLER_ROOT=""
+if [ "$SWE_CTX" = "yes" ]; then
+  _CALLER_DB=$(tmb_db_path 2>/dev/null || true)
+  if [ -n "$_CALLER_DB" ] && tmb_have_sqlite; then
+    _CALLER=$(tmb_caller_run "$INPUT" "$_CALLER_DB")
+    if [ "$_CALLER" = "__ERR__" ]; then
+      tmb_deny_db_unavailable swe-boundary
+      exit 0
+    fi
+    if [ -n "$_CALLER" ]; then
+      CALLER_TASK=$(tmb_sql_int "${_CALLER%%|*}")
+      CALLER_ROOT="${_CALLER#*|}"
+    fi
+  fi
+fi
+
+# _task_for <target> <db> — the caller's task when bound, else the task the
+# target's worktree resolves to.
+_task_for() {
+  if [ -n "$CALLER_TASK" ]; then
+    printf '%s\n' "$CALLER_TASK"
+  else
+    tmb_resolve_task_id_for_target "$1" "$INPUT" "$2"
+  fi
+}
+
+# The assigned worktree root — used by rule (c): the caller's run root, else
+# $PWD when it's inside a worktree (a payload with no agent_id).
+WORKTREE_ROOT="$CALLER_ROOT"
+if [ -z "$WORKTREE_ROOT" ]; then
+  case "$PWD" in
+    */.claude/worktrees/*)
+      WORKTREE_ROOT=$(echo "$PWD" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|')
+      ;;
+  esac
+fi
 
 # ---- Rules (a), (b), (e), (f): Bash from SWE context ------------------------
 # Each rule judges the executable statements of the command
@@ -109,7 +144,8 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
   }
 
   _SWE_CWD=$(tmb_payload_cwd "$INPUT")
-  _SWE_ROOT=$(_wt_of "$_SWE_CWD")
+  _SWE_ROOT="$CALLER_ROOT"
+  [ -n "$_SWE_ROOT" ] || _SWE_ROOT=$(_wt_of "$_SWE_CWD")
   [ -n "$_SWE_ROOT" ] || _SWE_ROOT="${CLAUDE_PROJECT_DIR:-}"
 
   SURFACE_PATH=""
@@ -155,7 +191,7 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
   _PB_ALLOWED=""
   if [ -n "$SURFACE_PATH" ] || [ -n "$UNRESOLVED_TARGET" ]; then
     [ -n "$SURFACE_ANCHOR" ] || SURFACE_ANCHOR="$(tmb_payload_cwd "$INPUT")/"
-    _PB_TASK_ID=$(tmb_resolve_task_id_for_target "$SURFACE_ANCHOR" "$INPUT" "$_DB")
+    _PB_TASK_ID=$(_task_for "$SURFACE_ANCHOR" "$_DB")
     if [ -n "$_PB_TASK_ID" ] && [ -n "$_DB" ] && tmb_have_sqlite; then
       _PB_VAL=$(tmb_gate_read "$_DB" "
         SELECT COALESCE(prompt_bearing, 0) FROM tasks WHERE id = ${_PB_TASK_ID} LIMIT 1;
@@ -195,7 +231,7 @@ if [ "$TOOL_NAME" = "Bash" ] && [ "$SWE_CTX" = "yes" ]; then
       _wt=$(_wt_of "$_wpath")
       if [ "$_wt" != "$_FENCE_WT" ]; then
         _FENCE_WT="$_wt"
-        _FENCE_TASK=$(tmb_resolve_task_id_for_target "$_wpath" "$INPUT" "$_DB")
+        _FENCE_TASK=$(_task_for "$_wpath" "$_DB")
         tmb_scope_fence_load "$_DB" "$_FENCE_TASK"
       fi
       [ "$TMB_FENCE_STATE" = "ok" ] || continue
@@ -239,7 +275,7 @@ bypass_check() {
   [ -n "$db" ] && tmb_have_sqlite || return 0
   # shellcheck source=scripts/hooks/lib/db-write.sh
   . "$SCRIPT_DIR/lib/db-write.sh"
-  task=$(tmb_resolve_task_id_for_target "$TARGET" "$INPUT" "$db")
+  task=$(_task_for "$TARGET" "$db")
   issue=-1
   if [ -n "$task" ]; then
     issue=$(tmb_sql_int "$(tmb_sqlite_ro "$db" "SELECT issue_id FROM tasks WHERE id = ${task};" 2>/dev/null || true)")
@@ -315,9 +351,10 @@ if [ "$IS_PROMPT_SURFACE" = "yes" ]; then
     exit 0
   fi
   if [ -n "$DB" ] && tmb_have_sqlite; then
-    # Resolve task_id robustly (worktree branch → slug → transcript), deriving
-    # the worktree from the TARGET when $PWD isn't inside one.
-    TASK_ID=$(tmb_resolve_task_id_for_target "$TARGET" "$INPUT" "$DB")
+    # The caller's task when bound; else resolve it robustly (worktree branch
+    # → slug → transcript), deriving the worktree from the TARGET when $PWD
+    # isn't inside one.
+    TASK_ID=$(_task_for "$TARGET" "$DB")
     if [ -n "$TASK_ID" ]; then
       PROMPT_BEARING=$(tmb_gate_read "$DB" "
         SELECT COALESCE(prompt_bearing, 0) FROM tasks WHERE id = ${TASK_ID} LIMIT 1;

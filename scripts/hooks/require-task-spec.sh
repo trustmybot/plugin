@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Hook: Block SWE agent spawn unless prompt references a valid tasks row.
 # Reads task_id=<N> from the spawn prompt, queries the trajectory DB via SQLite.
-# A spawn is allowed on a pending task, or on a running task with no open swe
+# A spawn is allowed on a pending task, or on a running task with no live swe
 # agent_runs row (rework after task_reopen); a running task whose swe run is
-# still open is denied with that run named.
+# still live is denied with that run named. An open row no subagent bound
+# (spawn_id NULL or tool_use:*) older than 10 minutes is not live: that spawn
+# never started, and task_brief sweeps it (SWE_ORPHAN_AFTER_MS).
 # A pending task also needs its branch checked out in a linked worktree of the
 # task's repo (task_reopen creates it); a repo path that is not a git work tree
 # is not gated.
@@ -62,7 +64,10 @@ BODY_LEN=$(echo "$ROW" | awk 'NR==2')
 LIVE_RUN=""
 if [ "$STATUS" = "running" ]; then
   LIVE_RUN=$(tmb_gate_read "$DB" "SELECT id || ' (started ' || COALESCE(started_at, '?') || ')' FROM agent_runs
-    WHERE task_id = ${SAFE_TASK_ID} AND agent_type = 'swe' AND completed_at IS NULL ORDER BY id DESC LIMIT 1;")
+    WHERE task_id = ${SAFE_TASK_ID} AND agent_type = 'swe' AND completed_at IS NULL
+      AND NOT ((spawn_id IS NULL OR spawn_id GLOB 'tool_use:*')
+               AND started_at IS NOT NULL AND started_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes'))
+    ORDER BY id DESC LIMIT 1;")
   if [ "$LIVE_RUN" = "__ERR__" ]; then
     tmb_deny_db_unavailable require-task-spec
     exit 0

@@ -1,6 +1,6 @@
 # agents
 
-The plugin's shipped subagents — the roles bro dispatches a code-touching task to. Each file is a Claude Code agent definition: YAML frontmatter (name, model, tool allow-list, attached skills) followed by the persona prompt. bro itself is defined by the plugin-root `CLAUDE.md`, so it lives outside this directory; only the agents bro spawns are here.
+The plugin's shipped subagents — the roles bro dispatches a code-touching task to. Each file is a Claude Code agent definition: YAML frontmatter (name, model, tool allow-list, attached skills) followed by the persona prompt. bro itself is defined by the plugin-root `CLAUDE.md`, which the `session-start-persona.sh` (SessionStart) and `user-prompt-persona.sh` (UserPromptSubmit) hooks inject into each session (Claude Code never loads a plugin's `CLAUDE.md`), so it lives outside this directory; only the agents bro spawns are here.
 
 ## Agents
 

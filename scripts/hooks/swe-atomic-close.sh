@@ -10,10 +10,11 @@
 # Fires on: SubagentStop
 # Target: <1s wall time.
 #
-# Decision matrix (status side-effects, swe only):
-#   pending + HAS_COMMITS=true  → status='completed' + commit_sha
-#   pending + HAS_COMMITS=false → additionalContext warning to bro
-#   any other status            → metrics only, status unchanged
+# Decision matrix (status side-effects, swe only; the spawn already moved a
+# pending task to running, record-swe-spawn.sh):
+#   pending|running + HAS_COMMITS=true  → status='completed' + commit_sha
+#   pending|running + HAS_COMMITS=false → additionalContext warning to bro
+#   any other status                    → metrics only, status unchanged
 #   subagent_type pr-reviewer   → metrics only
 #   any other subagent_type     → silent exit 0
 #
@@ -23,11 +24,15 @@
 # and exit_reason completed.
 #
 # Metering: the spawn's totals and dominant model from its transcript land on
-# one agent_runs row (host claude, root_dir the task worktree when unset,
-# exit_reason from the task's state once the spawn ended), keyed (task_id, spawn_id), spawn_id = the payload's agent_id, else the
-# transcript path. The row task_brief opened for this spawn is UPDATEd
-# (started_at preserved); with none, a complete row is INSERTed with started_at =
-# the transcript's first timestamp. A re-fire for the same spawn updates in place.
+# one agent_runs row (host claude, root_dir the task worktree when unset),
+# keyed (task_id, spawn_id), spawn_id = the payload's agent_id, else the
+# transcript path. The row opened for this spawn — at the Agent spawn
+# (record-swe-spawn.sh) and bound to the agent_id at task_brief
+# (swe-brief-gate.sh), or opened unkeyed by task_brief — is UPDATEd (started_at
+# preserved); with none, a complete row is INSERTed with started_at = the
+# transcript's first timestamp. A re-fire or a resumed spawn's next stop
+# updates the same row, and exit_reason is always the latest stop's outcome
+# (the task's state once that stop ended).
 #
 # Log: <project>/.claude/<plugin-name>/logs/mcp-health.log (JSONL, appended);
 # no log when the project has no TMB state dir.
@@ -328,7 +333,7 @@ fi
 DECISION=""
 CONTEXT=""
 
-if [ "$TASK_STATUS" = "pending" ]; then
+if [ "$TASK_STATUS" = "pending" ] || [ "$TASK_STATUS" = "running" ]; then
   if [ "$HAS_COMMITS" = "true" ]; then
     # Auto-close: write status='completed' + commit_sha via sqlite3.
     DECISION="auto-completed"
@@ -344,7 +349,7 @@ if [ "$TASK_STATUS" = "pending" ]; then
     CONTEXT="SWE for task #${TASK_ID} stopped without committing in worktree at ${WT_PATH}. Bro should send SWE back or mark the task failed."
   fi
 else
-  # Any other status (running, failed, needs_validation, completed, ...): metrics only.
+  # Any other status (failed, needs_validation, completed, ...): metrics only.
   DECISION="metrics-only"
 fi
 
@@ -356,13 +361,13 @@ case "$DECISION:$TASK_STATUS" in
 esac
 
 # One transaction: UPDATE this spawn's row — the one already keyed by spawn_id,
-# else the unkeyed swe row task_brief opened inside this spawn — and INSERT a
-# complete row only when nothing was updated. A spawn resumed after a terminal
-# task_update_status re-calls task_brief, which opens a second unkeyed row once
-# closeOpenRunsForTask has closed the first; the hook can meter only one row, so
-# a final statement marks every other zero-token unkeyed swe row of this task
-# from the spawn's window unmeasured, keeping the swe_runs_metered doctor
-# contract clean.
+# else the unbound swe row (spawn_id NULL or tool_use:*) opened for this spawn
+# and never bound to its agent_id — and INSERT a complete row only when nothing
+# was updated. A resumed spawn's task_brief reopens its keyed row
+# (swe-brief-gate.sh); a spawn with no agent_id can still leave a second
+# unkeyed row, and the hook can meter only one row, so a final statement marks
+# every other zero-token unkeyed swe row of this task from the spawn's window
+# unmeasured, keeping the swe_runs_metered doctor contract clean.
 if ! tmb_db_write "$DB" "
 UPDATE agent_runs
    SET tokens_in = ${SAFE_TOKENS_IN},
@@ -379,16 +384,16 @@ UPDATE agent_runs
        model = COALESCE(${SAFE_MODEL_SQL}, model),
        host = COALESCE(host, 'claude'),
        root_dir = COALESCE(root_dir, '${SAFE_ROOT_DIR}'),
-       exit_reason = COALESCE(exit_reason, '${EXIT_REASON}'),
+       exit_reason = '${EXIT_REASON}',
        effort = COALESCE(effort, (SELECT effort FROM tasks WHERE id = ${SAFE_TASK_ID}))
  WHERE id = (
    SELECT id FROM agent_runs
     WHERE task_id = ${SAFE_TASK_ID}
       AND (spawn_id = '${SAFE_SPAWN_ID}'
-           OR (spawn_id IS NULL AND agent_type = 'swe'
+           OR ((spawn_id IS NULL OR spawn_id GLOB 'tool_use:*') AND agent_type = 'swe'
                AND (completed_at IS NULL
                     OR started_at >= strftime('%Y-%m-%dT%H:%M:%fZ', '${SAFE_FIRST_TS}', '-2 seconds'))))
-    ORDER BY (spawn_id IS NOT NULL) DESC, id DESC
+    ORDER BY (spawn_id IS '${SAFE_SPAWN_ID}') DESC, id DESC
     LIMIT 1);
 INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, cache_read_tokens,
                         cache_creation_tokens, tool_uses, duration_ms, started_at, completed_at,

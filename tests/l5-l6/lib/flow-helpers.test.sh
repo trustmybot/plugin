@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for the persona-block helpers in tests/l5-l6/lib/flow-helpers.sh.
+# Tests for the L5 harness helpers in tests/l5-l6/lib/flow-helpers.sh.
 # Run: bash tests/l5-l6/lib/flow-helpers.test.sh
 set -euo pipefail
 
@@ -23,63 +23,19 @@ new_project() {
   project=$(l5_setup_scratch_project)
   SCRATCH+=("$project")
   l5_seed_db "$project" "$fixture" >/dev/null
-  if l5_fixture_is_onboarded "$project"; then
-    l5_write_persona_block "$project"
-  fi
   printf '%s\n' "$project"
 }
 
-persona_line() {
-  local project="$1"
-  ( (cd "$project" && env TRAJECTORY_DB_PATH="$project/.claude/tmb/trajectory.db" TMB_SKIP_AUTO_PRESCAN=1 \
-      TMB_INSTALLED_JSON="$HOME/none.json" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDE_PROJECT_DIR="$project" \
-      bash "$PLUGIN_ROOT/scripts/hooks/session-start-prescan.sh" 2>/dev/null) || true) \
-    | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null | grep '^Persona:' || true
-}
-
-VERSION=$(jq -r .version "$PLUGIN_ROOT/.claude-plugin/plugin.json")
-FIRST_LINE=$(grep -m1 -v '^[[:space:]]*$' "$PLUGIN_ROOT/CLAUDE.md" | tr -d '\r')
-
-ONBOARDED=$(new_project onboarding-named)
-
-test_case "onboarded fixture: CLAUDE.md carries the versioned start marker"
-assert_contains "$(cat "$ONBOARDED/CLAUDE.md")" "<!-- tmb:persona start v$VERSION -->" "start marker"
-
-test_case "onboarded fixture: CLAUDE.md carries the end marker"
-assert_contains "$(cat "$ONBOARDED/CLAUDE.md")" "<!-- tmb:persona end -->" "end marker"
-
-test_case "onboarded fixture: CLAUDE.md carries the plugin persona body"
-assert_contains "$(cat "$ONBOARDED/CLAUDE.md")" "$FIRST_LINE" "first non-empty plugin CLAUDE.md line"
-
-test_case "onboarded fixture: block ends with the end marker and one newline"
-assert_eq "<!-- tmb:persona end -->" "$(tail -n 1 "$ONBOARDED/CLAUDE.md")" "last line"
-
-test_case "onboarded fixture: session-start prescan prints no Persona line"
-assert_eq "" "$(persona_line "$ONBOARDED")" "Persona line"
-
-test_case "existing CLAUDE.md: block appended after one blank line"
-APPEND=$(l5_setup_scratch_project)
-SCRATCH+=("$APPEND")
-printf '# project\n' > "$APPEND/CLAUDE.md"
-l5_write_persona_block "$APPEND"
-assert_eq "" "$(sed -n 2p "$APPEND/CLAUDE.md")" "blank separator line"
-assert_eq "<!-- tmb:persona start v$VERSION -->" "$(sed -n 3p "$APPEND/CLAUDE.md")" "start marker line"
-
-EMPTY=$(new_project empty)
-
-test_case "empty fixture: not onboarded"
-if l5_fixture_is_onboarded "$EMPTY"; then
-  _fail "empty fixture reported onboarded"
-else
-  _pass
-fi
-
-test_case "empty fixture: no CLAUDE.md"
-if [ -e "$EMPTY/CLAUDE.md" ]; then
-  _fail "CLAUDE.md exists in empty-fixture project"
-else
-  _pass
-fi
+for fixture in onboarding-named empty; do
+  test_case "$fixture fixture: scratch project has no CLAUDE.md"
+  PROJECT=$(new_project "$fixture")
+  SCRATCH+=("$PROJECT")
+  if [ -e "$PROJECT/CLAUDE.md" ]; then
+    _fail "CLAUDE.md exists in $fixture-fixture project"
+  else
+    _pass
+  fi
+done
 
 PREAMBLE=$(_l5_test_prompt_prefix)
 

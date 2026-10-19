@@ -3,7 +3,7 @@
 # Covers: output is valid JSON, additionalContext is emitted, cache-friendly
 # ordering, cold-session auto-scan launch, bypass env, and the warm / stale /
 # cold world-model banner, the duplicate-plugin line, and the Tooling line
-# naming a missing jq, and the Persona line for a missing or stale block.
+# naming a missing jq, and no Persona line (the persona hooks own that).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -436,7 +436,7 @@ assert_eq "" "$(cat "$TMPDIR/dup.err")" "unreadable installed_plugins.json: no s
 chmod 600 "$TMB_INSTALLED_JSON"
 rm -f "$TMB_INSTALLED_JSON" "$LOCAL_SETTINGS"
 
-# ---- Persona block ----
+# ---- Persona: none in the prescan ----
 # A fixture plugin root (v1.0.3) and the fixture project's CLAUDE.md.
 PERSONA_PLUGIN="$TMPDIR/persona-plugin"
 mkdir -p "$PERSONA_PLUGIN/.claude-plugin"
@@ -450,24 +450,16 @@ persona_line() {
 }
 schema_db
 
-test_case "persona: a project with no CLAUDE.md block gets the missing line"
+test_case "persona: no Persona line for any project CLAUDE.md"
 rm -f "$FIXTURE_WS/CLAUDE.md"
-assert_eq "Persona: project CLAUDE.md has no tmb persona block; tell the Human that the Human can run /onboard to add it" "$(persona_line "$FIXTURE_WS")" "no CLAUDE.md"
+assert_eq "" "$(persona_line "$FIXTURE_WS")" "no CLAUDE.md"
 printf '# Mine\n' > "$FIXTURE_WS/CLAUDE.md"
-assert_eq "Persona: project CLAUDE.md has no tmb persona block; tell the Human that the Human can run /onboard to add it" "$(persona_line "$FIXTURE_WS")" "CLAUDE.md without a block"
-
-test_case "persona: a stale block names both versions"
+assert_eq "" "$(persona_line "$FIXTURE_WS")" "CLAUDE.md without a block"
 printf '# Mine\n\n<!-- tmb:persona start v1.0.2 -->\n# bro\n<!-- tmb:persona end -->\n' > "$FIXTURE_WS/CLAUDE.md"
-assert_eq "Persona: tmb persona block is v1.0.2, plugin is v1.0.3; tell the Human that the Human can run /onboard to refresh it" "$(persona_line "$FIXTURE_WS")" "stale block"
-
-test_case "persona: a current block is silent, CRLF too"
-printf '# Mine\n\n<!-- tmb:persona start v1.0.3 -->\n# bro\n<!-- tmb:persona end -->\n' > "$FIXTURE_WS/CLAUDE.md"
-assert_eq "" "$(persona_line "$FIXTURE_WS")" "current block"
+assert_eq "" "$(persona_line "$FIXTURE_WS")" "stale block"
 printf '# Mine\r\n\r\n<!-- tmb:persona start v1.0.3 -->\r\n# bro\r\n<!-- tmb:persona end -->\r\n' > "$FIXTURE_WS/CLAUDE.md"
 assert_eq "" "$(persona_line "$FIXTURE_WS")" "current CRLF block"
 rm -f "$FIXTURE_WS/CLAUDE.md"
-
-test_case "persona: the plugin root as the project is silent"
 assert_eq "" "$(persona_line "$PERSONA_PLUGIN")" "plugin-root project"
 
 test_case "jq present: no Tooling line"

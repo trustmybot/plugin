@@ -68,7 +68,7 @@ The server accepts both option wire values and their labels. Pass `Keep "<curren
 
 Returns `{ ok: true, applied: { onboarded: true, branching_model, pr_target, protected_branches, remotes, issue_sync, headless_enforcement, headless_shim, sandbox_enforcement, sandbox } }`.
 
-The apply also writes the bro persona into the project's own `CLAUDE.md` (Claude Code reads the project's file, never the plugin's), between the managed markers `<!-- tmb:persona start v<plugin version> -->` and `<!-- tmb:persona end -->`; re-onboarding after an upgrade replaces the block in place and text outside the markers stays untouched. To opt out, pass `persona: false` to `onboard_apply`, which removes the block. A `CLAUDE.md` that is a symlink or read-only is left alone so the link and the file's protection stay intact, and the result reports the skip with its reason; the TMB repo itself keeps its hand-written `CLAUDE.md`.
+The apply never touches the project's `CLAUDE.md`: bro's persona loads from the plugin through its persona hooks. `onboard_apply` takes no `persona` argument and rejects one with `persona_input_removed`.
 
 ## 4. Confirm to the Human
 
