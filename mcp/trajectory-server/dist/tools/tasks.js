@@ -6,8 +6,7 @@ import { recordReviewBypassIfUnreviewed } from './lifecycle.js';
 import { closeOpenRunsForTask, exitReasonForStatus, parseRunSessionId, RUN_SESSION_ID_SCHEMA, TERMINAL_TASK_STATUSES, } from './agent-runs.js';
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
-import { resolve, dirname } from 'node:path';
-import { resolveSoleRepo } from '../utils/repo-paths.js';
+import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { branchRefExists } from '../utils/git-refs.js';
 import { EFFORT_LEVELS, computeEffort, isEffort } from './config.js';
 // Directories implied by a task's typed `files[]` array. Mirrors filesToDirs in
@@ -78,8 +77,7 @@ function repoPolicyBranches(db, repoValue) {
     catch {
         // malformed protected_branches contributes no names
     }
-    const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
-    return { names, target: row.target_branch || null, repoPath: row.path.startsWith('/') ? row.path : resolve(dbDir, row.path) };
+    return { names, target: row.target_branch || null, repoPath: repoRowPath(db, row.path) };
 }
 function validateParentBranchId(branchId, db, repoValue) {
     if (BRANCH_ID_RE.test(branchId))
@@ -639,7 +637,6 @@ export function taskTools(db) {
             // Pre-transaction: format-validate then branch-ensure against the
             // resolved repo (explicit > default). Order matters: bad format should
             // produce the format error, not a git error. (#360, #529)
-            const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
             const autocreatedAudits = [];
             for (const t of taskInputs) {
                 if (!t.branch_id)
@@ -698,8 +695,7 @@ export function taskTools(db) {
                             `which is not registered (no repos row). Run /scan or pass a registered repo — ` +
                             `tasks.repo is a foreign key to repos(name).`);
                     }
-                    const rawPath = reposRow.path;
-                    const repoPath = rawPath.startsWith('/') ? rawPath : resolve(dbDir, rawPath);
+                    const repoPath = repoRowPath(db, reposRow.path);
                     const parentBranchId = t.parent_branch_id ?? null;
                     const audit = ensureBranchInRepo(t.branch_id, repoPath, parentBranchId);
                     if (audit)

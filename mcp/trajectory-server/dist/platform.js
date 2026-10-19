@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, realpathSync, statSync, } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync, } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { basename, dirname, isAbsolute, join, relative, sep, } from 'node:path';
@@ -39,17 +39,22 @@ export function resolveClaudePluginVersion(env = process.env) {
     return readClaudePluginMetadata(env).version;
 }
 /**
- * Claude's trusted project root: `CLAUDE_PROJECT_DIR`, when the host sets it.
- * Null otherwise (a subagent inheriting `cwd=~`, a bare `node dist/index.js`).
+ * Claude's session directory: `CLAUDE_PROJECT_DIR`, when the host sets it.
+ * The DB walk starts here; the project root is the directory holding the DB
+ * it resolves. Null otherwise (a bare `node dist/index.js`).
  */
 export function resolveClaudeProjectRoot(env = process.env) {
     const root = env['CLAUDE_PROJECT_DIR'];
     return root && root.trim().length > 0 ? root : null;
 }
+/** Where the DB walk starts: `CLAUDE_PROJECT_DIR`, else `cwd`. */
+export function resolveClaudeSessionDir(env = process.env, cwd = process.cwd()) {
+    return resolveClaudeProjectRoot(env) ?? cwd;
+}
 /**
  * The trajectory DB path for Claude: the found DB (findExistingClaudeDbUp),
- * else a fresh-init path under the project root (or the invocation cwd when
- * there is none). `TRAJECTORY_DB_PATH` is returned verbatim either way.
+ * else a fresh-init path under `CLAUDE_PROJECT_DIR` (or the invocation cwd
+ * when it is unset). `TRAJECTORY_DB_PATH` is returned verbatim either way.
  */
 export function resolveClaudeDbPath(opts) {
     const env = opts?.env ?? process.env;
@@ -254,6 +259,152 @@ export function probeClaudeDb(path) {
         }
     }
 }
+/** A file in a DB's state dir that makes that DB its own project (nearest one wins the walk). */
+export const CLAUDE_STANDALONE_MARKER = 'standalone';
+/** `<root>/.claude/<plugin>` — the state dir holding a project's trajectory DB. */
+export function claudeStateDir(root, pluginName) {
+    return join(root, CLAUDE_STATE_HOST_DIR, pluginName);
+}
+export function isStandaloneClaudeDb(dbPath) {
+    return existsSync(join(dirname(dbPath), CLAUDE_STANDALONE_MARKER));
+}
+/**
+ * Walk up from `start` to `/`, never entering `home` unless started there, no
+ * `.git` stop. Every ancestor `.claude/<plugin>/trajectory.db` that is not a
+ * stale schema is a candidate; a candidate whose state dir holds a
+ * `standalone` marker ends the walk and wins, else the outermost wins.
+ */
+export function walkClaudeDbs(start, pluginName, opts) {
+    const home = opts?.home ?? homedir();
+    const probe = opts?.probe ?? probeClaudeDb;
+    const found = [];
+    for (let dir = start; dirname(dir) !== dir; dir = dirname(dir)) {
+        if (dir === home && start !== home)
+            break;
+        const candidate = claudeDbLocation(dir, pluginName);
+        if (!existsSync(candidate) || probe(candidate) === 'stale')
+            continue;
+        found.push(candidate);
+        if (isStandaloneClaudeDb(candidate))
+            break;
+    }
+    return { resolved: found.length === 0 ? null : found[found.length - 1], candidates: found };
+}
+/** `<root>` for a DB at `<root>/.claude/<plugin>/<file>`; null for `:memory:` or any other shape. */
+export function claudeProjectRootOfDb(dbPath) {
+    if (!dbPath || dbPath === ':memory:')
+        return null;
+    const hostDir = dirname(dirname(dbPath));
+    return basename(hostDir) === CLAUDE_STATE_HOST_DIR ? dirname(hostDir) : null;
+}
+/** The physical path of an existing `path`, else `path` as given. */
+export function canonicalExisting(path) {
+    try {
+        return realpathSync(path);
+    }
+    catch {
+        return path;
+    }
+}
+/** True when `child` is `parent` or lies below it (both compared as given). */
+export function isPathWithin(parent, child) {
+    const rel = relative(parent, child);
+    return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+/** How deep below the project root a stray DB is looked for. */
+export const STRAY_DB_MAX_DEPTH = 4;
+function countRows(conn, table) {
+    try {
+        const row = conn.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE id > 0`).get();
+        return row === undefined ? null : Number(row.n);
+    }
+    catch {
+        return null;
+    }
+}
+/**
+ * Issue and task counts of a trajectory DB, read-only, leaving out the
+ * schema-seeded system issue (id -1); null for a count the read could not take.
+ */
+export function claudeDbCounts(path) {
+    let conn = null;
+    try {
+        conn = new DatabaseSync(path, { readOnly: true });
+        return { issues: countRows(conn, 'issues'), tasks: countRows(conn, 'tasks') };
+    }
+    catch {
+        return { issues: null, tasks: null };
+    }
+    finally {
+        try {
+            conn?.close();
+        }
+        catch {
+            // closing a failed handle is best-effort
+        }
+    }
+}
+function claudeDbsBelow(root, pluginName, maxDepth, probe) {
+    const found = [];
+    let level = [root];
+    for (let depth = 1; depth <= maxDepth && level.length > 0; depth += 1) {
+        const next = [];
+        for (const dir of level) {
+            let entries;
+            try {
+                entries = readdirSync(dir, { withFileTypes: true });
+            }
+            catch {
+                continue;
+            }
+            for (const entry of entries) {
+                if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules')
+                    continue;
+                const child = join(dir, entry.name);
+                const candidate = claudeDbLocation(child, pluginName);
+                if (existsSync(candidate) && isStandaloneClaudeDb(candidate))
+                    continue;
+                next.push(child);
+                if (existsSync(candidate) && probe(candidate) !== 'stale')
+                    found.push(candidate);
+            }
+        }
+        level = next;
+    }
+    return found;
+}
+/**
+ * Every trajectory DB other than `dbPath` that a session in `sessionDir` sits
+ * among: the non-stale DBs the walk-up from `sessionDir` passes (only when
+ * `sessionDir` is inside the project, the walk that found `dbPath`), and the
+ * DBs below the project root up to STRAY_DB_MAX_DEPTH levels, not counting a
+ * `standalone` project or anything under it. Null when `dbPath` is not a project DB
+ * (`<root>/.claude/<plugin>/<file>`).
+ */
+export function otherClaudeDbs(dbPath, opts) {
+    const root = claudeProjectRootOfDb(dbPath);
+    if (root === null)
+        return null;
+    const pluginName = basename(dirname(dbPath));
+    const probe = opts.probe ?? probeClaudeDb;
+    const seen = new Set([canonicalExisting(dbPath)]);
+    const paths = [];
+    const add = (path) => {
+        const key = canonicalExisting(path);
+        if (seen.has(key))
+            return;
+        seen.add(key);
+        paths.push(path);
+    };
+    if (isPathWithin(canonicalExisting(root), canonicalExisting(opts.sessionDir))) {
+        walkClaudeDbs(opts.sessionDir, pluginName, { home: opts.home, probe }).candidates.forEach(add);
+    }
+    claudeDbsBelow(root, pluginName, STRAY_DB_MAX_DEPTH, probe).forEach(add);
+    return paths.map((path) => {
+        const { issues, tasks } = claudeDbCounts(path);
+        return { path, issues, tasks, empty: issues === 0 && tasks === 0 };
+    });
+}
 /**
  * The one trajectory-DB location rule, shared with the hooks' `tmb_db_path`
  * (scripts/hooks/lib/query-task.sh) and documented in
@@ -261,39 +412,22 @@ export function probeClaudeDb(path) {
  * when unresolved:
  *
  * 1. `TRAJECTORY_DB_PATH`, if set (must exist).
- * 2. The project root's `.claude/<plugin>/trajectory.db` (`CLAUDE_PROJECT_DIR`
- *    for Claude). No walking.
- * 3. Only without a project root: walk up from `startDir` collecting every
- *    ancestor `.claude/<plugin>/trajectory.db` that is not a stale schema,
- *    never entering `home` unless started there, with no `.git` stop; the
- *    outermost wins (a workspace root beats a nested repo).
- * 4. Otherwise unresolved.
+ * 2. Walk up from the project root (`CLAUDE_PROJECT_DIR` for Claude), else
+ *    from `startDir` (walkClaudeDbs): the nearest `standalone` DB, else the
+ *    outermost DB.
+ * 3. Otherwise unresolved.
  *
  * Unresolved means the project is not onboarded and every hook gate allows.
  * A DB that resolves but cannot be read is an error: deny-capable gates deny.
  */
 export function findExistingClaudeDbUp(startDir, pluginName, opts) {
-    const home = opts?.home ?? homedir();
     const env = opts?.env ?? process.env;
-    const probe = opts?.probe ?? probeClaudeDb;
     const override = env['TRAJECTORY_DB_PATH'];
     if (override && override.trim().length > 0) {
         return existsSync(override) ? override : null;
     }
     const projectRoot = opts?.projectRoot !== undefined ? opts.projectRoot : resolveClaudeProjectRoot(env);
-    if (projectRoot) {
-        const atRoot = claudeDbLocation(projectRoot, pluginName);
-        return existsSync(atRoot) ? atRoot : null;
-    }
-    let outermost = null;
-    for (let dir = startDir; dirname(dir) !== dir; dir = dirname(dir)) {
-        if (dir === home && startDir !== home)
-            break;
-        const candidate = claudeDbLocation(dir, pluginName);
-        if (existsSync(candidate) && probe(candidate) !== 'stale')
-            outermost = candidate;
-    }
-    return outermost;
+    return walkClaudeDbs(projectRoot ?? startDir, pluginName, opts).resolved;
 }
 function canonicalDirectory(path, label, ErrorType = Error) {
     if (!isAbsolute(path)) {

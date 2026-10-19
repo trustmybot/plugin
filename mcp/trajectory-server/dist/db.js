@@ -34,7 +34,7 @@ export function resolvePluginVersion(env = process.env) {
 }
 /**
  * Resolve the trajectory DB path: the DB found by `findExistingClaudeDbUp`
- * (platform.ts), else a fresh-init path under the project root. The rule is
+ * (platform.ts), else a fresh-init path under `CLAUDE_PROJECT_DIR` (or cwd). The rule is
  * documented in docs/reference/TRAJECTORY_DB_LOCATION.md.
  */
 export function resolveDbPath(opts) {

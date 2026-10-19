@@ -75,4 +75,11 @@ assert_eq "yes" "$(grep -qxF '.claude/' "$WS/.gitignore" 2>/dev/null && echo yes
 assert_eq "yes" "$(grep -qxF '.claude/' "$SVC/.gitignore" 2>/dev/null && echo yes || echo no)" "a registered repo outside the project"
 assert_eq "no" "$([ -f "$CWD_REPO/.gitignore" ] && echo yes || echo no)" "the cwd's repo is untouched"
 
+test_case "GH 1553: a relative repos.path resolves against the project root"
+mkdir -p "$WS/rel"
+(cd "$WS/rel" && git init -q -b main)
+sqlite3 "$WS/.claude/tmb/trajectory.db" "INSERT INTO repos VALUES ('rel', 'rel');"
+(cd "$CWD_REPO" && echo '{}' | CLAUDE_PROJECT_DIR="$WS" TRAJECTORY_DB_PATH="$WS/.claude/tmb/trajectory.db" bash "$HOOK" >/dev/null 2>&1 || true)
+assert_eq "yes" "$(grep -qxF '.claude/' "$WS/rel/.gitignore" 2>/dev/null && echo yes || echo no)" "<project>/rel, not <project>/.claude/tmb/rel"
+
 summarize

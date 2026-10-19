@@ -11,8 +11,8 @@
 # those files get committed because .gitignore doesn't exclude them, `git
 # worktree add` checks them out inside every worktree as a stale DB copy.
 #
-# The repos come from the project (tmb_project_root: CLAUDE_PROJECT_DIR, else
-# the project holding the resolved DB) and the repos table, never from the
+# The repos come from the project (tmb_project_root: the project holding the
+# resolved DB, else CLAUDE_PROJECT_DIR) and the repos table, never from the
 # session's cwd (GH 1550).
 #
 # Silent no-op when:
@@ -33,8 +33,7 @@ DB=$(tmb_db_path 2>/dev/null) || DB=""
 if [ -n "$DB" ] && [ -f "$DB" ] && tmb_have_sqlite; then
   while IFS= read -r p; do
     [ -n "$p" ] || continue
-    case "$p" in /*) ;; *) p="$(dirname "$DB")/$p" ;; esac
-    DIRS+=("$p")
+    DIRS+=("$(tmb_repo_path_abs "$DB" "$p")")
   done < <(tmb_sqlite_ro "$DB" "SELECT path FROM repos WHERE path IS NOT NULL AND path <> '';")
 fi
 

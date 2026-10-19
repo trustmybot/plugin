@@ -39,6 +39,7 @@ milestone_seeded	bro
 milestones_reconciled	bro
 persona_block_written	server
 planning_complete	bro
+project_made_standalone	bro
 readme_staleness_surfaced	hook
 registry_gate_waived	bro
 repo_remotes_migration_skipped	server
@@ -55,6 +56,7 @@ scan_skipped	hook
 scope_gate_waived	bro
 skill_creator_blocked	bro
 spec_shape_gate_waived	bro
+stray_db_removed	bro
 swe_atomic_close_auto_completed	hook
 swe_brief_fetched	swe
 sync_skipped	bro

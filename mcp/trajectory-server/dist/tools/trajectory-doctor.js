@@ -67,7 +67,7 @@ export function runDataContracts(reader, contracts, opts = {}) {
     };
     for (const contract of contracts) {
         if (contract.source === 'files') {
-            const result = contract.check(opts.env ?? process.env);
+            const result = contract.check(opts.env ?? process.env, opts.dbPath === undefined ? {} : { dbPath: opts.dbPath });
             if ('skipped' in result) {
                 report.skipped.push({ id: contract.id, reason: result.skipped });
                 continue;
@@ -186,7 +186,7 @@ export function checkTrajectoryDbFile(dbPath, contracts = DATA_CONTRACTS, opts =
     if (!conn)
         throw new Error(`cannot open ${dbPath} read-only`);
     try {
-        return runDataContracts(sqliteReader(conn), contracts, { statementTimeoutMs: timeoutMs, env: opts.env });
+        return runDataContracts(sqliteReader(conn), contracts, { statementTimeoutMs: timeoutMs, env: opts.env, dbPath });
     }
     finally {
         conn.close();
@@ -226,7 +226,10 @@ export function trajectoryDoctorTools(db) {
         const ro = openReadOnly(db.dbPath, timeoutMs);
         let report;
         try {
-            report = runDataContracts(ro ? sqliteReader(ro) : trajectoryDbReader(db), contracts, { statementTimeoutMs: timeoutMs });
+            report = runDataContracts(ro ? sqliteReader(ro) : trajectoryDbReader(db), contracts, {
+                statementTimeoutMs: timeoutMs,
+                dbPath: db.dbPath,
+            });
         }
         finally {
             ro?.close();

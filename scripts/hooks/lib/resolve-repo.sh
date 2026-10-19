@@ -22,7 +22,8 @@
 #   tmb_repo_name_for_root <db> <git_root>
 #                               — print the name of the repos row whose path is
 #                                 <git_root>, compared as canonical realpaths (a
-#                                 relative repos.path joins the DB dir), or empty.
+#                                 relative repos.path joins the project root,
+#                                 tmb_repo_path_abs), or empty.
 #   tmb_repo_resolve <db> <git_root>
 #                               — print pipe-separated "target_branch|branching_model|protected_branches"
 #                                 from the repos row matching <git_root>
@@ -135,7 +136,7 @@ tmb_repo_git_root() {
 
 # tmb_repo_name_for_root <db> <git_root>
 # Prints the name of the repos row whose path is <git_root>: an exact match,
-# else the row whose canonical realpath (a relative path joined to the DB dir)
+# else the row whose canonical realpath (a relative path joined to the project root)
 # equals <git_root>'s. Empty when none.
 tmb_repo_name_for_root() {
   local db="$1" git_root="$2" name rows want row rname rpath
@@ -155,7 +156,7 @@ tmb_repo_name_for_root() {
     rname="${row%%|*}"
     rpath="${row#*|}"
     [ -n "$rpath" ] || continue
-    case "$rpath" in /*) ;; *) rpath="$(dirname "$db")/$rpath" ;; esac
+    rpath=$(tmb_repo_path_abs "$db" "$rpath")
     if [ "$(tmb_realdir "$rpath")" = "$want" ]; then
       printf '%s\n' "$rname"
       return 0

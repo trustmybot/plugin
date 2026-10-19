@@ -2983,7 +2983,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve5.call(this, root, ref);
+      let _sch = resolve3.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a2 = root.localRefs) === null || _a2 === void 0 ? void 0 : _a2[ref];
         const { schemaId } = this.opts;
@@ -3010,7 +3010,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve5(root, ref) {
+    function resolve3(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3585,7 +3585,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve5(baseURI, relativeURI, options) {
+    function resolve3(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse4(baseURI, schemelessOptions), parse4(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
@@ -3812,7 +3812,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve5,
+      resolve: resolve3,
       resolveComponent,
       equal,
       serialize,
@@ -6803,7 +6803,7 @@ var require_dist = __commonJS({
 
 // src/index.ts
 import path from "node:path";
-import { mkdirSync as mkdirSync8, readFileSync as readFileSync11 } from "node:fs";
+import { mkdirSync as mkdirSync9, readFileSync as readFileSync11 } from "node:fs";
 import { performance as performance3 } from "node:perf_hooks";
 
 // node_modules/.bun/zod@4.3.6/node_modules/zod/v3/helpers/util.js
@@ -19592,7 +19592,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve5) => setTimeout(resolve5, pollInterval));
+        await new Promise((resolve3) => setTimeout(resolve3, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -19609,7 +19609,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve5, reject) => {
+    return new Promise((resolve3, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -19687,7 +19687,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve5(parseResult.data);
+            resolve3(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -19948,12 +19948,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve5, reject) => {
+    return new Promise((resolve3, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve5, interval);
+      const timeoutId = setTimeout(resolve3, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -20823,19 +20823,19 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message2) {
-    return new Promise((resolve5) => {
+    return new Promise((resolve3) => {
       const json2 = serializeMessage(message2);
       if (this._stdout.write(json2)) {
-        resolve5();
+        resolve3();
       } else {
-        this._stdout.once("drain", resolve5);
+        this._stdout.once("drain", resolve3);
       }
     });
   }
 };
 
 // src/db.ts
-import { copyFileSync, readFileSync as readFileSync2, readdirSync } from "node:fs";
+import { copyFileSync, readFileSync as readFileSync2, readdirSync as readdirSync2 } from "node:fs";
 import { basename as basename2, join as join3, dirname as dirname2 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { performance as performance2 } from "node:perf_hooks";
@@ -20856,6 +20856,7 @@ import { join as join2 } from "node:path";
 import {
   existsSync,
   lstatSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   statSync
@@ -20901,6 +20902,9 @@ function resolveClaudePluginVersion(env = process.env) {
 function resolveClaudeProjectRoot(env = process.env) {
   const root = env["CLAUDE_PROJECT_DIR"];
   return root && root.trim().length > 0 ? root : null;
+}
+function resolveClaudeSessionDir(env = process.env, cwd = process.cwd()) {
+  return resolveClaudeProjectRoot(env) ?? cwd;
 }
 function resolveClaudeDbPath(opts) {
   const env = opts?.env ?? process.env;
@@ -20996,26 +21000,120 @@ function probeClaudeDb(path2) {
     }
   }
 }
-function findExistingClaudeDbUp(startDir, pluginName2, opts) {
+var CLAUDE_STANDALONE_MARKER = "standalone";
+function claudeStateDir(root, pluginName2) {
+  return join(root, CLAUDE_STATE_HOST_DIR, pluginName2);
+}
+function isStandaloneClaudeDb(dbPath2) {
+  return existsSync(join(dirname(dbPath2), CLAUDE_STANDALONE_MARKER));
+}
+function walkClaudeDbs(start, pluginName2, opts) {
   const home = opts?.home ?? homedir();
-  const env = opts?.env ?? process.env;
   const probe = opts?.probe ?? probeClaudeDb;
+  const found = [];
+  for (let dir = start; dirname(dir) !== dir; dir = dirname(dir)) {
+    if (dir === home && start !== home) break;
+    const candidate = claudeDbLocation(dir, pluginName2);
+    if (!existsSync(candidate) || probe(candidate) === "stale") continue;
+    found.push(candidate);
+    if (isStandaloneClaudeDb(candidate)) break;
+  }
+  return { resolved: found.length === 0 ? null : found[found.length - 1], candidates: found };
+}
+function claudeProjectRootOfDb(dbPath2) {
+  if (!dbPath2 || dbPath2 === ":memory:") return null;
+  const hostDir = dirname(dirname(dbPath2));
+  return basename(hostDir) === CLAUDE_STATE_HOST_DIR ? dirname(hostDir) : null;
+}
+function canonicalExisting(path2) {
+  try {
+    return realpathSync(path2);
+  } catch {
+    return path2;
+  }
+}
+function isPathWithin(parent, child) {
+  const rel = relative(parent, child);
+  return rel === "" || rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+var STRAY_DB_MAX_DEPTH = 4;
+function countRows(conn, table) {
+  try {
+    const row = conn.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE id > 0`).get();
+    return row === void 0 ? null : Number(row.n);
+  } catch {
+    return null;
+  }
+}
+function claudeDbCounts(path2) {
+  let conn = null;
+  try {
+    conn = new DatabaseSync(path2, { readOnly: true });
+    return { issues: countRows(conn, "issues"), tasks: countRows(conn, "tasks") };
+  } catch {
+    return { issues: null, tasks: null };
+  } finally {
+    try {
+      conn?.close();
+    } catch {
+    }
+  }
+}
+function claudeDbsBelow(root, pluginName2, maxDepth, probe) {
+  const found = [];
+  let level = [root];
+  for (let depth = 1; depth <= maxDepth && level.length > 0; depth += 1) {
+    const next = [];
+    for (const dir of level) {
+      let entries;
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory() || entry.name.startsWith(".") || entry.name === "node_modules") continue;
+        const child = join(dir, entry.name);
+        const candidate = claudeDbLocation(child, pluginName2);
+        if (existsSync(candidate) && isStandaloneClaudeDb(candidate)) continue;
+        next.push(child);
+        if (existsSync(candidate) && probe(candidate) !== "stale") found.push(candidate);
+      }
+    }
+    level = next;
+  }
+  return found;
+}
+function otherClaudeDbs(dbPath2, opts) {
+  const root = claudeProjectRootOfDb(dbPath2);
+  if (root === null) return null;
+  const pluginName2 = basename(dirname(dbPath2));
+  const probe = opts.probe ?? probeClaudeDb;
+  const seen = /* @__PURE__ */ new Set([canonicalExisting(dbPath2)]);
+  const paths = [];
+  const add = (path2) => {
+    const key = canonicalExisting(path2);
+    if (seen.has(key)) return;
+    seen.add(key);
+    paths.push(path2);
+  };
+  if (isPathWithin(canonicalExisting(root), canonicalExisting(opts.sessionDir))) {
+    walkClaudeDbs(opts.sessionDir, pluginName2, { home: opts.home, probe }).candidates.forEach(add);
+  }
+  claudeDbsBelow(root, pluginName2, STRAY_DB_MAX_DEPTH, probe).forEach(add);
+  return paths.map((path2) => {
+    const { issues, tasks } = claudeDbCounts(path2);
+    return { path: path2, issues, tasks, empty: issues === 0 && tasks === 0 };
+  });
+}
+function findExistingClaudeDbUp(startDir, pluginName2, opts) {
+  const env = opts?.env ?? process.env;
   const override = env["TRAJECTORY_DB_PATH"];
   if (override && override.trim().length > 0) {
     return existsSync(override) ? override : null;
   }
   const projectRoot = opts?.projectRoot !== void 0 ? opts.projectRoot : resolveClaudeProjectRoot(env);
-  if (projectRoot) {
-    const atRoot = claudeDbLocation(projectRoot, pluginName2);
-    return existsSync(atRoot) ? atRoot : null;
-  }
-  let outermost = null;
-  for (let dir = startDir; dirname(dir) !== dir; dir = dirname(dir)) {
-    if (dir === home && startDir !== home) break;
-    const candidate = claudeDbLocation(dir, pluginName2);
-    if (existsSync(candidate) && probe(candidate) !== "stale") outermost = candidate;
-  }
-  return outermost;
+  return walkClaudeDbs(projectRoot ?? startDir, pluginName2, opts).resolved;
 }
 function assertPathContained(root, path2, label) {
   const rel = relative(root, path2);
@@ -21180,6 +21278,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "milestones_reconciled", writers: ["bro"], description: "`scan_run` imported a repo's remote milestones; `content_json` carries `imported`, `closed`, `repo`" },
   { type: "persona_block_written", writers: ["server"], description: "Legacy type kept for historical rows: in v1.1.0-rc.1 `onboard_apply` copied bro's persona block into the project's `CLAUDE.md`; nothing writes it now and `audit_append` refuses it; `content_json` carries `action` (`appended`, `replaced`), `version`", reserved: true },
   { type: "planning_complete", writers: ["bro"], description: "Bro finished planning: batched `task_create_batch` + SWE spawn" },
+  { type: "project_made_standalone", writers: ["bro"], description: "`onboard_apply(standalone=true)` made the session directory, nested below the workspace, its own TMB project: it wrote the `standalone` marker and a fresh trajectory DB in `<session_dir>/.claude/<plugin>/`, which the DB walk-up then picks over the workspace DB; filed under the system issue `-1` in the workspace DB; `content_json` carries `session_dir`, `db_path`, `marker`" },
   { type: "readme_staleness_surfaced", writers: ["hook"], description: "`post-atomic-close-readme` surfaced READMEs a closed task may have left stale" },
   { type: "registry_gate_waived", writers: ["bro"], description: "`task_create_batch` ran with `waive_registry_gate`; `content_json` carries the waiver reason" },
   { type: "repo_remotes_migration_skipped", writers: ["server"], description: "The v35 migration could not move a repo's `repos.remotes` JSON into `repo_remotes` \u2014 the value did not parse as an array or a name \u2192 url map, or some entries carried no url or a duplicate name (the rest moved); one row per repo on the system issue `-1`, written by `system`; `content_json` carries `repo`, `reason`, `raw`" },
@@ -21196,6 +21295,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "scope_gate_waived", writers: ["bro"], description: "`bro_atomic_close(waive_scope_gate: true)` accepted the task's changed paths outside its `files[]` with a `scope_waiver_reason`; `content_json` carries `skill`, `task_id`, `commit_sha`, `accepted_paths`, `reason`, `base_moved`, `recorded_base`, `merge_base`. `task_create_batch(waive_scope_gate: true)` writes one when it skips its question gate, `content_json` carrying `waive_scope_gate_reason`, `tasks_created`" },
   { type: "skill_creator_blocked", writers: ["bro"], description: "`tmb_skill-creator` halted before writing the skill (no Human approval); written by bro via `audit_append`", reserved: true },
   { type: "spec_shape_gate_waived", writers: ["bro"], description: "A task's spec-shape waiver, one row per task on its issue with from_node `bro`; `task_create_batch` and `task_provision` called with `waive_spec_shape` write one for every task they create, and bro records one for an existing task through `audit_append`; `content_json` carries `task_id`, `gate` (`spec_shape`), `reason`, `waived_by` (`bro`), `source` (`task_create_batch`, `task_provision`, or absent for `audit_append`); `require-task-spec` reads it as the spawn waiver" },
+  { type: "stray_db_removed", writers: ["bro"], description: "`onboard_apply(remove_stray_dbs)` deleted an empty trajectory DB (0 issues, 0 tasks) below the project root, with its `-wal`/`-shm` files and its state dir, on the Human's yes; one row per DB on the system issue `-1`; `content_json` carries `path`, `state_dir`, `project_root`" },
   { type: "swe_atomic_close_auto_completed", writers: ["hook"], description: "`swe-atomic-close` auto-completed a `pending`/`running` task on SubagentStop because its worktree HEAD is neither equal to nor an ancestor of any parent tip (local or origin); one row per auto-complete on the task's issue, written in the same transaction as the status change; `content_json` carries `task_id`, `commit_sha`, `parent_tip_local`, `parent_tip_origin` (null when that ref is absent)" },
   { type: "swe_brief_fetched", writers: ["swe"], description: "`task_brief` recorded that a SWE fetched its brief (one row per task); swe-brief-gate reads it" },
   { type: "sync_skipped", writers: ["bro"], description: "Issue sync skipped a remote write because `issue_sync` is off; `content_json` carries `issue_id`, `reason`" },
@@ -21628,7 +21728,7 @@ function backupDbBeforeMigration(db2, dbPath2, targetVersion) {
   const base = basename2(dbPath2);
   const prefix = `${base}.pre-v${targetVersion}.`;
   try {
-    const existing = readdirSync(dir).some(
+    const existing = readdirSync2(dir).some(
       (f) => f.startsWith(prefix) && f.endsWith(".bak")
     );
     if (existing) return;
@@ -25219,31 +25319,7 @@ function discussionTools(db2) {
 }
 
 // src/utils/repo-paths.ts
-function resolveSoleRepoPath(db2) {
-  return resolveSoleRepo(db2)?.path;
-}
-function resolveRepoForSync(db2, repoName) {
-  if (repoName) {
-    const row = db2.get(`SELECT name, path FROM repos WHERE name = ?`, [repoName]);
-    return row ? { name: row.name, path: row.path } : null;
-  }
-  const rows = db2.all(`SELECT name, path FROM repos`);
-  if (rows.length !== 1) return null;
-  return { name: rows[0].name, path: rows[0].path };
-}
-function resolveSoleRepo(db2, name) {
-  if (name) {
-    const repoRow = db2.get(
-      `SELECT path FROM repos WHERE name = ?`,
-      [name]
-    );
-    return repoRow?.path ? { name, path: repoRow.path } : void 0;
-  }
-  const repos = db2.all(
-    `SELECT name, path FROM repos`
-  );
-  return repos.length === 1 ? { name: repos[0].name, path: repos[0].path } : void 0;
-}
+import { dirname as dirname3, isAbsolute as isAbsolute3, resolve } from "node:path";
 
 // src/tools/containment.ts
 import { lstatSync as lstatSync3, readlinkSync, realpathSync as realpathSync2 } from "node:fs";
@@ -25317,6 +25393,38 @@ function outsideProject(tool, projectRoot, path2) {
     path: path2,
     project_root: projectRoot
   };
+}
+
+// src/utils/repo-paths.ts
+function repoRowPath(db2, path2) {
+  if (isAbsolute3(path2)) return path2;
+  const base = db2.dbPath === ":memory:" ? process.cwd() : projectRootFromDbPath(db2.dbPath) ?? dirname3(db2.dbPath);
+  return resolve(base, path2);
+}
+function resolveSoleRepoPath(db2) {
+  return resolveSoleRepo(db2)?.path;
+}
+function resolveRepoForSync(db2, repoName) {
+  if (repoName) {
+    const row = db2.get(`SELECT name, path FROM repos WHERE name = ?`, [repoName]);
+    return row ? { name: row.name, path: repoRowPath(db2, row.path) } : null;
+  }
+  const rows = db2.all(`SELECT name, path FROM repos`);
+  if (rows.length !== 1) return null;
+  return { name: rows[0].name, path: repoRowPath(db2, rows[0].path) };
+}
+function resolveSoleRepo(db2, name) {
+  if (name) {
+    const repoRow = db2.get(
+      `SELECT path FROM repos WHERE name = ?`,
+      [name]
+    );
+    return repoRow?.path ? { name, path: repoRowPath(db2, repoRow.path) } : void 0;
+  }
+  const repos = db2.all(
+    `SELECT name, path FROM repos`
+  );
+  return repos.length === 1 ? { name: repos[0].name, path: repoRowPath(db2, repos[0].path) } : void 0;
 }
 
 // src/sync/backend.ts
@@ -27830,7 +27938,6 @@ function milestoneTools(db2) {
 
 // src/tools/tasks.ts
 import { spawnSync as spawnSync5 } from "node:child_process";
-import { resolve, dirname as dirname3 } from "node:path";
 
 // src/utils/git-refs.ts
 import { execFileSync, spawnSync as spawnSync4 } from "node:child_process";
@@ -28162,8 +28269,7 @@ function repoPolicyBranches(db2, repoValue) {
     }
   } catch {
   }
-  const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname3(db2.dbPath);
-  return { names, target: row.target_branch || null, repoPath: row.path.startsWith("/") ? row.path : resolve(dbDir, row.path) };
+  return { names, target: row.target_branch || null, repoPath: repoRowPath(db2, row.path) };
 }
 function validateParentBranchId(branchId, db2, repoValue) {
   if (BRANCH_ID_RE.test(branchId)) return;
@@ -28649,7 +28755,6 @@ function taskTools(db2) {
       }
       const soleRepoValue = resolveSoleRepo(db2)?.name ?? null;
       const repoCount = db2.get("SELECT COUNT(*) AS c FROM repos")?.c ?? 0;
-      const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname3(db2.dbPath);
       const autocreatedAudits = [];
       for (const t of taskInputs) {
         if (!t.branch_id) throw new Error("Missing required arg: branch_id");
@@ -28699,8 +28804,7 @@ function taskTools(db2) {
               `task_create_batch: task branch_id='${t.branch_id}' names repo='${effectiveRepoName}' which is not registered (no repos row). Run /scan or pass a registered repo \u2014 tasks.repo is a foreign key to repos(name).`
             );
           }
-          const rawPath = reposRow.path;
-          const repoPath = rawPath.startsWith("/") ? rawPath : resolve(dbDir, rawPath);
+          const repoPath = repoRowPath(db2, reposRow.path);
           const parentBranchId = t.parent_branch_id ?? null;
           const audit = ensureBranchInRepo(t.branch_id, repoPath, parentBranchId);
           if (audit) autocreatedAudits.push(audit);
@@ -31365,7 +31469,6 @@ function prMonitorTools(db2, _spawnFn) {
 // src/tools/composites.ts
 import { execFileSync as execFileSync2 } from "node:child_process";
 import { existsSync as existsSync4, realpathSync as realpathSync3 } from "node:fs";
-import { resolve as resolve3, dirname as dirname6 } from "node:path";
 var WORKTREE_TIMEOUT_MS = 6e4;
 function filesToDirs(files) {
   const dirs = /* @__PURE__ */ new Set();
@@ -31459,8 +31562,7 @@ function resolveRepoPath(db2, repoValue) {
   if (!name) return null;
   const reposRow = db2.get(`SELECT path FROM repos WHERE name = ?`, [name]);
   if (!reposRow) return name;
-  const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname6(db2.dbPath);
-  return reposRow.path.startsWith("/") ? reposRow.path : resolve3(dbDir, reposRow.path);
+  return repoRowPath(db2, reposRow.path);
 }
 function readRepoTargetBranch(db2, repoValue) {
   const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db2)?.name ?? null;
@@ -32133,8 +32235,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
             [repoValue]
           );
           if (reposRow) {
-            const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname6(db2.dbPath);
-            repoPath = reposRow.path.startsWith("/") ? reposRow.path : resolve3(dbDir, reposRow.path);
+            repoPath = repoRowPath(db2, reposRow.path);
           } else {
             return err15(
               `task_provision: repo '${repoValue}' is not registered (no repos row). Run /scan or pass a registered task.repo \u2014 tasks.repo is a foreign key to repos(name). No task row or branch was created.`
@@ -33223,13 +33324,13 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
 
 // src/tools/onboard.ts
 import { spawnSync as spawnSync7 } from "node:child_process";
-import { existsSync as existsSync7 } from "node:fs";
-import { dirname as dirname9, join as join11 } from "node:path";
+import { existsSync as existsSync7, lstatSync as lstatSync4, mkdirSync as mkdirSync6, realpathSync as realpathSync4, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
+import { basename as basename3, dirname as dirname8, isAbsolute as isAbsolute4, join as join11 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/tools/onboard-hooks-shim.ts
 import { readFileSync as readFileSync4, writeFileSync as writeFileSync2, mkdirSync as mkdirSync4, existsSync as existsSync5, chmodSync, rmSync } from "node:fs";
-import { dirname as dirname7, join as join9 } from "node:path";
+import { dirname as dirname6, join as join9 } from "node:path";
 var RESOLVER_NAME = "resolve-hook.sh";
 var CANONICAL_RESOLVER_REL = ["scripts", "lib", RESOLVER_NAME];
 var SETTINGS_REL = [".claude", "settings.local.json"];
@@ -33310,7 +33411,7 @@ function resolverPathFor(projectRoot, pluginName2) {
 function materializeResolver(pluginRoot, resolverPath) {
   const canonical = join9(pluginRoot, ...CANONICAL_RESOLVER_REL);
   if (!existsSync5(canonical)) return null;
-  mkdirSync4(dirname7(resolverPath), { recursive: true });
+  mkdirSync4(dirname6(resolverPath), { recursive: true });
   writeFileSync2(resolverPath, readFileSync4(canonical, "utf8"));
   chmodSync(resolverPath, 493);
   return resolverPath;
@@ -33358,7 +33459,7 @@ function preToolUseOf(settings) {
 }
 function writeSettings(path2, settings) {
   try {
-    mkdirSync4(dirname7(path2), { recursive: true });
+    mkdirSync4(dirname6(path2), { recursive: true });
     writeFileSync2(path2, JSON.stringify(settings, null, 2) + "\n");
     return null;
   } catch (e) {
@@ -33436,7 +33537,7 @@ function removeProjectEnforcementShim(opts) {
 
 // src/tools/onboard-sandbox.ts
 import { existsSync as existsSync6, mkdirSync as mkdirSync5, readFileSync as readFileSync5, statSync as statSync2, writeFileSync as writeFileSync3 } from "node:fs";
-import { dirname as dirname8, join as join10 } from "node:path";
+import { dirname as dirname7, join as join10 } from "node:path";
 function settingsPath(projectRoot) {
   return join10(projectRoot, ".claude", "settings.local.json");
 }
@@ -33455,7 +33556,7 @@ function readSettings2(path2) {
 }
 function writeSettings2(path2, settings) {
   try {
-    mkdirSync5(dirname8(path2), { recursive: true });
+    mkdirSync5(dirname7(path2), { recursive: true });
     writeFileSync3(path2, JSON.stringify(settings, null, 2) + "\n");
     return null;
   } catch (e) {
@@ -33639,10 +33740,10 @@ function removeProjectSandbox(opts) {
 function resolvePluginRoot2() {
   const env = process.env["CLAUDE_PLUGIN_ROOT"];
   if (env && existsSync7(join11(env, ".claude-plugin", "plugin.json"))) return env;
-  let dir = dirname9(fileURLToPath3(import.meta.url));
+  let dir = dirname8(fileURLToPath3(import.meta.url));
   for (; ; ) {
     if (existsSync7(join11(dir, ".claude-plugin", "plugin.json"))) return dir;
-    const parent = dirname9(dir);
+    const parent = dirname8(dir);
     if (parent === dir) break;
     dir = parent;
   }
@@ -34004,7 +34105,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
   const definitions = [
     {
       name: "onboard_state_get",
-      description: "Read onboard state: first-run flag, current plugin_config, and git/CLI probe (origin URL \u2192 provider, gh/glab auth). Call once before AskUserQuestion.",
+      description: "Read onboard state: first-run flag, current plugin_config, git/CLI probe (origin URL \u2192 provider, gh/glab auth), and nesting {session_dir, project_root, nested, other_dbs:[{path, issues, tasks, empty}]} for Round 0. Call once before AskUserQuestion.",
       inputSchema: { type: "object", properties: {} }
     },
     {
@@ -34033,11 +34134,24 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
     },
     {
       name: "onboard_apply",
-      description: "Persist /onboard answers in one transaction. Derives pr_target + protected_branches from branching_model, writes onboarded marker. Accepts wire values or human-readable labels (case-insensitive). Keep options omit the key.",
+      description: "Persist /onboard answers in one transaction. Derives pr_target + protected_branches from branching_model, writes onboarded marker. Accepts wire values or human-readable labels (case-insensitive). Keep options omit the key. Round 0: standalone=true alone makes the nested session dir its own project; remove_stray_dbs (alone or with shape) deletes empty stray DBs.",
       inputSchema: {
         type: "object",
         properties: {
-          shape: { type: "string", enum: ["local", "remote"] },
+          shape: {
+            type: "string",
+            enum: ["local", "remote"],
+            description: "Required for the onboarding answers. Omit only for a Round-0-only call (standalone, or remove_stray_dbs alone)."
+          },
+          standalone: {
+            type: "boolean",
+            description: "Round 0 'Make <subdir> its own TMB project': creates <session_dir>/.claude/<plugin>/standalone and a fresh trajectory DB there, then the Human restarts the session. Only when nesting.nested; pass no other answers."
+          },
+          remove_stray_dbs: {
+            type: "array",
+            items: { type: "string" },
+            description: "Round 0: paths from nesting.other_dbs the Human agreed to remove. Each is deleted (with -wal/-shm and its state dir) only when it is still empty (0 issues, 0 tasks) and lies below the project root; the rest are refused and left in place."
+          },
           branching_model: {
             type: "string",
             enum: ["github-flow", "gitflow"],
@@ -34068,8 +34182,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             type: "string",
             description: "Optional. Scope the write to a single repos row: only that row's target_branch/branching_model/protected_branches are updated; other repos rows, remotes, issue_sync, and the onboarded marker are NOT touched. Must match an existing repos.name. Omit for the workspace-wide apply."
           }
-        },
-        required: ["shape"]
+        }
       }
     }
   ];
@@ -34096,6 +34209,101 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
     pluginRoot: shimEnv.pluginRoot !== void 0 ? shimEnv.pluginRoot : resolvePluginRoot2(),
     projectRoot: projectRoot()
   });
+  const nesting = () => {
+    const session_dir = shimEnv.sessionDir ?? resolveClaudeSessionDir();
+    const root = claudeProjectRootOfDb(dbPath2);
+    if (root === null) return { session_dir, project_root: projectRoot(), nested: false, other_dbs: [] };
+    const session = canonicalExisting(session_dir);
+    const project = canonicalExisting(root);
+    return {
+      session_dir,
+      project_root: root,
+      nested: session !== project && isPathWithin(project, session),
+      other_dbs: otherClaudeDbs(dbPath2, { sessionDir: session_dir }) ?? []
+    };
+  };
+  const makeStandalone = () => {
+    const where = nesting();
+    if (!where.nested) {
+      throw new Error(
+        `standalone needs a session directory below the project root (session ${where.session_dir}, project ${where.project_root})`
+      );
+    }
+    const stateDir = claudeStateDir(where.session_dir, basename3(dirname8(dbPath2)));
+    const newDb = join11(stateDir, "trajectory.db");
+    mkdirSync6(stateDir, { recursive: true });
+    new TrajectoryDB(newDb, { pluginVersion: null, serverLog: () => {
+    }, sqlLog: () => {
+    } }).close();
+    const marker = join11(stateDir, CLAUDE_STANDALONE_MARKER);
+    writeFileSync4(marker, "This directory is its own TMB project: the trajectory DB walk-up stops here.\n");
+    insertAudit(db2, {
+      issue_id: -1,
+      from_node: "bro",
+      event_type: "project_made_standalone",
+      summary: `onboard: ${where.session_dir} is now its own TMB project (left workspace ${where.project_root})`,
+      content_json: JSON.stringify({ session_dir: where.session_dir, db_path: newDb, marker })
+    });
+    return {
+      ok: true,
+      standalone: { session_dir: where.session_dir, db_path: newDb, marker },
+      restart_required: true
+    };
+  };
+  const removeStrayDbs = (paths) => {
+    const root = claudeProjectRootOfDb(dbPath2);
+    if (root === null) throw new Error("remove_stray_dbs needs a project trajectory DB (<root>/.claude/<plugin>/trajectory.db)");
+    const project = canonicalExisting(root);
+    const self = canonicalExisting(dbPath2);
+    const pluginName2 = basename3(dirname8(dbPath2));
+    const removed = [];
+    const refused = [];
+    const outside = `not below the project root ${root}`;
+    const linkOrOutside = (path2) => {
+      for (let p = path2; dirname8(p) !== p; p = dirname8(p)) {
+        if (canonicalExisting(p) === project) return null;
+        if (lstatSync4(p).isSymbolicLink()) return `${p} is a symlink`;
+      }
+      return outside;
+    };
+    const check2 = (path2) => {
+      if (!isAbsolute4(path2)) return { reason: "not an absolute path" };
+      if (!existsSync7(path2)) return { reason: "no such file" };
+      if (claudeProjectRootOfDb(path2) === null || basename3(path2) !== "trajectory.db" || basename3(dirname8(path2)) !== pluginName2) {
+        return { reason: `not a <dir>/.claude/${pluginName2}/trajectory.db path` };
+      }
+      if (canonicalExisting(path2) === self) return { reason: "the current trajectory DB" };
+      const link = linkOrOutside(path2);
+      if (link !== null) return { reason: link };
+      const stateDir = realpathSync4(dirname8(path2));
+      const strayProject = dirname8(dirname8(stateDir));
+      if (strayProject === project || !isPathWithin(project, strayProject)) return { reason: outside };
+      if (isStandaloneClaudeDb(path2)) return { reason: "a standalone TMB project" };
+      const { issues, tasks } = claudeDbCounts(path2);
+      if (issues !== 0 || tasks !== 0) return { reason: `not empty (${issues ?? "?"} issues, ${tasks ?? "?"} tasks)` };
+      return { stateDir };
+    };
+    for (const path2 of paths) {
+      const verdict = check2(path2);
+      if ("reason" in verdict) {
+        refused.push({ path: path2, reason: verdict.reason });
+        continue;
+      }
+      const { stateDir } = verdict;
+      const file2 = join11(stateDir, basename3(path2));
+      for (const f of [file2, `${file2}-wal`, `${file2}-shm`]) rmSync2(f, { force: true });
+      rmSync2(stateDir, { recursive: true, force: true });
+      insertAudit(db2, {
+        issue_id: -1,
+        from_node: "bro",
+        event_type: "stray_db_removed",
+        summary: `onboard: removed the empty stray trajectory DB ${path2}`,
+        content_json: JSON.stringify({ path: path2, state_dir: stateDir, project_root: root })
+      });
+      removed.push(path2);
+    }
+    return { removed, refused };
+  };
   const handlers = {
     onboard_state_get: requireRoles(
       "onboard_state_get",
@@ -34126,7 +34334,8 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             gh_authed: gh.authed,
             glab_installed: glab.installed,
             glab_authed: glab.authed
-          }
+          },
+          nesting: nesting()
         });
       })
     ),
@@ -34209,6 +34418,21 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           throw new Error(
             "persona_input_removed: onboard_apply takes no 'persona' input \u2014 bro's persona loads from the plugin through its SessionStart and UserPromptSubmit hooks, and TMB never writes the project's CLAUDE.md"
           );
+        }
+        if (args["standalone"] === true) {
+          const others = Object.keys(args).filter((k) => k !== "standalone" && k !== "agent" && args[k] !== void 0);
+          if (others.length > 0) {
+            throw new Error(`standalone=true is applied alone \u2014 drop ${others.join(", ")}; the new project onboards after the session restart`);
+          }
+          return ok16(makeStandalone());
+        }
+        const rawStray = args["remove_stray_dbs"];
+        if (rawStray !== void 0 && (!Array.isArray(rawStray) || rawStray.some((p) => typeof p !== "string"))) {
+          throw new Error("remove_stray_dbs must be an array of DB paths from nesting.other_dbs");
+        }
+        const strayPaths = rawStray;
+        if (strayPaths !== void 0 && args["shape"] === void 0) {
+          return ok16({ ok: true, stray_dbs: removeStrayDbs(strayPaths) });
         }
         const shape = args["shape"];
         if (shape !== "local" && shape !== "remote") {
@@ -34390,13 +34614,14 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             let effTarget = pr_target;
             let effRemotes = shape === "remote" ? remotes : [];
             try {
-              if (probeGit(row.path).in_git) {
-                if (effModel === "gitflow" && !branchExists(row.path, pr_target)) {
+              const repoPath = repoRowPath(db2, row.path);
+              if (probeGit(repoPath).in_git) {
+                if (effModel === "gitflow" && !branchExists(repoPath, pr_target)) {
                   effModel = "github-flow";
-                  effTarget = repoDefaultBranch(row.path);
+                  effTarget = repoDefaultBranch(repoPath);
                 }
                 if (shape === "remote") {
-                  effRemotes = remotesForPath(row.path);
+                  effRemotes = remotesForPath(repoPath);
                 }
               }
             } catch {
@@ -34429,7 +34654,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             const result2 = writeProjectSandbox({
               projectRoot: sandboxProjectRoot(),
               remoteUrls: knownRemoteUrls(remotes.map((r) => r.url)),
-              toolCacheDir: join11(dirname9(dbPath2), "cache"),
+              toolCacheDir: join11(dirname8(dbPath2), "cache"),
               platform: shimEnv.platform ?? process.platform,
               previous: record2
             });
@@ -34454,6 +34679,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         return ok16({
           ok: true,
           ...warning ? { warning } : {},
+          ...strayPaths !== void 0 ? { stray_dbs: removeStrayDbs(strayPaths) } : {},
           applied: {
             onboarded: true,
             branching_model,
@@ -34476,14 +34702,14 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
 
 // src/tools/scan.ts
 import { spawn, spawnSync as spawnSync8 } from "node:child_process";
-import { closeSync as closeSync2, existsSync as existsSync9, openSync as openSync2, readFileSync as readFileSync6, readSync, realpathSync as realpathSync4, writeFileSync as writeFileSync4, unlinkSync } from "node:fs";
-import { dirname as dirname11, join as join12 } from "node:path";
+import { closeSync as closeSync2, existsSync as existsSync9, openSync as openSync2, readFileSync as readFileSync6, readSync, realpathSync as realpathSync5, writeFileSync as writeFileSync5, unlinkSync } from "node:fs";
+import { dirname as dirname10, join as join12 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
 // src/graph-db.ts
 import { createRequire } from "node:module";
-import { mkdirSync as mkdirSync6, existsSync as existsSync8 } from "node:fs";
-import { dirname as dirname10 } from "node:path";
+import { mkdirSync as mkdirSync7, existsSync as existsSync8 } from "node:fs";
+import { dirname as dirname9 } from "node:path";
 function single(result2) {
   return Array.isArray(result2) ? result2[0] : result2;
 }
@@ -34526,8 +34752,8 @@ var WorldModelGraph = class _WorldModelGraph {
       }
     };
     validateWritePath();
-    if (dbPath2 !== ":memory:" && !existsSync8(dirname10(dbPath2))) {
-      mkdirSync6(dirname10(dbPath2), { recursive: true });
+    if (dbPath2 !== ":memory:" && !existsSync8(dirname9(dbPath2))) {
+      mkdirSync7(dirname9(dbPath2), { recursive: true });
     }
     validateWritePath();
     const req = createRequire(import.meta.url);
@@ -35205,7 +35431,7 @@ function wrap4(fn) {
   };
 }
 function resolveScanScript() {
-  const here = dirname11(fileURLToPath4(import.meta.url));
+  const here = dirname10(fileURLToPath4(import.meta.url));
   const candidates = [
     join12(here, "..", "..", "..", "..", "scripts", "scan.sh"),
     join12(here, "..", "..", "..", "scripts", "scan.sh")
@@ -35219,7 +35445,7 @@ function resolveScanScript() {
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
 }
 function runScanWithScript(script, sessionDir, timeoutMs, dbPath2 = "") {
-  return new Promise((resolve5, reject) => {
+  return new Promise((resolve3, reject) => {
     const env = dbPath2 && dbPath2 !== ":memory:" ? { ...process.env, TRAJECTORY_DB_PATH: dbPath2 } : process.env;
     const child = spawn("bash", [script, sessionDir], {
       cwd: sessionDir,
@@ -35272,7 +35498,7 @@ function runScanWithScript(script, sessionDir, timeoutMs, dbPath2 = "") {
         reject(new Error("scan.sh emitted unexpected shape (missing repos/files)"));
         return;
       }
-      resolve5(parsed);
+      resolve3(parsed);
     });
   });
 }
@@ -35312,7 +35538,7 @@ var README_CANDIDATES = ["README.md", "readme.md", "README.rst", "readme.rst"];
 var README_MAX_BYTES = 1024;
 var STRUCTURAL_LIST_MAX = 8;
 var STRUCTURAL_PURPOSES_MAX = 5;
-function basename3(p) {
+function basename4(p) {
   const i = p.lastIndexOf("/");
   return i >= 0 ? p.slice(i + 1) : p;
 }
@@ -35337,13 +35563,13 @@ function deriveDirectoryEntries(out) {
     const entry = dirMap.get(`${f.repo} ${dirPath}`);
     if (entry) {
       entry.file_count++;
-      entry.file_names.push(basename3(f.path));
+      entry.file_names.push(basename4(f.path));
     }
   }
   return dirMap;
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = []) {
-  const leaf = dirPath === "" ? "(repo root)" : basename3(dirPath);
+  const leaf = dirPath === "" ? "(repo root)" : basename4(dirPath);
   const join17 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
@@ -35387,8 +35613,8 @@ function persistDirectoriesGraph(graph, out, now2, purposesByDir = /* @__PURE__ 
     if (entry.parent_path === null) continue;
     const key = `${entry.repo} ${entry.parent_path}`;
     const list = subdirsByParent.get(key);
-    if (list) list.push(basename3(entry.path));
-    else subdirsByParent.set(key, [basename3(entry.path)]);
+    if (list) list.push(basename4(entry.path));
+    else subdirsByParent.set(key, [basename4(entry.path)]);
   }
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
@@ -35485,7 +35711,7 @@ function purposesByDirectory(nodes) {
   for (const n of nodes) {
     if (!n.purpose) continue;
     const key = `${n.repo} ${n.dir}`;
-    const entry = { name: basename3(WorldModelGraph.relativeFilePath(n)), purpose: n.purpose };
+    const entry = { name: basename4(WorldModelGraph.relativeFilePath(n)), purpose: n.purpose };
     const list = byDir.get(key);
     if (list) list.push(entry);
     else byDir.set(key, [entry]);
@@ -35528,7 +35754,7 @@ function readRepoRemotes(path2) {
 }
 function canonicalPath2(p) {
   try {
-    return realpathSync4(p);
+    return realpathSync5(p);
   } catch {
     return p.replace(/\/+$/, "");
   }
@@ -35717,7 +35943,7 @@ function acquireLock(lockPath) {
     if (pidAlive(existing.pid)) return false;
     unlinkSync(lockPath);
   }
-  writeFileSync4(lockPath, JSON.stringify({ pid: process.pid, started_at: nowISO() }), { flag: "wx" });
+  writeFileSync5(lockPath, JSON.stringify({ pid: process.pid, started_at: nowISO() }), { flag: "wx" });
   return true;
 }
 function releaseLock(lockPath) {
@@ -35778,7 +36004,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
             `graph_db_open_failed: ${graphOpenError} \u2014 another process holds the world-model lock (identify the holder by running lsof on the world-model graph file); the server retries automatically on the next call once the holder exits`
           );
         }
-        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join12(dirname11(dbPath2), "scan.lock") : "";
+        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join12(dirname10(dbPath2), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -36042,15 +36268,15 @@ function repoTools(db2, graphHolder2 = null) {
 
 // src/tools/cheatcode.ts
 import { spawn as spawn2 } from "node:child_process";
-import { existsSync as existsSync11, mkdirSync as mkdirSync7, readFileSync as readFileSync8, writeFileSync as writeFileSync5 } from "node:fs";
-import { dirname as dirname12, join as join14 } from "node:path";
+import { existsSync as existsSync11, mkdirSync as mkdirSync8, readFileSync as readFileSync8, writeFileSync as writeFileSync6 } from "node:fs";
+import { dirname as dirname11, join as join14 } from "node:path";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
 
 // src/tools/cheatcode-reconcile.ts
 import { execFile } from "node:child_process";
 import { existsSync as existsSync10, readFileSync as readFileSync7 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { isAbsolute as isAbsolute3, join as join13 } from "node:path";
+import { isAbsolute as isAbsolute5, join as join13 } from "node:path";
 var DEFAULT_TIMEOUT_SEC = 4;
 var MAX_LISTING_BYTES = 8 * 1024 * 1024;
 function healthcheckTimeoutSec() {
@@ -36062,7 +36288,7 @@ function probeChildEnv(projectRoot = null) {
   return { ...base, TMB_DISABLE_CHEATCODE_HEALTHCHECK: "1" };
 }
 function runClaude(args, timeoutSec, projectRoot) {
-  return new Promise((resolve5) => {
+  return new Promise((resolve3) => {
     try {
       const child = execFile(
         "claude",
@@ -36075,11 +36301,11 @@ function runClaude(args, timeoutSec, projectRoot) {
           maxBuffer: MAX_LISTING_BYTES,
           encoding: "utf8"
         },
-        (error2, stdout) => resolve5(error2 ? null : stdout)
+        (error2, stdout) => resolve3(error2 ? null : stdout)
       );
       child.stdin?.end();
     } catch {
-      resolve5(null);
+      resolve3(null);
     }
   });
 }
@@ -36138,7 +36364,7 @@ function computeStatus(row, evidence, pluginRoot) {
   switch (row.kind) {
     case "skill": {
       if (!row.file_path) return "broken";
-      const resolved = isAbsolute3(row.file_path) || !pluginRoot ? row.file_path : join13(pluginRoot, row.file_path);
+      const resolved = isAbsolute5(row.file_path) || !pluginRoot ? row.file_path : join13(pluginRoot, row.file_path);
       return existsSync10(resolved) ? "active" : "broken";
     }
     case "mcp": {
@@ -36222,7 +36448,7 @@ function wrap5(fn) {
   };
 }
 function resolveScriptsFile(name) {
-  const here = dirname12(fileURLToPath5(import.meta.url));
+  const here = dirname11(fileURLToPath5(import.meta.url));
   const candidates = [
     join14(here, "..", "..", "..", "..", "scripts", name),
     join14(here, "..", "..", "..", "scripts", name)
@@ -36240,7 +36466,7 @@ var resolveVetScript = () => resolveScriptsFile("cheatcode-vet.sh");
 var SEARCH_TIMEOUT_MS = 60 * 1e3;
 var VET_TIMEOUT_MS = 60 * 1e3;
 function runSearchWithScript(script, query, kind, timeoutMs, projectRoot) {
-  return new Promise((resolve5, reject) => {
+  return new Promise((resolve3, reject) => {
     const child = spawn2("bash", [script, "--query", query, "--kind", kind], {
       ...projectSpawnOptions(projectRoot),
       stdio: ["ignore", "pipe", "pipe"]
@@ -36286,7 +36512,7 @@ function runSearchWithScript(script, query, kind, timeoutMs, projectRoot) {
         reject(new Error("cheatcode-search.sh emitted unexpected shape (missing candidates[])"));
         return;
       }
-      resolve5(parsed);
+      resolve3(parsed);
     });
   });
 }
@@ -36297,7 +36523,7 @@ var VALID_TIERS = /* @__PURE__ */ new Set([
   "unknown"
 ]);
 function runVetWithScript(script, candidate, timeoutMs, projectRoot) {
-  return new Promise((resolve5, reject) => {
+  return new Promise((resolve3, reject) => {
     const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
       ...projectSpawnOptions(projectRoot),
       stdio: ["ignore", "pipe", "pipe"]
@@ -36347,12 +36573,12 @@ function runVetWithScript(script, candidate, timeoutMs, projectRoot) {
         reject(new Error("cheatcode-vet.sh emitted unexpected shape (missing capabilities[])"));
         return;
       }
-      resolve5(parsed);
+      resolve3(parsed);
     });
   });
 }
 function runInstallWithScript(script, candidate, scope, timeoutMs, projectRoot) {
-  return new Promise((resolve5, reject) => {
+  return new Promise((resolve3, reject) => {
     const child = spawn2(
       "bash",
       [script, "--candidate", JSON.stringify(candidate), "--scope", scope],
@@ -36399,14 +36625,14 @@ function runInstallWithScript(script, candidate, scope, timeoutMs, projectRoot) 
         reject(new Error("cheatcode-install.sh emitted unexpected shape (missing attachments[])"));
         return;
       }
-      resolve5(parsed);
+      resolve3(parsed);
     });
   });
 }
 var resolveInstallScript = () => resolveScriptsFile("cheatcode-install.sh");
 var INSTALL_TIMEOUT_MS = 60 * 1e3;
 function runUninstallWithScript(script, candidate, timeoutMs, projectRoot) {
-  return new Promise((resolve5, reject) => {
+  return new Promise((resolve3, reject) => {
     const child = spawn2("bash", [script, "--candidate", JSON.stringify(candidate)], {
       ...projectSpawnOptions(projectRoot),
       stdio: ["ignore", "pipe", "pipe"]
@@ -36452,7 +36678,7 @@ function runUninstallWithScript(script, candidate, timeoutMs, projectRoot) {
         reject(new Error("cheatcode-uninstall.sh emitted unexpected shape (missing method)"));
         return;
       }
-      resolve5(parsed);
+      resolve3(parsed);
     });
   });
 }
@@ -36492,7 +36718,7 @@ function resolveGlobalAgentMd(target) {
     const c2 = join14(pluginRoot, "agents", `${target}.md`);
     if (existsSync11(c2)) return c2;
   }
-  const here = dirname12(fileURLToPath5(import.meta.url));
+  const here = dirname11(fileURLToPath5(import.meta.url));
   const c = join14(here, "..", "..", "..", "..", "agents", `${target}.md`);
   if (existsSync11(c)) return c;
   return null;
@@ -36629,8 +36855,8 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
       body = body.length === 0 ? `${reference}
 ` : `${body}${prefix}${reference}
 `;
-      mkdirSync7(claudeDir, { recursive: true });
-      writeFileSync5(claudeMd, body);
+      mkdirSync8(claudeDir, { recursive: true });
+      writeFileSync6(claudeMd, body);
     }
     return { target: "bro", artifact: "claude-md:.claude/CLAUDE.md", path: claudeMd };
   }
@@ -36649,8 +36875,8 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
   } else {
     updated = addSkillToAgentFrontmatter(updated, cheatcodeName);
   }
-  mkdirSync7(dirname12(localAgentMd), { recursive: true });
-  writeFileSync5(localAgentMd, updated);
+  mkdirSync8(dirname11(localAgentMd), { recursive: true });
+  writeFileSync6(localAgentMd, updated);
   return {
     target,
     artifact: `agent-md:.claude/agents/${target}.md`,
@@ -36667,7 +36893,7 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
     const content = readFileSync8(filePath, "utf8");
     let updated = removeSkillFromAgentFrontmatter(content, cheatcodeName);
     for (const tool of providedTools) updated = removeToolFromAgentFrontmatter(updated, tool);
-    if (updated !== content) writeFileSync5(filePath, updated);
+    if (updated !== content) writeFileSync6(filePath, updated);
     return;
   }
   if (artifact.startsWith("claude-md:")) {
@@ -36678,7 +36904,7 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
     const body = readFileSync8(filePath, "utf8");
     if (!body.includes(reference)) return;
     const updated = body.split("\n").filter((line) => line !== reference).join("\n");
-    writeFileSync5(filePath, updated);
+    writeFileSync6(filePath, updated);
   }
 }
 function cheatcodeTools(db2) {
@@ -37264,7 +37490,6 @@ function cheatcodeTools(db2) {
 
 // src/tools/world_model.ts
 import { spawnSync as spawnSync9 } from "node:child_process";
-import { resolve as resolve4, dirname as dirname13 } from "node:path";
 var WORLD_MODEL_GET_MAX_NODES = 500;
 var UNMERGED_WORK_MAX_BRANCHES = 10;
 function computeUnmergedWork(db2, repo) {
@@ -37274,8 +37499,7 @@ function computeUnmergedWork(db2, repo) {
     [repo]
   );
   if (!repoRow) return { unmerged_work: [] };
-  const dbDir = db2.dbPath === ":memory:" ? process.cwd() : dirname13(db2.dbPath);
-  const repoPath = repoRow.path.startsWith("/") ? repoRow.path : resolve4(dbDir, repoRow.path);
+  const repoPath = repoRowPath(db2, repoRow.path);
   const target = repoRow.target_branch || resolveRepoDefaultBranch(repoPath);
   const gitCheck = spawnSync9("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
     encoding: "utf8",
@@ -37566,9 +37790,9 @@ function worldModelTools(db2, graphHolder2) {
 }
 
 // src/tools/agent-runs-backfill.ts
-import { existsSync as existsSync12, readdirSync as readdirSync2, readFileSync as readFileSync9, statSync as statSync3 } from "node:fs";
+import { existsSync as existsSync12, readdirSync as readdirSync3, readFileSync as readFileSync9, statSync as statSync3 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { basename as basename4, join as join15 } from "node:path";
+import { basename as basename5, join as join15 } from "node:path";
 var UNBOUND_SAMPLE = 20;
 var BACKFILL_AGENTS = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
 function readRecords(path2) {
@@ -37721,7 +37945,7 @@ function defaultTranscriptsDir(projectRoot) {
 function listTranscripts(dir) {
   const sessions = [];
   const subagents = [];
-  for (const name of readdirSync2(dir).sort()) {
+  for (const name of readdirSync3(dir).sort()) {
     const p = join15(dir, name);
     if (name.endsWith(".jsonl")) {
       sessions.push(p);
@@ -37729,7 +37953,7 @@ function listTranscripts(dir) {
     }
     const sub = join15(p, "subagents");
     if (!existsSync12(sub) || !statSync3(sub).isDirectory()) continue;
-    for (const f of readdirSync2(sub).sort()) {
+    for (const f of readdirSync3(sub).sort()) {
       if (/^agent-.+\.jsonl$/.test(f)) subagents.push({ path: join15(sub, f), session: name });
     }
   }
@@ -37747,7 +37971,7 @@ function spawnAgentType(path2, sessionTypes) {
   return normalizeRole(sessionTypes?.get(agentIdOf(path2)));
 }
 function agentIdOf(path2) {
-  return basename4(path2).replace(/^agent-/, "").replace(/\.jsonl$/, "");
+  return basename5(path2).replace(/^agent-/, "").replace(/\.jsonl$/, "");
 }
 var RUN_COLS = "id, task_id, agent_type, started_at, completed_at, spawn_id, session_id, usage_source, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens";
 var MEASURED_SOURCES = /* @__PURE__ */ new Set(["transcript", "subagent_stop", "backfill"]);
@@ -37781,7 +38005,7 @@ function agentRunsBackfill(db2, opts) {
     if (report.unbound.first.length < UNBOUND_SAMPLE) report.unbound.first.push({ path: path2, reason });
   };
   const sessionRecords = /* @__PURE__ */ new Map();
-  for (const p of sessions) sessionRecords.set(basename4(p, ".jsonl"), readRecords(p));
+  for (const p of sessions) sessionRecords.set(basename5(p, ".jsonl"), readRecords(p));
   const spawnTypes = /* @__PURE__ */ new Map();
   const claimedRunIds = /* @__PURE__ */ new Set();
   for (const { path: path2, session } of subagents) {
@@ -37979,7 +38203,7 @@ function agentRunsBackfillTools(db2, dbPath2) {
 import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
 
 // src/utils/plugin-installs.ts
-import { readFileSync as readFileSync10, realpathSync as realpathSync5 } from "node:fs";
+import { readFileSync as readFileSync10, realpathSync as realpathSync6 } from "node:fs";
 import { join as join16 } from "node:path";
 function claudeConfigDir(env) {
   return env["CLAUDE_CONFIG_DIR"] || join16(env["HOME"] || "", ".claude");
@@ -37989,7 +38213,7 @@ function installedPluginsJsonPath(env = process.env) {
 }
 function canonicalDir(dir) {
   try {
-    return realpathSync5(dir);
+    return realpathSync6(dir);
   } catch {
     return dir;
   }
@@ -38058,6 +38282,21 @@ function singleTmbPluginEnabled(env) {
   const result2 = enabledPluginCopies(env);
   if ("skipped" in result2) return { skipped: result2.skipped };
   return { actual: result2.copies.length, sample: result2.copies.map((c) => ({ ...c })) };
+}
+function noOtherTrajectoryDbs(env, ctx) {
+  const dbPath2 = ctx.dbPath;
+  if (dbPath2 === void 0 || claudeProjectRootOfDb(dbPath2) === null) {
+    return { skipped: "the checked DB is not a <project>/.claude/<plugin>/trajectory.db file" };
+  }
+  const others = otherClaudeDbs(dbPath2, {
+    sessionDir: env["CLAUDE_PROJECT_DIR"] || process.cwd(),
+    ...env["HOME"] ? { home: env["HOME"] } : {}
+  });
+  if (others === null) return { skipped: "the checked DB has no project root" };
+  return {
+    actual: others.length,
+    sample: others.map((o) => ({ path: o.path, issues: o.issues, tasks: o.tasks }))
+  };
 }
 var daysAgo = (days) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${days} days')`;
 var hoursAgo = (hours) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${hours} hours')`;
@@ -38335,6 +38574,14 @@ function buildDataContracts(documentedEventTypes) {
       description: "at most one enabled copy of this plugin applies to CLAUDE_PROJECT_DIR (installed_plugins.json + enabledPlugins in the project settings.local.json / settings.json and the user settings.json, read-only); Claude Code registers the hooks of only one copy per manifest name, so a second copy silently drops TMB's gates \u2014 run /plugin and disable the extra copy. Skipped when CLAUDE_PROJECT_DIR is unset or installed_plugins.json is unreadable",
       expect: { op: "<=", value: 1 },
       check: singleTmbPluginEnabled
+    },
+    {
+      source: "files",
+      id: "no_other_trajectory_dbs",
+      severity: "warn",
+      description: `no other live trajectory DB sits on the walk from CLAUDE_PROJECT_DIR up to the project root, or below the project root within ${STRAY_DB_MAX_DEPTH} levels; a nested DB splits the project's issues and tasks \u2014 each sample names the DB path with its issue and task counts, and /onboard offers to remove an empty one. A DB marked standalone is its own project and is not counted. Skipped when the checked DB is not a <project>/.claude/<plugin>/trajectory.db file`,
+      expect: { op: "=", value: 0 },
+      check: noOtherTrajectoryDbs
     }
   ];
 }
@@ -38410,7 +38657,7 @@ function runDataContracts(reader, contracts, opts = {}) {
   };
   for (const contract of contracts) {
     if (contract.source === "files") {
-      const result2 = contract.check(opts.env ?? process.env);
+      const result2 = contract.check(opts.env ?? process.env, opts.dbPath === void 0 ? {} : { dbPath: opts.dbPath });
       if ("skipped" in result2) {
         report.skipped.push({ id: contract.id, reason: result2.skipped });
         continue;
@@ -38534,7 +38781,10 @@ function trajectoryDoctorTools(db2) {
     const ro = openReadOnly(db2.dbPath, timeoutMs);
     let report;
     try {
-      report = runDataContracts(ro ? sqliteReader(ro) : trajectoryDbReader(db2), contracts, { statementTimeoutMs: timeoutMs });
+      report = runDataContracts(ro ? sqliteReader(ro) : trajectoryDbReader(db2), contracts, {
+        statementTimeoutMs: timeoutMs,
+        dbPath: db2.dbPath
+      });
     } finally {
       ro?.close();
     }
@@ -38708,7 +38958,7 @@ function installShutdownHandlers(shutdown2, proc, stdin) {
 // src/index.ts
 var dbPath = resolveDbPath();
 if (dbPath !== ":memory:") {
-  mkdirSync8(path.dirname(dbPath), { recursive: true });
+  mkdirSync9(path.dirname(dbPath), { recursive: true });
 }
 var db = new TrajectoryDB(dbPath);
 function readPackageVersion() {

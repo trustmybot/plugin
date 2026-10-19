@@ -113,15 +113,49 @@ describe('resolveDbPath', () => {
             rmSync(ws, { recursive: true, force: true });
         }
     });
-    it('falls back to <CLAUDE_PROJECT_DIR>/.claude/tmb/trajectory.db when the project root has no DB', () => {
-        const ws = mkdtempSync(join(tmpdir(), 'project-root-fresh-'));
+    it('walks up from CLAUDE_PROJECT_DIR to the workspace DB above it (GH 1553)', () => {
+        const ws = mkdtempSync(join(tmpdir(), 'project-root-walk-'));
         try {
             plantDb(ws);
+            const project = join(ws, 'a', 'b');
+            mkdirSync(project, { recursive: true });
+            const got = resolveDbPath({
+                env: { CLAUDE_PROJECT_DIR: project },
+                cwd: '/',
+                home: emptyHome,
+            });
+            assert.equal(got, join(ws, '.claude', 'tmb', 'trajectory.db'));
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('a standalone DB under CLAUDE_PROJECT_DIR beats the workspace DB above it (GH 1553)', () => {
+        const ws = mkdtempSync(join(tmpdir(), 'project-root-standalone-'));
+        try {
+            plantDb(ws);
+            const project = join(ws, 'a', 'b');
+            plantDb(project);
+            writeFileSync(join(project, '.claude', 'tmb', 'standalone'), '');
+            const got = resolveDbPath({
+                env: { CLAUDE_PROJECT_DIR: join(project, 'src') },
+                cwd: '/',
+                home: emptyHome,
+            });
+            assert.equal(got, join(project, '.claude', 'tmb', 'trajectory.db'));
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('falls back to <CLAUDE_PROJECT_DIR>/.claude/tmb/trajectory.db when no DB exists upwards', () => {
+        const ws = mkdtempSync(join(tmpdir(), 'project-root-fresh-'));
+        try {
             const project = join(ws, 'project');
             mkdirSync(project, { recursive: true });
             const got = resolveDbPath({
                 env: { CLAUDE_PROJECT_DIR: project },
-                cwd: project,
+                cwd: '/',
                 home: emptyHome,
             });
             assert.equal(got, join(project, '.claude', 'tmb', 'trajectory.db'));

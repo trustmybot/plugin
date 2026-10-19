@@ -17,6 +17,7 @@
  */
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { STALE_RUNNING_HOURS_DEFAULT, reviewSkipAuthoredSql } from './tools/lifecycle.js';
+import { STRAY_DB_MAX_DEPTH, claudeProjectRootOfDb, otherClaudeDbs } from './platform.js';
 import { enabledPluginCopies } from './utils/plugin-installs.js';
 
 export type ContractSeverity = 'error' | 'warn';
@@ -52,13 +53,18 @@ export type FileCheckResult =
   | { readonly actual: number; readonly sample: Array<Record<string, unknown>> }
   | { readonly skipped: string };
 
+/** The checked DB file; absent when the reader has no file behind it. */
+export interface FileCheckContext {
+  readonly dbPath?: string;
+}
+
 export interface FileContract {
   readonly source: 'files';
   readonly id: string;
   readonly severity: ContractSeverity;
   readonly description: string;
   readonly expect: ContractExpect;
-  readonly check: (env: NodeJS.ProcessEnv) => FileCheckResult;
+  readonly check: (env: NodeJS.ProcessEnv, ctx: FileCheckContext) => FileCheckResult;
   readonly sql?: never;
   readonly params?: never;
   readonly min_schema?: never;
@@ -73,6 +79,22 @@ export function singleTmbPluginEnabled(env: NodeJS.ProcessEnv): FileCheckResult 
   const result = enabledPluginCopies(env);
   if ('skipped' in result) return { skipped: result.skipped };
   return { actual: result.copies.length, sample: result.copies.map((c) => ({ ...c })) };
+}
+
+export function noOtherTrajectoryDbs(env: NodeJS.ProcessEnv, ctx: FileCheckContext): FileCheckResult {
+  const dbPath = ctx.dbPath;
+  if (dbPath === undefined || claudeProjectRootOfDb(dbPath) === null) {
+    return { skipped: 'the checked DB is not a <project>/.claude/<plugin>/trajectory.db file' };
+  }
+  const others = otherClaudeDbs(dbPath, {
+    sessionDir: env['CLAUDE_PROJECT_DIR'] || process.cwd(),
+    ...(env['HOME'] ? { home: env['HOME'] } : {}),
+  });
+  if (others === null) return { skipped: 'the checked DB has no project root' };
+  return {
+    actual: others.length,
+    sample: others.map((o) => ({ path: o.path, issues: o.issues, tasks: o.tasks })),
+  };
 }
 
 export interface NullableColumn {
@@ -415,6 +437,14 @@ export function buildDataContracts(documentedEventTypes: readonly string[]): rea
       description: 'at most one enabled copy of this plugin applies to CLAUDE_PROJECT_DIR (installed_plugins.json + enabledPlugins in the project settings.local.json / settings.json and the user settings.json, read-only); Claude Code registers the hooks of only one copy per manifest name, so a second copy silently drops TMB\'s gates — run /plugin and disable the extra copy. Skipped when CLAUDE_PROJECT_DIR is unset or installed_plugins.json is unreadable',
       expect: { op: '<=', value: 1 },
       check: singleTmbPluginEnabled,
+    },
+    {
+      source: 'files',
+      id: 'no_other_trajectory_dbs',
+      severity: 'warn',
+      description: `no other live trajectory DB sits on the walk from CLAUDE_PROJECT_DIR up to the project root, or below the project root within ${STRAY_DB_MAX_DEPTH} levels; a nested DB splits the project's issues and tasks — each sample names the DB path with its issue and task counts, and /onboard offers to remove an empty one. A DB marked standalone is its own project and is not counted. Skipped when the checked DB is not a <project>/.claude/<plugin>/trajectory.db file`,
+      expect: { op: '=', value: 0 },
+      check: noOtherTrajectoryDbs,
     },
   ];
 }

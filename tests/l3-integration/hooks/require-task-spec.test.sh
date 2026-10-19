@@ -344,6 +344,19 @@ test_case "running task with no worktree is not gated"
 out=$(run_hook "$(swe_input 'task_id=74 please do the thing')")
 assert_eq "" "$out" "running task allowed"
 
+test_case "GH 1553: a relative repos.path resolves against the project root, not the DB's dir"
+WS_DB="$TMPDIR/ws/.claude/tmb/trajectory.db"
+mkdir -p "$(dirname "$WS_DB")"
+sqlite3 "$DB" ".backup '$WS_DB'"
+make_repo "$TMPDIR/ws/relapp"
+sqlite3 "$WS_DB" "
+  INSERT INTO repos VALUES ('relapp', 'relapp');
+  INSERT INTO tasks (id, status, spec_body, branch_id, repo) VALUES (75, 'pending', 'Do the thing.', 'fix/rel-no-wt', 'relapp');
+"
+out=$(run_hook_env "$(swe_input 'task_id=75 please do the thing')" "TRAJECTORY_DB_PATH" "$WS_DB")
+assert_contains "$out" '"permissionDecision":"deny"' "the relative repo is gated as a git work tree"
+assert_contains "$out" "$TMPDIR/ws/relapp/.claude/worktrees/rel-no-wt" "reason names the worktree under <project>/relapp"
+
 # Real server writers against a real trajectory DB: the rows task_create_batch
 # and audit_append write are the rows the hook reads.
 SERVER_DB="$TMPDIR/server.db"

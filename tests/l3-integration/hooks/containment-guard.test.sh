@@ -163,9 +163,18 @@ assert_eq "deny" "$(decision "$(run "$PROJECT" "" Write "$(write "$HOME/.claude/
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Write "$(write "$CC_PROJECT/memory/x.md")")")" "swe Write to the project's auto-memory"
 assert_eq "deny" "$(decision "$(run "$WT" "pr-reviewer" Write "$(write "$HOME/.claude/plans/x.md")")")" "pr-reviewer Write to a plan"
 
+test_case "GH 1553: a session nested below the project writes the auto-memory Claude Code names after CLAUDE_PROJECT_DIR"
+NESTED="$PROJECT/apps/web"
+mkdir -p "$NESTED"
+CC_NESTED="$HOME/.claude/projects/$(printf '%s' "$NESTED" | sed 's/[^A-Za-z0-9]/-/g')"
+assert_eq "allow" "$(decision "$(run "$NESTED" "" Write "$(write "$CC_NESTED/memory/MEMORY.md")" "$NESTED")")" "bro Write to the session's auto-memory"
+assert_eq "allow" "$(decision "$(run "$NESTED" "" Write "$(write "$CC_PROJECT/memory/MEMORY.md")" "$NESTED")")" "bro Write to the project root's auto-memory"
+assert_eq "allow" "$(decision "$(run "$NESTED" "" Write "$(write "$PROJECT/README.md")" "$NESTED")")" "the root is still the project"
+assert_eq "deny" "$(decision "$(run "$PROJECT" "" Write "$(write "$CC_NESTED/memory/MEMORY.md")")")" "a session at the project root does not get a subdir's slug"
+
 test_case "every denial wrote an audit row"
 assert_eq "$(sqlite3 "$DB" "SELECT COUNT(*) FROM audit WHERE event_type='containment_denied';")" "$(denials)" "all rows from hook:containment-guard"
-assert_eq "27" "$(denials)" "one row per denial above"
+assert_eq "28" "$(denials)" "one row per denial above"
 
 test_case "GH 1279: a program fed to an interpreter through a heredoc is judged"
 NODE_OUT=$(printf '%s\n' "node <<'EOF'" "require('fs').writeFileSync('/tmp/tmb-cg-x', 'y')" 'EOF')

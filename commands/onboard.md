@@ -6,15 +6,25 @@ allowed-tools: AskUserQuestion, mcp__plugin_tmb_trajectory-server__onboard_state
 
 # Onboard / Re-onboard
 
-Bro orchestrates an AskUserQuestion ceremony in 4-5 rounds — Round 3 runs only when `shape == 'remote'`. Pass answers between AUQ and the server; all deterministic logic lives in the `onboard_*` MCP tools.
+Bro orchestrates an AskUserQuestion ceremony in 4-6 rounds — Round 0 runs only when the session is nested below the project or another trajectory DB exists, Round 3 only when `shape == 'remote'`. Pass answers between AUQ and the server; all deterministic logic lives in the `onboard_*` MCP tools.
 
 ## 1. Read state (one MCP call)
 
-Call `onboard_state_get(agent='bro')`. Returns `{ first_run, current, probe }`. The server re-probes internally on each call, so bro never feeds the probe back — read `state.probe` only to spot a shape/remote conflict in Round 1.
+Call `onboard_state_get(agent='bro')`. Returns `{ first_run, current, probe, nesting }`. The server re-probes internally on each call, so bro never feeds the probe back — read `state.probe` only to spot a shape/remote conflict in Round 1, and `state.nesting` for Round 0.
 
 ## 2. Ask the questions
 
-Run the AskUserQuestion ceremony in up to five rounds.
+Run the AskUserQuestion ceremony in up to six rounds.
+
+### Round 0 — Which project (only when nested)
+
+`nesting` is `{ session_dir, project_root, nested, other_dbs: [{path, issues, tasks, empty}] }`. Skip this round when `nested` is false and `other_dbs` is empty.
+
+Otherwise explain in chat first: this session opened in `session_dir`, but the TMB project it uses is the workspace at `project_root`; list each `other_dbs` entry with its path and its issue and task counts. Then ask one AskUserQuestion:
+
+- **Use workspace `<project_root>` (Recommended)** — keep the workspace project. For each `other_dbs` entry with `empty: true`, ask whether to remove that empty DB (one Yes/No question per DB). Collect the paths the Human said yes to and pass them as `remove_stray_dbs=[...]` with the final workspace apply in step 3 (or in an `onboard_apply(agent='bro', remove_stray_dbs=[...])` call of their own if the ceremony stops early). The server deletes a DB only while it is still empty and below the project root, and reports each refusal; a DB with any issue or task is never offered or removed. Continue with Round 1.
+- **Make `<session_dir>` its own TMB project** — offer this only when `nested` is true. Call `onboard_apply(agent='bro', standalone=true)` on its own. The server writes a `standalone` marker and a fresh DB under `session_dir`. Tell the Human to restart the session (quit and relaunch Claude Code in `session_dir`), then run `/onboard` again there. Stop this ceremony.
+- **Cancel** — stop. Call no apply; nothing is written.
 
 ### Round 1 — Project shape
 
@@ -62,11 +72,11 @@ Call `onboard_get_questions(agent='bro', round='sandbox')` and feed the returned
 
 Per-repo branching + PR target are already applied in Round 2 (one `onboard_apply(shape=<shape>, repo=<name>, ...)` per repo, each writing only that repo's row).
 
-The final apply is workspace-level: call `onboard_apply(agent='bro', shape=<shape>, ...)` with **no** `repo` to write the global `issue_sync` answer, `headless_enforcement`, `sandbox_enforcement`, and the `onboarded` marker. `shape` is required on every apply. Omit `branching_model` / `pr_target` on this call so it sets only these workspace answers and leaves per-repo policy intact.
+The final apply is workspace-level: call `onboard_apply(agent='bro', shape=<shape>, ...)` with **no** `repo` to write the global `issue_sync` answer, `headless_enforcement`, `sandbox_enforcement`, and the `onboarded` marker, plus `remove_stray_dbs` from Round 0 when the Human chose any. `shape` is required on every apply except the Round 0 ones (`standalone=true` alone, or `remove_stray_dbs` alone). Omit `branching_model` / `pr_target` on this call so it sets only these workspace answers and leaves per-repo policy intact.
 
 The server accepts both option wire values and their labels. Pass `Keep "<current>"` answers by omitting that field — the server treats omission as "no change". Each apply recomputes protected branches and wraps its writes in a transaction.
 
-Returns `{ ok: true, applied: { onboarded: true, branching_model, pr_target, protected_branches, remotes, issue_sync, headless_enforcement, headless_shim, sandbox_enforcement, sandbox } }`.
+Returns `{ ok: true, stray_dbs?: { removed, refused }, applied: { onboarded: true, branching_model, pr_target, protected_branches, remotes, issue_sync, headless_enforcement, headless_shim, sandbox_enforcement, sandbox } }`.
 
 The apply never touches the project's `CLAUDE.md`: bro's persona loads from the plugin through its persona hooks. `onboard_apply` takes no `persona` argument and rejects one with `persona_input_removed`.
 

@@ -14,8 +14,8 @@
 #   pr-reviewer — the project root (a read-only reviewer; its row opens only
 #     at SubagentStop).
 #   bro (no agent_type, or bro) — the project root.
-# The project root is CLAUDE_PROJECT_DIR, else the project holding the
-# trajectory DB. The payload cwd is only the base a relative path joins.
+# The project root is the project holding the resolved trajectory DB, else
+# CLAUDE_PROJECT_DIR. The payload cwd is only the base a relative path joins.
 #
 #   Write/Edit/MultiEdit/NotebookEdit — deny when the canonical file_path
 #     (symlinks followed before `..` applies, as the kernel does; /tmp ≡
@@ -45,9 +45,11 @@
 #     /dev/fd/*.
 #   Main session only (bro: no agent_type, or bro):
 #     Claude Code's own host-owned state — its per-project dir
-#     (${CLAUDE_CONFIG_DIR:-~/.claude}/projects/<slug of the root>, the slug
-#     being the path with every non-alphanumeric character turned into `-`)
-#     and its plans dir (.../plans). swe and pr-reviewer never get these.
+#     (${CLAUDE_CONFIG_DIR:-~/.claude}/projects/<slug>, the slug being the
+#     path with every non-alphanumeric character turned into `-`; Claude Code
+#     names it after CLAUDE_PROJECT_DIR, so in a session nested below the
+#     project both that slug and the root's slug are allowed) and its plans
+#     dir (.../plans). swe and pr-reviewer never get these.
 #
 # Every denial writes one containment_denied audit row (from_node
 # hook:containment-guard, content {tool, path, root, task_id}, plus reason for
@@ -118,16 +120,24 @@ case "${TMPDIR:-}" in
   /?*) HOST_TMP_C=$(tmb_path_canonical "$TMPDIR") ;;
 esac
 
+# cc_project_dir <dir> — Claude Code's canonical projects/<slug> dir for <dir>.
+cc_project_dir() {
+  local slug
+  slug=$(printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g')
+  case "$slug" in
+    *[A-Za-z0-9]*) tmb_path_canonical "$CC_HOME/projects/$slug" ;;
+  esac
+}
+
 CC_PROJECT_C=""
+CC_SESSION_C=""
 CC_PLANS_C=""
 case "$AGENT_TYPE" in
   ''|bro)
     if [ "$(tmb_swe_context "$AGENT_TYPE")" = "no" ]; then
       CC_HOME="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-      CC_SLUG=$(printf '%s' "$ROOT" | sed 's/[^A-Za-z0-9]/-/g')
-      case "$CC_SLUG" in
-        *[A-Za-z0-9]*) CC_PROJECT_C=$(tmb_path_canonical "$CC_HOME/projects/$CC_SLUG") ;;
-      esac
+      CC_PROJECT_C=$(cc_project_dir "$ROOT")
+      [ -z "${CLAUDE_PROJECT_DIR:-}" ] || CC_SESSION_C=$(cc_project_dir "$CLAUDE_PROJECT_DIR")
       CC_PLANS_C=$(tmb_path_canonical "$CC_HOME/plans")
     fi
     ;;
@@ -153,6 +163,7 @@ allowed() {
   under "$c" "$CACHE_C" && return 0
   [ -n "$HOST_TMP_C" ] && [ "$HOST_TMP_C" != "/" ] && under "$c" "$HOST_TMP_C" && return 0
   [ -n "$CC_PROJECT_C" ] && under "$c" "$CC_PROJECT_C" && return 0
+  [ -n "$CC_SESSION_C" ] && under "$c" "$CC_SESSION_C" && return 0
   [ -n "$CC_PLANS_C" ] && under "$c" "$CC_PLANS_C"
 }
 

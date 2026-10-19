@@ -30,9 +30,8 @@ import { resolveMilestoneTargets } from './milestones.js';
 import type { GraphHolder } from '../graph-db.js';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
 import { resolveBaseRef, resolveRepoDefaultBranch } from '../utils/git-refs.js';
-import { resolveSoleRepo } from '../utils/repo-paths.js';
+import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { latestVerificationRun } from './verification-runs.js';
-import { resolve, dirname } from 'node:path';
 import type { TaskProvisionInput } from '../types.js';
 import { EFFORT_LEVELS, computeEffort, effortRank, isEffort, type Effort } from './config.js';
 
@@ -186,15 +185,14 @@ export function scopeCheckCommit(
 }
 
 // Resolve a task's repo to its on-disk path (repos.path; relative → resolved
-// against the trajectory DB's directory). Sole-repo fallback applies when the
+// against the project root). Sole-repo fallback applies when the
 // task has no explicit repo. Returns null when no repo can be resolved.
 export function resolveRepoPath(db: TrajectoryDB, repoValue: string | null): string | null {
   const name = repoValue && repoValue.length > 0 ? repoValue : resolveSoleRepo(db)?.name ?? null;
   if (!name) return null;
   const reposRow = db.get<{ path: string }>(`SELECT path FROM repos WHERE name = ?`, [name]);
   if (!reposRow) return name;
-  const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
-  return reposRow.path.startsWith('/') ? reposRow.path : resolve(dbDir, reposRow.path);
+  return repoRowPath(db, reposRow.path);
 }
 
 // Read a repo's target_branch (pr_target) from the repos table — the sole
@@ -1057,8 +1055,7 @@ export function compositeTools(
             [repoValue],
           );
           if (reposRow) {
-            const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
-            repoPath = reposRow.path.startsWith('/') ? reposRow.path : resolve(dbDir, reposRow.path);
+            repoPath = repoRowPath(db, reposRow.path);
           } else {
             // #1027: tasks.repo is a FK to repos(name) ON DELETE RESTRICT.
             // Reject an unregistered repo here, before any git branch/worktree

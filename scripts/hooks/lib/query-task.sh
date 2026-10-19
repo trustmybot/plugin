@@ -179,12 +179,13 @@ tmb_test_flag() {
 # _tmb_db_resolve
 # Steps 1-3 of the rule (docs/reference/TRAJECTORY_DB_LOCATION.md):
 #   1. TRAJECTORY_DB_PATH, if set (must exist; no further steps).
-#   2. CLAUDE_PROJECT_DIR/<host>/<plugin>/trajectory.db, if CLAUDE_PROJECT_DIR
-#      is set (must exist; no walking).
-#   3. Only without CLAUDE_PROJECT_DIR: walk up from cwd, never entering $HOME
-#      unless started there, no .git stop; every ancestor DB that is not a
-#      stale schema is a candidate; the outermost wins. Under a test flag
-#      (tmb_test_flag) step 3 never runs: unresolved, one stderr line.
+#   2. Walk up from CLAUDE_PROJECT_DIR, else cwd, never entering $HOME unless
+#      started there, no .git stop; every ancestor DB that is not a stale
+#      schema is a candidate. A candidate whose state dir holds a `standalone`
+#      file ends the walk and wins; otherwise the outermost wins.
+#   3. Otherwise unresolved.
+# Under a test flag (tmb_test_flag) nothing walks: CLAUDE_PROJECT_DIR's own DB
+# only (must exist), and without CLAUDE_PROJECT_DIR unresolved, one stderr line.
 # A candidate whose probe read fails is kept: it is resolved, and the read
 # error surfaces through tmb_db_state instead of silently resolving elsewhere.
 _tmb_db_resolve() {
@@ -194,18 +195,19 @@ _tmb_db_resolve() {
     printf '%s\n' "$TRAJECTORY_DB_PATH"
     return 0
   fi
-  if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
-    candidate=$(tmb_db_location "$CLAUDE_PROJECT_DIR")
-    [ -f "$candidate" ] || return 1
-    printf '%s\n' "$candidate"
-    return 0
-  fi
   if flag=$(tmb_test_flag); then
+    if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+      candidate=$(tmb_db_location "$CLAUDE_PROJECT_DIR")
+      [ -f "$candidate" ] || return 1
+      printf '%s\n' "$candidate"
+      return 0
+    fi
     printf 'tmb: trajectory DB unresolved: %s is set and neither TRAJECTORY_DB_PATH nor CLAUDE_PROJECT_DIR is (walk-up discovery disabled)\n' "$flag" >&2
     return 1
   fi
   local start dir outermost=""
-  start="$(pwd)"
+  start="${CLAUDE_PROJECT_DIR:-}"
+  [ -n "$start" ] || start="$(pwd)"
   dir="$start"
   while [ -n "$dir" ] && [ "$dir" != "/" ]; do
     if [ "$dir" = "$HOME" ] && [ "$start" != "$HOME" ]; then
@@ -214,7 +216,10 @@ _tmb_db_resolve() {
     candidate=$(tmb_db_location "$dir")
     if [ -f "$candidate" ]; then
       _tmb_db_probe "$candidate"
-      [ $? -ne 1 ] && outermost="$candidate"
+      if [ $? -ne 1 ]; then
+        outermost="$candidate"
+        [ -e "$(dirname "$candidate")/standalone" ] && break
+      fi
     fi
     dir="$(dirname "$dir")"
   done
@@ -244,18 +249,44 @@ tmb_realdir() {
   (cd -P -- "$1" 2>/dev/null && pwd -P) || printf '%s\n' "$1"
 }
 
+# tmb_db_project_root <db>
+# The project holding <db>: <project> for <project>/.claude/<plugin>/<file>;
+# empty for any other shape. Never fails the caller.
+tmb_db_project_root() {
+  local host
+  [ -n "${1:-}" ] || return 0
+  host=$(dirname "$(dirname "$1")")
+  [ "$(basename "$host")" = "$TMB_STATE_HOST_DIR" ] && dirname "$host"
+  return 0
+}
+
+# tmb_repo_path_abs <db> <repos.path>
+# A repos.path as an absolute dir: as given when absolute, else joined to the
+# project holding <db> (the DB's own dir when <db> has no project shape).
+tmb_repo_path_abs() {
+  local db="$1" path="$2" root
+  case "$path" in
+    /*) printf '%s\n' "$path" ;;
+    *)
+      root=$(tmb_db_project_root "$db")
+      printf '%s/%s\n' "${root:-$(dirname "$db")}" "$path"
+      ;;
+  esac
+}
+
 # tmb_project_root
-# The project root: CLAUDE_PROJECT_DIR, else the project holding the resolved
-# trajectory DB (<project>/.claude/<plugin>/trajectory.db). Empty when
-# neither resolves. Never fails the caller.
+# The project root: the directory holding the resolved trajectory DB
+# (<project>/.claude/<plugin>/trajectory.db), else CLAUDE_PROJECT_DIR. Empty
+# when neither resolves. Never fails the caller.
 tmb_project_root() {
-  local db
-  if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+  local db root=""
+  db=$(tmb_db_path 2>/dev/null) && root=$(tmb_db_project_root "$db")
+  if [ -n "$root" ]; then
+    printf '%s\n' "$root"
+  elif [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
     printf '%s\n' "$CLAUDE_PROJECT_DIR"
-    return 0
   fi
-  db=$(tmb_db_path 2>/dev/null) || return 0
-  dirname "$(dirname "$(dirname "$db")")"
+  return 0
 }
 
 # tmb_state_dir

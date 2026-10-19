@@ -15,8 +15,7 @@ import {
 } from './agent-runs.js';
 import { spawnSync } from 'node:child_process';
 import { SUBPROCESS_TIMEOUT_MS } from '../utils/timeouts.js';
-import { resolve, dirname } from 'node:path';
-import { resolveSoleRepo } from '../utils/repo-paths.js';
+import { repoRowPath, resolveSoleRepo } from '../utils/repo-paths.js';
 import { branchRefExists } from '../utils/git-refs.js';
 import { EFFORT_LEVELS, computeEffort, isEffort, type Effort } from './config.js';
 
@@ -89,8 +88,7 @@ function repoPolicyBranches(db: TrajectoryDB, repoValue: string | null): { names
   } catch {
     // malformed protected_branches contributes no names
   }
-  const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
-  return { names, target: row.target_branch || null, repoPath: row.path.startsWith('/') ? row.path : resolve(dbDir, row.path) };
+  return { names, target: row.target_branch || null, repoPath: repoRowPath(db, row.path) };
 }
 
 function validateParentBranchId(branchId: string, db: TrajectoryDB, repoValue: string | null): void {
@@ -756,7 +754,6 @@ export function taskTools(db: TrajectoryDB): {
       // Pre-transaction: format-validate then branch-ensure against the
       // resolved repo (explicit > default). Order matters: bad format should
       // produce the format error, not a git error. (#360, #529)
-      const dbDir = db.dbPath === ':memory:' ? process.cwd() : dirname(db.dbPath);
       const autocreatedAudits: Array<{ branchId: string; startPoint: string; repoPath: string }> = [];
       for (const t of taskInputs) {
         if (!t.branch_id) throw new Error('Missing required arg: branch_id');
@@ -827,8 +824,7 @@ export function taskTools(db: TrajectoryDB): {
               `tasks.repo is a foreign key to repos(name).`,
             );
           }
-          const rawPath = reposRow.path;
-          const repoPath = rawPath.startsWith('/') ? rawPath : resolve(dbDir, rawPath);
+          const repoPath = repoRowPath(db, reposRow.path);
 
           const parentBranchId = (t.parent_branch_id as string | undefined | null) ?? null;
           const audit = ensureBranchInRepo(t.branch_id, repoPath, parentBranchId);

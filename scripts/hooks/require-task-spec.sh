@@ -104,8 +104,7 @@ if [ "$STATUS" = "pending" ]; then
   fi
   case "$WT_REPO" in
     '') WT_REPO="${CLAUDE_PROJECT_DIR:-}" ;;
-    /*) ;;
-    *) WT_REPO="$(dirname "$DB")/$WT_REPO" ;;
+    *) WT_REPO=$(tmb_repo_path_abs "$DB" "$WT_REPO") ;;
   esac
   if [ -n "$WT_REPO" ] && [ -n "$WT_BRANCH" ] \
     && [ "$(git -C "$WT_REPO" rev-parse --is-inside-work-tree 2>/dev/null)" = "true" ]; then

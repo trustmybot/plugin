@@ -5,16 +5,27 @@ One rule decides which `trajectory.db` the MCP server and every hook use. It is 
 ## Resolution order
 
 1. **`TRAJECTORY_DB_PATH`**, if set. The file must exist; otherwise the DB is unresolved (the server creates it there).
-2. **The project root**: `<root>/.claude/<plugin>/trajectory.db`, where `<root>` is `CLAUDE_PROJECT_DIR` (Claude Code sets it for hooks and for the MCP server). No walking: when the file is absent the DB is unresolved, and the server creates it there.
-3. **Fallback, only without a project root** (e.g. a bare `node dist/index.js`, a test harness — Claude Code sets `CLAUDE_PROJECT_DIR` for every hook, subagent ones included): walk up from the working directory and collect every ancestor `.claude/<plugin>/trajectory.db`.
+2. **Walk up** from `CLAUDE_PROJECT_DIR` (Claude Code sets it for hooks and for the MCP server), else from the working directory, and collect every ancestor `.claude/<plugin>/trajectory.db`. A session opened in a subdirectory of a workspace therefore finds the workspace DB.
    - Never enter `$HOME` unless the walk started there.
    - No `.git` stop: a workspace root above a nested repo is reachable.
    - Skip a stale legacy DB (its `tasks` table has no `prompt_bearing` column). A candidate whose read fails is kept, so the failure surfaces instead of resolving somewhere else.
-   - The **outermost** candidate wins (the workspace root beats a nested repo).
-   - Hooks and `scripts/scan.sh` (`tmb_db_path`) never walk under a test flag (`TMB_FORBID_LIVE_SYNC=1` or a set `TMB_TEST_RUN_ID`): the DB is unresolved and one stderr line names the flag.
-4. Otherwise **unresolved**.
+   - A candidate whose state dir holds a **`standalone`** file (`<dir>/.claude/<plugin>/standalone`) ends the walk and wins: that directory is its own project.
+   - Otherwise the **outermost** candidate wins (the workspace root beats a nested repo).
+3. Otherwise **unresolved**. The server then creates a fresh DB at `<CLAUDE_PROJECT_DIR or cwd>/.claude/<plugin>/trajectory.db`.
+
+Under a test flag (`TMB_FORBID_LIVE_SYNC=1` or a set `TMB_TEST_RUN_ID`) the hooks and `scripts/scan.sh` (`tmb_db_path`) never walk: they use `CLAUDE_PROJECT_DIR`'s own DB when it exists, and without `CLAUDE_PROJECT_DIR` the DB is unresolved and one stderr line names the flag.
 
 Nothing under `$HOME` takes part in the rule.
+
+## The project root
+
+The project root is the directory holding the resolved DB (`<root>` in `<root>/.claude/<plugin>/trajectory.db`), on both sides: the hooks' `tmb_project_root`, the server's spawn cwd and its tool defaults. `CLAUDE_PROJECT_DIR` stands in only when no DB resolves. A relative `repos.path` resolves against the project root.
+
+## Other DBs
+
+`trajectory_doctor`'s `no_other_trajectory_dbs` contract (warn) lists every other live DB: those the walk from `CLAUDE_PROJECT_DIR` passed, and those below the project root up to four levels deep (dot directories and `node_modules` are skipped; a `standalone` project and everything under it is not counted). Each entry names the path with its issue and task counts. It is a file contract, so it runs in `trajectory_doctor` only, not in the SessionStart banner.
+
+`/onboard` Round 0 shows the same list (`onboard_state_get` → `nesting`). When the session sits below the project root, or another DB exists, it asks whether to use the workspace, make the session directory its own project (`onboard_apply(standalone=true)` writes the `standalone` marker and a fresh DB there, then the session must restart), or cancel. On the workspace answer it offers to remove each empty stray DB (`onboard_apply(remove_stray_dbs=[…])`); a DB with any issue or task is never removed.
 
 `<plugin>` is the `name` in `CLAUDE_PLUGIN_ROOT/.claude-plugin/plugin.json` (`tmb` when unset). The `.claude` host directory is one variable in each implementation (`TMB_STATE_HOST_DIR` in the hook lib, `CLAUDE_STATE_HOST_DIR` in `platform.ts`).
 

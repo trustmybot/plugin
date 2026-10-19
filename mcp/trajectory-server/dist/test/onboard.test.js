@@ -1,9 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { TrajectoryDB } from '../db.js';
 import { onboardTools } from '../tools/onboard.js';
 import { tempDB } from './helpers.js';
 import { repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
@@ -1317,6 +1318,178 @@ describe('onboard tools', () => {
             assert.equal(personaRows(db), 0);
             rmSync(fx.base, { recursive: true, force: true });
             db.close();
+        });
+    });
+    describe('Round 0: a session nested below the workspace DB (GH 1553)', () => {
+        function nest() {
+            const base = realpathSync(mkdtempSync(join(tmpdir(), 'onboard-nest-')));
+            const ws = join(base, 'ws');
+            const session = join(ws, 'a', 'b');
+            mkdirSync(join(ws, '.claude', 'tmb'), { recursive: true });
+            mkdirSync(join(session, '.claude', 'tmb'), { recursive: true });
+            const dbPath = join(ws, '.claude', 'tmb', 'trajectory.db');
+            const stray = join(session, '.claude', 'tmb', 'trajectory.db');
+            new TrajectoryDB(stray).close();
+            return { base, ws, session, dbPath, stray, db: tempDB({ path: dbPath }) };
+        }
+        const auditRows = (db, type) => db.get(`SELECT COUNT(*) AS n FROM audit WHERE event_type = ?`, [type])?.n ?? 0;
+        const rowCount = (db) => ['issues', 'tasks', 'audit', 'plugin_config', 'repos']
+            .map((t) => db.get(`SELECT COUNT(*) AS n FROM ${t}`)?.n ?? 0)
+            .reduce((a, b) => a + b, 0);
+        it('onboard_state_get reports nested:true and the stray DB with its counts', async () => {
+            const fx = nest();
+            try {
+                const tools = onboardTools(fx.db, fx.dbPath, { sessionDir: fx.session });
+                const nesting = parse(await call(tools.handlers, 'onboard_state_get', {})).nesting;
+                assert.equal(nesting.session_dir, fx.session);
+                assert.equal(nesting.project_root, fx.ws);
+                assert.equal(nesting.nested, true);
+                assert.deepEqual(nesting.other_dbs, [{ path: fx.stray, issues: 0, tasks: 0, empty: true }]);
+            }
+            finally {
+                fx.db.close();
+                rmSync(fx.base, { recursive: true, force: true });
+            }
+        });
+        it('a session at the project root is not nested', async () => {
+            const fx = nest();
+            try {
+                const tools = onboardTools(fx.db, fx.dbPath, { sessionDir: fx.ws });
+                const nesting = parse(await call(tools.handlers, 'onboard_state_get', {})).nesting;
+                assert.equal(nesting.nested, false);
+            }
+            finally {
+                fx.db.close();
+                rmSync(fx.base, { recursive: true, force: true });
+            }
+        });
+        it('Cancel (state read, no apply) writes nothing', async () => {
+            const fx = nest();
+            try {
+                const before = rowCount(fx.db);
+                await call(onboardTools(fx.db, fx.dbPath, { sessionDir: fx.session }).handlers, 'onboard_state_get', {});
+                assert.equal(rowCount(fx.db), before);
+                assert.ok(existsSync(fx.stray));
+                assert.ok(!existsSync(join(fx.session, '.claude', 'tmb', 'standalone')));
+            }
+            finally {
+                fx.db.close();
+                rmSync(fx.base, { recursive: true, force: true });
+            }
+        });
+        it('remove_stray_dbs deletes an empty stray DB and its state dir, with one stray_db_removed row', async () => {
+            const fx = nest();
+            try {
+                writeFileSync(`${fx.stray}-wal`, '');
+                const tools = onboardTools(fx.db, fx.dbPath, { sessionDir: fx.session });
+                const data = parse(await call(tools.handlers, 'onboard_apply', { remove_stray_dbs: [fx.stray] }));
+                assert.deepEqual(data.stray_dbs, { removed: [fx.stray], refused: [] });
+                assert.ok(!existsSync(fx.stray));
+                assert.ok(!existsSync(`${fx.stray}-wal`));
+                assert.ok(!existsSync(join(fx.session, '.claude', 'tmb')));
+                assert.ok(existsSync(fx.dbPath));
+                assert.equal(auditRows(fx.db, 'stray_db_removed'), 1);
+            }
+            finally {
+                fx.db.close();
+                rmSync(fx.base, { recursive: true, force: true });
+            }
+        });
+        it('remove_stray_dbs refuses a non-empty stray DB, the current DB and a path outside the project', async () => {
+            const fx = nest();
+            try {
+                const stray = new TrajectoryDB(fx.stray);
+                stray.run(`INSERT INTO issues (objective, status, created_at, updated_at) VALUES ('kept', 'open', 'x', 'x')`);
+                stray.close();
+                const outside = join(fx.base, 'other', '.claude', 'tmb', 'trajectory.db');
+                mkdirSync(join(fx.base, 'other', '.claude', 'tmb'), { recursive: true });
+                new TrajectoryDB(outside).close();
+                const tools = onboardTools(fx.db, fx.dbPath, { sessionDir: fx.session });
+                const data = parse(await call(tools.handlers, 'onboard_apply', { remove_stray_dbs: [fx.stray, fx.dbPath, outside, 'relative.db'] }));
+                const result = data.stray_dbs;
+                assert.deepEqual(result.removed, []);
+                assert.deepEqual(result.refused.map((r) => r.path), [fx.stray, fx.dbPath, outside, 'relative.db']);
+                assert.match(result.refused[0].reason, /not empty \(1 issues, 0 tasks\)/);
+                assert.ok(existsSync(fx.stray));
+                assert.ok(existsSync(outside));
+                assert.equal(auditRows(fx.db, 'stray_db_removed'), 0);
+            }
+            finally {
+                fx.db.close();
+                rmSync(fx.base, { recursive: true, force: true });
+            }
+        });
+        it('remove_stray_dbs refuses a stray reached through a symlinked .claude or plugin dir and deletes nothing outside', async () => {
+            const fx = nest();
+            try {
+                const elsewhere = join(fx.base, 'elsewhere');
+                mkdirSync(join(elsewhere, '.claude', 'tmb'), { recursive: true });
+                const target = join(elsewhere, '.claude', 'tmb', 'trajectory.db');
+                new TrajectoryDB(target).close();
+                mkdirSync(join(fx.ws, 'c'), { recursive: true });
+                symlinkSync(join(elsewhere, '.claude'), join(fx.ws, 'c', '.claude'));
+                mkdirSync(join(fx.ws, 'd', '.claude'), { recursive: true });
+                symlinkSync(join(elsewhere, '.claude', 'tmb'), join(fx.ws, 'd', '.claude', 'tmb'));
+                const viaClaude = join(fx.ws, 'c', '.claude', 'tmb', 'trajectory.db');
+                const viaPlugin = join(fx.ws, 'd', '.claude', 'tmb', 'trajectory.db');
+                const tools = onboardTools(fx.db, fx.dbPath, { sessionDir: fx.session });
+                const data = parse(await call(tools.handlers, 'onboard_apply', { remove_stray_dbs: [viaClaude, viaPlugin] }));
+                const result = data.stray_dbs;
+                assert.deepEqual(result.removed, []);
+                assert.deepEqual(result.refused, [
+                    { path: viaClaude, reason: `${join(fx.ws, 'c', '.claude')} is a symlink` },
+                    { path: viaPlugin, reason: `${join(fx.ws, 'd', '.claude', 'tmb')} is a symlink` },
+                ]);
+                assert.ok(existsSync(target));
+                assert.equal(auditRows(fx.db, 'stray_db_removed'), 0);
+            }
+            finally {
+                fx.db.close();
+                rmSync(fx.base, { recursive: true, force: true });
+            }
+        });
+        it('remove_stray_dbs refuses an empty standalone project', async () => {
+            const fx = nest();
+            try {
+                writeFileSync(join(fx.session, '.claude', 'tmb', 'standalone'), '');
+                const tools = onboardTools(fx.db, fx.dbPath, { sessionDir: fx.session });
+                const data = parse(await call(tools.handlers, 'onboard_apply', { remove_stray_dbs: [fx.stray] }));
+                assert.deepEqual(data.stray_dbs, {
+                    removed: [],
+                    refused: [{ path: fx.stray, reason: 'a standalone TMB project' }],
+                });
+                assert.ok(existsSync(fx.stray));
+                assert.equal(auditRows(fx.db, 'stray_db_removed'), 0);
+            }
+            finally {
+                fx.db.close();
+                rmSync(fx.base, { recursive: true, force: true });
+            }
+        });
+        it('standalone=true makes the session dir its own project, with one project_made_standalone row', async () => {
+            const fx = nest();
+            try {
+                rmSync(join(fx.session, '.claude'), { recursive: true, force: true });
+                const tools = onboardTools(fx.db, fx.dbPath, { sessionDir: fx.session });
+                const data = parse(await call(tools.handlers, 'onboard_apply', { standalone: true }));
+                const marker = join(fx.session, '.claude', 'tmb', 'standalone');
+                const newDb = join(fx.session, '.claude', 'tmb', 'trajectory.db');
+                assert.equal(data.restart_required, true);
+                assert.deepEqual(data.standalone, { session_dir: fx.session, db_path: newDb, marker });
+                assert.ok(existsSync(marker));
+                assert.ok(existsSync(newDb));
+                assert.equal(auditRows(fx.db, 'project_made_standalone'), 1);
+                const atRoot = onboardTools(fx.db, fx.dbPath, { sessionDir: fx.ws });
+                const refused = parse(await call(atRoot.handlers, 'onboard_apply', { standalone: true }));
+                assert.match(String(refused.error), /below the project root/);
+                const mixed = parse(await call(tools.handlers, 'onboard_apply', { standalone: true, shape: 'local' }));
+                assert.match(String(mixed.error), /applied alone/);
+                assert.equal(auditRows(fx.db, 'project_made_standalone'), 1);
+            }
+            finally {
+                fx.db.close();
+                rmSync(fx.base, { recursive: true, force: true });
+            }
         });
     });
 });

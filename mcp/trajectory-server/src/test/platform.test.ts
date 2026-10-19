@@ -19,10 +19,13 @@ import {
   createClaudeRuntimeContext,
   createCodexRuntimeContext,
   deriveCodexRuntimePaths,
+  claudeProjectRootOfDb,
   findExistingClaudeDbUp,
+  otherClaudeDbs,
   probeClaudeDb,
   resolveGraphDbPath,
 } from '../platform.js';
+import { repoRowPath } from '../utils/repo-paths.js';
 
 function fixture(): {
   root: string;
@@ -466,18 +469,39 @@ describe('findExistingClaudeDbUp (the one DB-location rule)', () => {
     }
   });
 
-  it('2: the project root DB is used with no walking', () => {
+  it('2: the walk starts at CLAUDE_PROJECT_DIR and reaches the workspace DB above it (GH 1553)', () => {
     const { root, home, ws, inner } = layout();
     try {
       const workspaceDb = plant(ws);
+      const elsewhere = join(root, 'elsewhere');
+      mkdirSync(elsewhere);
       assert.equal(
-        findExistingClaudeDbUp(inner, 'tmb', { home, env: { CLAUDE_PROJECT_DIR: ws } }),
+        findExistingClaudeDbUp(elsewhere, 'tmb', { home, env: { CLAUDE_PROJECT_DIR: ws } }),
         workspaceDb,
       );
-      const repo = join(ws, 'plugin');
       assert.equal(
-        findExistingClaudeDbUp(inner, 'tmb', { home, env: { CLAUDE_PROJECT_DIR: repo } }),
+        findExistingClaudeDbUp(elsewhere, 'tmb', { home, env: { CLAUDE_PROJECT_DIR: join(ws, 'plugin') } }),
+        workspaceDb,
+      );
+      assert.equal(
+        findExistingClaudeDbUp(inner, 'tmb', { home, env: { CLAUDE_PROJECT_DIR: elsewhere } }),
         null,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('2: a standalone DB ends the walk and wins over the outer workspace DB (GH 1553)', () => {
+    const { root, home, ws, inner } = layout();
+    try {
+      plant(ws);
+      const repoDb = plant(join(ws, 'plugin'));
+      writeFileSync(join(ws, 'plugin', '.claude', 'tmb', 'standalone'), '');
+      assert.equal(findExistingClaudeDbUp(inner, 'tmb', { home, env: {} }), repoDb);
+      assert.equal(
+        findExistingClaudeDbUp(root, 'tmb', { home, env: { CLAUDE_PROJECT_DIR: inner } }),
+        repoDb,
       );
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -552,5 +576,73 @@ describe('findExistingClaudeDbUp (the one DB-location rule)', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it('3: a HOME DB is never picked from a CLAUDE_PROJECT_DIR below it (GH 1553)', () => {
+    const { root } = layout();
+    try {
+      const home = join(root, 'ws');
+      plant(home);
+      const below = join(home, 'plugin', 'src');
+      assert.equal(findExistingClaudeDbUp(root, 'tmb', { home, env: { CLAUDE_PROJECT_DIR: below } }), null);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('otherClaudeDbs (GH 1553)', () => {
+  function plant(root: string, rows: { issues?: number; tasks?: number } = {}): string {
+    const dir = join(root, '.claude', 'tmb');
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, 'trajectory.db');
+    const db = new DatabaseSync(path);
+    db.exec('CREATE TABLE tasks (id INTEGER PRIMARY KEY, prompt_bearing INTEGER)');
+    db.exec('CREATE TABLE issues (id INTEGER PRIMARY KEY)');
+    for (let i = 0; i < (rows.issues ?? 0); i += 1) db.exec('INSERT INTO issues DEFAULT VALUES');
+    for (let i = 0; i < (rows.tasks ?? 0); i += 1) db.exec('INSERT INTO tasks (prompt_bearing) VALUES (0)');
+    db.close();
+    return path;
+  }
+
+  it('lists the DBs on the walk and below the root with their counts, skipping standalone and dot dirs', () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'tmb-others-')));
+    try {
+      const home = join(root, 'home');
+      const ws = join(root, 'ws');
+      mkdirSync(home);
+      const wsDb = plant(ws, { issues: 2, tasks: 3 });
+      const nestedDb = plant(join(ws, 'a', 'b'));
+      const deepDb = plant(join(ws, 'x', 'y', 'z'), { tasks: 1 });
+      plant(join(ws, 'too', 'deep', 'to', 'be', 'seen'));
+      plant(join(ws, '.hidden'));
+      plant(join(ws, 'own'));
+      writeFileSync(join(ws, 'own', '.claude', 'tmb', 'standalone'), '');
+      plant(join(ws, 'own', 'inside'));
+
+      assert.equal(claudeProjectRootOfDb(wsDb), ws);
+      assert.equal(claudeProjectRootOfDb(':memory:'), null);
+      assert.equal(otherClaudeDbs(join(root, 'x.db'), { sessionDir: ws, home }), null);
+
+      const others = otherClaudeDbs(wsDb, { sessionDir: join(ws, 'a', 'b'), home }) ?? [];
+      assert.deepEqual(
+        others.map((o) => [o.path, o.issues, o.tasks, o.empty]).sort(),
+        [
+          [deepDb, 0, 1, false],
+          [nestedDb, 0, 0, true],
+        ].sort(),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('repoRowPath (GH 1553)', () => {
+  it('resolves a relative repos.path against the project root holding the DB', () => {
+    const fake = { dbPath: '/ws/.claude/tmb/trajectory.db' } as unknown as TrajectoryDB;
+    assert.equal(repoRowPath(fake, 'plugin'), '/ws/plugin');
+    assert.equal(repoRowPath(fake, '.'), '/ws');
+    assert.equal(repoRowPath(fake, '/abs/repo'), '/abs/repo');
   });
 });
