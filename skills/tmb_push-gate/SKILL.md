@@ -14,7 +14,7 @@ The verdict row is always authored by pr-reviewer itself — via `validation_rec
 
 **Clean spawn prompt example:**
 ```
-task_id=42 commit_sha=abc123def branch_id=fix/foo repo=plugin attempt_n=<attempt #> subagent_session_id=<spawned reviewer session id>
+task_id=42 commit_sha=abc123def branch_id=fix/foo repo=plugin repo_path=<repo path> attempt_n=<attempt #> subagent_session_id=<spawned reviewer session id>
 
 Push-gate review. Load the brief, verify each Success Criterion against the diff, and record your verdict — fail if any check fails.
 ```
@@ -41,10 +41,12 @@ Read the verdict + `mcp_available` off each task's validation row via `validatio
 
 ### Outcomes
 
-- All-pass → `git push origin <feature>`, then `gh pr create` / `glab mr create`, surface URL. After merge, run post-merge cleanup below.
+`<repo path>` is the task's repo `path` from `repos_list`.
+
+- All-pass → `git -C <repo path> push origin <feature>`, then `gh pr create` / `glab mr create`, surface URL. After merge, run post-merge cleanup below.
 - Any fail → surface verbatim. AUQ: `"PR-reviewer failed on N task(s). Spawn SWE to fix, or abort the push?"` options: `[Spawn SWE to fix | Abort push]`.
-- Rework on a branch with an open PR → `git push origin <feature>`, then confirm `git rev-parse origin/<feature>` equals the local tip (`git rev-parse <feature>`) before telling the Human the PR is updated.
+- Rework on a branch with an open PR → `git -C <repo path> push origin <feature>`, then confirm `git -C <repo path> rev-parse origin/<feature>` equals the local tip (`git -C <repo path> rev-parse <feature>`) before telling the Human the PR is updated.
 
 ### Post-merge cleanup
 
-`git switch <pr_target> && git pull --ff-only && git branch -d <feature>`. The SWE worktree stays through task close and is removed automatically once pr-reviewer passes the task or the branch merges, so a failed review reworks in place.
+`git -C <repo path> switch <pr_target> && git -C <repo path> pull --ff-only && git -C <repo path> branch -d <feature>`. The SWE worktree stays through task close and is removed automatically once pr-reviewer passes the task or the branch merges, so a failed review reworks in place.

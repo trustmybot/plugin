@@ -1,6 +1,6 @@
 ---
 name: agent-create
-description: Create or copy an agent into the project's .claude/agents/ directory and (optionally) spawn it on a consultant question.
+description: Create or copy an agent into the project's <project>/.claude/agents/ directory and (optionally) spawn it on a consultant question.
 argument-hint: <kebab-case agent name> [optional consultant question]
 ---
 
@@ -15,7 +15,7 @@ User-created agents default to `kind='consultant'`.
 ## Collision dialog
 
 <!-- LOAD-BEARING-SAFETY: collision dialog is mandatory — silently overwriting user agent files is a hard doctrine violation -->
-When `.claude/agents/<name>.md` already exists, read the `tmb_owner` field:
+When `<project>/.claude/agents/<name>.md` already exists, read the `tmb_owner` field:
 
 - `tmb_owner: bro` or `tmb_owner: user-adopted` → show unified diff, ask yes/no.
 - No `tmb_owner` (user-authored) → AskUserQuestion with options: **Skip (Recommended)**, **Adopt + manage** (insert `tmb_owner: user-adopted`), or **Overwrite** (`tmb_owner: bro`).
@@ -42,4 +42,4 @@ Every agent written by template-copy or from-scratch keeps the `experimental:` /
 ## Post-create reminder
 
 After creation completes, emit (interactive only):
-> *Agent landed at `.claude/agents/<name>.md` and registered. If your next `Agent` spawn can't find it, run `/reload-plugins`.*
+> *Agent landed at `<project>/.claude/agents/<name>.md` and registered. If your next `Agent` spawn can't find it, run `/reload-plugins`.*

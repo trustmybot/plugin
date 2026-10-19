@@ -1,0 +1,2 @@
+### Fixed
+- **Agents act on the right project and repo from any working directory** (GH 1553): several commands and skills used relative `.claude/...` paths or bare `git`, so in a nested multi-repo workspace or after the session moved into a worktree they read or pushed the wrong folder. They now name `<project>/.claude/...` and run `git -C <repo path>` with the path from `repos_list`, comment triage takes the branch from the PR or task instead of the current checkout, and swe works only against its brief's worktree path.

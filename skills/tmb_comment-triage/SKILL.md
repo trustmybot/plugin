@@ -20,7 +20,7 @@ Empty result → ask the Human which PR/MR number to monitor (free-text answer).
 
 Call `pr_monitor_comments_get` with the PR number.
 
-Carrier: resolve the linked issue with `branch_report_md` for the current branch rather than reading the DB directly. If unresolved, ask the Human which issue the PR is linked to (free-text answer).
+Carrier: resolve the linked issue with `branch_report_md` for the PR's head branch (or the task's `branch_id`), not the current checkout, rather than reading the DB directly. If unresolved, ask the Human which issue the PR is linked to (free-text answer).
 
 ## Triage (judgment)
 
