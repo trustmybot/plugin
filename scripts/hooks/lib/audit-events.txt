@@ -51,6 +51,7 @@ roundtable_slash_invoked	hook
 roundtable_summary	bro
 scan_discovered	server,hook
 scan_discovered_repair	server
+scan_skipped	hook
 scope_gate_waived	bro
 skill_creator_blocked	bro
 spec_shape_gate_waived	bro

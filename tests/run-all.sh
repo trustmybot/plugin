@@ -168,6 +168,7 @@ run_step "L1 lint: scan-forking unit tests pin TRAJECTORY_DB_PATH (self-test)" b
 run_step "L1 lint: scan-forking unit tests pin TRAJECTORY_DB_PATH" bash "$HERE/l1-lint/no-unpinned-scan-in-tests.sh"
 run_step "L1 lint: hook tests pin the project (self-test)" bash "$HERE/l1-lint/hook-tests-pin-project.sh" --self-test
 run_step "L1 lint: hook tests pin the project" bash "$HERE/l1-lint/hook-tests-pin-project.sh"
+run_step "L1 lint: no .tmp-* scratch dir in the checkout" bash "$HERE/l1-lint/no-scratch-in-tree.sh"
 
 # Every tests/l1-lint/*.sh has a run_step line above.
 l1_lints_all_wired() {

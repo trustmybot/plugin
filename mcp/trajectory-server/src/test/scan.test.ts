@@ -650,6 +650,41 @@ describe('scan_run retired repos + dirs (#340)', () => {
       rmSync(ws, { recursive: true, force: true });
     }
   });
+
+  it('retires a stale row under the session dir and keeps and reports one a task references (GH 1551)', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-stale-'));
+    try {
+      mkRepo(ws, 'live');
+      const db = tempDB();
+      const now = new Date().toISOString();
+      const seedRepo = (name: string) =>
+        db.run(`INSERT INTO repos (name, path, file_count, last_scanned_at) VALUES (?, ?, 0, ?)`, [name, join(ws, '.tmp-l6', name), now]);
+      seedRepo('gone');
+      seedRepo('held');
+      db.run(`INSERT INTO issues (objective, status, created_at, updated_at) VALUES ('stale', 'open', ?, ?)`, [now, now]);
+      const issueId = db.get<{ id: number }>('SELECT MAX(id) AS id FROM issues')!.id;
+      db.run(
+        `INSERT INTO tasks (issue_id, branch_id, description, status, repo, created_at, updated_at)
+         VALUES (?, 'fix/held', 'd', 'closed', 'held', ?, ?)`,
+        [issueId, now, now],
+      );
+
+      const r = await call(scanTools(db, null).handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+      assert.ok(!r.isError, `scan failed: ${JSON.stringify(r)}`);
+      const d = parse(r);
+      assert.equal(d['repos_retired'], 1, 'the unreferenced stale row is retired');
+      assert.deepEqual(
+        d['repos_stale_kept'],
+        [{ name: 'held', path: join(ws, '.tmp-l6', 'held'), reason: 'task_referenced' }],
+        'the task-referenced stale row is kept and reported',
+      );
+      const names = db.all<{ name: string }>('SELECT name FROM repos ORDER BY name').map((row) => row.name);
+      assert.deepEqual(names, ['held', 'live']);
+      db.close();
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('scan_run async spawn + timeout (#398)', () => {
