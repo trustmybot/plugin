@@ -87,6 +87,7 @@ interface RunOpts {
   rootDir?: string | null;
   exitReason?: string | null;
   effort?: string | null;
+  startedAt?: string;
 }
 
 function seedRun(db: TrajectoryDB, o: RunOpts = {}): void {
@@ -103,7 +104,7 @@ function seedRun(db: TrajectoryDB, o: RunOpts = {}): void {
       tokens,
       tokens,
       tokens,
-      iso(-HOUR),
+      o.startedAt ?? iso(-HOUR),
       completedAt,
       o.sessionId === undefined ? 'sess' : o.sessionId,
       o.usageSource === undefined ? (completedAt ? 'subagent_stop' : null) : o.usageSource,
@@ -114,6 +115,13 @@ function seedRun(db: TrajectoryDB, o: RunOpts = {}): void {
       o.effort === undefined ? 'medium' : o.effort,
     ],
   );
+}
+
+// Runs opened before the first run carrying a root_dir: no writer stamped them.
+function seedLegacyRuns(db: TrajectoryDB): void {
+  for (let i = 0; i < 5; i++) {
+    seedRun(db, { startedAt: iso(-2 * DAY), sessionId: null, model: null, rootDir: null, usageSource: 'transcript', agentType: 'bro' });
+  }
 }
 
 // One violating and one passing fixture per contract id.
@@ -263,6 +271,7 @@ const FIXTURES: Record<string, { violate?: (db: TrajectoryDB) => void; pass: (db
   populated_agent_runs_session_id: {
     violate: (db) => seedRun(db, { sessionId: null }),
     pass: (db) => {
+      seedLegacyRuns(db);
       for (let i = 0; i < 9; i++) seedRun(db);
       seedRun(db, { sessionId: null });
     },
@@ -277,6 +286,7 @@ const FIXTURES: Record<string, { violate?: (db: TrajectoryDB) => void; pass: (db
   populated_agent_runs_model: {
     violate: (db) => seedRun(db, { model: null }),
     pass: (db) => {
+      seedLegacyRuns(db);
       seedRun(db);
       seedRun(db, { model: null, usageSource: 'unmeasured', tokens: null });
     },
@@ -286,8 +296,14 @@ const FIXTURES: Record<string, { violate?: (db: TrajectoryDB) => void; pass: (db
     pass: (db) => seedRun(db),
   },
   populated_agent_runs_root_dir: {
-    violate: (db) => seedRun(db, { rootDir: null }),
-    pass: (db) => seedRun(db),
+    violate: (db) => {
+      seedRun(db);
+      seedRun(db, { rootDir: null });
+    },
+    pass: (db) => {
+      seedLegacyRuns(db);
+      seedRun(db);
+    },
   },
   populated_agent_runs_exit_reason: {
     violate: (db) => seedRun(db, { exitReason: null }),
@@ -546,6 +562,22 @@ describe('data contracts', () => {
     };
     assert.equal(runDataContracts(throwing, [contract('scan_fresh')], { env: {} }).healthy, true);
   });
+
+  for (const [column, nulled] of [
+    ['session_id', { sessionId: null }],
+    ['model', { model: null }],
+    ['root_dir', { rootDir: null }],
+  ] as const) {
+    it(`populated_agent_runs_${column} skips runs before the first run carrying a root_dir and still counts a NULL after it`, () => {
+      const db = tempDB();
+      seedLegacyRuns(db);
+      seedRun(db, { startedAt: iso(-DAY) });
+      assert.equal(violated(db, `populated_agent_runs_${column}`), false, 'legacy NULLs before the cutoff do not count');
+      seedRun(db, nulled);
+      assert.equal(violated(db, `populated_agent_runs_${column}`), true, `a post-cutoff run with a NULL ${column} trips the contract`);
+      db.close();
+    });
+  }
 
   it('declares the nullable v29–v33 columns with a reason and gives them no contract', () => {
     const ids = new Set(DATA_CONTRACTS.map((c) => c.id));

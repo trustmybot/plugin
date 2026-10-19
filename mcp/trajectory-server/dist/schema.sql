@@ -266,7 +266,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 38, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 39, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,
