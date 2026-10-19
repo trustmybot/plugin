@@ -11,8 +11,16 @@
 #     tool_input.model when set, spawn_id = tool_use:<payload tool_use_id>
 #     (tool_use:<session_id>:<epoch_ms> when the payload has none), started_at,
 #     repo, issue_id, host claude and root_dir = the task worktree.
-# swe-brief-gate.sh rebinds that row to the subagent's agent_id at its first
-# task_brief, and swe-atomic-close.sh meters it at SubagentStop.
+# The same transaction first closes the task's open swe rows no subagent bound
+# (spawn_id NULL or tool_use:*) that are older than 90 s: spawns refused after
+# this step (a manual denial, a deny rule, a hook block) that never started.
+# Each takes completed_at = now, exit_reason swept_orphan, usage_source
+# unmeasured when unset and duration_ms its window length when unmeasured; a
+# row bound to an agent id is never touched.
+# swe-spawn-bind.sh rebinds the new row to the subagent's agent_id once CC
+# accepts the spawn (PostToolUse), else swe-brief-gate.sh does at its first
+# task_brief; swe-spawn-rollback.sh closes it when auto mode refuses the spawn
+# (PermissionDenied), and swe-atomic-close.sh meters it at SubagentStop.
 #
 # This step ACTS, it does NOT gate: fail-open, it never denies the spawn and a
 # failed write leaves the DB unchanged.
@@ -78,6 +86,16 @@ MODEL_SQL="NULL"
 NOW=$(tmb_now_iso)
 
 tmb_db_write "$DB" "
+UPDATE agent_runs
+   SET completed_at = '${NOW}',
+       exit_reason = 'swept_orphan',
+       usage_source = COALESCE(usage_source, 'unmeasured'),
+       duration_ms = CASE WHEN duration_ms = 0
+                          THEN COALESCE(CAST(ROUND((julianday('${NOW}') - julianday(started_at)) * 86400000) AS INTEGER), 0)
+                          ELSE duration_ms END
+ WHERE task_id = ${SAFE_TASK_ID} AND agent_type = 'swe' AND completed_at IS NULL
+   AND (spawn_id IS NULL OR spawn_id GLOB 'tool_use:*')
+   AND started_at IS NOT NULL AND started_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-90 seconds');
 UPDATE tasks SET status = 'running', updated_at = '${NOW}', completed_at = NULL
  WHERE id = ${SAFE_TASK_ID} AND status = 'pending';
 INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host,

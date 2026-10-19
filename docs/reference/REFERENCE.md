@@ -72,9 +72,9 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 - `TRAJECTORY_DB_PATH` — pin DB path for tests/CI (step 1 of [the DB location rule](./TRAJECTORY_DB_LOCATION.md))
 - `CLAUDE_PLUGIN_ROOT` — set by CC; resolves plugin name for path calculations
 
-## Hooks (SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / Stop / SubagentStop / WorktreeCreate)
+## Hooks (SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / PermissionDenied / Stop / SubagentStop / WorktreeCreate)
 
-56 hook scripts under `scripts/hooks/`, wired via `hooks/hooks.json`. The six PreToolUse-Agent gates run through a single `agent-spawn-dispatch.sh` dispatcher rather than as separate registrations. The trajectory-server gates are one registration, `dispatch.sh trajectory-gates`: `agent-arg-matches-caller.sh`, `swe-brief-gate.sh`, then the tool's own gate, in that order, stopping at the first deny.
+59 hook scripts under `scripts/hooks/`, wired via `hooks/hooks.json`. The six PreToolUse-Agent gates run through a single `agent-spawn-dispatch.sh` dispatcher rather than as separate registrations. The trajectory-server gates are one registration, `dispatch.sh trajectory-gates`: `agent-arg-matches-caller.sh`, `swe-brief-gate.sh`, then the tool's own gate, in that order, stopping at the first deny.
 
 | Hook | Trigger | Purpose |
 |---|---|---|
@@ -123,6 +123,8 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `attribution-footer.sh` | PostToolUse Bash | Append co-author / session attribution to commits |
 | `clean-merged-branch.sh` | PostToolUse Bash | Prune local branches once their PR merges |
 | `close-issue-on-merge.sh` | PostToolUse Bash | Close the local issue when its PR merges |
+| `swe-spawn-bind.sh` | PostToolUse Agent | Bind an accepted swe spawn's `tool_use:<tool_use_id>` run row to `tool_response.agentId` |
+| `swe-spawn-rollback.sh` | PermissionDenied Agent | Roll back a swe spawn auto mode refused: close its `tool_use:<tool_use_id>` run row as `swept_orphan` and, with no other swe run open, return the task to `pending` |
 | `bro-turn-usage.sh` | Stop | Capture bro's per-turn token/cost usage |
 | `swe-atomic-close.sh` | SubagentStop | Auto-close a pending or running SWE task that committed; capture swe and pr-reviewer agent_runs metrics and effort |
 | `consultant-persistence-gate.sh` | SubagentStop | Persist a consultant subagent's output before it exits |

@@ -9,6 +9,10 @@
 #   3. Live — a bound row is never swept_orphan, however old.
 #   4. Resume — a failed stop, a resumed brief and a committed stop leave one
 #      row whose exit_reason is the latest stop's (completed).
+#   5. Refused spawn (GH 1509) — an unbound row older than 90 s no longer
+#      blocks a respawn and is swept_orphan by it; PostToolUse(Agent) binds the
+#      row to tool_response.agentId; PermissionDenied(Agent) closes it and
+#      returns the task to pending; a bound row is never closed by any of them.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -50,13 +54,33 @@ for slug in 7-identity 8-resume; do
   git -C "$REPO" worktree add -q "$REPO/.claude/worktrees/$slug" "fix/$slug"
 done
 
+# agent_event <event> <task_id> <tool_use_id> [<extra json>] — an Agent tool payload for task <task_id>;
+# an empty tool_use_id leaves the key out. SPAWN_NOTE ends the prompt, so two
+# otherwise identical spawns are two events to dispatch.sh.
+agent_event() {
+  local extra="${4:-}"
+  [ -n "$extra" ] || extra='{}'
+  jq -nc --arg e "$1" --arg t "$2" --arg u "$3" --arg n "${SPAWN_NOTE:-}" --argjson x "$extra" \
+    '{hook_event_name:$e, tool_name:"Agent", session_id:"sess-main",
+      tool_input:{subagent_type:"swe", effort:"medium", prompt:("task_id=" + $t + " You are swe." + $n)}}
+     + (if $u == "" then {} else {tool_use_id:$u} end) + $x'
+}
+
 # spawn <task_id> <tool_use_id> — the bro Agent spawn through the PreToolUse(Agent) chain.
 spawn() {
-  local payload
-  payload=$(jq -nc --arg t "$1" --arg u "$2" \
-    '{hook_event_name:"PreToolUse", tool_name:"Agent", tool_use_id:$u, session_id:"sess-main",
-      tool_input:{subagent_type:"swe", effort:"medium", prompt:("task_id=" + $t + " You are swe.")}}')
-  (cd "$REPO" && printf '%s' "$payload" | bash "$DISPATCH" agent-spawn-dispatch 2>/dev/null || true)
+  (cd "$REPO" && agent_event PreToolUse "$1" "$2" | bash "$DISPATCH" agent-spawn-dispatch 2>/dev/null || true)
+}
+
+# bind <task_id> <tool_use_id> <agentId> — PostToolUse(Agent) once CC accepted the spawn.
+bind() {
+  (cd "$REPO" && agent_event PostToolUse "$1" "$2" "$(jq -nc --arg a "$3" '{tool_response:{status:"async_launched", agentId:$a}}')" \
+    | bash "$DISPATCH" swe-spawn-bind >/dev/null 2>&1 || true)
+}
+
+# refuse <task_id> <tool_use_id> — PermissionDenied(Agent): auto mode refused the spawn.
+refuse() {
+  (cd "$REPO" && agent_event PermissionDenied "$1" "$2" '{"reason":"auto mode refused"}' \
+    | bash "$DISPATCH" swe-spawn-rollback >/dev/null 2>&1 || true)
 }
 
 # brief <task_id> <agent_id> <tool_use_id> — the swe's task_brief: its PreToolUse gate, then the built handler.
@@ -135,5 +159,85 @@ assert_eq "0" "$(q "SELECT COUNT(*) FROM agent_runs WHERE task_id=8 AND exit_rea
 test_case "(f) no closed task's latest bound swe row reads failed (GH 1500)"
 q "UPDATE tasks SET status='closed' WHERE id=8;"
 assert_eq "0" "$(q "SELECT COUNT(*) FROM agent_runs a JOIN tasks t ON t.id=a.task_id WHERE a.agent_type='swe' AND t.status='closed' AND a.exit_reason='failed' AND a.id=(SELECT MAX(id) FROM agent_runs WHERE task_id=a.task_id AND agent_type='swe' AND spawn_id IS NOT NULL);")" "GH 1500 query"
+
+
+# reset7 — task 7 pending with no runs, for the GH 1509 fixtures; each fixture's
+# payloads carry their own SPAWN_NOTE, so dispatch.sh never dedupes them
+# against the previous fixture's.
+RESETS=0
+reset7() {
+  q "DELETE FROM agent_runs WHERE task_id=7; UPDATE tasks SET status='pending' WHERE id=7;"
+  RESETS=$((RESETS + 1))
+  SPAWN_NOTE=" fixture $RESETS"
+}
+backdate() { q "UPDATE agent_runs SET started_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-$2 seconds') WHERE spawn_id = '$1';"; }
+OPEN_UNBOUND7="SELECT COUNT(*) FROM agent_runs WHERE agent_type='swe' AND completed_at IS NULL AND spawn_id GLOB 'tool_use:*' AND task_id=7;"
+
+test_case "(g) a refused spawn's unbound row older than 90 s is swept_orphan by the next spawn (GH 1509)"
+reset7
+spawn 7 tu-1 >/dev/null
+assert_eq "running" "$(q "SELECT status FROM tasks WHERE id=7;")" "PREPARE moved task 7 to running"
+backdate tool_use:tu-1 91
+out=$(spawn 7 tu-2)
+assert_not_contains "$out" '"deny"' "the second spawn passes require-task-spec"
+assert_eq "swept_orphan|1|unmeasured" \
+  "$(q "SELECT exit_reason, completed_at IS NOT NULL, usage_source FROM agent_runs WHERE spawn_id='tool_use:tu-1';")" \
+  "tu-1 swept_orphan with completed_at set"
+assert_eq "1" "$(q "$OPEN_UNBOUND7")" "one open unbound swe row: the new spawn's"
+assert_eq "tool_use:tu-2" "$(q "SELECT spawn_id FROM agent_runs WHERE task_id=7 AND completed_at IS NULL;")" "record-swe-spawn opened tu-2"
+
+test_case "(h) without a tool_use_id: denied inside 90 s, swept after it"
+reset7
+spawn 7 "" >/dev/null
+FIRST=$(q "SELECT spawn_id FROM agent_runs WHERE task_id=7;")
+assert_contains "$FIRST" "tool_use:sess-main:" "session fallback spawn_id"
+out=$(SPAWN_NOTE="$SPAWN_NOTE retry 1" spawn 7 "")
+assert_contains "$out" "live swe run" "a respawn inside the 90 s window is denied"
+assert_eq "1" "$(q "SELECT COUNT(*) FROM agent_runs WHERE task_id=7;")" "the denied respawn opened no row"
+backdate "$FIRST" 91
+out=$(SPAWN_NOTE="$SPAWN_NOTE retry 2" spawn 7 "")
+assert_not_contains "$out" '"deny"' "a respawn after 90 s passes"
+assert_eq "swept_orphan|1" "$(q "SELECT exit_reason, completed_at IS NOT NULL FROM agent_runs WHERE spawn_id='$FIRST';")" "the first row swept_orphan"
+assert_eq "1" "$(q "$OPEN_UNBOUND7")" "one open unbound swe row"
+
+test_case "(i) PostToolUse(Agent) binds the spawn's row to tool_response.agentId"
+reset7
+spawn 7 tu-1 >/dev/null
+bind 7 tu-1 ag-1
+assert_eq "ag-1||" "$(q "SELECT spawn_id, COALESCE(completed_at, ''), COALESCE(exit_reason, '') FROM agent_runs WHERE task_id=7;")" "tu-1 bound to ag-1, still open"
+assert_eq "ok" "$(brief 7 ag-1 toolu_brief6)" "the swe's task_brief"
+assert_eq "1|ag-1" "$(q "SELECT COUNT(*), MAX(spawn_id) FROM agent_runs WHERE task_id=7;")" "task_brief keeps the one bound row"
+
+test_case "(j) PermissionDenied(Agent) closes the refused spawn's row and returns the task to pending"
+reset7
+spawn 7 tu-1 >/dev/null
+refuse 7 tu-1
+assert_eq "swept_orphan|1|unmeasured" \
+  "$(q "SELECT exit_reason, completed_at IS NOT NULL, usage_source FROM agent_runs WHERE spawn_id='tool_use:tu-1';")" \
+  "tu-1 swept_orphan"
+assert_eq "pending" "$(q "SELECT status FROM tasks WHERE id=7;")" "task 7 pending"
+
+test_case "(k) a bound row an hour old is never closed by the sweep, PermissionDenied or SubagentStop"
+reset7
+q "UPDATE tasks SET status='running' WHERE id=7;
+   INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, spawn_id, host)
+   VALUES (7, 1, 'swe', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hours'), 'ag-1', 'claude');"
+BOUND="SELECT COALESCE(completed_at, '') || '|' || COALESCE(exit_reason, '') FROM agent_runs WHERE spawn_id='ag-1';"
+assert_contains "$(spawn 7 tu-9)" "live swe run" "require-task-spec still treats the bound row as live"
+(cd "$REPO" && agent_event PreToolUse 7 tu-9 | bash "$PLUGIN_ROOT/scripts/hooks/record-swe-spawn.sh" >/dev/null 2>&1 || true)
+assert_eq "|" "$(q "$BOUND")" "record-swe-spawn's sweep leaves ag-1 open"
+refuse 7 tu-9
+assert_eq "swept_orphan" "$(q "SELECT exit_reason FROM agent_runs WHERE spawn_id='tool_use:tu-9';")" "PermissionDenied closes tu-9"
+assert_eq "|" "$(q "$BOUND")" "PermissionDenied leaves ag-1 open"
+assert_eq "running" "$(q "SELECT status FROM tasks WHERE id=7;")" "an open bound run keeps the task running"
+q "INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, spawn_id, host) VALUES
+     (7, 1, 'swe', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 minutes'), 'tool_use:tu-old', 'claude'),
+     (7, 1, 'swe', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'ag-2', 'claude');"
+stop 7 ag-2
+assert_eq "subagent_stop" "$(q "SELECT usage_source FROM agent_runs WHERE spawn_id='ag-2';")" "SubagentStop metered ag-2"
+assert_eq "swept_orphan|1|unmeasured" \
+  "$(q "SELECT exit_reason, completed_at IS NOT NULL, usage_source FROM agent_runs WHERE spawn_id='tool_use:tu-old';")" \
+  "SubagentStop sweeps the unbound tool_use row older than 90 s"
+assert_eq "|" "$(q "$BOUND")" "SubagentStop leaves ag-1 open"
 
 summarize

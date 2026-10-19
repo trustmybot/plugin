@@ -294,7 +294,7 @@ Currently `37`. Bumped on any breaking schema change. **NOT free-form** — ever
 | `completed` | `bro_atomic_close`; `close-issue-on-merge` closing a merged task; a swe SubagentStop whose task is completed/closed; every pr-reviewer SubagentStop |
 | `failed` | `task_update_status` → `failed`; a swe SubagentStop whose task is still pending/running (a resumed spawn's next stop overwrites it) |
 | `escalated` | `task_update_status` → `escalated` |
-| `swept_orphan` | `task_recover` sweeping a never-measured row; `task_brief` closing an earlier spawn's open swe row that no subagent bound (`spawn_id` NULL or `tool_use:*`, older than 10 min); v33 backfill of an `unmeasured` row |
+| `swept_orphan` | `task_recover` sweeping a never-measured row; an open swe row no subagent bound (`spawn_id` NULL or `tool_use:*`) closed by the next swe spawn (`record-swe-spawn.sh`, older than 90 s) or by `task_brief` (older than 10 min); `swe-spawn-rollback.sh` closing the `tool_use:*` row of a spawn auto mode refused (PermissionDenied); a swe SubagentStop marking the task's other zero-token unbound rows `unmeasured` (`spawn_id` NULL rows from the spawn's window, open `tool_use:*` rows older than 90 s); v33 backfill of an `unmeasured` row. A row bound to an agent id is never swept |
 | `swept_stale` | `task_recover` sweeping a measured row left open on a terminal task, or the open runs of a stale `running` task it swept to `failed` |
 | `issue_closed` | The row's issue was closed under it (the v33 GH 1212 repair; `issue_close(cascade: true)`) |
 
