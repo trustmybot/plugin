@@ -18,40 +18,12 @@
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { STALE_RUNNING_HOURS_DEFAULT, reviewSkipAuthoredSql } from './tools/lifecycle.js';
 import { enabledPluginCopies } from './utils/plugin-installs.js';
-import { isPluginRoot, readPersonaSource, resolvePluginRoot } from './tools/onboard-persona.js';
-import { personaBlockVersion } from './persona-block.js';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 export const isSqlContract = (c) => c.source !== 'files';
 export function singleTmbPluginEnabled(env) {
     const result = enabledPluginCopies(env);
     if ('skipped' in result)
         return { skipped: result.skipped };
     return { actual: result.copies.length, sample: result.copies.map((c) => ({ ...c })) };
-}
-export function personaBlockCurrent(env) {
-    const projectDir = env['CLAUDE_PROJECT_DIR'];
-    if (!projectDir)
-        return { skipped: 'CLAUDE_PROJECT_DIR is unset' };
-    const pluginRoot = resolvePluginRoot(env);
-    if (!pluginRoot)
-        return { skipped: 'plugin root not resolved' };
-    if (isPluginRoot(projectDir, pluginRoot))
-        return { skipped: 'project root is the plugin root (its CLAUDE.md is the persona source)' };
-    const source = readPersonaSource(pluginRoot);
-    if ('reason' in source)
-        return { skipped: source.reason };
-    const path = join(projectDir, 'CLAUDE.md');
-    let blockVersion;
-    try {
-        blockVersion = existsSync(path) ? personaBlockVersion(readFileSync(path, 'utf8')) : null;
-    }
-    catch (e) {
-        return { actual: 1, sample: [{ path, error: e.message, plugin_version: source.version }] };
-    }
-    if (blockVersion === source.version)
-        return { actual: 0, sample: [] };
-    return { actual: 1, sample: [{ path, block_version: blockVersion, plugin_version: source.version }] };
 }
 const daysAgo = (days) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${days} days')`;
 const hoursAgo = (hours) => `strftime('%Y-%m-%dT%H:%M:%fZ','now','-${hours} hours')`;
@@ -318,14 +290,6 @@ export function buildDataContracts(documentedEventTypes) {
             description: 'at most one enabled copy of this plugin applies to CLAUDE_PROJECT_DIR (installed_plugins.json + enabledPlugins in the project settings.local.json / settings.json and the user settings.json, read-only); Claude Code registers the hooks of only one copy per manifest name, so a second copy silently drops TMB\'s gates — run /plugin and disable the extra copy. Skipped when CLAUDE_PROJECT_DIR is unset or installed_plugins.json is unreadable',
             expect: { op: '<=', value: 1 },
             check: singleTmbPluginEnabled,
-        },
-        {
-            source: 'files',
-            id: 'persona_block_current',
-            severity: 'warn',
-            description: 'the project CLAUDE.md holds the tmb persona block (`<!-- tmb:persona start v<version> -->` … `<!-- tmb:persona end -->`) at the running plugin version; Claude Code loads only the project CLAUDE.md, so a missing or stale block leaves bro without its current doctrine — run /onboard. Skipped when CLAUDE_PROJECT_DIR is unset or is the plugin root',
-            expect: { op: '=', value: 0 },
-            check: personaBlockCurrent,
         },
     ];
 }
