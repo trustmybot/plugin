@@ -14,7 +14,7 @@
 // rules live here, not in the skill.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -24,6 +24,7 @@ import {
   claudeProjectRootOfDb,
   claudeStateDir,
   isPathWithin,
+  isStandaloneClaudeDb,
   otherClaudeDbs,
   resolveClaudeSessionDir,
   type OtherClaudeDb,
@@ -790,28 +791,40 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
     const pluginName = basename(dirname(dbPath));
     const removed: string[] = [];
     const refused: Array<{ path: string; reason: string }> = [];
-    const refusal = (path: string): string | null => {
-      if (!isAbsolute(path)) return 'not an absolute path';
-      if (!existsSync(path)) return 'no such file';
-      const strayRoot = claudeProjectRootOfDb(path);
-      if (strayRoot === null || basename(path) !== 'trajectory.db' || basename(dirname(path)) !== pluginName) {
-        return `not a <dir>/.claude/${pluginName}/trajectory.db path`;
+    const outside = `not below the project root ${root}`;
+    const linkOrOutside = (path: string): string | null => {
+      for (let p = path; dirname(p) !== p; p = dirname(p)) {
+        if (canonicalExisting(p) === project) return null;
+        if (lstatSync(p).isSymbolicLink()) return `${p} is a symlink`;
       }
-      if (canonicalExisting(path) === self) return 'the current trajectory DB';
-      const strayProject = canonicalExisting(strayRoot);
-      if (strayProject === project || !isPathWithin(project, strayProject)) return `not below the project root ${root}`;
+      return outside;
+    };
+    const check = (path: string): { reason: string } | { stateDir: string } => {
+      if (!isAbsolute(path)) return { reason: 'not an absolute path' };
+      if (!existsSync(path)) return { reason: 'no such file' };
+      if (claudeProjectRootOfDb(path) === null || basename(path) !== 'trajectory.db' || basename(dirname(path)) !== pluginName) {
+        return { reason: `not a <dir>/.claude/${pluginName}/trajectory.db path` };
+      }
+      if (canonicalExisting(path) === self) return { reason: 'the current trajectory DB' };
+      const link = linkOrOutside(path);
+      if (link !== null) return { reason: link };
+      const stateDir = realpathSync(dirname(path));
+      const strayProject = dirname(dirname(stateDir));
+      if (strayProject === project || !isPathWithin(project, strayProject)) return { reason: outside };
+      if (isStandaloneClaudeDb(path)) return { reason: 'a standalone TMB project' };
       const { issues, tasks } = claudeDbCounts(path);
-      if (issues !== 0 || tasks !== 0) return `not empty (${issues ?? '?'} issues, ${tasks ?? '?'} tasks)`;
-      return null;
+      if (issues !== 0 || tasks !== 0) return { reason: `not empty (${issues ?? '?'} issues, ${tasks ?? '?'} tasks)` };
+      return { stateDir };
     };
     for (const path of paths) {
-      const reason = refusal(path);
-      if (reason !== null) {
-        refused.push({ path, reason });
+      const verdict = check(path);
+      if ('reason' in verdict) {
+        refused.push({ path, reason: verdict.reason });
         continue;
       }
-      const stateDir = dirname(path);
-      for (const file of [path, `${path}-wal`, `${path}-shm`]) rmSync(file, { force: true });
+      const { stateDir } = verdict;
+      const file = join(stateDir, basename(path));
+      for (const f of [file, `${file}-wal`, `${file}-shm`]) rmSync(f, { force: true });
       rmSync(stateDir, { recursive: true, force: true });
       insertAudit(db, {
         issue_id: -1,

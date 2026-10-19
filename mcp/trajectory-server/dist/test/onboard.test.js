@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TrajectoryDB } from '../db.js';
@@ -1412,6 +1412,53 @@ describe('onboard tools', () => {
                 assert.match(result.refused[0].reason, /not empty \(1 issues, 0 tasks\)/);
                 assert.ok(existsSync(fx.stray));
                 assert.ok(existsSync(outside));
+                assert.equal(auditRows(fx.db, 'stray_db_removed'), 0);
+            }
+            finally {
+                fx.db.close();
+                rmSync(fx.base, { recursive: true, force: true });
+            }
+        });
+        it('remove_stray_dbs refuses a stray reached through a symlinked .claude or plugin dir and deletes nothing outside', async () => {
+            const fx = nest();
+            try {
+                const elsewhere = join(fx.base, 'elsewhere');
+                mkdirSync(join(elsewhere, '.claude', 'tmb'), { recursive: true });
+                const target = join(elsewhere, '.claude', 'tmb', 'trajectory.db');
+                new TrajectoryDB(target).close();
+                mkdirSync(join(fx.ws, 'c'), { recursive: true });
+                symlinkSync(join(elsewhere, '.claude'), join(fx.ws, 'c', '.claude'));
+                mkdirSync(join(fx.ws, 'd', '.claude'), { recursive: true });
+                symlinkSync(join(elsewhere, '.claude', 'tmb'), join(fx.ws, 'd', '.claude', 'tmb'));
+                const viaClaude = join(fx.ws, 'c', '.claude', 'tmb', 'trajectory.db');
+                const viaPlugin = join(fx.ws, 'd', '.claude', 'tmb', 'trajectory.db');
+                const tools = onboardTools(fx.db, fx.dbPath, { sessionDir: fx.session });
+                const data = parse(await call(tools.handlers, 'onboard_apply', { remove_stray_dbs: [viaClaude, viaPlugin] }));
+                const result = data.stray_dbs;
+                assert.deepEqual(result.removed, []);
+                assert.deepEqual(result.refused, [
+                    { path: viaClaude, reason: `${join(fx.ws, 'c', '.claude')} is a symlink` },
+                    { path: viaPlugin, reason: `${join(fx.ws, 'd', '.claude', 'tmb')} is a symlink` },
+                ]);
+                assert.ok(existsSync(target));
+                assert.equal(auditRows(fx.db, 'stray_db_removed'), 0);
+            }
+            finally {
+                fx.db.close();
+                rmSync(fx.base, { recursive: true, force: true });
+            }
+        });
+        it('remove_stray_dbs refuses an empty standalone project', async () => {
+            const fx = nest();
+            try {
+                writeFileSync(join(fx.session, '.claude', 'tmb', 'standalone'), '');
+                const tools = onboardTools(fx.db, fx.dbPath, { sessionDir: fx.session });
+                const data = parse(await call(tools.handlers, 'onboard_apply', { remove_stray_dbs: [fx.stray] }));
+                assert.deepEqual(data.stray_dbs, {
+                    removed: [],
+                    refused: [{ path: fx.stray, reason: 'a standalone TMB project' }],
+                });
+                assert.ok(existsSync(fx.stray));
                 assert.equal(auditRows(fx.db, 'stray_db_removed'), 0);
             }
             finally {

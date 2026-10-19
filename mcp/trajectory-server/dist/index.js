@@ -33324,7 +33324,7 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
 
 // src/tools/onboard.ts
 import { spawnSync as spawnSync7 } from "node:child_process";
-import { existsSync as existsSync7, mkdirSync as mkdirSync6, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
+import { existsSync as existsSync7, lstatSync as lstatSync4, mkdirSync as mkdirSync6, realpathSync as realpathSync4, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
 import { basename as basename3, dirname as dirname8, isAbsolute as isAbsolute4, join as join11 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
@@ -34258,28 +34258,40 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
     const pluginName2 = basename3(dirname8(dbPath2));
     const removed = [];
     const refused = [];
-    const refusal2 = (path2) => {
-      if (!isAbsolute4(path2)) return "not an absolute path";
-      if (!existsSync7(path2)) return "no such file";
-      const strayRoot = claudeProjectRootOfDb(path2);
-      if (strayRoot === null || basename3(path2) !== "trajectory.db" || basename3(dirname8(path2)) !== pluginName2) {
-        return `not a <dir>/.claude/${pluginName2}/trajectory.db path`;
+    const outside = `not below the project root ${root}`;
+    const linkOrOutside = (path2) => {
+      for (let p = path2; dirname8(p) !== p; p = dirname8(p)) {
+        if (canonicalExisting(p) === project) return null;
+        if (lstatSync4(p).isSymbolicLink()) return `${p} is a symlink`;
       }
-      if (canonicalExisting(path2) === self) return "the current trajectory DB";
-      const strayProject = canonicalExisting(strayRoot);
-      if (strayProject === project || !isPathWithin(project, strayProject)) return `not below the project root ${root}`;
+      return outside;
+    };
+    const check2 = (path2) => {
+      if (!isAbsolute4(path2)) return { reason: "not an absolute path" };
+      if (!existsSync7(path2)) return { reason: "no such file" };
+      if (claudeProjectRootOfDb(path2) === null || basename3(path2) !== "trajectory.db" || basename3(dirname8(path2)) !== pluginName2) {
+        return { reason: `not a <dir>/.claude/${pluginName2}/trajectory.db path` };
+      }
+      if (canonicalExisting(path2) === self) return { reason: "the current trajectory DB" };
+      const link = linkOrOutside(path2);
+      if (link !== null) return { reason: link };
+      const stateDir = realpathSync4(dirname8(path2));
+      const strayProject = dirname8(dirname8(stateDir));
+      if (strayProject === project || !isPathWithin(project, strayProject)) return { reason: outside };
+      if (isStandaloneClaudeDb(path2)) return { reason: "a standalone TMB project" };
       const { issues, tasks } = claudeDbCounts(path2);
-      if (issues !== 0 || tasks !== 0) return `not empty (${issues ?? "?"} issues, ${tasks ?? "?"} tasks)`;
-      return null;
+      if (issues !== 0 || tasks !== 0) return { reason: `not empty (${issues ?? "?"} issues, ${tasks ?? "?"} tasks)` };
+      return { stateDir };
     };
     for (const path2 of paths) {
-      const reason = refusal2(path2);
-      if (reason !== null) {
-        refused.push({ path: path2, reason });
+      const verdict = check2(path2);
+      if ("reason" in verdict) {
+        refused.push({ path: path2, reason: verdict.reason });
         continue;
       }
-      const stateDir = dirname8(path2);
-      for (const file2 of [path2, `${path2}-wal`, `${path2}-shm`]) rmSync2(file2, { force: true });
+      const { stateDir } = verdict;
+      const file2 = join11(stateDir, basename3(path2));
+      for (const f of [file2, `${file2}-wal`, `${file2}-shm`]) rmSync2(f, { force: true });
       rmSync2(stateDir, { recursive: true, force: true });
       insertAudit(db2, {
         issue_id: -1,
@@ -34690,7 +34702,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
 
 // src/tools/scan.ts
 import { spawn, spawnSync as spawnSync8 } from "node:child_process";
-import { closeSync as closeSync2, existsSync as existsSync9, openSync as openSync2, readFileSync as readFileSync6, readSync, realpathSync as realpathSync4, writeFileSync as writeFileSync5, unlinkSync } from "node:fs";
+import { closeSync as closeSync2, existsSync as existsSync9, openSync as openSync2, readFileSync as readFileSync6, readSync, realpathSync as realpathSync5, writeFileSync as writeFileSync5, unlinkSync } from "node:fs";
 import { dirname as dirname10, join as join12 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
@@ -35742,7 +35754,7 @@ function readRepoRemotes(path2) {
 }
 function canonicalPath2(p) {
   try {
-    return realpathSync4(p);
+    return realpathSync5(p);
   } catch {
     return p.replace(/\/+$/, "");
   }
@@ -38191,7 +38203,7 @@ function agentRunsBackfillTools(db2, dbPath2) {
 import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
 
 // src/utils/plugin-installs.ts
-import { readFileSync as readFileSync10, realpathSync as realpathSync5 } from "node:fs";
+import { readFileSync as readFileSync10, realpathSync as realpathSync6 } from "node:fs";
 import { join as join16 } from "node:path";
 function claudeConfigDir(env) {
   return env["CLAUDE_CONFIG_DIR"] || join16(env["HOME"] || "", ".claude");
@@ -38201,7 +38213,7 @@ function installedPluginsJsonPath(env = process.env) {
 }
 function canonicalDir(dir) {
   try {
-    return realpathSync5(dir);
+    return realpathSync6(dir);
   } catch {
     return dir;
   }
