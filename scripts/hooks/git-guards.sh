@@ -127,12 +127,11 @@ rule2_protected_bases() {
     printf '%s\n' "$PROTECTED_BRANCHES"
     [ -n "$PR_TARGET" ] && printf '%s\n' "$PR_TARGET"
     if [ -n "$_DB" ] && [ -f "$_DB" ] && tmb_have_sqlite; then
-      local root_sql repo_name repo_filter
-      root_sql=$(tmb_sql_quote "$_GIT_ROOT")
-      if [ -n "$(tmb_sqlite_ro "$_DB" "SELECT 1 FROM pragma_table_info('repos') WHERE name='pr_target' LIMIT 1;")" ]; then
-        tmb_sqlite_ro "$_DB" "SELECT pr_target FROM repos WHERE path = '${root_sql}' AND pr_target IS NOT NULL AND pr_target != '';"
+      local repo_name repo_filter
+      repo_name=$(tmb_repo_name_for_root "$_DB" "$_GIT_ROOT")
+      if [ -n "$repo_name" ] && [ -n "$(tmb_sqlite_ro "$_DB" "SELECT 1 FROM pragma_table_info('repos') WHERE name='pr_target' LIMIT 1;")" ]; then
+        tmb_sqlite_ro "$_DB" "SELECT pr_target FROM repos WHERE name = '$(tmb_sql_quote "$repo_name")' AND pr_target IS NOT NULL AND pr_target != '';"
       fi
-      repo_name=$(tmb_sqlite_ro "$_DB" "SELECT name FROM repos WHERE path = '${root_sql}' LIMIT 1;")
       if [ -n "$repo_name" ]; then
         repo_filter="(repo = '$(tmb_sql_quote "$repo_name")' OR repo IS NULL)"
       else

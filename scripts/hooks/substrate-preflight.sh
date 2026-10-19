@@ -43,7 +43,7 @@ if command -v sqlite3 >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
   . "$SCRIPT_DIR/lib/resolve-repo.sh"
   _DB=$(tmb_db_path 2>/dev/null || true)
   if [ -n "$_DB" ]; then
-    _GIT_ROOT=$(tmb_repo_git_root "$PWD" 2>/dev/null || true)
+    _GIT_ROOT=$(tmb_repo_git_root "$(tmb_project_root)" 2>/dev/null || true)
     _REMOTES_JSON=$(tmb_repo_remotes "$_DB" "$_GIT_ROOT" 2>/dev/null || true)
     if [ -n "$_REMOTES_JSON" ]; then
       _HAS_REMOTE=$(printf '%s' "$_REMOTES_JSON" | \

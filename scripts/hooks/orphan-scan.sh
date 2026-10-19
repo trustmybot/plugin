@@ -58,9 +58,10 @@ if [ -n "${TMB_ORPHAN_SCAN_PROJECT_DIR:-}" ]; then
   PROJECT_DIR="$TMB_ORPHAN_SCAN_PROJECT_DIR"
 else
   LIVE_DB=$(tmb_db_path || true)
-  PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
+  PROJECT_DIR=$(tmb_project_root)
   [ -n "$LIVE_DB" ] && [ -z "${TRAJECTORY_DB_PATH:-}" ] && PROJECT_DIR=$(dirname "$(dirname "$(dirname "$LIVE_DB")")")
 fi
+[ -n "$PROJECT_DIR" ] || exit 0
 [ -n "$LIVE_DB" ] || LIVE_DB=$(tmb_db_location "$PROJECT_DIR")
 LIVE_READ=""
 if [ -e "$LIVE_DB" ]; then

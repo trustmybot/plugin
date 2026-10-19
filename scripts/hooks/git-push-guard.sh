@@ -89,7 +89,7 @@ paths_sig() {
 # verification_runs row with exit_code 0 for itself. Prints __ERR__ when a DB
 # read fails.
 unchecked_rebases() {
-  local dir="$1" pushed="$2" values="" task_commits fresh root name safe_root safe_name repo_filter=""
+  local dir="$1" pushed="$2" values="" task_commits fresh root name safe_name repo_filter=""
   local tasks full pairs ids matches in_list sha reviewed ok
   while IFS= read -r sha; do
     case "$sha" in ''|*[!0-9a-f]*) continue ;; esac
@@ -104,8 +104,7 @@ unchecked_rebases() {
   [ -n "$fresh" ] || return 0
 
   root=$(tmb_repo_git_root "$dir")
-  safe_root=$(tmb_sql_quote "$root")
-  name=$(tmb_sqlite_ro "$DB" "SELECT name FROM repos WHERE path = '${safe_root}' LIMIT 1;")
+  name=$(tmb_repo_name_for_root "$DB" "$root")
   if [ -n "$name" ]; then
     safe_name=$(tmb_sql_quote "$name")
     repo_filter="AND (t.repo IS NULL OR t.repo = '${safe_name}')"
@@ -183,7 +182,7 @@ while IFS="$(printf '\t')" read -r DIR STMT <&3; do
     # No upstream — first push of a new branch: commits unique to this branch
     # vs the target branch: this repo's repos row, else the sole registered
     # repo's row, else the remote's default branch, else main.
-    _PUSH_REPO_ROW=$(tmb_repo_resolve "$DB" "$(tmb_stmt_repo_root "$DIR")")
+    _PUSH_REPO_ROW=$(tmb_repo_resolve "$DB" "$(tmb_stmt_repo_root "$DIR" "$CWD")")
     PR_TARGET=$(printf '%s' "$_PUSH_REPO_ROW" | cut -d'|' -f1)
     if [ -z "$PR_TARGET" ]; then
       _PUSH_SOLE_PATH=$(tmb_repo_single_path "$DB")

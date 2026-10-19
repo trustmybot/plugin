@@ -68,7 +68,7 @@ if [ -z "$BRANCH_NAME" ]; then
 fi
 
 # Slug: strip type/ prefix (fix/123-foo → 123-foo)
-SLUG="${BRANCH_NAME#*/}"
+SLUG=$(tmb_branch_slug "$BRANCH_NAME")
 
 DB_PATH=$(tmb_db_path 2>/dev/null) || true
 

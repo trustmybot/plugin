@@ -31,6 +31,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/db-write.sh"
 # shellcheck source=lib/cmd-analysis.sh
 . "$SCRIPT_DIR/lib/cmd-analysis.sh"
+# shellcheck source=lib/resolve-repo.sh
+. "$SCRIPT_DIR/lib/resolve-repo.sh"
 
 _CIM_FROM="hook:close-issue-on-merge"
 _CIM_LIVE="'pending','running','needs_validation','completed'"
@@ -275,8 +277,7 @@ _close_issue_on_merge_main() {
   ref=$(printf '%s\n' "$merge_args" | _cim_ref_from_args)
   if [ -z "$ref" ]; then
     local cwd
-    cwd=$(printf '%s' "$input" | jq -r '.cwd // ""' 2>/dev/null)
-    [ -n "$cwd" ] || cwd="$PWD"
+    cwd=$(tmb_cmd_cwd "$cmd" "$input")
     ref=$(git -C "$cwd" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
   fi
   [ -n "$ref" ] || exit 0

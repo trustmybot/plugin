@@ -1139,7 +1139,10 @@ _tmb_cmd_interp_writes() {
 # open(p, 'r'), readFileSync, read_text, perl '<') — when a write call's path
 # is not a string literal, its receiver is unknown (p.write_text), the scan
 # cannot parse the program, or a write shape shows that no call was found
-# for. The literals of the data a call writes (write / writelines /
+# for. A path held in a variable is never resolved, however it is bound:
+# python can rebind a global unseen (cProfile.run, trace, pdb, gc.get_objects,
+# pickle), so a write through a variable counts every literal (GH 1550). The
+# literals of the data a call writes (write / writelines /
 # write_text / write_bytes, fs.writeFile* / appendFile* data) are content and
 # never count; a program that does not parse counts all of them. With
 # `operands`, a program that writes but names no literal prints `-` so the
@@ -1184,7 +1187,8 @@ _tmb_cmd_prog_writes() {
 # call, perl / ruby paren-less calls) and prints, for each write call, `W`
 # and its path argument: `T<TAB><literal>`, or `F` when that argument is not
 # a lone string literal (a variable, an f-string, a concatenation) or the
-# receiver is unknown. A process call prints `S<TAB><command>` (newlines as
+# receiver is unknown; a variable is never traced to its binding (GH 1550).
+# A process call prints `S<TAB><command>` (newlines as
 # \037) and `W` when every part it is judged on is a plain literal (an
 # allowlist per argument and option key: see keyrole / slotstart), else `W`
 # and `U`; so does a process function or module referenced some way the scan

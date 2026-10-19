@@ -236,6 +236,28 @@ tmb_db_path() {
   echo "$db"
 }
 
+# tmb_realdir <dir>
+# The physical path of an existing <dir> (symlinks resolved), else <dir> as
+# given; empty for an empty <dir>. Never fails the caller.
+tmb_realdir() {
+  [ -n "${1:-}" ] || return 0
+  (cd -P -- "$1" 2>/dev/null && pwd -P) || printf '%s\n' "$1"
+}
+
+# tmb_project_root
+# The project root: CLAUDE_PROJECT_DIR, else the project holding the resolved
+# trajectory DB (<project>/.claude/<plugin>/trajectory.db). Empty when
+# neither resolves. Never fails the caller.
+tmb_project_root() {
+  local db
+  if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+    printf '%s\n' "$CLAUDE_PROJECT_DIR"
+    return 0
+  fi
+  db=$(tmb_db_path 2>/dev/null) || return 0
+  dirname "$(dirname "$(dirname "$db")")"
+}
+
 # tmb_state_dir
 # Prints this project's TMB state directory (<project>/.claude/<plugin>, the
 # directory holding the trajectory DB); non-zero exit when unresolved. Every
@@ -445,25 +467,22 @@ tmb_task_by_slug() {
   if [ "$col" = "id" ]; then printf '%s\n' "${rows%%|*}"; else printf '%s\n' "${rows#*|}"; fi
 }
 
+# tmb_branch_slug <branch_id>
+# The worktree dir name of a task branch: branch_id without its `<type>/`
+# prefix (feat/x → x), the rule task_provision uses (taskWorktreePath).
+tmb_branch_slug() {
+  local b="${1:-}"
+  printf '%s\n' "${b#*/}"
+}
+
 # tmb_worktree_root_for_target <target_path>
-# Determine the worktree root for a prompt_bearing resolution.
-# Priority:
-#   1. The TARGET path if it is under .claude/worktrees/<slug>.
-#   2. Fall back to $PWD when $PWD is under a worktree.
-# Prints the worktree root (.../.claude/worktrees/<slug>) or empty string.
-# Never fails the caller.
+# The .claude/worktrees/<slug> dir a target path lies in (the innermost one),
+# or empty. A property of the path only, never of the caller.
 tmb_worktree_root_for_target() {
   local target="${1:-}"
   case "$target" in
     */.claude/worktrees/*)
       echo "$target" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|'
-      return 0
-      ;;
-  esac
-  case "$PWD" in
-    */.claude/worktrees/*)
-      echo "$PWD" | sed -E 's|(.*/.claude/worktrees/[^/]+).*|\1|'
-      return 0
       ;;
   esac
   return 0
@@ -472,8 +491,8 @@ tmb_worktree_root_for_target() {
 # tmb_resolve_task_id_for_target <target_path> <input_json> [<db>]
 # Robustly resolve the active task_id that gates a prompt_bearing edit/write.
 # Resolution order (first non-empty wins):
-#   1. Worktree's checked-out branch: derive WORKTREE_ROOT from the TARGET path
-#      (or $PWD), then `git -C <wt> rev-parse --abbrev-ref HEAD` → exact
+#   1. Worktree's checked-out branch: derive WORKTREE_ROOT from the TARGET path,
+#      then `git -C <wt> rev-parse --abbrev-ref HEAD` → exact
 #      `branch_id = '<branch>'` (NO status filter).
 #   2. Slug fallback: tmb_task_by_slug on the worktree root's basename (NO
 #      status filter).

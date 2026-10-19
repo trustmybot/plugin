@@ -102,7 +102,7 @@ else
 fi
 [ -d "$REPO_ROOT/.git" ] || exit 0
 
-SLUG="${BRANCH_ID#*/}"
+SLUG=$(tmb_branch_slug "$BRANCH_ID")
 # Worktrees are created repo-rooted at <repo>/.claude/worktrees/<slug> by the
 # creators (ensure-swe-worktree.sh / MCP task_provision). `git worktree list`
 # enumerates them by git's own tracking regardless of physical location, so the

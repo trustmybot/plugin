@@ -60,6 +60,9 @@ sqlite3 "$DB" "
   INSERT INTO tasks VALUES (11, 1, 'feat/prompt-task', 'pending', '', 1, '[]');
   INSERT INTO tasks VALUES (12, 1, 'fix/failed-pb', 'failed', '', 1, '[]');
   INSERT INTO tasks VALUES (13, 1, 'fix/failed-nonpb', 'failed', '', 0, '[]');
+  ALTER TABLE tasks ADD COLUMN repo TEXT;
+  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT);
+  INSERT INTO repos VALUES ('repo', '$CLAUDE_PROJECT_DIR');
 "
 
 # Worktree for the prompt-bearing task (slug matches feat/prompt-task).
@@ -71,20 +74,44 @@ WT_FAILED_PB="$WT_ROOT/failed-pb"
 WT_FAILED_NONPB="$WT_ROOT/failed-nonpb"
 mkdir -p "$WT_FAILED_PB" "$WT_FAILED_NONPB"
 
+# spawned <hook>: runs <hook> on the payload on stdin. Claude Code spawns every
+# swe with task_id=<N> in its prompt, so a swe payload naming no transcript (and
+# not marked _no_identity) gets the spawn transcript of the task whose worktree
+# the case runs in. The hook itself never reads that directory for identity.
+spawned() {
+  local hook="$1" input slug task="" tr
+  input=$(cat)
+  if [ "$(jq -r '.agent_type // ""' <<<"$input")" = swe ] \
+    && [ "$(jq -r 'has("agent_transcript_path") or has("agent_id") or has("_no_identity")' <<<"$input")" = false ]; then
+    case "$PWD/" in
+      "$WT_ROOT"/*)
+        slug=${PWD#"$WT_ROOT"/}
+        slug=${slug%%/*}
+        task=$(sqlite3 "$DB" "SELECT id FROM tasks WHERE substr(branch_id, instr(branch_id, '/') + 1) = '$slug' LIMIT 1;")
+        ;;
+    esac
+    if [ -n "$task" ]; then
+      tr=$(make_transcript "$task")
+      input=$(jq -c --arg t "$tr" '. + {agent_transcript_path: $t}' <<<"$input")
+    fi
+  fi
+  printf '%s\n' "$input" | bash "$hook"
+}
+
 run_hook_swe() {
   local input="$1"
-  (cd "$WORKTREE" && echo "$input" | bash "$HOOK" 2>&1 || true)
+  (cd "$WORKTREE" && echo "$input" | spawned "$HOOK" 2>&1 || true)
 }
 
 run_hook_bro() {
   local input="$1"
-  echo "$input" | bash "$HOOK" 2>&1 || true
+  echo "$input" | spawned "$HOOK" 2>&1 || true
 }
 
 run_hook_swe_pwd() {
   local input="$1"
   local pwd_dir="${2:-$WORKTREE}"
-  (cd "$pwd_dir" && echo "$input" | bash "$HOOK" 2>&1 || true)
+  (cd "$pwd_dir" && echo "$input" | spawned "$HOOK" 2>&1 || true)
 }
 
 make_bash_input() {
@@ -245,7 +272,6 @@ assert_not_contains "$out" '"permissionDecision":"deny"' "bro edit outside workt
 # Rule (d): prompt-surface paths
 # ===========================================================================
 
-# We run from a non-worktree PWD to avoid rule (c) triggering first.
 NONWT_DIR="$TMPDIR/non-worktree"
 mkdir -p "$NONWT_DIR"
 
@@ -262,44 +288,46 @@ make_edit_with_transcript() {
 }
 
 test_case "(d) SWE edit agents/swe.md: DENIED (no prompt_bearing)"
-out=$(cd "$NONWT_DIR" && echo "$(make_edit_with_transcript swe 'agents/swe.md' 10)" | bash "$HOOK" 2>&1 || true)
+out=$(cd "$WORKTREE" && echo "$(make_edit_with_transcript swe 'agents/swe.md' 10)" | spawned "$HOOK" 2>&1 || true)
 assert_contains "$out" '"permissionDecision":"deny"' "edit agents/swe.md should be denied"
 assert_contains "$out" "prompt-surface" "deny reason should mention prompt-surface"
 
 test_case "(d) SWE edit skills/tmb_planning/SKILL.md: DENIED"
-out=$(cd "$NONWT_DIR" && echo "$(make_edit_with_transcript swe 'skills/tmb_planning/SKILL.md' 10)" | bash "$HOOK" 2>&1 || true)
+out=$(cd "$WORKTREE" && echo "$(make_edit_with_transcript swe 'skills/tmb_planning/SKILL.md' 10)" | spawned "$HOOK" 2>&1 || true)
 assert_contains "$out" '"permissionDecision":"deny"' "edit SKILL.md should be denied"
 
 test_case "(d) SWE edit CLAUDE.md: DENIED"
-out=$(cd "$NONWT_DIR" && echo "$(make_edit_with_transcript swe 'CLAUDE.md' 10)" | bash "$HOOK" 2>&1 || true)
+out=$(cd "$WORKTREE" && echo "$(make_edit_with_transcript swe 'CLAUDE.md' 10)" | spawned "$HOOK" 2>&1 || true)
 assert_contains "$out" '"permissionDecision":"deny"' "edit CLAUDE.md should be denied"
 
 test_case "(d) SWE edit CODEX.md: DENIED"
-out=$(cd "$NONWT_DIR" && echo "$(make_edit_with_transcript swe 'CODEX.md' 10)" | bash "$HOOK" 2>&1 || true)
+out=$(cd "$WORKTREE" && echo "$(make_edit_with_transcript swe 'CODEX.md' 10)" | spawned "$HOOK" 2>&1 || true)
 assert_contains "$out" '"permissionDecision":"deny"' "edit CODEX.md should be denied"
 
 test_case "(d) SWE edit commands/scan.md: DENIED"
-out=$(cd "$NONWT_DIR" && echo "$(make_edit_with_transcript swe 'commands/scan.md' 10)" | bash "$HOOK" 2>&1 || true)
+out=$(cd "$WORKTREE" && echo "$(make_edit_with_transcript swe 'commands/scan.md' 10)" | spawned "$HOOK" 2>&1 || true)
 assert_contains "$out" '"permissionDecision":"deny"' "edit commands/scan.md should be denied"
 
 test_case "(d) SWE edit agents/swe.md with prompt_bearing=1: ALLOWED"
-out=$(cd "$NONWT_DIR" && echo "$(make_edit_with_transcript swe 'agents/swe.md' 11)" | bash "$HOOK" 2>&1 || true)
+out=$(cd "$WT_PROMPT" && echo "$(make_edit_with_transcript swe 'agents/swe.md' 11)" | spawned "$HOOK" 2>&1 || true)
 assert_not_contains "$out" '"permissionDecision":"deny"' "prompt_bearing=1 task should allow prompt-surface edit"
 
 test_case "(d) SWE edit regular source file: NOT denied by rule (d)"
-out=$(cd "$NONWT_DIR" && echo "$(make_edit_with_transcript swe 'src/index.ts' 10)" | bash "$HOOK" 2>&1 || true)
+out=$(cd "$WORKTREE" && echo "$(make_edit_with_transcript swe 'src/index.ts' 10)" | spawned "$HOOK" 2>&1 || true)
 assert_not_contains "$out" '"permissionDecision":"deny"' "edit regular source file should not be denied by rule (d)"
 
 test_case "(d) bro edit agents/swe.md: NOT denied by swe-boundary (bro is allowed)"
-out=$(cd "$NONWT_DIR" && echo "$(make_edit_with_transcript bro 'agents/swe.md' 10)" | bash "$HOOK" 2>&1 || true)
+out=$(cd "$NONWT_DIR" && echo "$(make_edit_with_transcript bro 'agents/swe.md' 10)" | spawned "$HOOK" 2>&1 || true)
 assert_not_contains "$out" '"permissionDecision":"deny"' "bro edit prompt-surface should not be denied by swe-boundary"
 
 test_case "(d) SWE edit templates/agents/architect.md: DENIED"
-out=$(cd "$NONWT_DIR" && echo "$(make_edit_with_transcript swe 'templates/agents/architect.md' 10)" | bash "$HOOK" 2>&1 || true)
+out=$(cd "$WORKTREE" && echo "$(make_edit_with_transcript swe 'templates/agents/architect.md' 10)" | spawned "$HOOK" 2>&1 || true)
 assert_contains "$out" '"permissionDecision":"deny"' "edit templates/ should be denied"
 
 # ===========================================================================
-# Rule (d) — slug fallback: task_id resolved from worktree slug, no transcript
+# Rule (c) — GH 1550: identity comes from the spawn transcript, never the cwd.
+# A swe payload with no transcript and no agent_runs binding fails closed with
+# a message naming the missing piece, wherever it runs.
 # ===========================================================================
 
 make_edit_no_transcript() {
@@ -307,23 +335,32 @@ make_edit_no_transcript() {
   jq -n --arg a "$agent_type" --arg p "$path" '{
     tool_name: "Edit",
     agent_type: $a,
+    _no_identity: true,
     tool_input: {file_path: $p}
   }'
 }
 
-test_case "(d/slug) prompt_bearing=1 task + worktree context + NO transcript: ALLOWED"
-out=$(cd "$WT_PROMPT" && echo "$(make_edit_no_transcript swe "$WT_PROMPT/agents/swe.md")" | bash "$HOOK" 2>&1 || true)
-assert_not_contains "$out" '"permissionDecision":"deny"' "prompt_bearing=1 via slug fallback should allow prompt-surface edit"
-
-test_case "(d/slug) prompt_bearing=0 task + worktree context + NO transcript: DENIED"
-out=$(cd "$WORKTREE" && echo "$(make_edit_no_transcript swe "$WORKTREE/agents/swe.md")" | bash "$HOOK" 2>&1 || true)
-assert_contains "$out" '"permissionDecision":"deny"' "prompt_bearing=0 via slug fallback should deny prompt-surface edit"
-
-test_case "(d/slug) no matching task for slug + NO transcript: DENIED"
 WT_UNKNOWN="$WT_ROOT/unknown-task"
 mkdir -p "$WT_UNKNOWN"
-out=$(cd "$WT_UNKNOWN" && echo "$(make_edit_no_transcript swe "$WT_UNKNOWN/agents/swe.md")" | bash "$HOOK" 2>&1 || true)
-assert_contains "$out" '"permissionDecision":"deny"' "no matching task slug should deny prompt-surface edit"
+for wt in "$WT_PROMPT" "$WORKTREE" "$WT_UNKNOWN"; do
+  test_case "(c/1550) NO transcript, shell inside ${wt##*/}: DENIED, names the missing task_id"
+  out=$(cd "$wt" && echo "$(make_edit_no_transcript swe "$wt/src/index.ts")" | spawned "$HOOK" 2>&1 || true)
+  assert_contains "$out" '"permissionDecision":"deny"' "a cwd inside a worktree is not identity"
+  assert_contains "$out" "cannot resolve this swe's worktree" "the fail-closed reason"
+  assert_contains "$out" "no task_id" "names the missing piece"
+done
+
+test_case "(c/1550) transcript names a task with no tasks row: DENIED, names it"
+out=$(run_hook_swe "$(make_edit_with_transcript swe "$WORKTREE/src/index.ts" 999)")
+assert_contains "$out" "task 999 has no tasks row" "names the missing row"
+
+test_case "(c/1550) subagents transcript beside the session transcript resolves the task"
+mkdir -p "$TMPDIR/session/subagents"
+printf '{"message":{"content":[{"type":"text","text":"task_id=11"}]}}\n' > "$TMPDIR/session/subagents/agent-a1b2.jsonl"
+SUB_INPUT=$(jq -n --arg t "$TMPDIR/session.jsonl" --arg p "$WT_PROMPT/agents/swe.md" \
+  '{tool_name: "Edit", agent_type: "swe", agent_id: "a1b2", transcript_path: $t, tool_input: {file_path: $p}}')
+out=$(cd "$WORKTREE" && echo "$SUB_INPUT" | spawned "$HOOK" 2>&1 || true)
+assert_not_contains "$out" '"permissionDecision":"deny"' "task 11's worktree, prompt_bearing=1, whatever the cwd"
 
 test_case "(d/anchor) SWE edit <worktree>/src/agents/notes.md on a non-prompt_bearing task: ALLOWED"
 out=$(run_hook_swe "$(make_edit_with_transcript swe "$WORKTREE/src/agents/notes.md" 10)")
@@ -335,18 +372,18 @@ assert_contains "$out" '"permissionDecision":"deny"' "a root agents/ dir is prom
 
 # ===========================================================================
 # Rule (d) — failed-status + absolute target + PWD NOT in worktree (#597)
-# The regression: a prompt_bearing=1 task whose row is `failed`, edited via an
-# ABSOLUTE path while $PWD is outside any worktree, was wrongly denied because
-# WORKTREE_ROOT came from $PWD and the slug query filtered on transient status.
+# A prompt_bearing=1 task whose row is `failed`, edited via an ABSOLUTE path
+# while the shell is outside any worktree, resolves from its transcript.
 # ===========================================================================
 
 test_case "(d/597) failed-status prompt_bearing=1, absolute target, PWD outside worktree: ALLOWED"
-out=$(cd "$NONWT_DIR" && echo "$(make_edit_no_transcript swe "$WT_FAILED_PB/agents/swe.md")" | bash "$HOOK" 2>&1 || true)
+out=$(cd "$NONWT_DIR" && echo "$(make_edit_with_transcript swe "$WT_FAILED_PB/agents/swe.md" 12)" | spawned "$HOOK" 2>&1 || true)
 assert_not_contains "$out" '"permissionDecision":"deny"' "failed-status prompt_bearing=1 via absolute target should be allowed"
 
 test_case "(d/597) failed-status prompt_bearing=0, absolute target, PWD outside worktree: DENIED"
-out=$(cd "$NONWT_DIR" && echo "$(make_edit_no_transcript swe "$WT_FAILED_NONPB/agents/swe.md")" | bash "$HOOK" 2>&1 || true)
+out=$(cd "$NONWT_DIR" && echo "$(make_edit_with_transcript swe "$WT_FAILED_NONPB/agents/swe.md" 13)" | spawned "$HOOK" 2>&1 || true)
 assert_contains "$out" '"permissionDecision":"deny"' "failed-status prompt_bearing=0 via absolute target should still be denied"
+assert_contains "$out" "prompt-surface" "denied by the surface rule, not the worktree rule"
 
 # ===========================================================================
 # Rule (e): Bash write-forms targeting prompt surfaces
@@ -427,21 +464,21 @@ out=$(run_hook_swe_pwd "$(make_bash_with_transcript swe 'echo "content" > agents
 assert_not_contains "$out" '"permissionDecision":"deny"' "prompt_bearing=1 task should allow Bash write to prompt surface"
 
 test_case "(e) SWE sed -i on the root CLAUDE.md on a prompt_bearing=1 task: DENIED (always)"
-out=$(cd "$WT_PROMPT" && echo "$(make_bash_input swe "sed -i 's/old/new/' CLAUDE.md")" | bash "$HOOK" 2>&1 || true)
+out=$(cd "$WT_PROMPT" && echo "$(make_bash_input swe "sed -i 's/old/new/' CLAUDE.md")" | spawned "$HOOK" 2>&1 || true)
 assert_contains "$out" '"permissionDecision":"deny"' "prompt_bearing does not lift the root CLAUDE.md deny"
 assert_contains "$out" "Human-owned" "the CLAUDE.md reason"
 
 test_case "(d) SWE Edit of the root CLAUDE.md on a prompt_bearing=1 task: DENIED (always)"
-out=$(cd "$WT_PROMPT" && echo "$(make_edit_input swe "$WT_PROMPT/CLAUDE.md")" | bash "$HOOK" 2>&1 || true)
+out=$(cd "$WT_PROMPT" && echo "$(make_edit_input swe "$WT_PROMPT/CLAUDE.md")" | spawned "$HOOK" 2>&1 || true)
 assert_contains "$out" '"permissionDecision":"deny"' "prompt_bearing does not lift the root CLAUDE.md deny for Edit"
 assert_contains "$out" "Human-owned" "the CLAUDE.md reason"
 
 test_case "(d) SWE Edit of a nested docs/CLAUDE.md on a prompt_bearing=1 task: ALLOWED"
-out=$(cd "$WT_PROMPT" && echo "$(make_edit_input swe "$WT_PROMPT/docs/CLAUDE.md")" | bash "$HOOK" 2>&1 || true)
+out=$(cd "$WT_PROMPT" && echo "$(make_edit_input swe "$WT_PROMPT/docs/CLAUDE.md")" | spawned "$HOOK" 2>&1 || true)
 assert_not_contains "$out" '"permissionDecision":"deny"' "only the repo-root CLAUDE.md is always denied"
 
 test_case "(e) SWE redirect > to agents/swe.md via slug fallback (prompt_bearing=0): DENIED"
-out=$(cd "$WORKTREE" && echo "$(make_bash_input swe 'echo x > agents/swe.md')" | bash "$HOOK" 2>&1 || true)
+out=$(cd "$WORKTREE" && echo "$(make_bash_input swe 'echo x > agents/swe.md')" | spawned "$HOOK" 2>&1 || true)
 assert_contains "$out" '"permissionDecision":"deny"' "slug fallback prompt_bearing=0 should deny Bash write to prompt surface"
 
 test_case "(e) bro redirect > to agents/swe.md: NOT denied (bro is not SWE)"
@@ -652,7 +689,7 @@ shape_read_input() {
   esac
 }
 
-run_in() { (cd "$1" && echo "$(make_bash_input swe "$2")" | bash "$HOOK" 2>&1 || true); }
+run_in() { (cd "$1" && echo "$(make_bash_input swe "$2")" | spawned "$HOOK" 2>&1 || true); }
 
 for shape in '>' '>>' heredoc tee 'tee -a' 'sed -i' 'perl -i' cp mv install rsync python3 node dd \
   '>|' 'exec N>' truncate 'git mv' 'perl -e'; do
@@ -752,15 +789,15 @@ assert_not_contains "$out" '"permissionDecision":"deny"' "a write into files[] i
 assert_not_contains "$out" "outside this task's files[]" "the content's path-like text draws no note"
 
 test_case "GH 1295 Edit outside the worktree and prompt surface on a non-bearing task stay DENIED"
-out=$(cd "$WT_PLAIN" && echo "$(make_edit_input swe '/tmp/elsewhere.ts')" | bash "$HOOK" 2>&1 || true)
+out=$(cd "$WT_PLAIN" && echo "$(make_edit_input swe '/tmp/elsewhere.ts')" | spawned "$HOOK" 2>&1 || true)
 assert_contains "$out" "outside the worktree" "outside-worktree Edit is denied"
-out=$(cd "$WT_PLAIN" && echo "$(make_edit_input swe "$WT_PLAIN/$SURFACE")" | bash "$HOOK" 2>&1 || true)
+out=$(cd "$WT_PLAIN" && echo "$(make_edit_input swe "$WT_PLAIN/$SURFACE")" | spawned "$HOOK" 2>&1 || true)
 assert_contains "$out" "prompt-surface" "prompt-surface Edit on a non-bearing task is denied"
 out=$(run_in "$WT_PLAIN" 'echo x > CLAUDE.md')
 assert_contains "$out" "Human-owned" "a Bash write to the root CLAUDE.md is denied"
 
 test_case "GH 1272 Edit/Write and Bash share one surface predicate"
-out=$(cd "$WT_PLAIN" && echo "$(make_edit_input swe "$WT_PLAIN/rules/style.md")" | bash "$HOOK" 2>&1 || true)
+out=$(cd "$WT_PLAIN" && echo "$(make_edit_input swe "$WT_PLAIN/rules/style.md")" | spawned "$HOOK" 2>&1 || true)
 assert_contains "$out" "prompt-surface" "Edit of rules/*.md reaches the same decision"
 
 test_case "GH 1272 one shared write-shape list: neither guard carries its own copy"
@@ -794,7 +831,7 @@ sqlite3 "$DB" "
 run_event() {
   local input
   input=$(make_bash_input swe "$2")
-  (cd "$1" && { echo "$input" | bash "$HOOK"; echo "$input" | bash "$CG_HOOK"; } 2>&1 || true)
+  (cd "$1" && { echo "$input" | spawned "$HOOK"; echo "$input" | spawned "$CG_HOOK"; } 2>&1 || true)
 }
 heredoc_prog() { printf '%s\n' "$1 <<'EOF'" "$2" 'EOF'; }
 
@@ -1096,13 +1133,16 @@ sqlite3 "$LIVE_WS/.claude/tmb/trajectory.db" "
     prompt_bearing INTEGER NOT NULL DEFAULT 0
   );
   INSERT INTO tasks VALUES (10, 1, 'feat/prompt-task', 'pending', '', 1);
+  ALTER TABLE tasks ADD COLUMN repo TEXT;
+  CREATE TABLE repos (name TEXT PRIMARY KEY, path TEXT);
+  INSERT INTO repos VALUES ('project', '$LIVE_WS');
 "
 LIVE_WT_PROMPT="$LIVE_WS/.claude/worktrees/prompt-task"
 mkdir -p "$LIVE_WT_PROMPT/agents"
 
 test_case "(L1) stale legacy DB up-tree, live DB at workspace: prompt_bearing=1 edit ALLOWED"
 out=$(cd "$LIVE_WT_PROMPT" && \
-  echo "$(make_edit_no_transcript swe "$LIVE_WT_PROMPT/agents/swe.md")" | \
+  echo "$(make_edit_with_transcript swe "$LIVE_WT_PROMPT/agents/swe.md" 10)" | \
   HOME="$SCHEMA_HOME" env -u TRAJECTORY_DB_PATH -u CLAUDE_PROJECT_DIR -u TMB_TEST_RUN_ID -u TMB_FORBID_LIVE_SYNC bash "$HOOK" 2>&1 || true)
 assert_not_contains "$out" '"permissionDecision":"deny"' "live current-schema DB should be resolved, prompt edit allowed"
 

@@ -1,0 +1,21 @@
+# no-cwd-identity.sh exemptions: <file under scripts/hooks>|<substring of the line>|<reason>.
+# Each is a read of the dir a shell command runs in (path arithmetic for that
+# command), or a fallback used only when CLAUDE_PROJECT_DIR is unset; none
+# picks an agent, task, repo or worktree.
+lib/cmd-analysis.sh|tmb_payload_cwd() {|the definition: the payload cwd is the dir a Bash command starts in, the join base of its relative paths
+lib/cmd-analysis.sh|jq -r '.cwd // empty'|tmb_payload_cwd reads the dir the command starts in
+lib/cmd-analysis.sh|[ -n "$c" ] || c="$PWD"|tmb_payload_cwd: a payload without .cwd runs the command in the hook's own dir
+lib/cmd-analysis.sh|local cmd="${1:-}" cwd="${2:-$PWD}" state="" dir stmt|tmb_cmd_statements: the start dir of a command whose caller passes none; only joins its cd targets
+lib/cmd-analysis.sh|local dir="${1:-}" cwd="${2:-$PWD}" common|tmb_stmt_repo_root: the start dir of a statement with no cd; it names the repo that statement's git runs in
+lib/resolve-repo.sh|tmb_cmd_cwd() {|the definition: the dir a command runs in (its leading cd or git -C joined to the payload cwd)
+lib/resolve-repo.sh|declare -F tmb_payload_cwd|sources the helper tmb_cmd_cwd joins to
+lib/resolve-repo.sh|base=$(tmb_payload_cwd "$input")|tmb_cmd_cwd: the join base of a relative cd / git -C path
+lib/query-task.sh|start="$(pwd)"|_tmb_db_resolve: DB walk-up discovery, reached only when TRAJECTORY_DB_PATH and CLAUDE_PROJECT_DIR are both unset and no test flag is set
+lib/persona.sh|PERSONA_PROJECT="${CLAUDE_PROJECT_DIR:-$PWD}"|bro's persona: the project root when CLAUDE_PROJECT_DIR is unset (a bare SessionStart); never a subagent's location
+branch-up-to-date-with-remote.sh|CWD=$(tmb_payload_cwd "$INPUT")|the dir the git command starts in; joined with its cd / git -C by tmb_cmd_statements and tmb_stmt_repo_root
+git-guards.sh|CWD=$(tmb_payload_cwd "$INPUT")|the dir the git command starts in; joined with its cd / git -C by tmb_cmd_statements and tmb_stmt_repo_root
+git-push-guard.sh|CWD=$(tmb_payload_cwd "$INPUT")|the dir the push starts in; joined with its cd / git -C by tmb_cmd_statements and tmb_stmt_repo_root
+clean-merged-branch.sh|cwd=$(tmb_cmd_cwd "$cmd" "$input")|gh pr merge with no ref merges the branch checked out where it runs
+close-issue-on-merge.sh|cwd=$(tmb_cmd_cwd "$cmd" "$input")|gh pr merge with no ref merges the branch checked out where it runs
+containment-guard.sh|CWD=$(tmb_payload_cwd "$INPUT")|join base of relative targets; for a non-swe, the dir a Bash command runs in must sit under the project root. An swe's root comes from agent-context
+worktree-create.sh|CWD_REPO="$(pwd)"|WorktreeCreate with no trajectory DB (a non-TMB project): out of GH 1550's scope, which leaves WorktreeCreate as is

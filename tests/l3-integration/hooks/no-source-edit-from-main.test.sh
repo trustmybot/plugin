@@ -237,8 +237,9 @@ assert_eq "" "$out" "no DB = not a TMB project = allow"
 # ---- Rule 2: Bash write-forms targeting prompt surfaces (main checkout) ----
 
 bash_input() {
-  jq -n --arg cmd "$1" '{
+  jq -n --arg cmd "$1" --arg cwd "${2:-$TMPDIR}" '{
     tool_name: "Bash",
+    cwd: $cwd,
     tool_input: { command: $cmd }
   }'
 }

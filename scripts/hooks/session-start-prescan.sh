@@ -242,13 +242,13 @@ $COLD_NOTE"
 newer plugin version ${NEWER_CACHED_VERSION} is installed but ${PLUGIN_VERSION} is still running — restart Claude Code (or reconnect the trajectory-server via /mcp) to apply"
 
 # Duplicate enabled copies of this plugin: Claude Code keeps one copy's hooks.
-DUP_INSTALLS=$(tmb_duplicate_installs "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null || true)
+DUP_INSTALLS=$(tmb_duplicate_installs "$(tmb_project_root)" 2>/dev/null || true)
 [ -n "$DUP_INSTALLS" ] && COLD_SUFFIX="${COLD_SUFFIX}
 Plugin: duplicate $(_tmb_install_plugin_name) copies enabled ($(printf '%s\n' "$DUP_INSTALLS" | cut -f1 | paste -sd, - | sed 's/,/, /g')) — hooks from one are dropped; run /plugin"
 
 # Pre-1.1.0 TMB hooks in the user-scope settings.json run in every project;
 # the Human removes them by hand.
-LEGACY_HOOKS=$(tmb_legacy_user_hooks "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null || true)
+LEGACY_HOOKS=$(tmb_legacy_user_hooks "$(tmb_project_root)" 2>/dev/null || true)
 if [ -n "$LEGACY_HOOKS" ]; then
   LEGACY_PROJECTS=$(tmb_legacy_user_hooks_projects "$LEGACY_HOOKS")
   COLD_SUFFIX="${COLD_SUFFIX}
