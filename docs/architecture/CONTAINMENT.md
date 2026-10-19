@@ -63,7 +63,7 @@ The invariant above covers what TMB itself writes. The agents it runs are held t
 
 | Tier | Layer | What it holds |
 |---|---|---|
-| 0 | Claude Code's Bash sandbox, written by `/onboard` (`sandbox_enforcement`, default **no**) | OS-level: Bash, in the main loop and in every subagent, writes only to the working directory, the sandbox temp dir and `sandbox.filesystem.allowWrite` (the project and `TMB_MODEL_CACHE_DIR`). Does not cover the Write/Edit tools. |
+| 0 | Claude Code's Bash sandbox, written by `/onboard` (`sandbox_enforcement`, default **no**) | OS-level: Bash, in the main loop and in every subagent, writes only to the working directory, the sandbox temp dir and `sandbox.filesystem.allowWrite` (the project and `TMB_MODEL_CACHE_DIR`), and reaches only the hosts in `sandbox.network.allowedDomains`. Does not cover the Write/Edit tools. |
 | 1 | Server tools (host-neutral) | `task_provision`, `pr_monitor_worktree` and `cheatcode_install` refuse a path outside the project with `{"error":"outside_project"}`; `cheatcode_install` refuses `scope=global` the same way (install project-local instead). `pr_monitor_worktree` checks the commit out under `<repo>/.claude/worktrees/pr-review-<sha>`. |
 | 2 | [`scripts/hooks/containment-guard.sh`](../../scripts/hooks/containment-guard.sh) (PreToolUse Write/Edit/MultiEdit/NotebookEdit/Bash) | Denies a write outside the run's root, resolved from the caller's identity, never its cwd: a swe's root is the `root_dir` of its own run — the swe row whose `spawn_id` is the payload `agent_id`, bound at its first `task_brief` (`tmb_caller_run`); a swe with an `agent_id` but no bound run is denied every write (devices aside) with the instruction to call `task_brief` first and never widens to the project; a swe payload with no `agent_id` (headless or legacy) falls back to the open swe row of the task its cwd's worktree resolves to; pr-reviewer and bro get `CLAUDE_PROJECT_DIR`. File tools by the canonical `file_path`; Bash by its `cwd` (not for a swe with an `agent_id`: its spawn cwd is the main checkout, so a bound swe's Bash is judged by its write targets alone) and every write position [`lib/cmd-analysis.sh`](../../scripts/hooks/lib/cmd-analysis.sh) finds (redirects, `tee`, `cp`/`mv`/`rsync`/`install` destinations, `mkdir`, `rm`, `touch`, both ends of a link — `ln`, `ln -s`, `link`, `cp -s`, `cp -l` — `git worktree add`, `git clone`, `sed -i`, interpreter one-liners and programs fed to an interpreter through a heredoc) in each statement's own `cd` dir; data heredocs and quoted text are data. Paths are canonicalized the way the kernel resolves them (`realpath -m`): each existing symlink is followed before a later `..` applies, so `<root>/link/../x` with `link` pointing outside is outside; `..` collapses lexically only inside the part that does not exist yet. Writes are allowed under the roots in the table below, plus `/dev/null`-style devices; reads are not judged. Each denial writes a `containment_denied` audit row naming the tool, path, root and task (an unbound swe's row has a null root and `reason` `unbound_caller`). |
 
@@ -83,12 +83,24 @@ The hook is a parser, not a jail. A program fed to python, node, perl, ruby or s
 Only on an explicit **yes** does `onboard_apply` merge into `<project>/.claude/settings.local.json`:
 
 ```json
-{ "sandbox": { "enabled": true, "filesystem": { "allowWrite": ["<project>", "<TMB_MODEL_CACHE_DIR>"] } } }
+{ "sandbox": { "enabled": true,
+               "filesystem": { "allowWrite": ["<project>", "<TMB_MODEL_CACHE_DIR>"] },
+               "network": { "allowedDomains": ["github.com", "api.github.com", "*.githubusercontent.com", "registry.npmjs.org", "<host of each HTTPS remote>"] } } }
 ```
 
-Every other key, and every `allowWrite` path already present, is kept. What TMB added is recorded in `plugin_config.sandbox_settings`; **no** removes exactly that. Only a project named by the trajectory DB path is written.
+Every other key, and every `allowWrite` path and `allowedDomains` host already present, is kept; TMB never writes `excludedCommands`. What TMB added is recorded in `plugin_config.sandbox_settings` (`enabled_set`, `allow_write`, `allowed_domains`); **no** removes exactly that. Only a project named by the trajectory DB path is written. MCP servers and hooks run outside the sandbox, so the embedding-model download needs no domain.
 
-**Network caveat — why the default is no.** The block sets no network rules, so with it Claude Code's sandbox network defaults apply to Bash. Phase-0 verified filesystem confinement only; whether those defaults block `gh`, `git push` or package installs (`bun install`) has not been tested. The default becomes **yes** only after a network Phase-0 confirms they keep working.
+**Network probe — why the default is still no.** The sandbox sends Bash network traffic through a proxy that, headless, refuses every host not in `allowedDomains` (empty by default), and git over SSH bypasses the proxy. [`tests/l5-l6/probes/sandbox-network-probe.sh`](../../tests/l5-l6/probes/sandbox-network-probe.sh) measures TMB's remote commands in one `claude -p --model haiku` session per setup: **A** is the filesystem-only block, **B** is A plus the allow-list above. `host` runs the same commands outside Claude Code. Claude Code 2.1.303, macOS, 2026-10-18:
+
+| Command | host | A: filesystem only | B: A + allowedDomains |
+|---|---|---|---|
+| `gh api user --jq .login` | pass | FAIL (1): proxy denies `api.github.com` | FAIL (1): `x509: OSStatus -26276`, the macOS TLS trust service is unreachable |
+| `git ls-remote origin HEAD` | pass | FAIL (128): proxy denies `github.com` | pass |
+| `git push --dry-run origin HEAD:refs/heads/tmb-probe-noop` | pass | FAIL (128): proxy denies `github.com` | pass |
+| `npm view is-number version` | pass | FAIL (1): proxy denies `registry.npmjs.org` | FAIL (1): `EPERM` writing `~/.npm/_cacache` |
+| `bun add is-number` | pass | FAIL (1): bun cannot open its temp dir | FAIL (1): bun cannot open its temp dir |
+
+The allow-list fixes every network denial; no B failure is a missing host. The three left are local to the sandbox (TLS trust for Go's `gh`, npm's home cache, bun's temp dir), so a fresh onboard keeps the default at **no** and `SANDBOX_NETWORK_PROBE` in `onboard-sandbox.ts` records the failed commands. The default becomes **Yes (Recommended)** on a fresh onboard only when a rerun passes every B command and no repo remote is SSH (`git@…` or `ssh://`); with an SSH remote the Yes option says git over SSH bypasses the proxy. A re-onboard defaults to keeping the stored answer.
 
 ### Phase-0 finding (Claude Code 2.1.296, 2026-10-11)
 

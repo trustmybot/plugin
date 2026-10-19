@@ -8,6 +8,14 @@ import { TrajectoryDB } from '../db.js';
 import { onboardTools } from '../tools/onboard.js';
 import { tempDB } from './helpers.js';
 import { repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
+import {
+  isSshRemote,
+  removeProjectSandbox,
+  SANDBOX_NETWORK_PROBE,
+  sandboxRecommended,
+  TMB_ALLOWED_DOMAINS,
+  type SandboxRecord,
+} from '../tools/onboard-sandbox.js';
 
 // No onboard test may reach the real ~/.claude: HOME is a fresh temp dir and no
 // inherited plugin root survives, so os.homedir() and resolvePluginRoot() land
@@ -1100,6 +1108,138 @@ describe('onboard tools', () => {
       const data = parse(await call(onboardTools(db).handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'yes' }));
       assert.equal(((data.applied as Record<string, unknown>).sandbox as Record<string, unknown>).written, false);
       db.close();
+    });
+
+    function gitProject(origin: string) {
+      const p = project();
+      const gitOpts = { cwd: p.proj, encoding: 'utf8' as const };
+      spawnSync('git', ['init', '-q', '-b', 'main'], gitOpts);
+      spawnSync('git', ['remote', 'add', 'origin', origin], gitOpts);
+      return p;
+    }
+
+    function sandboxRecord(db: TrajectoryDB): SandboxRecord {
+      const row = db.get<{ value_json: string }>("SELECT value_json FROM plugin_config WHERE key='sandbox_settings'");
+      return JSON.parse(row!.value_json) as SandboxRecord;
+    }
+
+    it("yes merges the network allow-list with each HTTPS remote's host; no removes only TMB's domains", async () => {
+      const db = tempDB();
+      const { base, proj, dbPath, settings } = gitProject('https://gitlab.example.com/acme/app.git');
+      db.run(`INSERT INTO repos (path, name) VALUES (?, 'app')`, [proj]);
+      mkdirSync(join(proj, '.claude'), { recursive: true });
+      const user = {
+        sandbox: { excludedCommands: ['docker'], network: { allowedDomains: ['example.org', 'github.com'] } },
+      };
+      writeFileSync(settings, JSON.stringify(user));
+      const tools = onboardTools(db, dbPath);
+      const data = parse(
+        await call(tools.handlers, 'onboard_apply', {
+          shape: 'remote',
+          branching_model: 'github-flow',
+          remote: ['gitlab'],
+          issue_sync: 'off',
+          sandbox_enforcement: 'yes',
+        }),
+      );
+      assert.equal(data.ok, true);
+      const written = JSON.parse(readFileSync(settings, 'utf8'));
+      assert.deepEqual(written.sandbox.excludedCommands, ['docker'], 'the user excludedCommands is kept');
+      assert.deepEqual(written.sandbox.network.allowedDomains, [
+        'example.org',
+        'github.com',
+        'api.github.com',
+        '*.githubusercontent.com',
+        'registry.npmjs.org',
+        'gitlab.example.com',
+      ]);
+      const record = sandboxRecord(db);
+      assert.ok(record.allowed_domains && record.allowed_domains.length > 0, 'allowed_domains is populated');
+      assert.ok(record.allowed_domains.includes('gitlab.example.com'), "the HTTPS remote's host is recorded");
+      assert.ok(!record.allowed_domains.includes('github.com'), 'a domain the user had is not TMB-owned');
+
+      await call(tools.handlers, 'onboard_apply', { shape: 'remote', branching_model: 'github-flow', remote: ['gitlab'], issue_sync: 'off' });
+      assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), written, 'a re-apply keeps the stored yes and is idempotent');
+
+      await call(tools.handlers, 'onboard_apply', {
+        shape: 'remote',
+        branching_model: 'github-flow',
+        remote: ['gitlab'],
+        issue_sync: 'off',
+        sandbox_enforcement: 'no',
+      });
+      assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), user, 'no leaves exactly the user settings');
+      rmSync(base, { recursive: true, force: true });
+      db.close();
+    });
+
+    it('yes never writes excludedCommands and accepts the Recommended label', async () => {
+      const db = tempDB();
+      const { base, dbPath, settings } = project();
+      await call(onboardTools(db, dbPath).handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'Yes (Recommended)' });
+      const written = JSON.parse(readFileSync(settings, 'utf8'));
+      assert.equal(written.sandbox.excludedCommands, undefined);
+      assert.deepEqual(written.sandbox.network.allowedDomains, [...TMB_ALLOWED_DOMAINS]);
+      rmSync(base, { recursive: true, force: true });
+      db.close();
+    });
+
+    it('the fresh default follows the recorded probe: B failed a command, so No', async () => {
+      assert.deepEqual(
+        [...SANDBOX_NETWORK_PROBE.failed],
+        ['gh api user --jq .login', 'npm view is-number version', 'bun add is-number'],
+      );
+      const db = tempDB();
+      const { base, dbPath } = gitProject('https://github.com/acme/app.git');
+      const data = parse(await call(onboardTools(db, dbPath).handlers, 'onboard_get_questions', { round: 'sandbox' }));
+      const q = (data.questions as Array<{ options: Array<{ wire: string; label: string }>; default_index: number }>)[0];
+      assert.equal(q.options[q.default_index].wire, SANDBOX_NETWORK_PROBE.failed.length === 0 ? 'yes' : 'no');
+      assert.equal(q.options[q.default_index].wire, 'no');
+      assert.ok(!q.options.some((o) => /Recommended/.test(o.label)));
+      rmSync(base, { recursive: true, force: true });
+      db.close();
+    });
+
+    it('an SSH remote keeps the fresh default at No and the Yes option says why', async () => {
+      const db = tempDB();
+      const { base, dbPath } = gitProject('git@github.com:acme/app.git');
+      const data = parse(await call(onboardTools(db, dbPath).handlers, 'onboard_get_questions', { round: 'sandbox' }));
+      const q = (data.questions as Array<{ options: Array<{ wire: string; description: string }>; default_index: number }>)[0];
+      assert.equal(q.options[q.default_index].wire, 'no');
+      assert.match(q.options.find((o) => o.wire === 'yes')!.description, /Git over SSH bypasses the sandbox proxy/);
+      rmSync(base, { recursive: true, force: true });
+      db.close();
+    });
+
+    it('re-onboard defaults to keeping the stored value', async () => {
+      const db = tempDB();
+      const { base, dbPath } = project();
+      const tools = onboardTools(db, dbPath);
+      await call(tools.handlers, 'onboard_apply', { shape: 'local', sandbox_enforcement: 'yes' });
+      const data = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'sandbox' }));
+      const q = (data.questions as Array<{ options: Array<{ wire: string; label: string }>; default_index: number }>)[0];
+      assert.equal(q.options[q.default_index].label, 'Keep "yes"');
+      rmSync(base, { recursive: true, force: true });
+      db.close();
+    });
+
+    it('sandboxRecommended: yes only when the probe passed and no remote is SSH', () => {
+      assert.equal(sandboxRecommended(['https://github.com/a/b.git'], []), true);
+      assert.equal(sandboxRecommended([], []), true);
+      assert.equal(sandboxRecommended(['git@github.com:a/b.git'], []), false);
+      assert.equal(sandboxRecommended(['ssh://git@github.com/a/b.git'], []), false);
+      assert.equal(sandboxRecommended(['https://github.com/a/b.git'], ['bun add is-number']), false);
+      assert.equal(isSshRemote('https://github.com/a/b.git'), false);
+    });
+
+    it('a record from before GH 1252 (no allowed_domains) still removes cleanly', () => {
+      const { base, proj, settings } = project();
+      mkdirSync(join(proj, '.claude'), { recursive: true });
+      writeFileSync(settings, JSON.stringify({ sandbox: { enabled: true, network: { allowedDomains: ['example.org'] } } }));
+      const result = removeProjectSandbox({ projectRoot: proj, record: { enabled_set: true, allow_write: [] } });
+      assert.equal(result.removed, true);
+      assert.deepEqual(JSON.parse(readFileSync(settings, 'utf8')), { sandbox: { network: { allowedDomains: ['example.org'] } } });
+      rmSync(base, { recursive: true, force: true });
     });
   });
 

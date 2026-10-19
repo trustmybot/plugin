@@ -33471,6 +33471,38 @@ function projectUsable(projectRoot) {
     return false;
   }
 }
+var TMB_ALLOWED_DOMAINS = [
+  "github.com",
+  "api.github.com",
+  "*.githubusercontent.com",
+  "registry.npmjs.org"
+];
+var SANDBOX_NETWORK_PROBE = {
+  cc_version: "2.1.303",
+  date: "2026-10-18",
+  failed: ["gh api user --jq .login", "npm view is-number version", "bun add is-number"]
+};
+function isSshRemote(url2) {
+  return /^ssh:\/\//i.test(url2) || /^[^@/:\s]+@[^:/\s]+:/.test(url2);
+}
+function httpsHost(url2) {
+  try {
+    const parsed = new URL(url2);
+    return parsed.protocol === "https:" && parsed.hostname ? parsed.hostname.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+function sandboxAllowedDomains(remoteUrls) {
+  const hosts = remoteUrls.map(httpsHost).filter((h) => h !== null);
+  return [.../* @__PURE__ */ new Set([...TMB_ALLOWED_DOMAINS, ...hosts])];
+}
+function sandboxRecommended(remoteUrls, probeFailed = SANDBOX_NETWORK_PROBE.failed) {
+  return probeFailed.length === 0 && !remoteUrls.some(isSshRemote);
+}
+function stringList(v) {
+  return Array.isArray(v) ? v.filter((p) => typeof p === "string") : [];
+}
 function sandboxAllowWrite(projectRoot, cacheDir = TMB_MODEL_CACHE_DIR) {
   return [.../* @__PURE__ */ new Set([projectRoot, cacheDir])];
 }
@@ -33487,23 +33519,32 @@ function writeProjectSandbox(opts) {
   const settings = read.settings;
   const sandbox = isObject2(settings["sandbox"]) ? settings["sandbox"] : {};
   const filesystem = isObject2(sandbox["filesystem"]) ? sandbox["filesystem"] : {};
-  const existing = Array.isArray(filesystem["allowWrite"]) ? filesystem["allowWrite"].filter((p) => typeof p === "string") : [];
+  const existing = stringList(filesystem["allowWrite"]);
   const wanted = sandboxAllowWrite(opts.projectRoot, opts.cacheDir);
   const ownedBefore = new Set(opts.previous?.allow_write ?? []);
   const added = wanted.filter((p) => !existing.includes(p) || ownedBefore.has(p));
   const enabledSet = sandbox["enabled"] === void 0 || opts.previous?.enabled_set === true;
+  const network = isObject2(sandbox["network"]) ? sandbox["network"] : {};
+  const wantedDomains = sandboxAllowedDomains(opts.remoteUrls ?? []);
+  const ownedDomainsBefore = new Set(opts.previous?.allowed_domains ?? []);
+  const existingDomains = stringList(network["allowedDomains"]).filter(
+    (d) => !ownedDomainsBefore.has(d) || wantedDomains.includes(d)
+  );
+  const addedDomains = wantedDomains.filter((d) => !existingDomains.includes(d) || ownedDomainsBefore.has(d));
   if (sandbox["enabled"] === void 0) sandbox["enabled"] = true;
   filesystem["allowWrite"] = [...existing, ...wanted.filter((p) => !existing.includes(p))];
   sandbox["filesystem"] = filesystem;
+  network["allowedDomains"] = [...existingDomains, ...wantedDomains.filter((d) => !existingDomains.includes(d))];
+  sandbox["network"] = network;
   settings["sandbox"] = sandbox;
   const failure2 = writeSettings2(path2, settings);
   if (failure2) {
     serverLog({ event: "onboard_sandbox_skip", reason: failure2 });
     return { written: false, reason: failure2 };
   }
-  const record2 = { enabled_set: enabledSet, allow_write: added };
-  serverLog({ event: "onboard_sandbox_written", settingsPath: path2, allowWrite: wanted });
-  return { written: true, settings_path: path2, allow_write: wanted, record: record2 };
+  const record2 = { enabled_set: enabledSet, allow_write: added, allowed_domains: addedDomains };
+  serverLog({ event: "onboard_sandbox_written", settingsPath: path2, allowWrite: wanted, allowedDomains: wantedDomains });
+  return { written: true, settings_path: path2, allow_write: wanted, allowed_domains: wantedDomains, record: record2 };
 }
 function removeProjectSandbox(opts) {
   if (!projectUsable(opts.projectRoot)) return { removed: false, reason: "no project directory" };
@@ -33523,6 +33564,16 @@ function removeProjectSandbox(opts) {
       else delete filesystem["allowWrite"];
     }
     if (Object.keys(filesystem).length === 0) delete sandbox["filesystem"];
+  }
+  const ownedDomains = new Set(opts.record.allowed_domains ?? []);
+  if (isObject2(sandbox["network"])) {
+    const network = sandbox["network"];
+    if (Array.isArray(network["allowedDomains"])) {
+      const kept = network["allowedDomains"].filter((d) => !(typeof d === "string" && ownedDomains.has(d)));
+      if (kept.length > 0) network["allowedDomains"] = kept;
+      else delete network["allowedDomains"];
+    }
+    if (Object.keys(network).length === 0) delete sandbox["network"];
   }
   if (opts.record.enabled_set) delete sandbox["enabled"];
   if (Object.keys(sandbox).length === 0) delete settings["sandbox"];
@@ -33838,29 +33889,27 @@ function headlessQuestion(current, isReonboard, entries) {
     default_index: options.findIndex((o) => o.wire === "no")
   };
 }
-function sandboxQuestion(current, isReonboard) {
-  const options = [];
-  if (isReonboard && current !== null) {
-    options.push({ label: `Keep "${current}"`, description: "No change.", wire: KEEP_SENTINEL });
-  }
-  options.push(
-    {
-      label: "No",
-      description: "Bash writes follow Claude Code's defaults; the containment hook still guards.",
-      wire: "no"
-    },
-    {
-      label: "Yes",
-      description: "Bash may write only in this project and the model cache. Writes a sandbox block to this project's .claude/settings.local.json; Claude Code's sandbox network defaults then apply to Bash.",
-      wire: "yes"
-    }
-  );
+function sandboxQuestion(current, isReonboard, remoteUrls) {
+  const keep = isReonboard && current !== null;
+  const recommended = !keep && sandboxRecommended(remoteUrls);
+  const ssh = remoteUrls.some(isSshRemote);
+  const no = {
+    label: "No",
+    description: "Bash writes follow Claude Code's defaults; the containment hook still guards.",
+    wire: "no"
+  };
+  const yes = {
+    label: recommended ? SANDBOX_YES_RECOMMENDED : "Yes",
+    description: "Bash may write only in this project and the model cache, and reach only GitHub, the npm registry and your HTTPS remotes." + (ssh ? " Git over SSH bypasses the sandbox proxy, so your SSH remote fails: switch it to HTTPS." : ""),
+    wire: "yes"
+  };
+  const options = keep ? [{ label: `Keep "${current}"`, description: "No change.", wire: KEEP_SENTINEL }, no, yes] : recommended ? [yes, no] : [no, yes];
   return {
-    question: "Confine Bash writes to this project with Claude Code's sandbox? Writes a sandbox block to this project's .claude/settings.local.json.",
+    question: "Confine Bash to this project and an allow-list of hosts with Claude Code's sandbox? Writes a sandbox block to this project's .claude/settings.local.json.",
     header: "Sandbox",
     multiSelect: false,
     options,
-    default_index: options.findIndex((o) => o.wire === "no")
+    default_index: keep ? 0 : options.findIndex((o) => o.wire === (recommended ? "yes" : "no"))
   };
 }
 function resolveOption(value, options) {
@@ -33894,7 +33943,11 @@ var HEADLESS_OPTIONS = [
   { label: "No", description: "", wire: "no" },
   { label: "Yes", description: "", wire: "yes" }
 ];
-var SANDBOX_OPTIONS = HEADLESS_OPTIONS;
+var SANDBOX_YES_RECOMMENDED = "Yes (Recommended)";
+var SANDBOX_OPTIONS = [
+  ...HEADLESS_OPTIONS,
+  { label: SANDBOX_YES_RECOMMENDED, description: "", wire: "yes" }
+];
 function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
   const definitions = [
     {
@@ -33916,7 +33969,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           round: {
             type: "string",
             enum: ["shape", "main", "sync", "headless", "sandbox"],
-            description: "'shape' = Round 1 (project shape \u2014 Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only \u2014 issue_sync). 'headless' = headless_enforcement (any shape; default No). 'sandbox' = sandbox_enforcement (any shape; default No)."
+            description: "'shape' = Round 1 (project shape \u2014 Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only \u2014 issue_sync). 'headless' = headless_enforcement (any shape; default No). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only when the recorded sandbox network probe passed and no remote is SSH, else No; re-onboard defaults to Keep)."
           },
           repo: {
             type: "string",
@@ -33957,7 +34010,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           sandbox_enforcement: {
             type: "string",
             enum: ["yes", "no"],
-            description: "Optional. 'yes' writes Claude Code's Bash sandbox block (sandbox.enabled + filesystem.allowWrite = the project and the model cache) into the project's .claude/settings.local.json; 'no' removes what TMB wrote. Omit to keep the stored answer (default 'no')."
+            description: "Optional. 'yes' writes Claude Code's Bash sandbox block (sandbox.enabled + filesystem.allowWrite = the project and the model cache + network.allowedDomains = GitHub, the npm registry and each HTTPS remote's host) into the project's .claude/settings.local.json; 'no' removes what TMB wrote. Omit to keep the stored answer (default 'no')."
           },
           repo: {
             type: "string",
@@ -33982,6 +34035,10 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
   const sandboxProjectRoot = () => {
     const fromDb = dbPath2.match(/^(.*)\/\.claude\/[^/]+\/trajectory\.db$/);
     return fromDb && fromDb[1] ? fromDb[1] : null;
+  };
+  const knownRemoteUrls = (extra = []) => {
+    const rows = db2.all(`SELECT url FROM repo_remotes`).map((r) => r.url);
+    return [.../* @__PURE__ */ new Set([...rows, ...extra])].filter((u) => u.length > 0);
   };
   const shimOptions = () => ({
     pluginRoot: shimEnv.pluginRoot !== void 0 ? shimEnv.pluginRoot : resolvePluginRoot2(),
@@ -34034,7 +34091,8 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         }
         if (round === "sandbox") {
           const current = readConfig(db2, "sandbox_enforcement");
-          return ok16({ questions: [sandboxQuestion(current, readOnboardedFlag(db2))] });
+          const detected = git2.detected_remotes.map((r) => r.url);
+          return ok16({ questions: [sandboxQuestion(current, readOnboardedFlag(db2), knownRemoteUrls(detected))] });
         }
         if (round === "headless") {
           const current = readConfig(db2, "headless_enforcement");
@@ -34314,9 +34372,13 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         try {
           const record2 = readConfig(db2, "sandbox_settings") ?? null;
           if (sandbox_enforcement === "yes") {
-            const result2 = writeProjectSandbox({ projectRoot: sandboxProjectRoot(), previous: record2 });
+            const result2 = writeProjectSandbox({
+              projectRoot: sandboxProjectRoot(),
+              remoteUrls: knownRemoteUrls(remotes.map((r) => r.url)),
+              previous: record2
+            });
             if (result2.record) writeConfig(db2, "sandbox_settings", result2.record);
-            sandbox = { written: result2.written, ...result2.settings_path ? { settings_path: result2.settings_path } : {}, ...result2.allow_write ? { allow_write: result2.allow_write } : {}, ...result2.reason ? { reason: result2.reason } : {} };
+            sandbox = { written: result2.written, ...result2.settings_path ? { settings_path: result2.settings_path } : {}, ...result2.allow_write ? { allow_write: result2.allow_write } : {}, ...result2.allowed_domains ? { allowed_domains: result2.allowed_domains } : {}, ...result2.reason ? { reason: result2.reason } : {} };
           } else {
             const result2 = removeProjectSandbox({ projectRoot: sandboxProjectRoot(), record: record2 });
             if (result2.removed) writeConfig(db2, "sandbox_settings", null);
