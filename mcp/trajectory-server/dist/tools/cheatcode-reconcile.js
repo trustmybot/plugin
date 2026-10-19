@@ -5,20 +5,23 @@ import { isAbsolute, join } from 'node:path';
 import { nowISO } from '../db.js';
 import { serverLog } from '../logger.js';
 import { insertAudit } from './audit.js';
+import { projectRootFromDbPath, projectSpawnOptions } from './containment.js';
 const DEFAULT_TIMEOUT_SEC = 4;
 const MAX_LISTING_BYTES = 8 * 1024 * 1024;
 export function healthcheckTimeoutSec() {
     const raw = Number(process.env['TMB_CHEATCODE_HEALTHCHECK_TIMEOUT']);
     return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TIMEOUT_SEC;
 }
-export function probeChildEnv() {
-    return { ...process.env, TMB_DISABLE_CHEATCODE_HEALTHCHECK: '1' };
+export function probeChildEnv(projectRoot = null) {
+    const base = projectRoot === null ? process.env : projectSpawnOptions(projectRoot).env;
+    return { ...base, TMB_DISABLE_CHEATCODE_HEALTHCHECK: '1' };
 }
-function runClaude(args, timeoutSec) {
+function runClaude(args, timeoutSec, projectRoot) {
     return new Promise((resolve) => {
         try {
             const child = execFile('claude', args, {
-                env: probeChildEnv(),
+                ...(projectRoot === null ? {} : { cwd: projectRoot }),
+                env: probeChildEnv(projectRoot),
                 timeout: timeoutSec * 1000,
                 killSignal: 'SIGKILL',
                 maxBuffer: MAX_LISTING_BYTES,
@@ -74,10 +77,10 @@ function parsePluginListing(text) {
     }
     return plugins;
 }
-export async function probeRuntime(timeoutSec) {
+export async function probeRuntime(timeoutSec, projectRoot = null) {
     const [mcpText, pluginText] = await Promise.all([
-        runClaude(['mcp', 'list'], timeoutSec),
-        runClaude(['plugin', 'list', '--json'], timeoutSec),
+        runClaude(['mcp', 'list'], timeoutSec, projectRoot),
+        runClaude(['plugin', 'list', '--json'], timeoutSec, projectRoot),
     ]);
     const mcpNames = new Set([...(mcpText === null ? [] : parseMcpListing(mcpText)), ...claudeJsonMcpKeys()]);
     return {
@@ -149,7 +152,7 @@ export function reconcileCheatcodes(db, evidence, opts) {
     return transitions;
 }
 export async function reconcileNow(db, identity) {
-    const evidence = await probeRuntime(healthcheckTimeoutSec());
+    const evidence = await probeRuntime(healthcheckTimeoutSec(), projectRootFromDbPath(db.dbPath));
     const transitions = reconcileCheatcodes(db, evidence, { ...identity, now: nowISO() });
     return { transitions, probed: { mcp: evidence.mcpServers !== null, plugin: evidence.plugins !== null } };
 }

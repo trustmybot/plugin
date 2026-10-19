@@ -8,7 +8,7 @@ import { TrajectoryDB } from '../db.js';
 // task_create_batch clears for tests that don't exercise scan_run. Tests
 // targeting the gate itself should pass `seedScan: false` to omit the seed.
 export function tempDB(opts = {}) {
-    const db = new TrajectoryDB(':memory:');
+    const db = new TrajectoryDB(opts.path ?? ':memory:');
     if (opts.seedScan !== false) {
         db.run(`INSERT INTO audit (issue_id, branch_id, from_node, event_type, summary, content_json, created_at)
        VALUES (-1, NULL, 'bro', 'deep_scan_completed', 'test fixture: gate cleared', '{}', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`);

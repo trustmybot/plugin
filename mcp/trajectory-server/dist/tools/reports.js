@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { requireRoles } from '../middleware/agent-scope.js';
+import { projectRootFromDbPath } from './containment.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
 }
@@ -174,9 +175,12 @@ export function reportTools(db) {
             }
             const defaultOutputPath = `docs/trustmybot/snapshots/${issueId}.md`;
             const relOutputPath = rawOutputPath ?? defaultOutputPath;
-            const cwd = process.cwd();
-            const allowedBase = resolve(cwd, 'docs/trustmybot') + sep;
-            const absPath = resolve(cwd, relOutputPath);
+            const projectRoot = projectRootFromDbPath(db.dbPath);
+            if (projectRoot === null) {
+                throw new Error('issue_snapshot_md needs the project root, and this trajectory DB is not under a project .claude/ directory');
+            }
+            const allowedBase = resolve(projectRoot, 'docs/trustmybot') + sep;
+            const absPath = resolve(projectRoot, relOutputPath);
             if (!absPath.startsWith(allowedBase)) {
                 throw new Error(`output_path must resolve inside docs/trustmybot/. Got: "${relOutputPath}"`);
             }

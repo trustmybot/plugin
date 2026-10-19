@@ -103,7 +103,10 @@ describe('scan_run — kuzu-open failure surfaces as graph_db_open_failed (#591)
             mkRepo(ws, 'app');
             const db = tempDB();
             // A null holder = no graph, no lock error = kuzu binding missing/sandboxed.
-            const tools = scanTools(db, null, join(ws, '.claude', 'tmb', 'trajectory.db'));
+            const dbPath = join(ws, '.claude', 'tmb', 'trajectory.db');
+            mkdirSync(join(ws, '.claude', 'tmb'), { recursive: true });
+            writeFileSync(dbPath, '');
+            const tools = scanTools(db, null, dbPath);
             const result = await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
             assert.ok(!result.isError, `scan_run must stay clean when kuzu is absent: ${JSON.stringify(result)}`);
             db.close();

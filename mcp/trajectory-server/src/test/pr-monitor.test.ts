@@ -90,6 +90,7 @@ describe('pr_monitor_comments_get — GitHub backend', () => {
     const result = (await tools.handlers['pr_monitor_comments_get']!({
       agent: 'bro',
       pr_number: 5,
+      repo: 'owner/repo',
     })) as RawResult;
 
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
@@ -124,6 +125,7 @@ describe('pr_monitor_comments_get — GitHub backend', () => {
     const result = (await tools.handlers['pr_monitor_comments_get']!({
       agent: 'bro',
       pr_number: 6,
+      repo: 'owner/repo',
     })) as RawResult;
 
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
@@ -151,6 +153,7 @@ describe('pr_monitor_comments_get — GitHub backend', () => {
     const result = (await tools.handlers['pr_monitor_comments_get']!({
       agent: 'bro',
       pr_number: 5,
+      repo: 'owner/repo',
       since: '2024-01-15T11:30:00Z',
     })) as RawResult;
 
@@ -174,6 +177,7 @@ describe('pr_monitor_comments_get — GitHub backend', () => {
     const result = (await tools.handlers['pr_monitor_comments_get']!({
       agent: 'bro',
       pr_number: 5,
+      repo: 'owner/repo',
     })) as RawResult;
 
     assert.ok(result.isError, 'Expected error result');
@@ -371,6 +375,7 @@ describe('pr_monitor_comments_get — GitLab backend', () => {
     const result = (await tools.handlers['pr_monitor_comments_get']!({
       agent: 'bro',
       pr_number: 3,
+      repo: 'group/project',
     })) as RawResult;
 
     assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
@@ -404,6 +409,7 @@ describe('pr_monitor_comments_get — GitLab backend', () => {
     const result = (await tools.handlers['pr_monitor_comments_get']!({
       agent: 'bro',
       pr_number: 3,
+      repo: 'group/project',
       since: '2024-01-20T09:30:00Z',
     })) as RawResult;
 
@@ -475,7 +481,7 @@ describe('pr_review_runs table state capture', () => {
     const tools = prMonitorTools(db, makeSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]));
     const result = (await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 12 })) as RawResult;
 
-    assert.ok(!result.isError, `Expected no error: ${JSON.stringify(parseResult(result))}`);
+    assert.ok(result.isError, 'no resolvable slug must be a named error');
     const count = db.get<{ n: number }>('SELECT COUNT(*) AS n FROM pr_review_runs')!.n;
     assert.equal(count, 0, 'no repo slug → no cursor row');
 
@@ -884,16 +890,33 @@ describe('pr_monitor_comments_get — repo threading (#362)', () => {
     db.close();
   });
 
-  it('does not add -R flag when repo is omitted', async () => {
+  for (const sync of ['gh', 'off']) {
+    it(`returns a named error and spawns nothing when no repo is registered (issue_sync=${sync})`, async () => {
+      const db = tempDB();
+      db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', ?)`, [JSON.stringify(sync)]);
+      const { spawnFn, calls } = makeCapturingSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]);
+      const tools = prMonitorTools(db, spawnFn);
+      const result = (await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 5 })) as RawResult;
+
+      assert.ok(result.isError, 'an unresolvable slug must be a named error');
+      assert.match(parseResult(result).error as string, /no repo is registered/);
+      assert.equal(calls.length, 0, 'no gh/glab spawn may run against the server cwd');
+
+      db.close();
+    });
+  }
+
+  it('returns a named error and spawns nothing when the sole repo has no remote slug', async () => {
     const db = tempDB();
     db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', '"gh"')`);
+    db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
     const { spawnFn, calls } = makeCapturingSpawnFn([{ status: 0, stdout: GH_SAMPLE, stderr: '' }]);
     const tools = prMonitorTools(db, spawnFn);
-    await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 5 });
+    const result = (await tools.handlers['pr_monitor_comments_get']!({ agent: 'bro', pr_number: 5 })) as RawResult;
 
-    const ghCall = calls.find((c) => c.cmd === 'gh');
-    assert.ok(ghCall, 'gh should be called');
-    assert.ok(!ghCall.args.includes('-R'), 'args should NOT include -R flag when repo is omitted');
+    assert.ok(result.isError, 'a repo without a remote slug must be a named error');
+    assert.match(parseResult(result).error as string, /repo "app" has no GitHub\/GitLab remote slug/);
+    assert.equal(calls.length, 0, 'no gh/glab spawn may run against the server cwd');
 
     db.close();
   });

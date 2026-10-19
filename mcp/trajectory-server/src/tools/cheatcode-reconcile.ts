@@ -6,6 +6,7 @@ import type { TrajectoryDB } from '../db.js';
 import { nowISO } from '../db.js';
 import { serverLog } from '../logger.js';
 import { insertAudit } from './audit.js';
+import { projectRootFromDbPath, projectSpawnOptions } from './containment.js';
 import type { Writer } from '../audit-events.js';
 
 export interface PluginEvidence {
@@ -41,18 +42,20 @@ export function healthcheckTimeoutSec(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TIMEOUT_SEC;
 }
 
-export function probeChildEnv(): NodeJS.ProcessEnv {
-  return { ...process.env, TMB_DISABLE_CHEATCODE_HEALTHCHECK: '1' };
+export function probeChildEnv(projectRoot: string | null = null): NodeJS.ProcessEnv {
+  const base = projectRoot === null ? process.env : projectSpawnOptions(projectRoot).env;
+  return { ...base, TMB_DISABLE_CHEATCODE_HEALTHCHECK: '1' };
 }
 
-function runClaude(args: string[], timeoutSec: number): Promise<string | null> {
+function runClaude(args: string[], timeoutSec: number, projectRoot: string | null): Promise<string | null> {
   return new Promise((resolve) => {
     try {
       const child = execFile(
         'claude',
         args,
         {
-          env: probeChildEnv(),
+          ...(projectRoot === null ? {} : { cwd: projectRoot }),
+          env: probeChildEnv(projectRoot),
           timeout: timeoutSec * 1000,
           killSignal: 'SIGKILL',
           maxBuffer: MAX_LISTING_BYTES,
@@ -107,10 +110,10 @@ function parsePluginListing(text: string): Map<string, PluginEvidence> | null {
   return plugins;
 }
 
-export async function probeRuntime(timeoutSec: number): Promise<RuntimeEvidence> {
+export async function probeRuntime(timeoutSec: number, projectRoot: string | null = null): Promise<RuntimeEvidence> {
   const [mcpText, pluginText] = await Promise.all([
-    runClaude(['mcp', 'list'], timeoutSec),
-    runClaude(['plugin', 'list', '--json'], timeoutSec),
+    runClaude(['mcp', 'list'], timeoutSec, projectRoot),
+    runClaude(['plugin', 'list', '--json'], timeoutSec, projectRoot),
   ]);
   const mcpNames = new Set([...(mcpText === null ? [] : parseMcpListing(mcpText)), ...claudeJsonMcpKeys()]);
   return {
@@ -196,7 +199,7 @@ export async function reconcileNow(
   db: TrajectoryDB,
   identity: { fromNode: string; writer: Writer },
 ): Promise<{ transitions: Transition[]; probed: { mcp: boolean; plugin: boolean } }> {
-  const evidence = await probeRuntime(healthcheckTimeoutSec());
+  const evidence = await probeRuntime(healthcheckTimeoutSec(), projectRootFromDbPath(db.dbPath));
   const transitions = reconcileCheatcodes(db, evidence, { ...identity, now: nowISO() });
   return { transitions, probed: { mcp: evidence.mcpServers !== null, plugin: evidence.plugins !== null } };
 }

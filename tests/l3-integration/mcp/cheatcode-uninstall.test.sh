@@ -15,6 +15,7 @@ command -v jq >/dev/null 2>&1 || { printf "SKIP jq not found\n"; exit 0; }
 
 WORKSPACE=$(mktemp -d)
 trap 'rm -rf "$WORKSPACE"' EXIT
+export TMB_PROJECT_ROOT="$WORKSPACE"
 
 # ---------------------------------------------------------------------------
 # Plugin kind — marketplace uninstall reversed via the fixture.

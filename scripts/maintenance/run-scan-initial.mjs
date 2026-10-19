@@ -3,20 +3,28 @@
 // Mirrors run-scan.mjs but uses source='bro_auto_initial' so the audit
 // row is distinct from the post-close rescan source.
 // Silent on failure — the hook never blocks session start.
+//
+// Usage: run-scan-initial.mjs [project-root]. The project root is the
+// argument, else CLAUDE_PROJECT_DIR (set on every Claude Code hook) — never
+// the working directory. Neither → exit 2.
 
-import { dirname } from 'node:path';
+import { resolve } from 'node:path';
 import { TrajectoryDB, resolveDbPath } from '../../mcp/trajectory-server/dist/db.js';
 import { WorldModelGraph, resolveGraphDbPath } from '../../mcp/trajectory-server/dist/graph-db.js';
 import { scanTools } from '../../mcp/trajectory-server/dist/tools/scan.js';
 
-function resolveSessionDir() {
-  const dbPath = resolveDbPath();
-  if (!dbPath || dbPath === ':memory:') return process.cwd();
-  return dirname(dirname(dirname(dbPath)));
+function resolveProjectRoot() {
+  const root = process.argv[2] || process.env.CLAUDE_PROJECT_DIR;
+  return root ? resolve(root) : null;
 }
 
 async function main() {
-  const dbPath = resolveDbPath();
+  const projectRoot = resolveProjectRoot();
+  if (!projectRoot) {
+    console.error('[prescan-initial] no project root: pass it as the first argument or set CLAUDE_PROJECT_DIR; nothing scanned');
+    process.exit(2);
+  }
+  const dbPath = resolveDbPath({ env: { ...process.env, CLAUDE_PROJECT_DIR: projectRoot }, cwd: projectRoot });
   const db = new TrajectoryDB(dbPath);
 
   let graph = null;
@@ -34,11 +42,9 @@ async function main() {
   try {
     const tools = scanTools(db, graph, dbPath);
     const handler = tools.handlers.scan_run;
-    const sessionDir = resolveSessionDir();
-
     const result = await handler({
       agent: 'bro',
-      session_dir: sessionDir,
+      session_dir: projectRoot,
       source: 'bro_auto_initial',
     });
     if (result.isError) {

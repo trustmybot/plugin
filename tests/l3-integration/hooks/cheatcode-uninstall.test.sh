@@ -16,6 +16,8 @@ command -v jq >/dev/null 2>&1 || { printf "FAIL jq not found — required depend
 
 WORKSPACE=$(mktemp -d)
 trap 'rm -rf "$WORKSPACE"' EXIT
+export TMB_PROJECT_ROOT="$WORKSPACE/project"
+mkdir -p "$TMB_PROJECT_ROOT"
 
 # ---------------------------------------------------------------------------
 # Fixture-stubbed marketplace teardown (env var set).
@@ -49,44 +51,60 @@ rc=$?
 set -e
 if [ "$rc" -ne 0 ]; then _pass; else _fail "expected non-zero exit on bad kind"; fi
 
+test_case "TMB_PROJECT_ROOT unset fails non-zero with a clear message"
+set +e
+ERR_NOROOT=$(env -u TMB_PROJECT_ROOT TMB_CHEATCODE_UNINSTALL_FIXTURE="$FIXTURE" bash "$SCRIPT" \
+  --candidate '{"name":"pdf-plugin","kind":"plugin","source_url":"https://x.test/pdf"}' 2>&1 >/dev/null)
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then _pass; else _fail "expected non-zero exit with TMB_PROJECT_ROOT unset"; fi
+assert_contains "$ERR_NOROOT" "TMB_PROJECT_ROOT is unset" "unset-root message"
+
 # Env-unset default-path probe: when TMB_CHEATCODE_UNINSTALL_FIXTURE is
-# unset/empty the script falls back to "$PWD/.tmb-cheatcode-uninstall-fixture.json"
-# (the path the row setup-l5.sh stages in the step's CWD) and uses it if present.
-# Run from a CWD that holds the default-named file, with the env var explicitly
-# unset.
+# unset/empty the script falls back to
+# "$TMB_PROJECT_ROOT/.tmb-cheatcode-uninstall-fixture.json" (the path the row
+# setup-l5.sh stages in the project) and uses it if present. Run from an
+# unrelated cwd with TMB_PROJECT_ROOT at the dir holding the file.
+OTHER_CWD="$WORKSPACE/other"
+mkdir -p "$OTHER_CWD"
 PROBE_DIR="$WORKSPACE/probe"
 mkdir -p "$PROBE_DIR"
 cat > "$PROBE_DIR/.tmb-cheatcode-uninstall-fixture.json" <<'JSON'
 { "removed": true, "error": null }
 JSON
 
-OUT_PROBE=$(cd "$PROBE_DIR" && env -u TMB_CHEATCODE_UNINSTALL_FIXTURE bash "$SCRIPT" \
+OUT_PROBE=$(cd "$OTHER_CWD" && TMB_PROJECT_ROOT="$PROBE_DIR" env -u TMB_CHEATCODE_UNINSTALL_FIXTURE bash "$SCRIPT" \
   --candidate '{"name":"feature-dev","kind":"plugin","source_url":"https://x.test/feature-dev"}')
 
 test_case "env unset + default fixture file present → fixture used"
 assert_eq "true" "$(printf '%s' "$OUT_PROBE" | jq -r '.removed')" "probe removed"
 assert_eq "marketplace" "$(printf '%s' "$OUT_PROBE" | jq -r '.method')" "probe method"
 
+test_case "a default fixture in the caller cwd (not the project) is ignored"
+OUT_CWD_FIX=$(cd "$PROBE_DIR" && env -u TMB_CHEATCODE_UNINSTALL_FIXTURE bash "$SCRIPT" \
+  --candidate '{"name":"pdf-skill","kind":"skill","source_url":"https://x.test/pdf-skill"}')
+assert_eq "false" "$(printf '%s' "$OUT_CWD_FIX" | jq -r '.removed')" "cwd fixture ignored"
+
 # Env-set still wins over the default file: with the env pointing at a DIFFERENT
-# fixture (removed=false), the default file in CWD is ignored.
+# fixture (removed=false), the default file in the project is ignored.
 WINS_FIXTURE="$WORKSPACE/wins.json"
 cat > "$WINS_FIXTURE" <<'JSON'
 { "removed": false, "error": "stub-not-removed" }
 JSON
 
-OUT_WINS=$(cd "$PROBE_DIR" && TMB_CHEATCODE_UNINSTALL_FIXTURE="$WINS_FIXTURE" bash "$SCRIPT" \
+OUT_WINS=$(TMB_PROJECT_ROOT="$PROBE_DIR" TMB_CHEATCODE_UNINSTALL_FIXTURE="$WINS_FIXTURE" bash "$SCRIPT" \
   --candidate '{"name":"feature-dev","kind":"plugin","source_url":"https://x.test/feature-dev"}')
 
-test_case "env-set fixture wins over the default file in CWD"
+test_case "env-set fixture wins over the default file in the project"
 assert_eq "false" "$(printf '%s' "$OUT_WINS" | jq -r '.removed')" "env wins removed"
 assert_eq "stub-not-removed" "$(printf '%s' "$OUT_WINS" | jq -r '.error')" "env wins error"
 
 # No env and no default file: the no-fixture path is unchanged. Use a skill kind
-# (which never calls the marketplace) from a CWD with no default file so the probe
-# misses and nothing is removed — fast and network-free.
+# (which never calls the marketplace) with a project holding no default file so
+# the probe misses and nothing is removed — fast and network-free.
 NOFIX_DIR="$WORKSPACE/nofix"
 mkdir -p "$NOFIX_DIR"
-OUT_NOFIX=$(cd "$NOFIX_DIR" && env -u TMB_CHEATCODE_UNINSTALL_FIXTURE bash "$SCRIPT" \
+OUT_NOFIX=$(TMB_PROJECT_ROOT="$NOFIX_DIR" env -u TMB_CHEATCODE_UNINSTALL_FIXTURE bash "$SCRIPT" \
   --candidate '{"name":"pdf-skill","kind":"skill","source_url":"https://x.test/pdf-skill"}')
 
 test_case "no env + no default file → no-fixture path unchanged (not removed)"
@@ -99,10 +117,12 @@ assert_eq "skill-proposed-pr-revert" "$(printf '%s' "$OUT_NOFIX" | jq -r '.metho
 # ---------------------------------------------------------------------------
 SHIM_DIR="$WORKSPACE/shim"
 ARGV_LOG="$WORKSPACE/claude-argv.log"
+PWD_LOG="$WORKSPACE/claude-pwd.log"
 mkdir -p "$SHIM_DIR"
 cat > "$SHIM_DIR/claude" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$CLAUDE_ARGV_LOG"
+pwd -P >> "$CLAUDE_PWD_LOG"
 exit 0
 SH
 chmod +x "$SHIM_DIR/claude"
@@ -111,19 +131,23 @@ mkdir -p "$LIVE_CWD"
 
 run_live() {
   : > "$ARGV_LOG"
+  : > "$PWD_LOG"
   (cd "$LIVE_CWD" && env -u TMB_CHEATCODE_UNINSTALL_FIXTURE \
-    PATH="$SHIM_DIR:$PATH" CLAUDE_ARGV_LOG="$ARGV_LOG" bash "$SCRIPT" "$@")
+    PATH="$SHIM_DIR:$PATH" CLAUDE_ARGV_LOG="$ARGV_LOG" CLAUDE_PWD_LOG="$PWD_LOG" bash "$SCRIPT" "$@")
 }
+PROJECT_REAL=$(cd "$TMB_PROJECT_ROOT" && pwd -P)
 
 test_case "plugin kind: claude plugin uninstall runs with --scope project --keep-data"
 OUT_LIVE=$(run_live --candidate '{"name":"pdf-plugin","kind":"plugin","source_url":"https://x.test/pdf"}')
 assert_eq "true" "$(printf '%s' "$OUT_LIVE" | jq -r '.removed')" "live plugin removed"
 assert_eq "plugin uninstall pdf-plugin --scope project --keep-data" "$(cat "$ARGV_LOG")" "plugin argv"
+assert_eq "$PROJECT_REAL" "$(cat "$PWD_LOG")" "plugin claude cwd"
 
 test_case "mcp kind: claude mcp remove runs with --scope project"
 OUT_MCP_LIVE=$(run_live --candidate '{"name":"pdf-mcp","kind":"mcp","source_url":"https://x.test/pdf-mcp"}')
 assert_eq "true" "$(printf '%s' "$OUT_MCP_LIVE" | jq -r '.removed')" "live mcp removed"
 assert_eq "mcp remove pdf-mcp --scope project" "$(cat "$ARGV_LOG")" "mcp argv"
+assert_eq "$PROJECT_REAL" "$(cat "$PWD_LOG")" "mcp claude cwd"
 
 summarize
 printf "PASS cheatcode-uninstall\n"

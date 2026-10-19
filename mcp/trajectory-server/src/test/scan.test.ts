@@ -539,6 +539,7 @@ describe('scan_run lock contention + release (#339)', () => {
     const dbDir = join(ws, '.claude', 'tmb');
     mkdirSync(dbDir, { recursive: true });
     const dbPath = join(dbDir, 'trajectory.db');
+    writeFileSync(dbPath, '');
     try {
       mkRepo(ws, 'r');
       const db = tempDB();
@@ -558,6 +559,7 @@ describe('scan_run lock contention + release (#339)', () => {
     const dbDir = join(ws, '.claude', 'tmb');
     mkdirSync(dbDir, { recursive: true });
     const dbPath = join(dbDir, 'trajectory.db');
+    writeFileSync(dbPath, '');
     try {
       mkRepo(ws, 'r');
       const db = tempDB();
@@ -583,6 +585,7 @@ describe('scan_run lock contention + release (#339)', () => {
     const dbDir = join(ws, '.claude', 'tmb');
     mkdirSync(dbDir, { recursive: true });
     const dbPath = join(dbDir, 'trajectory.db');
+    writeFileSync(dbPath, '');
     try {
       mkRepo(ws, 'r');
       const db = tempDB();
@@ -674,6 +677,7 @@ describe('scan_run async spawn + timeout (#398)', () => {
     const dbDir = join(ws, '.claude', 'tmb');
     mkdirSync(dbDir, { recursive: true });
     const dbPath = join(dbDir, 'trajectory.db');
+    writeFileSync(dbPath, '');
     const lockPath = join(dbDir, 'scan.lock');
     try {
       const stubScript = join(ws, 'hang.sh');
@@ -709,6 +713,58 @@ describe('scan_run async spawn + timeout (#398)', () => {
   });
 });
 
+describe('scan_run targets the project root, not the server cwd (GH 1553)', () => {
+  it('runScanWithScript hands scan.sh the server DB as TRAJECTORY_DB_PATH and runs it in the session dir', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'scan-env-'));
+    try {
+      const dbPath = join(ws, '.claude', 'tmb', 'trajectory.db');
+      const stubScript = join(ws, 'echo-env.sh');
+      writeFileSync(
+        stubScript,
+        '#!/usr/bin/env bash\njq -n --arg db "$TRAJECTORY_DB_PATH" --arg cwd "$(pwd -P)" \'{session_dir: $cwd, scanned_at: "", repos: [], files: [], db: $db, cwd: $cwd}\'\n',
+        { mode: 0o755 },
+      );
+      const out = (await runScanWithScript(stubScript, ws, 5000, dbPath)) as unknown as Record<string, unknown>;
+      assert.equal(out['db'], dbPath, 'scan.sh receives the server DB path');
+      assert.equal(out['cwd'], realpathSync(ws), 'scan.sh runs in the session dir');
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('scan_run with no session_dir scans the project root even when the cwd is elsewhere', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'scan-root-'));
+    const originalCwd = process.cwd();
+    try {
+      const project = join(base, 'project');
+      const unrelatedCwd = join(base, 'unrelated-cwd');
+      mkdirSync(join(project, '.claude', 'tmb'), { recursive: true });
+      const dbPath = join(project, '.claude', 'tmb', 'trajectory.db');
+      writeFileSync(dbPath, '');
+      mkRepo(project, 'app', { 'README.md': 'app\n' });
+      mkRepo(unrelatedCwd, 'decoy', { 'README.md': 'decoy\n' });
+      process.chdir(unrelatedCwd);
+
+      const db = tempDB();
+      const r = await call(scanTools(db, null, dbPath).handlers, 'scan_run', { agent: 'bro' });
+      assert.ok(!r.isError, `scan_run failed: ${JSON.stringify(r)}`);
+      const names = db.all<{ name: string }>('SELECT name FROM repos ORDER BY name').map((x) => x.name);
+      assert.deepEqual(names, ['app'], 'the project root is scanned, never the cwd');
+      db.close();
+    } finally {
+      process.chdir(originalCwd);
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('scan_run with no session_dir and no project root returns a named error', async () => {
+    const db = tempDB();
+    const r = await call(scanTools(db, null).handlers, 'scan_run', { agent: 'bro' });
+    assert.ok(r.isError, 'no project root and no session_dir must error');
+    assert.match(String(parse(r)['error']), /session_dir is required/);
+    db.close();
+  });
+});
 
 describe('upsertDiscoveredCheatcode — the (name, kind) discovery writer', () => {
   const discoveredCount = (db: ReturnType<typeof tempDB>): number =>

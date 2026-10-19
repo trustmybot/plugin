@@ -18,13 +18,23 @@ export function projectRootFromDbPath(dbPath: string): string | null {
   return segments.slice(0, idx).join(sep) || sep;
 }
 
+// Spawn options that run a child in the project root and tell it where the
+// project is (scripts read TMB_PROJECT_ROOT, never their working directory).
+export function projectSpawnOptions(projectRoot: string): { cwd: string; env: NodeJS.ProcessEnv } {
+  return { cwd: projectRoot, env: { ...process.env, TMB_PROJECT_ROOT: projectRoot } };
+}
+
 // The path the kernel would reach, for a path that may not exist yet
 // (realpath -m semantics): components are walked left to right, every existing
 // symlink is followed before a later `..` applies (so <root>/link/../x lands
 // where link points), and `..` collapses lexically only inside the missing tail.
-// macOS /tmp and /private/tmp compare equal.
-export function canonicalPath(path: string): string {
-  const absolute = isAbsolute(path) ? path : join(process.cwd(), path);
+// macOS /tmp and /private/tmp compare equal. A relative path resolves against
+// `projectRoot`, never the server's working directory.
+export function canonicalPath(path: string, projectRoot?: string): string {
+  if (!isAbsolute(path) && (projectRoot === undefined || !isAbsolute(projectRoot))) {
+    throw new Error(`canonicalPath: relative path '${path}' needs an absolute project root`);
+  }
+  const absolute = isAbsolute(path) ? path : join(projectRoot as string, path);
   const root = parse(absolute).root;
   const pending = absolute.slice(root.length).split(sep);
   const real: string[] = [];
@@ -69,8 +79,8 @@ export function canonicalPath(path: string): string {
 }
 
 export function isWithinRoot(root: string, path: string): boolean {
-  if (!isAbsolute(path)) return false;
-  const rel = relative(canonicalPath(root), canonicalPath(path));
+  if (!isAbsolute(root)) return false;
+  const rel = relative(canonicalPath(root), canonicalPath(path, root));
   return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel));
 }
 

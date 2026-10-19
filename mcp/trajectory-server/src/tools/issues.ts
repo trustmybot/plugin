@@ -2,6 +2,7 @@ import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { SpawnSyncOptions } from 'node:child_process';
 import type { TrajectoryDB } from '../db.js';
 import { resolveRepoForSync } from '../utils/repo-paths.js';
+import { projectRootFromDbPath } from './containment.js';
 import type { ResolvedRepoSync } from '../utils/repo-paths.js';
 import { repoRemotes } from '../repos/remotes.js';
 import { nowISO } from '../db.js';
@@ -986,7 +987,9 @@ export function issueTools(
         });
         // Surface a warning when the project clearly looks remote-tracked (git
         // origin is gh/glab) but sync is disabled, so bro can mention the drift.
-        const preferred = detectPreferred();
+        const preferred = detectPreferred(
+          resolveRepoForSync(db, issueRepo)?.path ?? projectRootFromDbPath(dbPath || db.dbPath),
+        );
         if (preferred !== null) {
           syncDiagnostic = {
             sync_skipped: true,
