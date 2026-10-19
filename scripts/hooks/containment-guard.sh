@@ -27,9 +27,11 @@
 #     swe with agent_id, whose spawn cwd is the main checkout), or when a path the
 #     command writes (tmb_cmd_write_paths in lib/cmd-analysis.sh: redirect
 #     targets, tee, cp/mv/rsync/install, mkdir, rm, touch, links, sed -i,
-#     git worktree add, git clone, interpreter one-liners and programs fed to
-#     an interpreter through a heredoc, each in its statement's own cd dir) is
-#     outside the root. Data heredocs and quoted text are data, not syntax.
+#     git worktree add, git clone, the tar/make/env -C and npm --prefix dir,
+#     the tree a mutating git subcommand writes (its -C dir or own dir), the
+#     write calls' path arguments of interpreter one-liners and programs fed
+#     to an interpreter through a heredoc, each in its statement's own cd dir)
+#     is outside the root. Data heredocs and quoted text are data, not syntax.
 #     Variables set earlier in the same command are resolved; ~, $HOME,
 #     $TMPDIR and $TMB_MODEL_CACHE_DIR are expanded; $OLDPWD is the dir before
 #     the command's last cd. A for / while-read loop variable fed by a glob or

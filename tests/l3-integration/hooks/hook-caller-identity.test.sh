@@ -13,6 +13,11 @@
 #   (c2) Bash from agA, cwd = main checkout, judged by its write targets, not
 #       its cwd: ls, cd A && git status, cd A && touch src/x.ts → allowed by
 #       every gate; a bare touch x and cd B && touch x → denied.
+#   (h) GH 1508, agA with cwd = main checkout: git -C B commit / checkout /
+#       stash, tar / make / env -C B, npm --prefix B and a bare mutating git
+#       (commit, reset --hard, clean, checkout --, stash) → denied, the row
+#       naming worktree A and task A; git -C A commit, make -C A,
+#       npm --prefix A, git -C A status, git -C B log → allowed.
 #   (d) swe agZ with no bound row → denied with the task_brief instruction;
 #       its row's root is not the project root.
 #   (e) the main thread (no agent_type, no agent_id), cwd = worktree A,
@@ -155,6 +160,30 @@ assert_eq "$PROJECT/x" "$(last_denied_path)" "the recorded path is the main chec
 OUT=$(run "$PROJECT" "tmb:swe" agA Bash "$(bash_cmd "cd $WT_B && touch x")")
 assert_eq "deny" "$(decision_of "$OUT" containment-guard)" "cd B && touch x"
 assert_eq "$WT_B/x" "$(last_denied_path)" "the recorded path is worktree B's x"
+
+test_case "(h) GH 1508: a -C / --prefix dir and a mutating git's tree are write targets (cwd = main checkout)"
+for c in "git -C $WT_B commit -am x" "git -C $WT_B checkout fix/b-task" "git -C $WT_B stash" "tar -xf a.tar -C $WT_B" \
+         "make -C $WT_B" "env -C $WT_B make" "npm --prefix $WT_B install"; do
+  OUT=$(run "$PROJECT" "tmb:swe" agA Bash "$(bash_cmd "$c")")
+  assert_eq "deny" "$(decision_of "$OUT" containment-guard)" "$c → into worktree B"
+  assert_eq "$WT_A|1" "$(last_denial)" "$c: root = worktree A, task_id = A"
+done
+for c in "git commit -am x" "git reset --hard" "git clean -fd" "git checkout -- README.md" "git stash"; do
+  OUT=$(run "$PROJECT" "tmb:swe" agA Bash "$(bash_cmd "$c")")
+  assert_eq "deny" "$(decision_of "$OUT" containment-guard)" "$c → into the main checkout"
+  assert_eq "$WT_A|1" "$(last_denial)" "$c: root = worktree A, task_id = A"
+  assert_eq "$PROJECT" "$(last_denied_path)" "$c: the recorded path is the main checkout"
+done
+for c in "git -C $WT_A commit -am x" "make -C $WT_A" "npm --prefix $WT_A install" "git -C $WT_A status" "git -C $WT_B log"; do
+  OUT=$(run "$PROJECT" "tmb:swe" agA Bash "$(bash_cmd "$c")")
+  assert_eq "allow" "$(decision_of "$OUT" containment-guard)" "$c → allowed"
+done
+OUT=$(run "$WT_A" "tmb:swe" agA Bash "$(bash_cmd "git commit -am x")")
+assert_eq "allow" "$(decision_of "$OUT" containment-guard)" "a swe committing inside its own worktree"
+OUT=$(run "$PROJECT" "" "" Bash "$(bash_cmd "git commit -am x")")
+assert_eq "allow" "$(decision_of "$OUT" containment-guard)" "bro committing in the main checkout"
+OUT=$(run "$PROJECT" "tmb:pr-reviewer" agR Bash "$(bash_cmd "git -C $PROJECT stash")")
+assert_eq "allow" "$(decision_of "$OUT" containment-guard)" "pr-reviewer: its root is the project"
 
 test_case "(d) swe agZ with no bound row → denied with the task_brief instruction"
 OUT=$(run "$PROJECT" "swe" agZ Write "$(write "$WT_A/src/z.ts")")
