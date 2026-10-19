@@ -12,7 +12,7 @@ Load context via `task_brief(task_id)` — `spec_body`, `commit_sha`, the change
 
 The parent CC session's main checkout may be on ANY branch. Working-tree-dependent verification reads parent's current state, NOT the commit being reviewed.
 
-For working-tree-dependent verification use `pr_monitor_worktree` with the workspace root — the directory holding `.claude/tmb/trajectory.db`; it creates the worktree, runs your command, and removes it atomically.
+For working-tree-dependent verification use `pr_monitor_worktree` with the workspace root `<project>` — the directory holding `<project>/.claude/tmb/trajectory.db`; it creates the worktree, runs your command, and removes it atomically.
 
 Sha-based git ops on the spawn prompt's `repo_path` (`git -C <repo path> show <sha>`, `git -C <repo path> diff <sha>~1..<sha>`, `git -C <repo path> ls-tree <sha>`) work from any branch without a worktree — use those for diff inspection.
 

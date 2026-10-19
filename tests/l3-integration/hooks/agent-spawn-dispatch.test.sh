@@ -115,11 +115,25 @@ assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
 assert_contains "$out" "attempt_n" "missing attempt_n named"
 assert_contains "$out" "subagent_session_id" "missing subagent_session_id named"
 
-test_case "pr-reviewer spawn with all six anchors passes shape check silently"
+test_case "pr-reviewer spawn without repo_path is denied naming repo_path"
 prompt="task_id=42 commit_sha=abc123 branch_id=fix/foo repo=plugin attempt_n=1 subagent_session_id=sess-xyz"
 payload=$(jq -n --arg p "$prompt" '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",prompt:$p}}')
 out=$(printf '%s' "$payload" | bash "$SHAPE_HOOK" 2>/dev/null || true)
-assert_eq "" "$out" "silent pass — all six anchors present"
+assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
+assert_contains "$out" "anchors: repo_path." "missing repo_path named alone"
+
+test_case "pr-reviewer spawn with repo_path but no repo= is denied naming repo"
+prompt="task_id=42 commit_sha=abc123 branch_id=fix/foo repo_path=/work/plugin attempt_n=1 subagent_session_id=sess-xyz"
+payload=$(jq -n --arg p "$prompt" '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",prompt:$p}}')
+out=$(printf '%s' "$payload" | bash "$SHAPE_HOOK" 2>/dev/null || true)
+assert_contains "$out" '"permissionDecision":"deny"' "deny decision emitted"
+assert_contains "$out" "anchors: repo." "missing repo named alone"
+
+test_case "pr-reviewer spawn with all seven anchors passes shape check silently"
+prompt="task_id=42 commit_sha=abc123 branch_id=fix/foo repo=plugin repo_path=/work/plugin attempt_n=1 subagent_session_id=sess-xyz"
+payload=$(jq -n --arg p "$prompt" '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",prompt:$p}}')
+out=$(printf '%s' "$payload" | bash "$SHAPE_HOOK" 2>/dev/null || true)
+assert_eq "" "$out" "silent pass — all seven anchors present"
 
 # ----- tests: pr-reviewer-no-worktree short-circuits before shape check -----
 
