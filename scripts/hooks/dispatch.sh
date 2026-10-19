@@ -81,13 +81,15 @@
 # 7. Deny audit. Every deny the dispatcher returns — a gate's exit 2,
 #    permissionDecision "deny" or decision "block", or its own fail-closed
 #    decision — writes one hook_denied audit row (from_node hook:dispatch)
-#    after the decision is printed, on the task's issue else -1, content
-#    {hook, rule, tool, agent_type, task_id, cwd}: rule is the first 200
-#    characters of the deny reason, task_id the calling swe's run else
+#    from a detached child started after the decision is printed, so the
+#    hook exits without waiting for the write, on the task's issue else -1,
+#    content {hook, rule, tool, agent_type, task_id, cwd}: rule is the first
+#    200 characters of the deny reason, task_id the calling swe's run else
 #    tool_input.task_id, null when neither. A replayed duplicate writes none
-#    (its holder did), and a chain's member deny is written by the member's
-#    own dispatch. No DB or a failed write records nothing; the decision and
-#    exit code are unchanged.
+#    (its holder did), a fail-open gate's exit other than 0 or 2 writes none
+#    (Claude Code ignores its stdout), and a chain's member deny is written by
+#    the member's own dispatch. No DB or a failed write records nothing; the
+#    decision and exit code are unchanged.
 
 set -uo pipefail
 
@@ -161,8 +163,9 @@ _json_str() {
   printf '"%s"' "${s//\"/\\\"}"
 }
 
-# audit_denied — the one hook_denied row for the deny noted in this process.
-# Observes only: everything it prints is discarded and a failure is ignored.
+# audit_denied — the one hook_denied row for the deny noted in this process,
+# written by a detached child this process never waits for. Observes only:
+# everything it prints is discarded and a failure is ignored.
 audit_denied() {
   [ "$DENIED" = "1" ] || return 0
   (
@@ -191,7 +194,8 @@ audit_denied() {
     fi
     tmb_audit_append "$db" "$issue" '' "hook:dispatch" "hook_denied" \
       "${DENIED_GATE} denied${tool:+ $tool}" "$content"
-  ) >/dev/null 2>&1 || true
+  ) </dev/null >/dev/null 2>&1 &
+  disown 2>/dev/null || true
 }
 
 # fail_closed_decision <cause> [<reason>] [<gate>] — the blocking decision for
@@ -250,7 +254,7 @@ settle() {
   local rc="$1" out="$2"
   if [ "$FAIL_CLOSED" = "0" ] || [ "$rc" = "0" ] || [ "$rc" = "2" ]; then
     [ -n "$out" ] && printf '%s\n' "$out"
-    if [ "$rc" = "2" ] || printf '%s' "$out" | grep -E "$DENY_PATTERN" >/dev/null; then
+    if [ "$rc" = "2" ] || { [ "$rc" = "0" ] && printf '%s' "$out" | grep -E "$DENY_PATTERN" >/dev/null; }; then
       note_denied "$(deny_reason "$out" "exit $rc")"
     fi
     return "$rc"
@@ -352,6 +356,7 @@ run_chain() {
     [ "$res" = "$rc" ] && out=""
     if [ "$rc" = "2" ] || printf '%s' "$out" | grep -E "$DENY_PATTERN" >/dev/null; then
       [ -n "$out" ] && printf '%s\n' "$out"
+      [ "$rc" = "2" ] || rc=0
       return "$rc"
     fi
     case "$rc" in
@@ -531,7 +536,7 @@ record_bash_deny() {
 hold() {
   printf '%s' "$PAYLOAD" | bash "$TARGET" ${PASS[@]+"${PASS[@]}"} >"$LOCK/result" 2>"$LOCK/stderr"
   local rc=${PIPESTATUS[1]}
-  if [ "$rc" = "2" ] || grep -qE "$DENY_PATTERN" "$LOCK/result" 2>/dev/null; then
+  if [ "$rc" = "2" ] || { { [ "$rc" = "0" ] || [ "$FAIL_CLOSED" = "1" ]; } && grep -qE "$DENY_PATTERN" "$LOCK/result" 2>/dev/null; }; then
     note_denied "$(deny_reason "$(cat "$LOCK/result" 2>/dev/null)" "$(cat "$LOCK/stderr" 2>/dev/null)")"
   elif [ "$FAIL_CLOSED" = "1" ] && [ "$rc" != "0" ]; then
     fail_closed_decision "exited $rc" >"$LOCK/result" 2>>"$LOCK/stderr"

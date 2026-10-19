@@ -5,15 +5,15 @@
 # not-location (a command that reads no location, or the cwd recorded as data).
 mcp/trajectory-server/src/codex-runtime.ts	const child = execFile(	anchored-cd	git runs with -C <cwd> in its argument list, past the lint's 3-line window
 mcp/trajectory-server/src/platform.ts	const cwd = opts?.cwd ?? process.cwd();	fallback	DB discovery starts here only when the caller passes no cwd; the server's startup path (GH 1553 WP1)
+mcp/trajectory-server/src/platform.ts	cwd: string = process.cwd(),	fallback	resolveClaudeSessionDir: the DB walk starts here only when CLAUDE_PROJECT_DIR is unset (GH 1553 WP1)
+mcp/trajectory-server/src/data-contracts.ts	sessionDir: env['CLAUDE_PROJECT_DIR'] || process.cwd(),	fallback	the other-DBs contract walks from the session dir, the server's start dir only when CLAUDE_PROJECT_DIR is unset (GH 1553 WP1)
 mcp/trajectory-server/src/sync/backend.ts	const result = spawnSync(cmd, args, { timeout: SUBPROCESS_TIMEOUT_MS	not-location	gh / glab `auth status` availability probe; reads no repo
 mcp/trajectory-server/src/sync/issue_sync.ts	const result = spawnSync(cmd, args, opts);	anchored-cd	defaultSpawnFn forwards its caller's options, which set cwd to the issue repo's path
 mcp/trajectory-server/src/tools/pr_monitor.ts	const result = spawnSync(cmd, args, opts);	anchored-cd	defaultSpawnFn forwards its caller's options; every forge call names the repo with -R <slug>
 mcp/trajectory-server/src/tools/pr_monitor.ts	['auth', 'status']	not-location	gh / glab `auth status` availability probe; reads no repo
 mcp/trajectory-server/src/tools/cheatcode-reconcile.ts	const child = execFile(	anchored-cd	runClaude sets cwd: projectRoot four lines below the call
 mcp/trajectory-server/src/tools/cheatcode.ts	projectRootFromDbPath(db.dbPath) ?? process.cwd()	fallback	an in-memory DB (tests) names no project
-mcp/trajectory-server/src/tools/composites.ts	db.dbPath === ':memory:' ? process.cwd()	fallback	an in-memory DB (tests) names no project
-mcp/trajectory-server/src/tools/tasks.ts	db.dbPath === ':memory:' ? process.cwd()	fallback	an in-memory DB (tests) names no project
-mcp/trajectory-server/src/tools/world_model.ts	db.dbPath === ':memory:' ? process.cwd()	fallback	an in-memory DB (tests) names no project
+mcp/trajectory-server/src/utils/repo-paths.ts	db.dbPath === ':memory:' ? process.cwd()	fallback	an in-memory DB (tests) names no project
 mcp/trajectory-server/src/tools/onboard.ts	process.cwd()	fallback	onboard probes before a DB exists: the sole repo, else the DB's project, else CLAUDE_PROJECT_DIR, else the server's start dir (GH 1553 WP1)
 mcp/trajectory-server/src/tools/onboard.ts	], opts);	anchored-cd	probeGit's opts carry cwd, set two lines above the call
 mcp/trajectory-server/src/tools/onboard.ts	spawnSync('command', ['-v', cmd]	not-location	`command -v` finds a CLI on PATH; reads no repo
