@@ -79,7 +79,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | Hook | Trigger | Purpose |
 |---|---|---|
 | `ensure-gitignore.sh` | SessionStart | Project .gitignore must exclude .claude/ |
-| `mcp-health-check.sh` | SessionStart | MCP server presence sample (soft note, never HALT) + warning about TMB-managed hooks in `~/.claude/settings.json` |
+| `mcp-health-check.sh` | SessionStart | MCP server presence sample (soft note, never HALT) + install-scope and duplicate-copy notices |
 | `deferred-tools-drift-warn.sh` | SessionStart | Warn when MCP tools on disk newer than running server |
 | `plugin-hooks-marker.sh` | SessionStart | Mark the session as running the plugin's hooks (`<project>/.claude/tmb/sessions/<id>.plugin-hooks`) so the opt-in headless shim yields |
 | `session-start-persona.sh` | SessionStart | Inject bro's persona (the plugin's `CLAUDE.md`) on every source, plus a one-line note when the project's `CLAUDE.md` holds an old tmb persona block; mark the session (`<project>/.claude/tmb/sessions/<id>.persona`); silent when the project is the plugin root |

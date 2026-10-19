@@ -488,10 +488,11 @@ out=$(dup_health || true)
 assert_not_contains "$out" "WARN  duplicate-plugin" "no warning"
 
 # ============================================================================
-# legacy-user-hooks warning — pre-1.1.0 resolve-hook.sh entries in the user
-# settings.json: WARN naming file, lines and hooks; files untouched; exit 0
+# legacy-user-hooks warning — pre-1.1.0 resolve-hook.sh and _tmb_managed
+# entries in the user settings.json: WARN naming file, lines and hooks; files
+# untouched; exit 0
 # ============================================================================
-test_case "legacy-user-hooks: resolve-hook.sh entries warn with lines, hooks and old projects; files unchanged"
+test_case "legacy-user-hooks: resolve-hook.sh and _tmb_managed entries warn with lines, hooks and old projects; files unchanged"
 reset_scenario legacy-user-hooks
 mkdir -p "$ROOT/home/.claude" "$ROOT/old-project"
 OLD_REAL=$(cd "$ROOT/old-project" && pwd -P)
@@ -511,15 +512,23 @@ set +e
 out=$(legacy_health)
 rc=$?
 set -e
-assert_contains "$out" "WARN  legacy-user-hooks: $ROOT/home/.claude/settings.json holds 2 pre-1.1.0 TMB hook(s) running resolve-hook.sh: line 10 git-guards, line 23 agent-spawn-dispatch" "WARN line"
+assert_contains "$out" "WARN  legacy-user-hooks: $ROOT/home/.claude/settings.json holds 3 pre-1.1.0 TMB hook(s): line 10 git-guards, line 23 agent-spawn-dispatch, line 33 swe-scope-guard" "WARN line"
+assert_eq "1" "$(printf '%s\n' "$out" | grep -c 'WARN  legacy-user-hooks')" "one warning"
 assert_contains "$out" "Remove them by hand: docs/reference/UPGRADE.md#upgrading-into-v110--remove-leftover-user-wide-hooks" "points to UPGRADE.md"
 assert_contains "$out" "Projects on TMB < 1.1.0 lose them too: $OLD_REAL (1.0.2)" "names the old project only"
 assert_contains "$out" "== all checks passed ==" "a warning is not a failed check"
 assert_exit_code 0 "$rc" "exit code unchanged"
 assert_eq "$BEFORE" "$(legacy_sums)" "settings.json and installed_plugins.json unchanged"
+cmp "$HERE/hooks/fixtures/legacy-user-settings.json" "$ROOT/home/.claude/settings.json" >/dev/null && same=yes || same=no
+assert_eq "yes" "$same" "settings.json byte-identical"
+
+test_case "legacy-user-hooks: a _tmb_managed entry without resolve-hook.sh warns by line and --hook name"
+printf '{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"bash ~/.claude/tmb-hooks/dispatch.sh --hook bash-guard","_tmb_managed":true}]}]}}\n' > "$ROOT/home/.claude/settings.json"
+out=$(legacy_health || true)
+assert_contains "$out" "holds 1 pre-1.1.0 TMB hook(s): line 1 bash-guard" "WARN line"
 
 test_case "legacy-user-hooks: clean or missing settings print nothing"
-printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"echo mine"}]}]}}\n' > "$ROOT/home/.claude/settings.json"
+printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"echo mine"},{"type":"command","command":"echo also-mine","_tmb_managed":false}]}]}}\n' > "$ROOT/home/.claude/settings.json"
 BEFORE=$(legacy_sums)
 out=$(legacy_health || true)
 assert_not_contains "$out" "WARN  legacy-user-hooks" "clean settings: no warning"

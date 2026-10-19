@@ -24,6 +24,16 @@
             "_tmb_managed": true
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/tmb-hooks/dispatch.sh --hook swe-scope-guard",
+            "_tmb_managed": true
+          }
+        ]
       }
     ]
   }

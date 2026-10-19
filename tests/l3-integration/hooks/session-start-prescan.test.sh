@@ -438,44 +438,66 @@ assert_eq "" "$(cat "$TMPDIR/dup.err")" "unreadable installed_plugins.json: no s
 chmod 600 "$TMB_INSTALLED_JSON"
 rm -f "$TMB_INSTALLED_JSON" "$LOCAL_SETTINGS"
 
-# ---- Pre-1.1.0 resolve-hook.sh entries in the user-scope settings.json ----
+# ---- Pre-1.1.0 TMB hooks in the user-scope settings.json ----
 LEGACY_CFG="$CLAUDE_CONFIG_DIR"
 LEGACY_SETTINGS="$LEGACY_CFG/settings.json"
+LEGACY_FIXTURE="$HERE/fixtures/legacy-user-settings.json"
 LEGACY_OLD="$TMPDIR/old-project"
 mkdir -p "$LEGACY_CFG" "$LEGACY_OLD" "$TMPDIR/rc-project"
 LEGACY_OLD_REAL=$(cd "$LEGACY_OLD" && pwd -P)
 legacy_run() {
   (cd "$FIXTURE_WS" && env TRAJECTORY_DB_PATH="$SCHEMA_DB" TMB_SKIP_AUTO_PRESCAN=1 CLAUDE_PROJECT_DIR="$FIXTURE_WS" bash "$HOOK" 2>"$TMPDIR/legacy.err") || true
 }
-legacy_lines() { legacy_run | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null | grep '^Plugin: .*resolve-hook\.sh' || true; }
+legacy_lines() { legacy_run | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null | grep '^Plugin: .*pre-1\.1\.0 TMB hook' || true; }
 legacy_sums() { cksum "$LEGACY_SETTINGS" "$TMB_INSTALLED_JSON" 2>/dev/null; }
 legacy_entry() { printf '{"scope":"local","projectPath":"%s","installPath":"/cache/%s","version":"%s"}' "$1" "$2" "$2"; }
 LEGACY_DOC="docs/reference/UPGRADE.md#upgrading-into-v110--remove-leftover-user-wide-hooks"
+LEGACY_ENTRIES="line 10 git-guards, line 23 agent-spawn-dispatch, line 33 swe-scope-guard"
 schema_db
 
-test_case "legacy user hooks: resolve-hook.sh entries add one line naming the file, lines, hooks and other old projects"
-cp "$HERE/fixtures/legacy-user-settings.json" "$LEGACY_SETTINGS"
+test_case "legacy user hooks: resolve-hook.sh and _tmb_managed entries add one line naming the file, lines, hooks and other old projects"
+cp "$LEGACY_FIXTURE" "$LEGACY_SETTINGS"
 printf '{"plugins":{"tmb@trustmybot-dev":[%s,%s,%s,%s]}}' \
   "$(legacy_entry "$LEGACY_OLD" 1.0.2)" "$(legacy_entry "$TMPDIR/rc-project" 1.1.0-rc.1)" \
   "$(legacy_entry "$FIXTURE_WS" 1.0.3)" "$(legacy_entry "$TMPDIR/gone-project" 1.0.1)" > "$TMB_INSTALLED_JSON"
 BEFORE=$(legacy_sums)
-assert_eq "Plugin: $LEGACY_SETTINGS holds 2 pre-1.1.0 TMB hook(s) running resolve-hook.sh (line 10 git-guards, line 23 agent-spawn-dispatch) — they run in every project and can deny what this version allows; the Human removes them by hand, see $LEGACY_DOC; projects on TMB < 1.1.0 lose them too: $LEGACY_OLD_REAL (1.0.2)" \
+assert_eq "Plugin: $LEGACY_SETTINGS holds 3 pre-1.1.0 TMB hook(s) ($LEGACY_ENTRIES) — they run in every project and can deny what this version allows; the Human removes them by hand, see $LEGACY_DOC; projects on TMB < 1.1.0 lose them too: $LEGACY_OLD_REAL (1.0.2)" \
   "$(legacy_lines)" "one legacy line"
 assert_eq "" "$(cat "$TMPDIR/legacy.err")" "no stderr"
 assert_eq "$BEFORE" "$(legacy_sums)" "settings.json and installed_plugins.json unchanged"
 
 test_case "legacy user hooks: no old project installs leaves the project clause off"
 rm -f "$TMB_INSTALLED_JSON"
-assert_eq "Plugin: $LEGACY_SETTINGS holds 2 pre-1.1.0 TMB hook(s) running resolve-hook.sh (line 10 git-guards, line 23 agent-spawn-dispatch) — they run in every project and can deny what this version allows; the Human removes them by hand, see $LEGACY_DOC" \
+assert_eq "Plugin: $LEGACY_SETTINGS holds 3 pre-1.1.0 TMB hook(s) ($LEGACY_ENTRIES) — they run in every project and can deny what this version allows; the Human removes them by hand, see $LEGACY_DOC" \
   "$(legacy_lines)" "no project clause"
+cmp "$LEGACY_FIXTURE" "$LEGACY_SETTINGS" >/dev/null && same=yes || same=no
+assert_eq "yes" "$same" "settings.json byte-identical"
+
+test_case "legacy user hooks: both SessionStart hooks together give one warning naming each entry once"
+cp "$LEGACY_FIXTURE" "$LEGACY_SETTINGS"
+both_ctx=$( {
+  legacy_run
+  printf '{"hook_event_name":"SessionStart","session_id":"legacy-1"}' \
+    | env CLAUDE_PROJECT_DIR="$FIXTURE_WS" TMB_MCP_HEALTH_SAMPLES=1 bash "$PLUGIN_ROOT/scripts/hooks/mcp-health-check.sh" 2>/dev/null || true
+} | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null)
+assert_eq "1" "$(printf '%s\n' "$both_ctx" | grep -c "$LEGACY_SETTINGS")" "one warning names the settings file"
+for entry in "line 10 git-guards" "line 23 agent-spawn-dispatch" "line 33 swe-scope-guard"; do
+  assert_eq "1" "$(printf '%s\n' "$both_ctx" | grep -o "$entry" | grep -c .)" "$entry named once"
+done
+cmp "$LEGACY_FIXTURE" "$LEGACY_SETTINGS" >/dev/null && same=yes || same=no
+assert_eq "yes" "$same" "settings.json byte-identical"
 
 test_case "legacy user hooks: a one-line settings file names each entry on line 1"
-printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"bash ~/.claude/tmb-hooks/resolve-hook.sh --marketplace mp --hook a"},{"type":"command","command":"bash ~/.claude/tmb-hooks/resolve-hook.sh --marketplace mp --hook b"}]}]}}\n' > "$LEGACY_SETTINGS"
-assert_contains "$(legacy_lines)" "holds 2 pre-1.1.0 TMB hook(s) running resolve-hook.sh (line 1 a, line 1 b)" "both entries"
+printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"bash ~/.claude/tmb-hooks/resolve-hook.sh --marketplace mp --hook a"},{"type":"command","command":"bash ~/.claude/tmb-hooks/resolve-hook.sh --marketplace mp --hook b","_tmb_managed":true},{"type":"command","command":"bash ~/.claude/tmb-hooks/dispatch.sh --hook c","_tmb_managed":true}]}]}}\n' > "$LEGACY_SETTINGS"
+assert_contains "$(legacy_lines)" "holds 3 pre-1.1.0 TMB hook(s) (line 1 a, line 1 b, line 1 c)" "each entry once"
+
+test_case "legacy user hooks: a _tmb_managed entry without resolve-hook.sh or --hook is named by line"
+printf '{\n  "statusLine": {"type": "command", "command": "echo status"},\n  "hooks": {"PreToolUse": [{"hooks": [\n    {"type": "command", "command": "/opt/old-tmb/gate.sh", "_tmb_managed": true}\n  ]}]}\n}\n' > "$LEGACY_SETTINGS"
+assert_contains "$(legacy_lines)" "holds 1 pre-1.1.0 TMB hook(s) (line 4 ?)" "named by line"
 
 test_case "legacy user hooks: clean, missing or unparsable settings print nothing"
 printf '{"plugins":{"tmb@trustmybot-dev":[%s]}}' "$(legacy_entry "$LEGACY_OLD" 1.0.2)" > "$TMB_INSTALLED_JSON"
-printf '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo mine"}]}]},"permissions":{"allow":["Bash(bash resolve-hook.sh)"]}}\n' > "$LEGACY_SETTINGS"
+printf '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo mine"},{"type":"command","command":"echo also-mine","_tmb_managed":false}]}]},"permissions":{"allow":["Bash(bash resolve-hook.sh)"]}}\n' > "$LEGACY_SETTINGS"
 BEFORE=$(legacy_sums)
 assert_eq "" "$(legacy_lines)" "clean settings: no line"
 assert_eq "$BEFORE" "$(legacy_sums)" "clean settings: files unchanged"

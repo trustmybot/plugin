@@ -3,8 +3,9 @@
 #   1. server present on the first sample        → silent, log mcp_alive=true
 #   2. server appears on the third sample        → silent
 #   3. server never appears                      → soft note, never "HALT"
-#   4. legacy _tmb_managed groups in ~/.claude/settings.json → warning naming file + groups
-#   5. settings.json without managed groups      → no warning
+#   4. leftover TMB hooks in ~/.claude/settings.json → no warning here (the
+#      prescan and health.sh report them); the file is left byte-identical
+#   5. settings.json without leftover hooks      → no warning
 #   6. unknown event                             → no JSON
 #   7. the forensic log lives in the project; nothing is written under HOME
 #   8. install notices from installed_plugins.json, once per session:
@@ -83,24 +84,17 @@ assert_not_contains "$out" "HALT" "never HALTs from a pgrep sample"
 assert_not_contains "$out" "rm -rf" "no destructive recipe"
 assert_eq "false" "$(tail -1 "$LOG_FILE" | jq -r '.mcp_alive')" "log mcp_alive=false"
 
-test_case "legacy _tmb_managed groups in ~/.claude/settings.json: warning names file and groups"
+test_case "leftover TMB hooks in ~/.claude/settings.json: no warning here; file unchanged"
 reset 1
 mkdir -p "$HOME/.claude"
-cat > "$HOME/.claude/settings.json" <<'EOF'
-{"hooks":{"PreToolUse":[
-  {"matcher":"Bash","hooks":[{"type":"command","command":"bash /h/.claude/tmb-hooks/resolve-hook.sh --marketplace trustmybot --hook git-guards","_tmb_managed":true}]},
-  {"matcher":"Edit|Write","hooks":[{"type":"command","command":"/usr/local/bin/mine.sh"}]}
-]}}
-EOF
+cp "$HERE/fixtures/legacy-user-settings.json" "$HOME/.claude/settings.json"
 out=$(run_hook "$SS")
-ctx=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext')
-assert_contains "$ctx" "$HOME/.claude/settings.json" "names the file"
-assert_contains "$ctx" "PreToolUse Bash" "names the managed group"
-assert_not_contains "$ctx" "Edit|Write" "user group not listed"
-assert_contains "$ctx" "_tmb_managed" "offers the cleanup"
-assert_not_contains "$out" "HALT" "no HALT"
+assert_eq "" "$out" "silent"
+assert_not_contains "$out" "settings.json" "no leftover-hook warning"
+cmp "$HERE/fixtures/legacy-user-settings.json" "$HOME/.claude/settings.json" >/dev/null && same=yes || same=no
+assert_eq "yes" "$same" "settings.json byte-identical"
 
-test_case "settings.json without managed groups: no warning"
+test_case "settings.json without leftover hooks: no warning"
 echo '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"/usr/local/bin/mine.sh"}]}]}}' > "$HOME/.claude/settings.json"
 out=$(run_hook "$SS")
 assert_eq "" "$out" "silent"

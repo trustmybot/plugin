@@ -21,7 +21,7 @@
 #   duplicate-plugin — more than one enabled copy of this plugin applies to the
 #   project; Claude Code registers the hooks of only one of them.
 #   legacy-user-hooks — the user-scope settings.json still runs pre-1.1.0
-#   resolve-hook.sh commands in every project (read only; never edited).
+#   TMB hooks in every project (read only; never edited).
 #
 # LOAD-BEARING REMEDIATION RULE
 # ----------------------------
@@ -403,7 +403,7 @@ fi
 # ===========================================================================
 LEGACY_HOOKS=$(TMB_INSTALLED_JSON="$INSTALLED_JSON" tmb_legacy_user_hooks "$DUP_PROJECT" 2>/dev/null || true)
 if [ -n "$LEGACY_HOOKS" ]; then
-  printf 'WARN  legacy-user-hooks: %s holds %s pre-1.1.0 TMB hook(s) running resolve-hook.sh: %s\n' \
+  printf 'WARN  legacy-user-hooks: %s holds %s pre-1.1.0 TMB hook(s): %s\n' \
     "$(tmb_user_settings_json)" "$(printf '%s\n' "$LEGACY_HOOKS" | grep -c '^hook')" "$(tmb_legacy_user_hooks_entries "$LEGACY_HOOKS")"
   remediate \
     "They run in every project, so a pre-1.1.0 gate can deny what this version allows. TMB does not edit that file." \
