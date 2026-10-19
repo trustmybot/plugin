@@ -28,6 +28,13 @@ tmb_test_state_dir() {
   printf '%s/.claude/%s\n' "$project" "$plugin"
 }
 
+# l5_init_state_dir <project_dir>: creates <project>/.claude/tmb plus an empty
+# `standalone` marker, so DB discovery stops at this project instead of walking
+# up to a parent workspace's live trajectory.db (GH 1553).
+l5_init_state_dir() {
+  mkdir -p "$1/.claude/tmb" && : > "$1/.claude/tmb/standalone"
+}
+
 # l5_setup_scratch_project: creates a fresh Docker-isolated scratch dir,
 # initializes git, sets test identity. Returns the absolute path on stdout.
 l5_setup_scratch_project() {
@@ -41,8 +48,8 @@ l5_setup_scratch_project() {
     echo "init" > README.md
     printf '.claude/\n' > .gitignore
     git add . && git commit -qm init
-    mkdir -p .claude/tmb
   )
+  l5_init_state_dir "$dir"
   echo "$dir"
 }
 
@@ -111,7 +118,7 @@ _l5_write_pre_run_git_snapshot() {
     local pre_head pre_branch
     pre_head=$(git -C "$dir" rev-parse HEAD 2>/dev/null || echo "")
     pre_branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-    mkdir -p "$dir/.claude/tmb"
+    l5_init_state_dir "$dir"
     printf '{"head":"%s","branch":"%s"}\n' "$pre_head" "$pre_branch" \
       > "$dir/.claude/tmb/_l5_pre_run_git.json"
   fi
