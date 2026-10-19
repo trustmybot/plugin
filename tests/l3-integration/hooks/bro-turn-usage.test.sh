@@ -132,17 +132,35 @@ printf '{"type":"user","timestamp":"%s","message":{"role":"user","content":"hi"}
 assert_eq "" "$(run_hook "$EMPTY_T" sess-empty)" "no stderr"
 assert_eq "0" "$(session_count sess-empty)" "no row for a session without usage"
 
+test_case "a lone zero-usage <synthetic> message writes no row; a later real turn does"
+SYNTH_T="$TMPDIR_BTU/synthetic.jsonl"
+{
+  printf '{"type":"user","timestamp":"%s","message":{"role":"user","content":"hi"}}\n' "$(at 0)"
+  printf '{"type":"assistant","timestamp":"%s","message":{"id":"syn1","model":"<synthetic>","usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[{"type":"text","text":"API Error"}]}}\n' "$(at 10)"
+} > "$SYNTH_T"
+assert_eq "" "$(run_hook "$SYNTH_T" sess-synth)" "no stderr"
+assert_eq "0" "$(session_count sess-synth)" "no bro row for a synthetic-only session"
+msg 8 20 >> "$SYNTH_T"
+run_hook "$SYNTH_T" sess-synth >/dev/null
+assert_eq "1" "$(session_count sess-synth)" "the next real turn writes the row"
+assert_eq "null|null|8|80|800|8000|0|claude-opus-test|transcript|claude|completed|null" "$(session_row sess-synth)" \
+  "row holds the real turn's usage and model"
+head -n 2 "$SYNTH_T" > "$TMPDIR_BTU/synthetic-only.jsonl"
+run_hook "$TMPDIR_BTU/synthetic-only.jsonl" sess-synth >/dev/null
+assert_eq "null|null|8|80|800|8000|0|claude-opus-test|transcript|claude|completed|null" "$(session_row sess-synth)" \
+  "a synthetic-only Stop leaves the earlier row as it is"
+
 test_case "hostile transcript values cannot reach the SQL"
 EVIL_T="$TMPDIR_BTU/evil.jsonl"
 {
   printf '{"type":"user","timestamp":"%s","message":{"content":"x"}}\n' "$(at 0)"
-  printf '{"type":"assistant","timestamp":"%s","message":{"id":"e1","model":"x'"'"');DROP TABLE agent_runs;--","usage":{"input_tokens":"1; DROP TABLE agent_runs;--","output_tokens":-5,"cache_read_input_tokens":2},"content":[]}}\n' "$(at 70)"
+  printf '{"type":"assistant","timestamp":"%s","message":{"id":"e1","model":"x'"'"');DROP TABLE agent_runs;--","usage":{"input_tokens":"1; DROP TABLE agent_runs;--","output_tokens":4,"cache_read_input_tokens":2,"cache_creation_input_tokens":-5},"content":[]}}\n' "$(at 70)"
   printf '{"type":"assistant","timestamp":"2026-01-01T00:00:00Z'"'"'); DROP TABLE agent_runs;--","message":{"id":"e2","usage":{"input_tokens":3},"content":[]}}\n'
   printf '"a bare string line"\n'
 } > "$EVIL_T"
 assert_eq "" "$(run_hook "$EVIL_T" sess-evil)" "no SQL error on hostile input"
 assert_eq "1" "$(sqlite3 "$DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='agent_runs';")" "agent_runs table survives"
-assert_eq "null|null|0|0|2|0|0|xDROPTABLEagent_runs--|transcript|claude|completed|null" "$(session_row sess-evil)" \
+assert_eq "null|null|0|4|2|0|0|xDROPTABLEagent_runs--|transcript|claude|completed|null" "$(session_row sess-evil)" \
   "non-numeric / negative usage counts as 0; a malformed timestamp is dropped; the model id is stripped"
 
 test_case "model is the one with the most tokens; <synthetic> carries no model"

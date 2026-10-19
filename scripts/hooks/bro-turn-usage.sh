@@ -9,7 +9,9 @@
 # first / last main-loop message, model the one with the most tokens, root_dir
 # the project holding the trajectory DB (NULL when the DB sits elsewhere).
 # Every Stop rewrites the row with absolute sums and inserts it when absent, so
-# the hook is idempotent. A session with no metered message writes no row.
+# the hook is idempotent. A session with no real model (only <synthetic>
+# messages) or no output tokens writes no row; a row an earlier Stop wrote
+# stays as it is.
 # Per-task cost is the task's swe + pr-reviewer runs; no turn is split across
 # tasks.
 #
@@ -45,10 +47,10 @@ TRANSCRIPT_PATH=$(printf '%s' "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/n
 
 # One pass over the transcript, main loop only (isSidechain false). Prints one
 # tab-separated line: first ts, last ts, in, out, cache_read, cache_creation,
-# tool_uses, model — nothing when no main-loop message carries usage. CC writes
-# one JSONL line per content block, each repeating the message's usage, so
-# lines are grouped by message id (last usage wins, tool_use blocks are counted
-# across the group). Timestamps are validated and normalized to the 24-char
+# tool_uses, model — nothing when the main loop has no real model or no output
+# tokens. CC writes one JSONL line per content block, each repeating the
+# message's usage, so lines are grouped by message id (last usage wins,
+# tool_use blocks are counted across the group). Timestamps are validated and normalized to the 24-char
 # ms-ISO form; numbers are floored non-negative integers, anything else counts
 # as 0. A model id keeps only [A-Za-z0-9._:@/[]-] and is emitted as a quoted
 # SQL literal; CC's synthetic messages (<synthetic>) carry no model, and the
@@ -77,14 +79,14 @@ PARSED=$(jq -rsc --arg q "'" '
   | map({u: .[-1].u, m: .[-1].m, tu: (map(.tu) | add)}
         | {ti: (.u.input_tokens | n), to: (.u.output_tokens | n), cr: (.u.cache_read_input_tokens | n),
            cc: (.u.cache_creation_input_tokens | n), tu, m})
-  | select(length > 0)
   | ([.[] | select(.m != "") | {m, tok: (.ti + .to + .cr + .cc)}]
      | group_by(.m) | map({m: .[0].m, tok: (map(.tok) | add)})
      | sort_by([-.tok, .m]) | .[0].m // null) as $model
+  | select($model != null and (map(.to) | add) > 0)
   | [($stamps | min), ($stamps | max),
      (map(.ti) | add), (map(.to) | add), (map(.cr) | add), (map(.cc) | add), (map(.tu) | add)
        | tostring]
-    + [if $model == null then "NULL" else $q + $model + $q end]
+    + [$q + $model + $q]
   | join("\t")
 ' "$TRANSCRIPT_PATH" 2>/dev/null) || exit 0
 [ -n "$PARSED" ] || exit 0
@@ -123,7 +125,7 @@ UPDATE agent_runs
        completed_at          = '${LAST_TS}',
        duration_ms           = ${DURATION_SQL},
        usage_source          = 'transcript',
-       model                 = COALESCE(${SAFE_MODEL}, model),
+       model                 = ${SAFE_MODEL},
        host                  = 'claude',
        root_dir              = COALESCE(${ROOT_SQL}, root_dir),
        exit_reason           = 'completed'
