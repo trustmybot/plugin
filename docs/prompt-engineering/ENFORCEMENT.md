@@ -114,8 +114,9 @@ The "Layer" column names the **strongest currently deployed** for each interacti
    - **Layer 4**: schema CHECK in `mcp/.../schema.sql` (and migration in `db.ts` if existing DBs need rebuild).
    - **Layer 5**: add `paths:` to skill frontmatter.
    - **Layer 6**: edit prose; **note in this matrix that the item is Layer-6-only and may need promotion**.
-4. Update this matrix with the new row.
-5. **If demoting from a harder layer to a softer one, justify in the PR**.
+4. If the guard covers version-control commands, match git, gh and glab at a command boundary — so `gh pr merge` and `glab mr merge` are both caught, while a match inside a quoted string or a longer word is not — and add an L3 test case for each CLI.
+5. Update this matrix with the new row.
+6. **If demoting from a harder layer to a softer one, justify in the PR**.
 
 ## Positive prompts as the floor
 
