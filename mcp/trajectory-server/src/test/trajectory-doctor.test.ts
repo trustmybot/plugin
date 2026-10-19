@@ -124,6 +124,11 @@ function seedLegacyRuns(db: TrajectoryDB): void {
   }
 }
 
+// A per-task bro row an older version opened and its legacy claim never filled.
+function seedLegacyBroRun(db: TrajectoryDB, taskId: number): void {
+  seedRun(db, { agentType: 'bro', taskId, tokens: 0, sessionId: null, model: null, rootDir: null, usageSource: 'unmeasured', effort: null });
+}
+
 // One violating and one passing fixture per contract id.
 // populated_tasks_prompt_bearing has no violating row: the column is NOT NULL,
 // so its violation is shown through a reader that reports a drifted DB.
@@ -149,6 +154,14 @@ const FIXTURES: Record<string, { violate?: (db: TrajectoryDB) => void; pass: (db
       seedRun(db, { tokens: 0, usageSource: 'subagent_stop', completedAt: iso(-8 * DAY) });
       seedRun(db, { agentType: 'bro', tokens: 0, usageSource: 'transcript' });
       seedRun(db, { tokens: 5 });
+    },
+  },
+  bro_session_runs_metered: {
+    violate: (db) => seedRun(db, { agentType: 'bro', usageSource: 'transcript', model: null }),
+    pass: (db) => {
+      seedRun(db, { agentType: 'bro', usageSource: 'transcript' });
+      seedRun(db, { agentType: 'bro', usageSource: 'transcript', model: null, startedAt: iso(-8 * DAY) });
+      seedLegacyBroRun(db, seedTask(db, seedIssue(db), 'closed'));
     },
   },
   closed_tasks_reviewed: {
@@ -575,6 +588,30 @@ describe('data contracts', () => {
       assert.equal(violated(db, `populated_agent_runs_${column}`), false, 'legacy NULLs before the cutoff do not count');
       seedRun(db, nulled);
       assert.equal(violated(db, `populated_agent_runs_${column}`), true, `a post-cutoff run with a NULL ${column} trips the contract`);
+      db.close();
+    });
+  }
+
+  it('legacy per-task bro rows with 0 tokens and a NULL model raise no violation', () => {
+    const db = tempDB();
+    seedRun(db, { startedAt: iso(-DAY) });
+    const issue = seedIssue(db);
+    for (let i = 0; i < 5; i++) seedLegacyBroRun(db, seedTask(db, issue, 'running'));
+    const report = runDataContracts(trajectoryDbReader(db), DB_CONTRACTS, { env: {} });
+    assert.deepEqual(report.violations.map((v) => v.id), []);
+    db.close();
+  });
+
+  for (const [column, nulled] of [
+    ['session_id', { sessionId: null }],
+    ['model', { model: null }],
+  ] as const) {
+    it(`bro_session_runs_metered flags a session bro row missing ${column}`, () => {
+      const db = tempDB();
+      seedRun(db, { agentType: 'bro', usageSource: 'transcript' });
+      assert.equal(violated(db, 'bro_session_runs_metered'), false);
+      seedRun(db, { agentType: 'bro', usageSource: 'transcript', ...nulled });
+      assert.equal(violated(db, 'bro_session_runs_metered'), true);
       db.close();
     });
   }

@@ -147,28 +147,6 @@ export function spawnStats(records) {
         model: dominantModel(msgs),
     };
 }
-// The bro Stop hook's parse: main-loop (non-sidechain) messages with usage,
-// grouped by message id (earliest timestamp, last usage, summed tool_use).
-function sessionMessages(records) {
-    const groups = new Map();
-    records.forEach((r, i) => {
-        const msg = messageOf(r);
-        if (r['isSidechain'] === true || !msg || msg['usage'] === undefined || msg['usage'] === null)
-            return;
-        const ts = isoMs(r['timestamp']);
-        if (ts === null)
-            return;
-        const key = messageKey(r, i);
-        const prev = groups.get(key);
-        groups.set(key, {
-            ts: prev && prev.ts < ts ? prev.ts : ts,
-            u: usageOf(msg['usage']),
-            m: modelId(msg['model']),
-            tu: (prev?.tu ?? 0) + toolUseCount(r),
-        });
-    });
-    return [...groups.values()].sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
-}
 function normalizeRole(v) {
     return typeof v === 'string' && v !== '' ? v.slice(v.indexOf(':') + 1) : null;
 }
@@ -287,7 +265,6 @@ export function agentRunsBackfill(db, opts) {
         sessionRecords.set(basename(p, '.jsonl'), readRecords(p));
     const spawnTypes = new Map();
     const claimedRunIds = new Set();
-    const plannedSwe = [];
     for (const { path, session } of subagents) {
         const records = readRecords(path);
         const stats = spawnStats(records);
@@ -337,9 +314,6 @@ export function agentRunsBackfill(db, opts) {
         if (target) {
             claimedRunIds.add(target.id);
             report.rows_updated++;
-            if (agentType === 'swe') {
-                plannedSwe.push({ id: target.id, task_id: task.id, started_at: target.started_at ?? stats.first_ts, completed_at: stats.last_ts });
-            }
             writes.push({
                 kind: 'update_spawn',
                 id: target.id,
@@ -349,9 +323,6 @@ export function agentRunsBackfill(db, opts) {
         }
         else {
             report.rows_inserted++;
-            if (agentType === 'swe') {
-                plannedSwe.push({ id: null, task_id: task.id, started_at: stats.first_ts, completed_at: stats.last_ts });
-            }
             writes.push({
                 kind: 'insert',
                 values: [task.id, task.issue_id, agentType, stats.ti, stats.to, stats.cr, stats.cc, stats.tool_uses,
@@ -360,10 +331,15 @@ export function agentRunsBackfill(db, opts) {
             });
         }
     }
-    planBroRows(db, sessionRecords, plannedSwe, opts, report, writes);
+    for (const records of sessionRecords.values()) {
+        const stamps = records.map((r) => isoMs(r['timestamp'])).filter((s) => s !== null).sort();
+        const last = stamps[stamps.length - 1];
+        if (last !== undefined && (!opts.since || last >= opts.since))
+            report.sessions_seen++;
+    }
     if (!opts.dryRun) {
         db.transaction(() => {
-            applyWrites(db, writes, opts.now);
+            applyWrites(db, writes);
             insertAudit(db, {
                 issue_id: -1,
                 from_node: 'bro',
@@ -376,104 +352,7 @@ export function agentRunsBackfill(db, opts) {
     }
     return report;
 }
-// Bro rows: the Stop hook's window rule over each session transcript, applied
-// to the session's bro rows (those stamped with it, plus unstamped rows that
-// started inside it), writing only the rows still unmeasured.
-function planBroRows(db, sessionRecords, plannedSwe, opts, report, writes) {
-    const spans = [];
-    for (const [session, records] of sessionRecords) {
-        const stamps = records.map((r) => isoMs(r['timestamp'])).filter((s) => s !== null).sort();
-        if (stamps.length === 0)
-            continue;
-        const last = stamps[stamps.length - 1];
-        if (opts.since && last < opts.since)
-            continue;
-        report.sessions_seen++;
-        spans.push({ session, first: stamps[0], last, msgs: sessionMessages(records) });
-    }
-    const legacyOwner = new Map();
-    for (const s of spans) {
-        const rows = db.all(`SELECT id FROM agent_runs
-        WHERE agent_type = 'bro' AND session_id IS NULL AND started_at IS NOT NULL
-          AND started_at >= strftime('%Y-%m-%dT%H:%M:%fZ', ?, '-2 seconds') AND started_at <= ?`, [s.first, s.last]);
-        for (const r of rows) {
-            const prev = legacyOwner.get(r.id);
-            if (!prev || prev.first < s.first)
-                legacyOwner.set(r.id, { session: s.session, first: s.first });
-        }
-    }
-    for (const s of spans) {
-        const legacyIds = [...legacyOwner].filter(([, o]) => o.session === s.session).map(([id]) => id);
-        const runs = db.all(`SELECT r.id, r.task_id, r.agent_type, r.started_at, r.completed_at, r.spawn_id, r.session_id, r.usage_source,
-              r.tokens_in, r.tokens_out, r.cache_read_tokens, r.cache_creation_tokens, strftime('%Y-%m-%dT%H:%M:%fZ', r.started_at, '-2 seconds') AS window_start,
-              CASE WHEN t.status = 'running' THEN t.updated_at END AS running_since
-         FROM agent_runs r LEFT JOIN tasks t ON t.id = r.task_id
-        WHERE r.agent_type = 'bro' AND r.started_at IS NOT NULL
-          AND (r.session_id = ? OR r.id IN (SELECT value FROM json_each(?)))`, [s.session, JSON.stringify(legacyIds)]);
-        if (runs.length === 0)
-            continue;
-        const taskIds = JSON.stringify([...new Set(runs.map((r) => r.task_id))]);
-        const sweRows = db.all(`SELECT id, task_id, started_at, completed_at FROM agent_runs
-        WHERE agent_type = 'swe' AND started_at IS NOT NULL AND task_id IN (SELECT value FROM json_each(?))`, [taskIds]);
-        const planned = new Map(plannedSwe.filter((p) => p.id !== null).map((p) => [p.id, p]));
-        const sweRuns = [
-            ...sweRows.map((r) => planned.get(r.id) ?? r),
-            ...plannedSwe.filter((p) => p.id === null),
-        ];
-        const briefs = db.all(`SELECT CAST(json_extract(content_json, '$.task_id') AS INTEGER) AS task_id, created_at FROM audit
-        WHERE event_type = 'swe_brief_fetched'
-          AND CAST(json_extract(content_json, '$.task_id') AS INTEGER) IN (SELECT value FROM json_each(?))`, [taskIds]);
-        const owned = new Map();
-        for (const m of s.msgs) {
-            let best = null;
-            for (const r of runs) {
-                if (!(r.window_start <= m.ts && (r.completed_at === null || m.ts < r.completed_at)))
-                    continue;
-                const active = (r.running_since !== null && r.running_since <= m.ts) ||
-                    sweRuns.some((w) => w.task_id === r.task_id && w.started_at <= m.ts && (w.completed_at === null || m.ts < w.completed_at));
-                const briefedAt = briefs
-                    .filter((b) => b.task_id === r.task_id && b.created_at <= m.ts)
-                    .reduce((a, b) => (b.created_at > a ? b.created_at : a), '');
-                const key = [active ? 1 : 0, briefedAt, r.started_at, r.id];
-                if (!best || compareKey(key, best.key) > 0)
-                    best = { id: r.id, key };
-            }
-            if (!best)
-                continue;
-            const acc = owned.get(best.id) ?? { u: { ti: 0, to: 0, cr: 0, cc: 0 }, tu: 0, models: new Map() };
-            acc.u.ti += m.u.ti;
-            acc.u.to += m.u.to;
-            acc.u.cr += m.u.cr;
-            acc.u.cc += m.u.cc;
-            acc.tu += m.tu;
-            if (m.m !== '')
-                acc.models.set(m.m, (acc.models.get(m.m) ?? 0) + usageTotal(m.u));
-            owned.set(best.id, acc);
-        }
-        for (const r of runs) {
-            if (isMeasured(r)) {
-                report.rows_skipped_measured++;
-                continue;
-            }
-            const acc = owned.get(r.id) ?? { u: { ti: 0, to: 0, cr: 0, cc: 0 }, tu: 0, models: new Map() };
-            const model = [...acc.models].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))[0]?.[0] ?? null;
-            report.rows_updated++;
-            report.tokens_total_added += usageTotal(acc.u);
-            writes.push({ kind: 'update_bro', id: r.id, session: s.session, u: acc.u, tu: acc.tu, model });
-        }
-    }
-}
-// ORDER BY active DESC, briefed_at DESC, started_at DESC, run_id DESC.
-function compareKey(a, b) {
-    for (let i = 0; i < a.length; i++) {
-        if (a[i] < b[i])
-            return -1;
-        if (a[i] > b[i])
-            return 1;
-    }
-    return 0;
-}
-function applyWrites(db, writes, now) {
+function applyWrites(db, writes) {
     for (const w of writes) {
         if (w.kind === 'insert') {
             db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, tokens_in, tokens_out, cache_read_tokens,
@@ -481,7 +360,7 @@ function applyWrites(db, writes, now) {
                                  spawn_id, session_id, usage_source, model, host, root_dir, exit_reason)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'backfill', ?, 'claude', ?, ?)`, w.values);
         }
-        else if (w.kind === 'update_spawn') {
+        else {
             db.run(`UPDATE agent_runs
             SET tokens_in = ?, tokens_out = ?, cache_read_tokens = ?, cache_creation_tokens = ?,
                 tool_uses = ?, duration_ms = ?,
@@ -490,14 +369,6 @@ function applyWrites(db, writes, now) {
                 usage_source = 'backfill', model = COALESCE(?, model), host = COALESCE(host, 'claude'),
                 root_dir = COALESCE(root_dir, ?), exit_reason = COALESCE(exit_reason, ?)
           WHERE id = ?`, w.values);
-        }
-        else {
-            db.run(`UPDATE agent_runs
-            SET tokens_in = ?, tokens_out = ?, cache_read_tokens = ?, cache_creation_tokens = ?, tool_uses = ?,
-                duration_ms = MAX(0, CAST(ROUND((julianday(COALESCE(completed_at, ?)) - julianday(started_at)) * 86400000) AS INTEGER)),
-                session_id = COALESCE(session_id, ?), usage_source = 'backfill', model = COALESCE(?, model),
-                host = COALESCE(host, 'claude')
-          WHERE id = ?`, [w.u.ti, w.u.to, w.u.cr, w.u.cc, w.tu, now, w.session, w.model, w.id]);
         }
     }
 }
@@ -511,7 +382,7 @@ export function agentRunsBackfillTools(db, dbPath) {
     const definitions = [
         {
             name: 'agent_runs_backfill',
-            description: "Recover swe/pr-reviewer/bro agent_runs from Claude Code transcripts on disk (read-only) as usage_source='backfill'; never overwrites measured rows; idempotent. dry_run (default true) only reports.",
+            description: "Recover swe/pr-reviewer agent_runs from Claude Code transcripts on disk (read-only) as usage_source='backfill'; bro rows are left alone (the Stop hook meters bro per session); never overwrites measured rows; idempotent. dry_run (default true) only reports.",
             inputSchema: {
                 type: 'object',
                 properties: {

@@ -105,11 +105,14 @@ export function costEstimate(rows, prices) {
 }
 const TOKENS_TOTAL_SQL = 'CASE WHEN COALESCE(tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens) IS NULL THEN NULL' +
     ' ELSE COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0) + COALESCE(cache_read_tokens, 0) + COALESCE(cache_creation_tokens, 0) END';
+// Per-task cost is the task's swe and pr-reviewer runs: bro is metered per
+// session, so a legacy per-task bro row is history, not task cost.
+const TASK_COST_AGENTS_SQL = "agent_type IN ('swe', 'pr-reviewer')";
 export function statsTools(db) {
     const definitions = [
         {
             name: 'task_stats',
-            description: 'Return token/duration aggregate + per-spawn breakdown for one task. tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model).',
+            description: 'Return token/duration aggregate + per-spawn breakdown of one task\'s swe and pr-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model).',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -136,7 +139,7 @@ export function statsTools(db) {
                 ' SUM(cache_creation_tokens) as sum_cache_creation,' +
                 ' SUM(tool_uses) as sum_tool_uses,' +
                 ' SUM(duration_ms) as sum_duration_ms' +
-                ' FROM agent_runs WHERE task_id = ?', [taskId]);
+                ` FROM agent_runs WHERE task_id = ? AND ${TASK_COST_AGENTS_SQL}`, [taskId]);
             const sumIn = aggRow?.sum_tokens_in ?? 0;
             const sumOut = aggRow?.sum_tokens_out ?? 0;
             const sumCacheRead = aggRow?.sum_cache_read ?? 0;
@@ -154,7 +157,7 @@ export function statsTools(db) {
             };
             const spawns = db.all(`SELECT id, agent_type, host, model, root_dir, exit_reason, tokens_in, tokens_out, ${TOKENS_TOTAL_SQL} AS tokens_total,` +
                 ' cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_source' +
-                ' FROM agent_runs WHERE task_id = ? ORDER BY id', [taskId]);
+                ` FROM agent_runs WHERE task_id = ? AND ${TASK_COST_AGENTS_SQL} ORDER BY id`, [taskId]);
             const cost = costEstimate(spawns, readModelPrices(db));
             return ok({
                 task_id: taskId,

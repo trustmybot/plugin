@@ -177,6 +177,10 @@ const TOKENS_TOTAL_SQL =
   'CASE WHEN COALESCE(tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens) IS NULL THEN NULL' +
   ' ELSE COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0) + COALESCE(cache_read_tokens, 0) + COALESCE(cache_creation_tokens, 0) END';
 
+// Per-task cost is the task's swe and pr-reviewer runs: bro is metered per
+// session, so a legacy per-task bro row is history, not task cost.
+const TASK_COST_AGENTS_SQL = "agent_type IN ('swe', 'pr-reviewer')";
+
 export function statsTools(db: TrajectoryDB): {
   definitions: Tool[];
   handlers: Record<string, Fn>;
@@ -185,7 +189,7 @@ export function statsTools(db: TrajectoryDB): {
     {
       name: 'task_stats',
       description:
-        'Return token/duration aggregate + per-spawn breakdown for one task. tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model).',
+        'Return token/duration aggregate + per-spawn breakdown of one task\'s swe and pr-reviewer runs (bro is metered per session, not per task). tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens; each spawn carries its usage_source, host, model, root_dir and exit_reason. cost_estimate (USD, 4 decimals) prices each row by plugin_config.model_prices[model]; tokens of rows with no priced model are reported as unpriced_tokens; cost_groups breaks both down by (host, model).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -228,7 +232,7 @@ export function statsTools(db: TrajectoryDB): {
           ' SUM(cache_creation_tokens) as sum_cache_creation,' +
           ' SUM(tool_uses) as sum_tool_uses,' +
           ' SUM(duration_ms) as sum_duration_ms' +
-          ' FROM agent_runs WHERE task_id = ?',
+          ` FROM agent_runs WHERE task_id = ? AND ${TASK_COST_AGENTS_SQL}`,
           [taskId],
         );
 
@@ -252,7 +256,7 @@ export function statsTools(db: TrajectoryDB): {
         const spawns = db.all<AgentRunRow>(
           `SELECT id, agent_type, host, model, root_dir, exit_reason, tokens_in, tokens_out, ${TOKENS_TOTAL_SQL} AS tokens_total,` +
           ' cache_read_tokens, cache_creation_tokens, tool_uses, duration_ms, completed_at, usage_source' +
-          ' FROM agent_runs WHERE task_id = ? ORDER BY id',
+          ` FROM agent_runs WHERE task_id = ? AND ${TASK_COST_AGENTS_SQL} ORDER BY id`,
           [taskId],
         );
 

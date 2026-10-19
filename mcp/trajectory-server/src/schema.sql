@@ -292,14 +292,13 @@ INSERT OR IGNORE INTO plugin_config (key, value_json) VALUES
 -- identity table was a single-row marker with no columns of meaning —
 -- folded into plugin_config('onboarded': true).
 
--- One row per metered run of an agent on a task. A row covers the time window
+-- One row per metered run of an agent. A row covers the time window
 -- [started_at, completed_at): started_at is server time when the run opens,
 -- completed_at stays NULL while it is open.
---   bro rows — opened per task at task creation (task_create_batch,
---     task_provision, task_retry). The bro Stop hook claims open rows for
---     its CC session (session_id) and recomputes each row's tokens as the sum of
---     the session transcript's usage inside the row's window (the newest
---     started_at wins where windows overlap), absolutely, on every Stop.
+--   bro rows — one per CC session (task_id and issue_id NULL), written by the
+--     bro Stop hook: the session transcript's main-loop usage, rewritten
+--     absolutely on every Stop. Per-task bro rows from older versions stay
+--     as history.
 --   swe rows — opened by task_brief; the SubagentStop hook binds the spawn to
 --     the task_id in its spawn prompt and writes the spawn transcript's totals.
 -- bro_atomic_close and a terminal task_update_status close every open row of

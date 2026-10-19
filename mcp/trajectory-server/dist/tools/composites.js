@@ -5,7 +5,7 @@ import { normalizeAgent, requireRoles } from '../middleware/agent-scope.js';
 import { BRANCH_ID_RE, SPEC_BODY_MAX_BYTES, insertSpecShapeWaiver } from './tasks.js';
 import { insertDiscussion } from './discussions.js';
 import { insertAudit } from './audit.js';
-import { claudeRunContext, closeOpenRunsForTask, openBroRun, openSweRun, parseRunSessionId, RUN_SESSION_ID_SCHEMA, sweepRunsOfTerminalTasks, } from './agent-runs.js';
+import { claudeRunContext, closeOpenRunsForTask, openSweRun, parseRunSessionId, RUN_SESSION_ID_SCHEMA, sweepRunsOfTerminalTasks, } from './agent-runs.js';
 import { outsideProject } from './containment.js';
 import { closedTasksWithoutReview, liveTasksOfIssue, recordReviewBypassIfUnreviewed, sweepStaleTasks } from './lifecycle.js';
 import { syncIssueCloseRemotes, resolveDefaultMilestone, milestoneDefaultFields, validateIssueLabels, defaultSyncLabels, } from './issues.js';
@@ -238,7 +238,7 @@ function insertIntentAndNote(db, issueId, intentVerbatim, noteLine, now) {
 }
 // Shared close path for bro_atomic_close + task_recover: in the caller's
 // transaction, advance a task to closed (writing bro_verification_pass +
-// finalizing the bro agent_run row) and optionally close the parent issue
+// closing the task's open agent_runs rows) and optionally close the parent issue
 // under the issue_close rules. `bypassClosedBy` names a closer that is not
 // bro_atomic_close: once this close's bro_verification_pass row is written,
 // a task with no passing review for the commit gets one review_gate_bypassed
@@ -720,7 +720,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
         },
         {
             name: 'task_reopen',
-            description: "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, opens a bro agent_runs row for the rework (reusing an open one; stamped with session_id when passed), and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
+            description: "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -786,7 +786,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             const branchId = args['branch_id'];
             const decisionBody = args['decision_body'];
             const task = args['task'];
-            const sessionId = parseRunSessionId(args['session_id']);
+            parseRunSessionId(args['session_id']);
             if (typeof issueId !== 'number' || !Number.isFinite(issueId)) {
                 return err('issue_id must be a number');
             }
@@ -1009,10 +1009,10 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             // --- DB TRANSACTION (atomic) ---
             // The branch ref now exists. Write the decision (satisfies the decision
             // gate) + create the single task via the same INSERT path
-            // task_create_batch uses, with the bro agent_run row +
-            // planning_complete audit. The registry gate is enforced above; the
-            // intent/scope/branch/spec gates are waived internally: this composite
-            // IS bro's atomic planning, so those preconditions are subsumed here.
+            // task_create_batch uses, with the planning_complete audit. The
+            // registry gate is enforced above; the intent/scope/branch/spec gates
+            // are waived internally: this composite IS bro's atomic planning, so
+            // those preconditions are subsumed here.
             // Any DB error rolls back the whole transaction.
             const now = nowISO();
             const result = db.transaction(() => {
@@ -1038,7 +1038,6 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 const row = db.get('SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()');
                 if (!row)
                     throw new Error('task_provision: task insert succeeded but row lookup failed');
-                openBroRun(db, { id: row.id, issue_id: issueId, repo: row.repo }, now, runContext, sessionId);
                 insertAudit(db, {
                     issue_id: issueId,
                     branch_id: branchId,
@@ -1103,7 +1102,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             if (typeof reason !== 'string' || reason.trim().length === 0) {
                 return err('reason must be a non-empty string');
             }
-            const sessionId = parseRunSessionId(args['session_id']);
+            parseRunSessionId(args['session_id']);
             const filesAdd = validateFenceAdditions(args['files_add'], 'files_add');
             const verificationAdd = validateFenceAdditions(args['verification_add'], 'verification_add');
             const effortArg = args['effort'];
@@ -1171,9 +1170,6 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 if (effortRank(effort) > effortRank(task.effort)) {
                     insertEffortRaised(db, { issue_id: task.issue_id, branch_id: task.branch_id, task_id: taskId }, task.effort, effort, agent, now);
                 }
-                const openBro = db.get(`SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'bro' AND completed_at IS NULL LIMIT 1`, [taskId]);
-                if (!openBro)
-                    openBroRun(db, { id: taskId, issue_id: task.issue_id, repo: task.repo }, now, runContext, sessionId);
             });
             let worktreePath = null;
             let worktreeRecreated = false;
@@ -1446,7 +1442,7 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
             const description = args['description'];
             const title = args['title'] ?? '';
             const repoOverride = args['repo'] ?? null;
-            const sessionId = parseRunSessionId(args['session_id']);
+            parseRunSessionId(args['session_id']);
             const effortArg = args['effort'];
             if (effortArg !== undefined && !isEffort(effortArg)) {
                 return err(`typed_field_violation: effort must be one of ${EFFORT_LEVELS.join(', ')}, got ${JSON.stringify(effortArg)}.`);
@@ -1547,9 +1543,6 @@ export function compositeTools(db, dbPath, graphHolder = null, runContext = clau
                 const newTask = db.get('SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()');
                 if (!newTask)
                     throw new Error('insert succeeded but row lookup failed');
-                // Bro-as-agent_run (#2886): open a bro row for the retry task,
-                // mirror of the task_create_batch case.
-                openBroRun(db, { id: newTask.id, issue_id: failed.issue_id, repo: newTask.repo }, now, runContext, sessionId);
                 insertAudit(db, {
                     issue_id: failed.issue_id,
                     branch_id: newBranchId,

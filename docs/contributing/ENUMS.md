@@ -125,7 +125,7 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `agent_arg_mismatch` | `hook` | `agent-arg-matches-caller` denied a trajectory-server call whose `agent` argument named another role than the caller (the payload's `agent_type`, or bro for the main session); one row per denial on the task's issue when `tool_input` carries a `task_id`, else the system issue `-1`, from_node `hook:agent-arg-matches-caller`; `content_json` carries `tool`, `given`, `actual`, `task_id`. `audit_append` refuses this event |
 | `agent_runs_capture_skipped` | `hook` | `swe-atomic-close` could not bind a SWE spawn to a task (no `task_id=<N>` in the spawn transcript, or no such task) and wrote no `agent_runs` row; filed under the system issue `-1`; `content_json` carries `reason`, `transcript`, `spawn_id`, `task_id` |
 | `agent_runs_backfilled` | `bro` | `agent_runs_backfill` (dry_run false) recovered `agent_runs` rows from archived Claude Code transcripts; one row per run on the system issue `-1`, from_node `bro`; `content_json` is the report: `transcripts_dir`, `transcripts_seen`, `sessions_seen`, `bound`, `unbound` (`count`, `first` — up to 20 `{path, reason}`), `rows_inserted`, `rows_updated`, `rows_skipped_measured`, `tokens_total_added` |
-| `agent_runs_claimed` | `hook` | `bro-turn-usage` claimed bro `agent_runs` rows opened without a `session_id` for its session (one row per claim, on the rows' issue when they share one, else the system issue `-1`); `content_json` carries `run_ids`, `session_id` |
+| `agent_runs_claimed` | `server` | reserved — Legacy type kept for historical rows: in v1.1.0-rc.1 `bro-turn-usage` claimed per-task bro `agent_runs` rows opened without a `session_id` for its session; bro is now metered per session, so nothing writes it and `audit_append` refuses it; `content_json` carries `run_ids`, `session_id` |
 | `branch_gate_waived` | `bro` | `task_create_batch` ran with `waive_branch_gate`; `content_json` carries the waiver reason |
 | `branch_id_proposed` | `bro` | `intent_start` proposed the issue's feature branch; `content_json` carries `branch_id`, `objective`; the scope and branch gates read it |
 | `bro_verification_fail` | `bro` | Bro task-gate found a V1/V2/V3 check that failed |
@@ -179,7 +179,7 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `skill_creator_blocked` | `bro` | reserved — `tmb_skill-creator` halted before writing the skill (no Human approval); written by bro via `audit_append` |
 | `spec_shape_gate_waived` | `bro` | A task's spec-shape waiver, one row per task on its issue with from_node `bro`; `task_create_batch` and `task_provision` called with `waive_spec_shape` write one for every task they create, and bro records one for an existing task through `audit_append`; `content_json` carries `task_id`, `gate` (`spec_shape`), `reason`, `waived_by` (`bro`), `source` (`task_create_batch`, `task_provision`, or absent for `audit_append`); `require-task-spec` reads it as the spawn waiver |
 | `swe_atomic_close_auto_completed` | `hook` | `swe-atomic-close` auto-completed a `pending`/`running` task on SubagentStop because its worktree HEAD is neither equal to nor an ancestor of any parent tip (local or origin); one row per auto-complete on the task's issue, written in the same transaction as the status change; `content_json` carries `task_id`, `commit_sha`, `parent_tip_local`, `parent_tip_origin` (null when that ref is absent) |
-| `swe_brief_fetched` | `swe` | `task_brief` recorded that a SWE fetched its brief (one row per task); swe-brief-gate, bro-turn-usage and agent_runs_backfill read it |
+| `swe_brief_fetched` | `swe` | `task_brief` recorded that a SWE fetched its brief (one row per task); swe-brief-gate reads it |
 | `sync_skipped` | `bro` | Issue sync skipped a remote write because `issue_sync` is off; `content_json` carries `issue_id`, `reason` |
 | `task_effort_raised` | `bro` | `task_reopen` or `task_retry` called with an `effort` above the task's (for `task_retry`, the failed task's) raised the effort swe runs it at, as does either call made with no `effort` (rework computes `high`); one row per raise on the task's issue; `content_json` carries `task_id`, `from`, `to`, and `failed_task_id` from `task_retry` |
 | `task_escalated_by_issue_close` | `bro` | `issue_close(cascade: true)` escalated a live task (`pending`/`running`/`needs_validation`/`completed`) of the issue it closed and closed its open `agent_runs` rows as `issue_closed`; one row per task; `content_json` carries `task_id`, `from_status`, `reason` |
@@ -267,14 +267,14 @@ Currently `37`. Bumped on any breaking schema change. **NOT free-form** — ever
 
 | Value | Meaning |
 |---|---|
-| `transcript` | Measured by the bro Stop hook from the session transcript (bro rows) |
+| `transcript` | Measured by the bro Stop hook from the session transcript (bro session rows) |
 | `subagent_stop` | Measured by the SubagentStop hook from the spawn's transcript (swe and pr-reviewer rows) |
 | `unmeasured` | The run closed without a measurement; the four token columns are NULL |
 | `backfill` | Recreated after the fact from an archived transcript by `agent_runs_backfill` / `scripts/maintenance/backfill-agent-runs.sh` (not a live hook); never written over a `transcript` / `subagent_stop` row |
 
 `CHECK`-enforced. NULL until the run is first measured.
 
-**Time-window rule.** A bro row's tokens are the sum of its session transcript's usage over the main-loop assistant messages with `started_at − 2 s ≤ timestamp < COALESCE(completed_at, now)` (the 2 s absorbs clock skew; where windows overlap, the row with the newest `started_at` owns the message). The Stop hook recomputes these sums absolutely on every Stop for each row of its session that is open or closed within the last 24 h. A swe row carries the totals of its spawn's whole transcript.
+**Session rule.** Bro has one row per session (`task_id` NULL): its tokens are the sum of the session transcript's main-loop assistant usage, and `started_at` / `completed_at` are the first / last main-loop message. The Stop hook rewrites these sums absolutely on every Stop. Per-task bro rows from older versions are left as they are. A swe row carries the totals of its spawn's whole transcript.
 
 **Computed total.** The total token count is not a column: `task_stats` reports `tokens_total = tokens_in + tokens_out + cache_read_tokens + cache_creation_tokens` (NULL counts as 0; a never-measured spawn reports NULL).
 

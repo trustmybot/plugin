@@ -226,5 +226,26 @@ describe('statsTools — task_stats cost_estimate', () => {
         assert.equal(partial.unpriced_tokens, 3_610_000 + 10, 'an incomplete price entry leaves model-a unpriced');
         db.close();
     });
+    it('prices only the swe row when the task also carries a legacy per-task bro row', async () => {
+        const db = tempDB();
+        const now = nowISO();
+        db.run("INSERT INTO issues (objective, description, status, created_at, updated_at) VALUES ('i', '', 'open', ?, ?)", [now, now]);
+        const issueId = db.get('SELECT last_insert_rowid() AS id').id;
+        db.run("INSERT INTO tasks (issue_id, branch_id, title, description, status, created_at, updated_at) VALUES (?, 'feat/legacy-bro', 't', 'd', 'closed', ?, ?)", [issueId, now, now]);
+        const taskId = db.get('SELECT last_insert_rowid() AS id').id;
+        for (const agentType of ['bro', 'swe']) {
+            db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, host, model, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens)
+         VALUES (?, ?, ?, 'claude', 'model-a', 1000000, 0, 0, 0)`, [taskId, issueId, agentType]);
+        }
+        db.run(`UPDATE plugin_config SET value_json = ? WHERE key = 'model_prices'`, [
+            JSON.stringify({ 'model-a': { input: 3, output: 15, cache_read: 0.3, cache_creation: 3.75 } }),
+        ]);
+        const payload = parseResult(await call(statsTools(db).handlers, 'task_stats', { agent: 'bro', task_id: taskId }));
+        assert.equal(payload.aggregate.spawn_count, 1);
+        assert.equal(payload.aggregate.tokens_in, 1_000_000);
+        assert.equal(payload.cost_estimate, 3);
+        assert.deepEqual(payload.spawns.map((s) => s.agent_type), ['swe']);
+        db.close();
+    });
 });
 //# sourceMappingURL=stats.test.js.map

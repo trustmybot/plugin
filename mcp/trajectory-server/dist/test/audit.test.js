@@ -192,18 +192,16 @@ describe('composite audit writers populate audit.repo', () => {
             .all('SELECT repo FROM audit WHERE issue_id = ? AND event_type = ?', [issueId, eventType])
             .map((r) => r.repo);
     }
-    it('task_create_batch: planning_complete + gate-waiver rows carry the issue repo; bro agent_runs row carries the task repo', async () => {
+    it('task_create_batch: planning_complete + gate-waiver rows carry the issue repo', async () => {
         const db = tempDB();
         db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
         const issueId = String(parse(await call(issueTools(db).handlers, 'issue_create', {
             labels: ['Bug', 'Priority: High'], agent: 'bro', objective: 'repo-scoped',
         }))['id']);
-        const taskId = await seedTaskForIssue(db, issueId, 'fix/batch');
+        await seedTaskForIssue(db, issueId, 'fix/batch');
         const events = ['planning_complete', 'scope_gate_waived', 'branch_gate_waived', 'intent_gate_waived', 'decision_gate_waived', 'spec_shape_gate_waived'];
         for (const e of events)
             assert.deepEqual(auditRepos(db, issueId, e), ['app'], `${e} repo`);
-        const run = db.get(`SELECT repo FROM agent_runs WHERE task_id = ? AND agent_type = 'bro'`, [taskId]);
-        assert.equal(run?.repo, 'app');
         db.close();
     });
     it('intent_start: branch_id_proposed carries the issue repo', async () => {
@@ -219,7 +217,7 @@ describe('composite audit writers populate audit.repo', () => {
         assert.ok(discRepos.length > 0 && discRepos.every((d) => d.repo === 'app'), 'intent_start discussions carry repo');
         db.close();
     });
-    it('task_retry: task_retry_attempted carries the issue repo; the new bro agent_runs row carries the task repo', async () => {
+    it('task_retry: task_retry_attempted carries the issue repo', async () => {
         const db = tempDB();
         db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
         const issueId = String(parse(await call(issueTools(db).handlers, 'issue_create', {
@@ -236,10 +234,7 @@ describe('composite audit writers populate audit.repo', () => {
             description: 'retry',
         });
         assert.ok(!r.isError, JSON.stringify(parse(r)));
-        const newTaskId = parse(r)['task_id'];
         assert.deepEqual(auditRepos(db, issueId, 'task_retry_attempted'), ['app']);
-        const run = db.get(`SELECT repo FROM agent_runs WHERE task_id = ? AND agent_type = 'bro'`, [newTaskId]);
-        assert.equal(run?.repo, 'app');
         db.close();
     });
     it('bro_atomic_close + bro_verification_fail_record: audit rows carry the issue repo', async () => {
@@ -277,7 +272,7 @@ describe('composite audit writers populate audit.repo', () => {
             rmSync(ws, { recursive: true, force: true });
         }
     });
-    it('task_provision: planning_complete audit, decision discussion and bro agent_runs row carry repo', async () => {
+    it('task_provision: planning_complete audit and decision discussion carry repo', async () => {
         const ws = mkdtempSync(join(tmpdir(), 'audit-repo-provision-'));
         const repoRoot = join(ws, 'app');
         mkdirSync(repoRoot, { recursive: true });
@@ -307,12 +302,9 @@ describe('composite audit writers populate audit.repo', () => {
                 },
             });
             assert.ok(!r.isError, JSON.stringify(parse(r)));
-            const taskId = parse(r)['task_id'];
             assert.deepEqual(auditRepos(db, 1, 'planning_complete'), ['app']);
             const decision = db.get(`SELECT repo FROM discussions WHERE issue_id = 1 AND kind = 'decision'`);
             assert.equal(decision?.repo, 'app');
-            const run = db.get(`SELECT repo FROM agent_runs WHERE task_id = ? AND agent_type = 'bro'`, [taskId]);
-            assert.equal(run?.repo, 'app');
         }
         finally {
             db.close();

@@ -46,12 +46,13 @@ export function sweepRunsOfTerminalTasks(db, now) {
         AND task_id IN (SELECT id FROM tasks WHERE status IN (${placeholders}))`, [now, now, ...TERMINAL_TASK_STATUSES]).changes;
 }
 const RUN_SESSION_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
-// JSON-Schema of the optional session_id arg the planning tools accept: the
-// caller's host session, stamped on the bro row at open.
+// JSON-Schema of the optional session_id arg the planning tools still accept
+// so existing callers keep working; bro usage is metered per session by the
+// bro-turn-usage Stop hook, not per task.
 export const RUN_SESSION_ID_SCHEMA = {
     type: 'string',
     pattern: '^[A-Za-z0-9_-]{8,64}$',
-    description: "Optional: your host session id (the session_id=<id> the activation routine injects each turn). Stamps the task's bro agent_runs row so its usage is attributed to this session.",
+    description: "Optional: your host session id (the session_id=<id> the activation routine injects each turn). Validated and otherwise unused: bro usage is metered per session by the bro-turn-usage Stop hook, not per task.",
 };
 // Validates the optional session_id arg. Returns null when omitted; throws on
 // a value that is not 8–64 chars of [A-Za-z0-9_-].
@@ -62,13 +63,6 @@ export function parseRunSessionId(value) {
         throw new Error('session_id must be 8–64 characters of [A-Za-z0-9_-].');
     }
     return value;
-}
-// Opens the bro row of a task at planning time; root_dir is the project root
-// and session_id the caller's session (null leaves it for the Stop hook's
-// legacy claim).
-export function openBroRun(db, task, now, ctx, sessionId = null) {
-    db.run(`INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, repo, root_dir, host, session_id)
-     VALUES (?, ?, 'bro', ?, ?, ?, ?, ?)`, [task.id, task.issue_id, now, task.repo, ctx.projectRoot, ctx.host, sessionId]);
 }
 // Opens the swe row for a task unless one is already open; root_dir is the
 // task's worktree. The Agent spawn hook normally opened it already and

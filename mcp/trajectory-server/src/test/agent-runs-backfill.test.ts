@@ -87,7 +87,7 @@ function buildFixture(root: string): Fixture {
     [t3, issue, at(30), at(40)],
   );
   const measuredSweRow = db.get<{ id: number }>('SELECT MAX(id) AS id FROM agent_runs')!.id;
-  // Bro rows: T1's never measured (no session_id yet), T2's measured earlier in the session.
+  // Legacy per-task bro rows: T1's never measured, T2's measured earlier in the session. Backfill leaves both alone.
   db.run(
     `INSERT INTO agent_runs (task_id, issue_id, agent_type, started_at, completed_at, usage_source)
      VALUES (?, ?, 'bro', ?, ?, 'unmeasured')`,
@@ -210,22 +210,24 @@ describe('agent_runs_backfill', () => {
     assert.match(r['unbound'].first[0].path, /agent-ccc\.jsonl$/);
     assert.match(r['unbound'].first[0].reason, /no task_id/);
     assert.equal(r['rows_inserted'], 1);
-    assert.equal(r['rows_updated'], 2);
-    assert.equal(r['rows_skipped_measured'], 2);
+    assert.equal(r['rows_updated'], 1);
+    assert.equal(r['rows_skipped_measured'], 1);
     assert.equal(snapshot(db), before);
     db.close();
   });
 
-  it('real run fills rows labelled backfill, leaves measured rows, writes one audit row, and is idempotent', async () => {
+  it('real run fills swe/pr-reviewer rows labelled backfill, leaves measured and bro rows, writes one audit row, and is idempotent', async () => {
     const f = buildFixture(mkdtempSync(join(root, 'real-')));
     const { db } = f;
-    const measuredBefore = JSON.stringify(
-      db.all('SELECT * FROM agent_runs WHERE id IN (?, ?) ORDER BY id', [f.measuredSweRow, f.broMeasuredRow]),
-    );
+    const untouched = () =>
+      JSON.stringify(
+        db.all('SELECT * FROM agent_runs WHERE id IN (?, ?, ?) ORDER BY id', [f.measuredSweRow, f.broNullRow, f.broMeasuredRow]),
+      );
+    const untouchedBefore = untouched();
     const r = await run(db, { agent: 'bro', transcripts_dir: f.dir, dry_run: false });
     assert.equal(r['rows_inserted'], 1);
-    assert.equal(r['rows_updated'], 2);
-    assert.equal(r['tokens_total_added'], 1354 + 18 + 145);
+    assert.equal(r['rows_updated'], 1);
+    assert.equal(r['tokens_total_added'], 1354 + 18);
 
     const swe = db.get<Record<string, unknown>>('SELECT * FROM agent_runs WHERE id = ?', [f.sweOpenRow])!;
     assert.equal(swe['usage_source'], 'backfill');
@@ -247,19 +249,8 @@ describe('agent_runs_backfill', () => {
     assert.equal(reviewer['completed_at'], at(25));
     assert.equal(reviewer['tokens_in'], 3);
 
-    const bro = db.get<Record<string, unknown>>('SELECT * FROM agent_runs WHERE id = ?', [f.broNullRow])!;
-    assert.equal(bro['usage_source'], 'backfill');
-    assert.deepEqual(
-      [bro['tokens_in'], bro['tokens_out'], bro['cache_read_tokens'], bro['cache_creation_tokens'], bro['tool_uses']],
-      [11, 22, 103, 9, 1],
-    );
-    assert.equal(bro['session_id'], SESSION);
-    assert.equal(bro['duration_ms'], 60_000);
-
-    assert.equal(
-      JSON.stringify(db.all('SELECT * FROM agent_runs WHERE id IN (?, ?) ORDER BY id', [f.measuredSweRow, f.broMeasuredRow])),
-      measuredBefore,
-    );
+    assert.equal(untouched(), untouchedBefore);
+    assert.equal(db.get<{ c: number }>(`SELECT COUNT(*) AS c FROM agent_runs WHERE agent_type = 'bro'`)!.c, 2, 'no bro row inserted');
     const audits = db.all<{ issue_id: number; content_json: string }>(
       `SELECT issue_id, content_json FROM audit WHERE event_type = 'agent_runs_backfilled'`,
     );

@@ -10,7 +10,6 @@ import { insertAudit } from './audit.js';
 import {
   claudeRunContext,
   closeOpenRunsForTask,
-  openBroRun,
   openSweRun,
   parseRunSessionId,
   RUN_SESSION_ID_SCHEMA,
@@ -321,7 +320,7 @@ export interface CloseScope {
 
 // Shared close path for bro_atomic_close + task_recover: in the caller's
 // transaction, advance a task to closed (writing bro_verification_pass +
-// finalizing the bro agent_run row) and optionally close the parent issue
+// closing the task's open agent_runs rows) and optionally close the parent issue
 // under the issue_close rules. `bypassClosedBy` names a closer that is not
 // bro_atomic_close: once this close's bro_verification_pass row is written,
 // a task with no passing review for the commit gets one review_gate_bypassed
@@ -855,7 +854,7 @@ export function compositeTools(
     {
       name: 'task_reopen',
       description:
-        "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, opens a bro agent_runs row for the rework (reusing an open one; stamped with session_id when passed), and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
+        "Rework a task in one call: moves a pending, closed, failed, escalated or running task to running, appends files_add / verification_add to its files[] / verification[] fences, writes a kind='decision' discussion + a task_reopened audit row, and recreates the task's worktree when it is missing. Refused when the task's issue is closed. Returns {task_id, from_status, status, files, verification, effort, worktree_path, worktree_recreated, diagnostic?}; spawn swe on the task next.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -927,7 +926,7 @@ export function compositeTools(
         const branchId = args['branch_id'] as string;
         const decisionBody = args['decision_body'] as string;
         const task = args['task'] as TaskProvisionInput | undefined;
-        const sessionId = parseRunSessionId(args['session_id']);
+        parseRunSessionId(args['session_id']);
 
         if (typeof issueId !== 'number' || !Number.isFinite(issueId)) {
           return err('issue_id must be a number');
@@ -1179,10 +1178,10 @@ export function compositeTools(
         // --- DB TRANSACTION (atomic) ---
         // The branch ref now exists. Write the decision (satisfies the decision
         // gate) + create the single task via the same INSERT path
-        // task_create_batch uses, with the bro agent_run row +
-        // planning_complete audit. The registry gate is enforced above; the
-        // intent/scope/branch/spec gates are waived internally: this composite
-        // IS bro's atomic planning, so those preconditions are subsumed here.
+        // task_create_batch uses, with the planning_complete audit. The
+        // registry gate is enforced above; the intent/scope/branch/spec gates
+        // are waived internally: this composite IS bro's atomic planning, so
+        // those preconditions are subsumed here.
         // Any DB error rolls back the whole transaction.
         const now = nowISO();
         const result = db.transaction(() => {
@@ -1213,8 +1212,6 @@ export function compositeTools(
             'SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()',
           );
           if (!row) throw new Error('task_provision: task insert succeeded but row lookup failed');
-
-          openBroRun(db, { id: row.id, issue_id: issueId, repo: row.repo }, now, runContext, sessionId);
 
           insertAudit(db, {
             issue_id: issueId,
@@ -1289,7 +1286,7 @@ export function compositeTools(
         if (typeof reason !== 'string' || reason.trim().length === 0) {
           return err('reason must be a non-empty string');
         }
-        const sessionId = parseRunSessionId(args['session_id']);
+        parseRunSessionId(args['session_id']);
         const filesAdd = validateFenceAdditions(args['files_add'], 'files_add');
         const verificationAdd = validateFenceAdditions(args['verification_add'], 'verification_add');
         const effortArg = args['effort'];
@@ -1376,11 +1373,6 @@ export function compositeTools(
           if (effortRank(effort) > effortRank(task.effort)) {
             insertEffortRaised(db, { issue_id: task.issue_id, branch_id: task.branch_id, task_id: taskId }, task.effort, effort, agent, now);
           }
-          const openBro = db.get<{ id: number }>(
-            `SELECT id FROM agent_runs WHERE task_id = ? AND agent_type = 'bro' AND completed_at IS NULL LIMIT 1`,
-            [taskId],
-          );
-          if (!openBro) openBroRun(db, { id: taskId, issue_id: task.issue_id, repo: task.repo }, now, runContext, sessionId);
         });
 
         let worktreePath: string | null = null;
@@ -1726,7 +1718,7 @@ export function compositeTools(
         const description = args['description'] as string;
         const title = (args['title'] as string | undefined) ?? '';
         const repoOverride = (args['repo'] as string | undefined) ?? null;
-        const sessionId = parseRunSessionId(args['session_id']);
+        parseRunSessionId(args['session_id']);
         const effortArg = args['effort'];
 
         if (effortArg !== undefined && !isEffort(effortArg)) {
@@ -1858,10 +1850,6 @@ export function compositeTools(
             'SELECT id, branch_id, repo FROM tasks WHERE rowid = last_insert_rowid()',
           );
           if (!newTask) throw new Error('insert succeeded but row lookup failed');
-
-          // Bro-as-agent_run (#2886): open a bro row for the retry task,
-          // mirror of the task_create_batch case.
-          openBroRun(db, { id: newTask.id, issue_id: failed.issue_id, repo: newTask.repo }, now, runContext, sessionId);
 
           insertAudit(db, {
             issue_id: failed.issue_id,

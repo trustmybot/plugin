@@ -58,11 +58,10 @@ const FIXTURE_INVENTORY_ROW = (alias) => `${alias}.kind IN ('plugin','mcp')
                AND (${alias}.name IN ('alpha','beta','alpha-server')
                     OR ${alias}.name GLOB 'fixture-*' OR ${alias}.name GLOB 'test-plugin*'
                     OR COALESCE(${alias}.source_url, '') LIKE '%@tmb-test-market')`;
-// The server stamps root_dir and session_id when it opens a run, and the model
-// is metered from the run's window; rows opened before those writers shipped
-// (v1.1.0-rc.1) carry NULLs a later legacy claim cannot fill: batch siblings
-// that owned no message keep a NULL model. plugin_meta keeps no applied-at
-// timestamp, so the first run carrying a root_dir stands in for that date.
+// The writers stamp root_dir and session_id on a run and meter its model; rows
+// opened before those writers shipped (v1.1.0-rc.1) carry NULLs nothing fills.
+// plugin_meta keeps no applied-at timestamp, so the first run carrying a
+// root_dir stands in for that date.
 const V33_RUN_WRITERS_SINCE = {
     sql: `(SELECT MIN(${ts('started_at')}) FROM agent_runs WHERE root_dir IS NOT NULL)`,
     label: 'the first run carrying a root_dir',
@@ -73,9 +72,15 @@ export const NULLABLE_COLUMNS = [
     { table: 'discussions', column: 'remote_comment_id', reason: 'set only on discussions ingested from a PR/MR comment; NULL for every local discussion' },
     { table: 'agent_runs', column: 'spawn_id', reason: 'set only on swe rows (one per Agent-tool spawn); bro rows have no spawn' },
 ];
+// bro is metered per session (one bro row per session, task_id NULL); the
+// per-task bro rows older versions opened are history no writer fills, so no
+// agent_runs contract counts them.
+const NOT_PER_TASK_BRO_ROW = "NOT (agent_type = 'bro' AND task_id IS NOT NULL)";
+const BRO_SESSION_ROW = "agent_type = 'bro' AND task_id IS NULL";
 /**
  * Columns added in v29–v33 that have a writer: the NULL rate over rows created
- * in the last 30 days (within `scope`) must stay at or under `floor`.
+ * in the last 30 days (within `scope`; agent_runs without per-task bro rows)
+ * must stay at or under `floor`.
  */
 const POPULATED_COLUMNS = [
     { table: 'agent_runs', column: 'session_id', created_column: 'started_at', writer_since: V33_RUN_WRITERS_SINCE, floor: 0.2, min_schema: 30 },
@@ -102,14 +107,16 @@ function populatedContract(c) {
     const where = [
         `${ts(c.created_column)} >= ${daysAgo(30)}`,
         ...(c.writer_since ? [`${ts(c.created_column)} >= ${c.writer_since.sql}`] : []),
+        ...(c.table === 'agent_runs' ? [NOT_PER_TASK_BRO_ROW] : []),
         ...(c.scope ? [c.scope] : []),
     ].join(' AND ');
     const since = c.writer_since ? ` and not before ${c.writer_since.label}` : '';
+    const excluded = c.table === 'agent_runs' ? ', per-task bro rows excluded' : '';
     const minSchema = Math.max(c.min_schema, c.writer_since?.min_schema ?? 0);
     return {
         id: `populated_${c.table}_${c.column}`,
         severity: 'warn',
-        description: `${c.table}.${c.column} NULL rate over ${c.scope_label ?? 'rows'} created in the last 30 days${since} stays at or under ${c.floor}`,
+        description: `${c.table}.${c.column} NULL rate over ${c.scope_label ?? 'rows'} created in the last 30 days${since}${excluded} stays at or under ${c.floor}`,
         sql: `SELECT COALESCE(AVG(CASE WHEN ${c.column} IS NULL THEN 1.0 ELSE 0.0 END), 0) FROM ${c.table} WHERE ${where}`,
         expect: { op: '<=', value: c.floor },
         sample_sql: `SELECT id FROM ${c.table} WHERE ${where} AND ${c.column} IS NULL ORDER BY id DESC LIMIT 5`,
@@ -159,6 +166,20 @@ export function buildDataContracts(documentedEventTypes) {
                AND (usage_source IS NULL OR usage_source <> 'unmeasured')
                AND COALESCE(tokens_in, 0) = 0 AND COALESCE(tokens_out, 0) = 0
                AND COALESCE(cache_read_tokens, 0) = 0 AND COALESCE(cache_creation_tokens, 0) = 0
+             ORDER BY id DESC LIMIT 5`,
+        },
+        {
+            id: 'bro_session_runs_metered',
+            severity: 'error',
+            min_schema: 33,
+            description: 'bro session agent_runs (task_id NULL) started in the last 7 days carry session_id, model, tokens_out and usage_source',
+            sql: `SELECT COUNT(*) FROM agent_runs
+             WHERE ${BRO_SESSION_ROW} AND ${ts('started_at')} >= ${daysAgo(7)}
+               AND (session_id IS NULL OR model IS NULL OR COALESCE(tokens_out, 0) = 0 OR usage_source IS NULL)`,
+            expect: { op: '=', value: 0 },
+            sample_sql: `SELECT id, session_id, model, tokens_out, usage_source, started_at FROM agent_runs
+             WHERE ${BRO_SESSION_ROW} AND ${ts('started_at')} >= ${daysAgo(7)}
+               AND (session_id IS NULL OR model IS NULL OR COALESCE(tokens_out, 0) = 0 OR usage_source IS NULL)
              ORDER BY id DESC LIMIT 5`,
         },
         {
