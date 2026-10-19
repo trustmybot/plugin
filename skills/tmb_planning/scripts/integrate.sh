@@ -16,7 +16,9 @@
 #      → exit 2, branch and DB unchanged.
 #   4. The `git patch-id --stable` list of <base>..commit_sha and of
 #      <base>..<rebased> must match, else exit 2.
-#   5. verification[] runs in the temporary worktree and is recorded as a
+#   5. Each untracked node_modules of the main checkout beside a tracked
+#      package.json is symlinked into the worktree (GH 1541).
+#      verification[] runs in the temporary worktree and is recorded as a
 #      verification_runs row (source manual, commit_sha = the rebased SHA).
 #      A failure → exit 1, branch unmoved. A pass moves refs/heads/<branch_id>
 #      to the rebased SHA and prints it.
@@ -187,6 +189,17 @@ REBASED_IDS=$(patch_ids "${BASE_SHA}..${NEW_SHA}")
 if [ "$REVIEWED_IDS" != "$REBASED_IDS" ]; then
   die 2 "the rebase changed task $TASK_ID's patches (patch-id of ${BASE}..reviewed differs from ${BASE}..rebased); $BRANCH and the DB are unchanged"
 fi
+
+# Untracked node_modules never reach a fresh worktree; link the main
+# checkout's install beside each tracked package.json (GH 1541).
+while IFS= read -r -d '' PKG; do
+  PKG_DIR=$(dirname "$PKG")
+  SRC="$REPO_ROOT/$PKG_DIR/node_modules"
+  DEST="$WT/$PKG_DIR/node_modules"
+  if [ -d "$SRC" ] && [ ! -e "$DEST" ] && [ ! -L "$DEST" ]; then
+    ln -s "$SRC" "$DEST" || say "could not link $SRC into the worktree"
+  fi
+done < <(git -C "$WT" ls-files -z -- 'package.json' '*/package.json')
 
 TIMEOUT_RAW="${TMB_VERIFICATION_TIMEOUT_S:-}"
 [ -n "$TIMEOUT_RAW" ] || TIMEOUT_RAW=$(tmb_config_get verification_timeout_s "$DB" 2>/dev/null || true)
