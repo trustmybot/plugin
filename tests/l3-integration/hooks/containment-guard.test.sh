@@ -264,6 +264,31 @@ done
 assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "find $PROJECT -exec rm {} \\;")")")" "swe: find <project> -exec rm from its worktree"
 assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "find $WT/src -exec rm {} \\;")")")" "swe: find <wt>/src -exec rm"
 
+test_case "GH 1531: git subcommands, program calls and wrapper options that write outside are denied"
+for pair in "git -C $PROJECT bisect start|$PROJECT" "git archive -o /etc/tmb-cg.tar HEAD|/etc/tmb-cg.tar" \
+  "sudo -S rm /etc/tmb-cg|/etc/tmb-cg" "sudo -C 5 rm ../tmb-cg-x|$WT/../tmb-cg-x"; do
+  OUT=$(run "$WT" "swe" Bash "$(bash_cmd "${pair%%|*}")")
+  assert_eq "deny" "$(decision "$OUT")" "swe: ${pair%%|*}"
+  assert_contains "$OUT" "${pair#*|}" "the reason names ${pair#*|}"
+done
+for pair in "import os|os.truncate('/etc/tmb-cg', 0)|/etc/tmb-cg" "import subprocess|subprocess.run(['cp', 'a', '/etc/tmb-cg'])|/etc/tmb-cg" \
+  "import zipfile|zipfile.ZipFile('/etc/tmb-cg.zip', 'w')|/etc/tmb-cg.zip"; do
+  IFS='|' read -r l1 l2 want <<< "$pair"
+  OUT=$(run "$WT" "swe" Bash "$(bash_cmd "$(py "$l1" "$l2")")")
+  assert_eq "deny" "$(decision "$OUT")" "swe: $l2"
+  assert_contains "$OUT" "$want" "the reason names $want"
+done
+
+test_case "GH 1531: text a program writes is content, not a target"
+CONTENT="const root = '/work/proj'; const branch = 'fix/sess-a';"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "p = '$WT/a.ts'" "with open(p, 'w') as f:" "    f.write(\"$CONTENT\")")")")")" "swe writing path-like text into its worktree"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'from pathlib import Path' "p = Path('$WT/a.ts')" "p.write_text(\"$CONTENT\")")")")")" "an unknown receiver writing path-like text"
+OUT=$(run "$WT" "swe" Bash "$(bash_cmd "$(py "p = '/etc/tmb-cg-a.ts'" "with open(p, 'w') as f:" "    f.write(\"$CONTENT\")")")")
+assert_eq "deny" "$(decision "$OUT")" "the same program writing outside"
+assert_contains "$OUT" "/etc/tmb-cg-a.ts" "the reason names the written path"
+assert_not_contains "$OUT" "/work/proj" "the content is not named"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "d = '/etc'" "open(d + '/tmb-cg', 'w').write('x')")")")")" "a computed write path fails closed"
+
 test_case "un-onboarded project → allow"
 BARE="$SANDBOX/bare"
 mkdir -p "$BARE"
