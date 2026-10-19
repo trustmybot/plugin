@@ -64,8 +64,9 @@ done
 # shellcheck source=tests/l5-l6/lib/sandbox.sh
 . "$HERE/lib/sandbox.sh"
 
-# --self-test: exercise run-dir resolution, the isolated HOME and the
-# end-of-run HOME assertion with a stub step runner — no model calls.
+# --self-test: exercise run-dir resolution, the isolated HOME, the
+# end-of-run HOME assertion with a stub step runner, and DB resolution for a
+# scratch project nested in a workspace — no model calls.
 l6c_self_test() {
   local fails=0 got out repo st
   _st_check() {
@@ -78,15 +79,15 @@ l6c_self_test() {
   }
   printf '=== run-l6-chain.sh --self-test ===\n'
 
-  repo=$(git -C "$HERE" rev-parse --show-toplevel)
+  repo=$(dirname "$(git -C "$HERE" rev-parse --path-format=absolute --git-common-dir)")
   got=$(env -u L6C_RUNS_DIR CLAUDE_PROJECT_DIR=/proj/x bash -c '. "$1/lib/l6-chain-helpers.sh"; l6c_resolve_runs_root "$2"' _ "$HERE" "$PLUGIN_ROOT")
   _st_check "runs root under CLAUDE_PROJECT_DIR" "$got" "/proj/x/.claude/tmb/l6-chain-runs"
   got=$(env -u L6C_RUNS_DIR -u CLAUDE_PROJECT_DIR bash -c '. "$1/lib/l6-chain-helpers.sh"; l6c_resolve_runs_root "$2"' _ "$HERE" "$PLUGIN_ROOT")
-  _st_check "runs root under the repo root" "$got" "$repo/.claude/tmb/l6-chain-runs"
+  _st_check "runs root under the main checkout" "$got" "$repo/.claude/tmb/l6-chain-runs"
   got=$(L6C_RUNS_DIR=/override/runs CLAUDE_PROJECT_DIR=/proj/x bash -c '. "$1/lib/l6-chain-helpers.sh"; l6c_resolve_runs_root "$2"' _ "$HERE" "$PLUGIN_ROOT")
   _st_check "L6C_RUNS_DIR overrides" "$got" "/override/runs"
 
-  st="$repo/.claude/tmb/l6-chain-runs/self-test-$$"
+  st="$(git -C "$HERE" rev-parse --show-toplevel)/.claude/tmb/l6-chain-runs/self-test-$$"
   rm -rf "$st"
   mkdir -p "$st/real-home/.cache/huggingface" "$st/row"
   # The stub stands in for l6c_run_step: it records the HOME the step's
@@ -126,6 +127,31 @@ l6c_self_test() {
   _st_check "another .cache entry fails" "$got" "fail"
 
   rm -rf "$st"
+
+  # GH 1553: a scratch project nested in a workspace resolves its own DB only
+  # because l5_init_state_dir writes the standalone marker. Everything sits
+  # under a temp HOME, so the walk can never reach a live DB.
+  local nest ws nested
+  nest=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/l6-nest.XXXXXX")" && pwd -P)
+  ws="$nest/home/ws"
+  nested="$ws/.claude/tmb/l6-chain-runs/run/project"
+  mkdir -p "$ws/.claude/tmb" "$nested"
+  sqlite3 "$ws/.claude/tmb/trajectory.db" "CREATE TABLE tasks (id INTEGER PRIMARY KEY, prompt_bearing INTEGER);" >/dev/null
+  l5_init_state_dir "$nested"
+  sqlite3 "$nested/.claude/tmb/trajectory.db" "CREATE TABLE tasks (id INTEGER PRIMARY KEY, prompt_bearing INTEGER);" >/dev/null
+  _st_db_path() {
+    (cd / && env -u TMB_TEST_RUN_ID -u TMB_FORBID_LIVE_SYNC -u TRAJECTORY_DB_PATH -u CLAUDE_PLUGIN_ROOT \
+      HOME="$nest/home" CLAUDE_PROJECT_DIR="$nested" \
+      bash -c '. "$1"; tmb_db_path' _ "$PLUGIN_ROOT/scripts/hooks/lib/query-task.sh" 2>/dev/null)
+  }
+  got=$([ -f "$nested/.claude/tmb/standalone" ] && echo present || echo missing)
+  _st_check "l5_init_state_dir writes the standalone marker" "$got" "present"
+  _st_check "nested scratch project with the marker resolves its own DB" \
+    "$(_st_db_path)" "$nested/.claude/tmb/trajectory.db"
+  rm -f "$nested/.claude/tmb/standalone"
+  _st_check "nested scratch project without the marker resolves the workspace DB" \
+    "$(_st_db_path)" "$ws/.claude/tmb/trajectory.db"
+  rm -rf "$nest"
   if [ "$fails" -eq 0 ]; then
     printf 'run-l6-chain self-test: PASS\n'
     return 0
@@ -302,7 +328,7 @@ if [ "$START_FROM" -gt 1 ]; then
   elif [ -n "$CHECKPOINT_DB" ]; then
     printf '  resume:   --from %d restoring step-%02d checkpoint (db only — no project tar; git-dependent steps may fail) from %s\n' \
       "$START_FROM" "$PREV_STEP" "$(basename "$PRIOR_RUN")"
-    mkdir -p "$PROJECT/.claude/tmb"
+    l5_init_state_dir "$PROJECT"
     (
       cd "$PROJECT" || exit 1
       git init -q -b main
@@ -358,9 +384,9 @@ else
     echo "init" > README.md
     printf '.claude/\n' > .gitignore
     git add . && git commit -qm init
-    mkdir -p .claude/tmb
   )
 fi
+l5_init_state_dir "$PROJECT"
 
 INITIAL_FIXTURE=$(jq -r '.initial_fixture' "$MANIFEST")
 printf '  fixture:  %s\n' "$INITIAL_FIXTURE"
@@ -450,7 +476,7 @@ for idx in $(seq 0 $((STEP_COUNT - 1))); do
               || git -C "$PROJECT" rev-parse HEAD 2>/dev/null \
               || echo "")
     pre_branch="$cfg_pr_target"
-    mkdir -p "$PROJECT/.claude/tmb"
+    l5_init_state_dir "$PROJECT"
     printf '{"head":"%s","branch":"%s"}\n' "$pre_head" "$pre_branch" \
       > "$PROJECT/.claude/tmb/_l5_pre_run_git.json"
   fi
