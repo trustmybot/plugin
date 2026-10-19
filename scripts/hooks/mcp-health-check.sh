@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SessionStart: MCP trajectory-server presence sample + legacy-shim detector.
+# SessionStart: MCP trajectory-server presence sample + install notices.
 #
 # 1. Samples `pgrep` for this plugin's trajectory-server up to
 #    TMB_MCP_HEALTH_SAMPLES times (default 3), TMB_MCP_HEALTH_INTERVAL_S apart
@@ -7,17 +7,14 @@
 #    fires. Still absent after the last sample → one soft additionalContext
 #    note. A pgrep sample is not evidence the server failed, so this hook never
 #    halts the session; the evidence-based HALT lives in activation-routine.sh.
-# 2. Warns when ~/.claude/settings.json (read only) still holds `_tmb_managed`
-#    hook groups — leftovers from older /onboard runs that wrote TMB gates
-#    user-wide. They fire in every project, so they are always foreign.
-# 3. Install-scope notice, once per session (marker
+# 2. Install-scope notice, once per session (marker
 #    <project>/.claude/<plugin>/sessions/<session_id>.install-notice when the
 #    project has a TMB state dir): a user-scope install beside this project's
 #    install is ignored; a user-scope install alone gets a `--scope project`
 #    recommendation. Read from installed_plugins.json via lib/resolve-install.sh.
-# 4. Warns when more than one enabled copy of this plugin applies to the
+# 3. Warns when more than one enabled copy of this plugin applies to the
 #    project (tmb_duplicate_installs): Claude Code loads the hooks of only one.
-# 5. Appends one forensic JSONL line to <project>/.claude/<plugin>/logs/
+# 4. Appends one forensic JSONL line to <project>/.claude/<plugin>/logs/
 #    mcp-health.log when the project has a TMB state dir. Nothing is written
 #    under $HOME.
 
@@ -62,22 +59,6 @@ fi
 CONTEXT=""
 if [ "$pgrep_count" -eq 0 ]; then
   CONTEXT="trajectory-server not detected yet at SessionStart; if a trajectory tool returns is_error, load tmb_recovery §C"
-fi
-
-# --- Legacy user-wide shim detector (read only) -----------------------------
-USER_SETTINGS="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
-if [ -f "$USER_SETTINGS" ]; then
-  legacy=$(jq -r '
-    [ (.hooks // {}) | to_entries[] | .key as $ev | .value[]?
-      | select(any(.hooks[]?; ._tmb_managed == true))
-      | "\($ev) \(.matcher // "*")" ]
-    | join(", ")' "$USER_SETTINGS" 2>/dev/null || true)
-  if [ -n "$legacy" ]; then
-    LEGACY_TEXT="TMB: ${USER_SETTINGS} holds TMB-managed hook groups left by an older /onboard (${legacy}). They fire in every project and every session; TMB keeps its hooks inside the project now. To remove them, keep only the hook objects without \"_tmb_managed\": true, e.g. jq '.hooks |= with_entries(.value |= (map(.hooks |= map(select(._tmb_managed != true))) | map(select(.hooks | length > 0))))' on that file, then delete its tmb-hooks/ directory."
-    CONTEXT="${CONTEXT:+$CONTEXT
-
-}${LEGACY_TEXT}"
-  fi
 fi
 
 # --- Install-scope notice, once per session ---------------------------------

@@ -168,41 +168,61 @@ tmb_legacy_user_hooks_doc() {
 }
 
 # tmb_legacy_user_hooks [project_dir]
-# Before 1.1.0, /onboard wrote hook commands running
-# ~/.claude/tmb-hooks/resolve-hook.sh into the user-scope settings.json, so
-# they fire in every project; 1.1.0 writes its shim only into
-# <project>/.claude/settings.local.json. Every resolve-hook.sh command under
-# .hooks of tmb_user_settings_json is therefore a leftover. One TSV row each:
-#   hook\t<line>\t<--hook name or ?>
+# Before 1.1.0, /onboard wrote hook objects into the user-scope settings.json
+# — stamped `_tmb_managed: true`, or running ~/.claude/tmb-hooks/resolve-hook.sh
+# — so they fire in every project; 1.1.0 writes its shim only into
+# <project>/.claude/settings.local.json. Every hook object under .hooks of
+# tmb_user_settings_json with either mark is therefore a leftover. One TSV row
+# per object:
+#   hook\t<line of its "command" key, or ?>\t<--hook name or ?>
 # and, only when there is one, one row per other existing project whose
 # recorded install of this plugin is below 1.1.0 (prerelease tags ignored, so
 # 1.1.0-rc.1 counts as 1.1.0) — they lose those hooks once they are removed:
 #   project\t<canonical projectPath>\t<version>
 # Read-only; a missing or unparsable settings file prints nothing.
+#
+# jq lists every "command" key of the document in document order, marking the
+# leftover hook objects' ones; awk numbers the "command": keys of the file in
+# the same order to find each one's line.
 tmb_legacy_user_hooks() {
-  local here="" settings json name hooks rows p v
+  local here="" settings json name marks hooks rows p v
   command -v jq >/dev/null 2>&1 || return 0
   settings=$(tmb_user_settings_json)
   [ -r "$settings" ] || return 0
-  [ "$(jq '[(.hooks // {}) | objects | .[] | arrays | .[] | objects | .hooks | arrays | .[]
-      | objects | .command | strings | select(contains("resolve-hook.sh"))] | length' "$settings" 2>/dev/null)" \
-    -gt 0 ] 2>/dev/null || return 0
-  hooks=$(awk '
-    /"command"/ && index($0, "resolve-hook.sh") {
+  marks=$(jq -r '
+    def leftover: (._tmb_managed == true) or (((.command | strings) // "") | contains("resolve-hook.sh"));
+    def hookname:
+      (.command | strings
+        | (if contains("resolve-hook.sh") then split("resolve-hook.sh")[1] else . end)
+        | capture("--hook[ \t]+(?<n>[A-Za-z0-9._-]+)").n) // "?";
+    . as $root
+    | [ (.hooks // {}) | objects | to_entries[] | .key as $ev | .value | arrays | to_entries[]
+        | .key as $i | .value | objects | .hooks | arrays | to_entries[]
+        | select(.value | objects | leftover) | ["hooks", $ev, $i, "hooks", .key] ] as $left
+    | if ($left | length) == 0 then empty else
+        ( paths | select(.[-1] == "command") | .[:-1] as $o
+          | if any($left[]; . == $o) then "C\t1\t\($root | getpath($o) | hookname)" else "C\t0" end ),
+        ( $left[] | select(. as $o | $root | getpath($o) | has("command") | not) | "N" )
+      end' "$settings" 2>/dev/null) || return 0
+  [ -n "$marks" ] || return 0
+  hooks=$(printf '%s\n' "$marks" | awk -F'\t' '
+    NR == FNR {
+      if ($1 == "C") { n++; if ($2 == "1") want[n] = $3 }
+      else if ($1 == "N") orphans++
+      next
+    }
+    {
       rest = $0
-      while ((i = index(rest, "resolve-hook.sh")) > 0) {
-        rest = substr(rest, i + 15)
-        seg = rest
-        j = index(seg, "resolve-hook.sh")
-        if (j > 0) seg = substr(seg, 1, j - 1)
-        name = "?"
-        if (match(seg, /--hook[ \t]+[A-Za-z0-9._-]+/)) {
-          name = substr(seg, RSTART, RLENGTH)
-          sub(/^--hook[ \t]+/, "", name)
-        }
-        printf "hook\t%d\t%s\n", NR, name
+      while (match(rest, /"command"[ \t]*:/)) {
+        k++
+        if (k in want) printf "hook\t%d\t%s\n", FNR, want[k]
+        rest = substr(rest, RSTART + RLENGTH)
       }
-    }' "$settings" 2>/dev/null)
+    }
+    END {
+      for (i = k + 1; i <= n; i++) if (i in want) printf "hook\t?\t%s\n", want[i]
+      for (i = 0; i < orphans; i++) printf "hook\t?\t?\n"
+    }' - "$settings" 2>/dev/null)
   [ -n "$hooks" ] || return 0
   printf '%s\n' "$hooks"
   [ -n "${1:-}" ] && here=$(_tmb_canonical_dir "$1")

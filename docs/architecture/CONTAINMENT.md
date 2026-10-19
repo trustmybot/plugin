@@ -5,7 +5,7 @@ TMB writes nothing outside the project it runs in, whatever scope it is installe
 ## The invariant
 
 - **Writes stay in the project.** Nothing is created, modified, or deleted under `$HOME` — not `~/.claude`, not a sentinel, not a log, not a lock. A project without TMB state (no trajectory DB) gets nothing written at all; gates still run and allow.
-- **Reads outside the project are read-only and named.** Hooks read Claude Code's `~/.claude/plugins/installed_plugins.json` (which install serves this project) and `~/.claude/settings.json` (to warn about leftover `_tmb_managed` hook groups from older versions). They never write either file.
+- **Reads outside the project are read-only and named.** Hooks read Claude Code's `~/.claude/plugins/installed_plugins.json` (which install serves this project) and `~/.claude/settings.json` (its `enabledPlugins`, to warn about duplicate enabled copies, and its `hooks`, to warn about hooks left by pre-1.1.0 `/onboard` runs — objects stamped `_tmb_managed: true` or running `resolve-hook.sh`). They never write either file.
 
 Two exceptions, each declared once:
 
