@@ -165,6 +165,17 @@ assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$SH_OUT")")")"
 DATA=$(printf '%s\n' "cat > notes.py <<'EOF'" "open('/etc/passwd', 'w')" 'EOF')
 assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$DATA")")")" "a data heredoc is never scanned"
 
+test_case "GH 1510: a program is judged by its write calls' own path arguments"
+py() { printf '%s\n' "python3 - <<'EOF'" "$@" 'EOF'; }
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import json' "cfg = json.load(open('/etc/tmb-cg/config.json', encoding='utf-8'))" "open('out.txt','w').write(str(cfg))")")")")" "swe reading a config outside, writing out.txt inside"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import os' "open('out.txt','w').write(str(os.listdir('/usr/share/doc')))")")")")" "swe listing a dir outside"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import sys' "sys.path.insert(0, '/opt/tmb-cg/lib')" "open('out.txt','w').write('x')")")")")" "swe extending sys.path with a dir outside"
+assert_eq "allow" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "s = open('src/x.sh').read().replace('/^[\\\\/~\$]/', '/x/')" "open('src/x.sh','w').write(s)")")")")" "swe editing a file whose text holds regex slashes"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "s = open('src/x.sh').read().replace('/^[\\\\/~\$]/', '/x/')" "open('/etc/tmb-cg/x.sh','w').write(s)")")")")" "the same edit written outside"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "open('/etc/tmb-cg/x', 'w')")")")")" "swe open w outside"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py "p = '/etc/tmb-cg/x'" "open(p, 'w').write('y')")")")")" "swe writing a variable assigned an outside path"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd "$(py 'import shutil' "shutil.copy('in.txt', '/etc/tmb-cg/')")")")")" "swe copying out"
+
 test_case "GH 1279: variable-held write targets"
 OUT=$(run "$PROJECT" "" Bash "$(bash_cmd 'cat > "$UNKNOWN/f"')")
 assert_eq "deny" "$(decision "$OUT")" "bro \$UNKNOWN/f"

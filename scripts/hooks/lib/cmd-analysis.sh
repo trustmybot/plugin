@@ -37,9 +37,13 @@
 #   file of truncate, the destination of `git mv`, every path of a link
 #   (ln, ln -s, link, cp -s, cp -l: the destination and each source, a
 #   relative ln -s source also read against the link's directory), the path of
-#   `git worktree add` and the directory of `git clone`. Leading VAR=value
-#   assignments and sudo/env/command/nohup/time wrappers are skipped. Paths
-#   are printed as written (no expansion).
+#   `git worktree add`, the paths of `git worktree remove` / `move`, the
+#   directory of `git clone`, and the dir a command runs in by option: tar /
+#   make -C / --directory (each -C, composed), npm --prefix / -C. Leading
+#   VAR=value assignments and sudo/env/command/nohup/time wrappers are
+#   skipped; a wrapper's own options are skipped too, its -C / --chdir (env)
+#   or -D (sudo) dir printed and prefixed to the relative paths after it.
+#   Paths are printed as written (no expansion).
 #
 # tmb_cmd_decode <encoded-text>
 #   Reverses the `keep` encoding of tmb_cmd_strip_literals.
@@ -71,11 +75,18 @@
 #   Every path the command writes, one per line, statement by statement
 #   (bash -c / eval bodies included): tmb_cmd_write_targets of the statement,
 #   every file of an in-place `sed -i` / `perl -i`, the sources a mv / git mv
-#   removes, and for an interpreter one-liner (python -c, node -e/-p,
-#   perl -e/-E, ruby -e) whose program carries a write (open(…, 'w'|'a'|'x'
-#   |'+'), perl open '>', write_text, fs.writeFile* / appendFile* / mkdir* /
-#   rename* / rm*, File.write, IO.write, …) every path-like string literal of
-#   the program that is not only read, plus every operand after the program.
+#   removes, the working tree of a mutating git (commit, reset, checkout,
+#   stash, clean, … — its --work-tree, else its statement's dir, which applies
+#   git -C; status, log, diff, fetch, push and the other read-only
+#   subcommands write none), and for an interpreter one-liner (python -c,
+#   node -e/-p, perl -e/-E, ruby -e) the path arguments of its program's write
+#   calls (open(p, 'w'|'a'|'x'|'+'), perl open(F, '>', p), Path(p).write_text,
+#   fs.writeFile* / appendFile* / mkdir* / rename* / rm*, File.write, os /
+#   shutil writes, … — a copy's destination; see _tmb_cmd_prog_writes), plus
+#   every operand after the program. A path a call only reads (open(p),
+#   json.load, os.listdir, sys.path.insert) is not written. When a write
+#   call's path is not a string literal, or the program does not parse, every
+#   path-like string literal of the program not only read counts instead.
 #   A program an interpreter reads from stdin through a heredoc or here-string
 #   (python/python3 with `-` or no script, node, perl, ruby, sh/bash/zsh/dash
 #   with -s or no script) is analysed the same way; an sh program is a command
@@ -312,14 +323,51 @@ tmb_cmd_strip_literals() {
 
 tmb_cmd_write_targets() {
   printf '%s\n' "${1:-}" | awk '
+    function under(a, b) {
+      if (a == "" || b ~ /^[\/~$]/) return b
+      if (b == ".") return a
+      return a "/" b
+    }
+    function out(p) { print under(pre, p) }
+    function diropts(from, short, long, compose,   k, a, d, cur) {
+      cur = ""
+      for (k = from; k <= nw; k++) {
+        a = w[k]; d = ""
+        if (a == "--") break
+        if (a == short || a == long) { if (k < nw) d = w[k + 1]; k++ }
+        else if (index(a, long "=") == 1) d = substr(a, length(long) + 2)
+        else if (index(a, short) == 1 && length(a) > 2) d = substr(a, 3)
+        if (d == "") continue
+        cur = compose ? under(cur, d) : d
+        out(cur)
+      }
+    }
+    function wrapper(first,   a, d) {
+      while (first <= nw && (w[first] ~ /^-/ || w[first] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || w[first] ~ /^(sudo|env|command|nohup|time)$/)) {
+        a = w[first]; d = ""
+        if (a == "--") { first++; continue }
+        if (a == "-C" || a == "-D" || a == "--chdir") { if (first < nw) d = w[first + 1]; first++ }
+        else if (a ~ /^--chdir=/) { d = a; sub(/^--chdir=/, "", d) }
+        else if (a ~ /^-[CD]./) d = substr(a, 3)
+        else if (a ~ /^-[uSgUhrtT]$/ || a == "--unset" || a == "--split-string" || a == "--user" || a == "--group") first++
+        first++
+        if (d != "") { pre = under(pre, d); print pre }
+      }
+      return first
+    }
     function flush(   k, first, cmd, nonopt, nn, a, sub_i, pos, skipnext, val, sym, tdir, last, linkcopy, installdir) {
-      first = 1
+      first = 1; pre = ""
       while (first <= nw && (w[first] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || w[first] ~ /^(sudo|env|command|nohup|time)$/)) first++
+      if (first <= nw && w[first] ~ /^-/) first = wrapper(first)
       if (first > nw) { nw = 0; return }
       cmd = w[first]; sub(/.*\//, "", cmd)
       nn = 0
       if (cmd == "tee" || cmd == "mkdir" || cmd == "rm" || cmd == "touch" || cmd == "rmdir") {
-        for (k = first + 1; k <= nw; k++) if (w[k] !~ /^-/) print w[k]
+        for (k = first + 1; k <= nw; k++) if (w[k] !~ /^-/) out(w[k])
+      } else if (cmd ~ /^(tar|gtar|bsdtar|make|gmake)$/) {
+        diropts(first + 1, "-C", "--directory", 1)
+      } else if (cmd == "npm") {
+        diropts(first + 1, "-C", "--prefix", 0)
       } else if (cmd == "ln" || cmd == "link") {
         sym = 0; tdir = ""
         for (k = first + 1; k <= nw; k++) {
@@ -332,50 +380,55 @@ tmb_cmd_write_targets() {
           nonopt[++nn] = a
         }
         last = nn
-        if (tdir != "") print tdir
-        else if (nn >= 2) { print nonopt[nn]; last = nn - 1 }
+        if (tdir != "") out(tdir)
+        else if (nn >= 2) { out(nonopt[nn]); last = nn - 1 }
         for (k = 1; k <= last; k++) {
           a = nonopt[k]
-          if (!sym || a ~ /^\//) { print a; continue }
-          if (tdir != "") { print tdir "/" a; continue }
-          if (nn < 2) { print a; continue }
+          if (!sym || a ~ /^\//) { out(a); continue }
+          if (tdir != "") { out(tdir "/" a); continue }
+          if (nn < 2) { out(a); continue }
           val = nonopt[nn]
           if (val ~ /\//) { sub(/\/[^\/]*\/?$/, "", val); if (val == "") val = "/" } else val = "."
-          print val "/" a
-          print nonopt[nn] "/" a
+          out(val "/" a)
+          out(nonopt[nn] "/" a)
         }
       } else if (cmd == "cp" || cmd == "mv" || cmd == "install" || cmd == "rsync") {
         installdir = 0; linkcopy = 0
         for (k = first + 1; k <= nw; k++) {
           a = w[k]
-          if (a == "-t" || a == "--target-directory") { if (k < nw) print w[k + 1]; k++; continue }
-          if (a ~ /^--target-directory=/) { val = a; sub(/^--target-directory=/, "", val); print val; continue }
+          if (a == "-t" || a == "--target-directory") { if (k < nw) out(w[k + 1]); k++; continue }
+          if (a ~ /^--target-directory=/) { val = a; sub(/^--target-directory=/, "", val); out(val); continue }
           if (cmd == "install" && a == "-d") { installdir = 1; continue }
           if (cmd == "cp" && (a == "--symbolic-link" || a == "--link" || a ~ /^-[A-Za-z]*[sl]/)) { linkcopy = 1; continue }
           if (a ~ /^-/) continue
           nonopt[++nn] = a
         }
-        if (installdir) { for (k = 1; k <= nn; k++) print nonopt[k] }
-        else if (linkcopy) { for (k = 1; k <= nn; k++) print nonopt[k] }
-        else if (nn >= 2 && nonopt[nn] !~ /^[^\/]*:/) print nonopt[nn]
+        if (installdir) { for (k = 1; k <= nn; k++) out(nonopt[k]) }
+        else if (linkcopy) { for (k = 1; k <= nn; k++) out(nonopt[k]) }
+        else if (nn >= 2 && nonopt[nn] !~ /^[^\/]*:/) out(nonopt[nn])
       } else if (cmd == "dd") {
-        for (k = first + 1; k <= nw; k++) if (w[k] ~ /^of=./) print substr(w[k], 4)
+        for (k = first + 1; k <= nw; k++) if (w[k] ~ /^of=./) out(substr(w[k], 4))
       } else if (cmd == "truncate") {
         for (k = first + 1; k <= nw; k++) {
           if (w[k] == "-s" || w[k] == "-r" || w[k] == "--size" || w[k] == "--reference") { k++; continue }
-          if (w[k] !~ /^-/) print w[k]
+          if (w[k] !~ /^-/) out(w[k])
         }
       } else if (cmd == "git") {
         k = first + 1
         while (k <= nw && w[k] ~ /^-/) { if (w[k] == "-C" || w[k] == "-c") k++; k++ }
         if (k <= nw && w[k] == "mv") {
           for (sub_i = k + 1; sub_i <= nw; sub_i++) if (w[sub_i] !~ /^-/) nonopt[++nn] = w[sub_i]
-          if (nn >= 2) print nonopt[nn]
+          if (nn >= 2) out(nonopt[nn])
         } else if (k <= nw && w[k] == "worktree" && k + 1 <= nw && w[k + 1] == "add") {
           for (sub_i = k + 2; sub_i <= nw; sub_i++) {
             if (w[sub_i] == "-b" || w[sub_i] == "-B" || w[sub_i] == "--reason") { sub_i++; continue }
             if (w[sub_i] ~ /^-/) continue
-            print w[sub_i]; break
+            out(w[sub_i]); break
+          }
+        } else if (k <= nw && w[k] == "worktree" && k + 1 <= nw && (w[k + 1] == "remove" || w[k + 1] == "move")) {
+          for (sub_i = k + 2; sub_i <= nw; sub_i++) {
+            if (w[sub_i] == "--reason") { sub_i++; continue }
+            if (w[sub_i] !~ /^-/) out(w[sub_i])
           }
         } else if (k <= nw && w[k] == "clone") {
           pos = 0
@@ -383,7 +436,7 @@ tmb_cmd_write_targets() {
             if (w[sub_i] ~ /^(-b|-o|-c|-u|-j|--depth|--branch|--origin|--config|--reference|--jobs|--upload-pack|--template|--separate-git-dir)$/) { sub_i++; continue }
             if (w[sub_i] ~ /^-/) continue
             pos++
-            if (pos == 2) { print w[sub_i]; break }
+            if (pos == 2) { out(w[sub_i]); break }
           }
         }
       }
@@ -911,7 +964,8 @@ tmb_gh_mutation_from() {
 TMB_CMD_WRITE_SHAPES=(
   '>' '>>' '>|' '&>' 'exec N>' 'heredoc into a redirect' 'tee' 'tee -a'
   'sed -i' 'perl -i' 'dd of=' 'truncate' 'cp' 'mv' 'install' 'rsync' 'git mv'
-  'ln' 'mkdir' 'rm' 'touch'
+  'ln' 'mkdir' 'rm' 'touch' 'tar -C / make -C / env -C / npm --prefix'
+  'git commit / reset / checkout / stash / clean / … in its -C dir or own dir'
   'python -c / node -e / perl -e / ruby -e with a write mode'
   'a program fed to python / node / perl / ruby / sh through a heredoc'
   'find -exec / -execdir / -ok / -delete / -fprint' 'fd -x / -X' 'xargs fed by find or fd'
@@ -978,13 +1032,13 @@ tmb_is_prompt_surface_path() {
 # ruby -e) may write: the paths its program writes (_tmb_cmd_prog_writes),
 # plus, when it writes any, every operand after the program.
 _tmb_cmd_interp_writes() {
-  local argv0="${1##*/}" flags w prog="" k=1 n=$# found
+  local argv0="${1##*/}" flags lang w prog="" k=1 n=$# found
   local -a words=("$@")
   case "$argv0" in
-    python|python3|python[23].*) flags="-c" ;;
-    node|nodejs) flags="-e --eval -p --print" ;;
-    perl) flags="-e -E" ;;
-    ruby) flags="-e" ;;
+    python|python3|python[23].*) flags="-c"; lang=py ;;
+    node|nodejs) flags="-e --eval -p --print"; lang=node ;;
+    perl) flags="-e -E"; lang=perl ;;
+    ruby) flags="-e"; lang=ruby ;;
     *) return 0 ;;
   esac
   while [ "$k" -lt "$n" ]; do
@@ -993,7 +1047,7 @@ _tmb_cmd_interp_writes() {
     case " $flags " in *" $w "*) prog=$(tmb_cmd_decode "${words[$k]:-}"); k=$((k + 1)); break ;; esac
   done
   [ -n "$prog" ] || return 0
-  found=$(_tmb_cmd_prog_writes "$prog" operands)
+  found=$(_tmb_cmd_prog_writes "$lang" "$prog" operands)
   [ -n "$found" ] || return 0
   [ "$found" = "-" ] || printf '%s\n' "$found"
   while [ "$k" -lt "$n" ]; do
@@ -1003,25 +1057,234 @@ _tmb_cmd_interp_writes() {
   done
 }
 
-# _tmb_cmd_prog_writes <program> [operands]
-# When a python / node / perl / ruby program carries a write (open(…, 'w'|'a'
-# |'x'|'+'), perl open '>', pathlib write_text / write_bytes, fs.writeFile* /
-# appendFile* / createWriteStream / mkdir* / rename* / rm* / unlink*, File /
-# IO .write, os / shutil writes), every path-like string literal of the
-# program except those only read (open(p) / open(p, 'r'), readFileSync,
-# read_text, perl '<'). With `operands`, a program that writes but names no
-# literal prints `-` so the caller still judges its operands.
+# _tmb_cmd_prog_writes <py|node|perl|ruby> <program> [operands]
+# The paths a python / node / perl / ruby program writes, taken from its write
+# calls' own path arguments (_tmb_cmd_prog_calls): open(p, 'w'|'a'|'x'|'+'),
+# perl open(F, '>', p) / open(F, '>p'), Path(p).write_text / write_bytes /
+# mkdir / touch / unlink / rmdir / rename / open('w'), fs.writeFile* /
+# appendFile* / createWriteStream / mkdir* / rm* / unlink* / rename* /
+# copyFile* / cp*, File / IO .write, os.remove / unlink / mkdir / makedirs /
+# rename / replace, shutil.copy* / move / rmtree (the destination of a copy,
+# both paths of a move). A program a read only names (open(p),
+# json.load(open(p)), os.listdir(p), sys.path.insert(0, p)) adds nothing.
+# Fail-closed — every path-like string literal not only read (open(p) /
+# open(p, 'r'), readFileSync, read_text, perl '<') — when a write call's path
+# is not a string literal, its receiver is unknown (p.write_text), the scan
+# cannot parse the program, or a write shape shows that no call was found
+# for. With `operands`, a program that writes but names no literal prints `-`
+# so the caller still judges its operands.
 _tmb_cmd_prog_writes() {
-  local prog="${1:-}" q="['\"]" sp="[[:space:]]*" reads writes fn out
+  local lang="${1:-}" prog="${2:-}" q="['\"]" sp="[[:space:]]*" reads writes fn scan out="" fail=0 lit
+  scan=$(_tmb_cmd_prog_calls "$lang" "$prog")
+  case $'\n'"$scan"$'\n' in *$'\n'A$'\n'*|*$'\n'F$'\n'*) fail=1 ;; esac
   fn="writeFileSync|appendFileSync|writeFile|appendFile|createWriteStream|mkdirSync|renameSync|rmSync|rmdirSync|unlinkSync|copyFileSync|cpSync|fs\.(mkdir|rename|rm|rmdir|unlink|copyFile|cp)|makedirs|rmtree|(File|IO)\.(bin)?write|os\.(remove|unlink|mkdir|rename|replace|rmdir)|shutil\.(copy|copyfile|copy2|copytree|move)"
-  writes=$(printf '%s\n' "$prog" | grep -oE "open${sp}\(${sp}${q}[^'\"]+${q}${sp},${sp}(mode${sp}=${sp})?${q}[rbt]*[wax+]|(${fn})${sp}\(${sp}${q}[^'\"]+${q}|Path${sp}\(${sp}${q}[^'\"]+${q}${sp}\)${sp}\.${sp}(write_text|write_bytes|mkdir|touch|unlink|rmdir|rename)" || true)
-  if [ -z "$writes" ] && ! printf '%s\n' "$prog" | grep -E "open${sp}\([^)]*,${sp}(mode${sp}=${sp})?${q}[rbt]*[wax+]|open${sp}\(?[^,;()]*,${sp}${q}[+]?>|write_text|write_bytes|createWriteStream|(${fn})${sp}\(" >/dev/null; then
-    return 0
+  case $'\n'"$scan"$'\n' in
+    *$'\n'W$'\n'*) ;;
+    *)
+      printf '%s\n' "$prog" | grep -E "open${sp}\([^)]*,${sp}(mode${sp}=${sp})?${q}[rbt]*[wax+]|open${sp}\(?[^,;()]*,${sp}${q}[+]?>|write_text|write_bytes|createWriteStream|(${fn})${sp}\(" >/dev/null || return 0
+      fail=1
+      ;;
+  esac
+  while IFS= read -r lit; do
+    case "$lit" in T$'\t'?*) out="${out}${lit#T$'\t'}"$'\n' ;; esac
+  done <<< "$scan"
+  if [ "$fail" = 1 ]; then
+    writes=$(printf '%s\n' "$prog" | grep -oE "open${sp}\(${sp}${q}[^'\"]+${q}${sp},${sp}(mode${sp}=${sp})?${q}[rbt]*[wax+]|(${fn})${sp}\(${sp}${q}[^'\"]+${q}|Path${sp}\(${sp}${q}[^'\"]+${q}${sp}\)${sp}\.${sp}(write_text|write_bytes|mkdir|touch|unlink|rmdir|rename)" || true)
+    reads=$(printf '%s\n' "$prog" | grep -oE "open${sp}\(${sp}${q}[^'\"]+${q}${sp}(,${sp}${q}r[bt]?${q}${sp})?\)|(readFileSync|readFile|createReadStream|existsSync|statSync)${sp}\(${sp}${q}[^'\"]+${q}|Path${sp}\(${sp}${q}[^'\"]+${q}${sp}\)${sp}\.${sp}(read_text|read_bytes|exists)" | grep -oE "${q}[^'\"]+${q}" || true)
+    writes=$(printf '%s\n' "$writes" | grep -oE "^[^'\"]*${q}[^'\"]+${q}" | grep -oE "${q}[^'\"]+${q}\$" || true)
+    out="${out}$(_tmb_cmd_prog_literals "$prog" "$reads" "$writes")"
   fi
-  reads=$(printf '%s\n' "$prog" | grep -oE "open${sp}\(${sp}${q}[^'\"]+${q}${sp}(,${sp}${q}r[bt]?${q}${sp})?\)|(readFileSync|readFile|createReadStream|existsSync|statSync)${sp}\(${sp}${q}[^'\"]+${q}|Path${sp}\(${sp}${q}[^'\"]+${q}${sp}\)${sp}\.${sp}(read_text|read_bytes|exists)" | grep -oE "${q}[^'\"]+${q}" || true)
-  writes=$(printf '%s\n' "$writes" | grep -oE "^[^'\"]*${q}[^'\"]+${q}" | grep -oE "${q}[^'\"]+${q}\$" || true)
-  out=$(_tmb_cmd_prog_literals "$prog" "$reads" "$writes")
-  if [ -n "$out" ]; then printf '%s\n' "$out"; elif [ "${2:-}" = "operands" ]; then printf -- '-\n'; fi
+  out=$(printf '%s' "$out" | awk 'NF && !seen[$0]++')
+  if [ -n "$out" ]; then printf '%s\n' "$out"; elif [ "${3:-}" = "operands" ]; then printf -- '-\n'; fi
+}
+
+# _tmb_cmd_prog_calls <py|node|perl|ruby> <program>
+# Scans <program>'s calls (strings, comments, nesting, method chains on a
+# call, perl / ruby paren-less calls) and prints, for each write call, `W`
+# and its path argument: `T<TAB><literal>`, or `F` when that argument is not
+# a lone string literal (a variable, an f-string, a concatenation) or the
+# receiver is unknown. `A` when the program does not parse (an unterminated
+# string, unbalanced brackets).
+_tmb_cmd_prog_calls() {
+  printf '%s\n' "${2:-}" | awk -v lang="${1:-}" '
+    function tok(k, v,   t) {
+      if (d == 0) return
+      t = fid[d]; atok[t]++
+      if (k == "L") alit[t] = v; else aoth[t] = 1
+    }
+    function oth() { if (d > 0) aoth[fid[d]] = 1 }
+    function resetarg(t) { atok[t] = 0; aoth[t] = 0; alit[t] = ""; akw[t] = "" }
+    function opn(type, cl, name, rk, rv) {
+      d++; fid[d] = ++nf; ftype[d] = type; fclose[d] = cl
+      fname[nf] = name; frecv[nf] = rk; frecvv[nf] = rv; np[nf] = 0
+      resetarg(nf)
+    }
+    function endarg(t,   k) {
+      if (atok[t] == 0 && !aoth[t] && akw[t] == "") return
+      k = (atok[t] == 1 && !aoth[t]) ? "L" : "E"
+      if (akw[t] != "") { kk[t, akw[t]] = k; kv[t, akw[t]] = alit[t] }
+      else { np[t]++; pk[t, np[t]] = k; pv[t, np[t]] = alit[t] }
+      resetarg(t)
+    }
+    function endone(   t, ty) {
+      t = fid[d]; ty = ftype[d]
+      endarg(t); d--
+      lastk = "U"; lastv = ""
+      if (ty == "call" || ty == "pseudo") {
+        classify(t)
+        if (ty == "call" && fname[t] ~ /(^|\.)(Path|PurePath|PosixPath|WindowsPath)$/) {
+          lastk = (np[t] == 1 && pk[t, 1] == "L") ? "P" : "PE"; lastv = pv[t, 1]
+        }
+      }
+      tok("E", "")
+    }
+    function endpseudo() { while (d > 0 && ftype[d] == "pseudo") endone(); pc = 0 }
+    function hit(k, v) { print "W"; if (k == "L" && v != "") print "T\t" v; else print "F" }
+    function arg(t, i, kws,   n, a, j) {
+      if (np[t] >= i) { hit(pk[t, i], pv[t, i]); return }
+      n = split(kws, a, " ")
+      for (j = 1; j <= n; j++) if ((t, a[j]) in kk) { hit(kk[t, a[j]], kv[t, a[j]]); return }
+      hit("E", "")
+    }
+    function wmode(m) { return m ~ /^[rwxabtUs+]+$/ && m ~ /[wax+]/ }
+    function perlopen(t,   m, r, mm, rest) {
+      if (np[t] < 2) return
+      if (pk[t, 2] != "L") { if (np[t] >= 3) arg(t, 3, ""); else hit("E", ""); return }
+      r = pv[t, 2]; sub(/^[ \t]+/, "", r); sub(/[ \t]+$/, "", r)
+      if (r ~ /^(\||-\|)/ || r ~ /\|$/) return
+      if (!match(r, /^(\+<|\+>>|\+>|>>|>|<)/)) return
+      mm = substr(r, 1, RLENGTH); rest = substr(r, RLENGTH + 1); sub(/^[ \t]+/, "", rest)
+      if (mm == "<" || rest ~ /^&/) return
+      if (rest == "" || rest ~ /^:/) { if (np[t] >= 3) arg(t, 3, ""); else hit("E", ""); return }
+      hit("L", rest)
+    }
+    function classify(t,   nm, last, pre, rk, mk, m) {
+      nm = fname[t]; last = nm; pre = ""
+      if (match(nm, /(\.|::)[^.:]*$/)) {
+        pre = substr(nm, 1, RSTART - 1)
+        last = substr(nm, RSTART + (substr(nm, RSTART, 1) == ":" ? 2 : 1))
+      }
+      rk = frecv[t]
+      if (rk == "P" || rk == "PE") {
+        if (last ~ /^(write_text|write_bytes|touch|mkdir|rmdir|unlink|rename|replace|symlink_to|hardlink_to)$/) {
+          hit(rk == "P" ? "L" : "E", frecvv[t])
+          if (last == "rename" || last == "replace") arg(t, 1, "target")
+        } else if (last == "open") {
+          if (np[t] >= 1) { mk = pk[t, 1]; m = pv[t, 1] } else if ((t, "mode") in kk) { mk = kk[t, "mode"]; m = kv[t, "mode"] } else return
+          if (mk == "L" && !wmode(m)) return
+          hit(rk == "P" ? "L" : "E", frecvv[t])
+        }
+        return
+      }
+      if (last == "open" || last == "openSync") {
+        if (lang == "perl" && pre == "") { perlopen(t); return }
+        if (pre != "" && np[t] == 1 && pk[t, 1] == "L" && wmode(pv[t, 1])) { hit("E", ""); return }
+        if (np[t] >= 2) { mk = pk[t, 2]; m = pv[t, 2] }
+        else if ((t, "mode") in kk) { mk = kk[t, "mode"]; m = kv[t, "mode"] }
+        else return
+        if (mk == "L" && !wmode(m)) return
+        arg(t, 1, "file path")
+        return
+      }
+      if (last ~ /^(writeFileSync|appendFileSync|writeFile|appendFile|createWriteStream|mkdirSync|rmSync|rmdirSync|unlinkSync|truncateSync|makedirs|removedirs|rmtree|mkdtemp|mkdtempSync|mkfifo|mkpath|make_path|remove_tree|mkdir_p|rm_rf|rm_r|rm_f)$/) { arg(t, 1, "path name file"); return }
+      if ((last == "write" || last == "binwrite") && pre ~ /(^|[.:])(File|IO)$/) { arg(t, 1, ""); return }
+      if (last == "write_text" || last == "write_bytes") { hit("E", ""); return }
+      if (last ~ /^(mkdir|rmdir|unlink|rm|touch)$/ || (last == "remove" && pre ~ /(^|\.)os$/) || (last == "delete" && pre ~ /(^|[.:])File$/)) { arg(t, 1, "path name"); return }
+      if (last ~ /^(copyFileSync|cpSync|copyFile|copyfile|copy2|copytree|symlinkSync|linkSync|symlink|link)$/ || (last ~ /^(copy|cp|cp_r)$/ && (pre == "" || pre ~ /(^|[.:])(shutil|fs|fsp|promises|\?\(\)|FileUtils|Copy)$/))) { arg(t, 2, "dst dest"); return }
+      if (last ~ /^(renameSync|rename|renames)$/ || (last == "replace" && pre ~ /(^|\.)os$/) || (last ~ /^(move|mv)$/ && (pre == "" || pre ~ /(^|[.:])(shutil|FileUtils|Copy)$/))) { arg(t, 1, "src"); arg(t, 2, "dst dest"); return }
+    }
+    function str(qc, pfx,   n, j, v, tq, ch, closed, interp) {
+      n = length(s); tq = 0; closed = 0; v = ""
+      if (lang == "py" && substr(s, ip, 3) == qc qc qc) { tq = 1; j = ip + 3 } else j = ip + 1
+      while (j <= n) {
+        ch = substr(s, j, 1)
+        if (ch == "\\") { v = v substr(s, j, 2); j += 2; continue }
+        if (tq && substr(s, j, 3) == qc qc qc) { j += 3; closed = 1; break }
+        if (!tq && ch == qc) { j++; closed = 1; break }
+        v = v ch; j++
+      }
+      if (!closed) { anom = 1; ip = n + 1; return }
+      interp = 0
+      if (lang == "py" && pfx ~ /[fF]/ && index(v, "{")) interp = 1
+      if (lang == "perl" && (qc == "\"" || qc == "`") && v ~ /[$@]/) interp = 1
+      if (lang == "ruby" && (qc == "\"" || qc == "`") && index(v, "#{")) interp = 1
+      if (lang == "node" && qc == "`" && index(v, "${")) interp = 1
+      tok(interp ? "E" : "L", v)
+      ip = j; pc = 0
+    }
+    function name(rk, rv, pfx,   j, n, ch, nm, k, t) {
+      n = length(s); j = ip + 1
+      while (j <= n) {
+        ch = substr(s, j, 1)
+        if (ch ~ /[A-Za-z0-9_]/) { j++; continue }
+        if (ch == "." && substr(s, j + 1, 1) ~ /[A-Za-z_$]/) { j++; continue }
+        if (ch == ":" && substr(s, j + 1, 2) ~ /^:[A-Za-z_]/) { j += 2; continue }
+        break
+      }
+      nm = pfx substr(s, ip, j - ip); ip = j; pc = 0
+      if (d > 0 && ftype[d] == "pseudo" && nm ~ /^(or|and|xor|if|unless|do|while|until|then)$/) { endpseudo(); return }
+      k = ip; while (substr(s, k, 1) ~ /[ \t]/) k++
+      ch = substr(s, k, 1)
+      if (lang == "py" && k == ip && (ch == q1 || ch == "\"") && nm ~ /^[rRbBuUfF][rRbBfF]?$/) { str(ch, nm); return }
+      if (ch == "(") { opn("call", ")", nm, rk, rv); ip = k + 1; return }
+      if (ch == "=" && substr(s, k + 1, 1) != "=" && d > 0 && ftype[d] == "call" && nm ~ /^[A-Za-z_][A-Za-z0-9_]*$/) {
+        t = fid[d]
+        if (atok[t] == 0 && !aoth[t] && akw[t] == "") { akw[t] = nm; ip = k + 1; return }
+      }
+      if ((lang == "perl" || lang == "ruby") && k > ip && (ch == q1 || ch ~ /["$@A-Za-z_]/) && nm ~ /^(open|unlink|mkdir|rmdir|rename|link|symlink|copy|move|mkpath|make_path|remove_tree|rmtree|(File|IO|FileUtils|Dir)\.[a-z_]+|File::(Copy|Path)::[a-z_]+)$/) {
+        opn("pseudo", "", nm, "", ""); ip = k; return
+      }
+      tok("E", "")
+    }
+    { s = s (NR > 1 ? "\n" : "") $0 }
+    END {
+      q1 = sprintf("%c", 39); n = length(s); ip = 1; d = 0; pc = 0; anom = 0
+      while (ip <= n && !anom) {
+        c = substr(s, ip, 1)
+        if (c == " " || c == "\t" || c == "\r") { ip++; continue }
+        if (c == "\n") {
+          if (lang == "ruby" && d > 0 && ftype[d] == "pseudo" && (atok[fid[d]] > 0 || aoth[fid[d]])) endpseudo()
+          ip++; continue
+        }
+        if (c == "\\") { ip += 2; continue }
+        if ((c == "#" && (lang == "py" || ((lang == "perl" || lang == "ruby") && (ip == 1 || substr(s, ip - 1, 1) !~ /[A-Za-z0-9_$@.#\/{(]/)))) || (lang == "node" && substr(s, ip, 2) == "//")) {
+          j = index(substr(s, ip), "\n"); if (!j) break
+          ip += j - 1; continue
+        }
+        if (lang == "node" && substr(s, ip, 2) == "/*") {
+          j = index(substr(s, ip + 2), "*/"); if (!j) { anom = 1; break }
+          ip += j + 3; continue
+        }
+        if (c == q1 || c == "\"" || (c == "`" && lang != "py")) { str(c, ""); continue }
+        if (c ~ /[A-Za-z_]/ || (lang != "py" && c ~ /[$@]/)) { name("", "", ""); continue }
+        if (c == "." && substr(s, ip + 1, 1) ~ /[A-Za-z_]/) {
+          rk = pc ? lastk : "U"; rv = pc ? lastv : ""
+          ip++; name(rk, rv, (rk == "P" || rk == "PE") ? "Path()." : "?().")
+          continue
+        }
+        if (c ~ /[0-9]/) {
+          while (ip <= n && substr(s, ip, 1) ~ /[0-9A-Za-z_.]/) ip++
+          tok("E", ""); pc = 0; continue
+        }
+        if (c == "(" || c == "[" || c == "{") {
+          opn("group", c == "(" ? ")" : (c == "[" ? "]" : "}"), "", "", ""); ip++; pc = 0; continue
+        }
+        if (c == ")" || c == "]" || c == "}") {
+          while (d > 0 && ftype[d] == "pseudo") endone()
+          if (d == 0 || fclose[d] != c) { anom = 1; break }
+          endone(); pc = 1; ip++; continue
+        }
+        if (c == ",") {
+          if (d > 0 && (ftype[d] == "call" || ftype[d] == "pseudo")) endarg(fid[d]); else oth()
+          ip++; pc = 0; continue
+        }
+        if (c == ";" || substr(s, ip, 2) == "||" || substr(s, ip, 2) == "&&") { endpseudo(); oth(); ip += (c == ";") ? 1 : 2; continue }
+        oth(); pc = 0; ip++
+      }
+      if (!anom) endpseudo()
+      if (anom || d > 0) print "A"
+    }
+  '
 }
 
 # _tmb_cmd_prog_literals <program> <read-literals> <write-literals>
@@ -1111,16 +1374,55 @@ _tmb_cmd_inplace_files() {
   printf '%s\n' "${ops[@]}"
 }
 
-# _tmb_cmd_stmt_write_paths <encoded-statement>
+# _tmb_cmd_stmt_write_paths <encoded-statement> [chain]
 # The written paths of one statement, as written (encoded): the write targets,
-# every in-place sed / perl file, the sources a mv / git mv removes, and the
-# paths an interpreter one-liner writes.
+# every in-place sed / perl file, the sources a mv / git mv removes, the tree
+# a mutating git writes (_tmb_cmd_git_tree; with `chain`, under its own -C
+# dirs, for a caller whose dir does not already apply them) and the paths an
+# interpreter one-liner writes. Leftover wrapper options (env -C / --chdir,
+# sudo -D, -u <user>, …) are skipped, their dir prefixing the paths after.
 _tmb_cmd_stmt_write_paths() {
-  local stmt="${1:-}" w k=1
-  local -a words ops=()
+  local stmt="${1:-}" chain="${2:-}" pre="" p
+  local -a words
   tmb_cmd_write_targets "$stmt"
   read -r -a words <<< "$stmt"
+  while [ "${#words[@]}" -gt 0 ]; do
+    case "${words[0]}" in
+      --) words=("${words[@]:1}") ;;
+      -C|-D|--chdir) pre=$(_tmb_cmd_under "$pre" "${words[1]:-}"); words=("${words[@]:2}") ;;
+      --chdir=*) pre=$(_tmb_cmd_under "$pre" "${words[0]#--chdir=}"); words=("${words[@]:1}") ;;
+      -C?*|-D?*) pre=$(_tmb_cmd_under "$pre" "${words[0]#-?}"); words=("${words[@]:1}") ;;
+      -[uSgUhrtT]|--unset|--split-string|--user|--group) words=("${words[@]:2}") ;;
+      -*|sudo|env|command|nohup|time|[A-Za-z_]*=*) words=("${words[@]:1}") ;;
+      *) break ;;
+    esac
+  done
   [ "${#words[@]}" -gt 1 ] || return 0
+  if [ -z "$pre" ]; then
+    _tmb_cmd_stmt_extra_writes "$chain" "${words[@]}"
+    return 0
+  fi
+  while IFS= read -r p; do
+    [ -n "$p" ] && _tmb_cmd_under "$pre" "$p" && printf '\n'
+  done < <(_tmb_cmd_stmt_extra_writes chain "${words[@]}")
+}
+
+# _tmb_cmd_under <dir> <path>
+# <path> under <dir>, as written: an absolute, ~ or $ path stands alone.
+_tmb_cmd_under() {
+  case "${2:-}" in
+    /*|'~'*|'$'*) printf '%s' "${2:-}" ;;
+    *) if [ -z "${1:-}" ]; then printf '%s' "${2:-}"; elif [ "${2:-}" = "." ]; then printf '%s' "$1"; else printf '%s/%s' "$1" "${2:-}"; fi ;;
+  esac
+}
+
+# _tmb_cmd_stmt_extra_writes <chain> <encoded-statement-words…>
+# The written paths of one statement beyond tmb_cmd_write_targets.
+_tmb_cmd_stmt_extra_writes() {
+  local chain="${1:-}" w k=1
+  local -a words ops=()
+  shift
+  words=("$@")
   case "${words[0]##*/}" in
     sed|perl) _tmb_cmd_inplace_files "${words[0]##*/}" "${words[@]:1}" ;;
     mv) ops=("${words[@]:1}") ;;
@@ -1133,6 +1435,7 @@ _tmb_cmd_stmt_write_paths() {
         esac
       done
       [ "${words[$k]:-}" = "mv" ] && ops=("${words[@]:$((k + 1))}")
+      _tmb_cmd_git_tree "$chain" "${words[@]}"
       ;;
   esac
   if [ "${#ops[@]}" -gt 0 ]; then
@@ -1141,6 +1444,48 @@ _tmb_cmd_stmt_write_paths() {
     if [ "${#srcs[@]}" -ge 2 ]; then printf '%s\n' "${srcs[@]:0:${#srcs[@]}-1}"; fi
   fi
   _tmb_cmd_interp_writes "${words[@]}"
+}
+
+# _tmb_cmd_git_tree <chain> <encoded-git-statement-words…>
+# The working tree a mutating git writes: add, am, apply, checkout,
+# cherry-pick, clean, commit, merge, pull, rebase, reset, restore, revert, rm,
+# stash and switch (not stash list / show, nor apply with --check / --stat /
+# --numstat / --summary and no --apply). Prints its --work-tree, else `.` (the
+# statement's dir, which already applies git -C); with <chain> non-empty,
+# under the composed -C dirs. Read-only subcommands (status, log, diff, show,
+# rev-parse, fetch, ls-files, branch, tag, worktree list, …) and push, which
+# writes no local tree, print nothing; git mv, worktree add / remove / move
+# and clone are judged by their own paths (tmb_cmd_write_targets).
+_tmb_cmd_git_tree() {
+  local chain="${1:-}" cdir="" tree="" w k=1 n
+  shift
+  local -a words=("$@")
+  n=$#
+  while [ "$k" -lt "$n" ]; do
+    w="${words[$k]}"
+    case "$w" in
+      -C) cdir=$(_tmb_cmd_under "$cdir" "${words[$((k + 1))]:-}"); k=$((k + 2)) ;;
+      --work-tree) tree="${words[$((k + 1))]:-}"; k=$((k + 2)) ;;
+      --work-tree=*) tree="${w#--work-tree=}"; k=$((k + 1)) ;;
+      -c|--git-dir|--namespace|--config-env) k=$((k + 2)) ;;
+      -*) k=$((k + 1)) ;;
+      *) break ;;
+    esac
+  done
+  case "${words[$k]:-}" in
+    add|am|checkout|cherry-pick|clean|commit|merge|pull|rebase|reset|restore|revert|rm|switch) ;;
+    stash) case "${words[$((k + 1))]:-}" in list|show) return 0 ;; esac ;;
+    apply)
+      case " ${words[*]:$k} " in
+        *" --apply "*) ;;
+        *" --check "*|*" --stat "*|*" --numstat "*|*" --summary "*) return 0 ;;
+      esac
+      ;;
+    *) return 0 ;;
+  esac
+  [ -n "$tree" ] || tree=.
+  [ -z "$chain" ] || tree=$(_tmb_cmd_under "$cdir" "$tree")
+  printf '%s\n' "$tree"
 }
 
 # _tmb_cmd_join <dir-token> <path> <cwd>
@@ -1164,7 +1509,10 @@ _tmb_cmd_join() {
       esac
       ;;
   esac
-  if [ -n "${_TMB_CMD_RAWJOIN:-}" ]; then printf '%s\n' "${base:+${base%/}/}$p"; return 0; fi
+  if [ -n "${_TMB_CMD_RAWJOIN:-}" ]; then
+    if [ "$p" = "." ] && [ -n "$base" ]; then printf '%s\n' "$base"; else printf '%s\n' "${base:+${base%/}/}$p"; fi
+    return 0
+  fi
   printf '%s\n' "${base:+$base/}$p" | awk '{
     lead = (substr($0, 1, 1) == "/") ? "/" : ""
     n = split($0, parts, "/"); m = 0
@@ -1224,7 +1572,7 @@ _tmb_cmd_heredoc_align() {
 # assignments accumulate in the caller-scoped _TMB_CMD_VARS.
 _tmb_cmd_write_paths_in() {
   local cmd="${1:-}" cwd="${2:-}" base="${3:-@}" depth="${4:-0}"
-  local listing bodies="" dir stmt p inner kind idx=0 w prog b_idx b_body old mark
+  local listing bodies="" dir stmt p inner kind idx=0 w prog b_idx b_body old mark chain
   local -a words progs
   local _TMB_CMD_VARS="${_TMB_CMD_VARS:-}" _TMB_CMD_OLDTOK="-"
   listing=$(_tmb_cmd_statements_enc "$cmd" "$base" 3 assign)
@@ -1255,10 +1603,12 @@ _tmb_cmd_write_paths_in() {
       words=("${words[@]:0:${#words[@]}-1}")
       stmt="${words[*]}"
     fi
+    chain=""
+    [ "$dir" != "-" ] || chain=1
     while IFS= read -r p; do
       [ -n "$p" ] || continue
       _tmb_cmd_emit "$dir" "$(tmb_cmd_decode "$p")" "$cwd"
-    done < <(_tmb_cmd_stmt_write_paths "$stmt")
+    done < <(_tmb_cmd_stmt_write_paths "$stmt" "$chain")
     case "${words[0]##*/}" in
       find|fd|fdfind|xargs) _tmb_cmd_exec_writes "$dir" "$cwd" "$mark" "${words[@]}" ;;
     esac
@@ -1280,7 +1630,7 @@ _tmb_cmd_write_paths_in() {
         else
           while IFS= read -r p; do
             [ -n "$p" ] && _tmb_cmd_emit "$dir" "$p" "$cwd"
-          done < <(_tmb_cmd_prog_writes "$prog")
+          done < <(_tmb_cmd_prog_writes "$kind" "$prog")
         fi
       done
     fi
@@ -1362,7 +1712,7 @@ _tmb_cmd_exec_writes() {
         esac
         while IFS= read -r p; do
           [ -n "$p" ] && _tmb_cmd_emit "$dir" "$(tmb_cmd_decode "$p")" "$cwd"
-        done < <(_tmb_cmd_stmt_write_paths "$cmd")
+        done < <(_tmb_cmd_stmt_write_paths "$cmd" chain)
         ;;
     esac
   done
