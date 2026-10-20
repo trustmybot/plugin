@@ -33410,6 +33410,9 @@ var SANDBOX_NETWORK_PROBE = {
   platform: "darwin",
   failed: []
 };
+var SANDBOX_NETWORK_PROBES = {
+  darwin: SANDBOX_NETWORK_PROBE
+};
 function isSshRemote(url2) {
   return /^ssh:\/\//i.test(url2) || /^[^@/:\s]+@[^:/\s]+:/.test(url2);
 }
@@ -33425,8 +33428,9 @@ function sandboxAllowedDomains(remoteUrls) {
   const hosts = remoteUrls.map(httpsHost).filter((h) => h !== null);
   return [.../* @__PURE__ */ new Set([...TMB_ALLOWED_DOMAINS, ...hosts])];
 }
-function sandboxRecommended(remoteUrls, platform = process.platform, probe = SANDBOX_NETWORK_PROBE) {
-  return platform === probe.platform && probe.failed.length === 0 && !remoteUrls.some(isSshRemote);
+function sandboxRecommended(remoteUrls, platform = process.platform, probes = SANDBOX_NETWORK_PROBES) {
+  const probe = probes[platform];
+  return probe !== void 0 && probe.failed.length === 0 && !remoteUrls.some(isSshRemote);
 }
 function sandboxToolCacheDir(projectRoot) {
   return join9(projectRoot, ".claude", resolveClaudePluginName(), "cache");

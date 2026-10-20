@@ -15,8 +15,9 @@
 # a B row counts as failed only when the same command passes on the host.
 #
 # Usage: bash tests/l5-l6/probes/sandbox-network-probe.sh [--keep] [--check-recorded]
-#   --check-recorded  exit 1 only when a B failure is not in the recorded
-#                     SANDBOX_NETWORK_PROBE.failed (all count on another platform)
+#   --check-recorded  exit 1 only when a B failure is not in this platform's
+#                     SANDBOX_NETWORK_PROBES entry's failed (all count when the
+#                     platform has no entry)
 # Needs claude, jq, git, gh, npm, bun, node. Auth: CLAUDE_CODE_OAUTH_TOKEN or
 # ANTHROPIC_API_KEY in the environment, else the plugin checkout's .env.
 # The push is `--dry-run`: it updates no ref.
@@ -118,9 +119,9 @@ write_settings() {
 recorded_probe() {
   # shellcheck disable=SC2016
   node --input-type=module -e '
-    const { SANDBOX_NETWORK_PROBE } = await import(process.argv[1]);
-    console.log(JSON.stringify(SANDBOX_NETWORK_PROBE));
-  ' "$SANDBOX_MODULE"
+    const { SANDBOX_NETWORK_PROBES } = await import(process.argv[1]);
+    console.log(JSON.stringify(SANDBOX_NETWORK_PROBES[process.argv[2]] ?? null));
+  ' "$SANDBOX_MODULE" "$1"
 }
 
 prompt_for() {
@@ -204,15 +205,14 @@ echo "B failed: $failed_json"
 if [ "${#b_failed[@]}" = 0 ]; then echo "B: every command that passes on the host passed"; else echo "B: at least one command failed"; fi
 
 if [ "$CHECK_RECORDED" = 1 ]; then
-  recorded="$(recorded_probe)" || { echo "sandbox-network-probe: cannot read SANDBOX_NETWORK_PROBE" >&2; exit 2; }
-  regressions="$(jq -nc --argjson rec "$recorded" --argjson now "$failed_json" --arg plat "$PLATFORM" '
-    $now - (if $rec.platform == $plat then $rec.failed else [] end)')"
-  echo "recorded: $recorded"
+  recorded="$(recorded_probe "$PLATFORM")" || { echo "sandbox-network-probe: cannot read SANDBOX_NETWORK_PROBES" >&2; exit 2; }
+  regressions="$(jq -nc --argjson rec "$recorded" --argjson now "$failed_json" '$now - ($rec.failed // [])')"
+  echo "recorded ($PLATFORM): $recorded"
   if [ "$regressions" = "[]" ]; then
-    echo "B: no regression against SANDBOX_NETWORK_PROBE"
+    echo "B: no regression against SANDBOX_NETWORK_PROBES.$PLATFORM"
     exit 0
   fi
-  echo "B: regressed against SANDBOX_NETWORK_PROBE: $regressions"
+  echo "B: regressed against SANDBOX_NETWORK_PROBES.$PLATFORM: $regressions"
   exit 1
 fi
 [ "${#b_failed[@]}" = 0 ]

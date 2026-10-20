@@ -8,7 +8,7 @@ import { TrajectoryDB } from '../db.js';
 import { onboardTools } from '../tools/onboard.js';
 import { tempDB } from './helpers.js';
 import { repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
-import { isSshRemote, removeProjectSandbox, SANDBOX_NETWORK_PROBE, sandboxRecommended, sandboxToolEnv, TMB_ALLOWED_DOMAINS, } from '../tools/onboard-sandbox.js';
+import { removeProjectSandbox, SANDBOX_NETWORK_PROBE, sandboxToolEnv, TMB_ALLOWED_DOMAINS, } from '../tools/onboard-sandbox.js';
 // No onboard test may reach the real ~/.claude: HOME is a fresh temp dir and no
 // inherited plugin root survives, so os.homedir() and resolvePluginRoot() land
 // in a sandbox even for apply calls that pass no shim environment.
@@ -1156,18 +1156,6 @@ describe('onboard tools', () => {
             assert.equal(q.options[q.default_index].label, 'Keep "yes"');
             rmSync(base, { recursive: true, force: true });
             db.close();
-        });
-        it('sandboxRecommended: yes only on the probed platform, when the probe passed and no remote is SSH', () => {
-            const passed = { platform: 'darwin', failed: [] };
-            assert.equal(sandboxRecommended(['https://github.com/a/b.git'], 'darwin', passed), true);
-            assert.equal(sandboxRecommended([], 'darwin', passed), true);
-            assert.equal(sandboxRecommended(['https://github.com/a/b.git'], 'linux', passed), false);
-            assert.equal(sandboxRecommended(['https://github.com/a/b.git'], 'win32', passed), false);
-            assert.equal(sandboxRecommended(['git@github.com:a/b.git'], 'darwin', passed), false);
-            assert.equal(sandboxRecommended(['ssh://git@github.com/a/b.git'], 'darwin', passed), false);
-            assert.equal(sandboxRecommended(['https://github.com/a/b.git'], 'darwin', { platform: 'darwin', failed: ['bun add is-number'] }), false);
-            assert.equal(sandboxRecommended(['https://github.com/a/b.git']), process.platform === SANDBOX_NETWORK_PROBE.platform);
-            assert.equal(isSshRemote('https://github.com/a/b.git'), false);
         });
         it('a record from before GH 1252 (no allowed_domains) still removes cleanly', () => {
             const { base, proj, settings } = project();

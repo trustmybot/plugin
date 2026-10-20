@@ -110,6 +110,14 @@ export const SANDBOX_NETWORK_PROBE = {
     platform: 'darwin',
     failed: [],
 };
+/**
+ * The recorded probe per platform. linux has no entry until someone runs
+ * tests/l5-l6/probes/sandbox-network-probe.sh on Linux and records its
+ * cc_version, date and failed[] here (GH 1576).
+ */
+export const SANDBOX_NETWORK_PROBES = {
+    darwin: SANDBOX_NETWORK_PROBE,
+};
 /** Git over SSH bypasses the sandbox's network proxy. */
 export function isSshRemote(url) {
     return /^ssh:\/\//i.test(url) || /^[^@/:\s]+@[^:/\s]+:/.test(url);
@@ -129,11 +137,12 @@ export function sandboxAllowedDomains(remoteUrls) {
     return [...new Set([...TMB_ALLOWED_DOMAINS, ...hosts])];
 }
 /**
- * A fresh onboard recommends yes only on the platform the probe ran on, when
- * it passed every command, and when no remote is SSH.
+ * A fresh onboard recommends yes only on a platform with a recorded probe,
+ * when that probe passed every command, and when no remote is SSH.
  */
-export function sandboxRecommended(remoteUrls, platform = process.platform, probe = SANDBOX_NETWORK_PROBE) {
-    return platform === probe.platform && probe.failed.length === 0 && !remoteUrls.some(isSshRemote);
+export function sandboxRecommended(remoteUrls, platform = process.platform, probes = SANDBOX_NETWORK_PROBES) {
+    const probe = probes[platform];
+    return probe !== undefined && probe.failed.length === 0 && !remoteUrls.some(isSshRemote);
 }
 /** Where sandboxed npm and bun keep their caches: inside the project, which the sandbox lets Bash write. */
 export function sandboxToolCacheDir(projectRoot) {
