@@ -199,8 +199,9 @@ function writeConfig(db: TrajectoryDB, key: string, value: unknown): void {
 }
 
 // Read the four repo-scoped policy keys from the repos table and its
-// repo_remotes rows — the sole source of truth (#980). onboard applies policy workspace-wide (every repos row gets
-// the same values), so the representative first row reflects current state.
+// repo_remotes rows — the sole source of truth (#980). The first row is the
+// representative sample the `applied` payload and the workspace PR-target Keep
+// option read; rows may differ after per-repo applies.
 // Returns null for each field on an empty repos table or a NULL column.
 function readRepoPolicy(db: TrajectoryDB): {
   branching_model: string | null;
@@ -674,7 +675,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           repo: {
             type: 'string',
             description:
-              "Optional. Scope the branching + pr_target questions to a single repos row (Keep options seed from that repo's target_branch/branching_model). Only valid with round='main', shape='remote'. Must match an existing repos.name. Omit for workspace-wide questions.",
+              "Optional. Scope the branching + pr_target questions to a single repos row (a Keep option appears only for a field that repo has stored). Only valid with round='main', for either shape. Must match an existing repos.name. Omit for workspace-wide questions.",
           },
         },
         required: ['round'],
@@ -707,18 +708,19 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           branching_model: {
             type: 'string',
             enum: ['github-flow', 'gitflow'],
-            description: 'Optional on local first-run (defaults to github-flow).',
+            description:
+              'Optional. With repo: written to that repos row. Without repo: seeds only repos rows whose branching_model is unset (default github-flow + the repo\'s default branch); populated rows are never changed.',
           },
           pr_target: { type: 'string' },
           remote: {
             type: 'array',
             items: { type: 'string', enum: ['github', 'gitlab'] },
-            description: 'Required when shape=remote. Array of provider IDs (multiSelect AUQ answer). Single-element ["github"] or ["gitlab"], or ["github","gitlab"] for dual-host. Ignored on local.',
+            description: 'Optional when shape=remote. Array of provider IDs (multiSelect AUQ answer). Single-element ["github"] or ["gitlab"], or ["github","gitlab"] for dual-host. Omitted or empty: each repo\'s GitHub/GitLab remotes are probed from its git tree, with a warning when none has one. Ignored on local.',
           },
           issue_sync: {
             type: 'string',
             enum: ['auto', 'off'],
-            description: 'Required when shape=remote. Always "off" on local.',
+            description: 'The Round 3 answer when shape=remote; omitted means "off". Always "off" on local.',
           },
           headless_enforcement: {
             type: 'string',
@@ -735,7 +737,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           repo: {
             type: 'string',
             description:
-              "Optional. Scope the write to a single repos row: only that row's target_branch/branching_model/protected_branches are updated; other repos rows, remotes, issue_sync, and the onboarded marker are NOT touched. Must match an existing repos.name. Omit for the workspace-wide apply.",
+              "Optional. Scope the write to a single repos row: only that row's target_branch/branching_model/protected_branches are updated; other repos rows, remotes, issue_sync, and the onboarded marker are NOT touched. Must match an existing repos.name. Omit for the workspace-wide apply, which never changes a populated row's branching_model/target_branch/protected_branches.",
           },
         },
       },
@@ -981,26 +983,22 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
         }
 
         // Per-repo path: branching + pr_target questions seeded from THAT repos
-        // row. Only valid on round='main', shape='remote'. The Keep options
-        // reflect the repo's current target_branch/branching_model; the remote
-        // provider question (git-derived) and issue_sync (global, sync round)
-        // stay out of the per-repo path.
+        // row, for either shape. Only valid on round='main'. Each Keep option
+        // appears only when that field holds a stored value; the remote
+        // provider (git-derived) and issue_sync (global, sync round) stay out
+        // of the per-repo path.
         if (repo !== undefined) {
           if (round !== 'main') {
             throw new Error(`repo param is only valid with round='main' (got '${round}')`);
-          }
-          if (shape !== 'remote') {
-            throw new Error(`repo param requires shape='remote' (got '${String(shape)}')`);
           }
           const repoRow = readRepoRow(db, repo);
           if (!repoRow) {
             throw new Error(`unknown repo '${repo}' — no matching repos row`);
           }
-          const isReonboardRepo = repoRow.branching_model !== null;
           const advice = branchingAdvice(repoRow.recommendation);
           const repoQuestions: BuiltQuestion[] = [
-            branchingQuestion(repoRow.branching_model, isReonboardRepo, advice.branching),
-            prTargetQuestion(repoRow.target_branch, repoRow.branching_model, isReonboardRepo, advice.prTarget),
+            branchingQuestion(repoRow.branching_model, repoRow.branching_model !== null, advice.branching),
+            prTargetQuestion(repoRow.target_branch, repoRow.branching_model, repoRow.target_branch !== null, advice.prTarget),
           ];
           return ok({ questions: repoQuestions });
         }
@@ -1151,8 +1149,10 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           });
         }
 
-        // Resolve branching_model — accept wire value or human-readable label.
-        // Keep sentinel → omit (use existing value or local default).
+        // The workspace apply fills only repos rows whose branching_model is
+        // still NULL; the per-repo apply above owns every populated row.
+        // Explicit values seed those NULL rows; Keep resolves against the
+        // representative row.
         const rawBranching = args['branching_model'] as string | undefined;
         let branching_model: string | undefined;
         if (rawBranching !== undefined) {
@@ -1164,27 +1164,20 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           } else {
             branching_model = rawBranching;
           }
-        }
-        branching_model = branching_model ?? (shape === 'local' ? 'github-flow' : undefined);
-        if (!branching_model) {
-          throw new Error('branching_model is required for shape=remote');
-        }
-        if (branching_model !== 'github-flow' && branching_model !== 'gitflow') {
-          throw new Error(`branching_model must be 'github-flow' or 'gitflow' (got '${branching_model}')`);
+          if (branching_model !== undefined && branching_model !== 'github-flow' && branching_model !== 'gitflow') {
+            throw new Error(`branching_model must be 'github-flow' or 'gitflow' (got '${branching_model}')`);
+          }
         }
 
-        // Resolve pr_target — accept wire value or label; Keep → use existing.
         const rawPrTarget = args['pr_target'] as string | undefined;
-        let pr_target: string;
+        let pr_target: string | undefined;
         if (rawPrTarget !== undefined) {
           const resolved = resolveOption(rawPrTarget, PR_TARGET_OPTIONS);
           if (resolved === KEEP_SENTINEL) {
-            pr_target = readRepoPolicy(db).pr_target ?? derivePrTargetDefault(branching_model);
+            pr_target = readRepoPolicy(db).pr_target ?? derivePrTargetDefault(branching_model ?? 'github-flow');
           } else {
             pr_target = resolved ?? rawPrTarget;
           }
-        } else {
-          pr_target = derivePrTargetDefault(branching_model);
         }
 
         let remotes: Array<{ name: string; provider: Provider; url: string }> = [];
@@ -1198,11 +1191,6 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             remoteList = rawRemote.filter((s): s is string => typeof s === 'string');
           } else if (typeof rawRemote === 'string') {
             remoteList = [rawRemote];
-          } else {
-            throw new Error("'remote' is required when shape='remote'");
-          }
-          if (remoteList.length === 0) {
-            throw new Error("'remote' must include at least one of 'github' / 'gitlab' when shape='remote'");
           }
           // Resolve each entry — accept wire value or label.
           remoteList = remoteList.map((r) => {
@@ -1233,7 +1221,8 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           }
         }
 
-        // Build the chosen-provider remotes from a given repo's own git tree.
+        // Build the chosen-provider remotes from a given repo's own git tree;
+        // with no `remote` answer, every GitHub/GitLab remote that tree has.
         // Stable order: github first, then gitlab. The first entry uses
         // name='origin'; if both are present the second uses the provider name.
         const remotesForPath = (
@@ -1241,9 +1230,11 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
         ): Array<{ name: string; provider: Provider; url: string }> => {
           const detected = probeGit(path).detected_remotes;
           const findUrl = (p: Provider): string => detected.find((r) => r.provider === p)?.url ?? '';
+          const wanted =
+            remoteList.length > 0 ? remoteList : (['github', 'gitlab'] as const).filter((p) => findUrl(p).length > 0);
           const out: Array<{ name: string; provider: Provider; url: string }> = [];
-          const wantedGh = remoteList.includes('github');
-          const wantedGl = remoteList.includes('gitlab');
+          const wantedGh = wanted.includes('github');
+          const wantedGl = wanted.includes('gitlab');
           if (wantedGh) out.push({ name: 'origin', provider: 'github', url: findUrl('github') });
           if (wantedGl) {
             out.push({ name: wantedGh ? 'gitlab' : 'origin', provider: 'gitlab', url: findUrl('gitlab') });
@@ -1279,8 +1270,24 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           throw new Error(`sandbox_enforcement must be 'yes' or 'no' (got '${sandbox_enforcement}')`);
         }
 
-        const protected_branches = deriveProtectedBranches(branching_model, pr_target);
+        // A NULL row gets the explicit answers, reconciled against its own git
+        // tree (#13: a repo without the gitflow target branch falls back to
+        // github-flow + its real default branch), else github-flow + its real
+        // default branch.
+        const seedPolicy = (repoPath: string, inGit: boolean): { model: string; target: string } => {
+          const defaultBranch = (): string =>
+            inGit ? repoDefaultBranch(repoPath) : derivePrTargetDefault('github-flow');
+          if (branching_model === undefined) {
+            return { model: 'github-flow', target: pr_target ?? defaultBranch() };
+          }
+          const target = pr_target ?? derivePrTargetDefault(branching_model);
+          if (inGit && branching_model === 'gitflow' && !branchExists(repoPath, target)) {
+            return { model: 'github-flow', target: defaultBranch() };
+          }
+          return { model: branching_model, target };
+        };
 
+        let anyRemote = remotes.some((r) => r.url.length > 0);
         db.transaction(() => {
           // Mark project as onboarded via plugin_config (#2876).
           // The legacy `identity` table is dropped by the v1→v2 migration in db.ts on first boot after upgrade.
@@ -1291,49 +1298,57 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           writeConfig(db, 'sandbox_enforcement', sandbox_enforcement);
 
           // The repos table is the sole source of truth for the four repo-scoped
-          // keys (#980). Reconcile each repo against ITS OWN git tree rather than
-          // blasting the managed repo's policy onto every row (#13): a sibling
-          // that lacks the chosen long-lived target branch cannot run the chosen
-          // gitflow model, so it is downgraded to github-flow + its real default
-          // branch. Remotes are probed from each repo's own path so scan-captured
-          // per-repo remotes (#979) survive. A repo whose git tree can't be probed
-          // falls back to the chosen policy as-is (no worse than before).
-          const rows = db.all<{ name: string; path: string }>(
-            `SELECT name, path FROM repos`,
+          // keys (#980). Populated rows keep their per-repo policy; only NULL
+          // rows are seeded. Remotes are probed from each repo's own path so
+          // scan-captured per-repo remotes (#979) survive; a repo whose git
+          // tree can't be probed gets the managed repo's remotes.
+          const rows = db.all<{ name: string; path: string; branching_model: string | null }>(
+            `SELECT name, path, branching_model FROM repos`,
           );
           for (const row of rows) {
-            let effModel = branching_model;
-            let effTarget = pr_target;
-            let effRemotes = shape === 'remote' ? remotes : [];
+            let repoPath = row.path;
+            let inGit = false;
             try {
-              // Only reconcile against a repo that is actually a git tree. A
-              // non-git path (or a probe failure) keeps the chosen policy as-is
-              // — no worse than before, and single-repo behavior stays identical.
-              const repoPath = repoRowPath(db, row.path);
-              if (probeGit(repoPath).in_git) {
-                if (effModel === 'gitflow' && !branchExists(repoPath, pr_target)) {
-                  effModel = 'github-flow';
-                  effTarget = repoDefaultBranch(repoPath);
-                }
-                if (shape === 'remote') {
-                  effRemotes = remotesForPath(repoPath);
-                }
-              }
+              repoPath = repoRowPath(db, row.path);
+              inGit = probeGit(repoPath).in_git;
             } catch {
-              // Git probe threw — keep the chosen policy and managed-repo
-              // remotes; onboarding must not fail.
-              effModel = branching_model;
-              effTarget = pr_target;
-              effRemotes = shape === 'remote' ? remotes : [];
+              inGit = false;
             }
-            const effProtected = deriveProtectedBranches(effModel, effTarget);
-            db.run(
-              `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`,
-              [effTarget, effModel, JSON.stringify(effProtected), row.name],
-            );
+            if (row.branching_model === null) {
+              let seed: { model: string; target: string };
+              try {
+                seed = seedPolicy(repoPath, inGit);
+              } catch {
+                seed = seedPolicy(repoPath, false);
+              }
+              db.run(
+                `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`,
+                [seed.target, seed.model, JSON.stringify(deriveProtectedBranches(seed.model, seed.target)), row.name],
+              );
+            }
+            let effRemotes = shape === 'remote' ? remotes : [];
+            if (shape === 'remote' && inGit) {
+              try {
+                effRemotes = remotesForPath(repoPath);
+              } catch {
+                effRemotes = remotes;
+              }
+            }
+            if (effRemotes.some((r) => r.url.length > 0)) anyRemote = true;
             upsertRepoRemotes(db, row.name, effRemotes);
           }
         });
+
+        if (shape === 'remote' && !anyRemote && !warning) {
+          warning = "no git remote detected on any repo; issues will not sync — check each repo's git remote";
+        }
+
+        const managed = readRepoPolicy(db);
+        const appliedModel = managed.branching_model ?? branching_model ?? 'github-flow';
+        const appliedTarget = managed.pr_target ?? pr_target ?? derivePrTargetDefault(appliedModel);
+        const appliedProtected = Array.isArray(managed.protected_branches)
+          ? managed.protected_branches
+          : deriveProtectedBranches(appliedModel, appliedTarget);
 
         const headless_shim = applyHeadlessShim(headless);
 
@@ -1377,9 +1392,9 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
           ...(strayPaths !== undefined ? { stray_dbs: removeStrayDbs(strayPaths) } : {}),
           applied: {
             onboarded: true,
-            branching_model,
-            pr_target,
-            protected_branches,
+            branching_model: appliedModel,
+            pr_target: appliedTarget,
+            protected_branches: appliedProtected,
             remotes,
             issue_sync,
             headless_enforcement,

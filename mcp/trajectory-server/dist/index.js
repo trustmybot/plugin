@@ -34415,7 +34415,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           },
           repo: {
             type: "string",
-            description: "Optional. Scope the branching + pr_target questions to a single repos row (Keep options seed from that repo's target_branch/branching_model). Only valid with round='main', shape='remote'. Must match an existing repos.name. Omit for workspace-wide questions."
+            description: "Optional. Scope the branching + pr_target questions to a single repos row (a Keep option appears only for a field that repo has stored). Only valid with round='main', for either shape. Must match an existing repos.name. Omit for workspace-wide questions."
           }
         },
         required: ["round"]
@@ -34444,18 +34444,18 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           branching_model: {
             type: "string",
             enum: ["github-flow", "gitflow"],
-            description: "Optional on local first-run (defaults to github-flow)."
+            description: "Optional. With repo: written to that repos row. Without repo: seeds only repos rows whose branching_model is unset (default github-flow + the repo's default branch); populated rows are never changed."
           },
           pr_target: { type: "string" },
           remote: {
             type: "array",
             items: { type: "string", enum: ["github", "gitlab"] },
-            description: 'Required when shape=remote. Array of provider IDs (multiSelect AUQ answer). Single-element ["github"] or ["gitlab"], or ["github","gitlab"] for dual-host. Ignored on local.'
+            description: `Optional when shape=remote. Array of provider IDs (multiSelect AUQ answer). Single-element ["github"] or ["gitlab"], or ["github","gitlab"] for dual-host. Omitted or empty: each repo's GitHub/GitLab remotes are probed from its git tree, with a warning when none has one. Ignored on local.`
           },
           issue_sync: {
             type: "string",
             enum: ["auto", "off"],
-            description: 'Required when shape=remote. Always "off" on local.'
+            description: 'The Round 3 answer when shape=remote; omitted means "off". Always "off" on local.'
           },
           headless_enforcement: {
             type: "string",
@@ -34469,7 +34469,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           },
           repo: {
             type: "string",
-            description: "Optional. Scope the write to a single repos row: only that row's target_branch/branching_model/protected_branches are updated; other repos rows, remotes, issue_sync, and the onboarded marker are NOT touched. Must match an existing repos.name. Omit for the workspace-wide apply."
+            description: "Optional. Scope the write to a single repos row: only that row's target_branch/branching_model/protected_branches are updated; other repos rows, remotes, issue_sync, and the onboarded marker are NOT touched. Must match an existing repos.name. Omit for the workspace-wide apply, which never changes a populated row's branching_model/target_branch/protected_branches."
           }
         }
       }
@@ -34678,18 +34678,14 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           if (round !== "main") {
             throw new Error(`repo param is only valid with round='main' (got '${round}')`);
           }
-          if (shape !== "remote") {
-            throw new Error(`repo param requires shape='remote' (got '${String(shape)}')`);
-          }
           const repoRow = readRepoRow(db2, repo);
           if (!repoRow) {
             throw new Error(`unknown repo '${repo}' \u2014 no matching repos row`);
           }
-          const isReonboardRepo = repoRow.branching_model !== null;
           const advice = branchingAdvice(repoRow.recommendation);
           const repoQuestions = [
-            branchingQuestion(repoRow.branching_model, isReonboardRepo, advice.branching),
-            prTargetQuestion(repoRow.target_branch, repoRow.branching_model, isReonboardRepo, advice.prTarget)
+            branchingQuestion(repoRow.branching_model, repoRow.branching_model !== null, advice.branching),
+            prTargetQuestion(repoRow.target_branch, repoRow.branching_model, repoRow.target_branch !== null, advice.prTarget)
           ];
           return ok16({ questions: repoQuestions });
         }
@@ -34829,25 +34825,19 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           } else {
             branching_model = rawBranching;
           }
-        }
-        branching_model = branching_model ?? (shape === "local" ? "github-flow" : void 0);
-        if (!branching_model) {
-          throw new Error("branching_model is required for shape=remote");
-        }
-        if (branching_model !== "github-flow" && branching_model !== "gitflow") {
-          throw new Error(`branching_model must be 'github-flow' or 'gitflow' (got '${branching_model}')`);
+          if (branching_model !== void 0 && branching_model !== "github-flow" && branching_model !== "gitflow") {
+            throw new Error(`branching_model must be 'github-flow' or 'gitflow' (got '${branching_model}')`);
+          }
         }
         const rawPrTarget = args["pr_target"];
         let pr_target;
         if (rawPrTarget !== void 0) {
           const resolved = resolveOption(rawPrTarget, PR_TARGET_OPTIONS);
           if (resolved === KEEP_SENTINEL) {
-            pr_target = readRepoPolicy(db2).pr_target ?? derivePrTargetDefault(branching_model);
+            pr_target = readRepoPolicy(db2).pr_target ?? derivePrTargetDefault(branching_model ?? "github-flow");
           } else {
             pr_target = resolved ?? rawPrTarget;
           }
-        } else {
-          pr_target = derivePrTargetDefault(branching_model);
         }
         let remotes = [];
         let issue_sync = "off";
@@ -34859,11 +34849,6 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             remoteList = rawRemote.filter((s) => typeof s === "string");
           } else if (typeof rawRemote === "string") {
             remoteList = [rawRemote];
-          } else {
-            throw new Error("'remote' is required when shape='remote'");
-          }
-          if (remoteList.length === 0) {
-            throw new Error("'remote' must include at least one of 'github' / 'gitlab' when shape='remote'");
           }
           remoteList = remoteList.map((r) => {
             const resolved = resolveOption(r, REMOTE_OPTIONS);
@@ -34893,9 +34878,10 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         const remotesForPath = (path2) => {
           const detected = probeGit(path2).detected_remotes;
           const findUrl = (p) => detected.find((r) => r.provider === p)?.url ?? "";
+          const wanted = remoteList.length > 0 ? remoteList : ["github", "gitlab"].filter((p) => findUrl(p).length > 0);
           const out = [];
-          const wantedGh = remoteList.includes("github");
-          const wantedGl = remoteList.includes("gitlab");
+          const wantedGh = wanted.includes("github");
+          const wantedGl = wanted.includes("gitlab");
           if (wantedGh) out.push({ name: "origin", provider: "github", url: findUrl("github") });
           if (wantedGl) {
             out.push({ name: wantedGh ? "gitlab" : "origin", provider: "gitlab", url: findUrl("gitlab") });
@@ -34920,43 +34906,66 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         if (sandbox_enforcement !== "yes" && sandbox_enforcement !== "no") {
           throw new Error(`sandbox_enforcement must be 'yes' or 'no' (got '${sandbox_enforcement}')`);
         }
-        const protected_branches = deriveProtectedBranches(branching_model, pr_target);
+        const seedPolicy = (repoPath, inGit) => {
+          const defaultBranch = () => inGit ? repoDefaultBranch(repoPath) : derivePrTargetDefault("github-flow");
+          if (branching_model === void 0) {
+            return { model: "github-flow", target: pr_target ?? defaultBranch() };
+          }
+          const target = pr_target ?? derivePrTargetDefault(branching_model);
+          if (inGit && branching_model === "gitflow" && !branchExists(repoPath, target)) {
+            return { model: "github-flow", target: defaultBranch() };
+          }
+          return { model: branching_model, target };
+        };
+        let anyRemote = remotes.some((r) => r.url.length > 0);
         db2.transaction(() => {
           writeConfig(db2, "onboarded", true);
           writeConfig(db2, "issue_sync", issue_sync);
           writeConfig(db2, "headless_enforcement", headless_enforcement);
           writeConfig(db2, "sandbox_enforcement", sandbox_enforcement);
           const rows = db2.all(
-            `SELECT name, path FROM repos`
+            `SELECT name, path, branching_model FROM repos`
           );
           for (const row of rows) {
-            let effModel = branching_model;
-            let effTarget = pr_target;
-            let effRemotes = shape === "remote" ? remotes : [];
+            let repoPath = row.path;
+            let inGit = false;
             try {
-              const repoPath = repoRowPath(db2, row.path);
-              if (probeGit(repoPath).in_git) {
-                if (effModel === "gitflow" && !branchExists(repoPath, pr_target)) {
-                  effModel = "github-flow";
-                  effTarget = repoDefaultBranch(repoPath);
-                }
-                if (shape === "remote") {
-                  effRemotes = remotesForPath(repoPath);
-                }
-              }
+              repoPath = repoRowPath(db2, row.path);
+              inGit = probeGit(repoPath).in_git;
             } catch {
-              effModel = branching_model;
-              effTarget = pr_target;
-              effRemotes = shape === "remote" ? remotes : [];
+              inGit = false;
             }
-            const effProtected = deriveProtectedBranches(effModel, effTarget);
-            db2.run(
-              `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`,
-              [effTarget, effModel, JSON.stringify(effProtected), row.name]
-            );
+            if (row.branching_model === null) {
+              let seed;
+              try {
+                seed = seedPolicy(repoPath, inGit);
+              } catch {
+                seed = seedPolicy(repoPath, false);
+              }
+              db2.run(
+                `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`,
+                [seed.target, seed.model, JSON.stringify(deriveProtectedBranches(seed.model, seed.target)), row.name]
+              );
+            }
+            let effRemotes = shape === "remote" ? remotes : [];
+            if (shape === "remote" && inGit) {
+              try {
+                effRemotes = remotesForPath(repoPath);
+              } catch {
+                effRemotes = remotes;
+              }
+            }
+            if (effRemotes.some((r) => r.url.length > 0)) anyRemote = true;
             upsertRepoRemotes(db2, row.name, effRemotes);
           }
         });
+        if (shape === "remote" && !anyRemote && !warning) {
+          warning = "no git remote detected on any repo; issues will not sync \u2014 check each repo's git remote";
+        }
+        const managed = readRepoPolicy(db2);
+        const appliedModel = managed.branching_model ?? branching_model ?? "github-flow";
+        const appliedTarget = managed.pr_target ?? pr_target ?? derivePrTargetDefault(appliedModel);
+        const appliedProtected = Array.isArray(managed.protected_branches) ? managed.protected_branches : deriveProtectedBranches(appliedModel, appliedTarget);
         const headless_shim = applyHeadlessShim(headless);
         let sandbox;
         try {
@@ -34994,9 +35003,9 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           ...strayPaths !== void 0 ? { stray_dbs: removeStrayDbs(strayPaths) } : {},
           applied: {
             onboarded: true,
-            branching_model,
-            pr_target,
-            protected_branches,
+            branching_model: appliedModel,
+            pr_target: appliedTarget,
+            protected_branches: appliedProtected,
             remotes,
             issue_sync,
             headless_enforcement,

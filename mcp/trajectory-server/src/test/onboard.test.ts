@@ -389,19 +389,6 @@ describe('onboard tools', () => {
       db.close();
     });
 
-    it('per-repo param requires shape=remote', async () => {
-      const db = tempDB();
-      db.run(`INSERT INTO repos (path, name) VALUES ('/repo/a', 'a')`);
-      const tools = onboardTools(db);
-      const result = await call(tools.handlers, 'onboard_get_questions', {
-        shape: 'local',
-        round: 'main',
-        repo: 'a',
-      });
-      const data = parse(result);
-      assert.match(String(data.error), /requires shape='remote'/);
-      db.close();
-    });
   });
 
   describe('onboard_apply', () => {
@@ -541,32 +528,6 @@ describe('onboard tools', () => {
       const remotes = applied.remotes as Array<{ provider: string }>;
       assert.equal(remotes.length, 1);
       assert.equal(remotes[0].provider, 'gitlab');
-      db.close();
-    });
-
-    it('remote shape rejects when remote arg is missing', async () => {
-      const db = tempDB();
-      const tools = onboardTools(db);
-      const result = await call(tools.handlers, 'onboard_apply', {
-        shape: 'remote',
-        branching_model: 'github-flow',
-      });
-      const data = parse(result);
-      assert.match(String(data.error), /'remote' is required when shape='remote'/);
-      db.close();
-    });
-
-    it('remote shape rejects empty array', async () => {
-      const db = tempDB();
-      const tools = onboardTools(db);
-      const result = await call(tools.handlers, 'onboard_apply', {
-        shape: 'remote',
-        branching_model: 'github-flow',
-        remote: [],
-        issue_sync: 'auto',
-      });
-      const data = parse(result);
-      assert.match(String(data.error), /at least one/);
       db.close();
     });
 
@@ -739,22 +700,6 @@ describe('onboard tools', () => {
         assert.equal(row.branching_model, 'gitflow');
         assert.equal(row.protected_branches, JSON.stringify(['main', 'dev']));
       }
-      db.close();
-    });
-
-    it('re-onboard with different model overwrites all repos rows (no stale values)', async () => {
-      const db = tempDB();
-      db.run(`INSERT INTO repos (path, name) VALUES ('/repo/a', 'a')`);
-      const tools = onboardTools(db);
-      await call(tools.handlers, 'onboard_apply', { shape: 'local', branching_model: 'github-flow' });
-      await call(tools.handlers, 'onboard_apply', { shape: 'local', branching_model: 'gitflow' });
-      const row = db.get<{ target_branch: string; branching_model: string; protected_branches: string }>(
-        `SELECT target_branch, branching_model, protected_branches FROM repos WHERE path = '/repo/a'`,
-      );
-      assert.ok(row, 'repos row should exist');
-      assert.equal(row.target_branch, 'dev');
-      assert.equal(row.branching_model, 'gitflow');
-      assert.equal(row.protected_branches, JSON.stringify(['main', 'dev']));
       db.close();
     });
 
@@ -1942,5 +1887,208 @@ describe('onboard questions quote the scan evidence (GH 1575)', () => {
       }
     }
     db.close();
+  });
+});
+
+describe('onboard_apply workspace vs per-repo writers (GH 1580)', () => {
+  type Option = { label: string; wire: string };
+  type Question = { header: string; options: Option[]; default_index: number };
+  type PolicyRow = { name: string; target_branch: string | null; branching_model: string | null; protected_branches: string | null };
+
+  const GIT_ENV = {
+    ...process.env,
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_AUTHOR_NAME: 't',
+    GIT_AUTHOR_EMAIL: 't@example.com',
+    GIT_COMMITTER_NAME: 't',
+    GIT_COMMITTER_EMAIL: 't@example.com',
+  };
+  const dirs: string[] = [];
+
+  function tempDir(prefix: string): string {
+    const dir = mkdtempSync(join(tmpdir(), prefix));
+    dirs.push(dir);
+    return dir;
+  }
+
+  function gitRepo(opts: { branch?: string; branches?: string[]; origin?: string } = {}): string {
+    const dir = tempDir('onboard-1580-');
+    const run = (args: string[]): void => {
+      const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8', env: GIT_ENV });
+      assert.equal(r.status, 0, r.stderr);
+    };
+    run(['init', '-q', '-b', opts.branch ?? 'main']);
+    run(['commit', '-q', '--allow-empty', '-m', 'init']);
+    for (const b of opts.branches ?? []) run(['branch', b]);
+    if (opts.origin) run(['remote', 'add', 'origin', opts.origin]);
+    return dir;
+  }
+
+  function nonGitDbPath(): string {
+    return join(tempDir('onboard-1580-ws-'), '.claude', 'tmb', 'trajectory.db');
+  }
+
+  function policyRows(db: TrajectoryDB): PolicyRow[] {
+    return db
+      .all<PolicyRow>(`SELECT name, target_branch, branching_model, protected_branches FROM repos ORDER BY name`)
+      .map((r) => ({ ...r }));
+  }
+
+  function row(db: TrajectoryDB, name: string): PolicyRow {
+    return policyRows(db).find((r) => r.name === name)!;
+  }
+
+  const apply = async (tools: ReturnType<typeof onboardTools>, args: Record<string, unknown>): Promise<Record<string, unknown>> =>
+    parse(await call(tools.handlers, 'onboard_apply', args));
+
+  it('the workspace apply after per-repo applies succeeds without branching_model/pr_target/remote and leaves both rows byte-identical', async () => {
+    const repoA = gitRepo({ branches: ['dev'], origin: 'https://github.com/acme/alpha.git' });
+    const repoB = gitRepo({ origin: 'https://github.com/acme/beta.git' });
+    const db = tempDB();
+    db.run(`INSERT INTO repos (path, name) VALUES (?, 'a'), (?, 'b')`, [repoA, repoB]);
+    const tools = onboardTools(db, nonGitDbPath());
+    assert.equal((await apply(tools, { shape: 'remote', repo: 'a', branching_model: 'gitflow', pr_target: 'dev' })).ok, true);
+    assert.equal((await apply(tools, { shape: 'remote', repo: 'b', branching_model: 'github-flow', pr_target: 'main' })).ok, true);
+    const before = policyRows(db);
+
+    const data = await apply(tools, { shape: 'remote', issue_sync: 'auto' });
+    assert.equal(data.ok, true, String(data.error));
+    assert.deepEqual(policyRows(db), before);
+    assert.equal(row(db, 'a').branching_model, 'gitflow');
+    assert.equal(row(db, 'a').target_branch, 'dev');
+    assert.equal(row(db, 'b').branching_model, 'github-flow');
+    assert.equal(row(db, 'b').target_branch, 'main');
+    const onboarded = db.get<{ value_json: string }>("SELECT value_json FROM plugin_config WHERE key='onboarded'");
+    assert.equal(onboarded?.value_json, 'true');
+    assert.equal(repoRemotes(db, 'a')[0]!.url, 'https://github.com/acme/alpha.git');
+    assert.equal(repoRemotes(db, 'b')[0]!.url, 'https://github.com/acme/beta.git');
+    db.close();
+  });
+
+  it('explicit branching_model/pr_target on the workspace apply never change a populated row and fill only a NULL one', async () => {
+    const db = tempDB();
+    db.run(
+      `INSERT INTO repos (path, name, target_branch, branching_model, protected_branches)
+       VALUES ('/repo/a', 'a', 'main', 'github-flow', '["main"]'),
+              ('/repo/b', 'b', 'develop', 'gitflow', '["main","develop"]')`,
+    );
+    db.run(`INSERT INTO repos (path, name) VALUES ('/repo/c', 'c')`);
+    const before = policyRows(db).filter((r) => r.name !== 'c');
+    const tools = onboardTools(db);
+    const data = await apply(tools, { shape: 'local', branching_model: 'gitflow', pr_target: 'dev' });
+    assert.equal(data.ok, true, String(data.error));
+    assert.deepEqual(policyRows(db).filter((r) => r.name !== 'c'), before);
+    assert.deepEqual(row(db, 'c'), {
+      name: 'c',
+      target_branch: 'dev',
+      branching_model: 'gitflow',
+      protected_branches: JSON.stringify(['main', 'dev']),
+    });
+    db.close();
+  });
+
+  it('a second workspace apply with a different model leaves the rows the first one seeded', async () => {
+    const db = tempDB();
+    db.run(`INSERT INTO repos (path, name) VALUES ('/repo/a', 'a')`);
+    const tools = onboardTools(db);
+    await apply(tools, { shape: 'local', branching_model: 'github-flow' });
+    const data = await apply(tools, { shape: 'local', branching_model: 'gitflow' });
+    assert.equal(row(db, 'a').branching_model, 'github-flow');
+    assert.equal(row(db, 'a').target_branch, 'main');
+    const applied = data.applied as Record<string, unknown>;
+    assert.equal(applied.branching_model, 'github-flow', 'applied reports the representative row after the apply');
+    assert.equal(applied.pr_target, 'main');
+    db.close();
+  });
+
+  it('shape=local with no answers seeds NULL rows with github-flow and each repo\'s real default branch', async () => {
+    const trunk = gitRepo({ branch: 'trunk' });
+    const db = tempDB();
+    db.run(`INSERT INTO repos (path, name) VALUES (?, 'git-trunk'), ('/repo/nogit', 'nogit')`, [trunk]);
+    const data = await apply(onboardTools(db), { shape: 'local' });
+    assert.equal(data.ok, true, String(data.error));
+    assert.deepEqual(row(db, 'git-trunk'), {
+      name: 'git-trunk',
+      target_branch: 'trunk',
+      branching_model: 'github-flow',
+      protected_branches: JSON.stringify(['trunk']),
+    });
+    assert.equal(row(db, 'nogit').target_branch, 'main');
+    assert.equal(row(db, 'nogit').branching_model, 'github-flow');
+    db.close();
+  });
+
+  for (const remote of [undefined, []]) {
+    it(`shape=remote with remote=${JSON.stringify(remote) ?? 'omitted'} and no git remote anywhere succeeds with a warning`, async () => {
+      const db = tempDB();
+      db.run(`INSERT INTO repos (path, name) VALUES (?, 'widget')`, [tempDir('onboard-1580-nogit-')]);
+      const data = await apply(onboardTools(db, nonGitDbPath()), {
+        shape: 'remote',
+        issue_sync: 'auto',
+        ...(remote !== undefined ? { remote } : {}),
+      });
+      assert.equal(data.ok, true, String(data.error));
+      assert.match(String(data.warning), /no git remote detected on any repo; issues will not sync/);
+      const applied = data.applied as Record<string, unknown>;
+      assert.deepEqual(applied.remotes, []);
+      assert.equal(applied.issue_sync, 'auto');
+      assert.deepEqual(repoRemotes(db, 'widget'), []);
+      db.close();
+    });
+  }
+
+  it('shape=remote with remote omitted probes the repo\'s GitHub origin into applied.remotes and repo_remotes', async () => {
+    const solo = gitRepo({ origin: 'https://github.com/acme/solo.git' });
+    const db = tempDB();
+    db.run(`INSERT INTO repos (path, name) VALUES (?, 'solo')`, [solo]);
+    const data = await apply(onboardTools(db, nonGitDbPath()), { shape: 'remote', issue_sync: 'auto' });
+    assert.equal(data.ok, true, String(data.error));
+    assert.equal(data.warning, undefined);
+    const applied = data.applied as Record<string, unknown>;
+    assert.deepEqual(applied.remotes, [{ name: 'origin', provider: 'github', url: 'https://github.com/acme/solo.git' }]);
+    assert.equal(repoRemotes(db, 'solo')[0]!.url, 'https://github.com/acme/solo.git');
+    db.close();
+  });
+
+  it('a non-empty remote is still validated', async () => {
+    const db = tempDB();
+    const data = await apply(onboardTools(db), { shape: 'remote', remote: ['bitbucket'], issue_sync: 'auto' });
+    assert.match(String(data.error), /'github' or 'gitlab'/);
+    db.close();
+  });
+
+  it('per-repo round=main accepts shape=local and returns the branching + PR target pair', async () => {
+    const db = tempDB();
+    db.run(`INSERT INTO repos (path, name) VALUES ('/repo/a', 'a')`);
+    const tools = onboardTools(db);
+    for (const shape of ['local', 'remote']) {
+      const data = parse(await call(tools.handlers, 'onboard_get_questions', { shape, round: 'main', repo: 'a' }));
+      const questions = data.questions as Question[];
+      assert.deepEqual(questions.map((q) => q.header), ['Branching', 'PR target'], shape);
+    }
+    db.close();
+  });
+
+  it('a half-populated row offers Keep for branching only, defaults PR target to dev, and a Keep apply writes dev', async () => {
+    const db = tempDB();
+    db.run(`INSERT INTO repos (path, name, branching_model) VALUES ('/repo/a', 'a', 'gitflow')`);
+    const tools = onboardTools(db);
+    const data = parse(await call(tools.handlers, 'onboard_get_questions', { shape: 'local', round: 'main', repo: 'a' }));
+    const [branching, prTarget] = data.questions as Question[];
+    assert.equal(branching!.options[0]!.wire, '__keep__');
+    assert.equal(branching!.options[0]!.label, 'Keep "gitflow"');
+    assert.ok(!prTarget!.options.some((o) => o.wire === '__keep__'), 'no Keep for a target that is not stored');
+    assert.equal(prTarget!.options[prTarget!.default_index]!.wire, 'dev');
+
+    const applied = await apply(tools, { shape: 'remote', repo: 'a', pr_target: '__keep__' });
+    assert.equal(applied.ok, true, String(applied.error));
+    assert.equal(row(db, 'a').target_branch, 'dev');
+    assert.equal(row(db, 'a').branching_model, 'gitflow');
+    db.close();
+  });
+
+  it('cleans up its temp repos', () => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
   });
 });
