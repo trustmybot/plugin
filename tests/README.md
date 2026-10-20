@@ -42,9 +42,9 @@ PR labeled `L5` (optional) → L5 per-flow runner (~$0.20/flow, ~3 min/flow)
    ↓ green
 PR labeled `L6` (optional) → L6 multi-turn integration (~$0.30–1/scenario)
    ↓ green
-workflow_dispatch on feature branch → full release-gate (L0 + L1–L4 + L6)
+rc branch at the candidate → workflow_dispatch --ref rc → full release-gate (L0 + L1–L4 + L6)
    ↓ green
-RC tag pushed → Release canary in CI (~$1–3, ~10 min)
+RC tag pushed on that commit → Release canary in CI (~$1–3, ~10 min)
    ↓ green
 Promote RC → main → tag stable.
 ```

@@ -25,7 +25,7 @@ Either way you still don't push to `dev` or `main` directly — branch protectio
 **Maintainer-only steps.** A contributor (fork or collaborator) cannot:
 
 - Merge a pull request into `dev` or `main`.
-- Run the L6 release-gate — it needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret (forks can't read repo secrets), and it fires only on rc tags plus manual `workflow_dispatch`.
+- Run the L6 release-gate — it needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret (forks can't read repo secrets), and it fires only on rc tags plus manual `workflow_dispatch` from `rc` or `main`.
 - Tag a release, publish to a marketplace channel, or cut a GitHub release.
 
 ## Platform adapters
@@ -77,6 +77,15 @@ Every push to `dev` runs `.github/workflows/dev-build.yml`, which stamps the man
 
 Then restart Claude Code. Keep only one TMB copy enabled — two enabled copies silently drop one copy's hooks ([UPGRADE.md — Two enabled TMB copies](docs/reference/UPGRADE.md#two-enabled-tmb-copies--gates-silently-missing)).
 
+**Upgrading to the latest dev build:**
+
+```
+claude plugin marketplace update trustmybot-dev
+claude plugin update tmb@trustmybot-dev
+```
+
+Then restart Claude Code. Each dev build comments its version and these commands on the PR that produced it.
+
 ### Branching & merging
 
 1. **Feature branches come from `dev`** and are named by git convention (`feat/`, `fix/`, `docs/`, `chore/`, `test/` + slug). One concern per branch. Fetch in the same step you branch: `git fetch origin dev && git switch -c <branch> origin/dev`. A stale `origin/dev` makes `dist/` and CHANGELOG conflict at merge, and since local merges are blocked the only fix is redoing the work on a fresh branch.
@@ -84,7 +93,7 @@ Then restart Claude Code. Keep only one TMB copy enabled — two enabled copies 
 3. **Typical feature workflow:** branch from `dev` → implement → local L0–L4 green → PR → `dev`. If your branch is the **last one planned before a release**, also run the local L6 chain — at that point you're in the Release workflow (Phase B); follow it.
 4. **All integration goes through GitHub PRs** — `gh pr create` / `gh pr merge`. Never `git merge` locally, never push directly to `dev` or `main`. Rule 5's merge-on-green is carried out by hand: GitHub auto-merge is disabled on this repo, so `--auto` merges at once instead of waiting. Wait for green checks, then merge without `--auto`.
 5. **Merge policy by surface:** code / docs / tests PRs auto-merge once checks are green. Prompt-surface PRs (`agents/`, `skills/`, `commands/`, `templates/`, `CLAUDE.md`) never auto-merge — a maintainer reviews the PR itself.
-6. **CI-affecting changes** (workflows, gate scripts, L5/L6 harness) must pass a full release-gate `workflow_dispatch` on the feature branch *before* merge — `dev` stays green at all times; a tag-triggered gate is never the first time CI sees your change. Also, after a PR touching `tests/`, `scripts/` or `.github/workflows/` merges, dispatch `release-gate.yml` on `dev` (`gh workflow run release-gate.yml --ref dev`) so CI-only breakage surfaces before rc time.
+6. **CI-affecting changes** (workflows, gate scripts, L5/L6 harness) are validated like any other PR: the local sweep (`tests/run-all.sh` for the tiers they touch) + pr-reviewer + any PR checks. Never dispatch release-gate on a feature branch or on `dev` (its `ref-guard` job refuses any ref but `rc` and `main`), and no `dev` merge waits for it. CI-only breakage surfaces at rc time, when release-gate runs on the rc candidate.
 7. **Delete branches on merge** (`--delete-branch`); a stale branch is a future wrong-base.
 8. **Prompt engineering follows [`docs/prompt-engineering/DETERMINISM.md`](docs/prompt-engineering/DETERMINISM.md)** — grade every new or changed prompt against its rubric; nothing ships below **A-**.
 9. **Prompt surfaces freeze during autonomous batches.** While a batch of issues is being worked autonomously, `agents/`, `skills/`, `commands/`, `templates/` and `CLAUDE.md` are frozen: prefer a hook, MCP or schema fix; if only a prompt change will do, file an issue for maintainer review instead.
@@ -92,11 +101,11 @@ Then restart Claude Code. Keep only one TMB copy enabled — two enabled copies 
 ## CI (GitHub Actions)
 
 `.github/workflows/release-gate.yml` is **not** wired to dev pushes or PRs — it runs only on:
-- **rc tags (`vX.Y.Z-rc.N`) + manual dispatch** → L1–L4 **+ L6 chain** (`tests/l5-l6/run-l6-chain.sh`) **+ L0 docker install-smoke**. Stable tags do not fire the gate; the stable cut consumes the promoted rc's verdict.
+- **rc tags (`vX.Y.Z-rc.N`) + manual dispatch from `rc` or `main`** → L1–L4 **+ L6 chain** (`tests/l5-l6/run-l6-chain.sh`) **+ L0 docker install-smoke**. Stable tags do not fire the gate; the stable cut consumes the promoted rc's verdict.
 
 `.github/workflows/dev-build.yml` runs on every push to `dev` (and on dispatch from `dev`): it stamps the dev-build version and force-pushes to the `dev-build` branch ([Dev builds](#dev-builds)). It publishes; it is not a gate.
 
-Per-PR validation to `dev` is the **local L0–L4 sweep (`tests/run-all.sh`) + pr-reviewer** — there is no automatic PR-CI on `dev`. CI-affecting changes additionally run a `workflow_dispatch` release-gate on the feature branch before merge (rule 6 above).
+Release-gate is **rc/main-only**: it runs for an rc (the rc tag push, or a dispatch from `rc` before tagging — Release, Phase B) or a dispatch from `main`, and `main` takes only a `dev` carrying a green rc gate. It never runs for `dev` PRs or `dev` merges. Per-PR validation to `dev` is the **local L0–L4 sweep (`tests/run-all.sh`) + pr-reviewer + any PR checks** (rule 6 above).
 
 L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run artifact.
 
@@ -127,14 +136,14 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 2. Bump PR on a branch off `dev`: `bump-version.sh X.Y.Z-rc.N` + a `## vX.Y.Z-rc.N` CHANGELOG section → PR → `dev`.
 
 **Phase B — local pre-flight**
-3. Run the full local L6 chain (`bash tests/l5-l6/run-l6-chain.sh`) on the exact `dev` tree you intend to tag. **15/15 green clears you to cut the rc tag** — this is pre-flight to keep the tagged CI gate from going red, not the sign-off itself (that's Phase C, step 8). Before tagging, also dispatch release-gate on `dev` (`gh workflow run release-gate.yml --ref dev`) and tag only on green.
+3. Run the full local L6 chain (`bash tests/l5-l6/run-l6-chain.sh`) on the exact `dev` tree you intend to tag. **15/15 green clears you to cut the rc tag** — this is pre-flight to keep the tagged CI gate from going red, not the sign-off itself (that's Phase C, step 8). Then fast-forward `rc` to that same `dev` commit, dispatch the gate from it (`gh workflow run release-gate.yml --ref rc`), and tag that commit only on green; the tag push inherits the green same-SHA verdict (within 48h) instead of re-running it.
 4. On any step failure: reproduce and debug with the matching L5 row (`bash tests/l5-l6/run-l5.sh <row>`), fix on `dev` through the normal flow, then **resume the chain from the failed step** (`run-l6-chain.sh --from <step>`). Iterate until the chain completes. An L6 step that needs the network is made hermetic (a fixture env var or fixture file), never re-rolled until it passes.
 5. Whether the resumed 15/15 clears you to tag depends on what the fix touched:
    - Fix confined to **test fixtures, scorers, or docs** → the resumed pass stands; tag.
    - Fix touched **runtime** (`mcp/`, `scripts/hooks/`, schema, `agents/`, `skills/`, `commands/`, `CLAUDE.md`) → finish with **one full fresh chain**, because steps before the failure ran on pre-fix code and their green doesn't transfer.
 
 **Phase C — rc**
-6. Tag `vX.Y.Z-rc.N` on `dev`, push — this fires the CI release-gate (L1–L4 + L6 + L0) that is the sign-off (step 8). Fast-forward the `rc` branch to the tag.
+6. Tag `vX.Y.Z-rc.N` on `dev`, push — this fires the CI release-gate (L1–L4 + L6 + L0) that is the sign-off (step 8). `rc` already points at it (step 3).
 7. **Publish to the rc channel**: run `bash scripts/publish-rc-channel.sh` — it clones `trustmybot/marketplace-rc`, points `plugins[].source.ref` at the new rc tag, writes the channel README if missing, and pushes. Installs of `tmb@trustmybot-rc` now serve the rc. (Refuses non-rc versions; verifies the tag is on origin first; idempotent; `--dry-run` previews, `--yes` skips the prompt.)
 8. The CI release-gate (L1–L4 + L6 + L0) on the exact tree you tag is the gate — the automated layers are the sole sign-off. If it goes red, re-pin the rc channel to the previous rc (`bash scripts/publish-rc-channel.sh <prev> --yes`) and delete the rc tag.
 
@@ -151,7 +160,7 @@ L6 needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret; chain logs upload as a run a
 
 - Self-documenting code; prefer deletion over addition; match the file's existing patterns. TypeScript for the MCP server, Bash for hooks. Emoji + Conventional Commit messages.
 - Every change ships its test: MCP → `mcp/trajectory-server/src/test/*.test.ts`; hook → `tests/l3-integration/hooks/*.test.sh`; new enforcement → a lint in `tests/l1-lint/`.
-- Prompt / skill / doc changes have no automated test — they rely on the CI release-gate (L0–L6) and PR review for sign-off.
+- Prompt / skill / doc changes have no automated test — they rely on PR review, then the rc-time CI release-gate (L0–L6), for sign-off.
 - A task's `verification[]` exercises the layer that guards the surface it touches: hooks → the L3 hooks runner; migrations and destructive SQL → the L1 lints; `scripts/` or `mcp/trajectory-server/src/` → the whole `tests/l1-lint/` loop, not a hand-picked subset; MCP `dist/` → `dist-fresh`. Use at most one L3 runner per task, because the verification gate has one time budget (`verification_timeout_s`).
 - MCP unit tests run via `cd mcp/trajectory-server && bun run test`, never bare `bun test` (bun's runner cannot load `node:sqlite`).
 - Verify the committed bundle with `git show <sha>:mcp/trajectory-server/dist/<file>.js` before any probe that rebuilds, since a rebuild overwrites the working-tree copy.

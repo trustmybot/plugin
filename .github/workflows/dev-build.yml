@@ -9,7 +9,7 @@ on:
 permissions:
   contents: write
   issues: read
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: dev-build
@@ -79,6 +79,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Commit and push to dev-build
+        id: push
         env:
           VERSION: ${{ steps.version.outputs.version }}
           DEV_SHA: ${{ github.sha }}
@@ -88,8 +89,39 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -am "🔖 chore(dev-build): $VERSION" -m "Built from $DEV_SHA."
           git push --force origin HEAD:refs/heads/dev-build
+          echo "build_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           {
             echo "### Dev build \`$VERSION\`"
             echo
             echo "Built from \`$DEV_SHA\`, pushed to \`dev-build\`."
+            echo
+            echo "Upgrade an existing \`tmb@trustmybot-dev\` install, then restart Claude Code:"
+            echo
+            echo '```'
+            echo 'claude plugin marketplace update trustmybot-dev'
+            echo 'claude plugin update tmb@trustmybot-dev'
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment the dev build on its PR
+        if: steps.pr.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.pr }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_SHA: ${{ steps.push.outputs.build_sha }}
+        run: |
+          set -uo pipefail
+          BODY="$(printf '%s\n' \
+            "Dev build \`$VERSION\` is on \`dev-build\` (commit $BUILD_SHA)." \
+            '' \
+            "Upgrade an existing \`tmb@trustmybot-dev\` install, then restart Claude Code:" \
+            '' \
+            '```' \
+            'claude plugin marketplace update trustmybot-dev' \
+            'claude plugin update tmb@trustmybot-dev' \
+            '```')"
+          if ! gh pr comment "$PR" --repo "$REPO" --body "$BODY"; then
+            echo "::warning::Could not comment dev build $VERSION on PR #$PR; the build itself succeeded."
+          fi
