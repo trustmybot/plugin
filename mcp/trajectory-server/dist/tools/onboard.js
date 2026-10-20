@@ -155,8 +155,9 @@ function writeConfig(db, key, value) {
      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`, [key, JSON.stringify(value)]);
 }
 // Read the four repo-scoped policy keys from the repos table and its
-// repo_remotes rows — the sole source of truth (#980). onboard applies policy workspace-wide (every repos row gets
-// the same values), so the representative first row reflects current state.
+// repo_remotes rows — the sole source of truth (#980). The first row is the
+// representative sample the `applied` payload and the workspace PR-target Keep
+// option read; rows may differ after per-repo applies.
 // Returns null for each field on an empty repos table or a NULL column.
 function readRepoPolicy(db) {
     const row = db.get(`SELECT name, target_branch, branching_model, protected_branches
