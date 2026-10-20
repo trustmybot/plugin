@@ -84,6 +84,12 @@ MARKETPLACE_OWNER="${PLUGIN_NAME/tmb/trustmybot}"
 
 CACHE_DIR="${HOME}/.claude/plugins/cache/${MARKETPLACE_OWNER}"
 PLUGIN_ENTRY="${PLUGIN_NAME}@${MARKETPLACE_OWNER}"
+if [ "$MARKETPLACE_OWNER" = "trustmybot" ]; then
+  INSTALL_SCOPE="project"
+else
+  INSTALL_SCOPE="local"
+fi
+SCOPE_DOC="docs/reference/INSTALL.md#recommended-scope-project-or-local"
 MCP_SERVER_KEY="plugin:${PLUGIN_NAME}:trajectory-server"
 
 if ! command -v jq >/dev/null 2>&1; then
@@ -270,6 +276,7 @@ cache_exists="no"
 
 manifest_exists="no"
 matching_count=0
+recorded_scope=""
 total_count=0
 if [ -f "$INSTALLED_JSON" ]; then
   manifest_exists="yes"
@@ -277,7 +284,14 @@ if [ -f "$INSTALLED_JSON" ]; then
   matching_count=$(jq --arg entry "$PLUGIN_ENTRY" --arg name "$PLUGIN_NAME" \
     '[.plugins | to_entries[] | select(.key == $name or .key == $entry)] | length' \
     "$INSTALLED_JSON" 2>/dev/null || echo 0)
+  recorded_scope=$(jq -r --arg entry "$PLUGIN_ENTRY" --arg name "$PLUGIN_NAME" \
+    '(.plugins[$entry] // .plugins[$name] // []) | map(.scope // empty) | first // empty' \
+    "$INSTALLED_JSON" 2>/dev/null || true)
 fi
+case "$recorded_scope" in
+  project|local) UNINSTALL_SCOPE="$recorded_scope" ;;
+  *) UNINSTALL_SCOPE="$INSTALL_SCOPE" ;;
+esac
 
 printf 'Discovered state:\n'
 printf '  cache dir:           %s (%s)\n' "$CACHE_DIR" "$cache_exists"
@@ -319,8 +333,9 @@ if [ "$cache_exists" = "no" ] && [ "$matching_count" -eq 0 ]; then
   printf '\n  Nothing to nuke — cache dir already gone and no %s entry in installed_plugins.json.\n' "$PLUGIN_ENTRY"
   printf '  Skipping Step B.\n\n'
   printf 'Done. To reinstall:\n'
-  printf '  1. Launch Claude Code.\n'
-  printf '  2. /plugin install %s\n' "$PLUGIN_ENTRY"
+  printf '  1. From the project root: claude plugin install %s --scope %s\n' "$PLUGIN_ENTRY" "$INSTALL_SCOPE"
+  printf '     (scope rule: %s)\n' "$SCOPE_DOC"
+  printf '  2. Launch Claude Code.\n'
   printf '  3. Verify with: tail -1 <project>/.claude/%s/logs/mcp-health.log\n' "$PLUGIN_NAME"
   printf '     (expect mcp_alive:true)\n'
   exit 0
@@ -343,7 +358,9 @@ case "$answer_b" in
   *)
     printf '\nSkipped Step B. Manual recovery options:\n'
     printf '  1. claude --plugin-dir <plugin-source-path>   (cache-bust via inline)\n'
-    printf '  2. Inside CC: /plugin uninstall %s, quit, reinstall\n' "$PLUGIN_ENTRY"
+    printf '  2. From the project root: claude plugin uninstall %s --scope %s, then reinstall with: claude plugin install %s --scope %s\n' \
+      "$PLUGIN_ENTRY" "$UNINSTALL_SCOPE" "$PLUGIN_ENTRY" "$INSTALL_SCOPE"
+    printf '     (scope rule: %s)\n' "$SCOPE_DOC"
     printf '  3. Re-run this script and answer y to Step B.\n'
     exit 0
     ;;
@@ -363,7 +380,8 @@ if [ "$matching_count" -gt 0 ]; then
 fi
 
 printf '\nDone. To reinstall:\n'
-printf '  1. Launch Claude Code.\n'
-printf '  2. /plugin install %s\n' "$PLUGIN_ENTRY"
+printf '  1. From the project root: claude plugin install %s --scope %s\n' "$PLUGIN_ENTRY" "$INSTALL_SCOPE"
+printf '     (scope rule: %s)\n' "$SCOPE_DOC"
+printf '  2. Launch Claude Code.\n'
 printf '  3. Verify with: tail -1 <project>/.claude/%s/logs/mcp-health.log\n' "$PLUGIN_NAME"
 printf '     (expect mcp_alive:true)\n'

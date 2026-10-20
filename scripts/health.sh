@@ -86,25 +86,43 @@ fi
 INSTALLED_JSON="${TMB_HEALTH_INSTALLED_JSON:-$HOME/.claude/plugins/installed_plugins.json}"
 INTENDED_VERSION="${TMB_HEALTH_INTENDED_VERSION:-}"
 CACHE_DIR="${TMB_HEALTH_CACHE_DIR:-}"
-if [ -z "$INTENDED_VERSION" ] || [ -z "$CACHE_DIR" ]; then
-  if [ -f "$INSTALLED_JSON" ] && command -v jq >/dev/null 2>&1; then
-    # Prefer the dev-channel entry when CLAUDE_PLUGIN_ROOT points into one of
-    # the channels; otherwise take the first tmb entry. Deterministic: newest
-    # lastUpdated wins among the tmb entries.
-    _entry=$(jq -r --arg root "${CLAUDE_PLUGIN_ROOT:-}" '
-      .plugins
-      | to_entries
-      | map(select(.key | test("^'"$PLUGIN_NAME"'@")))
-      | map(.value[0] + {key: .key})
-      | (map(select($root != "" and (.installPath == $root))) + .)
-      | .[0] // empty
-      | "\(.version)\t\(.installPath)"
-    ' "$INSTALLED_JSON" 2>/dev/null || true)
-    if [ -n "$_entry" ]; then
-      [ -z "$INTENDED_VERSION" ] && INTENDED_VERSION=$(printf '%s' "$_entry" | cut -f1)
-      [ -z "$CACHE_DIR" ] && CACHE_DIR=$(printf '%s' "$_entry" | cut -f2)
-    fi
+INSTALL_KEY=""
+INSTALL_SCOPE=""
+if [ -f "$INSTALLED_JSON" ] && command -v jq >/dev/null 2>&1; then
+  # Prefer the dev-channel entry when CLAUDE_PLUGIN_ROOT points into one of
+  # the channels; otherwise take the first tmb entry. Deterministic: newest
+  # lastUpdated wins among the tmb entries.
+  _entry=$(jq -r --arg root "${CLAUDE_PLUGIN_ROOT:-}" '
+    .plugins
+    | to_entries
+    | map(select(.key | test("^'"$PLUGIN_NAME"'@")))
+    | map(.value[0] + {key: .key})
+    | (map(select($root != "" and (.installPath == $root))) + .)
+    | .[0] // empty
+    | "\(.version)\t\(.installPath)\t\(.key)\t\(.scope // "")"
+  ' "$INSTALLED_JSON" 2>/dev/null || true)
+  if [ -n "$_entry" ]; then
+    [ -z "$INTENDED_VERSION" ] && INTENDED_VERSION=$(printf '%s' "$_entry" | cut -f1)
+    [ -z "$CACHE_DIR" ] && CACHE_DIR=$(printf '%s' "$_entry" | cut -f2)
+    INSTALL_KEY=$(printf '%s' "$_entry" | cut -f3)
+    INSTALL_SCOPE=$(printf '%s' "$_entry" | cut -f4)
   fi
+fi
+
+# CC updates a plugin only at the scope it is installed at: use the entry's own
+# project/local scope, else the channel default (stable → project, rc/dev → local).
+SCOPE_DOC="docs/reference/INSTALL.md#recommended-scope-project-or-local"
+if [ -n "$INSTALL_KEY" ]; then
+  case "$INSTALL_SCOPE" in
+    project|local) ;;
+    *) case "$INSTALL_KEY" in
+         *@trustmybot) INSTALL_SCOPE="project" ;;
+         *) INSTALL_SCOPE="local" ;;
+       esac ;;
+  esac
+  UPDATE_CMD="claude plugin update $INSTALL_KEY --scope $INSTALL_SCOPE"
+else
+  UPDATE_CMD="claude plugin update ${PLUGIN_NAME}@<marketplace> --scope project (stable) or --scope local (rc/dev)"
 fi
 
 # Server log: prefer override, else the logs dir beside the trajectory DB
@@ -168,7 +186,8 @@ elif [ "$DB_PLUGIN_VERSION" = "$INTENDED_VERSION" ]; then
 else
   fail "cache-version: server booted $DB_PLUGIN_VERSION but $INTENDED_VERSION is installed"
   remediate \
-    "Run /plugin update, then fully quit + relaunch Claude Code so the server reboots on the new cache." \
+    "From the project root, run $UPDATE_CMD; then fully quit + relaunch Claude Code so the server reboots on the new cache." \
+    "Scope rule: $SCOPE_DOC" \
     "/reload-plugins will NOT pick up the new server — the MCP process is long-lived."
 fi
 
@@ -381,7 +400,7 @@ else
   fail "hook-cache-drift: dev checkout is $DRIFT_SOURCE_VERSION but the cache runs $INTENDED_VERSION"
   remediate \
     "Your edits to hooks/skills/agents/commands are NOT live until the cache updates." \
-    "After /plugin update brings the cache to your version, run /reload-plugins to load the new hook/skill/agent/command definitions." \
+    "Once the cache is at your version (from the project root: $UPDATE_CMD), run /reload-plugins to load the new hook/skill/agent/command definitions." \
     "(/reload-plugins is the RIGHT tool here — these are definition files, not the MCP server.)"
 fi
 

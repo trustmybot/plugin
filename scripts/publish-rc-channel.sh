@@ -191,9 +191,11 @@ Catalog for the **rc channel** of the [TMB plugin](https://github.com/trustmybot
 
 ## Install
 
+From the project root:
+
 ```
-/plugin marketplace add trustmybot/marketplace-rc
-/plugin install tmb@trustmybot-rc
+claude plugin marketplace add trustmybot/marketplace-rc --scope local
+claude plugin install tmb@trustmybot-rc --scope local
 ```
 
 The rc channel installs as `tmb` (same name as the released plugin), so only one can be enabled at a time.
@@ -204,26 +206,17 @@ The rc channel installs as `tmb` (same name as the released plugin), so only one
 /plugin disable tmb
 ```
 
-Use `/plugin disable` rather than `/plugin uninstall` so you can flip back to the released channel with `/plugin enable tmb` when done.
+Use `/plugin disable` rather than uninstalling so you can flip back to the released channel with `/plugin enable tmb` when done.
 
-### When CC asks for scope, pick *local*
-
-`/plugin marketplace add` will prompt:
-
-```
-  Install for all collaborators on this repository (project scope)
-> Install for you, in this repo only (local scope)
-```
-
-**Pick local scope.** The rc channel is a per-developer choice; teammates may each be on a different channel (stable / rc / dev). Project scope is right only when a team wants everyone pinned to the same channel.
+The rc channel is a per-developer choice, so every command here installs at local scope; see [Recommended scope](https://github.com/trustmybot/plugin/blob/main/docs/reference/INSTALL.md#recommended-scope-project-or-local).
 
 ## Pull the latest rc
 
 The marketplace ref is the current `vX.Y.Z-rc.N` tag, but CC caches a clone — when the channel re-pins to a newer rc tag, refresh to pick it up:
 
 ```
-/plugin marketplace update trustmybot-rc
-/plugin update tmb@trustmybot-rc
+claude plugin marketplace update trustmybot-rc
+claude plugin update tmb@trustmybot-rc --scope local
 ```
 
 `/reload-plugins` only re-reads what CC already has on disk; you need `marketplace update` + `update` to fetch the newly-pinned tag from the remote.
@@ -231,7 +224,7 @@ The marketplace ref is the current `vX.Y.Z-rc.N` tag, but CC caches a clone — 
 ## Flip back to the released channel when done
 
 ```
-/plugin uninstall tmb@trustmybot-rc
+claude plugin uninstall tmb@trustmybot-rc --scope local
 /plugin enable tmb
 ```
 
