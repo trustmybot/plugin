@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { requireRoles } from '../middleware/agent-scope.js';
-import { resolveBackend } from '../sync/backend.js';
+import { resolveBackendFor } from '../sync/backend.js';
 import { repoSlugFromRemoteUrl } from '../sync/issue_sync.js';
 import { closeRemoteMilestone, createRemoteMilestone, fetchRemoteMilestones, } from '../sync/milestone_sync.js';
 import { resolveRepoForSync } from '../utils/repo-paths.js';
@@ -64,7 +64,7 @@ export function resolveMilestoneTargets(db, repoName, spawnFn) {
     };
     const ghSlug = slugFor('github');
     const glSlug = slugFor('gitlab');
-    const backend = resolveBackend(syncConfig, { github: ghSlug !== null, gitlab: glSlug !== null }, !!spawnFn);
+    const backend = resolveBackendFor(syncConfig, { github: ghSlug !== null, gitlab: glSlug !== null }, spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: 'utf8' }) : undefined);
     if (backend === null || backend === 'off')
         return { gated: false, targets: [] };
     const targets = [];

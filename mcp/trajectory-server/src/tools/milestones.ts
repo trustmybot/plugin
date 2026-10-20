@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
-import { resolveBackend } from '../sync/backend.js';
+import { resolveBackendFor } from '../sync/backend.js';
 import { repoSlugFromRemoteUrl } from '../sync/issue_sync.js';
 import type { SpawnFn } from '../sync/issue_sync.js';
 import {
@@ -81,7 +81,11 @@ export function resolveMilestoneTargets(
   };
   const ghSlug = slugFor('github');
   const glSlug = slugFor('gitlab');
-  const backend = resolveBackend(syncConfig, { github: ghSlug !== null, gitlab: glSlug !== null }, !!spawnFn);
+  const backend = resolveBackendFor(
+    syncConfig,
+    { github: ghSlug !== null, gitlab: glSlug !== null },
+    spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: 'utf8' }) : undefined,
+  );
   if (backend === null || backend === 'off') return { gated: false, targets: [] };
   const targets: MilestoneTarget[] = [];
   if ((backend === 'gh' || backend === 'both') && ghSlug) {

@@ -8,7 +8,7 @@ import { syncRemotes } from '../repos/remotes.js';
 import { nowISO } from '../db.js';
 import type { Issue, IssueRow, MilestoneResolution, Task } from '../types.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
-import { resolveBackend, detectPreferred, remoteSyncGate } from '../sync/backend.js';
+import { resolveBackendFor, detectPreferred, remoteSyncGate } from '../sync/backend.js';
 import type { RemoteSyncGateReason } from '../sync/backend.js';
 import { syncIssueCreate, syncIssueClose, syncIssueUpdate, isSyncFailure, repoSlugFromRemoteUrl, verifyRemoteIssue } from '../sync/issue_sync.js';
 import type { SyncFailure } from '../sync/issue_sync.js';
@@ -303,6 +303,10 @@ function resolveIssueSyncContext(
   };
 }
 
+function probeSpawn(spawnFn: SpawnFn | undefined): ((cmd: string, args: string[]) => { status: number | null }) | undefined {
+  return spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: 'utf8' }) : undefined;
+}
+
 // The CLIs a resolved backend may spawn: a provider without a sync row is never
 // reached, even under an explicit issue_sync='both'.
 function syncedBackends(backend: 'gh' | 'glab' | 'both', ctx: IssueSyncContext): Array<'gh' | 'glab'> {
@@ -404,7 +408,7 @@ export async function syncIssueCloseRemotes(
     repoRemotes: closeCtx
       ? { github: closeCtx.remoteFor('gh') !== null, gitlab: closeCtx.remoteFor('glab') !== null }
       : null,
-    spawnFn: spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: 'utf8' }) : undefined,
+    spawnFn: probeSpawn(spawnFn),
   });
   if (!gate.enabled) {
     const reason = gate.reason ?? 'no_backend';
@@ -791,7 +795,7 @@ export function issueTools(
         const remoteProviders = syncCtx
           ? { github: syncCtx.remoteFor('gh') !== null, gitlab: syncCtx.remoteFor('glab') !== null }
           : null;
-        const backend = resolveBackend(syncConfig, remoteProviders, !!spawnFn);
+        const backend = resolveBackendFor(syncConfig, remoteProviders, probeSpawn(spawnFn));
         if (backend === null) {
           serverLog({ event: 'issue_sync_skip', reason: 'no_remote_configured', issueId });
         } else if (backend !== 'off') {
@@ -1368,7 +1372,7 @@ export function issueTools(
           const remoteProviders = syncCtx
             ? { github: syncCtx.remoteFor('gh') !== null, gitlab: syncCtx.remoteFor('glab') !== null }
             : null;
-          const backend = resolveBackend(syncConfig, remoteProviders, !!spawnFn);
+          const backend = resolveBackendFor(syncConfig, remoteProviders, probeSpawn(spawnFn));
           if (backend === null || backend === 'off') {
             syncDiagnostic = { sync_skipped: true, reason: 'no_remote_configured', hint: 'The change is local only.' };
           } else if (syncCtx === null) {
@@ -1465,7 +1469,7 @@ export function issueTools(
       const retryRemotes = retryCtx
         ? { github: retryCtx.remoteFor('gh') !== null, gitlab: retryCtx.remoteFor('glab') !== null }
         : null;
-      const backend = resolveBackend(syncConfig, retryRemotes, !!spawnFn);
+      const backend = resolveBackendFor(syncConfig, retryRemotes, probeSpawn(spawnFn));
       if (backend === null || backend === 'off') {
         return ok({ skipped: true, reason: 'no remote backend configured' });
       }

@@ -21352,7 +21352,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "issue_updated", writers: ["bro"], description: "bro changed an issue's milestone, labels or objective after creation" },
   { type: "legacy_event", writers: ["server"], description: "A migration re-typed a legacy audit row: v38 one whose `event_type` was outside the closed set (written by v1.0.x, before the set closed), v39 a swe-written `verification_gate_waived` row without a `commit_sha` that repeated an earlier one for its task; `content_json` keeps the original content and carries `legacy_event_type` (the old type), plus `legacy_content` when the old content was not valid JSON. Filed under the row's original issue; `audit_append` refuses this event" },
   { type: "mcp_unavailable_fallback_invoked", writers: ["bro", "swe", "pr-reviewer", "consultant"], description: "The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1`" },
-  { type: "milestone_closed", writers: ["bro"], description: "`milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed`" },
+  { type: "milestone_closed", writers: ["bro"], description: "`milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed`, `remote_results`" },
   { type: "milestone_reconcile_failed", writers: ["bro"], description: "`scan_run` could not read a repo's remote milestones; `content_json` carries `repo`, `backend`, `reason` (the scan still succeeds)" },
   { type: "milestone_seed_skipped", writers: ["bro"], description: "`scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`)" },
   { type: "milestone_seeded", writers: ["bro"], description: "`scan_run` seeded `v<next-patch>` for a repo with no milestones; `content_json` carries `name`, `repo`, `source`, `remote_created`" },
@@ -26783,6 +26783,10 @@ function resolveBackend(configValue, repoRemotes2, hasSpawnFn = false, availabil
   if (glUsable) return "glab";
   return null;
 }
+function resolveBackendFor(configValue, repoRemotes2, spawnFn) {
+  const availability = configValue === "auto" && spawnFn ? detectAvailable(spawnFn) : void 0;
+  return resolveBackend(configValue, repoRemotes2, spawnFn !== void 0, availability);
+}
 function readIssueSyncConfig(db) {
   const row = db.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
   if (!row) return "off";
@@ -27500,6 +27504,9 @@ function resolveIssueSyncContext(db, repoName) {
     }
   };
 }
+function probeSpawn(spawnFn) {
+  return spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: "utf8" }) : void 0;
+}
 function syncedBackends(backend, ctx) {
   const wanted = backend === "both" ? ["gh", "glab"] : [backend];
   return wanted.filter((b) => ctx.remoteFor(b) !== null);
@@ -27552,7 +27559,7 @@ async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
   const closeCtx = resolveIssueSyncContext(db, remoteRow?.repo ?? null);
   const gate = remoteSyncGate(db, {
     repoRemotes: closeCtx ? { github: closeCtx.remoteFor("gh") !== null, gitlab: closeCtx.remoteFor("glab") !== null } : null,
-    spawnFn: spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: "utf8" }) : void 0
+    spawnFn: probeSpawn(spawnFn)
   });
   if (!gate.enabled) {
     const reason = gate.reason ?? "no_backend";
@@ -27890,7 +27897,7 @@ function issueTools(db, dbPath = "", options = {}) {
       if (syncConfig !== "off") {
         const syncCtx = resolveIssueSyncContext(db, issueRepo);
         const remoteProviders = syncCtx ? { github: syncCtx.remoteFor("gh") !== null, gitlab: syncCtx.remoteFor("glab") !== null } : null;
-        const backend = resolveBackend(syncConfig, remoteProviders, !!spawnFn);
+        const backend = resolveBackendFor(syncConfig, remoteProviders, probeSpawn(spawnFn));
         if (backend === null) {
           serverLog({ event: "issue_sync_skip", reason: "no_remote_configured", issueId });
         } else if (backend !== "off") {
@@ -28386,7 +28393,7 @@ function issueTools(db, dbPath = "", options = {}) {
         } else {
           const syncCtx = resolveIssueSyncContext(db, row.repo);
           const remoteProviders = syncCtx ? { github: syncCtx.remoteFor("gh") !== null, gitlab: syncCtx.remoteFor("glab") !== null } : null;
-          const backend = resolveBackend(syncConfig, remoteProviders, !!spawnFn);
+          const backend = resolveBackendFor(syncConfig, remoteProviders, probeSpawn(spawnFn));
           if (backend === null || backend === "off") {
             syncDiagnostic = { sync_skipped: true, reason: "no_remote_configured", hint: "The change is local only." };
           } else if (syncCtx === null) {
@@ -28467,7 +28474,7 @@ function issueTools(db, dbPath = "", options = {}) {
       }
       const retryCtx = resolveIssueSyncContext(db, row.repo ?? null);
       const retryRemotes = retryCtx ? { github: retryCtx.remoteFor("gh") !== null, gitlab: retryCtx.remoteFor("glab") !== null } : null;
-      const backend = resolveBackend(syncConfig, retryRemotes, !!spawnFn);
+      const backend = resolveBackendFor(syncConfig, retryRemotes, probeSpawn(spawnFn));
       if (backend === null || backend === "off") {
         return ok2({ skipped: true, reason: "no remote backend configured" });
       }
@@ -29041,7 +29048,11 @@ function resolveMilestoneTargets(db, repoName, spawnFn) {
   };
   const ghSlug = slugFor("github");
   const glSlug = slugFor("gitlab");
-  const backend = resolveBackend(syncConfig, { github: ghSlug !== null, gitlab: glSlug !== null }, !!spawnFn);
+  const backend = resolveBackendFor(
+    syncConfig,
+    { github: ghSlug !== null, gitlab: glSlug !== null },
+    spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: "utf8" }) : void 0
+  );
   if (backend === null || backend === "off") return { gated: false, targets: [] };
   const targets = [];
   if ((backend === "gh" || backend === "both") && ghSlug) {

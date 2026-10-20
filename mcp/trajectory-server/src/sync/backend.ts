@@ -109,6 +109,17 @@ export function resolveBackend(
   return null;
 }
 
+// resolveBackend for a tool that may carry an injected spawn: the spawn also
+// answers the 'auto' gh/glab availability probe, as remoteSyncGate does.
+export function resolveBackendFor(
+  configValue: string,
+  repoRemotes: RepoRemoteProviders | null,
+  spawnFn?: (cmd: string, args: string[]) => { status: number | null },
+): 'gh' | 'glab' | 'both' | 'off' | null {
+  const availability = configValue === 'auto' && spawnFn ? detectAvailable(spawnFn) : undefined;
+  return resolveBackend(configValue, repoRemotes, spawnFn !== undefined, availability);
+}
+
 export type RemoteSyncGateReason = 'issue_sync_off' | 'env_disabled' | 'no_backend';
 
 export interface RemoteSyncGate {

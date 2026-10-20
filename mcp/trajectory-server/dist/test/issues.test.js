@@ -2004,6 +2004,19 @@ describe('issue sync follows the onboard Remote choice (GH 1590)', () => {
         assert.ok(calls.every((c) => c.cmd === 'gh'), JSON.stringify(calls));
         db.close();
     });
+    it("issue_create under issue_sync='auto' with both CLIs authed resolves to gh when GitLab is not chosen", async () => {
+        const db = await githubOnly('auto');
+        const calls = [];
+        const r = await call(issueTools(db).handlers, 'issue_create', {
+            agent: 'bro', objective: 'auto picks github', labels: VALID_LABELS, _spawnFn: recordingSpawn(calls),
+        });
+        assert.ok(!r.isError, JSON.stringify(parseResult(r)));
+        assert.deepEqual(calls.filter((c) => c.args[0] === 'auth').map((c) => c.cmd), ['gh', 'glab'], 'both CLIs answer the auto availability probe');
+        const creates = calls.filter((c) => c.args[0] === 'issue' && c.args[1] === 'create').map((c) => c.cmd);
+        assert.deepEqual(creates, ['gh']);
+        assert.equal(parseResult(r).gh_iid, 42);
+        db.close();
+    });
     it('issue_update mirrors only to GitHub even when the issue is linked on both', async () => {
         const db = await githubOnly('both');
         const tools = issueTools(db);
