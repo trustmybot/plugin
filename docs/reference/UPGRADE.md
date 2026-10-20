@@ -93,6 +93,7 @@ Migrations are chained one version at a time — `migrateV1toV2`, `migrateV2toV3
 - Add tables as features land (schema v36 adds `verification_runs` + `verification_run_commands`, where the close gate records each verification run; existing rows are untouched).
 - Re-type audit rows written by v1.0.x under an `event_type` outside the closed set (schema v38): each becomes `legacy_event`, with the original type in `content_json.legacy_event_type` and non-JSON content kept as `legacy_content`; every other column and the row count are unchanged.
 - Re-type legacy duplicate `verification_gate_waived` rows (schema v39): of the swe-written rows without a `commit_sha`, each task keeps its lowest-id row and every later one becomes `legacy_event` the same way, so `waiver_not_duplicated` stops counting them.
+- Add `repos.onboard_scan` (schema v40), a nullable JSON column holding the `/onboard` pre-scan evidence and recommendation; it stays `NULL` until the first `onboard_state_get`, and every other `repos` column is untouched.
 
 Row data on every workflow table is preserved.
 

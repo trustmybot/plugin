@@ -21518,7 +21518,7 @@ function upsertRepoRemotes(db, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 39;
+var TARGET_SCHEMA_VERSION = 40;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
 }
@@ -21931,6 +21931,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 39 && toVersion >= 39) {
     migrateV38toV39(db);
+  }
+  if (fromVersion < 40 && toVersion >= 40) {
+    migrateV39toV40(db);
   }
 }
 function hasColumn(db, table, column) {
@@ -23423,6 +23426,10 @@ function migrateV38toV39(db) {
     }
     throw err5;
   }
+}
+function migrateV39toV40(db) {
+  if (!tableExists(db, "repos") || hasColumn(db, "repos", "onboard_scan")) return;
+  db.exec("ALTER TABLE repos ADD COLUMN onboard_scan TEXT");
 }
 function migrateV22toV23(db) {
   const soleRepo = () => {

@@ -21441,7 +21441,7 @@ function upsertRepoRemotes(db2, repo, remotes) {
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 39;
+var TARGET_SCHEMA_VERSION = 40;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
 }
@@ -21857,6 +21857,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 39 && toVersion >= 39) {
     migrateV38toV39(db2);
+  }
+  if (fromVersion < 40 && toVersion >= 40) {
+    migrateV39toV40(db2);
   }
 }
 function hasColumn(db2, table, column) {
@@ -23349,6 +23352,10 @@ function migrateV38toV39(db2) {
     }
     throw err20;
   }
+}
+function migrateV39toV40(db2) {
+  if (!tableExists(db2, "repos") || hasColumn(db2, "repos", "onboard_scan")) return;
+  db2.exec("ALTER TABLE repos ADD COLUMN onboard_scan TEXT");
 }
 function migrateV22toV23(db2) {
   const soleRepo = () => {
@@ -33324,9 +33331,9 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
 }
 
 // src/tools/onboard.ts
-import { spawnSync as spawnSync7 } from "node:child_process";
-import { existsSync as existsSync7, lstatSync as lstatSync4, mkdirSync as mkdirSync6, realpathSync as realpathSync4, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
-import { basename as basename3, dirname as dirname8, isAbsolute as isAbsolute4, join as join11 } from "node:path";
+import { spawnSync as spawnSync8 } from "node:child_process";
+import { existsSync as existsSync8, lstatSync as lstatSync4, mkdirSync as mkdirSync6, realpathSync as realpathSync4, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
+import { basename as basename4, dirname as dirname8, isAbsolute as isAbsolute4, join as join12 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/tools/onboard-hooks-shim.ts
@@ -33737,13 +33744,232 @@ function removeProjectSandbox(opts) {
   return { removed: true, settings_path: path2 };
 }
 
+// src/tools/onboard-scan.ts
+import { spawnSync as spawnSync7 } from "node:child_process";
+import { existsSync as existsSync7, readdirSync as readdirSync3, statSync as statSync3 } from "node:fs";
+import { basename as basename3, join as join11 } from "node:path";
+var GIT_TIMEOUT_MS = 3e3;
+var MAX_GIT_CALLS = 6;
+var MERGE_WINDOW = 50;
+var MAIN_TYPE = ["main", "master", "trunk"];
+var DEV_TYPE = ["dev", "develop"];
+var LONG_LIVED = ["main", "master", "dev", "develop", "trunk"];
+var CONTRIBUTING_PATHS = ["CONTRIBUTING.md", ".github/CONTRIBUTING.md", "docs/CONTRIBUTING.md"];
+function gitRunner(cwd) {
+  let calls = 0;
+  return (args) => {
+    if (calls >= MAX_GIT_CALLS) return { ok: false, note: "git call budget spent" };
+    calls++;
+    const r = spawnSync7("git", args, { cwd, encoding: "utf8", timeout: GIT_TIMEOUT_MS });
+    if (r.error) {
+      const code = r.error.code;
+      return { ok: false, note: code === "ETIMEDOUT" ? "git timed out" : `git unavailable (${code ?? r.error.message})` };
+    }
+    if (r.signal) return { ok: false, note: "git timed out" };
+    if (r.status !== 0) return { ok: false, note: "not a git work tree" };
+    return { ok: true, stdout: r.stdout ?? "" };
+  };
+}
+function isDirectory(path2) {
+  try {
+    return statSync3(path2).isDirectory();
+  } catch {
+    return false;
+  }
+}
+function hasWorkflows(repoPath) {
+  try {
+    return readdirSync3(join11(repoPath, ".github", "workflows")).some((f) => /\.ya?ml$/.test(f));
+  } catch {
+    return false;
+  }
+}
+function ciFiles(repoPath) {
+  const found = [];
+  if (hasWorkflows(repoPath)) found.push(".github/workflows");
+  if (existsSync7(join11(repoPath, ".gitlab-ci.yml"))) found.push(".gitlab-ci.yml");
+  return found;
+}
+function parseRemotes(stdout) {
+  const remotes = [];
+  for (const line of stdout.split("\n")) {
+    const m = line.match(/^(\S+)\s+(\S+)\s+\(fetch\)/);
+    if (!m || remotes.some((r) => r.name === m[1])) continue;
+    remotes.push({ name: m[1], host: remoteProvider(m[2]) });
+  }
+  return remotes;
+}
+function pick2(types, longLived, originHead) {
+  if (originHead && types.includes(originHead) && longLived.includes(originHead)) return originHead;
+  return types.find((b) => longLived.includes(b)) ?? null;
+}
+function scanRepoEvidence(repoPath, opts = {}) {
+  const started = Date.now();
+  const evidence = {
+    name: opts.name ?? basename3(repoPath),
+    path: repoPath,
+    in_git: false,
+    branches: [],
+    long_lived: [],
+    origin_head: null,
+    remotes: opts.remotes ?? [],
+    merges: {},
+    ci_files: [],
+    contributing: false,
+    scanned_at: new Date(started).toISOString(),
+    elapsed_ms: 0
+  };
+  const done = () => ({ ...evidence, elapsed_ms: Date.now() - started });
+  if (!isDirectory(repoPath)) {
+    evidence.note = "path is not a directory";
+    return done();
+  }
+  const git2 = gitRunner(repoPath);
+  const top = git2(["rev-parse", "--show-toplevel"]);
+  if (!top.ok) {
+    evidence.note = top.note;
+    return done();
+  }
+  evidence.in_git = true;
+  const originBranches = /* @__PURE__ */ new Set();
+  const refs = git2(["for-each-ref", "--format=%(refname)%09%(symref)", "refs/heads", "refs/remotes/origin"]);
+  if (refs.ok) {
+    const branches = /* @__PURE__ */ new Set();
+    for (const line of refs.stdout.split("\n")) {
+      const [ref, symref] = line.split("	");
+      if (!ref) continue;
+      if (ref === "refs/remotes/origin/HEAD") {
+        evidence.origin_head = symref?.startsWith("refs/remotes/origin/") ? symref.slice("refs/remotes/origin/".length) : null;
+      } else if (ref.startsWith("refs/heads/")) {
+        branches.add(ref.slice("refs/heads/".length));
+      } else if (ref.startsWith("refs/remotes/origin/")) {
+        const short = ref.slice("refs/remotes/origin/".length);
+        originBranches.add(short);
+        branches.add(short);
+      }
+    }
+    evidence.branches = [...branches];
+  }
+  evidence.long_lived = LONG_LIVED.filter((b) => evidence.branches.includes(b));
+  if (evidence.remotes.length === 0) {
+    const remotes = git2(["remote", "-v"]);
+    if (remotes.ok) evidence.remotes = parseRemotes(remotes.stdout);
+  }
+  const dev = pick2(DEV_TYPE, evidence.long_lived, evidence.origin_head);
+  const main = pick2(MAIN_TYPE, evidence.long_lived, evidence.origin_head);
+  const candidates = [...new Set([dev, main, ...evidence.long_lived].filter((b) => b !== null))];
+  for (const branch of candidates) {
+    const ref = originBranches.has(branch) ? `refs/remotes/origin/${branch}` : `refs/heads/${branch}`;
+    const log = git2(["log", "--first-parent", "--merges", "-n", String(MERGE_WINDOW), "--format=%H", ref]);
+    if (!log.ok) continue;
+    evidence.merges[branch] = log.stdout.split("\n").filter((l) => l.trim() !== "").length;
+  }
+  evidence.ci_files = ciFiles(repoPath);
+  evidence.contributing = CONTRIBUTING_PATHS.some((p) => existsSync7(join11(repoPath, p)));
+  return done();
+}
+function contextLines(e) {
+  const lines = [];
+  if (e.origin_head) lines.push(`origin/HEAD is ${e.origin_head}`);
+  if (e.contributing) lines.push("CONTRIBUTING.md present");
+  if (e.ci_files.length > 0) lines.push(`CI: ${e.ci_files.join(", ")}`);
+  return lines;
+}
+function recommendFromEvidence(e) {
+  if (!e.in_git) return null;
+  const context = contextLines(e);
+  if (e.long_lived.length === 0) {
+    return {
+      branching_model: null,
+      pr_target: null,
+      confidence: "none",
+      reason: "no long-lived branch",
+      evidence: ["no main, master, dev, develop or trunk branch", ...context]
+    };
+  }
+  if (e.long_lived.length === 1) {
+    const branch = e.long_lived[0];
+    const merges = e.merges[branch];
+    return {
+      branching_model: "github-flow",
+      pr_target: branch,
+      confidence: "high",
+      reason: "only one long-lived branch",
+      evidence: [
+        `only long-lived branch: ${branch}`,
+        ...merges === void 0 ? [] : [`${merges} merges into ${branch}`],
+        ...context
+      ]
+    };
+  }
+  const dev = pick2(DEV_TYPE, e.long_lived, e.origin_head);
+  const main = pick2(MAIN_TYPE, e.long_lived, e.origin_head);
+  if (dev && main) {
+    const d = e.merges[dev] ?? 0;
+    const m = e.merges[main] ?? 0;
+    const evidence = [`${d} merges into ${dev}, ${m} into ${main}`, ...context];
+    if (d >= 2 * m && d >= 3) {
+      return { branching_model: "gitflow", pr_target: dev, confidence: "high", reason: `merges favour ${dev}: ${d} vs ${m} into ${main}`, evidence };
+    }
+    if (m >= 2 * d && m >= 3) {
+      return { branching_model: "github-flow", pr_target: main, confidence: "high", reason: `merges favour ${main}: ${m} vs ${d} into ${dev}`, evidence };
+    }
+    const target2 = e.origin_head === dev || e.origin_head === main ? e.origin_head : dev;
+    return {
+      branching_model: target2 === dev ? "gitflow" : "github-flow",
+      pr_target: target2,
+      confidence: "low",
+      reason: `merges split ${d}/${m}, no clear pattern`,
+      evidence
+    };
+  }
+  const target = e.origin_head && e.long_lived.includes(e.origin_head) ? e.origin_head : e.long_lived[0];
+  return {
+    branching_model: "github-flow",
+    pr_target: target,
+    confidence: "low",
+    reason: `${e.long_lived.length} long-lived branches, no main and dev pair`,
+    evidence: [`long-lived branches: ${e.long_lived.join(", ")}`, ...context]
+  };
+}
+function scanWorkspace(db2) {
+  const started = Date.now();
+  const rows = db2.all("SELECT name, path FROM repos ORDER BY name");
+  const repos = rows.map((row) => {
+    const remotes = repoRemotes(db2, row.name).map((r) => ({ name: r.name, host: r.provider }));
+    const evidence = scanRepoEvidence(repoRowPath(db2, row.path), { name: row.name, remotes });
+    return { ...evidence, recommendation: recommendFromEvidence(evidence) };
+  });
+  db2.transaction(() => {
+    for (const repo of repos) {
+      db2.run("UPDATE repos SET onboard_scan = ? WHERE name = ?", [JSON.stringify(repo), repo.name]);
+    }
+  });
+  const recommended = repos.map((r) => r.recommendation).filter((r) => r !== null);
+  const first = recommended[0];
+  const uniform = first !== void 0 && recommended.every(
+    (r) => r.confidence === "high" && r.branching_model === first.branching_model && r.pr_target === first.pr_target
+  );
+  return {
+    repos,
+    summary: {
+      repo_count: repos.length,
+      hosts: [...new Set(repos.flatMap((r) => r.remotes.map((x) => x.host)))].sort(),
+      with_dev_branch: repos.filter((r) => r.long_lived.some((b) => DEV_TYPE.includes(b))).length,
+      main_only: repos.filter((r) => r.long_lived.length > 0 && r.long_lived.every((b) => MAIN_TYPE.includes(b))).length,
+      uniform,
+      elapsed_ms: Date.now() - started
+    }
+  };
+}
+
 // src/tools/onboard.ts
 function resolvePluginRoot2() {
   const env = process.env["CLAUDE_PLUGIN_ROOT"];
-  if (env && existsSync7(join11(env, ".claude-plugin", "plugin.json"))) return env;
+  if (env && existsSync8(join12(env, ".claude-plugin", "plugin.json"))) return env;
   let dir = dirname8(fileURLToPath3(import.meta.url));
   for (; ; ) {
-    if (existsSync7(join11(dir, ".claude-plugin", "plugin.json"))) return dir;
+    if (existsSync8(join12(dir, ".claude-plugin", "plugin.json"))) return dir;
     const parent = dirname8(dir);
     if (parent === dir) break;
     dir = parent;
@@ -33767,10 +33993,10 @@ function wrapHandler13(fn) {
 }
 function probeGit(cwd) {
   const opts = { encoding: "utf8", timeout: 3e3, cwd };
-  const inGitR = spawnSync7("git", ["rev-parse", "--show-toplevel"], opts);
+  const inGitR = spawnSync8("git", ["rev-parse", "--show-toplevel"], opts);
   const in_git = inGitR.status === 0;
   if (!in_git) return { in_git: false, detected_remotes: [], origin_kind: null };
-  const remotesR = spawnSync7("git", ["remote", "-v"], opts);
+  const remotesR = spawnSync8("git", ["remote", "-v"], opts);
   const detected_remotes = [];
   if (remotesR.status === 0) {
     const seen = /* @__PURE__ */ new Set();
@@ -33792,7 +34018,7 @@ function probeGit(cwd) {
   };
 }
 function branchExists(cwd, branch) {
-  const r = spawnSync7("git", ["-C", cwd, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], {
+  const r = spawnSync8("git", ["-C", cwd, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], {
     encoding: "utf8",
     timeout: 3e3
   });
@@ -33800,16 +34026,16 @@ function branchExists(cwd, branch) {
 }
 function repoDefaultBranch(cwd) {
   const opts = { encoding: "utf8", timeout: 3e3 };
-  const head = spawnSync7("git", ["-C", cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], opts);
+  const head = spawnSync8("git", ["-C", cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], opts);
   if (head.status === 0) {
     const b = (head.stdout ?? "").trim().replace(/^origin\//, "");
     if (b) return b;
   }
   for (const cand of ["main", "master", "dev"]) {
-    const r = spawnSync7("git", ["-C", cwd, "show-ref", "--verify", "--quiet", `refs/heads/${cand}`], opts);
+    const r = spawnSync8("git", ["-C", cwd, "show-ref", "--verify", "--quiet", `refs/heads/${cand}`], opts);
     if (r.status === 0) return cand;
   }
-  const cur = spawnSync7("git", ["-C", cwd, "symbolic-ref", "--short", "HEAD"], opts);
+  const cur = spawnSync8("git", ["-C", cwd, "symbolic-ref", "--short", "HEAD"], opts);
   if (cur.status === 0) {
     const b = (cur.stdout ?? "").trim();
     if (b) return b;
@@ -33817,11 +34043,11 @@ function repoDefaultBranch(cwd) {
   return "main";
 }
 function probeCli(cmd) {
-  const which = spawnSync7("command", ["-v", cmd], { encoding: "utf8", timeout: AUTH_PROBE_TIMEOUT_MS, shell: true });
+  const which = spawnSync8("command", ["-v", cmd], { encoding: "utf8", timeout: AUTH_PROBE_TIMEOUT_MS, shell: true });
   const installed = which.status === 0 && (which.stdout ?? "").trim().length > 0;
   if (!installed) return { installed: false, authed: false };
   if (liveCliBlockReason()) return { installed: true, authed: false };
-  const authR = spawnSync7(cmd, ["auth", "status"], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
+  const authR = spawnSync8(cmd, ["auth", "status"], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
   return { installed: true, authed: authR.status === 0 };
 }
 function readConfig(db2, key) {
@@ -34230,13 +34456,13 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         `standalone needs a session directory below the project root (session ${where.session_dir}, project ${where.project_root})`
       );
     }
-    const stateDir = claudeStateDir(where.session_dir, basename3(dirname8(dbPath2)));
-    const newDb = join11(stateDir, "trajectory.db");
+    const stateDir = claudeStateDir(where.session_dir, basename4(dirname8(dbPath2)));
+    const newDb = join12(stateDir, "trajectory.db");
     mkdirSync6(stateDir, { recursive: true });
     new TrajectoryDB(newDb, { pluginVersion: null, serverLog: () => {
     }, sqlLog: () => {
     } }).close();
-    const marker = join11(stateDir, CLAUDE_STANDALONE_MARKER);
+    const marker = join12(stateDir, CLAUDE_STANDALONE_MARKER);
     writeFileSync4(marker, "This directory is its own TMB project: the trajectory DB walk-up stops here.\n");
     insertAudit(db2, {
       issue_id: -1,
@@ -34256,7 +34482,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
     if (root === null) throw new Error("remove_stray_dbs needs a project trajectory DB (<root>/.claude/<plugin>/trajectory.db)");
     const project = canonicalExisting(root);
     const self = canonicalExisting(dbPath2);
-    const pluginName2 = basename3(dirname8(dbPath2));
+    const pluginName2 = basename4(dirname8(dbPath2));
     const removed = [];
     const refused = [];
     const outside = `not below the project root ${root}`;
@@ -34269,8 +34495,8 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
     };
     const check2 = (path2) => {
       if (!isAbsolute4(path2)) return { reason: "not an absolute path" };
-      if (!existsSync7(path2)) return { reason: "no such file" };
-      if (claudeProjectRootOfDb(path2) === null || basename3(path2) !== "trajectory.db" || basename3(dirname8(path2)) !== pluginName2) {
+      if (!existsSync8(path2)) return { reason: "no such file" };
+      if (claudeProjectRootOfDb(path2) === null || basename4(path2) !== "trajectory.db" || basename4(dirname8(path2)) !== pluginName2) {
         return { reason: `not a <dir>/.claude/${pluginName2}/trajectory.db path` };
       }
       if (canonicalExisting(path2) === self) return { reason: "the current trajectory DB" };
@@ -34291,7 +34517,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         continue;
       }
       const { stateDir } = verdict;
-      const file2 = join11(stateDir, basename3(path2));
+      const file2 = join12(stateDir, basename4(path2));
       for (const f of [file2, `${file2}-wal`, `${file2}-shm`]) rmSync2(f, { force: true });
       rmSync2(stateDir, { recursive: true, force: true });
       insertAudit(db2, {
@@ -34336,7 +34562,8 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             glab_installed: glab.installed,
             glab_authed: glab.authed
           },
-          nesting: nesting()
+          nesting: nesting(),
+          scan: scanWorkspace(db2)
         });
       })
     ),
@@ -34655,7 +34882,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             const result2 = writeProjectSandbox({
               projectRoot: sandboxProjectRoot(),
               remoteUrls: knownRemoteUrls(remotes.map((r) => r.url)),
-              toolCacheDir: join11(dirname8(dbPath2), "cache"),
+              toolCacheDir: join12(dirname8(dbPath2), "cache"),
               platform: shimEnv.platform ?? process.platform,
               previous: record2
             });
@@ -34702,14 +34929,14 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
 }
 
 // src/tools/scan.ts
-import { spawn, spawnSync as spawnSync8 } from "node:child_process";
-import { closeSync as closeSync2, existsSync as existsSync9, openSync as openSync2, readFileSync as readFileSync6, readSync, realpathSync as realpathSync5, writeFileSync as writeFileSync5, unlinkSync } from "node:fs";
-import { dirname as dirname10, join as join12 } from "node:path";
+import { spawn, spawnSync as spawnSync9 } from "node:child_process";
+import { closeSync as closeSync2, existsSync as existsSync10, openSync as openSync2, readFileSync as readFileSync6, readSync, realpathSync as realpathSync5, writeFileSync as writeFileSync5, unlinkSync } from "node:fs";
+import { dirname as dirname10, join as join13 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
 // src/graph-db.ts
 import { createRequire } from "node:module";
-import { mkdirSync as mkdirSync7, existsSync as existsSync8 } from "node:fs";
+import { mkdirSync as mkdirSync7, existsSync as existsSync9 } from "node:fs";
 import { dirname as dirname9 } from "node:path";
 function single(result2) {
   return Array.isArray(result2) ? result2[0] : result2;
@@ -34753,7 +34980,7 @@ var WorldModelGraph = class _WorldModelGraph {
       }
     };
     validateWritePath();
-    if (dbPath2 !== ":memory:" && !existsSync8(dirname9(dbPath2))) {
+    if (dbPath2 !== ":memory:" && !existsSync9(dirname9(dbPath2))) {
       mkdirSync7(dirname9(dbPath2), { recursive: true });
     }
     validateWritePath();
@@ -35434,14 +35661,14 @@ function wrap4(fn) {
 function resolveScanScript() {
   const here = dirname10(fileURLToPath4(import.meta.url));
   const candidates = [
-    join12(here, "..", "..", "..", "..", "scripts", "scan.sh"),
-    join12(here, "..", "..", "..", "scripts", "scan.sh")
+    join13(here, "..", "..", "..", "..", "scripts", "scan.sh"),
+    join13(here, "..", "..", "..", "scripts", "scan.sh")
   ];
-  for (const c of candidates) if (existsSync9(c)) return c;
+  for (const c of candidates) if (existsSync10(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join12(pluginRoot, "scripts", "scan.sh");
-    if (existsSync9(c)) return c;
+    const c = join13(pluginRoot, "scripts", "scan.sh");
+    if (existsSync10(c)) return c;
   }
   throw new Error("scan.sh not found \u2014 expected at <plugin>/scripts/scan.sh");
 }
@@ -35539,7 +35766,7 @@ var README_CANDIDATES = ["README.md", "readme.md", "README.rst", "readme.rst"];
 var README_MAX_BYTES = 1024;
 var STRUCTURAL_LIST_MAX = 8;
 var STRUCTURAL_PURPOSES_MAX = 5;
-function basename4(p) {
+function basename5(p) {
   const i = p.lastIndexOf("/");
   return i >= 0 ? p.slice(i + 1) : p;
 }
@@ -35564,14 +35791,14 @@ function deriveDirectoryEntries(out) {
     const entry = dirMap.get(`${f.repo} ${dirPath}`);
     if (entry) {
       entry.file_count++;
-      entry.file_names.push(basename4(f.path));
+      entry.file_names.push(basename5(f.path));
     }
   }
   return dirMap;
 }
 function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = []) {
-  const leaf = dirPath === "" ? "(repo root)" : basename4(dirPath);
-  const join17 = (names) => {
+  const leaf = dirPath === "" ? "(repo root)" : basename5(dirPath);
+  const join18 = (names) => {
     const shown = names.slice(0, STRUCTURAL_LIST_MAX).join(", ");
     const extra = names.length - STRUCTURAL_LIST_MAX;
     return extra > 0 ? `${shown}, +${extra} more` : shown;
@@ -35582,17 +35809,17 @@ function buildStructuralSummary(dirPath, fileNames, subdirNames, filePurposes = 
     const shown = filePurposes.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STRUCTURAL_PURPOSES_MAX).map((f) => `${f.name}: ${f.purpose}`);
     parts.push(fileCount, frameUntrusted("file-purpose", shown.join("; ")).replace(/\n/g, " "));
   } else if (fileNames.length > 0) {
-    parts.push(`${fileCount} (${join17(fileNames.slice().sort())})`);
+    parts.push(`${fileCount} (${join18(fileNames.slice().sort())})`);
   }
   if (subdirNames.length > 0) {
-    parts.push(`subdirs: ${join17(subdirNames.slice().sort())}`);
+    parts.push(`subdirs: ${join18(subdirNames.slice().sort())}`);
   }
   return `${leaf}/ \u2014 ${parts.length > 0 ? parts.join("; ") : "empty directory"}`;
 }
 function readReadmeSummary(absDirPath) {
   for (const candidate of README_CANDIDATES) {
-    const readmePath = join12(absDirPath, candidate);
-    if (!existsSync9(readmePath)) continue;
+    const readmePath = join13(absDirPath, candidate);
+    if (!existsSync10(readmePath)) continue;
     try {
       const raw = readFileSync6(readmePath, "utf8");
       const clipped = raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
@@ -35614,13 +35841,13 @@ function persistDirectoriesGraph(graph, out, now2, purposesByDir = /* @__PURE__ 
     if (entry.parent_path === null) continue;
     const key = `${entry.repo} ${entry.parent_path}`;
     const list = subdirsByParent.get(key);
-    if (list) list.push(basename4(entry.path));
-    else subdirsByParent.set(key, [basename4(entry.path)]);
+    if (list) list.push(basename5(entry.path));
+    else subdirsByParent.set(key, [basename5(entry.path)]);
   }
   for (const entry of dirMap.values()) {
     const repoPath = repoPaths.get(entry.repo);
     if (!repoPath) continue;
-    const absDirPath = entry.path === "" ? repoPath : join12(repoPath, entry.path);
+    const absDirPath = entry.path === "" ? repoPath : join13(repoPath, entry.path);
     const readmeSummary = readReadmeSummary(absDirPath);
     const subdirNames = subdirsByParent.get(`${entry.repo} ${entry.path}`) ?? [];
     const summary = readmeSummary ?? buildStructuralSummary(
@@ -35698,7 +35925,7 @@ function planFiles(graph, out, now2) {
     if (prev?.purpose_source === "swe") {
       node = { ...facts, purpose: prev.purpose, purpose_source: prev.purpose_source };
     } else {
-      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join12(repoPath, f.path))) : { purpose: "", source: "none" };
+      const extracted = isPurposeCandidate(f.path) ? extractPurpose(f.path, readFileHead(join13(repoPath, f.path))) : { purpose: "", source: "none" };
       node = { ...facts, purpose: extracted.purpose, purpose_source: extracted.source };
       plan.extracted++;
     }
@@ -35712,7 +35939,7 @@ function purposesByDirectory(nodes) {
   for (const n of nodes) {
     if (!n.purpose) continue;
     const key = `${n.repo} ${n.dir}`;
-    const entry = { name: basename4(WorldModelGraph.relativeFilePath(n)), purpose: n.purpose };
+    const entry = { name: basename5(WorldModelGraph.relativeFilePath(n)), purpose: n.purpose };
     const list = byDir.get(key);
     if (list) list.push(entry);
     else byDir.set(key, [entry]);
@@ -35737,12 +35964,12 @@ function persistFilesGraph(graph, out, plan) {
 function readRepoRemotes(path2) {
   try {
     const opts = { encoding: "utf8", timeout: 3e3 };
-    const listR = spawnSync8("git", ["-C", path2, "remote"], opts);
+    const listR = spawnSync9("git", ["-C", path2, "remote"], opts);
     if (listR.status !== 0) return [];
     const names = (listR.stdout ?? "").split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
     const remotes = [];
     for (const name of names) {
-      const urlR = spawnSync8("git", ["-C", path2, "remote", "get-url", name], opts);
+      const urlR = spawnSync9("git", ["-C", path2, "remote", "get-url", name], opts);
       if (urlR.status !== 0) continue;
       const url2 = (urlR.stdout ?? "").trim();
       if (!url2) continue;
@@ -36005,7 +36232,7 @@ function scanTools(db2, graphHolder2 = null, dbPath2 = "") {
             `graph_db_open_failed: ${graphOpenError} \u2014 another process holds the world-model lock (identify the holder by running lsof on the world-model graph file); the server retries automatically on the next call once the holder exits`
           );
         }
-        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join12(dirname10(dbPath2), "scan.lock") : "";
+        const lockPath = dbPath2 && dbPath2 !== ":memory:" ? join13(dirname10(dbPath2), "scan.lock") : "";
         if (lockPath) {
           const existing = readLock(lockPath);
           if (existing && pidAlive(existing.pid)) {
@@ -36269,15 +36496,15 @@ function repoTools(db2, graphHolder2 = null) {
 
 // src/tools/cheatcode.ts
 import { spawn as spawn2 } from "node:child_process";
-import { existsSync as existsSync11, mkdirSync as mkdirSync8, readFileSync as readFileSync8, writeFileSync as writeFileSync6 } from "node:fs";
-import { dirname as dirname11, join as join14 } from "node:path";
+import { existsSync as existsSync12, mkdirSync as mkdirSync8, readFileSync as readFileSync8, writeFileSync as writeFileSync6 } from "node:fs";
+import { dirname as dirname11, join as join15 } from "node:path";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
 
 // src/tools/cheatcode-reconcile.ts
 import { execFile } from "node:child_process";
-import { existsSync as existsSync10, readFileSync as readFileSync7 } from "node:fs";
+import { existsSync as existsSync11, readFileSync as readFileSync7 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { isAbsolute as isAbsolute5, join as join13 } from "node:path";
+import { isAbsolute as isAbsolute5, join as join14 } from "node:path";
 var DEFAULT_TIMEOUT_SEC = 4;
 var MAX_LISTING_BYTES = 8 * 1024 * 1024;
 function healthcheckTimeoutSec() {
@@ -36320,7 +36547,7 @@ function parseMcpListing(text) {
 }
 function claudeJsonMcpKeys() {
   try {
-    const parsed = JSON.parse(readFileSync7(join13(homedir3(), ".claude.json"), "utf8"));
+    const parsed = JSON.parse(readFileSync7(join14(homedir3(), ".claude.json"), "utf8"));
     const servers = parsed?.mcpServers;
     if (servers && typeof servers === "object") return new Set(Object.keys(servers));
   } catch {
@@ -36365,8 +36592,8 @@ function computeStatus(row, evidence, pluginRoot) {
   switch (row.kind) {
     case "skill": {
       if (!row.file_path) return "broken";
-      const resolved = isAbsolute5(row.file_path) || !pluginRoot ? row.file_path : join13(pluginRoot, row.file_path);
-      return existsSync10(resolved) ? "active" : "broken";
+      const resolved = isAbsolute5(row.file_path) || !pluginRoot ? row.file_path : join14(pluginRoot, row.file_path);
+      return existsSync11(resolved) ? "active" : "broken";
     }
     case "mcp": {
       const bundled = /^mcp:([^/]+)\/(.+)$/.exec(row.source_url ?? "");
@@ -36451,14 +36678,14 @@ function wrap5(fn) {
 function resolveScriptsFile(name) {
   const here = dirname11(fileURLToPath5(import.meta.url));
   const candidates = [
-    join14(here, "..", "..", "..", "..", "scripts", name),
-    join14(here, "..", "..", "..", "scripts", name)
+    join15(here, "..", "..", "..", "..", "scripts", name),
+    join15(here, "..", "..", "..", "scripts", name)
   ];
-  for (const c of candidates) if (existsSync11(c)) return c;
+  for (const c of candidates) if (existsSync12(c)) return c;
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c = join14(pluginRoot, "scripts", name);
-    if (existsSync11(c)) return c;
+    const c = join15(pluginRoot, "scripts", name);
+    if (existsSync12(c)) return c;
   }
   throw new Error(`${name} not found \u2014 expected at <plugin>/scripts/${name}`);
 }
@@ -36716,12 +36943,12 @@ function parseInstallCandidate(raw) {
 function resolveGlobalAgentMd(target) {
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const c2 = join14(pluginRoot, "agents", `${target}.md`);
-    if (existsSync11(c2)) return c2;
+    const c2 = join15(pluginRoot, "agents", `${target}.md`);
+    if (existsSync12(c2)) return c2;
   }
   const here = dirname11(fileURLToPath5(import.meta.url));
-  const c = join14(here, "..", "..", "..", "..", "agents", `${target}.md`);
-  if (existsSync11(c)) return c;
+  const c = join15(here, "..", "..", "..", "..", "agents", `${target}.md`);
+  if (existsSync12(c)) return c;
   return null;
 }
 function readManifestProvidedTools(manifestPath) {
@@ -36742,10 +36969,10 @@ function readManifestProvidedTools(manifestPath) {
 }
 function resolveInstalledPluginManifest(name) {
   const override = process.env["TMB_CHEATCODE_PLUGIN_MANIFEST"];
-  if (override) return existsSync11(override) ? override : null;
-  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join14(process.env["HOME"] || "", ".claude");
-  const registry2 = join14(claudeHome, "plugins", "installed_plugins.json");
-  if (!existsSync11(registry2)) return null;
+  if (override) return existsSync12(override) ? override : null;
+  const claudeHome = process.env["CLAUDE_CONFIG_DIR"] || join15(process.env["HOME"] || "", ".claude");
+  const registry2 = join15(claudeHome, "plugins", "installed_plugins.json");
+  if (!existsSync12(registry2)) return null;
   let parsed;
   try {
     parsed = JSON.parse(readFileSync8(registry2, "utf8"));
@@ -36760,8 +36987,8 @@ function resolveInstalledPluginManifest(name) {
     for (const e of list) {
       const installPath = e?.installPath;
       if (typeof installPath !== "string" || installPath.length === 0) continue;
-      const manifest = join14(installPath, ".claude-plugin", "plugin.json");
-      if (existsSync11(manifest)) return manifest;
+      const manifest = join15(installPath, ".claude-plugin", "plugin.json");
+      if (existsSync12(manifest)) return manifest;
     }
   }
   return null;
@@ -36846,11 +37073,11 @@ function removeSkillFromAgentFrontmatter(content, skillName) {
 function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools = []) {
   const projectRoot = projectRootFromDbPath(dbPath2);
   if (!projectRoot) return null;
-  const claudeDir = join14(projectRoot, ".claude");
+  const claudeDir = join15(projectRoot, ".claude");
   if (target === "bro") {
-    const claudeMd = join14(claudeDir, "CLAUDE.md");
+    const claudeMd = join15(claudeDir, "CLAUDE.md");
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
-    let body = existsSync11(claudeMd) ? readFileSync8(claudeMd, "utf8") : "";
+    let body = existsSync12(claudeMd) ? readFileSync8(claudeMd, "utf8") : "";
     if (!body.includes(reference)) {
       const prefix = body.length === 0 || body.endsWith("\n") ? "" : "\n";
       body = body.length === 0 ? `${reference}
@@ -36861,9 +37088,9 @@ function materializeConsumingAgent(dbPath2, target, cheatcodeName, providedTools
     }
     return { target: "bro", artifact: "claude-md:.claude/CLAUDE.md", path: claudeMd };
   }
-  const localAgentMd = join14(claudeDir, "agents", `${target}.md`);
+  const localAgentMd = join15(claudeDir, "agents", `${target}.md`);
   let content;
-  if (existsSync11(localAgentMd)) {
+  if (existsSync12(localAgentMd)) {
     content = readFileSync8(localAgentMd, "utf8");
   } else {
     const globalAgentMd = resolveGlobalAgentMd(target);
@@ -36889,8 +37116,8 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   if (!projectRoot) return;
   if (artifact.startsWith("agent-md:")) {
     const rel = artifact.slice("agent-md:".length);
-    const filePath = join14(projectRoot, rel);
-    if (!existsSync11(filePath)) return;
+    const filePath = join15(projectRoot, rel);
+    if (!existsSync12(filePath)) return;
     const content = readFileSync8(filePath, "utf8");
     let updated = removeSkillFromAgentFrontmatter(content, cheatcodeName);
     for (const tool of providedTools) updated = removeToolFromAgentFrontmatter(updated, tool);
@@ -36899,8 +37126,8 @@ function dematerializeAttachment(dbPath2, artifact, cheatcodeName, providedTools
   }
   if (artifact.startsWith("claude-md:")) {
     const rel = artifact.slice("claude-md:".length);
-    const filePath = join14(projectRoot, rel);
-    if (!existsSync11(filePath)) return;
+    const filePath = join15(projectRoot, rel);
+    if (!existsSync12(filePath)) return;
     const reference = `Installed skill: ${cheatcodeName} \u2014 load it when its capability is needed.`;
     const body = readFileSync8(filePath, "utf8");
     if (!body.includes(reference)) return;
@@ -37214,9 +37441,9 @@ function cheatcodeTools(db2) {
         const projectRoot = projectRootFromDbPath(db2.dbPath);
         const writesOutside = (targets) => {
           if (projectRoot === null) return null;
-          const paths = [join14(projectRoot, ".claude", "skills", name, "SKILL.md")];
+          const paths = [join15(projectRoot, ".claude", "skills", name, "SKILL.md")];
           for (const t of targets) {
-            paths.push(t === "bro" ? join14(projectRoot, ".claude", "CLAUDE.md") : join14(projectRoot, ".claude", "agents", `${t}.md`));
+            paths.push(t === "bro" ? join15(projectRoot, ".claude", "CLAUDE.md") : join15(projectRoot, ".claude", "agents", `${t}.md`));
           }
           for (const path2 of paths) {
             const refusal2 = outsideProject("cheatcode_install", projectRoot, path2);
@@ -37490,7 +37717,7 @@ function cheatcodeTools(db2) {
 }
 
 // src/tools/world_model.ts
-import { spawnSync as spawnSync9 } from "node:child_process";
+import { spawnSync as spawnSync10 } from "node:child_process";
 var WORLD_MODEL_GET_MAX_NODES = 500;
 var UNMERGED_WORK_MAX_BRANCHES = 10;
 function computeUnmergedWork(db2, repo) {
@@ -37502,7 +37729,7 @@ function computeUnmergedWork(db2, repo) {
   if (!repoRow) return { unmerged_work: [] };
   const repoPath = repoRowPath(db2, repoRow.path);
   const target = repoRow.target_branch || resolveRepoDefaultBranch(repoPath);
-  const gitCheck = spawnSync9("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
+  const gitCheck = spawnSync10("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
     encoding: "utf8",
     timeout: SUBPROCESS_TIMEOUT_MS
   });
@@ -37527,13 +37754,13 @@ function computeUnmergedWork(db2, repo) {
   }
   const unmerged_work = [];
   for (const [branch_id, entry] of [...byBranch.entries()].slice(0, UNMERGED_WORK_MAX_BRANCHES)) {
-    const refCheck = spawnSync9(
+    const refCheck = spawnSync10(
       "git",
       ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branch_id}`],
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
     );
     if (refCheck.status !== 0) continue;
-    const mergeBase = spawnSync9(
+    const mergeBase = spawnSync10(
       "git",
       ["-C", repoPath, "merge-base", "--is-ancestor", entry.tip, target],
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
@@ -37791,9 +38018,9 @@ function worldModelTools(db2, graphHolder2) {
 }
 
 // src/tools/agent-runs-backfill.ts
-import { existsSync as existsSync12, readdirSync as readdirSync3, readFileSync as readFileSync9, statSync as statSync3 } from "node:fs";
+import { existsSync as existsSync13, readdirSync as readdirSync4, readFileSync as readFileSync9, statSync as statSync4 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { basename as basename5, join as join15 } from "node:path";
+import { basename as basename6, join as join16 } from "node:path";
 var UNBOUND_SAMPLE = 20;
 var BACKFILL_AGENTS = /* @__PURE__ */ new Set(["swe", "pr-reviewer"]);
 function readRecords(path2) {
@@ -37940,29 +38167,29 @@ function sessionSpawnTypes(records) {
   return out;
 }
 function defaultTranscriptsDir(projectRoot) {
-  const configDir = process.env["CLAUDE_CONFIG_DIR"] || join15(homedir4(), ".claude");
-  return join15(configDir, "projects", projectRoot.replace(/[^A-Za-z0-9]/g, "-"));
+  const configDir = process.env["CLAUDE_CONFIG_DIR"] || join16(homedir4(), ".claude");
+  return join16(configDir, "projects", projectRoot.replace(/[^A-Za-z0-9]/g, "-"));
 }
 function listTranscripts(dir) {
   const sessions = [];
   const subagents = [];
-  for (const name of readdirSync3(dir).sort()) {
-    const p = join15(dir, name);
+  for (const name of readdirSync4(dir).sort()) {
+    const p = join16(dir, name);
     if (name.endsWith(".jsonl")) {
       sessions.push(p);
       continue;
     }
-    const sub = join15(p, "subagents");
-    if (!existsSync12(sub) || !statSync3(sub).isDirectory()) continue;
-    for (const f of readdirSync3(sub).sort()) {
-      if (/^agent-.+\.jsonl$/.test(f)) subagents.push({ path: join15(sub, f), session: name });
+    const sub = join16(p, "subagents");
+    if (!existsSync13(sub) || !statSync4(sub).isDirectory()) continue;
+    for (const f of readdirSync4(sub).sort()) {
+      if (/^agent-.+\.jsonl$/.test(f)) subagents.push({ path: join16(sub, f), session: name });
     }
   }
   return { sessions, subagents };
 }
 function spawnAgentType(path2, sessionTypes) {
   const meta3 = path2.replace(/\.jsonl$/, ".meta.json");
-  if (existsSync12(meta3)) {
+  if (existsSync13(meta3)) {
     try {
       const t = normalizeRole(JSON.parse(readFileSync9(meta3, "utf8"))["agentType"]);
       if (t) return t;
@@ -37972,7 +38199,7 @@ function spawnAgentType(path2, sessionTypes) {
   return normalizeRole(sessionTypes?.get(agentIdOf(path2)));
 }
 function agentIdOf(path2) {
-  return basename5(path2).replace(/^agent-/, "").replace(/\.jsonl$/, "");
+  return basename6(path2).replace(/^agent-/, "").replace(/\.jsonl$/, "");
 }
 var RUN_COLS = "id, task_id, agent_type, started_at, completed_at, spawn_id, session_id, usage_source, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens";
 var MEASURED_SOURCES = /* @__PURE__ */ new Set(["transcript", "subagent_stop", "backfill"]);
@@ -38006,7 +38233,7 @@ function agentRunsBackfill(db2, opts) {
     if (report.unbound.first.length < UNBOUND_SAMPLE) report.unbound.first.push({ path: path2, reason });
   };
   const sessionRecords = /* @__PURE__ */ new Map();
-  for (const p of sessions) sessionRecords.set(basename5(p, ".jsonl"), readRecords(p));
+  for (const p of sessions) sessionRecords.set(basename6(p, ".jsonl"), readRecords(p));
   const spawnTypes = /* @__PURE__ */ new Map();
   const claimedRunIds = /* @__PURE__ */ new Set();
   for (const { path: path2, session } of subagents) {
@@ -38190,7 +38417,7 @@ function agentRunsBackfillTools(db2, dbPath2) {
           if (!root) return errResult("no project root for this DB; pass transcripts_dir");
           dir = defaultTranscriptsDir(root);
         }
-        if (!existsSync12(dir) || !statSync3(dir).isDirectory()) return errResult(`transcripts_dir not found: ${dir}`);
+        if (!existsSync13(dir) || !statSync4(dir).isDirectory()) return errResult(`transcripts_dir not found: ${dir}`);
         return okResult(agentRunsBackfill(db2, { dryRun, since, transcriptsDir: dir, now: (/* @__PURE__ */ new Date()).toISOString() }));
       } catch (e) {
         return errResult(e.message);
@@ -38205,12 +38432,12 @@ import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
 
 // src/utils/plugin-installs.ts
 import { readFileSync as readFileSync10, realpathSync as realpathSync6 } from "node:fs";
-import { join as join16 } from "node:path";
+import { join as join17 } from "node:path";
 function claudeConfigDir(env) {
-  return env["CLAUDE_CONFIG_DIR"] || join16(env["HOME"] || "", ".claude");
+  return env["CLAUDE_CONFIG_DIR"] || join17(env["HOME"] || "", ".claude");
 }
 function installedPluginsJsonPath(env = process.env) {
-  return env["TMB_INSTALLED_JSON"] || join16(claudeConfigDir(env), "plugins", "installed_plugins.json");
+  return env["TMB_INSTALLED_JSON"] || join17(claudeConfigDir(env), "plugins", "installed_plugins.json");
 }
 function canonicalDir(dir) {
   try {
@@ -38229,9 +38456,9 @@ function readJsonObject(path2) {
 }
 function enabledMap(project, env) {
   const files = [
-    join16(claudeConfigDir(env), "settings.json"),
-    join16(project, ".claude", "settings.json"),
-    join16(project, ".claude", "settings.local.json")
+    join17(claudeConfigDir(env), "settings.json"),
+    join17(project, ".claude", "settings.json"),
+    join17(project, ".claude", "settings.local.json")
   ];
   const merged = {};
   for (const file2 of files) {

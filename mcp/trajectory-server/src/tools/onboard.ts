@@ -51,6 +51,7 @@ import {
   writeProjectSandbox,
   type SandboxRecord,
 } from './onboard-sandbox.js';
+import { scanWorkspace } from './onboard-scan.js';
 
 // Resolve the installed plugin's source root: prefer CLAUDE_PLUGIN_ROOT (must
 // have .claude-plugin/plugin.json), else walk up from this module until that
@@ -876,6 +877,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             glab_authed: glab.authed,
           },
           nesting: nesting(),
+          scan: scanWorkspace(db),
         });
       }),
     ),
