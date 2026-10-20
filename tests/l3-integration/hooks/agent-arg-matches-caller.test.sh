@@ -16,7 +16,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/agent-arg-matches-caller.sh"
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-agent-arg-matches-caller.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 cd "$TMPDIR"
 assert_not_in_plugin_repo "$PLUGIN_ROOT"

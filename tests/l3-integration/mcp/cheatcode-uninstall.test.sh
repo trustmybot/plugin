@@ -13,7 +13,7 @@ SCRIPT="$PLUGIN_ROOT/scripts/cheatcode-uninstall.sh"
 
 command -v jq >/dev/null 2>&1 || { printf "SKIP jq not found\n"; exit 0; }
 
-WORKSPACE=$(mktemp -d)
+WORKSPACE=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-cheatcode-uninstall.XXXXXX")
 trap 'rm -rf "$WORKSPACE"' EXIT
 export TMB_PROJECT_ROOT="$WORKSPACE"
 

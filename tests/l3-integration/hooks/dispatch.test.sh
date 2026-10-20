@@ -56,7 +56,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 
-TMP=$(mktemp -d)
+TMP=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-dispatch.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 TMP=$(cd "$TMP" && pwd -P)
 cd "$TMP"

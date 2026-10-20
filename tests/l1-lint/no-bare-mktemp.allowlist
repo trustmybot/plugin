@@ -1,0 +1,5 @@
+# Lines exempt from no-bare-mktemp.sh: <path><TAB><substring of the line><TAB><reason>.
+# Keep to commands a test feeds a hook and lint fixtures; never a temp dir a script creates.
+tests/l3-integration/hooks/swe-boundary.test.sh	'F=$(mktemp); echo x > "$F"'	command under test: the hook must deny a write to a $(mktemp) value
+tests/l3-integration/hooks/swe-boundary.test.sh	'cat > "$(mktemp)" < /dev/null'	command under test: the hook must deny a write to a $(mktemp) target
+tests/l1-lint/fixtures/no-tmp-writes/bad.sh	mktemp -d -p /tmp # VIOLATION	no-tmp-writes fixture: a deliberate /tmp write, never executed

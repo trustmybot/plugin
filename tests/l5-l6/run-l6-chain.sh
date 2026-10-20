@@ -132,7 +132,7 @@ l6c_self_test() {
   # because l5_init_state_dir writes the standalone marker. Everything sits
   # under a temp HOME, so the walk can never reach a live DB.
   local nest ws nested
-  nest=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/l6-nest.XXXXXX")" && pwd -P)
+  nest=$(cd "$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/l6-nest.XXXXXX")" && pwd -P)
   ws="$nest/home/ws"
   nested="$ws/.claude/tmb/l6-chain-runs/run/project"
   mkdir -p "$ws/.claude/tmb" "$nested"

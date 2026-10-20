@@ -23,7 +23,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/mcp-health-check.sh"
 
-TMP=$(mktemp -d)
+TMP=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-mcp-health-check.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 HOME="$TMP/home"
 mkdir -p "$HOME"

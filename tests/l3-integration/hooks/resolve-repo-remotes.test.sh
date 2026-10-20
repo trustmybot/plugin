@@ -13,7 +13,7 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 # shellcheck source=scripts/hooks/lib/resolve-repo.sh
 . "$PLUGIN_ROOT/scripts/hooks/lib/resolve-repo.sh"
 
-TMP=$(mktemp -d)
+TMP=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-resolve-repo-remotes.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
 DB="$TMP/trajectory.db"

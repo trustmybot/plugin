@@ -36,9 +36,9 @@ run_step() {
 # Stubs and tool caches (bun, mise state) live in one run-scoped temp dir that
 # goes when the run ends; the real mise installs on PATH (and their config)
 # stay resolvable under any HOME. A run started with an empty HOME
-# (`HOME=$(mktemp -d) bash tests/run-all.sh`) must end with that HOME holding
+# (`HOME=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/home.XXXXXX") bash tests/run-all.sh`) must end with that HOME holding
 # nothing but the embedding model cache, .cache/huggingface.
-_run_tmp=$(mktemp -d)
+_run_tmp=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-run-all.XXXXXX")
 trap 'rm -rf "$_run_tmp"' EXIT
 _home_isolated=0
 [ -z "$(ls -A "$HOME" 2>/dev/null)" ] && _home_isolated=1
@@ -107,6 +107,8 @@ run_step "L1 lint: version sync (4 manifests agree)"  bash "$HERE/l1-lint/versio
 run_step "L1 lint: changelog top section current"     bash "$HERE/l1-lint/changelog-current.sh"
 run_step "L1 lint: link-check (relative md links)"    bash "$HERE/l1-lint/link-check.sh"
 run_step "L1 lint: shellcheck on shell scripts"       bash "$HERE/l1-lint/shellcheck-hooks.sh"
+run_step "L1 lint: no bare mktemp (explicit path template)"  bash "$HERE/l1-lint/no-bare-mktemp.sh"
+run_step "L1 lint: no bare mktemp (self-test)" bash "$HERE/l1-lint/no-bare-mktemp.sh" --self-test
 run_step "L1 lint: no grep -q in pipelines (self-test)" bash "$HERE/l1-lint/no-grep-q-in-pipelines.sh" --self-test
 run_step "L1 lint: no grep -q in pipelines under pipefail" bash "$HERE/l1-lint/no-grep-q-in-pipelines.sh"
 run_step "L1 lint: no destructive SQL in migrations"  bash "$HERE/l1-lint/no-destructive-sql.sh"

@@ -9,7 +9,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/containment-guard.sh"
 
-SANDBOX=$(mktemp -d)
+SANDBOX=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-containment-guard.XXXXXX")
 trap 'rm -rf "$SANDBOX"' EXIT
 cd "$SANDBOX" || exit 1
 
@@ -219,7 +219,7 @@ assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "OUT=$PROJEC
 assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'D=build; mkdir -p "$D/out"')")")" "a relative variable resolves against the cwd"
 assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'touch "build/$UNKNOWN"')")")" "the literal dir before an unknown variable is inside the root"
 assert_eq "deny" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'touch "/tmp/tmb-cg/$UNKNOWN"')")")" "the literal dir before an unknown variable is outside the root"
-assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd 'OUT=$(mktemp); cat > "$OUT"')")")" "a value built by \$( ) is unresolvable"
+assert_eq "deny" "$(decision "$(run "$WT" "swe" Bash "$(bash_cmd 'OUT=$(mktemp "$TMPDIR/f.XXXXXX"); cat > "$OUT"')")")" "a value built by \$( ) is unresolvable"
 
 test_case "GH 1279: \$PWD is the statement's own dir"
 assert_eq "allow" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'echo x > "$PWD/out"')")")" "bro from inside the root"
@@ -280,7 +280,7 @@ assert_eq "deny" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'echo x > "$O
 
 test_case "GH 1324: the GH 1279 denies hold"
 assert_eq "deny" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'cat > "$UNKNOWN/f"')")")" "cat > \$UNKNOWN/f"
-assert_eq "deny" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'cat > "$(mktemp)"')")")" "cat > \$(mktemp)"
+assert_eq "deny" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'cat > "$(mktemp "$TMPDIR/f.XXXXXX")"')")")" "cat > \$(mktemp <template>)"
 assert_eq "deny" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd 'OUT=/etc/tmb-cg; cat > "$OUT"')")")" "OUT=/etc/x; cat > \$OUT"
 assert_eq "deny" "$(decision "$(run "$PROJECT" "" Bash "$(bash_cmd "$NODE_OUT")")")" "an interpreter heredoc writing outside the root"
 

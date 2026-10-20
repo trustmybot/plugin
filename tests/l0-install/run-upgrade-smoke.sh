@@ -25,7 +25,7 @@ if ! git rev-parse -q --verify "refs/tags/${OLD_TAG}" >/dev/null; then
   exit 1
 fi
 
-OLD_TREE="$(mktemp -d)"
+OLD_TREE="$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-run-upgrade-smoke.XXXXXX")"
 trap 'rm -rf "$OLD_TREE"' EXIT
 git archive "$OLD_TAG" | tar -x -C "$OLD_TREE"
 

@@ -17,7 +17,7 @@ LIB="$PLUGIN_ROOT/scripts/hooks/lib/query-task.sh"
 
 command -v sqlite3 >/dev/null 2>&1 || { echo "SKIP: sqlite3 not installed"; exit 0; }
 
-BASE=$(cd "$(mktemp -d)" && pwd -P)
+BASE=$(cd "$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-db-lookup-no-walkup.XXXXXX")" && pwd -P)
 trap 'rm -rf "$BASE"' EXIT
 WS="$BASE/ws"
 DB="$WS/.claude/tmb/trajectory.db"

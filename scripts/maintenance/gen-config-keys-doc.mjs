@@ -62,7 +62,7 @@ export const KEYS = [
   {
     name: 'sandbox_enforcement',
     type: 'string: `yes` \\| `no`',
-    defaultText: 'unset (read as `no`)',
+    defaultText: 'unset (read as `no`); a fresh `/onboard` defaults to `yes` on macOS and `no` elsewhere until a Linux probe is recorded ([sandbox support](./INSTALL.md#sandbox-support))',
     setBy: '`/onboard` (`onboard_apply`)',
     effect: '`yes` writes Claude Code\'s Bash sandbox block into the project\'s `.claude/settings.local.json`; `no` removes what TMB wrote.',
   },

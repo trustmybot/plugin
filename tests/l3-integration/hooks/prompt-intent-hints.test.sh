@@ -367,7 +367,7 @@ _pass 2>/dev/null || true
 # GH 1199: harness hand-back turns are silent; hints read only unquoted text
 # ---------------------------------------------------------------------------
 
-HINT_TMP=$(mktemp -d)
+HINT_TMP=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-prompt-intent-hints.XXXXXX")
 trap 'rm -rf "$HINT_TMP"' EXIT
 HINT_DB="$HINT_TMP/trajectory.db"
 sqlite3 "$HINT_DB" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null

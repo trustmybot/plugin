@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/activation-routine.sh"
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-activation-routine.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 DB="$TMPDIR/trajectory.db"
 TRANSCRIPT_BRO="$TMPDIR/transcript-bro.jsonl"

@@ -82,7 +82,7 @@ run_dispatcher() {
 # ----- tests: first-deny short-circuit (require-task-spec) ------------------
 
 test_case "swe spawn without task_id is denied with require-task-spec wording"
-WORK=$(mktemp -d)
+WORK=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-agent-spawn-dispatch.XXXXXX")
 db=$(setup_db "$WORK")
 insert_task "$db" 1 "pending" "fix/1-foo" "## spec"
 payload=$(jq -n '{tool_name:"Agent",tool_input:{subagent_type:"swe",prompt:"do the thing"}}')
@@ -94,7 +94,7 @@ rm -rf "$WORK"
 # ----- tests: first-deny short-circuit (pr-reviewer-spawn-prompt-shape) -----
 
 test_case "pr-reviewer spawn with missing anchors is denied"
-WORK=$(mktemp -d)
+WORK=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-agent-spawn-dispatch.XXXXXX")
 db=$(setup_db "$WORK")
 insert_task "$db" 5 "closed" "fix/5-pr" "## spec"
 payload=$(jq -n '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",effort:"high",prompt:"please review this PR"}}')
@@ -138,7 +138,7 @@ assert_eq "" "$out" "silent pass — all seven anchors present"
 # ----- tests: pr-reviewer-no-worktree short-circuits before shape check -----
 
 test_case "pr-reviewer with isolation=worktree is denied before shape check (hook order preserved)"
-WORK=$(mktemp -d)
+WORK=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-agent-spawn-dispatch.XXXXXX")
 db=$(setup_db "$WORK")
 payload=$(jq -n '{tool_name:"Agent",tool_input:{subagent_type:"pr-reviewer",effort:"high",isolation:"worktree",prompt:"review"}}')
 out=$(run_dispatcher "$payload" "$db")
@@ -149,7 +149,7 @@ rm -rf "$WORK"
 # ----- tests: clean swe spawn passes silently --------------------------------
 
 test_case "clean swe spawn with valid task_id and existing branch passes silently"
-WORK=$(mktemp -d)
+WORK=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-agent-spawn-dispatch.XXXXXX")
 setup_repo "$WORK" "dev" "fix/1-foo"
 git -C "$WORK" worktree add -q "$WORK/.claude/worktrees/1-foo" "fix/1-foo"
 db="$WORK/trajectory.db"
@@ -200,7 +200,7 @@ test_case "context union: real dispatcher merges additionalContext from gate hoo
 # Drive the REAL dispatcher (copied verbatim) against stub gate hooks named
 # exactly as the dispatcher expects. SCRIPT_DIR resolves to the temp dir, so the
 # shipped union logic is exercised — no reimplemented dispatcher.
-WORK=$(mktemp -d)
+WORK=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-agent-spawn-dispatch.XXXXXX")
 STUB_HOOKS_DIR="$WORK/hooks"
 mkdir -p "$STUB_HOOKS_DIR"
 cp "$DISPATCHER" "$STUB_HOOKS_DIR/agent-spawn-dispatch.sh"
@@ -226,7 +226,7 @@ rm -rf "$WORK"
 # ----- tests: deny short-circuits context collection -----------------------
 
 test_case "deny in first gate short-circuits real dispatcher; later context not emitted"
-WORK=$(mktemp -d)
+WORK=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-agent-spawn-dispatch.XXXXXX")
 STUB_HOOKS_DIR="$WORK/hooks"
 mkdir -p "$STUB_HOOKS_DIR"
 cp "$DISPATCHER" "$STUB_HOOKS_DIR/agent-spawn-dispatch.sh"

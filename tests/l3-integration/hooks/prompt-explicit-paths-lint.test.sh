@@ -9,7 +9,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 set +e
 LINT="$HERE/../../l1-lint/prompt-explicit-paths.sh"
 
-WORK=$(mktemp -d)
+WORK=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-prompt-explicit-paths-lint.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
 # plant <dir> <relative file> <line> — a one-file plugin tree with <line>.

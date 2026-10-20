@@ -22,7 +22,7 @@ command -v sqlite3 >/dev/null 2>&1 || { echo "SKIP: sqlite3 not installed"; exit
 command -v node >/dev/null 2>&1 || { echo "SKIP: node not installed"; exit 0; }
 [ -f "$PLATFORM_JS" ] || { echo "FAIL: $PLATFORM_JS missing — run bun run build"; exit 1; }
 
-BASE=$(cd "$(mktemp -d)" && pwd -P)
+BASE=$(cd "$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-db-walkup-nest.XXXXXX")" && pwd -P)
 trap 'rm -rf "$BASE"' EXIT
 FAKE_HOME="$BASE/home"
 WS="$FAKE_HOME/ws"

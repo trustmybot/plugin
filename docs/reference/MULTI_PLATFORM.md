@@ -4,6 +4,16 @@
 
 **TMB's complete workflow ships on Claude Code.** Codex Scope 4 supports explicit local planning and can install two standalone project-level Agents. Those Agents are not connected to TMB task lifecycle, trusted validation, delivery gates, or functional Hooks.
 
+## Operating systems
+
+| OS | Claude Code workflow | Bash sandbox |
+|---|---|---|
+| macOS | Supported | Supported; `/onboard` defaults to Yes |
+| Linux | Supported (CI runs the suite on Linux) | Not yet validated; `/onboard` defaults to No |
+| Windows | WSL 2 only (hooks are bash) | As Linux, under WSL 2; none on native Windows |
+
+Details: [Sandbox support](./INSTALL.md#sandbox-support).
+
 ## Vision
 
 Many AI coding agents now exist (Claude Code, OpenAI Codex, Cursor, OpenCode, Gemini CLI, GitHub Copilot CLI, others). The bro doctrine — Human → bro → SWE with pr-reviewer as push gate, Lego templates, lazy-bootstrap project setup, full audit trail in SQLite — is **platform-agnostic** in concept. The implementation is currently Claude-Code-shaped, but most of the content (skills, agent templates, planning protocol, MCP server) would port cleanly.

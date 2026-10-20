@@ -11,7 +11,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 LIB="$PLUGIN_ROOT/scripts/lib/resolve-plugin-name.sh"
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-resolve-plugin-name.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
 # ---- Case 1: manifest with name "tmb" ----------------------------------------

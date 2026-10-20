@@ -13,7 +13,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOKS_RUNNER="$HERE/run.sh"
 MCP_RUNNER="$HERE/../mcp/run.sh"
 
-WORK=$(mktemp -d)
+WORK=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-l3-runners.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
 FAIL_DIR="$WORK/failing"

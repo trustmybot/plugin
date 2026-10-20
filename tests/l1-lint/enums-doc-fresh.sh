@@ -13,7 +13,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 GEN="$ROOT/scripts/maintenance/gen-enums-doc.mjs"
 
-TMP=$(mktemp -d -t tmb-enums-doc-fresh-XXXX)
+TMP=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-enums-doc-fresh-XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
 stage() {

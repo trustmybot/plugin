@@ -13,7 +13,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/consultant-persistence-gate.sh"
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-consultant-persistence-gate.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
 # ---- Fixture: trajectory DB with agents, issues, discussions tables ----------

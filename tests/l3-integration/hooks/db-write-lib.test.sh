@@ -13,7 +13,7 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 LIB="$PLUGIN_ROOT/scripts/hooks/lib/db-write.sh"
 SCHEMA="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
 
-TMPDIR_FIXTURE=$(mktemp -d)
+TMPDIR_FIXTURE=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-db-write-lib.XXXXXX")
 trap 'rm -rf "$TMPDIR_FIXTURE"' EXIT
 DB="$TMPDIR_FIXTURE/trajectory.db"
 sqlite3 "$DB" < "$SCHEMA" >/dev/null

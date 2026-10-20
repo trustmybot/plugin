@@ -79,7 +79,7 @@ is_allowlisted() {
 
 run_self_test() {
   local tmpdir
-  tmpdir=$(mktemp -d -t tmb-no-secrets-XXXX)
+  tmpdir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-no-secrets-XXXXXX")
   trap 'rm -rf "$tmpdir"' EXIT
 
   local fail=0

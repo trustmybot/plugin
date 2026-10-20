@@ -11,7 +11,7 @@ LINT="$PLUGIN_ROOT/tests/l1-lint/changelog-current.sh"
 BUMP="$PLUGIN_ROOT/scripts/maintenance/bump-version.sh"
 FIXTURE="$HERE/fixtures/changelog-fragments"
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-changelog-fragments.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
 CUTOVER_DAY="2026-10-12"

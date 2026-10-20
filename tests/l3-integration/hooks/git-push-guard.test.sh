@@ -23,7 +23,7 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/git-push-guard.sh"
 # Returns the repo path. Sets globals SHA1, SHA2 to the last two commit SHAs.
 setup_repo() {
   local dir
-  dir=$(mktemp -d -t tmb-push-guard-XXXX)
+  dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-push-guard-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b main

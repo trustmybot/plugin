@@ -15,7 +15,7 @@ SCHEMA="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
 command -v sqlite3 >/dev/null 2>&1 || { echo "SKIP: sqlite3 unavailable"; exit 0; }
 command -v jq     >/dev/null 2>&1 || { echo "SKIP: jq unavailable"; exit 0; }
 
-TMPDIR_RC=$(mktemp -d)
+TMPDIR_RC=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-roundtable-cleanup-postcheck.XXXXXX")
 trap 'rm -rf "$TMPDIR_RC"' EXIT
 
 DB="$TMPDIR_RC/.claude/tmb/trajectory.db"

@@ -73,7 +73,7 @@ load_auth() {
 }
 load_auth
 
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/tmb-sandbox-net-probe.XXXXXX")"
+WORK="$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-sandbox-net-probe.XXXXXX")"
 WORK="$(cd "$WORK" && pwd -P)"
 # shellcheck disable=SC2329
 cleanup() { if [ "$KEEP" = 1 ]; then echo "kept: $WORK" >&2; else rm -rf "$WORK"; fi; }

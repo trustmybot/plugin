@@ -14,7 +14,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/assert.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 
-TMPDIR_BASE=$(mktemp -d -t tmb-pr-monitor-XXXX)
+TMPDIR_BASE=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-pr-monitor-XXXXXX")
 trap 'rm -rf "$TMPDIR_BASE"' EXIT
 
 # ── Helper: create a mock gh/glab bin directory ────────────────────────────

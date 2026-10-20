@@ -14,7 +14,7 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/user-prompt-persona.sh"
 SESSION_START_HOOK="$PLUGIN_ROOT/scripts/hooks/session-start-persona.sh"
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-user-prompt-persona.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
 FIXTURE_PLUGIN="$TMPDIR/plugin"
