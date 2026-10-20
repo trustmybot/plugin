@@ -30,7 +30,7 @@ SCHEMA="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
 command -v jq >/dev/null 2>&1 || { printf "SKIP jq not found\n"; exit 0; }
 command -v sqlite3 >/dev/null 2>&1 || { printf "SKIP sqlite3 not found\n"; exit 0; }
 
-SB=$(cd "$(mktemp -d)" && pwd -P)
+SB=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/tmb-identity-resolution.XXXXXX")" && pwd -P)
 trap 'rm -rf "$SB"' EXIT
 CACHE="$SB/model-cache"
 HOST_TMP="$SB/host-tmp"

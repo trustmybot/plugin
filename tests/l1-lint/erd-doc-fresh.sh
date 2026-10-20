@@ -13,7 +13,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 GEN="$ROOT/scripts/maintenance/gen-erd-doc.mjs"
 
-TMP=$(mktemp -d -t tmb-erd-doc-fresh-XXXX)
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/tmb-erd-doc-fresh-XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
 stage() {

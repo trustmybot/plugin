@@ -28,7 +28,7 @@ command -v sqlite3 >/dev/null 2>&1 || { echo "FAIL: sqlite3 unavailable — requ
 # caller (tests/run-all.sh exports it) would silence the remote-close cases.
 unset TMB_DISABLE_REMOTE_SYNC
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/tmb-close-issue-on-merge.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 cd "$TMPDIR"
 assert_not_in_plugin_repo "$PLUGIN_ROOT"

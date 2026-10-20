@@ -10,14 +10,14 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 
 PASS=0
 FAIL=0
-TMPDIR_ROOT=$(mktemp -d -t scorers-test-XXXX)
+TMPDIR_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/scorers-test-XXXXXX")
 trap 'rm -rf "$TMPDIR_ROOT"' EXIT
 
 # ---- helpers --------------------------------------------------------------
 
 mk_project() {
   local p
-  p=$(mktemp -d -t scorers-XXXX)
+  p=$(mktemp -d "${TMPDIR:-/tmp}/scorers-XXXXXX")
   (
     cd "$p" || exit 1
     git init -q -b main
@@ -33,7 +33,7 @@ mk_project() {
 }
 
 mk_flow_dir() {
-  mktemp -d -t scorers-flow-XXXX
+  mktemp -d "${TMPDIR:-/tmp}/scorers-flow-XXXXXX"
 }
 
 assert_exit() {

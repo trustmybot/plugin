@@ -42,7 +42,7 @@ check_tree() {
 
 self_test() {
   local tmp ok=0
-  tmp=$(mktemp -d -t tmb-tool-families-XXXX)
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/tmb-tool-families-XXXXXX")
   # shellcheck disable=SC2064
   trap "rm -rf '$tmp'" RETURN
   mkdir -p "$tmp/t/mcp/trajectory-server/src/tools" "$tmp/t/docs/reference"

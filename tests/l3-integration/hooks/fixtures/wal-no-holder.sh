@@ -59,7 +59,7 @@ wal_run() {
 wal_gate_cases() {
   local label="$1" hook="$2" db="$3" proj="$4" input="$5" expect="$6" forbid="$7" cwd="${8:-$PWD}"
   local work bin log home tmp out strays dir readonly_opens
-  work=$(mktemp -d)
+  work=$(mktemp -d "${TMPDIR:-/tmp}/tmb-wal-no-holder.XXXXXX")
   bin="$work/bin" log="$work/sqlite3.log" home="$work/home" tmp="$work/tmp"
   mkdir -p "$home" "$tmp"
   wal_wrapper "$bin" "$log"

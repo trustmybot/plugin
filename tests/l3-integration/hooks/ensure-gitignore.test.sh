@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/ensure-gitignore.sh"
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/tmb-ensure-gitignore.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 # Pin the project so the hook never resolves one by walking up from the cwd.
 export CLAUDE_PROJECT_DIR="$TMPDIR"

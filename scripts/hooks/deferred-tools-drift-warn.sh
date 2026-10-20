@@ -135,7 +135,7 @@ fi
 # Create a reference file stamped at the MCP child's start time.
 # Using -newer REFFILE instead of -newermt @EPOCH for compatibility with
 # both GNU find and bfs (which Claude Code substitutes for find).
-REF_FILE=$(mktemp 2>/dev/null) || exit 0
+REF_FILE=$(mktemp "${TMPDIR:-/tmp}/tmb-deferred-tools-drift-warn.XXXXXX" 2>/dev/null) || exit 0
 # Cross-platform: GNU date -d '@EPOCH' first, BSD date -j -r EPOCH fallback.
 REF_DATE=$(date -d "@$MCP_START" '+%Y%m%d%H%M.%S' 2>/dev/null || \
            date -j -r "$MCP_START" '+%Y%m%d%H%M.%S' 2>/dev/null || echo "")

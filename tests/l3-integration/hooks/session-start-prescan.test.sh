@@ -12,7 +12,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/session-start-prescan.sh"
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/tmb-session-start-prescan.XXXXXX")
 
 # Post-run sentinel: verify no WAL sidecars or stray node processes linger.
 cleanup_sidecar_check() {

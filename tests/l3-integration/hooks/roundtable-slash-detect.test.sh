@@ -15,7 +15,7 @@ SCHEMA="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
 command -v sqlite3 >/dev/null 2>&1 || { echo "SKIP: sqlite3 unavailable"; exit 0; }
 command -v jq     >/dev/null 2>&1 || { echo "SKIP: jq unavailable"; exit 0; }
 
-TMPDIR_RT=$(mktemp -d)
+TMPDIR_RT=$(mktemp -d "${TMPDIR:-/tmp}/tmb-roundtable-slash-detect.XXXXXX")
 trap 'rm -rf "$TMPDIR_RT"' EXIT
 
 DB="$TMPDIR_RT/.claude/tmb/trajectory.db"
@@ -64,7 +64,7 @@ assert_eq "0" "$COUNT" "a harness turn is not the Human typing /roundtable"
 # tmb_db_path walk-up. The hook sources lib/query-task.sh which implements it.
 
 test_case "/roundtable resolves DB via walk-up (no env var)"
-WALK_ROOT=$(mktemp -d -t tmb-rt-walk-XXXX)
+WALK_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/tmb-rt-walk-XXXXXX")
 trap 'rm -rf "$TMPDIR_RT" "$WALK_ROOT"' EXIT
 WALK_DB="$WALK_ROOT/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$WALK_DB")"

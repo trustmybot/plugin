@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/no-worktree-branch-create.sh"
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/tmb-no-worktree-branch-create.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 DB="$TMPDIR/trajectory.db"
 export TRAJECTORY_DB_PATH="$DB"

@@ -11,7 +11,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/swe-brief-gate.sh"
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/tmb-swe-brief-gate.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 DB="$TMPDIR/trajectory.db"
 export TRAJECTORY_DB_PATH="$DB"

@@ -175,7 +175,7 @@ scan() {
 # pinned to the old position goes stale, and a missing function fails.
 self_test() {
   local tmp fail=0 out rc pinned
-  tmp=$(mktemp -d) || return 1
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/tmb-no-raw-sql-interpolation.XXXXXX") || return 1
   cp "$FIXTURES/helper.sh" "$tmp/helper.sh"
   pinned=$(grep -n '"\$sql"' "$tmp/helper.sh" | head -1 | cut -d: -f1)
   { echo '# shifted'; cat "$FIXTURES/helper.sh"; } > "$tmp/helper.sh"

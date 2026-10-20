@@ -15,7 +15,7 @@ fail=0
 run_case() {
   local script="$1" name="$2" db_env="$3"
   local root rc out leaked cmd
-  root="$(mktemp -d)"
+  root="$(mktemp -d "${TMPDIR:-/tmp}/tmb-maintenance-scripts-no-db.XXXXXX")"
   mkdir "$root/home" "$root/cwd"
   case "$script" in
     *.mjs) cmd=(node --experimental-sqlite --no-warnings "$MAINT/$script") ;;

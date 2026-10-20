@@ -12,7 +12,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 GEN="$ROOT/scripts/maintenance/gen-config-keys-doc.mjs"
 
-TMP=$(mktemp -d -t tmb-config-keys-doc-fresh-XXXX)
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/tmb-config-keys-doc-fresh-XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
 mkdir -p "$TMP/row/docs/reference"

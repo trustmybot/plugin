@@ -25,8 +25,8 @@ test_case "no config (fresh install) is non-blocking for commits"
 # which would block the commit and fail the assertion. The repo is on a
 # feature branch so the fresh-install safe-default ([main,dev] protected) does
 # not fire Rule 2 — the assertion is purely "no config → no policy block".
-_fresh_dir=$(mktemp -d -t tmb-guards-fresh-XXXX)
-_fresh_home=$(mktemp -d -t tmb-guards-freshhome-XXXX)
+_fresh_dir=$(mktemp -d "${TMPDIR:-/tmp}/tmb-guards-fresh-XXXXXX")
+_fresh_home=$(mktemp -d "${TMPDIR:-/tmp}/tmb-guards-freshhome-XXXXXX")
 (
   cd "$_fresh_dir" || exit 1
   git init -q -b main
@@ -55,7 +55,7 @@ out=$(run_hook '{"tool_input":{"command":"git log --oneline -5"}}')
 assert_not_contains "$out" '"permissionDecision":"deny"' "git log should pass"
 
 test_case "#549: unregistered repo → guard no-ops (commit on protected branch not blocked)"
-_unreg_dir=$(mktemp -d -t tmb-guards-unreg-XXXX)
+_unreg_dir=$(mktemp -d "${TMPDIR:-/tmp}/tmb-guards-unreg-XXXXXX")
 (
   cd "$_unreg_dir" || exit 1
   git init -q -b main
@@ -81,7 +81,7 @@ rm -rf "$_unreg_dir"
 
 setup_worktree_repo() {
   local dir
-  dir=$(mktemp -d -t tmb-guards-wt-XXXX)
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/tmb-guards-wt-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b main
@@ -184,7 +184,7 @@ cleanup_repo
 
 setup_detached_worktree_repo() {
   local dir
-  dir=$(mktemp -d -t tmb-guards-detached-XXXX)
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/tmb-guards-detached-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b main
@@ -238,7 +238,7 @@ test_case "injection: quote-bearing slug resolves a PROTECTED branch and BLOCKS 
 # correct tmb_sql_quote escaping makes the lookup succeed and Rule 2 block.
 # Broken escaping breaks the SQL instead (error → empty branch → fail-open,
 # NO block), so the block assertion below fails the moment escaping regresses.
-dir=$(mktemp -d -t tmb-guards-quote-XXXX)
+dir=$(mktemp -d "${TMPDIR:-/tmp}/tmb-guards-quote-XXXXXX")
 (
   cd "$dir" || exit 1
   git init -q -b main
@@ -448,7 +448,7 @@ cleanup_repo
 
 setup_glab_repo() {
   local dir
-  dir=$(mktemp -d -t tmb-guards-glab-XXXX)
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/tmb-guards-glab-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b dev
@@ -533,7 +533,7 @@ setup_multirepo_workspace() {
   # $1 = "single" registers only `managed`; "both" registers managed + sibling.
   local mode="$1"
   local ws
-  ws=$(mktemp -d -t tmb-guards-ws-XXXX)
+  ws=$(mktemp -d "${TMPDIR:-/tmp}/tmb-guards-ws-XXXXXX")
   mkdir -p "$ws/.claude/tmb"
   sqlite3 "$ws/.claude/tmb/trajectory.db" < "$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql" >/dev/null
   # Managed repo on protected main.
@@ -617,7 +617,7 @@ setup_perrepo_protected() {
   # $1 = repos.protected_branches JSON (may be empty to test the safe-default path).
   local repo_protected="$1"
   local dir
-  dir=$(mktemp -d -t tmb-guards-perrepo-XXXX)
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/tmb-guards-perrepo-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b main
@@ -664,7 +664,7 @@ setup_unconfigured_registered_repo() {
   # $1 = branch to init on (default main).
   local branch="${1:-main}"
   local dir
-  dir=$(mktemp -d -t tmb-guards-unconf-XXXX)
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/tmb-guards-unconf-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b "$branch"
@@ -728,7 +728,7 @@ cleanup_ws
 
 setup_h3_missing_target_repo() {
   local dir
-  dir=$(mktemp -d -t tmb-guards-h3-XXXX)
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/tmb-guards-h3-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b main
@@ -848,7 +848,7 @@ setup_taskparent_repo() {
   # $2 = target_branch (e.g. main)
   local protected="$1" target="$2"
   local dir
-  dir=$(mktemp -d -t tmb-guards-taskparent-XXXX)
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/tmb-guards-taskparent-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b main
@@ -989,7 +989,7 @@ cleanup_repo
 
 setup_dev_main_repo() {
   local dir
-  dir=$(mktemp -d -t tmb-guards-1196-XXXX)
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/tmb-guards-1196-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b dev

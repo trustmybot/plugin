@@ -38,7 +38,7 @@ SCAN="$PLUGIN_ROOT/scripts/scan.sh"
 command -v sqlite3 >/dev/null 2>&1 || { printf "SKIP sqlite3 not found\n"; exit 0; }
 command -v jq >/dev/null 2>&1 || { printf "SKIP jq not found\n"; exit 0; }
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/tmb-scan-resource-discovery.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 cd "$TMPDIR"
 assert_not_in_plugin_repo "$PLUGIN_ROOT"

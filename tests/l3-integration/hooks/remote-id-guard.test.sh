@@ -24,7 +24,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/remote-id-guard.sh"
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/tmb-remote-id-guard.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
 # Fixture DB — issues table with a local→remote iid mismatch.

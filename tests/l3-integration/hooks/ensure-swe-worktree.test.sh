@@ -25,7 +25,7 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/ensure-swe-worktree.sh"
 setup_repo() {
   local feature="${1:-fix/1-foo-bar}"
   local dir
-  dir=$(mktemp -d -t tmb-ensure-wt-XXXX)
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/tmb-ensure-wt-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b dev
@@ -180,7 +180,7 @@ assert_eq "no" "$([ -d "$WT" ] && echo yes || echo no)" "bypass must skip worktr
 cleanup
 
 test_case "TMB workspace shape: tasks.repo names a registered repo → worktree at that repo root"
-WORKSPACE=$(mktemp -d -t tmb-ensure-wt-ws-XXXX)
+WORKSPACE=$(mktemp -d "${TMPDIR:-/tmp}/tmb-ensure-wt-ws-XXXXXX")
 INNER_REPO="$WORKSPACE/plugin"
 mkdir -p "$INNER_REPO"
 (

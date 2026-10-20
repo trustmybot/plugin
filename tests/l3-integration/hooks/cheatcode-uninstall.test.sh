@@ -14,7 +14,7 @@ SCRIPT="$PLUGIN_ROOT/scripts/cheatcode-uninstall.sh"
 
 command -v jq >/dev/null 2>&1 || { printf "FAIL jq not found — required dependency for this security-gate test\n"; exit 1; }
 
-WORKSPACE=$(mktemp -d)
+WORKSPACE=$(mktemp -d "${TMPDIR:-/tmp}/tmb-cheatcode-uninstall.XXXXXX")
 trap 'rm -rf "$WORKSPACE"' EXIT
 export TMB_PROJECT_ROOT="$WORKSPACE/project"
 mkdir -p "$TMB_PROJECT_ROOT"

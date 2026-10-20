@@ -15,7 +15,7 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 LINT="$PLUGIN_ROOT/tests/l1-lint/no-cwd-reads.sh"
 ALLOW="$PLUGIN_ROOT/tests/l1-lint/cwd-allowlist.tsv"
 
-SB=$(cd "$(mktemp -d)" && pwd -P)
+SB=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/tmb-no-cwd-reads-lint.XXXXXX")" && pwd -P)
 trap 'rm -rf "$SB"' EXIT
 export TRAJECTORY_DB_PATH="$SB/no-such.db"
 

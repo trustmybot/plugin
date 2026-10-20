@@ -18,7 +18,7 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/require-feature-branch-active.sh"
 setup_repo() {
   local branch="${1:-fix/1-foo}"
   local dir
-  dir=$(mktemp -d -t tmb-branch-active-XXXX)
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/tmb-branch-active-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b "$branch"
@@ -163,7 +163,7 @@ assert_not_contains "$out" '"permissionDecision":"deny"' "bypass env var must su
 cleanup
 
 test_case "TMB workspace shape: tasks.repo=null + single-repo fallback (one registered repo) + branch exists → passes"
-WORKSPACE=$(mktemp -d -t tmb-workspace-XXXX)
+WORKSPACE=$(mktemp -d "${TMPDIR:-/tmp}/tmb-workspace-XXXXXX")
 INNER_REPO="$WORKSPACE/plugin"
 mkdir -p "$INNER_REPO"
 (
@@ -194,7 +194,7 @@ rm -rf "$WORKSPACE"
 REPO_PATH=""
 
 test_case "TMB workspace shape: tasks.repo=null + no single-repo fallback (two repos) + no .git at workspace root → blocks with clear error"
-WORKSPACE=$(mktemp -d -t tmb-workspace-XXXX)
+WORKSPACE=$(mktemp -d "${TMPDIR:-/tmp}/tmb-workspace-XXXXXX")
 INNER_REPO="$WORKSPACE/plugin"
 SIBLING_REPO="$WORKSPACE/sibling"
 mkdir -p "$INNER_REPO" "$SIBLING_REPO"

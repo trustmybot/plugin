@@ -8,7 +8,7 @@
 #
 # Usage:
 #   . tests/lib/tmpdir-cleanup.sh
-#   TMPDIR=$(mktemp -d)
+#   TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/tmb-<name>.XXXXXX")
 #   trap 'tmpdir_cleanup "$TMPDIR"' EXIT
 
 tmpdir_cleanup() {

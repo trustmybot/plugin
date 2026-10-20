@@ -33,7 +33,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 DISPATCH="$PLUGIN_ROOT/scripts/hooks/dispatch.sh"
 
-SANDBOX=$(mktemp -d)
+SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/tmb-hook-caller-identity.XXXXXX")
 trap 'rm -rf "$SANDBOX"' EXIT
 cd "$SANDBOX" || exit 1
 assert_not_in_plugin_repo "$PLUGIN_ROOT"

@@ -207,8 +207,8 @@ discover_repos() {
     done
 }
 
-repos_jsonl=$(mktemp -t tmb-scan-repos.XXXXXX.jsonl)
-files_jsonl=$(mktemp -t tmb-scan-files.XXXXXX.jsonl)
+repos_jsonl=$(mktemp "${TMPDIR:-/tmp}/tmb-scan-repos.jsonl.XXXXXX")
+files_jsonl=$(mktemp "${TMPDIR:-/tmp}/tmb-scan-files.jsonl.XXXXXX")
 trap 'rm -f "$repos_jsonl" "$files_jsonl"' EXIT
 
 while IFS= read -r repo_root; do
@@ -229,7 +229,7 @@ while IFS= read -r repo_root; do
 
   # Single-pass git log: build relpath→sha map in one subprocess.
   # awk: 40-hex lines update current SHA; file lines record first (most-recent) SHA.
-  sha_map_file=$(mktemp -t tmb-shamap.XXXXXX)
+  sha_map_file=$(mktemp "${TMPDIR:-/tmp}/tmb-shamap.XXXXXX")
   git -C "$repo_root" -c core.quotePath=false log --format='%H' --name-only --no-renames 2>/dev/null \
   | awk '
       /^[0-9a-f]{40}$/ { cur = $0; next }
@@ -238,7 +238,7 @@ while IFS= read -r repo_root; do
     ' > "$sha_map_file"
 
   # Build absolute path list: sed prepends repo_root to each relpath.
-  abs_list_file=$(mktemp -t tmb-abslist.XXXXXX)
+  abs_list_file=$(mktemp "${TMPDIR:-/tmp}/tmb-abslist.XXXXXX")
   printf '%s\n' "$files_list" \
   | awk -v r="$repo_root" '{print r "/" $0}' \
   | while IFS= read -r abs; do
@@ -258,8 +258,8 @@ while IFS= read -r repo_root; do
   fi
 
   # Batch md5 and stat: each produces "path\tvalue" lines (unordered).
-  md5_map_file=$(mktemp -t tmb-md5map.XXXXXX)
-  size_map_file=$(mktemp -t tmb-sizemap.XXXXXX)
+  md5_map_file=$(mktemp "${TMPDIR:-/tmp}/tmb-md5map.XXXXXX")
+  size_map_file=$(mktemp "${TMPDIR:-/tmp}/tmb-sizemap.XXXXXX")
   _batch_md5 "$abs_list_file" > "$md5_map_file" 2>/dev/null || true
   _batch_stat "$abs_list_file" > "$size_map_file" 2>/dev/null || true
 

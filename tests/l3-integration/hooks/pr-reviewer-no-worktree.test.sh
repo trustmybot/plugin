@@ -8,7 +8,7 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/pr-reviewer-no-worktree.sh"
 
 # Pin the project so the hook never resolves one by walking up from the cwd.
-PROJECT="$(mktemp -d)"
+PROJECT="$(mktemp -d "${TMPDIR:-/tmp}/tmb-pr-reviewer-no-worktree.XXXXXX")"
 trap 'rm -rf "$PROJECT"' EXIT
 export CLAUDE_PROJECT_DIR="$PROJECT"
 

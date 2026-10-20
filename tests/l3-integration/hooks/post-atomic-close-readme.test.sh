@@ -19,7 +19,7 @@ command -v git >/dev/null 2>&1 || { echo "SKIP: git not available"; exit 0; }
 command -v sqlite3 >/dev/null 2>&1 || { echo "SKIP: sqlite3 not available"; exit 0; }
 [ -f "$SCHEMA" ] || { echo "SKIP: schema.sql not found at $SCHEMA"; exit 0; }
 
-TMPDIR_R=$(mktemp -d)
+TMPDIR_R=$(mktemp -d "${TMPDIR:-/tmp}/tmb-post-atomic-close-readme.XXXXXX")
 trap 'rm -rf "$TMPDIR_R"' EXIT
 
 # ── Fixture: workspace with a git repo + a trajectory DB ───────────────────────

@@ -18,7 +18,7 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/orphan-scan.sh"
 
 PLUGIN_NAME="tmb"
 
-TMPROOT=$(mktemp -d)
+TMPROOT=$(mktemp -d "${TMPDIR:-/tmp}/tmb-orphan-scan.XXXXXX")
 trap 'rm -rf "$TMPROOT"' EXIT
 
 # slug must match the hook's project_slug(): non-alphanumeric runs → '-'.

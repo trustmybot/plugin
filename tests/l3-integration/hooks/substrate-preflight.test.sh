@@ -19,12 +19,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/substrate-preflight.sh"
 
-STUB_DIR=$(mktemp -d)
+STUB_DIR=$(mktemp -d "${TMPDIR:-/tmp}/tmb-substrate-preflight.XXXXXX")
 trap 'rm -rf "$STUB_DIR"' EXIT
 
 _make_stub_dir_with() {
   local dir
-  dir=$(mktemp -d -p "$STUB_DIR")
+  dir=$(mktemp -d "$STUB_DIR/tmb-substrate-preflight.XXXXXX")
   for bin in "$@"; do
     local real
     real=$(command -v "$bin" 2>/dev/null || true)
@@ -73,7 +73,7 @@ CREATE TABLE repo_remotes (
   PRIMARY KEY (repo, name)
 );"
 
-_DB_DIR=$(mktemp -d -p "$STUB_DIR")
+_DB_DIR=$(mktemp -d "$STUB_DIR/tmb-substrate-preflight.XXXXXX")
 DB_NO_REMOTE="$_DB_DIR/no-remote.db"
 sqlite3 "$DB_NO_REMOTE" "
   $_repos_schema

@@ -9,7 +9,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 LIB="$PLUGIN_ROOT/scripts/lib/sqlite3-fallback.sh"
 
-TMPDIR_FIXTURE=$(mktemp -d)
+TMPDIR_FIXTURE=$(mktemp -d "${TMPDIR:-/tmp}/tmb-sqlite3-fallback.XXXXXX")
 trap 'rm -rf "$TMPDIR_FIXTURE"' EXIT
 DB="$TMPDIR_FIXTURE/trajectory.db"
 export TRAJECTORY_DB_PATH="$DB"

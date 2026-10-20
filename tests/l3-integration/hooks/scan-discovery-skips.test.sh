@@ -18,7 +18,7 @@ command -v node >/dev/null 2>&1 || { echo "SKIP: node not available"; exit 0; }
 command -v sqlite3 >/dev/null 2>&1 || { echo "SKIP: sqlite3 not found"; exit 0; }
 [ -f "$DIST/tools/scan.js" ] || { echo "SKIP: dist not built ($DIST/tools/scan.js missing)"; exit 0; }
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/tmb-scan-discovery-skips.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 cd "$TMPDIR"
 assert_not_in_plugin_repo "$PLUGIN_ROOT"

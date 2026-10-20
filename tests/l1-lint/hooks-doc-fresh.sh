@@ -53,7 +53,7 @@ check_tree() {
 
 self_test() {
   local tmp ok=0
-  tmp=$(mktemp -d -t tmb-hooks-doc-fresh-XXXX)
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/tmb-hooks-doc-fresh-XXXXXX")
   # shellcheck disable=SC2064
   trap "rm -rf '$tmp'" RETURN
   mkdir -p "$tmp/t/docs/reference" "$tmp/t/hooks"

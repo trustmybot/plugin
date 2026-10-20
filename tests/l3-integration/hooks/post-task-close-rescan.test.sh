@@ -18,7 +18,7 @@ command -v node >/dev/null 2>&1 || { echo "SKIP: node not available"; exit 0; }
 DIST="$PLUGIN_ROOT/mcp/trajectory-server/dist/db.js"
 [ -f "$DIST" ] || { echo "SKIP: dist not built ($DIST missing)"; exit 0; }
 
-TMPDIR=$(mktemp -d)
+TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/tmb-post-task-close-rescan.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
 # Scan shells out to `claude plugin list`; a stub keeps the run hermetic (the

@@ -23,7 +23,7 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/git-push-guard.sh"
 # Sets globals: REPO_PATH, FEATURE_SHA
 setup_first_push_repo() {
   local dir
-  dir=$(mktemp -d -t tmb-first-push-XXXX)
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/tmb-first-push-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b dev
@@ -196,7 +196,7 @@ cleanup
 # feature branch adds C (task 1). Target dev gates {C}; target main gates {D, C}.
 setup_two_base_repo() {
   local dir
-  dir=$(mktemp -d -t tmb-first-push-XXXX)
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/tmb-first-push-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b dev
