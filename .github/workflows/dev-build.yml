@@ -34,7 +34,9 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          LAST_TAG="$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' HEAD 2>/dev/null || echo v0.0.0)"
+          LAST_TAG="$(git tag -l 'v[0-9]*' --sort=-v:refname \
+                        | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/ && !found { print; found = 1 }')"
+          LAST_TAG="${LAST_TAG:-v0.0.0}"
           LAST="${LAST_TAG#v}"
           NEXT=""
           while IFS= read -r v; do

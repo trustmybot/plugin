@@ -59,8 +59,8 @@ Direct commits to `dev` and `main` are blocked by `scripts/hooks/git-guards.sh` 
 
 Every push to `dev` runs `.github/workflows/dev-build.yml`, which stamps the manifests with a version of the form `X.Y.Z-dev.<n>.gh<PR>` (e.g. `1.2.0-dev.7.gh1594`) and force-pushes the result to `dev-build`:
 
-- `X.Y.Z` is the release `dev` is heading for: the lowest open `vX.Y.Z` milestone above the last stable tag, else that tag with the minor bumped.
-- `<n>` counts the first-parent commits on `dev` since the last stable tag (rc tags don't reset it), so it grows by one per merged PR. `n` orders builds.
+- `X.Y.Z` is the release `dev` is heading for: the lowest open `vX.Y.Z` milestone above the latest stable release (the highest stable `vX.Y.Z` tag), else that release with the minor bumped. It must be above the latest release; the build fails otherwise.
+- `<n>` counts the commits merged to `dev` since the latest stable release (first-parent commits on `dev` not yet in that release; rc tags don't count), so it grows by one per merged PR and resets after each release. `n` orders builds.
 - `gh<PR>` names the PR whose merge produced the build. It is a label only; it says nothing about order. A direct dispatch with no PR omits it.
 
 **Is a fix in my build?** Find the build that shipped the fix's PR (its `gh<PR>` label, or the dev-build commit `Built from <sha>`), and compare `n`: your build has the fix when its `n` is ≥ that build's `n` (same `X.Y.Z`).
