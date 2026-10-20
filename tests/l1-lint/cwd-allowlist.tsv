@@ -38,6 +38,7 @@ scripts/hooks/worktree-create.sh	CWD_REPO="$(pwd)"	fallback	WorktreeCreate with 
 scripts/hooks/dispatch.sh	cwd: (.cwd? // null)	not-location	the hook_denied audit row records the payload cwd as data; nothing is resolved from it
 scripts/release.sh	git 	anchored-cd	the script cds to its own checkout ($PLUGIN_ROOT, from its location) before any git
 scripts/maintenance/regen-generated.sh	git 	anchored-cd	the script cds to its own checkout ($ROOT, from its location) before any git
+scripts/maintenance/dev-build-version.sh	git 	join-base	a git-style CLI: it describes the repo it runs in, like git itself; dev-build.yml runs it at the checkout root (GH 1604)
 scripts/publish-rc-channel.sh	git ls-remote --tags "$PLUGIN_REPO"	not-location	ls-remote names its remote URL; reads no checkout
 scripts/publish-rc-channel.sh	git clone --quiet --depth 1 "$CATALOG_REPO" "$WORK_DIR/marketplace-rc"	not-location	clone names its source URL and an absolute destination
 scripts/scan.sh	SESSION_DIR="${1:-$PWD}"	fallback	scan_run always passes the session dir; only a manual run with no argument scans where it starts

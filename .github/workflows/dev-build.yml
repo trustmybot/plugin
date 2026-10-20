@@ -1,0 +1,93 @@
+name: dev-build
+on:
+  # Stamps every dev push as X.Y.Z-dev.<n>.gh<PR> and force-pushes the result to
+  # the dev-build branch that the dev marketplace channel serves. Not a gate.
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: dev-build
+  cancel-in-progress: true
+
+jobs:
+  stamp:
+    name: Stamp and publish dev build
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve the next release version
+        id: next
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          LAST_TAG="$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' HEAD 2>/dev/null || echo v0.0.0)"
+          LAST="${LAST_TAG#v}"
+          NEXT=""
+          while IFS= read -r v; do
+            [ "$v" != "$LAST" ] || continue
+            [ "$(printf '%s\n%s\n' "$LAST" "$v" | sort -V | tail -1)" = "$v" ] || continue
+            if [ -z "$NEXT" ] || [ "$(printf '%s\n%s\n' "$NEXT" "$v" | sort -V | head -1)" = "$v" ]; then
+              NEXT="$v"
+            fi
+          done < <(gh api --paginate "repos/$REPO/milestones?state=open" --jq '.[].title' \
+                     | { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sed 's/^v//')
+          if [ -z "$NEXT" ]; then
+            IFS=. read -r MAJOR MINOR _ <<< "$LAST"
+            NEXT="$MAJOR.$((MINOR + 1)).0"
+            echo "No open vX.Y.Z milestone above $LAST_TAG; falling back to $NEXT."
+          fi
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve the PR that produced this commit
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          DEV_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          PR="$(gh api "repos/$REPO/commits/$DEV_SHA/pulls" --jq '.[0].number // empty')"
+          echo "pr=$PR" >> "$GITHUB_OUTPUT"
+
+      - name: Stamp the version
+        id: version
+        env:
+          NEXT: ${{ steps.next.outputs.next }}
+          PR: ${{ steps.pr.outputs.pr }}
+        run: |
+          set -euo pipefail
+          ARGS=(--next "$NEXT")
+          [ -z "$PR" ] || ARGS+=(--pr "$PR")
+          VERSION="$(bash scripts/maintenance/dev-build-version.sh "${ARGS[@]}")"
+          bash scripts/maintenance/bump-version.sh --version-only "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push to dev-build
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DEV_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -am "🔖 chore(dev-build): $VERSION" -m "Built from $DEV_SHA."
+          git push --force origin HEAD:refs/heads/dev-build
+          {
+            echo "### Dev build \`$VERSION\`"
+            echo
+            echo "Built from \`$DEV_SHA\`, pushed to \`dev-build\`."
+          } >> "$GITHUB_STEP_SUMMARY"
