@@ -35,7 +35,7 @@ import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
 import type { Provider } from '../utils/classify-url.js';
 import { repoRowPath, resolveSoleRepoPath } from '../utils/repo-paths.js';
-import { remotesView, repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
+import { remotesView, repoRemotes, upsertRepoRemotes, type RemoteProvider } from '../repos/remotes.js';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
@@ -50,7 +50,7 @@ import {
   writeProjectSandbox,
   type SandboxRecord,
 } from './onboard-sandbox.js';
-import { scanWorkspace } from './onboard-scan.js';
+import { scanWorkspace, type Recommendation, type WorkspaceScan } from './onboard-scan.js';
 
 // Resolve the installed plugin's source root: prefer CLAUDE_PLUGIN_ROOT (must
 // have .claude-plugin/plugin.json), else walk up from this module until that
@@ -237,17 +237,30 @@ interface RepoPolicyRow {
   name: string;
   target_branch: string | null;
   branching_model: string | null;
+  recommendation: Recommendation | null;
+}
+
+function parseStoredRecommendation(json: string | null): Recommendation | null {
+  if (!json) return null;
+  try {
+    const rec = (JSON.parse(json) as { recommendation?: Recommendation | null }).recommendation;
+    return rec && typeof rec === 'object' && Array.isArray(rec.evidence) ? rec : null;
+  } catch {
+    return null;
+  }
 }
 
 // Read one repos row by name for the per-repo onboard path. Returns null when
 // no such repo is registered — callers surface a validation error so the
 // per-repo path never writes blind.
 function readRepoRow(db: TrajectoryDB, repo: string): RepoPolicyRow | null {
-  const row = db.get<RepoPolicyRow>(
-    `SELECT name, target_branch, branching_model FROM repos WHERE name = ?`,
+  const row = db.get<Omit<RepoPolicyRow, 'recommendation'> & { onboard_scan: string | null }>(
+    `SELECT name, target_branch, branching_model, onboard_scan FROM repos WHERE name = ?`,
     [repo],
   );
-  return row ?? null;
+  if (!row) return null;
+  const { onboard_scan, ...policy } = row;
+  return { ...policy, recommendation: parseStoredRecommendation(onboard_scan) };
 }
 
 function readOnboardedFlag(db: TrajectoryDB): boolean {
@@ -289,6 +302,7 @@ interface QuestionOption {
   description: string;
   wire: string;
   disabled?: boolean;
+  recommended?: boolean;
 }
 
 interface BuiltQuestion {
@@ -298,65 +312,125 @@ interface BuiltQuestion {
   options: QuestionOption[];
   // 0-based index of the option the caller should preselect.
   default_index: number;
+  evidence: string[];
+  recommended_reason: string | null;
 }
 
+interface Advice {
+  evidence: string[];
+  reason: string | null;
+  wire: string | null;
+}
+
+const NO_ADVICE: Advice = { evidence: [], reason: null, wire: null };
+
 const BRANCHING_DESCRIPTIONS = {
-  'github-flow':
-    'One long-lived branch (main). Each task gets its own short-lived branch off main; you open a PR back to main when it\'s ready. No release branches. Suitable for continuous deploys.',
-  gitflow:
-    'Two long-lived branches (main + dev). Daily work merges into the integration branch (commonly named "dev" — older repos may name it "develop"); release branches are cut from there and merged into main when shipping. Hotfixes go straight to main. Suitable for versioned releases.',
+  'github-flow': 'One main branch; every change is a short branch plus a pull request.',
+  gitflow: 'Two long-lived branches; daily work lands on dev, releases go to main.',
 };
 
-// Name is intentionally NOT a built question — it's free-text input that
-// AUQ's radio model fits poorly (the auto-rendered "Other" field clutters
-// the picker with 3 effective options when only 2 are conceptually offered:
-// "Anonymous" or "type your name"). The skill body asks Name in plain prose
-// and feeds the parsed answer straight to `onboard_apply`. See commands/onboard.md.
+const HOST_NAMES: Record<RemoteProvider, string> = { github: 'GitHub', gitlab: 'GitLab', other: 'another host' };
 
-function shapeQuestion(origin_kind: Provider | null): BuiltQuestion {
-  const options: QuestionOption[] = [
+function keepOption(current: string | null, show: boolean): QuestionOption | null {
+  return show && current !== null ? { label: `Keep "${current}"`, description: 'No change.', wire: KEEP_SENTINEL } : null;
+}
+
+function assemble(
+  keep: QuestionOption | null,
+  choices: QuestionOption[],
+  advice: Advice,
+  fallbackWire: string | null,
+): Pick<BuiltQuestion, 'options' | 'default_index' | 'evidence' | 'recommended_reason'> {
+  const at = advice.wire === null ? -1 : choices.findIndex((o) => o.wire === advice.wire && !o.disabled);
+  const ordered = at < 0 ? choices : [{ ...choices[at]!, recommended: true }, ...choices.filter((_, i) => i !== at)];
+  const options = keep ? [keep, ...ordered] : ordered;
+  let default_index = 0;
+  if (!keep && at < 0 && fallbackWire !== null) {
+    default_index = Math.max(0, options.findIndex((o) => o.wire === fallbackWire && !o.disabled));
+  }
+  return { options, default_index, evidence: advice.evidence, recommended_reason: advice.reason };
+}
+
+function scanSummaryLine(scan: WorkspaceScan): string {
+  const n = scan.summary.repo_count;
+  const parts: string[] = [];
+  for (const host of ['github', 'gitlab', 'other'] as const) {
+    const count = scan.repos.filter((r) => r.remotes.some((x) => x.host === host)).length;
+    if (count > 0) parts.push(`${count} ${count === 1 ? 'pushes' : 'push'} to ${HOST_NAMES[host]}`);
+  }
+  const none = scan.repos.filter((r) => r.remotes.length === 0).length;
+  if (none > 0) parts.push(`${none} ${none === 1 ? 'has' : 'have'} no remote`);
+  return `Found ${n} git ${n === 1 ? 'repository' : 'repositories'} under this folder; ${parts.join(', ')}.`;
+}
+
+function shapeAdvice(scan: WorkspaceScan, origin_kind: Provider | null): Advice {
+  if (scan.summary.repo_count === 0) return NO_ADVICE;
+  const evidence = [scanSummaryLine(scan)];
+  if (scan.repos.every((r) => r.remotes.length === 0)) {
+    return { evidence, reason: 'no repository has a remote, so there is nothing to push to', wire: 'local' };
+  }
+  if (origin_kind === 'github' || origin_kind === 'gitlab') {
+    return { evidence, reason: `this project's origin remote is on ${HOST_NAMES[origin_kind]}`, wire: 'remote' };
+  }
+  return { evidence, reason: null, wire: null };
+}
+
+function workspaceRecommendation(scan: WorkspaceScan): Recommendation | null {
+  if (scan.summary.repo_count === 1) return scan.repos[0]?.recommendation ?? null;
+  if (!scan.summary.uniform) return null;
+  const recs = scan.repos.flatMap((r) => (r.recommendation ? [{ name: r.name, rec: r.recommendation }] : []));
+  const first = recs[0];
+  if (!first) return null;
+  return {
+    ...first.rec,
+    reason: `all ${recs.length} repositories send their changes to ${first.rec.pr_target}`,
+    evidence: recs.map(({ name, rec }) => `${name}: ${rec.evidence[0] ?? rec.reason}`),
+  };
+}
+
+// High confidence picks the options; low confidence still shows the facts
+// and the reason but keeps today's defaults; none shows nothing.
+function branchingAdvice(rec: Recommendation | null): { branching: Advice; prTarget: Advice } {
+  if (!rec || rec.confidence === 'none') return { branching: NO_ADVICE, prTarget: NO_ADVICE };
+  const pick = rec.confidence === 'high';
+  return {
+    branching: { evidence: rec.evidence, reason: rec.reason, wire: pick ? rec.branching_model : null },
+    prTarget: { evidence: rec.evidence, reason: rec.reason, wire: pick ? rec.pr_target : null },
+  };
+}
+
+function shapeQuestion(origin_kind: Provider | null, advice: Advice): BuiltQuestion {
+  const choices: QuestionOption[] = [
     {
       label: 'Remote-tracked',
-      description: 'Pushes to GitHub or GitLab. Issues can mirror to the remote.',
+      description: 'Work is pushed to GitHub or GitLab, with pull requests and synced issues.',
       wire: 'remote',
     },
     {
       label: 'Local-only',
-      description: 'No GitHub/GitLab. Issues stay in the local trajectory DB; no PR/MR pushes.',
+      description: 'Nothing leaves this computer. Pull requests and issue sync are off.',
       wire: 'local',
     },
   ];
-  const default_index = origin_kind === 'github' || origin_kind === 'gitlab' ? 0 : 1;
+  const probeDefault = origin_kind === 'github' || origin_kind === 'gitlab' ? 'remote' : 'local';
   return {
-    question: 'Is this project local-only or remote-tracked?',
+    question: 'Does this project push to GitHub or GitLab, or stay on this computer?',
     header: 'Shape',
     multiSelect: false,
-    options,
-    default_index,
+    ...assemble(null, choices, advice, probeDefault),
   };
 }
 
-function branchingQuestion(currentModel: string | null, isReonboard: boolean): BuiltQuestion {
-  const options: QuestionOption[] = [];
-  if (isReonboard && currentModel !== null) {
-    options.push({ label: `Keep "${currentModel}"`, description: 'No change.', wire: KEEP_SENTINEL });
-  }
-  options.push({
-    label: 'GitHub Flow',
-    description: BRANCHING_DESCRIPTIONS['github-flow'],
-    wire: 'github-flow',
-  });
-  options.push({
-    label: 'Git Flow',
-    description: BRANCHING_DESCRIPTIONS.gitflow,
-    wire: 'gitflow',
-  });
+function branchingQuestion(currentModel: string | null, isReonboard: boolean, advice: Advice): BuiltQuestion {
+  const choices: QuestionOption[] = [
+    { label: 'GitHub Flow', description: BRANCHING_DESCRIPTIONS['github-flow'], wire: 'github-flow' },
+    { label: 'Git Flow', description: BRANCHING_DESCRIPTIONS.gitflow, wire: 'gitflow' },
+  ];
   return {
     question: 'How does your team branch?',
     header: 'Branching',
     multiSelect: false,
-    options,
-    default_index: 0,
+    ...assemble(keepOption(currentModel, isReonboard), choices, advice, 'github-flow'),
   };
 }
 
@@ -364,106 +438,100 @@ function prTargetQuestion(
   currentTarget: string | null,
   branchingModel: string | null,
   isReonboard: boolean,
+  advice: Advice,
 ): BuiltQuestion {
-  const options: QuestionOption[] = [];
-  if (isReonboard && currentTarget !== null) {
-    options.push({ label: `Keep "${currentTarget}"`, description: 'No change.', wire: KEEP_SENTINEL });
+  const choices: QuestionOption[] = [
+    { label: 'main', description: 'Changes go straight into main.', wire: 'main' },
+    { label: 'dev', description: 'Changes go into dev first; main gets them at release time.', wire: 'dev' },
+    { label: 'develop', description: 'Same as dev, for repositories that call that branch develop.', wire: 'develop' },
+  ];
+  if (advice.wire !== null && !choices.some((o) => o.wire === advice.wire)) {
+    choices.push({
+      label: advice.wire,
+      description: `Changes go into ${advice.wire}, the branch this repository already uses.`,
+      wire: advice.wire,
+    });
   }
-  options.push(
-    { label: 'main', description: 'Most common default.', wire: 'main' },
-    { label: 'dev', description: 'Common for GitLab Flow + modern Git Flow variants.', wire: 'dev' },
-    { label: 'develop', description: 'Classic Git Flow convention.', wire: 'develop' },
-  );
-
-  // First-run pre-select by branching_model: github-flow → main, gitflow → dev.
-  // 'develop' is offered as a secondary option for classic Git Flow repos.
-  // master / older targets aren't offered as labeled options (rare in modern
-  // projects). Users who actually need master/release/etc. type it via Other.
-  let default_index = 0;
-  if (!isReonboard) {
-    const want = branchingModel === 'gitflow' ? 'dev' : 'main';
-    default_index = options.findIndex((o) => o.label === want);
-    if (default_index < 0) default_index = 0;
-  }
+  // First run without a recommendation: github-flow → main, gitflow → dev.
+  // Any other branch is typed via Other.
+  const fallback = isReonboard ? null : branchingModel === 'gitflow' ? 'dev' : 'main';
   return {
-    question: "What's your PR target branch?",
+    question: 'Which branch should your pull requests go into?',
     header: 'PR target',
     multiSelect: false,
-    options,
-    default_index,
+    ...assemble(keepOption(currentTarget, isReonboard), choices, advice, fallback),
   };
 }
 
-function remoteQuestion(
-  origin_kind: Provider | null,
-  gh_installed: boolean,
-  glab_installed: boolean,
-  _isReonboard: boolean,
-  _currentRemotes: unknown,
-): BuiltQuestion {
+function remoteAdvice(origin_kind: Provider | null, scan: WorkspaceScan): Advice {
+  if (origin_kind === 'github' || origin_kind === 'gitlab') {
+    return { evidence: [`The origin remote is on ${HOST_NAMES[origin_kind]}.`], reason: null, wire: origin_kind };
+  }
+  const hosts = scan.summary.hosts.filter((h): h is 'github' | 'gitlab' => h === 'github' || h === 'gitlab');
+  if (hosts.length === 1) {
+    const host = hosts[0]!;
+    return { evidence: [`Every repository with a remote pushes to ${HOST_NAMES[host]}.`], reason: null, wire: host };
+  }
+  return NO_ADVICE;
+}
+
+function remoteQuestion(gh_installed: boolean, glab_installed: boolean, advice: Advice): BuiltQuestion {
   // multiSelect: pick one or both checkboxes (no separate "Both" option).
   // Keep options don't apply on a multiSelect — re-onboard users just check
-  // whichever providers they want; submitting unchanged is a valid no-op
-  // outcome, but the answer set is the new state.
-  const options: QuestionOption[] = [
+  // whichever providers they want; the answer set is the new state.
+  const choices: QuestionOption[] = [
     {
       label: gh_installed ? 'GitHub' : 'GitHub (CLI not installed)',
-      description: 'github.com or GitHub Enterprise.',
+      description: 'github.com or a company GitHub server.',
       wire: 'github',
       disabled: !gh_installed,
     },
     {
       label: glab_installed ? 'GitLab' : 'GitLab (CLI not installed)',
-      description: 'gitlab.com or self-hosted GitLab.',
+      description: 'gitlab.com or a self-hosted GitLab server.',
       wire: 'gitlab',
       disabled: !glab_installed,
     },
   ];
-
-  // Pre-select via probe.origin_kind.
-  let default_index = 0;
-  const want = origin_kind === 'github' ? 'GitHub' : origin_kind === 'gitlab' ? 'GitLab' : null;
-  if (want) {
-    const idx = options.findIndex((o) => o.label === want || o.label.startsWith(want + ' '));
-    if (idx >= 0 && !options[idx].disabled) default_index = idx;
-  }
-
   return {
-    question: 'Which remote(s) does this project use?',
+    question: 'Where is this project hosted? Pick one or both.',
     header: 'Remote',
     multiSelect: true,
-    options,
-    default_index,
+    ...assemble(null, choices, advice, null),
   };
 }
 
 function issueSyncQuestion(
   currentSync: string | null,
   isReonboard: boolean,
-  authedAtLeastOne: boolean,
+  auth: { gh_authed: boolean; glab_authed: boolean },
 ): BuiltQuestion {
-  const options: QuestionOption[] = [];
-  if (isReonboard && currentSync !== null) {
-    options.push({ label: `Keep "${currentSync}"`, description: 'No change.', wire: KEEP_SENTINEL });
-  }
-  options.push({
-    label: 'Auto — sync to the remote you picked',
-    description: authedAtLeastOne
-      ? '`issue_create` mirrors to GitHub/GitLab as well as the local DB.'
-      : 'WARNING: no gh/glab auth detected. Sync will retry until you authenticate.',
-    wire: 'auto',
-  });
-  options.push({
-    label: 'Off — local DB only',
-    description: 'Issues stay in the trajectory DB; no remote mirror.',
-    wire: 'off',
-  });
+  const authed = auth.gh_authed || auth.glab_authed;
+  const signedIn = [auth.gh_authed ? 'GitHub (gh)' : null, auth.glab_authed ? 'GitLab (glab)' : null].filter(
+    (s): s is string => s !== null,
+  );
+  const choices: QuestionOption[] = [
+    {
+      label: 'Auto — sync to the remote you picked',
+      description: authed
+        ? 'New issues also appear on GitHub or GitLab.'
+        : 'Not signed in to gh or glab yet; syncing starts once you sign in.',
+      wire: 'auto',
+    },
+    {
+      label: 'Off — issues stay on this computer',
+      description: 'Nothing is posted to GitHub or GitLab.',
+      wire: 'off',
+    },
+  ];
+  const advice: Advice = authed
+    ? { evidence: [`Signed in to ${signedIn.join(' and ')}.`], reason: 'you are signed in, so new issues can be posted right away', wire: 'auto' }
+    : { evidence: ['Not signed in to gh or glab.'], reason: null, wire: null };
   return {
-    question: 'Mirror new MCP issues to your remote?',
+    question: 'Copy new issues to GitHub or GitLab too?',
     header: 'Issue sync',
     multiSelect: false,
-    options,
-    default_index: 0,
+    ...assemble(keepOption(currentSync, isReonboard), choices, advice, 'auto'),
   };
 }
 
@@ -473,12 +541,12 @@ function sandboxQuestion(
   remoteUrls: readonly string[],
   platform: NodeJS.Platform,
 ): BuiltQuestion {
-  const keep = isReonboard && current !== null;
-  const recommended = !keep && sandboxRecommended(remoteUrls, platform);
+  const keep = keepOption(current, isReonboard);
+  const recommended = keep === null && sandboxRecommended(remoteUrls, platform);
   const ssh = remoteUrls.some(isSshRemote);
   const no: QuestionOption = {
     label: 'No',
-    description: "Bash keeps Claude Code's defaults; TMB's containment hook still guards.",
+    description: "Bash keeps Claude Code's defaults; TMB's own write guard still applies.",
     wire: 'no',
   };
   const yes: QuestionOption = {
@@ -489,18 +557,17 @@ function sandboxQuestion(
       (ssh ? ' Git over SSH bypasses the sandbox proxy, so your SSH remote fails: switch it to HTTPS.' : ''),
     wire: 'yes',
   };
-  const options: QuestionOption[] = keep
-    ? [{ label: `Keep "${current}"`, description: 'No change.', wire: KEEP_SENTINEL }, no, yes]
-    : recommended
-      ? [yes, no]
-      : [no, yes];
+  const advice: Advice = {
+    evidence: ssh ? ['A git remote uses SSH, which the sandbox cannot reach.'] : [],
+    reason: recommended ? 'the sandbox was tested on this platform and your git remotes use HTTPS' : null,
+    wire: recommended ? 'yes' : null,
+  };
   return {
     question:
       "Turn on Claude Code's Bash sandbox? Writes .claude/settings.local.json in this project: sandbox.enabled, sandbox.filesystem.allowWrite, sandbox.network.allowedDomains, sandbox.enableWeakerNetworkIsolation (macOS only), env.npm_config_cache and env.BUN_INSTALL_CACHE_DIR. When TMB creates that file in a git work tree, it also adds it to .gitignore.",
     header: 'Sandbox',
     multiSelect: false,
-    options,
-    default_index: keep ? 0 : options.findIndex((o) => o.wire === (recommended ? 'yes' : 'no')),
+    ...assemble(keep, [no, yes], advice, 'no'),
   };
 }
 
@@ -542,7 +609,7 @@ const REMOTE_OPTIONS: QuestionOption[] = [
 
 const ISSUE_SYNC_OPTIONS: QuestionOption[] = [
   { label: 'Auto — sync to the remote you picked', description: '', wire: 'auto' },
-  { label: 'Off — local DB only', description: '', wire: 'off' },
+  { label: 'Off — issues stay on this computer', description: '', wire: 'off' },
 ];
 
 const HEADLESS_OPTIONS: QuestionOption[] = [
@@ -589,7 +656,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
     {
       name: 'onboard_get_questions',
       description:
-        'Build AUQ-ready question objects for one /onboard round. Applies Keep options, disabled CLI options, probe defaults. Each option carries wire — pass option.wire (or label) to onboard_apply.',
+        'Build AUQ-ready question objects for one /onboard round. Applies Keep options, disabled CLI options, probe defaults. Each option carries wire — pass option.wire (or label) to onboard_apply. Each question carries evidence[] and recommended_reason to show above it.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -902,7 +969,7 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
         const git = probeGit(probeDir());
 
         if (round === 'shape') {
-          return ok({ questions: [shapeQuestion(git.origin_kind)] });
+          return ok({ questions: [shapeQuestion(git.origin_kind, shapeAdvice(scanWorkspace(db), git.origin_kind))] });
         }
 
         if (round === 'sandbox') {
@@ -930,9 +997,10 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
             throw new Error(`unknown repo '${repo}' — no matching repos row`);
           }
           const isReonboardRepo = repoRow.branching_model !== null;
+          const advice = branchingAdvice(repoRow.recommendation);
           const repoQuestions: BuiltQuestion[] = [
-            branchingQuestion(repoRow.branching_model, isReonboardRepo),
-            prTargetQuestion(repoRow.target_branch, repoRow.branching_model, isReonboardRepo),
+            branchingQuestion(repoRow.branching_model, isReonboardRepo, advice.branching),
+            prTargetQuestion(repoRow.target_branch, repoRow.branching_model, isReonboardRepo, advice.prTarget),
           ];
           return ok({ questions: repoQuestions });
         }
@@ -942,7 +1010,6 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
         const policy = readRepoPolicy(db);
         const currentBranching = policy.branching_model;
         const currentPrTarget = policy.pr_target;
-        const currentRemotes = policy.remote_list;
         const currentSync = readConfig(db, 'issue_sync') as string | null;
 
         const gh = probeCli('gh');
@@ -951,23 +1018,23 @@ export function onboardTools(db: TrajectoryDB, dbPath = '', shimEnv: OnboardShim
         const questions: BuiltQuestion[] = [];
 
         if (round === 'main') {
+          const scan = scanWorkspace(db);
+          const advice = branchingAdvice(workspaceRecommendation(scan));
           if (shape === 'remote' || isReonboard) {
             // Local re-onboard adds Branching so the Human can change models.
             // Local first-run skips Branching entirely (silent default).
-            questions.push(branchingQuestion(currentBranching, isReonboard));
+            questions.push(branchingQuestion(currentBranching, isReonboard, advice.branching));
           }
           if (shape === 'remote') {
-            questions.push(prTargetQuestion(currentPrTarget, currentBranching, isReonboard));
-            questions.push(
-              remoteQuestion(git.origin_kind, gh.installed, glab.installed, isReonboard, currentRemotes),
-            );
+            questions.push(prTargetQuestion(currentPrTarget, currentBranching, isReonboard, advice.prTarget));
+            questions.push(remoteQuestion(gh.installed, glab.installed, remoteAdvice(git.origin_kind, scan)));
           }
           // shape=local + first-run yields questions=[] — skill skips AUQ Round 2.
         } else if (round === 'sync') {
           if (shape !== 'remote') {
             throw new Error(`round='sync' only valid for shape='remote' (got '${String(shape)}')`);
           }
-          questions.push(issueSyncQuestion(currentSync, isReonboard, gh.authed || glab.authed));
+          questions.push(issueSyncQuestion(currentSync, isReonboard, { gh_authed: gh.authed, glab_authed: glab.authed }));
         } else {
           throw new Error(`unknown round '${String(round)}'`);
         }

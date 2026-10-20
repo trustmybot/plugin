@@ -584,14 +584,14 @@ describe('onboard tools', () => {
             assert.equal(applied.issue_sync, 'auto');
             db.close();
         });
-        it('issue_sync label resolves: "Off — local DB only" → off', async () => {
+        it('issue_sync label resolves: "Off — issues stay on this computer" → off', async () => {
             const db = tempDB();
             const tools = onboardTools(db);
             const result = await call(tools.handlers, 'onboard_apply', {
                 shape: 'remote',
                 branching_model: 'github-flow',
                 remote: ['github'],
-                issue_sync: 'Off — local DB only',
+                issue_sync: 'Off — issues stay on this computer',
             });
             const data = parse(result);
             assert.equal(data.ok, true);
@@ -1530,6 +1530,200 @@ describe('onboard tools', () => {
                 rmSync(fx.base, { recursive: true, force: true });
             }
         });
+    });
+});
+describe('onboard questions quote the scan evidence (GH 1575)', () => {
+    const GIT_ENV = {
+        ...process.env,
+        GIT_CONFIG_GLOBAL: '/dev/null',
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_AUTHOR_NAME: 'scan',
+        GIT_AUTHOR_EMAIL: 'scan@example.com',
+        GIT_COMMITTER_NAME: 'scan',
+        GIT_COMMITTER_EMAIL: 'scan@example.com',
+    };
+    function gitRepo(branch) {
+        const dir = mkdtempSync(join(tmpdir(), 'onboard-evidence-'));
+        for (const args of [['init', '-q', '-b', branch], ['commit', '-q', '--allow-empty', '-m', 'c1']]) {
+            const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8', env: GIT_ENV });
+            assert.equal(r.status, 0, r.stderr);
+        }
+        return dir;
+    }
+    function scanJson(recommendation) {
+        return JSON.stringify({ name: 'a', in_git: true, recommendation });
+    }
+    const GITFLOW_DEV = {
+        branching_model: 'gitflow',
+        pr_target: 'dev',
+        confidence: 'high',
+        reason: 'merges favour dev: 6 vs 1 into main',
+        evidence: ['6 merges into dev, 1 into main', 'origin/HEAD is dev'],
+    };
+    async function repoQuestions(db, repo = 'a') {
+        const data = parse(await call(onboardTools(db).handlers, 'onboard_get_questions', { shape: 'remote', round: 'main', repo }));
+        return data.questions;
+    }
+    const picked = (q) => q.options[q.default_index];
+    it('a repo whose scan says merges land on dev defaults to Git Flow and dev, with evidence and a reason', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (path, name, onboard_scan) VALUES ('/repo/a', 'a', ?)`, [scanJson(GITFLOW_DEV)]);
+        const [branching, prTarget] = await repoQuestions(db);
+        for (const q of [branching, prTarget]) {
+            assert.deepEqual(q.evidence, GITFLOW_DEV.evidence);
+            assert.match(String(q.recommended_reason), /\bdev\b/);
+            assert.equal(q.default_index, 0);
+            assert.equal(picked(q).recommended, true);
+            assert.equal(q.options.filter((o) => o.recommended).length, 1);
+        }
+        assert.equal(picked(branching).wire, 'gitflow');
+        assert.equal(picked(branching).label, 'Git Flow');
+        assert.equal(picked(prTarget).wire, 'dev');
+        db.close();
+    });
+    it('a repo with only main defaults to GitHub Flow and main', async () => {
+        const db = tempDB();
+        const rec = {
+            branching_model: 'github-flow',
+            pr_target: 'main',
+            confidence: 'high',
+            reason: 'only one long-lived branch',
+            evidence: ['only long-lived branch: main', '2 merges into main'],
+        };
+        db.run(`INSERT INTO repos (path, name, onboard_scan) VALUES ('/repo/a', 'a', ?)`, [scanJson(rec)]);
+        const [branching, prTarget] = await repoQuestions(db);
+        assert.equal(picked(branching).wire, 'github-flow');
+        assert.equal(picked(branching).recommended, true);
+        assert.equal(picked(prTarget).wire, 'main');
+        assert.equal(picked(prTarget).recommended, true);
+        db.close();
+    });
+    it('a NULL or malformed onboard_scan yields the old defaults and no evidence', async () => {
+        for (const stored of [null, '{not json', JSON.stringify({ recommendation: null }), JSON.stringify({ recommendation: 'x' })]) {
+            const db = tempDB();
+            db.run(`INSERT INTO repos (path, name, onboard_scan) VALUES ('/repo/a', 'a', ?)`, [stored]);
+            const [branching, prTarget] = await repoQuestions(db);
+            assert.deepEqual(branching.options.map((o) => o.wire), ['github-flow', 'gitflow']);
+            assert.equal(picked(branching).wire, 'github-flow');
+            assert.deepEqual(prTarget.options.map((o) => o.wire), ['main', 'dev', 'develop']);
+            assert.equal(picked(prTarget).wire, 'main');
+            for (const q of [branching, prTarget]) {
+                assert.deepEqual(q.evidence, []);
+                assert.equal(q.recommended_reason, null);
+                assert.ok(!q.options.some((o) => 'recommended' in o), `${String(stored)}: no option is recommended`);
+            }
+            db.close();
+        }
+    });
+    it('low confidence lists the evidence and reason but keeps the old defaults', async () => {
+        const db = tempDB();
+        const rec = {
+            branching_model: 'gitflow',
+            pr_target: 'dev',
+            confidence: 'low',
+            reason: 'merges split 3/3, no clear pattern',
+            evidence: ['3 merges into dev, 3 into main'],
+        };
+        db.run(`INSERT INTO repos (path, name, onboard_scan) VALUES ('/repo/a', 'a', ?)`, [scanJson(rec)]);
+        const [branching, prTarget] = await repoQuestions(db);
+        assert.deepEqual(branching.evidence, rec.evidence);
+        assert.equal(branching.recommended_reason, rec.reason);
+        assert.equal(picked(branching).wire, 'github-flow');
+        assert.equal(picked(prTarget).wire, 'main');
+        assert.ok(![...branching.options, ...prTarget.options].some((o) => o.recommended));
+        db.close();
+    });
+    it('none confidence behaves as if there were no scan', async () => {
+        const db = tempDB();
+        const rec = { branching_model: null, pr_target: null, confidence: 'none', reason: 'no long-lived branch', evidence: ['no main'] };
+        db.run(`INSERT INTO repos (path, name, onboard_scan) VALUES ('/repo/a', 'a', ?)`, [scanJson(rec)]);
+        const [branching] = await repoQuestions(db);
+        assert.deepEqual(branching.evidence, []);
+        assert.equal(branching.recommended_reason, null);
+        db.close();
+    });
+    it('on re-onboard Keep stays first and the default; the recommended option follows it', async () => {
+        const db = tempDB();
+        db.run(`INSERT INTO repos (path, name, target_branch, branching_model, onboard_scan) VALUES ('/repo/a', 'a', 'main', 'github-flow', ?)`, [scanJson(GITFLOW_DEV)]);
+        const [branching, prTarget] = await repoQuestions(db);
+        for (const q of [branching, prTarget]) {
+            assert.equal(q.default_index, 0);
+            assert.equal(q.options[0].wire, '__keep__');
+            assert.equal(q.options[1].recommended, true);
+        }
+        assert.equal(branching.options[1].wire, 'gitflow');
+        assert.equal(prTarget.options[1].wire, 'dev');
+        db.close();
+    });
+    it('a recommended target outside main/dev/develop is offered and preselected', async () => {
+        const db = tempDB();
+        const rec = { branching_model: 'github-flow', pr_target: 'master', confidence: 'high', reason: 'only one long-lived branch', evidence: ['only long-lived branch: master'] };
+        db.run(`INSERT INTO repos (path, name, onboard_scan) VALUES ('/repo/a', 'a', ?)`, [scanJson(rec)]);
+        const [, prTarget] = await repoQuestions(db);
+        assert.equal(picked(prTarget).wire, 'master');
+        assert.equal(picked(prTarget).recommended, true);
+        db.close();
+    });
+    it('round=shape defaults to Local-only when no repo has a remote, quoting the scan summary', async () => {
+        const dirs = [gitRepo('main'), gitRepo('main')];
+        const db = tempDB();
+        db.run(`INSERT INTO repos (path, name) VALUES (?, 'a'), (?, 'b')`, dirs);
+        const data = parse(await call(onboardTools(db).handlers, 'onboard_get_questions', { round: 'shape' }));
+        const q = data.questions[0];
+        assert.equal(picked(q).wire, 'local');
+        assert.equal(picked(q).recommended, true);
+        assert.deepEqual(q.evidence, ['Found 2 git repositories under this folder; 2 have no remote.']);
+        assert.match(String(q.recommended_reason), /no repository has a remote/);
+        for (const d of dirs)
+            rmSync(d, { recursive: true, force: true });
+        db.close();
+    });
+    it('the workspace round=main seeds from the single repo\'s live scan', async () => {
+        const dir = gitRepo('dev');
+        const db = tempDB();
+        db.run(`INSERT INTO repos (path, name) VALUES (?, 'solo')`, [dir]);
+        const data = parse(await call(onboardTools(db).handlers, 'onboard_get_questions', { shape: 'remote', round: 'main' }));
+        const [branching, prTarget] = data.questions;
+        assert.equal(picked(branching).wire, 'github-flow');
+        assert.equal(picked(prTarget).wire, 'dev');
+        assert.equal(picked(prTarget).recommended, true);
+        assert.ok(prTarget.evidence.some((e) => /dev/.test(e)));
+        rmSync(dir, { recursive: true, force: true });
+        db.close();
+    });
+    it('the workspace round=main does not seed when the repos point different ways', async () => {
+        const dirs = [gitRepo('dev'), gitRepo('main')];
+        const db = tempDB();
+        db.run(`INSERT INTO repos (path, name) VALUES (?, 'a'), (?, 'b')`, dirs);
+        const data = parse(await call(onboardTools(db).handlers, 'onboard_get_questions', { shape: 'remote', round: 'main' }));
+        const [branching, prTarget] = data.questions;
+        assert.equal(picked(prTarget).wire, 'main');
+        assert.deepEqual(branching.evidence, []);
+        assert.ok(![...branching.options, ...prTarget.options].some((o) => o.recommended));
+        for (const d of dirs)
+            rmSync(d, { recursive: true, force: true });
+        db.close();
+    });
+    it('every question in every round carries evidence and recommended_reason', async () => {
+        const db = tempDB();
+        const tools = onboardTools(db, '', { platform: 'linux' });
+        for (const args of [
+            { round: 'shape' },
+            { shape: 'remote', round: 'main' },
+            { shape: 'remote', round: 'sync' },
+            { round: 'sandbox' },
+        ]) {
+            const questions = parse(await call(tools.handlers, 'onboard_get_questions', args)).questions;
+            assert.ok(questions.length > 0);
+            for (const q of questions) {
+                assert.ok(Array.isArray(q.evidence), `${q.header}: evidence is an array`);
+                assert.ok(q.recommended_reason === null || typeof q.recommended_reason === 'string', `${q.header}: recommended_reason`);
+                for (const o of q.options) {
+                    assert.ok(o.recommended === undefined || o.recommended === true, `${q.header}/${o.label}: recommended flag`);
+                }
+            }
+        }
+        db.close();
     });
 });
 //# sourceMappingURL=onboard.test.js.map
