@@ -27,6 +27,7 @@ import { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { countShimEntries, removeProjectEnforcementShim, writeProjectEnforcementShim, } from './onboard-hooks-shim.js';
 import { isSshRemote, removeProjectSandbox, sandboxRecommended, writeProjectSandbox, } from './onboard-sandbox.js';
+import { scanWorkspace } from './onboard-scan.js';
 // Resolve the installed plugin's source root: prefer CLAUDE_PLUGIN_ROOT (must
 // have .claude-plugin/plugin.json), else walk up from this module until that
 // manifest is found — correct for both the tsc layout (dist/tools/onboard.js)
@@ -713,6 +714,7 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     glab_authed: glab.authed,
                 },
                 nesting: nesting(),
+                scan: scanWorkspace(db),
             });
         })),
         onboard_get_questions: requireRoles('onboard_get_questions', ['bro'], wrapHandler(async (args) => {

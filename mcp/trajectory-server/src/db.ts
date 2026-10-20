@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 39;
+export const TARGET_SCHEMA_VERSION = 40;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -621,6 +621,9 @@ function runMigrations(
   }
   if (fromVersion < 39 && toVersion >= 39) {
     migrateV38toV39(db);
+  }
+  if (fromVersion < 40 && toVersion >= 40) {
+    migrateV39toV40(db);
   }
 }
 
@@ -2408,6 +2411,13 @@ function migrateV38toV39(db: DatabaseSync): void {
     }
     throw err;
   }
+}
+
+// v39→v40: repos.onboard_scan (GH 1575), the JSON evidence + recommendation the
+// /onboard pre-scan writes on every onboard_state_get. NULL until the first call.
+function migrateV39toV40(db: DatabaseSync): void {
+  if (!tableExists(db, 'repos') || hasColumn(db, 'repos', 'onboard_scan')) return;
+  db.exec('ALTER TABLE repos ADD COLUMN onboard_scan TEXT');
 }
 
 // v22→v23: the repos-centric schema (#155). repos(name) becomes the FK hub.

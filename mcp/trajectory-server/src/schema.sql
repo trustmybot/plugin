@@ -7,6 +7,8 @@ PRAGMA journal_mode = WAL;
 -- repos(name) is the FK hub for the repos-centric schema (#155): every work
 -- table carries a repo column referencing it. Declared early so the work-table
 -- FKs below resolve at fresh-DB CREATE time.
+-- onboard_scan: JSON evidence + branching recommendation from the /onboard
+-- pre-scan (GH 1575), rewritten by every onboard_state_get call.
 CREATE TABLE IF NOT EXISTS repos (
     name              TEXT PRIMARY KEY,
     path              TEXT    NOT NULL,
@@ -14,7 +16,8 @@ CREATE TABLE IF NOT EXISTS repos (
     last_scanned_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     target_branch     TEXT,
     branching_model   TEXT,
-    protected_branches TEXT
+    protected_branches TEXT,
+    onboard_scan      TEXT
 );
 
 -- repo_remotes: a repo's git remotes, the sole source of truth for them.
@@ -266,7 +269,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 39, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 40, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,

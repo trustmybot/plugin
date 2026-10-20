@@ -12,7 +12,7 @@ export function assertV35Shape(db: TrajectoryDB): void {
 
   const repoCols = db.all<{ name: string }>('PRAGMA table_info(repos)').map((c) => c.name);
   assert.deepEqual(
-    repoCols,
+    repoCols.filter((c) => c !== 'onboard_scan'),
     ['name', 'path', 'file_count', 'last_scanned_at', 'target_branch', 'branching_model', 'protected_branches'],
     'repos has no remotes column at v35',
   );

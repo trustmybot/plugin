@@ -32,7 +32,7 @@ The schema-seeded keys are present in every initialised DB via `INSERT OR IGNORE
 
 ## Repo-scoped policy lives on `repos` and `repo_remotes`, not here
 
-Repo-scoped policy lives on the `repos` row (`branching_model`, `target_branch`, `protected_branches`) and in the repo's `repo_remotes` rows — the sole source of truth (#980). There is no global key and no global fallback. `/onboard` applies policy workspace-wide by writing the chosen values onto every `repos` row (or onto one row with `repo=<name>`); `scan_run` keeps `repo_remotes` in sync with each repo's git remotes (#979). See [`REPO_RESOLUTION.md`](../architecture/REPO_RESOLUTION.md).
+Repo-scoped policy lives on the `repos` row (`branching_model`, `target_branch`, `protected_branches`) and in the repo's `repo_remotes` rows — the sole source of truth (#980). There is no global key and no global fallback. `/onboard` applies policy workspace-wide by writing the chosen values onto every `repos` row (or onto one row with `repo=<name>`); `scan_run` keeps `repo_remotes` in sync with each repo's git remotes (#979). `repos.onboard_scan` is not policy: it holds the JSON evidence (branches, origin/HEAD, first-parent merge counts, CI files, CONTRIBUTING.md) and the derived recommendation that `onboard_state_get` rewrites on every call (GH 1575); `onboard_apply` never reads or writes it. See [`REPO_RESOLUTION.md`](../architecture/REPO_RESOLUTION.md).
 
 | Field | Type | Allowed values | Read by | Written by |
 |---|---|---|---|---|
