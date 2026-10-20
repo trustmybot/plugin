@@ -2,6 +2,11 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (SemVer guarantees apply as of v1.0.0).
 
+## v1.2.0-rc.1 — 2026-10-20
+
+### Fixed
+- **Issues and milestones sync only to the remote you chose at onboard** (GH 1590): a repo with both a GitHub and a GitLab remote kept syncing to both, because sync read every recorded remote and a scan re-added the one onboard had dropped. Each remote now carries a `sync` flag (schema v41) that only `/onboard`'s Remote answer sets and scan never changes; issue create/update/close/retry and milestone sync reach only those remotes. The per-repo onboarding path now asks the Remote question, and `milestone_close` reports each remote's result, treating a milestone the remote never had as skipped.
+
 ## v1.1.0 — 2026-10-20
 
 ### Changed
