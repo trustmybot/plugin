@@ -2,6 +2,11 @@
 
 All notable user-visible changes to the TMB plugin. Versions follow [SemVer](https://semver.org/) (SemVer guarantees apply as of v1.0.0).
 
+## v1.1.0 — 2026-10-20
+
+### Changed
+- **v1.1.0 is the stable release of v1.1.0-rc.4** (GH 1572): the shipped plugin is functionally identical to rc.4, which passed the release gate; only version manifests and this CHANGELOG changed. The full list of what v1.1.0 adds, changes and fixes since v1.0.2 is in the rc.1 to rc.4 sections below.
+
 ## v1.1.0-rc.4 — 2026-10-20
 
 ### Added
