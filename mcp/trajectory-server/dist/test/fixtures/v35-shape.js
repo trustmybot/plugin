@@ -10,7 +10,7 @@ export function assertV35Shape(db) {
     const repoCols = db.all('PRAGMA table_info(repos)').map((c) => c.name);
     assert.deepEqual(repoCols.filter((c) => c !== 'onboard_scan'), ['name', 'path', 'file_count', 'last_scanned_at', 'target_branch', 'branching_model', 'protected_branches'], 'repos has no remotes column at v35');
     const cols = db.all('PRAGMA table_info(repo_remotes)');
-    assert.deepEqual(cols.map((c) => [c.name, c.type, c.notnull, c.pk]), [
+    assert.deepEqual(cols.map((c) => [c.name, c.type, c.notnull, c.pk]).filter(([name]) => name !== 'sync'), [
         ['repo', 'TEXT', 1, 1],
         ['name', 'TEXT', 1, 2],
         ['provider', 'TEXT', 1, 0],

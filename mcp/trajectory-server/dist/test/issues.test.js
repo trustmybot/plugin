@@ -4,7 +4,7 @@ import { tempDB } from './helpers.js';
 import { issueTools, objectiveSimilarity } from '../tools/issues.js';
 import { configTools } from '../tools/config.js';
 import { makeSpawnFn } from './sync-issue.test.js';
-import { upsertRepoRemotes } from '../repos/remotes.js';
+import { setRemoteSync, upsertRepoRemotes } from '../repos/remotes.js';
 // Mandatory tagging (#93/#777): a valid issue_create must carry one
 // classification + one priority label. Shared so existing cases stay valid.
 const VALID_LABELS = ['Bug', 'Priority: High'];
@@ -20,12 +20,16 @@ function parseResult(result) {
 // reads its repo_remotes rows to pick the explicit gh --repo / glab -R target.
 // Register a single repo so the sole-repo fallback resolves and the remotes are
 // available; with exactly one repos row the issue inherits it at create time.
+// `synced` is the onboard Remote choice (default: every provider registered).
 function registerSoleRepo(db, remotes = [
     { name: 'origin', provider: 'github', url: 'https://github.com/owner/repo.git' },
     { name: 'gitlab', provider: 'gitlab', url: 'https://gitlab.com/owner/repo.git' },
-]) {
+], synced = remotes
+    .map((r) => r.provider)
+    .filter((p) => p === 'github' || p === 'gitlab')) {
     db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
     upsertRepoRemotes(db, 'app', remotes);
+    setRemoteSync(db, 'app', synced);
 }
 describe('issueTools', () => {
     it('create then get returns the created issue', async () => {
@@ -1957,6 +1961,112 @@ describe('issue_adopt_remote repo resolution (GH 1368)', () => {
         assert.match(parseResult(result).error, /^repo_not_found: no repos row named "nope"/);
         assert.equal(spawn.calls.length, 0);
         assert.equal(db.get('SELECT gh_iid FROM issues WHERE id = ?', [issueId])?.gh_iid ?? null, null);
+        db.close();
+    });
+});
+describe('issue sync follows the onboard Remote choice (GH 1590)', () => {
+    function recordingSpawn(calls) {
+        return (cmd, args) => {
+            calls.push({ cmd, args });
+            if (args[0] === 'label' && args[1] === 'list')
+                return { status: 1, stdout: '', stderr: 'no taxonomy (test helper)' };
+            if (args[0] === 'issue' && args[1] === 'create') {
+                return cmd === 'gh'
+                    ? { status: 0, stdout: 'https://github.com/owner/repo/issues/42\n', stderr: '' }
+                    : { status: 0, stdout: 'https://gitlab.com/owner/repo/-/issues/77\n', stderr: '' };
+            }
+            if (args[0] === 'issue' && args[1] === 'view') {
+                return cmd === 'gh'
+                    ? { status: 0, stdout: '{"number":42,"url":"https://github.com/owner/repo/issues/42"}', stderr: '' }
+                    : { status: 0, stdout: 'issue 77 details', stderr: '' };
+            }
+            return { status: 0, stdout: '', stderr: '' };
+        };
+    }
+    const writes = (calls) => calls.filter((c) => c.args[0] === 'issue').map((c) => `${c.cmd} ${c.args[1]}`);
+    async function githubOnly(issueSync) {
+        const db = tempDB();
+        registerSoleRepo(db, undefined, ['github']);
+        await call(configTools(db).handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: issueSync });
+        return db;
+    }
+    it("issue_create under issue_sync='both' creates only on GitHub when GitLab is not chosen", async () => {
+        const db = await githubOnly('both');
+        const calls = [];
+        const r = await call(issueTools(db).handlers, 'issue_create', {
+            agent: 'bro', objective: 'github only', labels: VALID_LABELS, _spawnFn: recordingSpawn(calls),
+        });
+        assert.ok(!r.isError, JSON.stringify(parseResult(r)));
+        const created = parseResult(r);
+        assert.equal(created._sync, undefined);
+        assert.deepEqual({ gh_iid: created.gh_iid, gl_iid: created.gl_iid }, { gh_iid: 42, gl_iid: null });
+        assert.deepEqual(writes(calls), ['gh create', 'gh view']);
+        assert.ok(calls.every((c) => c.cmd === 'gh'), JSON.stringify(calls));
+        db.close();
+    });
+    it("issue_create under issue_sync='auto' with both CLIs authed resolves to gh when GitLab is not chosen", async () => {
+        const db = await githubOnly('auto');
+        const calls = [];
+        const r = await call(issueTools(db).handlers, 'issue_create', {
+            agent: 'bro', objective: 'auto picks github', labels: VALID_LABELS, _spawnFn: recordingSpawn(calls),
+        });
+        assert.ok(!r.isError, JSON.stringify(parseResult(r)));
+        assert.deepEqual(calls.filter((c) => c.args[0] === 'auth').map((c) => c.cmd), ['gh', 'glab'], 'both CLIs answer the auto availability probe');
+        const creates = calls.filter((c) => c.args[0] === 'issue' && c.args[1] === 'create').map((c) => c.cmd);
+        assert.deepEqual(creates, ['gh']);
+        assert.equal(parseResult(r).gh_iid, 42);
+        db.close();
+    });
+    it('issue_update mirrors only to GitHub even when the issue is linked on both', async () => {
+        const db = await githubOnly('both');
+        const tools = issueTools(db);
+        const issue = parseResult(await call(tools.handlers, 'issue_create', {
+            agent: 'bro', objective: 'linked twice', labels: VALID_LABELS, _spawnFn: recordingSpawn([]),
+        }));
+        db.run('UPDATE issues SET gh_iid = 42, gl_iid = 77 WHERE id = ?', [issue.id]);
+        const calls = [];
+        const r = await call(tools.handlers, 'issue_update', {
+            agent: 'bro', issue_id: String(issue.id), objective: 'renamed', _spawnFn: recordingSpawn(calls),
+        });
+        assert.ok(!r.isError, JSON.stringify(parseResult(r)));
+        assert.deepEqual(parseResult(r)._sync, { synced: true, backends: ['gh'] });
+        assert.ok(calls.length > 0 && calls.every((c) => c.cmd === 'gh'), JSON.stringify(calls));
+        db.close();
+    });
+    it("issue_sync_retry under 'both' creates only the chosen provider, then the unchosen missing twin counts as already_synced", async () => {
+        const db = await githubOnly('both');
+        const tools = issueTools(db);
+        const issue = parseResult(await call(tools.handlers, 'issue_create', {
+            agent: 'bro', objective: 'retry me', labels: VALID_LABELS,
+            _spawnFn: makeSpawnFn([{ status: 1, stdout: '', stderr: 'simulated gh create failure' }]),
+        }));
+        const calls = [];
+        const retried = parseResult(await call(tools.handlers, 'issue_sync_retry', {
+            agent: 'bro', issue_id: String(issue.id), _spawnFn: recordingSpawn(calls),
+        }));
+        assert.equal(retried.skipped, undefined, JSON.stringify(retried));
+        assert.deepEqual(writes(calls), ['gh create', 'gh view']);
+        const again = [];
+        const second = parseResult(await call(tools.handlers, 'issue_sync_retry', {
+            agent: 'bro', issue_id: String(issue.id), _spawnFn: recordingSpawn(again),
+        }));
+        assert.equal(second.skipped, true);
+        assert.equal(second.reason, 'already_synced');
+        assert.deepEqual(writes(again), []);
+        db.close();
+    });
+    it('issue_sync_retry with only the unchosen provider configured is not_synced and spawns nothing', async () => {
+        const db = await githubOnly('glab');
+        const tools = issueTools(db);
+        const issue = parseResult(await call(tools.handlers, 'issue_create', {
+            agent: 'bro', objective: 'gitlab backend, github chosen', labels: VALID_LABELS, _spawnFn: recordingSpawn([]),
+        }));
+        const calls = [];
+        const r = parseResult(await call(tools.handlers, 'issue_sync_retry', {
+            agent: 'bro', issue_id: String(issue.id), _spawnFn: recordingSpawn(calls),
+        }));
+        assert.deepEqual({ skipped: r.skipped, reason: r.reason }, { skipped: true, reason: 'not_synced' });
+        assert.deepEqual(writes(calls), []);
         db.close();
     });
 });

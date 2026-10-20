@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -37,6 +37,31 @@ function parse(result: unknown): Record<string, unknown> {
   return JSON.parse(r.content[0].text) as Record<string, unknown>;
 }
 
+const GIT_ISOLATED_ENV = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+const remoteRepoDirs: string[] = [];
+after(() => {
+  for (const dir of remoteRepoDirs) rmSync(dir, { recursive: true, force: true });
+});
+
+// A git repo with exactly these remotes (name -> url), in insertion order.
+function gitRepoWithRemotes(remotes: Record<string, string>): string {
+  const dir = mkdtempSync(join(tmpdir(), 'onboard-remotes-'));
+  remoteRepoDirs.push(dir);
+  const run = (args: string[]): void => {
+    const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8', env: GIT_ISOLATED_ENV });
+    assert.equal(r.status, 0, r.stderr);
+  };
+  run(['init', '-q']);
+  for (const [name, url] of Object.entries(remotes)) run(['remote', 'add', name, url]);
+  return dir;
+}
+
+function dbWithRepo(remotes: Record<string, string>, name = 'widget'): TrajectoryDB {
+  const db = tempDB();
+  db.run(`INSERT INTO repos (path, name) VALUES (?, ?)`, [gitRepoWithRemotes(remotes), name]);
+  return db;
+}
+
 describe('onboard tools', () => {
   describe('onboard_state_get', () => {
     it('reports first_run=true when no identity row exists', async () => {
@@ -70,7 +95,7 @@ describe('onboard tools', () => {
       db.close();
     });
 
-    it('reports the repo\'s remotes from repo_remotes as {name, provider, url}, primary first', async () => {
+    it('reports the repo\'s remotes from repo_remotes as {name, provider, url, sync}, primary first', async () => {
       const db = tempDB();
       db.run(`INSERT INTO repos (path, name) VALUES ('/repo/x', 'x')`);
       upsertRepoRemotes(db, 'x', [
@@ -80,8 +105,8 @@ describe('onboard tools', () => {
       const tools = onboardTools(db);
       const current = parse(await call(tools.handlers, 'onboard_state_get', {})).current as Record<string, unknown>;
       assert.deepEqual(current.remotes, [
-        { name: 'origin', provider: 'gitlab', url: 'git@gitlab.com:me/x.git' },
-        { name: 'upstream', provider: 'github', url: 'https://github.com/up/x.git' },
+        { name: 'origin', provider: 'gitlab', url: 'git@gitlab.com:me/x.git', sync: true },
+        { name: 'upstream', provider: 'github', url: 'https://github.com/up/x.git', sync: false },
       ]);
       db.close();
     });
@@ -427,11 +452,11 @@ describe('onboard tools', () => {
       db.close();
     });
 
-    it('remote shape with no detectable origin URL emits a blank-URL warning (#675)', async () => {
-      // Sole (registered) repo path points at a NON-git directory → probe finds no remote
-      // → origin URL blank. onboard_apply must surface a warning (not throw) so
-      // issue-sync silence is visible to the operator. (An empty dir, rather
-      // than the test cwd which IS a git repo with a real origin.)
+    it('remote shape with no detectable git remote emits a warning (#675)', async () => {
+      // Sole (registered) repo path points at a NON-git directory → probe finds no remote.
+      // onboard_apply must surface a warning (not throw) so issue-sync silence
+      // is visible to the operator. (An empty dir, rather than the test cwd
+      // which IS a git repo with a real origin.)
       const noGitDir = mkdtempSync(join(tmpdir(), 'onboard-nogit-'));
       try {
         const db = tempDB();
@@ -445,7 +470,7 @@ describe('onboard tools', () => {
         });
         const data = parse(result);
         assert.equal(data.ok, true);
-        assert.match(String(data.warning), /remote URL not detected for github/);
+        assert.match(String(data.warning), /no git remote detected on any repo/);
         const applied = data.applied as Record<string, unknown>;
         assert.match(String(applied.warning), /issues will not sync/);
         db.close();
@@ -454,8 +479,8 @@ describe('onboard tools', () => {
       }
     });
 
-    it('remote shape: persists single-provider array', async () => {
-      const db = tempDB();
+    it('remote=["gitlab"]: the gitlab origin is the sync remote', async () => {
+      const db = dbWithRepo({ origin: 'git@gitlab.com:acme/widget.git' });
       const tools = onboardTools(db);
       const result = await call(tools.handlers, 'onboard_apply', {
         shape: 'remote',
@@ -466,16 +491,13 @@ describe('onboard tools', () => {
       });
       const data = parse(result);
       const applied = data.applied as Record<string, unknown>;
-      const remotes = applied.remotes as Array<{ provider: string; name: string }>;
-      assert.equal(remotes.length, 1);
-      assert.equal(remotes[0].provider, 'gitlab');
-      assert.equal(remotes[0].name, 'origin');
+      assert.deepEqual(applied.remotes, [{ name: 'origin', provider: 'gitlab', url: 'git@gitlab.com:acme/widget.git', sync: true }]);
       assert.equal(applied.issue_sync, 'auto');
       db.close();
     });
 
-    it('remote=[github,gitlab]: writes both provider entries with stable github-first order', async () => {
-      const db = tempDB();
+    it('remote=[github,gitlab]: syncs one remote of each under its real git name, primary first', async () => {
+      const db = dbWithRepo({ mirror: 'git@gitlab.com:acme/widget.git', origin: 'https://github.com/acme/widget.git' });
       const tools = onboardTools(db);
       const result = await call(tools.handlers, 'onboard_apply', {
         shape: 'remote',
@@ -486,17 +508,15 @@ describe('onboard tools', () => {
       });
       const data = parse(result);
       const applied = data.applied as Record<string, unknown>;
-      const remotes = applied.remotes as Array<{ provider: string; name: string }>;
-      assert.equal(remotes.length, 2);
-      assert.equal(remotes[0].provider, 'github');
-      assert.equal(remotes[0].name, 'origin');
-      assert.equal(remotes[1].provider, 'gitlab');
-      assert.equal(remotes[1].name, 'gitlab');
+      assert.deepEqual(applied.remotes, [
+        { name: 'origin', provider: 'github', url: 'https://github.com/acme/widget.git', sync: true },
+        { name: 'mirror', provider: 'gitlab', url: 'git@gitlab.com:acme/widget.git', sync: true },
+      ]);
       db.close();
     });
 
-    it('remote=["gitlab","github"] order is normalized — github still first', async () => {
-      const db = tempDB();
+    it('remote=["gitlab","github"]: answer order does not change the synced remotes', async () => {
+      const db = dbWithRepo({ mirror: 'git@gitlab.com:acme/widget.git', origin: 'https://github.com/acme/widget.git' });
       const tools = onboardTools(db);
       const result = await call(tools.handlers, 'onboard_apply', {
         shape: 'remote',
@@ -508,13 +528,12 @@ describe('onboard tools', () => {
       const data = parse(result);
       const applied = data.applied as Record<string, unknown>;
       const remotes = applied.remotes as Array<{ provider: string; name: string }>;
-      assert.equal(remotes[0].provider, 'github');
-      assert.equal(remotes[1].provider, 'gitlab');
+      assert.deepEqual(remotes.map((r) => [r.name, r.provider]), [['origin', 'github'], ['mirror', 'gitlab']]);
       db.close();
     });
 
     it('remote shape: legacy string form ("gitlab") is still accepted for backward compat', async () => {
-      const db = tempDB();
+      const db = dbWithRepo({ origin: 'git@gitlab.com:acme/widget.git' });
       const tools = onboardTools(db);
       const result = await call(tools.handlers, 'onboard_apply', {
         shape: 'remote',
@@ -637,7 +656,7 @@ describe('onboard tools', () => {
     });
 
     it('remote label "GitHub" resolves to wire value github', async () => {
-      const db = tempDB();
+      const db = dbWithRepo({ origin: 'https://github.com/acme/widget.git' });
       const tools = onboardTools(db);
       const result = await call(tools.handlers, 'onboard_apply', {
         shape: 'remote',
@@ -655,7 +674,7 @@ describe('onboard tools', () => {
     });
 
     it('remote label "GitHub (CLI not installed)" resolves to wire value github', async () => {
-      const db = tempDB();
+      const db = dbWithRepo({ origin: 'https://github.com/acme/widget.git' });
       const tools = onboardTools(db);
       const result = await call(tools.handlers, 'onboard_apply', {
         shape: 'remote',
@@ -1311,7 +1330,7 @@ describe('onboard tools', () => {
       assert.match(String(parse(result).error), /unknown round 'headless'/);
       const def = tools.definitions.find((d) => d.name === 'onboard_get_questions');
       const roundSchema = (def?.inputSchema.properties as Record<string, { enum: string[] }>)['round'];
-      assert.deepEqual(roundSchema.enum, ['shape', 'main', 'sync', 'sandbox']);
+      assert.deepEqual(roundSchema.enum, ['shape', 'main', 'remote', 'sync', 'sandbox']);
       rmSync(base, { recursive: true, force: true });
       db.close();
     });
@@ -2038,7 +2057,7 @@ describe('onboard_apply workspace vs per-repo writers (GH 1580)', () => {
     });
   }
 
-  it('shape=remote with remote omitted probes the repo\'s GitHub origin into applied.remotes and repo_remotes', async () => {
+  it('shape=remote with remote omitted records the repo\'s GitHub origin; the new primary row starts synced', async () => {
     const solo = gitRepo({ origin: 'https://github.com/acme/solo.git' });
     const db = tempDB();
     db.run(`INSERT INTO repos (path, name) VALUES (?, 'solo')`, [solo]);
@@ -2046,7 +2065,7 @@ describe('onboard_apply workspace vs per-repo writers (GH 1580)', () => {
     assert.equal(data.ok, true, String(data.error));
     assert.equal(data.warning, undefined);
     const applied = data.applied as Record<string, unknown>;
-    assert.deepEqual(applied.remotes, [{ name: 'origin', provider: 'github', url: 'https://github.com/acme/solo.git' }]);
+    assert.deepEqual(applied.remotes, [{ name: 'origin', provider: 'github', url: 'https://github.com/acme/solo.git', sync: true }]);
     assert.equal(repoRemotes(db, 'solo')[0]!.url, 'https://github.com/acme/solo.git');
     db.close();
   });
@@ -2090,5 +2109,91 @@ describe('onboard_apply workspace vs per-repo writers (GH 1580)', () => {
 
   it('cleans up its temp repos', () => {
     for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+});
+
+describe('onboard records the Remote choice on repo_remotes.sync (GH 1590)', () => {
+  const GH = (repo: string): string => `https://github.com/acme/${repo}.git`;
+  const GL = (repo: string): string => `git@gitlab.com:acme/${repo}.git`;
+
+  const apply = async (tools: ReturnType<typeof onboardTools>, args: Record<string, unknown>): Promise<Record<string, unknown>> =>
+    parse(await call(tools.handlers, 'onboard_apply', args));
+
+  const syncState = (db: TrajectoryDB, repo: string): Array<[string, string, boolean]> =>
+    repoRemotes(db, repo).map((r) => [r.name, r.provider, r.sync]);
+
+  // Three repos: alpha has a github origin and a gitlab mirror, beta a gitlab
+  // origin and a github fork remote, gamma only a gitlab origin.
+  function workspace(): TrajectoryDB {
+    const db = tempDB();
+    db.run(`INSERT INTO repos (path, name) VALUES (?, 'alpha'), (?, 'beta'), (?, 'gamma')`, [
+      gitRepoWithRemotes({ origin: GH('alpha'), mirror: GL('alpha') }),
+      gitRepoWithRemotes({ origin: GL('beta'), fork: GH('beta') }),
+      gitRepoWithRemotes({ origin: GL('gamma') }),
+    ]);
+    return db;
+  }
+
+  it("round='remote' returns only the Remote question, and only on remote shape", async () => {
+    const db = workspace();
+    const tools = onboardTools(db);
+    const data = parse(await call(tools.handlers, 'onboard_get_questions', { shape: 'remote', round: 'remote' }));
+    const questions = data.questions as Array<{ header: string; options: Array<{ wire: string }> }>;
+    assert.deepEqual(questions.map((q) => q.header), ['Remote']);
+    assert.ok(questions[0]!.options.some((o) => o.wire === 'github'));
+    assert.ok(questions[0]!.options.some((o) => o.wire === 'gitlab'));
+    const local = parse(await call(tools.handlers, 'onboard_get_questions', { shape: 'local', round: 'remote' }));
+    assert.match(String(local.error), /round='remote' only valid for shape='remote'/);
+    db.close();
+  });
+
+  it("per-repo applies then a final apply with remote=['github'] sync only each repo's github remote, real names kept", async () => {
+    const db = workspace();
+    const tools = onboardTools(db);
+    for (const repo of ['alpha', 'beta', 'gamma']) {
+      assert.equal((await apply(tools, { shape: 'remote', repo, branching_model: 'github-flow', pr_target: 'main' })).ok, true);
+    }
+    const data = await apply(tools, { shape: 'remote', remote: ['github'], issue_sync: 'auto' });
+    assert.equal(data.ok, true, String(data.error));
+
+    assert.deepEqual(syncState(db, 'alpha'), [['origin', 'github', true], ['mirror', 'gitlab', false]]);
+    assert.deepEqual(syncState(db, 'beta'), [['origin', 'gitlab', false], ['fork', 'github', true]]);
+    assert.deepEqual(syncState(db, 'gamma'), [['origin', 'gitlab', false]]);
+    assert.equal(data.warning, 'no github remote on repo "gamma"; issues for it will not sync to GitHub');
+    const applied = data.applied as Record<string, unknown>;
+    assert.deepEqual(applied.remotes, [{ name: 'origin', provider: 'github', url: GH('alpha'), sync: true }]);
+    db.close();
+  });
+
+  it('a final apply with remote omitted records the git remotes and leaves the sync choice as it is', async () => {
+    const db = workspace();
+    const tools = onboardTools(db);
+    await apply(tools, { shape: 'remote', remote: ['gitlab'], issue_sync: 'auto' });
+    const before = ['alpha', 'beta', 'gamma'].map((r) => syncState(db, r));
+    assert.deepEqual(before[0], [['origin', 'github', false], ['mirror', 'gitlab', true]]);
+
+    const data = await apply(tools, { shape: 'remote', issue_sync: 'auto' });
+    assert.equal(data.ok, true, String(data.error));
+    assert.equal(data.warning, undefined);
+    assert.deepEqual(['alpha', 'beta', 'gamma'].map((r) => syncState(db, r)), before);
+    db.close();
+  });
+
+  it('a per-repo apply with remote records it on that repo only and echoes it', async () => {
+    const db = workspace();
+    const tools = onboardTools(db);
+    await apply(tools, { shape: 'remote', remote: ['github', 'gitlab'], issue_sync: 'auto' });
+    const betaBefore = syncState(db, 'beta');
+
+    const data = await apply(tools, { shape: 'remote', repo: 'alpha', branching_model: 'github-flow', remote: ['GitLab'] });
+    assert.equal(data.ok, true, String(data.error));
+    assert.deepEqual((data.applied as Record<string, unknown>).remote, ['gitlab']);
+    assert.deepEqual(syncState(db, 'alpha'), [['origin', 'github', false], ['mirror', 'gitlab', true]]);
+    assert.deepEqual(syncState(db, 'beta'), betaBefore);
+
+    const missing = await apply(tools, { shape: 'remote', repo: 'gamma', branching_model: 'github-flow', remote: ['github'] });
+    assert.equal(missing.warning, 'no github remote on repo "gamma"; issues for it will not sync to GitHub');
+    assert.deepEqual(syncState(db, 'gamma'), [['origin', 'gitlab', false]]);
+    db.close();
   });
 });

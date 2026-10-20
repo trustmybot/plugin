@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
-import { resolveBackend } from '../sync/backend.js';
+import { resolveBackendFor } from '../sync/backend.js';
 import { repoSlugFromRemoteUrl } from '../sync/issue_sync.js';
 import type { SpawnFn } from '../sync/issue_sync.js';
 import {
@@ -14,7 +14,7 @@ import {
 } from '../sync/milestone_sync.js';
 import type { MilestoneRemoteFailure, MilestoneTarget, RemoteMilestone } from '../sync/milestone_sync.js';
 import { resolveRepoForSync } from '../utils/repo-paths.js';
-import { repoRemotes } from '../repos/remotes.js';
+import { syncRemotes } from '../repos/remotes.js';
 import { insertAudit } from './audit.js';
 import type { AuditEventType } from '../audit-events.js';
 
@@ -57,8 +57,8 @@ function auditMilestone(db: TrajectoryDB, eventType: AuditEventType, summary: st
 
 // The remotes a repo's milestones may be read from / written to, under the same
 // gate as issue sync: plugin_config.issue_sync='off' or TMB_DISABLE_REMOTE_SYNC
-// yields `gated: false` and no remote is touched. Each target needs a configured
-// remote of its provider with a parseable slug.
+// yields `gated: false` and no remote is touched. Each target needs a sync = 1
+// remote of its provider (the onboard Remote choice) with a parseable slug.
 export function resolveMilestoneTargets(
   db: TrajectoryDB,
   repoName: string,
@@ -76,12 +76,16 @@ export function resolveMilestoneTargets(
     }
   }
   const slugFor = (provider: string): string | null => {
-    const entry = repoRemotes(db, resolved.name).find((r) => r.provider === provider);
+    const entry = syncRemotes(db, resolved.name).find((r) => r.provider === provider);
     return entry ? repoSlugFromRemoteUrl(entry.url) : null;
   };
   const ghSlug = slugFor('github');
   const glSlug = slugFor('gitlab');
-  const backend = resolveBackend(syncConfig, { github: ghSlug !== null, gitlab: glSlug !== null }, !!spawnFn);
+  const backend = resolveBackendFor(
+    syncConfig,
+    { github: ghSlug !== null, gitlab: glSlug !== null },
+    spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: 'utf8' }) : undefined,
+  );
   if (backend === null || backend === 'off') return { gated: false, targets: [] };
   const targets: MilestoneTarget[] = [];
   if ((backend === 'gh' || backend === 'both') && ghSlug) {
@@ -95,6 +99,29 @@ export function resolveMilestoneTargets(
 
 function failureContent(f: MilestoneRemoteFailure): Record<string, unknown> {
   return { backend: f.backend, reason: f.reason, exit_code: f.exit_code, stderr: f.stderr, message: f.message };
+}
+
+const PROVIDER_LABEL: Record<MilestoneTarget['backend'], string> = { gh: 'GitHub', glab: 'GitLab' };
+
+interface RemoteCloseResult {
+  backend: MilestoneTarget['backend'];
+  slug: string;
+  status: 'closed' | 'skipped' | 'failed';
+  reason?: MilestoneRemoteFailure['reason'];
+  message?: string;
+}
+
+// A milestone the remote never had is nothing to close: `not_found` is skipped, not failed.
+function remoteCloseResult(target: MilestoneTarget, result: { ok: true } | MilestoneRemoteFailure): RemoteCloseResult {
+  const base = { backend: target.backend, slug: target.slug };
+  if (result.ok) return { ...base, status: 'closed' };
+  const message = result.message ?? result.stderr;
+  return {
+    ...base,
+    status: result.reason === 'not_found' ? 'skipped' : 'failed',
+    reason: result.reason,
+    ...(message ? { message } : {}),
+  };
 }
 
 // Import a repo's remote milestones into `milestones`, carrying the remote state.
@@ -351,30 +378,40 @@ export function milestoneTools(db: TrajectoryDB): {
 
       const spawnFn = args['_spawnFn'] as SpawnFn | undefined;
       const gate = resolveMilestoneTargets(db, repo, spawnFn);
-      const failures: Record<string, unknown>[] = [];
-      if (gate.gated) {
-        for (const target of gate.targets) {
-          const closed = closeRemoteMilestone(target, name, spawnFn);
-          if (!closed.ok) failures.push(failureContent(closed));
-        }
+      const remoteResults: RemoteCloseResult[] = [];
+      const failures: MilestoneRemoteFailure[] = [];
+      for (const target of gate.gated ? gate.targets : []) {
+        const closed = closeRemoteMilestone(target, name, spawnFn);
+        const result = remoteCloseResult(target, closed);
+        remoteResults.push(result);
+        if (result.status === 'failed' && !closed.ok) failures.push(closed);
       }
-      const remoteClosed = gate.gated && gate.targets.length > 0 && failures.length === 0;
+      const failed = remoteResults.filter((r) => r.status === 'failed');
+      const remoteClosed = gate.gated && remoteResults.length > 0 && failed.length === 0;
       const content: Record<string, unknown> = {
         name,
         repo,
         forced: force && openIssues > 0,
         open_issues: openIssues,
         remote_closed: remoteClosed,
+        remote_results: remoteResults,
       };
-      if (failures.length > 0) content['remote_failures'] = failures;
       auditMilestone(db, 'milestone_closed', `milestone ${name} closed for ${repo}`, content);
 
-      const payload: Record<string, unknown> = { name, repo, state: 'closed', open_issues: openIssues, remote_closed: remoteClosed };
-      if (failures.length > 0) {
+      const payload: Record<string, unknown> = {
+        name,
+        repo,
+        state: 'closed',
+        open_issues: openIssues,
+        remote_closed: remoteClosed,
+        remote_results: remoteResults,
+      };
+      if (failed.length > 0) {
+        const where = failed.map((r) => PROVIDER_LABEL[r.backend]).join(' and ');
         payload['_sync'] = {
           sync_failed: true,
-          failures,
-          hint: 'The local milestone is closed; close it on the remote manually.',
+          failures: failures.map(failureContent),
+          hint: `The local milestone is closed; close it on ${where} manually.`,
         };
       }
       return ok(payload);

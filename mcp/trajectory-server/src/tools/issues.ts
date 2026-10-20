@@ -4,11 +4,11 @@ import type { TrajectoryDB } from '../db.js';
 import { resolveRepoForSync } from '../utils/repo-paths.js';
 import { projectRootFromDbPath } from './containment.js';
 import type { ResolvedRepoSync } from '../utils/repo-paths.js';
-import { repoRemotes } from '../repos/remotes.js';
+import { syncRemotes } from '../repos/remotes.js';
 import { nowISO } from '../db.js';
 import type { Issue, IssueRow, MilestoneResolution, Task } from '../types.js';
 import { normalizeAgent, redactIssue, requireRoles } from '../middleware/agent-scope.js';
-import { resolveBackend, detectPreferred, remoteSyncGate } from '../sync/backend.js';
+import { resolveBackendFor, detectPreferred, remoteSyncGate } from '../sync/backend.js';
 import type { RemoteSyncGateReason } from '../sync/backend.js';
 import { syncIssueCreate, syncIssueClose, syncIssueUpdate, isSyncFailure, repoSlugFromRemoteUrl, verifyRemoteIssue } from '../sync/issue_sync.js';
 import type { SyncFailure } from '../sync/issue_sync.js';
@@ -275,9 +275,10 @@ function wrapHandler(fn: (args: Record<string, unknown>) => Promise<CallToolResu
 // Issue-scoped sync context (#155/#146). Resolve the repo an issue belongs to
 // (its `repo` column, or the sole-repo fallback) into the on-disk path used as
 // the explicit spawn cwd and a per-backend remote lookup. The remotes come from
-// the repo's repo_remotes rows (repoRemotes) — never the global plugin_config, and never
-// process.cwd(). `null` means the repo could not be resolved; the caller raises
-// a named, actionable error rather than silently syncing against the cwd.
+// the repo's sync = 1 repo_remotes rows (syncRemotes, the onboard Remote choice)
+// — never the global plugin_config, and never process.cwd(). `null` means the
+// repo could not be resolved; the caller raises a named, actionable error
+// rather than silently syncing against the cwd.
 interface IssueSyncContext {
   repoName: string;
   cwd: string;
@@ -295,11 +296,22 @@ function resolveIssueSyncContext(
     cwd: resolved.path,
     remoteFor(backend) {
       const provider = backend === 'gh' ? 'github' : 'gitlab';
-      const entry = repoRemotes(db, resolved.name).find((r) => r.provider === provider);
+      const entry = syncRemotes(db, resolved.name).find((r) => r.provider === provider);
       if (!entry) return null;
       return { url: entry.url, slug: repoSlugFromRemoteUrl(entry.url) };
     },
   };
+}
+
+function probeSpawn(spawnFn: SpawnFn | undefined): ((cmd: string, args: string[]) => { status: number | null }) | undefined {
+  return spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: 'utf8' }) : undefined;
+}
+
+// The CLIs a resolved backend may spawn: a provider without a sync row is never
+// reached, even under an explicit issue_sync='both'.
+function syncedBackends(backend: 'gh' | 'glab' | 'both', ctx: IssueSyncContext): Array<'gh' | 'glab'> {
+  const wanted: Array<'gh' | 'glab'> = backend === 'both' ? ['gh', 'glab'] : [backend];
+  return wanted.filter((b) => ctx.remoteFor(b) !== null);
 }
 
 // Remote adoption (#36). Resolve the backend for a remote_iid (explicit arg, or
@@ -351,6 +363,7 @@ export interface RemoteCloseTarget {
   remote_kind: 'github' | 'gitlab';
   remote_iid: number;
   closed: boolean;
+  skipped?: 'not_synced';
 }
 
 export interface RemoteCloseResult {
@@ -363,9 +376,11 @@ export interface RemoteCloseResult {
 // linked to. The local `issues.status='closed'` UPDATE is the caller's
 // responsibility — this is only the remote-sync half, and every remote close
 // goes through `remoteSyncGate`: a gated-off close spawns nothing and leaves one
-// `issue_close_remote_skipped` audit row. Sync failures are logged, never
-// thrown: a remote hiccup must not fail the local close. Shared by
-// `issue_close`, `bro_atomic_close` and `task_recover`.
+// `issue_close_remote_skipped` audit row. A linked remote whose provider has no
+// sync row is never spawned and reports `skipped: 'not_synced'`; `synced` means
+// at least one synced target and every one of them closed. Sync failures are
+// logged, never thrown: a remote hiccup must not fail the local close. Shared
+// by `issue_close`, `bro_atomic_close` and `task_recover`.
 export async function syncIssueCloseRemotes(
   db: TrajectoryDB,
   dbPath: string,
@@ -386,14 +401,14 @@ export async function syncIssueCloseRemotes(
   if (targets.length === 0) return { synced: false, remotes: [] };
 
   // Issue-scoped sync (#155/#146): resolve cwd + per-backend repo slug from the
-  // issue's repo. When unresolvable, fall back to no explicit cwd/slug — a
-  // best-effort close must not throw (the local close already happened).
+  // issue's repo. When unresolvable no target has a sync row, so nothing is
+  // spawned — a best-effort close must not throw (the local close already happened).
   const closeCtx = resolveIssueSyncContext(db, remoteRow?.repo ?? null);
   const gate = remoteSyncGate(db, {
     repoRemotes: closeCtx
       ? { github: closeCtx.remoteFor('gh') !== null, gitlab: closeCtx.remoteFor('glab') !== null }
       : null,
-    spawnFn: spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: 'utf8' }) : undefined,
+    spawnFn: probeSpawn(spawnFn),
   });
   if (!gate.enabled) {
     const reason = gate.reason ?? 'no_backend';
@@ -412,12 +427,16 @@ export async function syncIssueCloseRemotes(
   }
 
   for (const target of targets) {
-    const closeSlug = closeCtx?.remoteFor(target.remote_kind === 'github' ? 'gh' : 'glab')?.slug ?? undefined;
+    const closeRemote = closeCtx?.remoteFor(target.remote_kind === 'github' ? 'gh' : 'glab') ?? null;
+    if (closeCtx === null || closeRemote === null) {
+      target.skipped = 'not_synced';
+      continue;
+    }
     const closeResult = await syncIssueClose({
       remote_iid: target.remote_iid,
       remote_kind: target.remote_kind,
-      _cwd: closeCtx?.cwd,
-      _repoSlug: closeSlug,
+      _cwd: closeCtx.cwd,
+      _repoSlug: closeRemote.slug ?? undefined,
       _spawnFn: spawnFn,
     });
     target.closed = closeResult.ok;
@@ -434,7 +453,8 @@ export async function syncIssueCloseRemotes(
       });
     }
   }
-  return { synced: targets.every((t) => t.closed), remotes: targets };
+  const attempted = targets.filter((t) => t.skipped === undefined);
+  return { synced: attempted.length > 0 && attempted.every((t) => t.closed), remotes: targets };
 }
 
 export function issueTools(
@@ -775,7 +795,7 @@ export function issueTools(
         const remoteProviders = syncCtx
           ? { github: syncCtx.remoteFor('gh') !== null, gitlab: syncCtx.remoteFor('glab') !== null }
           : null;
-        const backend = resolveBackend(syncConfig, remoteProviders, !!spawnFn);
+        const backend = resolveBackendFor(syncConfig, remoteProviders, probeSpawn(spawnFn));
         if (backend === null) {
           serverLog({ event: 'issue_sync_skip', reason: 'no_remote_configured', issueId });
         } else if (backend !== 'off') {
@@ -803,7 +823,9 @@ export function issueTools(
             return ok(payload);
           }
           const syncCwd = syncCtx.cwd;
-          if (backend === 'both') {
+          const reachable = syncedBackends(backend, syncCtx);
+          const createBackend = reachable.length === 1 ? reachable[0]! : backend;
+          if (createBackend === 'both') {
             const ghRemote = syncCtx.remoteFor('gh');
             const glRemote = syncCtx.remoteFor('glab');
             const ghRemoteUrl = ghRemote?.url ?? null;
@@ -910,14 +932,14 @@ export function issueTools(
               }
             }
           } else {
-            const remote = syncCtx.remoteFor(backend);
+            const remote = syncCtx.remoteFor(createBackend);
             const remoteUrl = remote?.url ?? null;
             if (!remoteUrl) {
-              serverLog({ event: 'issue_sync_skip', reason: 'blank_remote_url', issueId, backend });
+              serverLog({ event: 'issue_sync_skip', reason: 'blank_remote_url', issueId, backend: createBackend });
               syncDiagnostic = {
                 sync_skipped: true,
                 reason: 'blank_remote_url',
-                backend,
+                backend: createBackend,
                 hint: 'Configure remote URLs via /onboard before syncing issues.',
               };
             } else {
@@ -927,7 +949,7 @@ export function issueTools(
                 body: description,
                 labels,
                 milestone: milestone ?? undefined,
-                _backend: backend,
+                _backend: createBackend,
                 _spawnFn: spawnFn,
                 _cwd: syncCwd,
                 _remoteUrl: remoteUrl ?? undefined,
@@ -1350,7 +1372,7 @@ export function issueTools(
           const remoteProviders = syncCtx
             ? { github: syncCtx.remoteFor('gh') !== null, gitlab: syncCtx.remoteFor('glab') !== null }
             : null;
-          const backend = resolveBackend(syncConfig, remoteProviders, !!spawnFn);
+          const backend = resolveBackendFor(syncConfig, remoteProviders, probeSpawn(spawnFn));
           if (backend === null || backend === 'off') {
             syncDiagnostic = { sync_skipped: true, reason: 'no_remote_configured', hint: 'The change is local only.' };
           } else if (syncCtx === null) {
@@ -1373,9 +1395,10 @@ export function issueTools(
               };
             }
             if (objectiveArg !== undefined) fields.title = objectiveArg;
+            const reachable = syncedBackends(backend, syncCtx);
             const targets: Array<{ cli: 'gh' | 'glab'; iid: number }> = [];
-            if ((backend === 'gh' || backend === 'both') && row.gh_iid != null) targets.push({ cli: 'gh', iid: row.gh_iid });
-            if ((backend === 'glab' || backend === 'both') && row.gl_iid != null) targets.push({ cli: 'glab', iid: row.gl_iid });
+            if (reachable.includes('gh') && row.gh_iid != null) targets.push({ cli: 'gh', iid: row.gh_iid });
+            if (reachable.includes('glab') && row.gl_iid != null) targets.push({ cli: 'glab', iid: row.gl_iid });
             if (targets.length === 0) {
               syncDiagnostic = { sync_skipped: true, reason: 'no_remote_iid', backend, hint: 'The issue has no remote iid for the resolved backend; the change is local only.' };
             } else {
@@ -1446,7 +1469,7 @@ export function issueTools(
       const retryRemotes = retryCtx
         ? { github: retryCtx.remoteFor('gh') !== null, gitlab: retryCtx.remoteFor('glab') !== null }
         : null;
-      const backend = resolveBackend(syncConfig, retryRemotes, !!spawnFn);
+      const backend = resolveBackendFor(syncConfig, retryRemotes, probeSpawn(spawnFn));
       if (backend === null || backend === 'off') {
         return ok({ skipped: true, reason: 'no remote backend configured' });
       }
@@ -1475,8 +1498,14 @@ export function issueTools(
         if (retryTargets.length === 0) {
           return ok({ action: 'close', success: false, error: { reason: 'no_remote_iid' } });
         }
+        const syncedTargets = retryTargets.filter(
+          (t) => retryCtx.remoteFor(t.remote_kind === 'github' ? 'gh' : 'glab') !== null,
+        );
+        if (syncedTargets.length === 0) {
+          return ok({ action: 'close', success: true, skipped: true, reason: 'not_synced' });
+        }
         const closeErrors: unknown[] = [];
-        for (const target of retryTargets) {
+        for (const target of syncedTargets) {
           const closeResult = await syncIssueClose({
             remote_iid: target.remote_iid,
             remote_kind: target.remote_kind,
@@ -1505,16 +1534,16 @@ export function issueTools(
       // resolution. Prevents duplicate remote creates when one backend already
       // succeeded in a prior attempt.
       const retryCwd = retryCtx.cwd;
-      const createTargets: Array<'gh' | 'glab'> = [];
-      if (backend === 'gh' || backend === 'both') {
-        if (row.gh_iid == null) {
-          createTargets.push('gh');
-        }
+      const reachable = syncedBackends(backend, retryCtx);
+      if (reachable.length === 0) {
+        return ok({ action: 'create', success: true, skipped: true, reason: 'not_synced' });
       }
-      if (backend === 'glab' || backend === 'both') {
-        if (row.gl_iid == null) {
-          createTargets.push('glab');
-        }
+      const createTargets: Array<'gh' | 'glab'> = [];
+      if (reachable.includes('gh') && row.gh_iid == null) {
+        createTargets.push('gh');
+      }
+      if (reachable.includes('glab') && row.gl_iid == null) {
+        createTargets.push('glab');
       }
 
       if (createTargets.length === 0) {

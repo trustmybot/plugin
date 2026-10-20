@@ -10,7 +10,7 @@ import { configTools } from '../tools/config.js';
 import { issueTools } from '../tools/issues.js';
 import { compositeTools } from '../tools/composites.js';
 import { milestoneTools, nextPatchMilestone, syncRepoMilestones } from '../tools/milestones.js';
-import { upsertRepoRemotes } from '../repos/remotes.js';
+import { setRemoteSync, upsertRepoRemotes } from '../repos/remotes.js';
 
 const scanPin = pinScanEnv();
 after(() => scanPin.restore());
@@ -21,6 +21,7 @@ type DB = ReturnType<typeof tempDB>;
 
 const VALID_LABELS = ['Bug', 'Priority: High'];
 const GH_REMOTE = 'https://github.com/acme/app.git';
+const GL_REMOTE = 'git@gitlab.com:acme/app.git';
 
 function parse(r: RawResult): Record<string, unknown> {
   return JSON.parse(r.content[0].text);
@@ -376,7 +377,7 @@ describe('milestone_close', () => {
       assert.deepEqual(milestoneRows(db), [{ name: 'v1.4.3', state: 'closed' }]);
       assert.equal(calls.length, 0);
       assert.deepEqual(auditContent(db, 'milestone_closed'), [
-        { name: 'v1.4.3', repo: 'app', forced: false, open_issues: 0, remote_closed: false },
+        { name: 'v1.4.3', repo: 'app', forced: false, open_issues: 0, remote_closed: false, remote_results: [] },
       ]);
     } finally {
       db.close();
@@ -401,6 +402,84 @@ describe('milestone_close', () => {
       db.close();
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('a milestone the remote never had is skipped, not failed', async () => {
+    const { db, dir } = setup();
+    try {
+      await call(configTools(db).handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'gh' });
+      const calls: Call[] = [];
+      const _spawnFn = milestoneSpawn(calls, [{ number: 3, title: 'v1.4.2', state: 'closed' }]);
+      const data = parse(await call(milestoneTools(db).handlers, 'milestone_close', { agent: 'bro', name: 'v1.4.3', _spawnFn }));
+      assert.deepEqual(data['remote_results'], [
+        { backend: 'gh', slug: 'github.com/acme/app', status: 'skipped', reason: 'not_found', message: 'no remote milestone titled "v1.4.3"' },
+      ]);
+      assert.equal(data['remote_closed'], true);
+      assert.equal(data['_sync'], undefined);
+      assert.equal(calls.filter((c) => c.args.includes('-X')).length, 0);
+      assert.deepEqual(auditContent(db, 'milestone_closed')[0]!['remote_results'], data['remote_results']);
+    } finally {
+      db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  describe('with a GitHub and a GitLab remote', () => {
+    function dualSetup(synced: Array<'github' | 'gitlab'>): { db: DB; dir: string } {
+      const dir = mkdtempSync(join(tmpdir(), 'ms-close-dual-'));
+      const db = tempDB();
+      registerRepo(db, dir, [
+        { name: 'origin', provider: 'github', url: GH_REMOTE },
+        { name: 'mirror', provider: 'gitlab', url: GL_REMOTE },
+      ]);
+      setRemoteSync(db, 'app', synced);
+      db.run(`INSERT INTO milestones (name, repo, state) VALUES ('v1.4.3', 'app', 'open')`);
+      return { db, dir };
+    }
+
+    // gh lists the open milestone and accepts the PATCH; glab fails every call.
+    function ghOkGlabDown(calls: Call[]) {
+      const gh = milestoneSpawn(calls, [{ number: 7, title: 'v1.4.3', state: 'open' }]);
+      return (cmd: string, args: string[]) =>
+        cmd === 'glab' ? (calls.push({ cmd, args }), { status: 1, stdout: '', stderr: 'HTTP 502' }) : gh(cmd, args);
+    }
+
+    it('gh closed + glab failed: remote_closed is false and the hint names only GitLab', async () => {
+      const { db, dir } = dualSetup(['github', 'gitlab']);
+      try {
+        await call(configTools(db).handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'both' });
+        const calls: Call[] = [];
+        const data = parse(await call(milestoneTools(db).handlers, 'milestone_close', { agent: 'bro', name: 'v1.4.3', _spawnFn: ghOkGlabDown(calls) }));
+        assert.deepEqual(milestoneRows(db), [{ name: 'v1.4.3', state: 'closed' }]);
+        assert.deepEqual(data['remote_results'], [
+          { backend: 'gh', slug: 'github.com/acme/app', status: 'closed' },
+          { backend: 'glab', slug: 'gitlab.com/acme/app', status: 'failed', reason: 'non_zero_exit', message: 'HTTP 502' },
+        ]);
+        assert.equal(data['remote_closed'], false);
+        const sync = data['_sync'] as Record<string, unknown>;
+        assert.equal(sync['sync_failed'], true);
+        assert.equal(sync['hint'], 'The local milestone is closed; close it on GitLab manually.');
+        assert.deepEqual((sync['failures'] as Array<{ backend: string }>).map((f) => f.backend), ['glab']);
+      } finally {
+        db.close();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("a remote the onboard Remote choice left out is never touched, even with issue_sync 'both'", async () => {
+      const { db, dir } = dualSetup(['github']);
+      try {
+        await call(configTools(db).handlers, 'config_set', { agent: 'bro', key: 'issue_sync', value: 'both' });
+        const calls: Call[] = [];
+        const data = parse(await call(milestoneTools(db).handlers, 'milestone_close', { agent: 'bro', name: 'v1.4.3', _spawnFn: ghOkGlabDown(calls) }));
+        assert.deepEqual(data['remote_results'], [{ backend: 'gh', slug: 'github.com/acme/app', status: 'closed' }]);
+        assert.equal(data['remote_closed'], true);
+        assert.equal(calls.filter((c) => c.cmd === 'glab').length, 0);
+      } finally {
+        db.close();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
   });
 
   it('refuses while open issues reference the milestone; force overrides', async () => {

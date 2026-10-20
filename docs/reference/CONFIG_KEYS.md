@@ -39,7 +39,7 @@ Repo-scoped policy lives on the `repos` row (`branching_model`, `target_branch`,
 | `repos.branching_model` | string | `github-flow` \| `gitflow` \| `custom` | `git-guards.sh`, bro routing | `onboard_apply` |
 | `repos.target_branch` (`pr_target`) | string | any valid branch name | `git-guards.sh` PR rule, `git-push-guard.sh`, `branch-up-to-date-with-remote.sh`, `clean-merged-branch.sh`, `cleanup-worktree-on-task-close.sh`, `task_create_batch` (branch base) | `onboard_apply` |
 | `repos.protected_branches` | string[] (JSON) | array of branch names | `git-guards.sh` commit rule, `clean-merged-branch.sh` | `onboard_apply` |
-| `repo_remotes` rows | one row per `(repo, name)`: `url`, `provider` (`github` \| `gitlab` \| `other`, from the URL host), `is_primary` | `origin`, else the first remote, is primary | issue-scoped sync, `substrate-preflight.sh`, `no-remote-auth-guard.sh`, the push gate | `scan_run` (from git remotes); `onboard_apply` |
+| `repo_remotes` rows | one row per `(repo, name)`: `url`, `provider` (`github` \| `gitlab` \| `other`, from the URL host), `is_primary`, `sync` (the onboard Remote choice) | `origin`, else the first remote, is primary; a new row starts at `sync = is_primary` | issue-scoped and milestone sync (`sync = 1` rows only), `substrate-preflight.sh`, `no-remote-auth-guard.sh`, the push gate | `scan_run` (from git remotes, never `sync`); `onboard_apply` (git remotes, and `sync` from its `remote` answer) |
 
 Shell hooks resolve the current repo via `scripts/hooks/lib/resolve-repo.sh` (`tmb_repo_git_root` + `tmb_repo_resolve` / `tmb_repo_remotes`) and read the matching `repos` row. An unset `branching_model` / `target_branch` / `protected_branches` means the repo is not onboarded — run `/onboard` — never a silent global default.
 
@@ -56,9 +56,9 @@ Shell hooks resolve the current repo via `scripts/hooks/lib/resolve-repo.sh` (`t
 In a multi-repo workspace the trajectory DB lives at `<workspace>/.claude/<plugin>/trajectory.db` while each git repo lives at `<workspace>/<inner>/`. Repo identity is the `repos` table, and every work table carries a `repo` column that is a real FK to `repos(name)`. Repo selection is per row:
 
 - `task_create_batch` and `issue_create` accept `repo=<name>`; with exactly one `repos` row it is the default. The value must match a `repos.name` row.
-- Issue-scoped sync resolves the repo's path and its `repo_remotes` rows to target an explicit `gh --repo` / `glab -R`, never the server's working directory.
+- Issue-scoped sync resolves the repo's path and its `sync = 1` `repo_remotes` rows to target an explicit `gh --repo` / `glab -R`, never the server's working directory; a provider with no sync row is never spawned.
 - `issue_create` upserts the `milestones(name, repo)` row for an explicit milestone; an omitted milestone defaults to the repo's sole open milestone and never creates a row.
-- `onboard_get_questions` / `onboard_apply` take an optional `repo=<name>` to seed from and write to only that `repos` row; omitting it seeds only rows whose `branching_model` is NULL, writes each repo's `repo_remotes` rows, and writes the global `onboarded` / `issue_sync` / enforcement keys. An unknown repo name is a validation error with no partial write.
+- `onboard_get_questions` / `onboard_apply` take an optional `repo=<name>` to seed from and write to only that `repos` row; omitting it seeds only rows whose `branching_model` is NULL, writes each repo's `repo_remotes` rows (its git remotes, with `sync` set from the `remote` answer), and writes the global `onboarded` / `issue_sync` / enforcement keys. An unknown repo name is a validation error with no partial write.
 
 ## Committed team config (optional)
 

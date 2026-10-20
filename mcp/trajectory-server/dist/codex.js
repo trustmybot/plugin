@@ -21352,7 +21352,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "issue_updated", writers: ["bro"], description: "bro changed an issue's milestone, labels or objective after creation" },
   { type: "legacy_event", writers: ["server"], description: "A migration re-typed a legacy audit row: v38 one whose `event_type` was outside the closed set (written by v1.0.x, before the set closed), v39 a swe-written `verification_gate_waived` row without a `commit_sha` that repeated an earlier one for its task; `content_json` keeps the original content and carries `legacy_event_type` (the old type), plus `legacy_content` when the old content was not valid JSON. Filed under the row's original issue; `audit_append` refuses this event" },
   { type: "mcp_unavailable_fallback_invoked", writers: ["bro", "swe", "pr-reviewer", "consultant"], description: "The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1`" },
-  { type: "milestone_closed", writers: ["bro"], description: "`milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed`" },
+  { type: "milestone_closed", writers: ["bro"], description: "`milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed`, `remote_results`" },
   { type: "milestone_reconcile_failed", writers: ["bro"], description: "`scan_run` could not read a repo's remote milestones; `content_json` carries `repo`, `backend`, `reason` (the scan still succeeds)" },
   { type: "milestone_seed_skipped", writers: ["bro"], description: "`scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`)" },
   { type: "milestone_seeded", writers: ["bro"], description: "`scan_run` seeded `v<next-patch>` for a repo with no milestones; `content_json` carries `name`, `repo`, `source`, `remote_created`" },
@@ -21489,11 +21489,20 @@ function parseLegacyRemotes(raw) {
   });
   return { ok: true, entries: remotes, dropped };
 }
+function toRemote(r) {
+  return { name: r.name, provider: r.provider, url: r.url, is_primary: r.is_primary === 1, sync: r.sync === 1 };
+}
 function repoRemotes(db, repo) {
   return db.all(
-    `SELECT name, provider, url, is_primary FROM repo_remotes WHERE repo = ? ORDER BY is_primary DESC, rowid`,
+    `SELECT name, provider, url, is_primary, sync FROM repo_remotes WHERE repo = ? ORDER BY is_primary DESC, rowid`,
     [repo]
-  ).map((r) => ({ name: r.name, provider: r.provider, url: r.url, is_primary: r.is_primary === 1 }));
+  ).map(toRemote);
+}
+function syncRemotes(db, repo) {
+  return db.all(
+    `SELECT name, provider, url, is_primary, sync FROM repo_remotes WHERE repo = ? AND sync = 1 ORDER BY is_primary DESC, rowid`,
+    [repo]
+  ).map(toRemote);
 }
 function upsertRepoRemotes(db, repo, remotes) {
   const unique = [];
@@ -21510,15 +21519,15 @@ function upsertRepoRemotes(db, repo, remotes) {
   );
   unique.forEach((r, i) => {
     db.run(
-      `INSERT INTO repo_remotes (repo, name, provider, url, is_primary) VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO repo_remotes (repo, name, provider, url, is_primary, sync) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(repo, name) DO UPDATE SET provider = excluded.provider, url = excluded.url, is_primary = excluded.is_primary`,
-      [repo, r.name, remoteProvider(r.url, r.provider), r.url, i === primary ? 1 : 0]
+      [repo, r.name, remoteProvider(r.url, r.provider), r.url, i === primary ? 1 : 0, i === primary ? 1 : 0]
     );
   });
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 40;
+var TARGET_SCHEMA_VERSION = 41;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
 }
@@ -21934,6 +21943,9 @@ function runMigrations(db, fromVersion, toVersion) {
   }
   if (fromVersion < 40 && toVersion >= 40) {
     migrateV39toV40(db);
+  }
+  if (fromVersion < 41 && toVersion >= 41) {
+    migrateV40toV41(db);
   }
 }
 function hasColumn(db, table, column) {
@@ -23430,6 +23442,21 @@ function migrateV38toV39(db) {
 function migrateV39toV40(db) {
   if (!tableExists(db, "repos") || hasColumn(db, "repos", "onboard_scan")) return;
   db.exec("ALTER TABLE repos ADD COLUMN onboard_scan TEXT");
+}
+function migrateV40toV41(db) {
+  if (!tableExists(db, "repo_remotes") || hasColumn(db, "repo_remotes", "sync")) return;
+  db.exec("BEGIN");
+  try {
+    db.exec("ALTER TABLE repo_remotes ADD COLUMN sync INTEGER NOT NULL DEFAULT 0 CHECK (sync IN (0,1))");
+    db.exec("UPDATE repo_remotes SET sync = 1 WHERE is_primary = 1");
+    db.exec("COMMIT");
+  } catch (err5) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+    }
+    throw err5;
+  }
 }
 function migrateV22toV23(db) {
   const soleRepo = () => {
@@ -26756,6 +26783,10 @@ function resolveBackend(configValue, repoRemotes2, hasSpawnFn = false, availabil
   if (glUsable) return "glab";
   return null;
 }
+function resolveBackendFor(configValue, repoRemotes2, spawnFn) {
+  const availability = configValue === "auto" && spawnFn ? detectAvailable(spawnFn) : void 0;
+  return resolveBackend(configValue, repoRemotes2, spawnFn !== void 0, availability);
+}
 function readIssueSyncConfig(db) {
   const row = db.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
   if (!row) return "off";
@@ -27467,11 +27498,18 @@ function resolveIssueSyncContext(db, repoName) {
     cwd: resolved.path,
     remoteFor(backend) {
       const provider = backend === "gh" ? "github" : "gitlab";
-      const entry = repoRemotes(db, resolved.name).find((r) => r.provider === provider);
+      const entry = syncRemotes(db, resolved.name).find((r) => r.provider === provider);
       if (!entry) return null;
       return { url: entry.url, slug: repoSlugFromRemoteUrl(entry.url) };
     }
   };
+}
+function probeSpawn(spawnFn) {
+  return spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: "utf8" }) : void 0;
+}
+function syncedBackends(backend, ctx) {
+  const wanted = backend === "both" ? ["gh", "glab"] : [backend];
+  return wanted.filter((b) => ctx.remoteFor(b) !== null);
 }
 async function verifyAdoptionRemote(db, issueRepo, remoteBackendArg, remoteIid, spawnFn) {
   if (!Number.isInteger(remoteIid) || remoteIid <= 0) {
@@ -27521,7 +27559,7 @@ async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
   const closeCtx = resolveIssueSyncContext(db, remoteRow?.repo ?? null);
   const gate = remoteSyncGate(db, {
     repoRemotes: closeCtx ? { github: closeCtx.remoteFor("gh") !== null, gitlab: closeCtx.remoteFor("glab") !== null } : null,
-    spawnFn: spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: "utf8" }) : void 0
+    spawnFn: probeSpawn(spawnFn)
   });
   if (!gate.enabled) {
     const reason = gate.reason ?? "no_backend";
@@ -27539,12 +27577,16 @@ async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
     return { synced: false, skipped: reason, remotes: targets };
   }
   for (const target of targets) {
-    const closeSlug = closeCtx?.remoteFor(target.remote_kind === "github" ? "gh" : "glab")?.slug ?? void 0;
+    const closeRemote = closeCtx?.remoteFor(target.remote_kind === "github" ? "gh" : "glab") ?? null;
+    if (closeCtx === null || closeRemote === null) {
+      target.skipped = "not_synced";
+      continue;
+    }
     const closeResult = await syncIssueClose({
       remote_iid: target.remote_iid,
       remote_kind: target.remote_kind,
-      _cwd: closeCtx?.cwd,
-      _repoSlug: closeSlug,
+      _cwd: closeCtx.cwd,
+      _repoSlug: closeRemote.slug ?? void 0,
       _spawnFn: spawnFn
     });
     target.closed = closeResult.ok;
@@ -27561,7 +27603,8 @@ async function syncIssueCloseRemotes(db, dbPath, issueId, spawnFn) {
       });
     }
   }
-  return { synced: targets.every((t) => t.closed), remotes: targets };
+  const attempted = targets.filter((t) => t.skipped === void 0);
+  return { synced: attempted.length > 0 && attempted.every((t) => t.closed), remotes: targets };
 }
 function issueTools(db, dbPath = "", options = {}) {
   const definitions = [
@@ -27854,7 +27897,7 @@ function issueTools(db, dbPath = "", options = {}) {
       if (syncConfig !== "off") {
         const syncCtx = resolveIssueSyncContext(db, issueRepo);
         const remoteProviders = syncCtx ? { github: syncCtx.remoteFor("gh") !== null, gitlab: syncCtx.remoteFor("glab") !== null } : null;
-        const backend = resolveBackend(syncConfig, remoteProviders, !!spawnFn);
+        const backend = resolveBackendFor(syncConfig, remoteProviders, probeSpawn(spawnFn));
         if (backend === null) {
           serverLog({ event: "issue_sync_skip", reason: "no_remote_configured", issueId });
         } else if (backend !== "off") {
@@ -27878,7 +27921,9 @@ function issueTools(db, dbPath = "", options = {}) {
             return ok2(payload2);
           }
           const syncCwd = syncCtx.cwd;
-          if (backend === "both") {
+          const reachable = syncedBackends(backend, syncCtx);
+          const createBackend = reachable.length === 1 ? reachable[0] : backend;
+          if (createBackend === "both") {
             const ghRemote = syncCtx.remoteFor("gh");
             const glRemote = syncCtx.remoteFor("glab");
             const ghRemoteUrl = ghRemote?.url ?? null;
@@ -27975,14 +28020,14 @@ function issueTools(db, dbPath = "", options = {}) {
               }
             }
           } else {
-            const remote = syncCtx.remoteFor(backend);
+            const remote = syncCtx.remoteFor(createBackend);
             const remoteUrl = remote?.url ?? null;
             if (!remoteUrl) {
-              serverLog({ event: "issue_sync_skip", reason: "blank_remote_url", issueId, backend });
+              serverLog({ event: "issue_sync_skip", reason: "blank_remote_url", issueId, backend: createBackend });
               syncDiagnostic = {
                 sync_skipped: true,
                 reason: "blank_remote_url",
-                backend,
+                backend: createBackend,
                 hint: "Configure remote URLs via /onboard before syncing issues."
               };
             } else {
@@ -27992,7 +28037,7 @@ function issueTools(db, dbPath = "", options = {}) {
                 body: description,
                 labels,
                 milestone: milestone ?? void 0,
-                _backend: backend,
+                _backend: createBackend,
                 _spawnFn: spawnFn,
                 _cwd: syncCwd,
                 _remoteUrl: remoteUrl ?? void 0,
@@ -28348,7 +28393,7 @@ function issueTools(db, dbPath = "", options = {}) {
         } else {
           const syncCtx = resolveIssueSyncContext(db, row.repo);
           const remoteProviders = syncCtx ? { github: syncCtx.remoteFor("gh") !== null, gitlab: syncCtx.remoteFor("glab") !== null } : null;
-          const backend = resolveBackend(syncConfig, remoteProviders, !!spawnFn);
+          const backend = resolveBackendFor(syncConfig, remoteProviders, probeSpawn(spawnFn));
           if (backend === null || backend === "off") {
             syncDiagnostic = { sync_skipped: true, reason: "no_remote_configured", hint: "The change is local only." };
           } else if (syncCtx === null) {
@@ -28369,9 +28414,10 @@ function issueTools(db, dbPath = "", options = {}) {
               };
             }
             if (objectiveArg !== void 0) fields.title = objectiveArg;
+            const reachable = syncedBackends(backend, syncCtx);
             const targets = [];
-            if ((backend === "gh" || backend === "both") && row.gh_iid != null) targets.push({ cli: "gh", iid: row.gh_iid });
-            if ((backend === "glab" || backend === "both") && row.gl_iid != null) targets.push({ cli: "glab", iid: row.gl_iid });
+            if (reachable.includes("gh") && row.gh_iid != null) targets.push({ cli: "gh", iid: row.gh_iid });
+            if (reachable.includes("glab") && row.gl_iid != null) targets.push({ cli: "glab", iid: row.gl_iid });
             if (targets.length === 0) {
               syncDiagnostic = { sync_skipped: true, reason: "no_remote_iid", backend, hint: "The issue has no remote iid for the resolved backend; the change is local only." };
             } else {
@@ -28428,7 +28474,7 @@ function issueTools(db, dbPath = "", options = {}) {
       }
       const retryCtx = resolveIssueSyncContext(db, row.repo ?? null);
       const retryRemotes = retryCtx ? { github: retryCtx.remoteFor("gh") !== null, gitlab: retryCtx.remoteFor("glab") !== null } : null;
-      const backend = resolveBackend(syncConfig, retryRemotes, !!spawnFn);
+      const backend = resolveBackendFor(syncConfig, retryRemotes, probeSpawn(spawnFn));
       if (backend === null || backend === "off") {
         return ok2({ skipped: true, reason: "no remote backend configured" });
       }
@@ -28453,8 +28499,14 @@ function issueTools(db, dbPath = "", options = {}) {
         if (retryTargets.length === 0) {
           return ok2({ action: "close", success: false, error: { reason: "no_remote_iid" } });
         }
+        const syncedTargets = retryTargets.filter(
+          (t) => retryCtx.remoteFor(t.remote_kind === "github" ? "gh" : "glab") !== null
+        );
+        if (syncedTargets.length === 0) {
+          return ok2({ action: "close", success: true, skipped: true, reason: "not_synced" });
+        }
         const closeErrors = [];
-        for (const target of retryTargets) {
+        for (const target of syncedTargets) {
           const closeResult = await syncIssueClose({
             remote_iid: target.remote_iid,
             remote_kind: target.remote_kind,
@@ -28479,16 +28531,16 @@ function issueTools(db, dbPath = "", options = {}) {
         return ok2({ action: "close", success: false, errors: closeErrors });
       }
       const retryCwd = retryCtx.cwd;
-      const createTargets = [];
-      if (backend === "gh" || backend === "both") {
-        if (row.gh_iid == null) {
-          createTargets.push("gh");
-        }
+      const reachable = syncedBackends(backend, retryCtx);
+      if (reachable.length === 0) {
+        return ok2({ action: "create", success: true, skipped: true, reason: "not_synced" });
       }
-      if (backend === "glab" || backend === "both") {
-        if (row.gl_iid == null) {
-          createTargets.push("glab");
-        }
+      const createTargets = [];
+      if (reachable.includes("gh") && row.gh_iid == null) {
+        createTargets.push("gh");
+      }
+      if (reachable.includes("glab") && row.gl_iid == null) {
+        createTargets.push("glab");
       }
       if (createTargets.length === 0) {
         return ok2({ action: "create", success: true, skipped: true, reason: "already_synced" });
@@ -28991,12 +29043,16 @@ function resolveMilestoneTargets(db, repoName, spawnFn) {
     }
   }
   const slugFor = (provider) => {
-    const entry = repoRemotes(db, resolved.name).find((r) => r.provider === provider);
+    const entry = syncRemotes(db, resolved.name).find((r) => r.provider === provider);
     return entry ? repoSlugFromRemoteUrl(entry.url) : null;
   };
   const ghSlug = slugFor("github");
   const glSlug = slugFor("gitlab");
-  const backend = resolveBackend(syncConfig, { github: ghSlug !== null, gitlab: glSlug !== null }, !!spawnFn);
+  const backend = resolveBackendFor(
+    syncConfig,
+    { github: ghSlug !== null, gitlab: glSlug !== null },
+    spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: "utf8" }) : void 0
+  );
   if (backend === null || backend === "off") return { gated: false, targets: [] };
   const targets = [];
   if ((backend === "gh" || backend === "both") && ghSlug) {

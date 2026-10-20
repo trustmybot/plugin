@@ -25,7 +25,10 @@ CREATE TABLE IF NOT EXISTS repos (
 -- issue sync, milestone sync, pr_monitor and repo_rename read it to pick the
 -- explicit gh --repo / glab -R target. provider comes from the URL host
 -- (bitbucket and other hosts are 'other'); is_primary marks `origin`, else the
--- first remote. Rows follow their repo on delete and on a name change.
+-- first remote. sync is the Human's onboard Remote choice: issue and milestone
+-- sync reach only sync = 1 rows. A new row starts at sync = is_primary; scan
+-- never changes it, only onboard_apply does. Rows follow their repo on delete
+-- and on a name change.
 CREATE TABLE IF NOT EXISTS repo_remotes (
     repo        TEXT    NOT NULL REFERENCES repos(name) ON DELETE CASCADE ON UPDATE CASCADE,
     name        TEXT    NOT NULL,
@@ -33,6 +36,7 @@ CREATE TABLE IF NOT EXISTS repo_remotes (
     url         TEXT    NOT NULL,
     is_primary  INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0,1)),
     created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    sync        INTEGER NOT NULL DEFAULT 0 CHECK (sync IN (0,1)),
     PRIMARY KEY (repo, name)
 );
 CREATE INDEX IF NOT EXISTS idx_repo_remotes_primary ON repo_remotes(repo, is_primary);
@@ -269,7 +273,7 @@ CREATE TABLE IF NOT EXISTS plugin_meta (
     plugin_version TEXT    NOT NULL
 );
 
-INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 40, '0.0.0');
+INSERT OR IGNORE INTO plugin_meta (id, schema_version, plugin_version) VALUES (1, 41, '0.0.0');
 
 CREATE TABLE IF NOT EXISTS plugin_config (
     key        TEXT PRIMARY KEY,

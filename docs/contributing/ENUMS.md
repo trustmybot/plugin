@@ -157,7 +157,7 @@ The closed set lives in `mcp/trajectory-server/src/audit-events.ts`; this table 
 | `issue_updated` | `bro` | bro changed an issue's milestone, labels or objective after creation |
 | `legacy_event` | `server` | A migration re-typed a legacy audit row: v38 one whose `event_type` was outside the closed set (written by v1.0.x, before the set closed), v39 a swe-written `verification_gate_waived` row without a `commit_sha` that repeated an earlier one for its task; `content_json` keeps the original content and carries `legacy_event_type` (the old type), plus `legacy_content` when the old content was not valid JSON. Filed under the row's original issue; `audit_append` refuses this event |
 | `mcp_unavailable_fallback_invoked` | `bro`, `swe`, `pr-reviewer`, `consultant` | The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1` |
-| `milestone_closed` | `bro` | `milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed` |
+| `milestone_closed` | `bro` | `milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed`, `remote_results` |
 | `milestone_reconcile_failed` | `bro` | `scan_run` could not read a repo's remote milestones; `content_json` carries `repo`, `backend`, `reason` (the scan still succeeds) |
 | `milestone_seed_skipped` | `bro` | `scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`) |
 | `milestone_seeded` | `bro` | `scan_run` seeded `v<next-patch>` for a repo with no milestones; `content_json` carries `name`, `repo`, `source`, `remote_created` |
@@ -358,6 +358,10 @@ Schema enforces via `CHECK (source IN ('gate','manual'))`.
 ### `repo_remotes.is_primary`
 
 `1` on the remote named `origin`, else on the first remote recorded; `0` on the rest. `CHECK (is_primary IN (0,1))`.
+
+### `repo_remotes.sync`
+
+`1` on the remotes issue and milestone sync reach — one per provider the Human chose at onboard; `0` on the rest. A new row starts at its `is_primary`; `scan_run` never changes it. `CHECK (sync IN (0,1))`.
 
 ---
 

@@ -21272,7 +21272,7 @@ var AUDIT_EVENT_TYPES = [
   { type: "issue_updated", writers: ["bro"], description: "bro changed an issue's milestone, labels or objective after creation" },
   { type: "legacy_event", writers: ["server"], description: "A migration re-typed a legacy audit row: v38 one whose `event_type` was outside the closed set (written by v1.0.x, before the set closed), v39 a swe-written `verification_gate_waived` row without a `commit_sha` that repeated an earlier one for its task; `content_json` keeps the original content and carries `legacy_event_type` (the old type), plus `legacy_content` when the old content was not valid JSON. Filed under the row's original issue; `audit_append` refuses this event" },
   { type: "mcp_unavailable_fallback_invoked", writers: ["bro", "swe", "pr-reviewer", "consultant"], description: "The sqlite3 fallback (`scripts/lib/sqlite3-fallback.sh`) wrote in place of an unavailable MCP server; filed under the system issue `-1`" },
-  { type: "milestone_closed", writers: ["bro"], description: "`milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed`" },
+  { type: "milestone_closed", writers: ["bro"], description: "`milestone_close` closed a milestone; `content_json` carries `name`, `repo`, `forced`, `open_issues`, `remote_closed`, `remote_results`" },
   { type: "milestone_reconcile_failed", writers: ["bro"], description: "`scan_run` could not read a repo's remote milestones; `content_json` carries `repo`, `backend`, `reason` (the scan still succeeds)" },
   { type: "milestone_seed_skipped", writers: ["bro"], description: "`scan_run` found no milestones and could not seed one; `content_json` carries `repo`, `reason` (`no_version_source` or `reconcile_failed`)" },
   { type: "milestone_seeded", writers: ["bro"], description: "`scan_run` seeded `v<next-patch>` for a repo with no milestones; `content_json` carries `name`, `repo`, `source`, `remote_created`" },
@@ -21409,14 +21409,38 @@ function parseLegacyRemotes(raw) {
   });
   return { ok: true, entries: remotes, dropped };
 }
+function toRemote(r) {
+  return { name: r.name, provider: r.provider, url: r.url, is_primary: r.is_primary === 1, sync: r.sync === 1 };
+}
 function repoRemotes(db2, repo) {
   return db2.all(
-    `SELECT name, provider, url, is_primary FROM repo_remotes WHERE repo = ? ORDER BY is_primary DESC, rowid`,
+    `SELECT name, provider, url, is_primary, sync FROM repo_remotes WHERE repo = ? ORDER BY is_primary DESC, rowid`,
     [repo]
-  ).map((r) => ({ name: r.name, provider: r.provider, url: r.url, is_primary: r.is_primary === 1 }));
+  ).map(toRemote);
+}
+function syncRemotes(db2, repo) {
+  return db2.all(
+    `SELECT name, provider, url, is_primary, sync FROM repo_remotes WHERE repo = ? AND sync = 1 ORDER BY is_primary DESC, rowid`,
+    [repo]
+  ).map(toRemote);
+}
+function setRemoteSync(db2, repo, providers) {
+  const remotes = repoRemotes(db2, repo);
+  const chosen = /* @__PURE__ */ new Set();
+  const missing = [];
+  for (const provider of new Set(providers)) {
+    const pick3 = remotes.find((r) => r.provider === provider);
+    if (pick3) chosen.add(pick3.name);
+    else missing.push(provider);
+  }
+  db2.run(
+    `UPDATE repo_remotes SET sync = CASE WHEN name IN (SELECT value FROM json_each(?)) THEN 1 ELSE 0 END WHERE repo = ?`,
+    [JSON.stringify([...chosen]), repo]
+  );
+  return missing;
 }
 function remotesView(remotes) {
-  return remotes.map(({ name, provider, url: url2 }) => ({ name, provider, url: url2 }));
+  return remotes.map(({ name, provider, url: url2, sync }) => ({ name, provider, url: url2, sync }));
 }
 function upsertRepoRemotes(db2, repo, remotes) {
   const unique = [];
@@ -21433,15 +21457,15 @@ function upsertRepoRemotes(db2, repo, remotes) {
   );
   unique.forEach((r, i) => {
     db2.run(
-      `INSERT INTO repo_remotes (repo, name, provider, url, is_primary) VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO repo_remotes (repo, name, provider, url, is_primary, sync) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(repo, name) DO UPDATE SET provider = excluded.provider, url = excluded.url, is_primary = excluded.is_primary`,
-      [repo, r.name, remoteProvider(r.url, r.provider), r.url, i === primary ? 1 : 0]
+      [repo, r.name, remoteProvider(r.url, r.provider), r.url, i === primary ? 1 : 0, i === primary ? 1 : 0]
     );
   });
 }
 
 // src/db.ts
-var TARGET_SCHEMA_VERSION = 40;
+var TARGET_SCHEMA_VERSION = 41;
 function resolvePluginName(env = process.env) {
   return resolveClaudePluginName(env);
 }
@@ -21860,6 +21884,9 @@ function runMigrations(db2, fromVersion, toVersion) {
   }
   if (fromVersion < 40 && toVersion >= 40) {
     migrateV39toV40(db2);
+  }
+  if (fromVersion < 41 && toVersion >= 41) {
+    migrateV40toV41(db2);
   }
 }
 function hasColumn(db2, table, column) {
@@ -23356,6 +23383,21 @@ function migrateV38toV39(db2) {
 function migrateV39toV40(db2) {
   if (!tableExists(db2, "repos") || hasColumn(db2, "repos", "onboard_scan")) return;
   db2.exec("ALTER TABLE repos ADD COLUMN onboard_scan TEXT");
+}
+function migrateV40toV41(db2) {
+  if (!tableExists(db2, "repo_remotes") || hasColumn(db2, "repo_remotes", "sync")) return;
+  db2.exec("BEGIN");
+  try {
+    db2.exec("ALTER TABLE repo_remotes ADD COLUMN sync INTEGER NOT NULL DEFAULT 0 CHECK (sync IN (0,1))");
+    db2.exec("UPDATE repo_remotes SET sync = 1 WHERE is_primary = 1");
+    db2.exec("COMMIT");
+  } catch (err20) {
+    try {
+      db2.exec("ROLLBACK");
+    } catch {
+    }
+    throw err20;
+  }
 }
 function migrateV22toV23(db2) {
   const soleRepo = () => {
@@ -25517,6 +25559,10 @@ function resolveBackend(configValue, repoRemotes2, hasSpawnFn = false, availabil
   if (glUsable) return "glab";
   return null;
 }
+function resolveBackendFor(configValue, repoRemotes2, spawnFn) {
+  const availability = configValue === "auto" && spawnFn ? detectAvailable(spawnFn) : void 0;
+  return resolveBackend(configValue, repoRemotes2, spawnFn !== void 0, availability);
+}
 function readIssueSyncConfig(db2) {
   const row = db2.get(`SELECT value_json FROM plugin_config WHERE key = 'issue_sync'`);
   if (!row) return "off";
@@ -26359,11 +26405,18 @@ function resolveIssueSyncContext(db2, repoName) {
     cwd: resolved.path,
     remoteFor(backend) {
       const provider = backend === "gh" ? "github" : "gitlab";
-      const entry = repoRemotes(db2, resolved.name).find((r) => r.provider === provider);
+      const entry = syncRemotes(db2, resolved.name).find((r) => r.provider === provider);
       if (!entry) return null;
       return { url: entry.url, slug: repoSlugFromRemoteUrl(entry.url) };
     }
   };
+}
+function probeSpawn(spawnFn) {
+  return spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: "utf8" }) : void 0;
+}
+function syncedBackends(backend, ctx) {
+  const wanted = backend === "both" ? ["gh", "glab"] : [backend];
+  return wanted.filter((b) => ctx.remoteFor(b) !== null);
 }
 async function verifyAdoptionRemote(db2, issueRepo, remoteBackendArg, remoteIid, spawnFn) {
   if (!Number.isInteger(remoteIid) || remoteIid <= 0) {
@@ -26413,7 +26466,7 @@ async function syncIssueCloseRemotes(db2, dbPath2, issueId, spawnFn) {
   const closeCtx = resolveIssueSyncContext(db2, remoteRow?.repo ?? null);
   const gate = remoteSyncGate(db2, {
     repoRemotes: closeCtx ? { github: closeCtx.remoteFor("gh") !== null, gitlab: closeCtx.remoteFor("glab") !== null } : null,
-    spawnFn: spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: "utf8" }) : void 0
+    spawnFn: probeSpawn(spawnFn)
   });
   if (!gate.enabled) {
     const reason = gate.reason ?? "no_backend";
@@ -26431,12 +26484,16 @@ async function syncIssueCloseRemotes(db2, dbPath2, issueId, spawnFn) {
     return { synced: false, skipped: reason, remotes: targets };
   }
   for (const target of targets) {
-    const closeSlug = closeCtx?.remoteFor(target.remote_kind === "github" ? "gh" : "glab")?.slug ?? void 0;
+    const closeRemote = closeCtx?.remoteFor(target.remote_kind === "github" ? "gh" : "glab") ?? null;
+    if (closeCtx === null || closeRemote === null) {
+      target.skipped = "not_synced";
+      continue;
+    }
     const closeResult = await syncIssueClose({
       remote_iid: target.remote_iid,
       remote_kind: target.remote_kind,
-      _cwd: closeCtx?.cwd,
-      _repoSlug: closeSlug,
+      _cwd: closeCtx.cwd,
+      _repoSlug: closeRemote.slug ?? void 0,
       _spawnFn: spawnFn
     });
     target.closed = closeResult.ok;
@@ -26453,7 +26510,8 @@ async function syncIssueCloseRemotes(db2, dbPath2, issueId, spawnFn) {
       });
     }
   }
-  return { synced: targets.every((t) => t.closed), remotes: targets };
+  const attempted = targets.filter((t) => t.skipped === void 0);
+  return { synced: attempted.length > 0 && attempted.every((t) => t.closed), remotes: targets };
 }
 function issueTools(db2, dbPath2 = "", options = {}) {
   const definitions = [
@@ -26746,7 +26804,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       if (syncConfig !== "off") {
         const syncCtx = resolveIssueSyncContext(db2, issueRepo);
         const remoteProviders = syncCtx ? { github: syncCtx.remoteFor("gh") !== null, gitlab: syncCtx.remoteFor("glab") !== null } : null;
-        const backend = resolveBackend(syncConfig, remoteProviders, !!spawnFn);
+        const backend = resolveBackendFor(syncConfig, remoteProviders, probeSpawn(spawnFn));
         if (backend === null) {
           serverLog({ event: "issue_sync_skip", reason: "no_remote_configured", issueId });
         } else if (backend !== "off") {
@@ -26770,7 +26828,9 @@ function issueTools(db2, dbPath2 = "", options = {}) {
             return ok3(payload2);
           }
           const syncCwd = syncCtx.cwd;
-          if (backend === "both") {
+          const reachable = syncedBackends(backend, syncCtx);
+          const createBackend = reachable.length === 1 ? reachable[0] : backend;
+          if (createBackend === "both") {
             const ghRemote = syncCtx.remoteFor("gh");
             const glRemote = syncCtx.remoteFor("glab");
             const ghRemoteUrl = ghRemote?.url ?? null;
@@ -26867,14 +26927,14 @@ function issueTools(db2, dbPath2 = "", options = {}) {
               }
             }
           } else {
-            const remote = syncCtx.remoteFor(backend);
+            const remote = syncCtx.remoteFor(createBackend);
             const remoteUrl = remote?.url ?? null;
             if (!remoteUrl) {
-              serverLog({ event: "issue_sync_skip", reason: "blank_remote_url", issueId, backend });
+              serverLog({ event: "issue_sync_skip", reason: "blank_remote_url", issueId, backend: createBackend });
               syncDiagnostic = {
                 sync_skipped: true,
                 reason: "blank_remote_url",
-                backend,
+                backend: createBackend,
                 hint: "Configure remote URLs via /onboard before syncing issues."
               };
             } else {
@@ -26884,7 +26944,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
                 body: description,
                 labels,
                 milestone: milestone ?? void 0,
-                _backend: backend,
+                _backend: createBackend,
                 _spawnFn: spawnFn,
                 _cwd: syncCwd,
                 _remoteUrl: remoteUrl ?? void 0,
@@ -27240,7 +27300,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         } else {
           const syncCtx = resolveIssueSyncContext(db2, row.repo);
           const remoteProviders = syncCtx ? { github: syncCtx.remoteFor("gh") !== null, gitlab: syncCtx.remoteFor("glab") !== null } : null;
-          const backend = resolveBackend(syncConfig, remoteProviders, !!spawnFn);
+          const backend = resolveBackendFor(syncConfig, remoteProviders, probeSpawn(spawnFn));
           if (backend === null || backend === "off") {
             syncDiagnostic = { sync_skipped: true, reason: "no_remote_configured", hint: "The change is local only." };
           } else if (syncCtx === null) {
@@ -27261,9 +27321,10 @@ function issueTools(db2, dbPath2 = "", options = {}) {
               };
             }
             if (objectiveArg !== void 0) fields.title = objectiveArg;
+            const reachable = syncedBackends(backend, syncCtx);
             const targets = [];
-            if ((backend === "gh" || backend === "both") && row.gh_iid != null) targets.push({ cli: "gh", iid: row.gh_iid });
-            if ((backend === "glab" || backend === "both") && row.gl_iid != null) targets.push({ cli: "glab", iid: row.gl_iid });
+            if (reachable.includes("gh") && row.gh_iid != null) targets.push({ cli: "gh", iid: row.gh_iid });
+            if (reachable.includes("glab") && row.gl_iid != null) targets.push({ cli: "glab", iid: row.gl_iid });
             if (targets.length === 0) {
               syncDiagnostic = { sync_skipped: true, reason: "no_remote_iid", backend, hint: "The issue has no remote iid for the resolved backend; the change is local only." };
             } else {
@@ -27320,7 +27381,7 @@ function issueTools(db2, dbPath2 = "", options = {}) {
       }
       const retryCtx = resolveIssueSyncContext(db2, row.repo ?? null);
       const retryRemotes = retryCtx ? { github: retryCtx.remoteFor("gh") !== null, gitlab: retryCtx.remoteFor("glab") !== null } : null;
-      const backend = resolveBackend(syncConfig, retryRemotes, !!spawnFn);
+      const backend = resolveBackendFor(syncConfig, retryRemotes, probeSpawn(spawnFn));
       if (backend === null || backend === "off") {
         return ok3({ skipped: true, reason: "no remote backend configured" });
       }
@@ -27345,8 +27406,14 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         if (retryTargets.length === 0) {
           return ok3({ action: "close", success: false, error: { reason: "no_remote_iid" } });
         }
+        const syncedTargets = retryTargets.filter(
+          (t) => retryCtx.remoteFor(t.remote_kind === "github" ? "gh" : "glab") !== null
+        );
+        if (syncedTargets.length === 0) {
+          return ok3({ action: "close", success: true, skipped: true, reason: "not_synced" });
+        }
         const closeErrors = [];
-        for (const target of retryTargets) {
+        for (const target of syncedTargets) {
           const closeResult = await syncIssueClose({
             remote_iid: target.remote_iid,
             remote_kind: target.remote_kind,
@@ -27371,16 +27438,16 @@ function issueTools(db2, dbPath2 = "", options = {}) {
         return ok3({ action: "close", success: false, errors: closeErrors });
       }
       const retryCwd = retryCtx.cwd;
-      const createTargets = [];
-      if (backend === "gh" || backend === "both") {
-        if (row.gh_iid == null) {
-          createTargets.push("gh");
-        }
+      const reachable = syncedBackends(backend, retryCtx);
+      if (reachable.length === 0) {
+        return ok3({ action: "create", success: true, skipped: true, reason: "not_synced" });
       }
-      if (backend === "glab" || backend === "both") {
-        if (row.gl_iid == null) {
-          createTargets.push("glab");
-        }
+      const createTargets = [];
+      if (reachable.includes("gh") && row.gh_iid == null) {
+        createTargets.push("gh");
+      }
+      if (reachable.includes("glab") && row.gl_iid == null) {
+        createTargets.push("glab");
       }
       if (createTargets.length === 0) {
         return ok3({ action: "create", success: true, skipped: true, reason: "already_synced" });
@@ -27692,12 +27759,16 @@ function resolveMilestoneTargets(db2, repoName, spawnFn) {
     }
   }
   const slugFor = (provider) => {
-    const entry = repoRemotes(db2, resolved.name).find((r) => r.provider === provider);
+    const entry = syncRemotes(db2, resolved.name).find((r) => r.provider === provider);
     return entry ? repoSlugFromRemoteUrl(entry.url) : null;
   };
   const ghSlug = slugFor("github");
   const glSlug = slugFor("gitlab");
-  const backend = resolveBackend(syncConfig, { github: ghSlug !== null, gitlab: glSlug !== null }, !!spawnFn);
+  const backend = resolveBackendFor(
+    syncConfig,
+    { github: ghSlug !== null, gitlab: glSlug !== null },
+    spawnFn ? (cmd, args) => spawnFn(cmd, args, { encoding: "utf8" }) : void 0
+  );
   if (backend === null || backend === "off") return { gated: false, targets: [] };
   const targets = [];
   if ((backend === "gh" || backend === "both") && ghSlug) {
@@ -27710,6 +27781,18 @@ function resolveMilestoneTargets(db2, repoName, spawnFn) {
 }
 function failureContent(f) {
   return { backend: f.backend, reason: f.reason, exit_code: f.exit_code, stderr: f.stderr, message: f.message };
+}
+var PROVIDER_LABEL = { gh: "GitHub", glab: "GitLab" };
+function remoteCloseResult(target, result2) {
+  const base = { backend: target.backend, slug: target.slug };
+  if (result2.ok) return { ...base, status: "closed" };
+  const message2 = result2.message ?? result2.stderr;
+  return {
+    ...base,
+    status: result2.reason === "not_found" ? "skipped" : "failed",
+    reason: result2.reason,
+    ...message2 ? { message: message2 } : {}
+  };
 }
 function reconcileRepoMilestones(db2, repo, targets, spawnFn) {
   const merged = /* @__PURE__ */ new Map();
@@ -27913,29 +27996,39 @@ function milestoneTools(db2) {
       db2.run(`UPDATE milestones SET state = 'closed' WHERE name = ? AND repo = ?`, [name, repo]);
       const spawnFn = args["_spawnFn"];
       const gate = resolveMilestoneTargets(db2, repo, spawnFn);
+      const remoteResults = [];
       const failures = [];
-      if (gate.gated) {
-        for (const target of gate.targets) {
-          const closed = closeRemoteMilestone(target, name, spawnFn);
-          if (!closed.ok) failures.push(failureContent(closed));
-        }
+      for (const target of gate.gated ? gate.targets : []) {
+        const closed = closeRemoteMilestone(target, name, spawnFn);
+        const result2 = remoteCloseResult(target, closed);
+        remoteResults.push(result2);
+        if (result2.status === "failed" && !closed.ok) failures.push(closed);
       }
-      const remoteClosed = gate.gated && gate.targets.length > 0 && failures.length === 0;
+      const failed = remoteResults.filter((r) => r.status === "failed");
+      const remoteClosed = gate.gated && remoteResults.length > 0 && failed.length === 0;
       const content = {
         name,
         repo,
         forced: force && openIssues > 0,
         open_issues: openIssues,
-        remote_closed: remoteClosed
+        remote_closed: remoteClosed,
+        remote_results: remoteResults
       };
-      if (failures.length > 0) content["remote_failures"] = failures;
       auditMilestone(db2, "milestone_closed", `milestone ${name} closed for ${repo}`, content);
-      const payload = { name, repo, state: "closed", open_issues: openIssues, remote_closed: remoteClosed };
-      if (failures.length > 0) {
+      const payload = {
+        name,
+        repo,
+        state: "closed",
+        open_issues: openIssues,
+        remote_closed: remoteClosed,
+        remote_results: remoteResults
+      };
+      if (failed.length > 0) {
+        const where = failed.map((r) => PROVIDER_LABEL[r.backend]).join(" and ");
         payload["_sync"] = {
           sync_failed: true,
-          failures,
-          hint: "The local milestone is closed; close it on the remote manually."
+          failures: failures.map(failureContent),
+          hint: `The local milestone is closed; close it on ${where} manually.`
         };
       }
       return ok4(payload);
@@ -34377,6 +34470,21 @@ var REMOTE_OPTIONS = [
   { label: "GitLab", description: "", wire: "gitlab" },
   { label: "GitLab (CLI not installed)", description: "", wire: "gitlab" }
 ];
+function parseRemoteAnswer(raw) {
+  const entries = Array.isArray(raw) ? raw.filter((s) => typeof s === "string") : typeof raw === "string" ? [raw] : [];
+  return entries.map((r) => {
+    const resolved = resolveOption(r, REMOTE_OPTIONS) ?? r;
+    if (resolved !== "github" && resolved !== "gitlab") {
+      throw new Error(`remote entries must be 'github' or 'gitlab' (got '${resolved}')`);
+    }
+    return resolved;
+  });
+}
+function applyRemoteChoice(db2, repo, providers) {
+  return setRemoteSync(db2, repo, providers).map(
+    (p) => `no ${p} remote on repo "${repo}"; issues for it will not sync to ${HOST_NAMES[p]}`
+  );
+}
 var ISSUE_SYNC_OPTIONS = [
   { label: "Auto \u2014 sync to the remote you picked", description: "", wire: "auto" },
   { label: "Off \u2014 issues stay on this computer", description: "", wire: "off" }
@@ -34410,8 +34518,8 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           },
           round: {
             type: "string",
-            enum: ["shape", "main", "sync", "sandbox"],
-            description: "'shape' = Round 1 (project shape \u2014 Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only \u2014 issue_sync). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep)."
+            enum: ["shape", "main", "remote", "sync", "sandbox"],
+            description: "'shape' = Round 1 (project shape \u2014 Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'remote' = the Remote question alone (remote shape only), asked once after the per-repo Round 2 loop. 'sync' = Round 3 (remote shape only \u2014 issue_sync). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep)."
           },
           repo: {
             type: "string",
@@ -34450,7 +34558,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           remote: {
             type: "array",
             items: { type: "string", enum: ["github", "gitlab"] },
-            description: `Optional when shape=remote. Array of provider IDs (multiSelect AUQ answer). Single-element ["github"] or ["gitlab"], or ["github","gitlab"] for dual-host. Omitted or empty: each repo's GitHub/GitLab remotes are probed from its git tree, with a warning when none has one. Ignored on local.`
+            description: `The Remote answer when shape=remote: array of provider IDs (multiSelect AUQ answer). Single-element ["github"] or ["gitlab"], or ["github","gitlab"] for dual-host. Issue and milestone sync reach only the chosen providers: per repo, one remote of each (the primary when it has that provider) is marked sync and every other remote is not, with a warning for a chosen provider a repo has no remote for. With repo: recorded on that repo only. Omitted or empty: each repo's git remotes are still recorded and its sync choice is left as it is. Ignored on local.`
           },
           issue_sync: {
             type: "string",
@@ -34469,7 +34577,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           },
           repo: {
             type: "string",
-            description: "Optional. Scope the write to a single repos row: only that row's target_branch/branching_model/protected_branches are updated; other repos rows, remotes, issue_sync, and the onboarded marker are NOT touched. Must match an existing repos.name. Omit for the workspace-wide apply, which never changes a populated row's branching_model/target_branch/protected_branches."
+            description: "Optional. Scope the write to a single repos row: only that row's target_branch/branching_model/protected_branches are updated, plus its Remote choice when remote is passed on shape=remote; other repos rows, issue_sync, and the onboarded marker are NOT touched. Must match an existing repos.name. Omit for the workspace-wide apply, which never changes a populated row's branching_model/target_branch/protected_branches."
           }
         }
       }
@@ -34707,6 +34815,11 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             questions.push(prTargetQuestion(currentPrTarget, currentBranching, isReonboard, advice.prTarget));
             questions.push(remoteQuestion(gh.installed, glab.installed, remoteAdvice(git2.origin_kind, scan)));
           }
+        } else if (round === "remote") {
+          if (shape !== "remote") {
+            throw new Error(`round='remote' only valid for shape='remote' (got '${String(shape)}')`);
+          }
+          questions.push(remoteQuestion(gh.installed, glab.installed, remoteAdvice(git2.origin_kind, scanWorkspace(db2))));
         } else if (round === "sync") {
           if (shape !== "remote") {
             throw new Error(`round='sync' only valid for shape='remote' (got '${String(shape)}')`);
@@ -34800,17 +34913,25 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             prTargetRepo = repoRow.target_branch ?? derivePrTargetDefault(branchingRepo);
           }
           const protectedRepo = deriveProtectedBranches(branchingRepo, prTargetRepo);
-          db2.run(
-            `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`,
-            [prTargetRepo, branchingRepo, JSON.stringify(protectedRepo), repo]
-          );
+          const remoteRepo = shape === "remote" ? parseRemoteAnswer(args["remote"]) : [];
+          let repoWarnings = [];
+          db2.transaction(() => {
+            db2.run(
+              `UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`,
+              [prTargetRepo, branchingRepo, JSON.stringify(protectedRepo), repo]
+            );
+            if (remoteRepo.length > 0) repoWarnings = applyRemoteChoice(db2, repo, remoteRepo);
+          });
+          const repoWarning = repoWarnings.length > 0 ? repoWarnings.join("; ") : void 0;
           return ok16({
             ok: true,
+            ...repoWarning ? { warning: repoWarning } : {},
             applied: {
               repo,
               branching_model: branchingRepo,
               pr_target: prTargetRepo,
-              protected_branches: protectedRepo
+              protected_branches: protectedRepo,
+              ...remoteRepo.length > 0 ? { remote: remoteRepo } : {}
             }
           });
         }
@@ -34839,27 +34960,10 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             pr_target = resolved ?? rawPrTarget;
           }
         }
-        let remotes = [];
         let issue_sync = "off";
-        let warning;
         let remoteList = [];
         if (shape === "remote") {
-          const rawRemote = args["remote"];
-          if (Array.isArray(rawRemote)) {
-            remoteList = rawRemote.filter((s) => typeof s === "string");
-          } else if (typeof rawRemote === "string") {
-            remoteList = [rawRemote];
-          }
-          remoteList = remoteList.map((r) => {
-            const resolved = resolveOption(r, REMOTE_OPTIONS);
-            if (resolved !== null) return resolved;
-            return r;
-          });
-          for (const r of remoteList) {
-            if (r !== "github" && r !== "gitlab") {
-              throw new Error(`remote entries must be 'github' or 'gitlab' (got '${r}')`);
-            }
-          }
+          remoteList = parseRemoteAnswer(args["remote"]);
           const rawSync = args["issue_sync"];
           if (rawSync !== void 0) {
             const resolved = resolveOption(rawSync, ISSUE_SYNC_OPTIONS);
@@ -34875,26 +34979,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             throw new Error(`issue_sync must be 'auto' or 'off' (got '${String(issue_sync)}')`);
           }
         }
-        const remotesForPath = (path2) => {
-          const detected = probeGit(path2).detected_remotes;
-          const findUrl = (p) => detected.find((r) => r.provider === p)?.url ?? "";
-          const wanted = remoteList.length > 0 ? remoteList : ["github", "gitlab"].filter((p) => findUrl(p).length > 0);
-          const out = [];
-          const wantedGh = wanted.includes("github");
-          const wantedGl = wanted.includes("gitlab");
-          if (wantedGh) out.push({ name: "origin", provider: "github", url: findUrl("github") });
-          if (wantedGl) {
-            out.push({ name: wantedGh ? "gitlab" : "origin", provider: "gitlab", url: findUrl("gitlab") });
-          }
-          return out;
-        };
-        if (shape === "remote") {
-          remotes = remotesForPath(probeDir());
-          const origin = remotes.find((r) => r.name === "origin");
-          if (origin && origin.url.length === 0) {
-            warning = `remote URL not detected for ${origin.provider}; issues will not sync \u2014 check the repo's git remote`;
-          }
-        }
+        const managedRemotes = shape === "remote" ? probeGit(probeDir()).detected_remotes : [];
         const headless = resolveHeadless(args["headless_enforcement"]);
         const headless_enforcement = headless.value;
         const rawSandbox = args["sandbox_enforcement"];
@@ -34917,7 +35002,8 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           }
           return { model: branching_model, target };
         };
-        let anyRemote = remotes.some((r) => r.url.length > 0);
+        let anyRemote = false;
+        const remoteWarnings = [];
         db2.transaction(() => {
           writeConfig(db2, "onboarded", true);
           writeConfig(db2, "issue_sync", issue_sync);
@@ -34929,9 +35015,12 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           for (const row of rows) {
             let repoPath = row.path;
             let inGit = false;
+            let detected = [];
             try {
               repoPath = repoRowPath(db2, row.path);
-              inGit = probeGit(repoPath).in_git;
+              const probe = probeGit(repoPath);
+              inGit = probe.in_git;
+              detected = probe.detected_remotes;
             } catch {
               inGit = false;
             }
@@ -34947,21 +35036,20 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
                 [seed.target, seed.model, JSON.stringify(deriveProtectedBranches(seed.model, seed.target)), row.name]
               );
             }
-            let effRemotes = shape === "remote" ? remotes : [];
-            if (shape === "remote" && inGit) {
-              try {
-                effRemotes = remotesForPath(repoPath);
-              } catch {
-                effRemotes = remotes;
-              }
-            }
-            if (effRemotes.some((r) => r.url.length > 0)) anyRemote = true;
+            const effRemotes = shape === "remote" ? inGit ? detected : managedRemotes : [];
+            if (effRemotes.length > 0) anyRemote = true;
             upsertRepoRemotes(db2, row.name, effRemotes);
+            if (remoteList.length > 0) remoteWarnings.push(...applyRemoteChoice(db2, row.name, remoteList));
           }
         });
-        if (shape === "remote" && !anyRemote && !warning) {
+        let warning;
+        if (shape === "remote" && !anyRemote) {
           warning = "no git remote detected on any repo; issues will not sync \u2014 check each repo's git remote";
+        } else if (remoteWarnings.length > 0) {
+          warning = remoteWarnings.join("; ");
         }
+        const representative = db2.get(`SELECT name FROM repos ORDER BY name LIMIT 1`);
+        const remotes = representative ? remotesView(syncRemotes(db2, representative.name)) : [];
         const managed = readRepoPolicy(db2);
         const appliedModel = managed.branching_model ?? branching_model ?? "github-flow";
         const appliedTarget = managed.pr_target ?? pr_target ?? derivePrTargetDefault(appliedModel);
@@ -34973,7 +35061,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           if (sandbox_enforcement === "yes") {
             const result2 = writeProjectSandbox({
               projectRoot: sandboxProjectRoot(),
-              remoteUrls: knownRemoteUrls(remotes.map((r) => r.url)),
+              remoteUrls: knownRemoteUrls(managedRemotes.map((r) => r.url)),
               toolCacheDir: join12(dirname8(dbPath2), "cache"),
               platform: shimEnv.platform ?? process.platform,
               previous: record2

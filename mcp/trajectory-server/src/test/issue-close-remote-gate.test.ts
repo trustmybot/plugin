@@ -5,7 +5,7 @@ import type { TrajectoryDB } from '../db.js';
 import { remoteSyncGate } from '../sync/backend.js';
 import { issueTools, syncIssueCloseRemotes } from '../tools/issues.js';
 import { compositeTools } from '../tools/composites.js';
-import { upsertRepoRemotes } from '../repos/remotes.js';
+import { setRemoteSync, upsertRepoRemotes } from '../repos/remotes.js';
 
 type RawResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
 type Handlers = Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
@@ -45,7 +45,11 @@ function setIssueSync(db: TrajectoryDB, value: string): void {
   db.run(`INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('issue_sync', ?)`, [JSON.stringify(value)]);
 }
 
-function registerRepo(db: TrajectoryDB, providers: Array<'github' | 'gitlab'> = ['github', 'gitlab']): void {
+function registerRepo(
+  db: TrajectoryDB,
+  providers: Array<'github' | 'gitlab'> = ['github', 'gitlab'],
+  synced: Array<'github' | 'gitlab'> = providers,
+): void {
   const remotes = providers.map((provider, i) => ({
     name: i === 0 ? 'origin' : provider,
     provider,
@@ -53,6 +57,7 @@ function registerRepo(db: TrajectoryDB, providers: Array<'github' | 'gitlab'> = 
   }));
   db.run(`INSERT INTO repos (name, path) VALUES ('app', '/tmp/app')`);
   upsertRepoRemotes(db, 'app', remotes);
+  setRemoteSync(db, 'app', synced);
 }
 
 function seedLinkedIssue(db: TrajectoryDB, links: { gh?: number; gl?: number } = { gh: 42 }): number {
@@ -283,6 +288,83 @@ describe('bro_atomic_close and task_recover consult the gate', () => {
     assert.equal((parse(r)['remote'] as Record<string, unknown>)['skipped'], 'env_disabled');
     assert.equal(spawned.length, 0);
     assert.equal(skipAudits(db)[0]!.content['reason'], 'env_disabled');
+    db.close();
+  });
+});
+
+describe('remote close follows the onboard Remote choice (GH 1590)', () => {
+  it('github chosen, gitlab not: only the gh twin closes, the gl twin is skipped not_synced', async () => {
+    const db = tempDB();
+    registerRepo(db, ['github', 'gitlab'], ['github']);
+    setIssueSync(db, 'auto');
+    const issueId = seedLinkedIssue(db, { gh: 42, gl: 7 });
+    const { spawned, _spawnFn } = makeSpawnFn();
+
+    const r = await call(issueTools(db, DB_PATH).handlers, 'issue_close', { agent: 'bro', issue_id: String(issueId), _spawnFn });
+    assert.ok(!r.isError, JSON.stringify(parse(r)));
+    assert.deepEqual(parse(r)['remote'], {
+      synced: true,
+      remotes: [
+        { remote_kind: 'github', remote_iid: 42, closed: true },
+        { remote_kind: 'gitlab', remote_iid: 7, closed: false, skipped: 'not_synced' },
+      ],
+    });
+    assert.deepEqual(remoteCloses(spawned), [
+      { cmd: 'gh', args: ['issue', 'close', '42', '--repo', 'github.com/owner/repo'] },
+    ]);
+    assert.deepEqual(spawned.filter((s) => s.cmd === 'glab').map((s) => s.args), [['auth', 'status']], 'only the auto availability probe');
+    db.close();
+  });
+
+  it('an issue linked only to the unchosen provider spawns nothing and is not synced', async () => {
+    const db = tempDB();
+    registerRepo(db, ['github', 'gitlab'], ['github']);
+    setIssueSync(db, 'both');
+    const issueId = seedLinkedIssue(db, { gl: 7 });
+    const { spawned, _spawnFn } = makeSpawnFn();
+
+    const out = await syncIssueCloseRemotes(db, DB_PATH, issueId, _spawnFn);
+    assert.deepEqual(out, {
+      synced: false,
+      remotes: [{ remote_kind: 'gitlab', remote_iid: 7, closed: false, skipped: 'not_synced' }],
+    });
+    assert.equal(remoteCloses(spawned).length, 0);
+    db.close();
+  });
+
+  it('bro_atomic_close closes only the chosen provider twin', async () => {
+    const db = tempDB();
+    registerRepo(db, ['github', 'gitlab'], ['github']);
+    setIssueSync(db, 'auto');
+    const issueId = seedLinkedIssue(db, { gh: 42, gl: 7 });
+    const taskId = seedClosableTask(db, issueId, 'completed');
+    const { spawned, _spawnFn } = makeSpawnFn();
+
+    const r = await call(compositeTools(db, DB_PATH).handlers, 'bro_atomic_close', {
+      agent: 'bro', task_id: String(taskId), commit_sha: 'abc1234', verification_summary: 'ok',
+      close_issue_if_last_task: true, waive_scope_gate: true, scope_waiver_reason: 'test fixture: scope not under test', _spawnFn,
+    });
+    assert.ok(!r.isError, JSON.stringify(parse(r)));
+    assert.equal(parse(r)['issue_closed'], true);
+    assert.equal((parse(r)['remote'] as Record<string, unknown>)['synced'], true);
+    assert.deepEqual(remoteCloses(spawned), [{ cmd: 'gh', args: ['issue', 'close', '42', '--repo', 'github.com/owner/repo'] }]);
+    db.close();
+  });
+
+  it('task_recover closes only the chosen provider twin', async () => {
+    const db = tempDB();
+    registerRepo(db, ['github', 'gitlab'], ['gitlab']);
+    setIssueSync(db, 'auto');
+    const issueId = seedLinkedIssue(db, { gh: 42, gl: 7 });
+    const taskId = seedClosableTask(db, issueId, 'pending');
+    const { spawned, _spawnFn } = makeSpawnFn();
+
+    const r = await call(compositeTools(db, DB_PATH).handlers, 'task_recover', {
+      agent: 'bro', task_id: String(taskId), commit_sha: 'abc1234', close_issue_if_last_task: true, _spawnFn,
+    });
+    assert.ok(!r.isError, JSON.stringify(parse(r)));
+    assert.equal((parse(r)['remote'] as Record<string, unknown>)['synced'], true);
+    assert.deepEqual(remoteCloses(spawned), [{ cmd: 'glab', args: ['issue', 'close', '7', '-R', 'gitlab.com/owner/repo'] }]);
     db.close();
   });
 });

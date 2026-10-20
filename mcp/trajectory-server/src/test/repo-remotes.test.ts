@@ -8,6 +8,8 @@ import {
   remoteProvider,
   remotesView,
   repoRemotes,
+  setRemoteSync,
+  syncRemotes,
   upsertRepoRemotes,
 } from '../repos/remotes.js';
 
@@ -63,8 +65,8 @@ describe('repo_remotes accessor — repoRemotes / primaryRemote / upsertRepoRemo
       { name: 'origin', url: 'ignored-duplicate' },
     ]);
     assert.deepEqual(repoRemotes(db, 'app'), [
-      { name: 'origin', provider: 'gitlab', url: 'git@gitlab.com:me/app.git', is_primary: true },
-      { name: 'upstream', provider: 'github', url: 'https://github.com/up/app.git', is_primary: false },
+      { name: 'origin', provider: 'gitlab', url: 'git@gitlab.com:me/app.git', is_primary: true, sync: true },
+      { name: 'upstream', provider: 'github', url: 'https://github.com/up/app.git', is_primary: false, sync: false },
     ]);
     assert.equal(primaryRemote(db, 'app')!.name, 'origin');
     const upstreamCreated = db.get<{ c: string }>(`SELECT created_at AS c FROM repo_remotes WHERE repo = 'app' AND name = 'upstream'`)!.c;
@@ -74,8 +76,8 @@ describe('repo_remotes accessor — repoRemotes / primaryRemote / upsertRepoRemo
       { name: 'bb', url: 'https://bitbucket.org/me/app.git', provider: 'bitbucket' },
     ]);
     assert.deepEqual(remotesView(repoRemotes(db, 'app')), [
-      { name: 'upstream', provider: 'github', url: 'https://github.com/up/app2.git' },
-      { name: 'bb', provider: 'other', url: 'https://bitbucket.org/me/app.git' },
+      { name: 'upstream', provider: 'github', url: 'https://github.com/up/app2.git', sync: false },
+      { name: 'bb', provider: 'other', url: 'https://bitbucket.org/me/app.git', sync: false },
     ]);
     assert.equal(
       db.get<{ c: string }>(`SELECT created_at AS c FROM repo_remotes WHERE repo = 'app' AND name = 'upstream'`)!.c,
@@ -96,6 +98,71 @@ describe('repo_remotes accessor — repoRemotes / primaryRemote / upsertRepoRemo
     upsertRepoRemotes(db, 'a', []);
     assert.deepEqual(repoRemotes(db, 'a'), []);
     assert.equal(primaryRemote(db, 'b')!.url, 'https://gitlab.com/x/b.git');
+    db.close();
+  });
+});
+
+describe('repo_remotes.sync — the onboard Remote choice (GH 1590)', () => {
+  const syncOf = (db: ReturnType<typeof tempDB>, repo = 'app'): Array<[string, boolean]> =>
+    repoRemotes(db, repo).map((r) => [r.name, r.sync]);
+
+  function appWith(remotes: Array<{ name: string; url: string }>): ReturnType<typeof tempDB> {
+    const db = tempDB();
+    db.run(`INSERT INTO repos (name, path) VALUES ('app', '/ws/app'), ('lib', '/ws/lib')`);
+    upsertRepoRemotes(db, 'app', remotes);
+    return db;
+  }
+
+  it('a new row starts at sync = is_primary; a re-upsert keeps every recorded sync', () => {
+    const db = appWith([
+      { name: 'origin', url: 'https://github.com/me/app.git' },
+      { name: 'mirror', url: 'git@gitlab.com:me/app.git' },
+    ]);
+    assert.deepEqual(syncOf(db), [['origin', true], ['mirror', false]]);
+
+    setRemoteSync(db, 'app', ['gitlab']);
+    upsertRepoRemotes(db, 'app', [
+      { name: 'origin', url: 'https://github.com/me/app2.git' },
+      { name: 'mirror', url: 'git@gitlab.com:me/app2.git' },
+      { name: 'fork', url: 'https://github.com/fork/app.git' },
+    ]);
+    assert.deepEqual(syncOf(db), [['origin', false], ['mirror', true], ['fork', false]]);
+    db.close();
+  });
+
+  it('syncRemotes returns only the sync rows, primary first', () => {
+    const db = appWith([
+      { name: 'mirror', url: 'git@gitlab.com:me/app.git' },
+      { name: 'origin', url: 'https://github.com/me/app.git' },
+    ]);
+    assert.deepEqual(syncRemotes(db, 'app').map((r) => r.name), ['origin']);
+    setRemoteSync(db, 'app', ['gitlab', 'github']);
+    assert.deepEqual(syncRemotes(db, 'app').map((r) => r.name), ['origin', 'mirror']);
+    assert.deepEqual(syncRemotes(db, 'lib'), []);
+    db.close();
+  });
+
+  it('setRemoteSync marks one row per chosen provider (the primary when it has it), clears the rest, and returns the missing providers', () => {
+    const db = appWith([
+      { name: 'origin', url: 'https://github.com/me/app.git' },
+      { name: 'upstream', url: 'https://github.com/up/app.git' },
+      { name: 'lab-a', url: 'git@gitlab.com:me/app.git' },
+      { name: 'lab-b', url: 'git@gitlab.com:other/app.git' },
+    ]);
+    upsertRepoRemotes(db, 'lib', [{ name: 'origin', url: 'https://github.com/me/lib.git' }]);
+
+    assert.deepEqual(setRemoteSync(db, 'app', ['github', 'gitlab']), []);
+    assert.deepEqual(syncOf(db), [['origin', true], ['upstream', false], ['lab-a', true], ['lab-b', false]]);
+
+    assert.deepEqual(setRemoteSync(db, 'app', ['gitlab']), []);
+    assert.deepEqual(syncOf(db), [['origin', false], ['upstream', false], ['lab-a', true], ['lab-b', false]]);
+
+    assert.deepEqual(setRemoteSync(db, 'lib', ['gitlab', 'github']), ['gitlab']);
+    assert.deepEqual(syncOf(db, 'lib'), [['origin', true]]);
+    assert.deepEqual(syncOf(db), [['origin', false], ['upstream', false], ['lab-a', true], ['lab-b', false]], 'another repo is untouched');
+
+    assert.deepEqual(setRemoteSync(db, 'app', []), []);
+    assert.deepEqual(syncRemotes(db, 'app'), []);
     db.close();
   });
 });

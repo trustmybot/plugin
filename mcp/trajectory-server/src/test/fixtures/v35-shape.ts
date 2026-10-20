@@ -19,7 +19,7 @@ export function assertV35Shape(db: TrajectoryDB): void {
 
   const cols = db.all<{ name: string; type: string; notnull: number; pk: number }>('PRAGMA table_info(repo_remotes)');
   assert.deepEqual(
-    cols.map((c) => [c.name, c.type, c.notnull, c.pk]),
+    cols.map((c) => [c.name, c.type, c.notnull, c.pk]).filter(([name]) => name !== 'sync'),
     [
       ['repo', 'TEXT', 1, 1],
       ['name', 'TEXT', 1, 2],

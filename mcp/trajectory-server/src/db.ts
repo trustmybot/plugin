@@ -16,7 +16,7 @@ import {
 import { AUDIT_EVENT_TYPES } from './audit-events.js';
 import { parseLegacyRemotes, primaryIndex, remoteProvider } from './repos/remotes.js';
 
-export const TARGET_SCHEMA_VERSION = 40;
+export const TARGET_SCHEMA_VERSION = 41;
 
 /**
  * Resolve the plugin name from CLAUDE_PLUGIN_ROOT's manifest.
@@ -624,6 +624,9 @@ function runMigrations(
   }
   if (fromVersion < 40 && toVersion >= 40) {
     migrateV39toV40(db);
+  }
+  if (fromVersion < 41 && toVersion >= 41) {
+    migrateV40toV41(db);
   }
 }
 
@@ -2418,6 +2421,25 @@ function migrateV38toV39(db: DatabaseSync): void {
 function migrateV39toV40(db: DatabaseSync): void {
   if (!tableExists(db, 'repos') || hasColumn(db, 'repos', 'onboard_scan')) return;
   db.exec('ALTER TABLE repos ADD COLUMN onboard_scan TEXT');
+}
+
+// v40→v41: repo_remotes.sync (GH 1590), the onboard Remote choice issue and
+// milestone sync follow. Each repo's primary remote starts as its only synced one.
+function migrateV40toV41(db: DatabaseSync): void {
+  if (!tableExists(db, 'repo_remotes') || hasColumn(db, 'repo_remotes', 'sync')) return;
+  db.exec('BEGIN');
+  try {
+    db.exec('ALTER TABLE repo_remotes ADD COLUMN sync INTEGER NOT NULL DEFAULT 0 CHECK (sync IN (0,1))');
+    db.exec('UPDATE repo_remotes SET sync = 1 WHERE is_primary = 1');
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Original error wins.
+    }
+    throw err;
+  }
 }
 
 // v22→v23: the repos-centric schema (#155). repos(name) becomes the FK hub.
