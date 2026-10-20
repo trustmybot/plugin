@@ -10,7 +10,7 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/askuserquestion-length-lint.sh"
 
 # Pin the project so the hook never resolves one by walking up from the cwd.
-PROJECT="$(mktemp -d "${TMPDIR:-/tmp}/tmb-askuserquestion-length-lint.XXXXXX")"
+PROJECT="$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-askuserquestion-length-lint.XXXXXX")"
 trap 'rm -rf "$PROJECT"' EXIT
 export CLAUDE_PROJECT_DIR="$PROJECT"
 

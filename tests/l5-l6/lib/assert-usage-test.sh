@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 PASS=0
 FAIL=0
-TMP=$(mktemp -d "${TMPDIR:-/tmp}/assert-usage-test-XXXXXX")
+TMP=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/assert-usage-test-XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
 assert_detect() {

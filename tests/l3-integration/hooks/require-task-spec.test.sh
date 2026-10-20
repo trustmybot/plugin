@@ -17,7 +17,7 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/require-task-spec.sh"
 . "$HERE/fixtures/wal-no-holder.sh"
 
 # Fixture: isolated TRAJECTORY_DB_PATH + a tasks table with known rows
-TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/tmb-require-task-spec.XXXXXX")
+TMPDIR=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-require-task-spec.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 PROJECT_DIR="$TMPDIR/project"
 mkdir -p "$PROJECT_DIR"

@@ -143,7 +143,7 @@ fi
 
 # ---------- clone the catalog into a temp dir ----------
 
-WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tmb-rc-catalog-XXXXXX")"
+WORK_DIR="$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-rc-catalog-XXXXXX")"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
 printf "Cloning %s ...\n" "$CATALOG_REPO"

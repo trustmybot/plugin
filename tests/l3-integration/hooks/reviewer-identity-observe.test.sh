@@ -22,7 +22,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/reviewer-identity-observe.sh"
 
-TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/tmb-reviewer-identity-observe.XXXXXX")
+TMPDIR=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-reviewer-identity-observe.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 cd "$TMPDIR"
 assert_not_in_plugin_repo "$PLUGIN_ROOT"

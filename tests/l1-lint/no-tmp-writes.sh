@@ -114,8 +114,8 @@ l1_loop_footprint() {
   mise_data="${MISE_DATA_DIR:-$real_home/.local/share/mise}"
   mise_config="${MISE_CONFIG_DIR:-$real_home/.config/mise}"
   model_cache="${TMB_MODEL_CACHE_DIR:-${HF_HOME:-$real_home/.cache/huggingface}}"
-  home=$(mktemp -d "${TMPDIR:-/tmp}/tmb-no-tmp-writes.XXXXXX")
-  tools=$(mktemp -d "${TMPDIR:-/tmp}/tmb-no-tmp-writes.XXXXXX")
+  home=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-no-tmp-writes.XXXXXX")
+  tools=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-no-tmp-writes.XXXXXX")
   for cli in gh glab claude; do
     printf '#!/usr/bin/env bash\necho "tmb test-stub: %s blocked" >&2\nexit 97\n' "$cli" > "$tools/$cli"
   done

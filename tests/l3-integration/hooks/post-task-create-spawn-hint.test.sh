@@ -19,7 +19,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/post-task-create-spawn-hint.sh"
 
-PROJECT="$(mktemp -d "${TMPDIR:-/tmp}/tmb-post-task-create-spawn-hint.XXXXXX")"
+PROJECT="$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-post-task-create-spawn-hint.XXXXXX")"
 trap 'rm -rf "$PROJECT"' EXIT
 mkdir -p "$PROJECT/.claude/tmb"
 REPO_PATH="$PROJECT/repos/plugin"
@@ -112,7 +112,7 @@ assert_not_contains "$out" "isolation='worktree'" "hint must not use isolation='
 # Case 4b: the DB named by TRAJECTORY_DB_PATH decides, not the cwd
 # ──────────────────────────────────────────────────────────────
 test_case "worktree path is absolute and comes from the resolved DB's repos row"
-FIXTURE_WS="$(mktemp -d "${TMPDIR:-/tmp}/tmb-post-task-create-spawn-hint.XXXXXX")"
+FIXTURE_WS="$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-post-task-create-spawn-hint.XXXXXX")"
 FIXTURE_DB_DIR="$FIXTURE_WS/.claude/tmb"
 mkdir -p "$FIXTURE_DB_DIR" "$FIXTURE_WS/checkout"
 seed_db "$FIXTURE_DB_DIR/trajectory.db" "$FIXTURE_WS/checkout"

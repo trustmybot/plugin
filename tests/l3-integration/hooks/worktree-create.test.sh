@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/worktree-create.sh"
 
-TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/tmb-worktree-create.XXXXXX")
+TMPDIR=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-worktree-create.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
 # --- fixture workspace -------------------------------------------------------

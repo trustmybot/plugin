@@ -33,8 +33,8 @@ if [ ! -x "$SERVER/node_modules/.bin/tsc" ] || [ ! -x "$SERVER/node_modules/.bin
   exit 2
 fi
 
-LOG="$(mktemp "${TMPDIR:-/tmp}/tmb-regen-XXXXXX")"
-UNTRACKED_BEFORE="$(mktemp "${TMPDIR:-/tmp}/tmb-regen-untracked-XXXXXX")"
+LOG="$(_t=${TMPDIR:-/tmp}; mktemp "${_t%/}/tmb-regen-XXXXXX")"
+UNTRACKED_BEFORE="$(_t=${TMPDIR:-/tmp}; mktemp "${_t%/}/tmb-regen-untracked-XXXXXX")"
 git ls-files --others --exclude-standard | LC_ALL=C sort > "$UNTRACKED_BEFORE"
 BASELINE="$(git stash create 2>/dev/null || true)"
 [ -n "$BASELINE" ] || BASELINE="$(git rev-parse HEAD)"

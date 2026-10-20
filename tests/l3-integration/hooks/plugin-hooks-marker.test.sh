@@ -9,7 +9,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/plugin-hooks-marker.sh"
 
-TMP=$(mktemp -d "${TMPDIR:-/tmp}/tmb-plugin-hooks-marker.XXXXXX")
+TMP=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-plugin-hooks-marker.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 unset CLAUDE_PLUGIN_ROOT TRAJECTORY_DB_PATH
 

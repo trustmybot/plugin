@@ -194,7 +194,7 @@ if gh release view "$NEW_TAG" >/dev/null 2>&1; then
   printf "  Step 4: GitHub release %s already exists — skipping.\n\n" "$NEW_TAG"
 else
   if confirm "Step 4: Create GitHub release $NEW_TAG with the CHANGELOG body?"; then
-    NOTES_FILE="$(mktemp "${TMPDIR:-/tmp}/tmb-release-notes.XXXXXX")"
+    NOTES_FILE="$(_t=${TMPDIR:-/tmp}; mktemp "${_t%/}/tmb-release-notes.XXXXXX")"
     trap 'rm -f "$NOTES_FILE"' EXIT
     awk -v target="^## ${NEW_TAG} " '
       $0 ~ target { active = 1; next }
@@ -232,7 +232,7 @@ if confirm "Step 5: Run L5 release canary (re-clone tag in Docker, run install-s
     printf "  ⊘ docker not available — skipping canary. Run manually before announcing the release:\n"
     printf "      bash tests/l0-install/run-install-smoke.sh\n"
   else
-    CANARY_DIR=$(mktemp -d "${TMPDIR:-/tmp}/tmb-canary-XXXXXX")
+    CANARY_DIR=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-canary-XXXXXX")
     trap 'rm -rf "$CANARY_DIR"' EXIT
     printf "  Cloning %s into %s ...\n" "$NEW_TAG" "$CANARY_DIR"
     if git clone --quiet --depth 1 --branch "$NEW_TAG" \

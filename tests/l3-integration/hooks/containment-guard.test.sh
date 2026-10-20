@@ -9,7 +9,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/containment-guard.sh"
 
-SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/tmb-containment-guard.XXXXXX")
+SANDBOX=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-containment-guard.XXXXXX")
 trap 'rm -rf "$SANDBOX"' EXIT
 cd "$SANDBOX" || exit 1
 

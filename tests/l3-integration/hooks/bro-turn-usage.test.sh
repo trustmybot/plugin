@@ -11,7 +11,7 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 
 HOOK="$PLUGIN_ROOT/scripts/hooks/bro-turn-usage.sh"
 
-TMPDIR_BTU=$(mktemp -d "${TMPDIR:-/tmp}/tmb-bro-turn-usage.XXXXXX")
+TMPDIR_BTU=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-bro-turn-usage.XXXXXX")
 trap 'rm -rf "$TMPDIR_BTU"' EXIT
 DB="$TMPDIR_BTU/trajectory.db"
 TRANSCRIPT="$TMPDIR_BTU/transcript.jsonl"

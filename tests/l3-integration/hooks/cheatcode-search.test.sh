@@ -10,7 +10,7 @@ SCRIPT="$PLUGIN_ROOT/scripts/cheatcode-search.sh"
 
 command -v jq >/dev/null 2>&1 || { printf "FAIL jq not found — required dependency for this security-gate test\n"; exit 1; }
 
-WORKSPACE=$(mktemp -d "${TMPDIR:-/tmp}/tmb-cheatcode-search.XXXXXX")
+WORKSPACE=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-cheatcode-search.XXXXXX")
 trap 'rm -rf "$WORKSPACE"' EXIT
 export TMB_PROJECT_ROOT="$WORKSPACE"
 

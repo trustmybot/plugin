@@ -67,7 +67,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_ROOT"
 
-TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tmb-bump-version.XXXXXX")"
+TMP_DIR="$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-bump-version.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 # ---- CHANGELOG assembly ------------------------------------------------------

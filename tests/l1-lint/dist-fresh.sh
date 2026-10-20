@@ -16,7 +16,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT/mcp/trajectory-server"
 
-TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/tmb-dist-fresh-XXXXXX")
+TMPDIR=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-dist-fresh-XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
 # Build into a temp outDir (without touching the committed dist/).

@@ -11,7 +11,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../../lib/tmpdir-cleanup.sh"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 
-TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/tmb-merge-driver.XXXXXX")
+TMPDIR=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-merge-driver.XXXXXX")
 trap 'tmpdir_cleanup "$TMPDIR"' EXIT
 export GIT_OPTIONAL_LOCKS=0
 

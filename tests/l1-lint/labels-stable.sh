@@ -31,8 +31,8 @@ if ! gh api user --jq '.login' >/dev/null 2>&1; then
 fi
 
 # Pull canonical names from the doc.
-CANONICAL_FILE=$(mktemp "${TMPDIR:-/tmp}/tmb-labels-stable.XXXXXX")
-LIVE_FILE=$(mktemp "${TMPDIR:-/tmp}/tmb-labels-stable.XXXXXX")
+CANONICAL_FILE=$(_t=${TMPDIR:-/tmp}; mktemp "${_t%/}/tmb-labels-stable.XXXXXX")
+LIVE_FILE=$(_t=${TMPDIR:-/tmp}; mktemp "${_t%/}/tmb-labels-stable.XXXXXX")
 trap 'rm -f "$CANONICAL_FILE" "$LIVE_FILE"' EXIT
 # Match label rows from any canonical-list table — heading-agnostic so the
 # parser keeps working as the doc evolves. A label row is `| **Name** | ...`

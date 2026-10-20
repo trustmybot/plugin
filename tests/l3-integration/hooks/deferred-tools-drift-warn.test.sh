@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/deferred-tools-drift-warn.sh"
 
-TMPDIR_BASE=$(mktemp -d "${TMPDIR:-/tmp}/tmb-deferred-tools-drift-warn.XXXXXX")
+TMPDIR_BASE=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-deferred-tools-drift-warn.XXXXXX")
 PIDS_TO_KILL=()
 cleanup() {
   for p in "${PIDS_TO_KILL[@]:-}"; do

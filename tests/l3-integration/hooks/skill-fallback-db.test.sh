@@ -16,7 +16,7 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 READONLY="$PLUGIN_ROOT/skills/tmb_recovery/scripts/bro-sqlite-readonly.sh"
 VALIDATION="$PLUGIN_ROOT/skills/tmb_review/scripts/validation-record-fallback.sh"
 
-TMP=$(mktemp -d "${TMPDIR:-/tmp}/tmb-skill-fallback-db.XXXXXX")
+TMP=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-skill-fallback-db.XXXXXX")
 trap 'tmpdir_cleanup "$TMP"' EXIT
 
 seed_db() {

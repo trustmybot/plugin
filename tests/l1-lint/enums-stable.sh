@@ -125,7 +125,7 @@ check_tree() {
 # every overlay must fail naming its value.
 self_test() {
   local tmp ok=0 name want
-  tmp=$(mktemp -d "${TMPDIR:-/tmp}/tmb-enums-stable-XXXXXX")
+  tmp=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-enums-stable-XXXXXX")
   # shellcheck disable=SC2064
   trap "rm -rf '$tmp'" RETURN
   for name in base undocumented unused; do

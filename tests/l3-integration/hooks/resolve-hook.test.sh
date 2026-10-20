@@ -14,7 +14,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 RESOLVER="$PLUGIN_ROOT/scripts/lib/resolve-hook.sh"
 
-TMP=$(mktemp -d "${TMPDIR:-/tmp}/tmb-resolve-hook.XXXXXX")
+TMP=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-resolve-hook.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 # Without CLAUDE_PROJECT_DIR the trajectory DB is found by walking up from cwd;
 # start outside any checkout so no real project state is resolved.
