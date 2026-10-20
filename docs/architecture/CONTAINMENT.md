@@ -32,8 +32,9 @@ Paths are relative to the project root; `<state>` is `.claude/<plugin>/` (Claude
 | `<state>/locks/events/<key>/` | `scripts/hooks/dispatch.sh` | One gate execution per event: the holder's `result`, `stderr` and `rc`; pruned after 10 min |
 | `<state>/locks/scope-notes/<task>/<cksum>/` | `swe-scope-fence.sh`, `swe-boundary.sh` | Empty marker: the swe was told this path is outside its task's `files[]`, so the note shows once per path per task. Scope itself is judged at close by `bro_atomic_close` |
 | `<state>/locks/verify-<task>-<sha>/` | `swe-verification-gate.sh` | One verification run per (task, worktree HEAD) at a time; the run itself is recorded in the trajectory DB (`verification_runs`) |
-| `.claude/settings.local.json` (PreToolUse entries only) | `/onboard`, on Yes to headless enforcement | The opt-in headless shim, each entry stamped `_tmb_managed` + `_tmb_project` |
-| `<state>/resolve-hook.sh` | `/onboard`, on Yes to headless enforcement | The resolver the shim entries call |
+| `.claude/settings.local.json` (PreToolUse entries only) | `onboard_apply`, on Yes to the headless-enforcement consent (asked on request, not by `/onboard`) | The opt-in headless shim, each entry stamped `_tmb_managed` + `_tmb_project` |
+| `<state>/resolve-hook.sh` | `onboard_apply`, on Yes to the headless-enforcement consent | The resolver the shim entries call |
+| `.gitignore` (one `.claude/settings.local.json` line) | `ensureLocalSettingsIgnored` (`onboard-sandbox.ts`), when the sandbox or shim writer creates `settings.local.json` in a git work tree that does not ignore it | Keeps the local settings file out of commits |
 
 A user project's `CLAUDE.md` is never written: no hook, no agent and no tool writes, edits or removes anything in it. bro's persona reaches a session as injected context, from `session-start-persona.sh` (SessionStart) and, for a session with no persona marker, once from `user-prompt-persona.sh` (UserPromptSubmit); both read the plugin's `CLAUDE.md` and write only the session marker. `onboard_apply` takes no `persona` argument.
 

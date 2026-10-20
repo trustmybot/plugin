@@ -12,14 +12,15 @@
 #   concerns-protocol — doubt-class / weaken-gate phrases
 #   push-intent      — push/ship phrases (DB query on match)
 #   reonboard-intent — remote-setup / host-on phrases (DB query on match)
+#   headless-intent  — claude -p / headless / CI-run phrases (DB query on match)
 #   resume-intent    — keep-going / pick-up / continue phrases (DB query on match)
 #   adr-required     — architectural intent (phrases + word-proximity checks)
 #   audit-intent     — audit / verify / check / double-check / architecture as whole words
 #
 # Bypass env vars forwarded: TMB_DISABLE_CHEATCODE_INSTALL_HINT,
 # TMB_DISABLE_CONSULTANT_HINT, TMB_DISABLE_SEARCH_HINT, TMB_DISABLE_CONCERNS_HINT,
-# TMB_DISABLE_PUSH_INTENT_HINT, TMB_DISABLE_REONBOARD_HINT, TMB_DISABLE_RESUME_HINT,
-# TMB_DISABLE_ADR_HINT, TMB_DISABLE_AUDIT_HINT.
+# TMB_DISABLE_PUSH_INTENT_HINT, TMB_DISABLE_REONBOARD_HINT, TMB_DISABLE_HEADLESS_HINT,
+# TMB_DISABLE_RESUME_HINT, TMB_DISABLE_ADR_HINT, TMB_DISABLE_AUDIT_HINT.
 #
 # Silent on failure; advisory hooks never exit non-zero.
 
@@ -419,6 +420,59 @@ Policy/config mutations stay Human-gated. Route the Human to \`/onboard\` — do
 REQUIRED FIRST ACTION — before any reply or git command: call \`onboard_state_get(agent='bro')\`. Your recommendation must cite the current config it returns (branching_model, pr_target, remotes); a reonboard answer composed without reading state is a workflow violation.
 
 Then reply pointing the Human to \`/onboard\`. Do NOT spawn code work (no \`task_create_batch\`, no \`issue_create\`, no \`Agent\` for SWE) and do NOT wire remotes with raw git."
+            emit_context "$CTX"
+          fi
+        fi
+      fi
+      ;;
+  esac
+fi
+
+# ---------------------------------------------------------------------------
+# 5b. headless-intent — claude -p / headless / CI-run phrases; DB query on match
+# ---------------------------------------------------------------------------
+# The number of PreToolUse entries the headless shim writes, from the shim's
+# own countShimEntries; empty when node or the built server is missing.
+headless_shim_entries() {
+  local root="${CLAUDE_PLUGIN_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+  local mod="$root/mcp/trajectory-server/dist/tools/onboard-hooks-shim.js"
+  command -v node >/dev/null 2>&1 || return 0
+  [ -f "$mod" ] || return 0
+  node --input-type=module -e 'const [mod, root] = process.argv.slice(1); const { countShimEntries } = await import(mod); process.stdout.write(String(countShimEntries(root)));' "$mod" "$root" 2>/dev/null || true
+}
+
+if [ "${TMB_DISABLE_HEADLESS_HINT:-0}" != "1" ]; then
+  case "$LOWER" in
+    */onboard*) : ;;
+    *)
+      matched=""
+      for pat in \
+        'claude -p' 'claude --print' 'headless' 'non-interactive' 'noninteractive' \
+        'in ci' 'ci run' 'ci pipeline' 'github actions' 'gitlab ci'; do
+        re="(^|[^a-z0-9_])${pat}([^a-z0-9_]|\$)"
+        if [[ "$LOWER" =~ $re ]]; then
+          matched="$pat"
+          break
+        fi
+      done
+
+      if [ -n "$matched" ]; then
+        DB=$(tmb_db_path 2>/dev/null || true)
+        if [ -n "$DB" ] && command -v sqlite3 >/dev/null 2>&1; then
+          WANTED=$(sqlite3 "$DB" "SELECT 1 WHERE EXISTS (SELECT 1 FROM plugin_config WHERE key='onboarded' AND value_json='true') AND NOT EXISTS (SELECT 1 FROM plugin_config WHERE key='headless_enforcement' AND value_json='\"yes\"');" 2>/dev/null || true)
+          if [ "$WANTED" = "1" ]; then
+            PROJECT=$(tmb_project_root)
+            SETTINGS="${PROJECT:-<project>}/.claude/settings.local.json"
+            ENTRIES=$(headless_shim_entries)
+            WHAT="TMB's PreToolUse gate entries"
+            [ -n "$ENTRIES" ] && WHAT="${ENTRIES} PreToolUse gate entries"
+            CTX="🤖 headless-intent hint: the user's prompt contains '${matched}'. Plugin hooks do not fire in non-interactive \`claude -p\` runs, and headless enforcement is off for this project.
+
+Ask ONE \`AskUserQuestion\` consent before anything else: may TMB write ${WHAT} into \`${SETTINGS}\` so its gates also run in \`claude -p\`? Name that file and the entry count in the question; if TMB creates the file in a git work tree, it is added to \`.gitignore\`.
+- Yes → call \`onboard_apply(agent='bro', headless_enforcement='yes')\` and report \`applied.headless_shim\`.
+- No → write nothing and carry on with the request.
+
+Never call \`onboard_apply\` for this without the Human's answer."
             emit_context "$CTX"
           fi
         fi

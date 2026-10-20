@@ -90,7 +90,7 @@ All under the project, beside the trajectory DB (`<project>/.claude/tmb/logs/`);
 | `user-prompt-persona.sh` | UserPromptSubmit | Inject bro's persona once in a session with no persona marker (plugin installed mid-session, then `/reload-plugins`) and mark it; a one-time notice to start a new session when the plugin's `CLAUDE.md` cannot be read |
 | `activation-routine.sh` | UserPromptSubmit | Pre-fetch onboarded marker + pending issue for bro banner; HALT + recovery pointer when the MCP server is not running |
 | `session-log-capture.sh` | UserPromptSubmit | Track current cc.log for diagnostics |
-| `prompt-intent-hints.sh` | UserPromptSubmit | Route intent phrases (concerns / push / resume / reonboard / ADR / consultant / search-grounding) to the right guidance |
+| `prompt-intent-hints.sh` | UserPromptSubmit | Route intent phrases (concerns / push / resume / reonboard / headless / ADR / consultant / search-grounding) to the right guidance; `headless-intent` asks one consent before enabling headless enforcement |
 | `roundtable-slash-detect.sh` | UserPromptSubmit | Detect `/roundtable` invocation for server gate |
 | `git-guards.sh` | PreToolUse Bash | Catches reset --hard / clean -fd / force-pushes to main |
 | `git-push-guard.sh` | PreToolUse Bash | SWE can't push; push requires passing validation_attempts |

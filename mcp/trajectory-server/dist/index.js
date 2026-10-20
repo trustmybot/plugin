@@ -33331,245 +33331,64 @@ function compositeTools(db2, dbPath2, graphHolder2 = null, runContext = claudeRu
 }
 
 // src/tools/onboard.ts
-import { spawnSync as spawnSync8 } from "node:child_process";
+import { spawnSync as spawnSync9 } from "node:child_process";
 import { existsSync as existsSync8, lstatSync as lstatSync4, mkdirSync as mkdirSync6, realpathSync as realpathSync4, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
 import { basename as basename4, dirname as dirname8, isAbsolute as isAbsolute4, join as join12 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/tools/onboard-hooks-shim.ts
-import { readFileSync as readFileSync4, writeFileSync as writeFileSync2, mkdirSync as mkdirSync4, existsSync as existsSync5, chmodSync, rmSync } from "node:fs";
-import { dirname as dirname6, join as join9 } from "node:path";
-var RESOLVER_NAME = "resolve-hook.sh";
-var CANONICAL_RESOLVER_REL = ["scripts", "lib", RESOLVER_NAME];
-var SETTINGS_REL = [".claude", "settings.local.json"];
-var ADVISORY_HOOK_DENYLIST = /* @__PURE__ */ new Set([
-  "swe-brief-gate",
-  "naming-lint",
-  "code-quality-lint",
-  "commit-msg-lint",
-  "askuserquestion-length-lint",
-  "branch-up-to-date-with-remote",
-  "debug-trajectory"
-]);
-function gateName(command) {
-  const dispatched = command.match(/\/dispatch\.sh"?\s+([a-z0-9-]+)\s*$/);
-  if (dispatched?.[1]) return dispatched[1];
-  const parts = command.trim().split("/");
-  return (parts[parts.length - 1] ?? command).replace(/\.sh$/, "");
-}
-function shellWord(value) {
-  if (/^[A-Za-z0-9_./:@%+=-]+$/.test(value)) return value;
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-function installedMarketplace(pluginRoot) {
-  const m = pluginRoot.match(/\/plugins\/cache\/([^/]+)\/[^/]+\/[^/]+\/?$/);
-  return m?.[1] ?? null;
-}
-function pluginNameOf(pluginRoot) {
-  try {
-    const parsed = JSON.parse(readFileSync4(join9(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
-    if (typeof parsed.name === "string" && /^[A-Za-z0-9_.-]+$/.test(parsed.name)) return parsed.name;
-  } catch {
-  }
-  return "tmb";
-}
-function readPreToolUseFromHooksJson(pluginRoot) {
-  const hooksJsonPath = join9(pluginRoot, "hooks", "hooks.json");
-  if (!existsSync5(hooksJsonPath)) return null;
-  let parsed;
-  try {
-    parsed = JSON.parse(readFileSync4(hooksJsonPath, "utf8"));
-  } catch {
-    return null;
-  }
-  const pre = parsed.hooks?.PreToolUse;
-  if (!Array.isArray(pre)) return null;
-  return pre;
-}
-function keptHooks(group) {
-  return (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(gateName(h.command)));
-}
-function buildTmbGroups(pre, resolverPath, marketplace, projectRoot) {
-  const groups = [];
-  for (const group of pre) {
-    const hooks = keptHooks(group).map((h) => ({
-      type: h.type,
-      command: `bash ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${gateName(h.command)} --shim --project ${shellWord(projectRoot)}`,
-      ...h.timeout !== void 0 ? { timeout: h.timeout } : {},
-      _tmb_managed: true,
-      _tmb_project: projectRoot
-    }));
-    if (hooks.length === 0) continue;
-    groups.push({
-      ...group.matcher !== void 0 ? { matcher: group.matcher } : {},
-      hooks
-    });
-  }
-  return groups;
-}
-function countShimEntries(pluginRoot) {
-  if (!pluginRoot) return 0;
-  const pre = readPreToolUseFromHooksJson(pluginRoot);
-  if (!pre) return 0;
-  return pre.reduce((n, g) => n + keptHooks(g).length, 0);
-}
-function resolverPathFor(projectRoot, pluginName2) {
-  return join9(projectRoot, ".claude", pluginName2, RESOLVER_NAME);
-}
-function materializeResolver(pluginRoot, resolverPath) {
-  const canonical = join9(pluginRoot, ...CANONICAL_RESOLVER_REL);
-  if (!existsSync5(canonical)) return null;
-  mkdirSync4(dirname6(resolverPath), { recursive: true });
-  writeFileSync2(resolverPath, readFileSync4(canonical, "utf8"));
-  chmodSync(resolverPath, 493);
-  return resolverPath;
-}
-function isTmbEntry(h) {
-  if (h._tmb_managed === true) return true;
-  const command = h.command ?? "";
-  return command.includes(`/${RESOLVER_NAME} --marketplace `);
-}
-function purgeTmbEntries(pre) {
-  const kept = [];
-  let removed = 0;
-  for (const group of pre) {
-    const hooks = (group.hooks ?? []).filter((h) => !isTmbEntry(h));
-    removed += (group.hooks ?? []).length - hooks.length;
-    if (hooks.length === 0) continue;
-    kept.push({ ...group, hooks });
-  }
-  return { kept, removed };
-}
-function installedPluginGuard(pluginRoot) {
-  if (!pluginRoot) return { reason: "plugin root unresolvable" };
-  const marketplace = installedMarketplace(pluginRoot);
-  if (!marketplace) return { reason: "plugin-root-not-installed" };
-  const pre = readPreToolUseFromHooksJson(pluginRoot);
-  if (!pre) return { reason: "hooks/hooks.json missing or has no PreToolUse" };
-  return { root: pluginRoot, pre, marketplace, pluginName: pluginNameOf(pluginRoot) };
-}
-function settingsFile(projectRoot) {
-  return join9(projectRoot, ...SETTINGS_REL);
-}
-function readSettings(path2) {
-  if (!existsSync5(path2)) return { settings: {}, exists: false };
-  try {
-    const raw = readFileSync4(path2, "utf8").trim();
-    return { settings: raw.length > 0 ? JSON.parse(raw) : {}, exists: true };
-  } catch {
-    return { reason: "existing settings.local.json is not valid JSON" };
-  }
-}
-function preToolUseOf(settings) {
-  const hooks = settings.hooks && typeof settings.hooks === "object" ? settings.hooks : {};
-  const pre = Array.isArray(hooks.PreToolUse) ? hooks.PreToolUse : [];
-  return { hooks, pre };
-}
-function writeSettings(path2, settings) {
-  try {
-    mkdirSync4(dirname6(path2), { recursive: true });
-    writeFileSync2(path2, JSON.stringify(settings, null, 2) + "\n");
-    return null;
-  } catch (e) {
-    return `settings.local.json write failed: ${e.message}`;
-  }
-}
-function skip(event, reason, result2) {
-  serverLog({ event, reason });
-  return result2;
-}
-function writeProjectEnforcementShim(opts) {
-  const { pluginRoot, projectRoot } = opts;
-  if (opts.headlessEnforcement !== "yes") {
-    const reason = "headless_enforcement_off";
-    return skip("onboard_hooks_shim_skip", reason, { written: false, reason });
-  }
-  const guard = installedPluginGuard(pluginRoot);
-  if ("reason" in guard) {
-    return skip("onboard_hooks_shim_skip", guard.reason, { written: false, reason: guard.reason });
-  }
-  const path2 = settingsFile(projectRoot);
-  const read = readSettings(path2);
-  if ("reason" in read) {
-    return skip("onboard_hooks_shim_skip", read.reason, { written: false, reason: read.reason });
-  }
-  const resolverPath = materializeResolver(guard.root, resolverPathFor(projectRoot, guard.pluginName));
-  if (!resolverPath) {
-    const reason = "canonical resolver script missing";
-    return skip("onboard_hooks_shim_skip", reason, { written: false, reason });
-  }
-  const tmbGroups = buildTmbGroups(guard.pre, resolverPath, guard.marketplace, projectRoot);
-  const { hooks, pre } = preToolUseOf(read.settings);
-  hooks.PreToolUse = [...purgeTmbEntries(pre).kept, ...tmbGroups];
-  read.settings.hooks = hooks;
-  const failure2 = writeSettings(path2, read.settings);
-  if (failure2) return skip("onboard_hooks_shim_skip", failure2, { written: false, reason: failure2 });
-  const entries = tmbGroups.reduce((n, g) => n + g.hooks.length, 0);
-  serverLog({ event: "onboard_hooks_shim_written", settingsPath: path2, groups: tmbGroups.length, entries });
-  return { written: true, entries, settings_path: path2 };
-}
-function removeProjectEnforcementShim(opts) {
-  const { pluginRoot, projectRoot } = opts;
-  const path2 = settingsFile(projectRoot);
-  const read = readSettings(path2);
-  if ("reason" in read) {
-    return skip("onboard_hooks_shim_remove_skip", read.reason, { removed: 0, resolver_removed: false, reason: read.reason });
-  }
-  let removed = 0;
-  if (read.exists) {
-    const { hooks, pre } = preToolUseOf(read.settings);
-    const purge = purgeTmbEntries(pre);
-    removed = purge.removed;
-    if (removed > 0) {
-      if (purge.kept.length > 0) hooks.PreToolUse = purge.kept;
-      else delete hooks.PreToolUse;
-      if (Object.keys(hooks).length > 0) read.settings.hooks = hooks;
-      else delete read.settings.hooks;
-      const failure2 = writeSettings(path2, read.settings);
-      if (failure2) {
-        return skip("onboard_hooks_shim_remove_skip", failure2, { removed: 0, resolver_removed: false, reason: failure2 });
-      }
-    }
-  }
-  const resolverPath = resolverPathFor(projectRoot, pluginRoot ? pluginNameOf(pluginRoot) : "tmb");
-  let resolver_removed = false;
-  if (existsSync5(resolverPath)) {
-    rmSync(resolverPath, { force: true });
-    resolver_removed = true;
-  }
-  if (removed > 0 || resolver_removed) {
-    serverLog({ event: "onboard_hooks_shim_removed", settingsPath: path2, removed, resolver_removed });
-  }
-  return { removed, resolver_removed };
-}
+import { readFileSync as readFileSync5, writeFileSync as writeFileSync3, mkdirSync as mkdirSync5, existsSync as existsSync6, chmodSync, rmSync } from "node:fs";
+import { dirname as dirname7, join as join10 } from "node:path";
 
 // src/tools/onboard-sandbox.ts
-import { existsSync as existsSync6, mkdirSync as mkdirSync5, readFileSync as readFileSync5, statSync as statSync2, writeFileSync as writeFileSync3 } from "node:fs";
-import { dirname as dirname7, join as join10 } from "node:path";
+import { spawnSync as spawnSync7 } from "node:child_process";
+import { appendFileSync as appendFileSync3, existsSync as existsSync5, mkdirSync as mkdirSync4, readFileSync as readFileSync4, statSync as statSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import { dirname as dirname6, join as join9 } from "node:path";
 function settingsPath(projectRoot) {
-  return join10(projectRoot, ".claude", "settings.local.json");
+  return join9(projectRoot, ".claude", "settings.local.json");
 }
 function isObject2(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
-function readSettings2(path2) {
-  if (!existsSync6(path2)) return { settings: {} };
+function readSettings(path2) {
+  if (!existsSync5(path2)) return { settings: {} };
   try {
-    const raw = readFileSync5(path2, "utf8").trim();
+    const raw = readFileSync4(path2, "utf8").trim();
     const parsed = raw.length > 0 ? JSON.parse(raw) : {};
     return isObject2(parsed) ? { settings: parsed } : { reason: "existing settings.local.json is not a JSON object" };
   } catch {
     return { reason: "existing settings.local.json is not valid JSON" };
   }
 }
-function writeSettings2(path2, settings) {
+var LOCAL_SETTINGS_REL = ".claude/settings.local.json";
+function ensureLocalSettingsIgnored(projectRoot) {
+  const opts = { encoding: "utf8", timeout: 3e3 };
+  const inTree = spawnSync7("git", ["-C", projectRoot, "rev-parse", "--is-inside-work-tree"], opts);
+  if (inTree.status !== 0 || (inTree.stdout ?? "").trim() !== "true") return { appended: false };
+  const ignored = spawnSync7("git", ["-C", projectRoot, "check-ignore", "-q", LOCAL_SETTINGS_REL], opts);
+  if (ignored.status !== 1) return { appended: false };
+  const gitignore = join9(projectRoot, ".gitignore");
   try {
-    mkdirSync5(dirname7(path2), { recursive: true });
-    writeFileSync3(path2, JSON.stringify(settings, null, 2) + "\n");
-    return null;
+    const current = existsSync5(gitignore) ? readFileSync4(gitignore, "utf8") : "";
+    const lead = current.length > 0 && !current.endsWith("\n") ? "\n" : "";
+    appendFileSync3(gitignore, `${lead}${LOCAL_SETTINGS_REL}
+`);
   } catch (e) {
-    return `settings.local.json write failed: ${e.message}`;
+    serverLog({ event: "onboard_gitignore_skip", reason: e.message });
+    return { appended: false };
   }
+  serverLog({ event: "onboard_gitignore_appended", gitignore });
+  return { appended: true };
+}
+function writeSettings(path2, settings) {
+  const created = !existsSync5(path2);
+  try {
+    mkdirSync4(dirname6(path2), { recursive: true });
+    writeFileSync2(path2, JSON.stringify(settings, null, 2) + "\n");
+  } catch (e) {
+    return { failure: `settings.local.json write failed: ${e.message}` };
+  }
+  return { gitignore_appended: created && ensureLocalSettingsIgnored(dirname6(dirname6(path2))).appended };
 }
 function projectUsable(projectRoot) {
   if (!projectRoot) return false;
@@ -33610,10 +33429,10 @@ function sandboxRecommended(remoteUrls, platform = process.platform, probe = SAN
   return platform === probe.platform && probe.failed.length === 0 && !remoteUrls.some(isSshRemote);
 }
 function sandboxToolCacheDir(projectRoot) {
-  return join10(projectRoot, ".claude", resolveClaudePluginName(), "cache");
+  return join9(projectRoot, ".claude", resolveClaudePluginName(), "cache");
 }
 function sandboxToolEnv(toolCacheDir) {
-  return { npm_config_cache: join10(toolCacheDir, "npm"), BUN_INSTALL_CACHE_DIR: join10(toolCacheDir, "bun") };
+  return { npm_config_cache: join9(toolCacheDir, "npm"), BUN_INSTALL_CACHE_DIR: join9(toolCacheDir, "bun") };
 }
 function stringList(v) {
   return Array.isArray(v) ? v.filter((p) => typeof p === "string") : [];
@@ -33626,7 +33445,7 @@ function writeProjectSandbox(opts) {
     return { written: false, reason: "no project directory" };
   }
   const path2 = settingsPath(opts.projectRoot);
-  const read = readSettings2(path2);
+  const read = readSettings(path2);
   if ("reason" in read) {
     serverLog({ event: "onboard_sandbox_skip", reason: read.reason });
     return { written: false, reason: read.reason };
@@ -33676,10 +33495,10 @@ function writeProjectSandbox(opts) {
   sandbox["network"] = network;
   settings["sandbox"] = sandbox;
   settings["env"] = env;
-  const failure2 = writeSettings2(path2, settings);
-  if (failure2) {
-    serverLog({ event: "onboard_sandbox_skip", reason: failure2 });
-    return { written: false, reason: failure2 };
+  const write = writeSettings(path2, settings);
+  if ("failure" in write) {
+    serverLog({ event: "onboard_sandbox_skip", reason: write.failure });
+    return { written: false, reason: write.failure };
   }
   const record2 = {
     enabled_set: enabledSet,
@@ -33696,14 +33515,15 @@ function writeProjectSandbox(opts) {
     allowed_domains: wantedDomains,
     env: wantedEnv,
     weaker_network_isolation: sandbox["enableWeakerNetworkIsolation"] === true,
-    record: record2
+    record: record2,
+    gitignore_appended: write.gitignore_appended
   };
 }
 function removeProjectSandbox(opts) {
   if (!projectUsable(opts.projectRoot)) return { removed: false, reason: "no project directory" };
   const path2 = settingsPath(opts.projectRoot);
-  if (!existsSync6(path2) || opts.record === null) return { removed: false, settings_path: path2 };
-  const read = readSettings2(path2);
+  if (!existsSync5(path2) || opts.record === null) return { removed: false, settings_path: path2 };
+  const read = readSettings(path2);
   if ("reason" in read) return { removed: false, reason: read.reason };
   const settings = read.settings;
   if (!isObject2(settings["sandbox"])) return { removed: false, settings_path: path2 };
@@ -33738,14 +33558,215 @@ function removeProjectSandbox(opts) {
     }
     if (Object.keys(env).length === 0) delete settings["env"];
   }
-  const failure2 = writeSettings2(path2, settings);
-  if (failure2) return { removed: false, reason: failure2 };
+  const write = writeSettings(path2, settings);
+  if ("failure" in write) return { removed: false, reason: write.failure };
   serverLog({ event: "onboard_sandbox_removed", settingsPath: path2 });
   return { removed: true, settings_path: path2 };
 }
 
+// src/tools/onboard-hooks-shim.ts
+var RESOLVER_NAME = "resolve-hook.sh";
+var CANONICAL_RESOLVER_REL = ["scripts", "lib", RESOLVER_NAME];
+var SETTINGS_REL = [".claude", "settings.local.json"];
+var ADVISORY_HOOK_DENYLIST = /* @__PURE__ */ new Set([
+  "swe-brief-gate",
+  "naming-lint",
+  "code-quality-lint",
+  "commit-msg-lint",
+  "askuserquestion-length-lint",
+  "branch-up-to-date-with-remote",
+  "debug-trajectory"
+]);
+function gateName(command) {
+  const dispatched = command.match(/\/dispatch\.sh"?\s+([a-z0-9-]+)\s*$/);
+  if (dispatched?.[1]) return dispatched[1];
+  const parts = command.trim().split("/");
+  return (parts[parts.length - 1] ?? command).replace(/\.sh$/, "");
+}
+function shellWord(value) {
+  if (/^[A-Za-z0-9_./:@%+=-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+function installedMarketplace(pluginRoot) {
+  const m = pluginRoot.match(/\/plugins\/cache\/([^/]+)\/[^/]+\/[^/]+\/?$/);
+  return m?.[1] ?? null;
+}
+function pluginNameOf(pluginRoot) {
+  try {
+    const parsed = JSON.parse(readFileSync5(join10(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
+    if (typeof parsed.name === "string" && /^[A-Za-z0-9_.-]+$/.test(parsed.name)) return parsed.name;
+  } catch {
+  }
+  return "tmb";
+}
+function readPreToolUseFromHooksJson(pluginRoot) {
+  const hooksJsonPath = join10(pluginRoot, "hooks", "hooks.json");
+  if (!existsSync6(hooksJsonPath)) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync5(hooksJsonPath, "utf8"));
+  } catch {
+    return null;
+  }
+  const pre = parsed.hooks?.PreToolUse;
+  if (!Array.isArray(pre)) return null;
+  return pre;
+}
+function keptHooks(group) {
+  return (group.hooks ?? []).filter((h) => !ADVISORY_HOOK_DENYLIST.has(gateName(h.command)));
+}
+function buildTmbGroups(pre, resolverPath, marketplace, projectRoot) {
+  const groups = [];
+  for (const group of pre) {
+    const hooks = keptHooks(group).map((h) => ({
+      type: h.type,
+      command: `bash ${shellWord(resolverPath)} --marketplace ${shellWord(marketplace)} --hook ${gateName(h.command)} --shim --project ${shellWord(projectRoot)}`,
+      ...h.timeout !== void 0 ? { timeout: h.timeout } : {},
+      _tmb_managed: true,
+      _tmb_project: projectRoot
+    }));
+    if (hooks.length === 0) continue;
+    groups.push({
+      ...group.matcher !== void 0 ? { matcher: group.matcher } : {},
+      hooks
+    });
+  }
+  return groups;
+}
+function resolverPathFor(projectRoot, pluginName2) {
+  return join10(projectRoot, ".claude", pluginName2, RESOLVER_NAME);
+}
+function materializeResolver(pluginRoot, resolverPath) {
+  const canonical = join10(pluginRoot, ...CANONICAL_RESOLVER_REL);
+  if (!existsSync6(canonical)) return null;
+  mkdirSync5(dirname7(resolverPath), { recursive: true });
+  writeFileSync3(resolverPath, readFileSync5(canonical, "utf8"));
+  chmodSync(resolverPath, 493);
+  return resolverPath;
+}
+function isTmbEntry(h) {
+  if (h._tmb_managed === true) return true;
+  const command = h.command ?? "";
+  return command.includes(`/${RESOLVER_NAME} --marketplace `);
+}
+function purgeTmbEntries(pre) {
+  const kept = [];
+  let removed = 0;
+  for (const group of pre) {
+    const hooks = (group.hooks ?? []).filter((h) => !isTmbEntry(h));
+    removed += (group.hooks ?? []).length - hooks.length;
+    if (hooks.length === 0) continue;
+    kept.push({ ...group, hooks });
+  }
+  return { kept, removed };
+}
+function installedPluginGuard(pluginRoot) {
+  if (!pluginRoot) return { reason: "plugin root unresolvable" };
+  const marketplace = installedMarketplace(pluginRoot);
+  if (!marketplace) return { reason: "plugin-root-not-installed" };
+  const pre = readPreToolUseFromHooksJson(pluginRoot);
+  if (!pre) return { reason: "hooks/hooks.json missing or has no PreToolUse" };
+  return { root: pluginRoot, pre, marketplace, pluginName: pluginNameOf(pluginRoot) };
+}
+function settingsFile(projectRoot) {
+  return join10(projectRoot, ...SETTINGS_REL);
+}
+function readSettings2(path2) {
+  if (!existsSync6(path2)) return { settings: {}, exists: false };
+  try {
+    const raw = readFileSync5(path2, "utf8").trim();
+    return { settings: raw.length > 0 ? JSON.parse(raw) : {}, exists: true };
+  } catch {
+    return { reason: "existing settings.local.json is not valid JSON" };
+  }
+}
+function preToolUseOf(settings) {
+  const hooks = settings.hooks && typeof settings.hooks === "object" ? settings.hooks : {};
+  const pre = Array.isArray(hooks.PreToolUse) ? hooks.PreToolUse : [];
+  return { hooks, pre };
+}
+function writeSettings2(path2, settings) {
+  const created = !existsSync6(path2);
+  try {
+    mkdirSync5(dirname7(path2), { recursive: true });
+    writeFileSync3(path2, JSON.stringify(settings, null, 2) + "\n");
+  } catch (e) {
+    return `settings.local.json write failed: ${e.message}`;
+  }
+  if (created) ensureLocalSettingsIgnored(dirname7(dirname7(path2)));
+  return null;
+}
+function skip(event, reason, result2) {
+  serverLog({ event, reason });
+  return result2;
+}
+function writeProjectEnforcementShim(opts) {
+  const { pluginRoot, projectRoot } = opts;
+  if (opts.headlessEnforcement !== "yes") {
+    const reason = "headless_enforcement_off";
+    return skip("onboard_hooks_shim_skip", reason, { written: false, reason });
+  }
+  const guard = installedPluginGuard(pluginRoot);
+  if ("reason" in guard) {
+    return skip("onboard_hooks_shim_skip", guard.reason, { written: false, reason: guard.reason });
+  }
+  const path2 = settingsFile(projectRoot);
+  const read = readSettings2(path2);
+  if ("reason" in read) {
+    return skip("onboard_hooks_shim_skip", read.reason, { written: false, reason: read.reason });
+  }
+  const resolverPath = materializeResolver(guard.root, resolverPathFor(projectRoot, guard.pluginName));
+  if (!resolverPath) {
+    const reason = "canonical resolver script missing";
+    return skip("onboard_hooks_shim_skip", reason, { written: false, reason });
+  }
+  const tmbGroups = buildTmbGroups(guard.pre, resolverPath, guard.marketplace, projectRoot);
+  const { hooks, pre } = preToolUseOf(read.settings);
+  hooks.PreToolUse = [...purgeTmbEntries(pre).kept, ...tmbGroups];
+  read.settings.hooks = hooks;
+  const failure2 = writeSettings2(path2, read.settings);
+  if (failure2) return skip("onboard_hooks_shim_skip", failure2, { written: false, reason: failure2 });
+  const entries = tmbGroups.reduce((n, g) => n + g.hooks.length, 0);
+  serverLog({ event: "onboard_hooks_shim_written", settingsPath: path2, groups: tmbGroups.length, entries });
+  return { written: true, entries, settings_path: path2 };
+}
+function removeProjectEnforcementShim(opts) {
+  const { pluginRoot, projectRoot } = opts;
+  const path2 = settingsFile(projectRoot);
+  const read = readSettings2(path2);
+  if ("reason" in read) {
+    return skip("onboard_hooks_shim_remove_skip", read.reason, { removed: 0, resolver_removed: false, reason: read.reason });
+  }
+  let removed = 0;
+  if (read.exists) {
+    const { hooks, pre } = preToolUseOf(read.settings);
+    const purge = purgeTmbEntries(pre);
+    removed = purge.removed;
+    if (removed > 0) {
+      if (purge.kept.length > 0) hooks.PreToolUse = purge.kept;
+      else delete hooks.PreToolUse;
+      if (Object.keys(hooks).length > 0) read.settings.hooks = hooks;
+      else delete read.settings.hooks;
+      const failure2 = writeSettings2(path2, read.settings);
+      if (failure2) {
+        return skip("onboard_hooks_shim_remove_skip", failure2, { removed: 0, resolver_removed: false, reason: failure2 });
+      }
+    }
+  }
+  const resolverPath = resolverPathFor(projectRoot, pluginRoot ? pluginNameOf(pluginRoot) : "tmb");
+  let resolver_removed = false;
+  if (existsSync6(resolverPath)) {
+    rmSync(resolverPath, { force: true });
+    resolver_removed = true;
+  }
+  if (removed > 0 || resolver_removed) {
+    serverLog({ event: "onboard_hooks_shim_removed", settingsPath: path2, removed, resolver_removed });
+  }
+  return { removed, resolver_removed };
+}
+
 // src/tools/onboard-scan.ts
-import { spawnSync as spawnSync7 } from "node:child_process";
+import { spawnSync as spawnSync8 } from "node:child_process";
 import { existsSync as existsSync7, readdirSync as readdirSync3, statSync as statSync3 } from "node:fs";
 import { basename as basename3, join as join11 } from "node:path";
 var GIT_TIMEOUT_MS = 3e3;
@@ -33760,7 +33781,7 @@ function gitRunner(cwd) {
   return (args) => {
     if (calls >= MAX_GIT_CALLS) return { ok: false, note: "git call budget spent" };
     calls++;
-    const r = spawnSync7("git", args, { cwd, encoding: "utf8", timeout: GIT_TIMEOUT_MS });
+    const r = spawnSync8("git", args, { cwd, encoding: "utf8", timeout: GIT_TIMEOUT_MS });
     if (r.error) {
       const code = r.error.code;
       return { ok: false, note: code === "ETIMEDOUT" ? "git timed out" : `git unavailable (${code ?? r.error.message})` };
@@ -33993,10 +34014,10 @@ function wrapHandler13(fn) {
 }
 function probeGit(cwd) {
   const opts = { encoding: "utf8", timeout: 3e3, cwd };
-  const inGitR = spawnSync8("git", ["rev-parse", "--show-toplevel"], opts);
+  const inGitR = spawnSync9("git", ["rev-parse", "--show-toplevel"], opts);
   const in_git = inGitR.status === 0;
   if (!in_git) return { in_git: false, detected_remotes: [], origin_kind: null };
-  const remotesR = spawnSync8("git", ["remote", "-v"], opts);
+  const remotesR = spawnSync9("git", ["remote", "-v"], opts);
   const detected_remotes = [];
   if (remotesR.status === 0) {
     const seen = /* @__PURE__ */ new Set();
@@ -34018,7 +34039,7 @@ function probeGit(cwd) {
   };
 }
 function branchExists(cwd, branch) {
-  const r = spawnSync8("git", ["-C", cwd, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], {
+  const r = spawnSync9("git", ["-C", cwd, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], {
     encoding: "utf8",
     timeout: 3e3
   });
@@ -34026,16 +34047,16 @@ function branchExists(cwd, branch) {
 }
 function repoDefaultBranch(cwd) {
   const opts = { encoding: "utf8", timeout: 3e3 };
-  const head = spawnSync8("git", ["-C", cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], opts);
+  const head = spawnSync9("git", ["-C", cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], opts);
   if (head.status === 0) {
     const b = (head.stdout ?? "").trim().replace(/^origin\//, "");
     if (b) return b;
   }
   for (const cand of ["main", "master", "dev"]) {
-    const r = spawnSync8("git", ["-C", cwd, "show-ref", "--verify", "--quiet", `refs/heads/${cand}`], opts);
+    const r = spawnSync9("git", ["-C", cwd, "show-ref", "--verify", "--quiet", `refs/heads/${cand}`], opts);
     if (r.status === 0) return cand;
   }
-  const cur = spawnSync8("git", ["-C", cwd, "symbolic-ref", "--short", "HEAD"], opts);
+  const cur = spawnSync9("git", ["-C", cwd, "symbolic-ref", "--short", "HEAD"], opts);
   if (cur.status === 0) {
     const b = (cur.stdout ?? "").trim();
     if (b) return b;
@@ -34043,11 +34064,11 @@ function repoDefaultBranch(cwd) {
   return "main";
 }
 function probeCli(cmd) {
-  const which = spawnSync8("command", ["-v", cmd], { encoding: "utf8", timeout: AUTH_PROBE_TIMEOUT_MS, shell: true });
+  const which = spawnSync9("command", ["-v", cmd], { encoding: "utf8", timeout: AUTH_PROBE_TIMEOUT_MS, shell: true });
   const installed = which.status === 0 && (which.stdout ?? "").trim().length > 0;
   if (!installed) return { installed: false, authed: false };
   if (liveCliBlockReason()) return { installed: true, authed: false };
-  const authR = spawnSync8(cmd, ["auth", "status"], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
+  const authR = spawnSync9(cmd, ["auth", "status"], { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS });
   return { installed: true, authed: authR.status === 0 };
 }
 function readConfig(db2, key) {
@@ -34244,48 +34265,23 @@ function issueSyncQuestion(currentSync, isReonboard, authedAtLeastOne) {
     default_index: 0
   };
 }
-function headlessQuestion(current, isReonboard, entries) {
-  const options = [];
-  if (isReonboard && current !== null) {
-    options.push({ label: `Keep "${current}"`, description: "No change.", wire: KEEP_SENTINEL });
-  }
-  options.push(
-    {
-      label: "No",
-      description: "Gates run in interactive sessions only.",
-      wire: "no"
-    },
-    {
-      label: "Yes",
-      description: `Also gate headless \`claude -p\` runs. Writes ${entries} PreToolUse entries to this project's .claude/settings.local.json.`,
-      wire: "yes"
-    }
-  );
-  return {
-    question: `Also enforce TMB gates in non-interactive \`claude -p\` runs? Writes ${entries} PreToolUse entries to this project's .claude/settings.local.json.`,
-    header: "Headless",
-    multiSelect: false,
-    options,
-    default_index: options.findIndex((o) => o.wire === "no")
-  };
-}
 function sandboxQuestion(current, isReonboard, remoteUrls, platform) {
   const keep = isReonboard && current !== null;
   const recommended = !keep && sandboxRecommended(remoteUrls, platform);
   const ssh = remoteUrls.some(isSshRemote);
   const no = {
     label: "No",
-    description: "Bash writes follow Claude Code's defaults; the containment hook still guards.",
+    description: "Bash keeps Claude Code's defaults; TMB's containment hook still guards.",
     wire: "no"
   };
   const yes = {
     label: recommended ? SANDBOX_YES_RECOMMENDED : "Yes",
-    description: "Bash may write only in this project and the model cache, and reach only GitHub, the npm registry and your HTTPS remotes." + (platform === "darwin" ? " gh needs macOS's TLS trust service, which slightly weakens isolation." : "") + (ssh ? " Git over SSH bypasses the sandbox proxy, so your SSH remote fails: switch it to HTTPS." : ""),
+    description: "Bash can only write inside this project and the model cache, and can only reach GitHub, the npm registry and your HTTPS git remotes." + (platform === "darwin" ? " gh needs macOS's TLS trust service, which slightly weakens isolation." : "") + (ssh ? " Git over SSH bypasses the sandbox proxy, so your SSH remote fails: switch it to HTTPS." : ""),
     wire: "yes"
   };
   const options = keep ? [{ label: `Keep "${current}"`, description: "No change.", wire: KEEP_SENTINEL }, no, yes] : recommended ? [yes, no] : [no, yes];
   return {
-    question: "Confine Bash to this project and an allow-list of hosts with Claude Code's sandbox? Writes a sandbox block to this project's .claude/settings.local.json.",
+    question: "Turn on Claude Code's Bash sandbox? Writes .claude/settings.local.json in this project: sandbox.enabled, sandbox.filesystem.allowWrite, sandbox.network.allowedDomains, sandbox.enableWeakerNetworkIsolation (macOS only), env.npm_config_cache and env.BUN_INSTALL_CACHE_DIR. When TMB creates that file in a git work tree, it also adds it to .gitignore.",
     header: "Sandbox",
     multiSelect: false,
     options,
@@ -34348,8 +34344,8 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           },
           round: {
             type: "string",
-            enum: ["shape", "main", "sync", "headless", "sandbox"],
-            description: "'shape' = Round 1 (project shape \u2014 Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only \u2014 issue_sync). 'headless' = headless_enforcement (any shape; default No). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep)."
+            enum: ["shape", "main", "sync", "sandbox"],
+            description: "'shape' = Round 1 (project shape \u2014 Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only \u2014 issue_sync). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep)."
           },
           repo: {
             type: "string",
@@ -34361,14 +34357,14 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
     },
     {
       name: "onboard_apply",
-      description: "Persist /onboard answers in one transaction. Derives pr_target + protected_branches from branching_model, writes onboarded marker. Accepts wire values or human-readable labels (case-insensitive). Keep options omit the key. Round 0: standalone=true alone makes the nested session dir its own project; remove_stray_dbs (alone or with shape) deletes empty stray DBs.",
+      description: "Persist /onboard answers in one transaction. Derives pr_target + protected_branches from branching_model, writes onboarded marker. Accepts wire values or human-readable labels (case-insensitive). Keep options omit the key. Round 0: standalone=true alone makes the nested session dir its own project; remove_stray_dbs (alone or with shape) deletes empty stray DBs. headless_enforcement alone (after onboarding) turns headless enforcement on or off on request.",
       inputSchema: {
         type: "object",
         properties: {
           shape: {
             type: "string",
             enum: ["local", "remote"],
-            description: "Required for the onboarding answers. Omit only for a Round-0-only call (standalone, or remove_stray_dbs alone)."
+            description: "Required for the onboarding answers. Omit only for a Round-0-only call (standalone, or remove_stray_dbs alone) or for headless_enforcement alone on an onboarded project."
           },
           standalone: {
             type: "boolean",
@@ -34398,7 +34394,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
           headless_enforcement: {
             type: "string",
             enum: ["yes", "no"],
-            description: "Optional. 'yes' writes TMB's PreToolUse gates into the project's .claude/settings.local.json so they also fire in headless `claude -p` runs; 'no' removes them. Omit to keep the stored answer (default 'no')."
+            description: "Optional. 'yes' writes TMB's PreToolUse gates into the project's .claude/settings.local.json so they also fire in headless `claude -p` runs; 'no' removes them. Omit to keep the stored answer (default 'no'). Not an /onboard round: set on request, alone (no shape) once the project is onboarded."
           },
           sandbox_enforcement: {
             type: "string",
@@ -34436,6 +34432,33 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
     pluginRoot: shimEnv.pluginRoot !== void 0 ? shimEnv.pluginRoot : resolvePluginRoot2(),
     projectRoot: projectRoot()
   });
+  const resolveHeadless = (raw) => {
+    const stored = readConfig(db2, "headless_enforcement") ?? "no";
+    let value = stored;
+    let answered = false;
+    if (raw !== void 0) {
+      const resolved = resolveOption(raw, HEADLESS_OPTIONS);
+      if (resolved !== KEEP_SENTINEL) {
+        value = resolved ?? raw;
+        answered = true;
+      }
+    }
+    if (value !== "yes" && value !== "no") {
+      throw new Error(`headless_enforcement must be 'yes' or 'no' (got '${value}')`);
+    }
+    return { value, stored, answered };
+  };
+  const applyHeadlessShim = (h) => {
+    try {
+      if (h.value === "yes") {
+        return { ...writeProjectEnforcementShim({ ...shimOptions(), headlessEnforcement: h.value }) };
+      }
+      if (h.answered || h.stored === "yes") return { ...removeProjectEnforcementShim(shimOptions()) };
+      return { skipped: "headless_enforcement_off" };
+    } catch (e) {
+      return { reason: e.message };
+    }
+  };
   const nesting = () => {
     const session_dir = shimEnv.sessionDir ?? resolveClaudeSessionDir();
     const root = claudeProjectRootOfDb(dbPath2);
@@ -34585,11 +34608,6 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             questions: [sandboxQuestion(current, readOnboardedFlag(db2), knownRemoteUrls(detected), shimEnv.platform ?? process.platform)]
           });
         }
-        if (round === "headless") {
-          const current = readConfig(db2, "headless_enforcement");
-          const entries = countShimEntries(shimOptions().pluginRoot);
-          return ok16({ questions: [headlessQuestion(current, readOnboardedFlag(db2), entries)] });
-        }
         if (repo !== void 0) {
           if (round !== "main") {
             throw new Error(`repo param is only valid with round='main' (got '${round}')`);
@@ -34661,6 +34679,23 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
         const strayPaths = rawStray;
         if (strayPaths !== void 0 && args["shape"] === void 0) {
           return ok16({ ok: true, stray_dbs: removeStrayDbs(strayPaths) });
+        }
+        if (args["shape"] === void 0 && args["headless_enforcement"] !== void 0) {
+          const others = Object.keys(args).filter(
+            (k) => k !== "headless_enforcement" && k !== "agent" && args[k] !== void 0
+          );
+          if (others.length > 0) {
+            throw new Error(`headless_enforcement without shape is applied alone \u2014 drop ${others.join(", ")}, or pass shape for the full apply`);
+          }
+          if (!readOnboardedFlag(db2)) {
+            throw new Error("headless_enforcement alone needs an onboarded project \u2014 run /onboard first");
+          }
+          const headless2 = resolveHeadless(args["headless_enforcement"]);
+          writeConfig(db2, "headless_enforcement", headless2.value);
+          return ok16({
+            ok: true,
+            applied: { headless_enforcement: headless2.value, headless_shim: applyHeadlessShim(headless2) }
+          });
         }
         const shape = args["shape"];
         if (shape !== "local" && shape !== "remote") {
@@ -34808,17 +34843,8 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             warning = `remote URL not detected for ${origin.provider}; issues will not sync \u2014 check the repo's git remote`;
           }
         }
-        const rawHeadless = args["headless_enforcement"];
-        const storedHeadless = readConfig(db2, "headless_enforcement") ?? "no";
-        let headless_enforcement = storedHeadless;
-        const headlessAnswered = rawHeadless !== void 0 && resolveOption(rawHeadless, HEADLESS_OPTIONS) !== KEEP_SENTINEL;
-        if (rawHeadless !== void 0) {
-          const resolved = resolveOption(rawHeadless, HEADLESS_OPTIONS);
-          if (resolved !== KEEP_SENTINEL) headless_enforcement = resolved ?? rawHeadless;
-        }
-        if (headless_enforcement !== "yes" && headless_enforcement !== "no") {
-          throw new Error(`headless_enforcement must be 'yes' or 'no' (got '${headless_enforcement}')`);
-        }
+        const headless = resolveHeadless(args["headless_enforcement"]);
+        const headless_enforcement = headless.value;
         const rawSandbox = args["sandbox_enforcement"];
         let sandbox_enforcement = readConfig(db2, "sandbox_enforcement") ?? "no";
         if (rawSandbox !== void 0) {
@@ -34865,16 +34891,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
             upsertRepoRemotes(db2, row.name, effRemotes);
           }
         });
-        let headless_shim = { skipped: "headless_enforcement_off" };
-        try {
-          if (headless_enforcement === "yes") {
-            headless_shim = { ...writeProjectEnforcementShim({ ...shimOptions(), headlessEnforcement: headless_enforcement }) };
-          } else if (headlessAnswered || storedHeadless === "yes") {
-            headless_shim = { ...removeProjectEnforcementShim(shimOptions()) };
-          }
-        } catch (e) {
-          headless_shim = { reason: e.message };
-        }
+        const headless_shim = applyHeadlessShim(headless);
         let sandbox;
         try {
           const record2 = readConfig(db2, "sandbox_settings") ?? null;
@@ -34894,6 +34911,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
               ...result2.allowed_domains ? { allowed_domains: result2.allowed_domains } : {},
               ...result2.env ? { env: result2.env } : {},
               ...result2.weaker_network_isolation !== void 0 ? { weaker_network_isolation: result2.weaker_network_isolation } : {},
+              ...result2.gitignore_appended !== void 0 ? { gitignore_appended: result2.gitignore_appended } : {},
               ...result2.reason ? { reason: result2.reason } : {}
             };
           } else {
@@ -34929,7 +34947,7 @@ function onboardTools(db2, dbPath2 = "", shimEnv = {}) {
 }
 
 // src/tools/scan.ts
-import { spawn, spawnSync as spawnSync9 } from "node:child_process";
+import { spawn, spawnSync as spawnSync10 } from "node:child_process";
 import { closeSync as closeSync2, existsSync as existsSync10, openSync as openSync2, readFileSync as readFileSync6, readSync, realpathSync as realpathSync5, writeFileSync as writeFileSync5, unlinkSync } from "node:fs";
 import { dirname as dirname10, join as join13 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
@@ -35964,12 +35982,12 @@ function persistFilesGraph(graph, out, plan) {
 function readRepoRemotes(path2) {
   try {
     const opts = { encoding: "utf8", timeout: 3e3 };
-    const listR = spawnSync9("git", ["-C", path2, "remote"], opts);
+    const listR = spawnSync10("git", ["-C", path2, "remote"], opts);
     if (listR.status !== 0) return [];
     const names = (listR.stdout ?? "").split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
     const remotes = [];
     for (const name of names) {
-      const urlR = spawnSync9("git", ["-C", path2, "remote", "get-url", name], opts);
+      const urlR = spawnSync10("git", ["-C", path2, "remote", "get-url", name], opts);
       if (urlR.status !== 0) continue;
       const url2 = (urlR.stdout ?? "").trim();
       if (!url2) continue;
@@ -37717,7 +37735,7 @@ function cheatcodeTools(db2) {
 }
 
 // src/tools/world_model.ts
-import { spawnSync as spawnSync10 } from "node:child_process";
+import { spawnSync as spawnSync11 } from "node:child_process";
 var WORLD_MODEL_GET_MAX_NODES = 500;
 var UNMERGED_WORK_MAX_BRANCHES = 10;
 function computeUnmergedWork(db2, repo) {
@@ -37729,7 +37747,7 @@ function computeUnmergedWork(db2, repo) {
   if (!repoRow) return { unmerged_work: [] };
   const repoPath = repoRowPath(db2, repoRow.path);
   const target = repoRow.target_branch || resolveRepoDefaultBranch(repoPath);
-  const gitCheck = spawnSync10("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
+  const gitCheck = spawnSync11("git", ["-C", repoPath, "rev-parse", "--is-inside-work-tree"], {
     encoding: "utf8",
     timeout: SUBPROCESS_TIMEOUT_MS
   });
@@ -37754,13 +37772,13 @@ function computeUnmergedWork(db2, repo) {
   }
   const unmerged_work = [];
   for (const [branch_id, entry] of [...byBranch.entries()].slice(0, UNMERGED_WORK_MAX_BRANCHES)) {
-    const refCheck = spawnSync10(
+    const refCheck = spawnSync11(
       "git",
       ["-C", repoPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branch_id}`],
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }
     );
     if (refCheck.status !== 0) continue;
-    const mergeBase = spawnSync10(
+    const mergeBase = spawnSync11(
       "git",
       ["-C", repoPath, "merge-base", "--is-ancestor", entry.tip, target],
       { encoding: "utf8", timeout: SUBPROCESS_TIMEOUT_MS }

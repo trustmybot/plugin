@@ -1,12 +1,12 @@
 ---
-description: Configure or change identity, branching model, PR target, remotes, issue-sync, headless gates, and the Bash sandbox. Server-driven — bro orchestrates AskUserQuestion rounds.
+description: Configure or change identity, branching model, PR target, remotes, issue-sync, and the Bash sandbox. Server-driven — bro orchestrates AskUserQuestion rounds.
 argument-hint: (none)
 allowed-tools: AskUserQuestion, mcp__plugin_tmb_trajectory-server__onboard_state_get, mcp__plugin_tmb_trajectory-server__onboard_get_questions, mcp__plugin_tmb_trajectory-server__onboard_apply, mcp__plugin_tmb_trajectory-server__repos_list, mcp__plugin_tmb_trajectory-server__audit_append
 ---
 
 # Onboard / Re-onboard
 
-Bro orchestrates an AskUserQuestion ceremony in 4-6 rounds — Round 0 runs only when the session is nested below the project or another trajectory DB exists, Round 3 only when `shape == 'remote'`. Pass answers between AUQ and the server; all deterministic logic lives in the `onboard_*` MCP tools.
+Bro orchestrates an AskUserQuestion ceremony in 3-5 rounds — Round 0 runs only when the session is nested below the project or another trajectory DB exists, Round 3 only when `shape == 'remote'`. Pass answers between AUQ and the server; all deterministic logic lives in the `onboard_*` MCP tools.
 
 ## 1. Read state (one MCP call)
 
@@ -14,7 +14,7 @@ Call `onboard_state_get(agent='bro')`. Returns `{ first_run, current, probe, nes
 
 ## 2. Ask the questions
 
-Run the AskUserQuestion ceremony in up to six rounds.
+Run the AskUserQuestion ceremony in up to five rounds.
 
 ### Round 0 — Which project (only when nested)
 
@@ -60,29 +60,34 @@ When the round returns no questions, skip its AUQ. The server pre-selects the ri
 
 If `shape == 'remote'`, call `onboard_get_questions(agent='bro', shape='remote', round='sync')` and feed the returned questions into `AskUserQuestion`.
 
-### Round 4 — Headless enforcement
+### Round 4 — Bash sandbox
 
-Call `onboard_get_questions(agent='bro', round='headless')` and feed the returned question into `AskUserQuestion`. Store the answer as `headless_enforcement` (default `no`). `yes` writes TMB's PreToolUse gates into `<project>/.claude/settings.local.json` so they also fire in headless `claude -p` runs.
-
-### Round 5 — Bash sandbox
-
-Call `onboard_get_questions(agent='bro', round='sandbox')` and feed the returned question into `AskUserQuestion`. Store the answer as `sandbox_enforcement` (default: the question's first option). `yes` writes a Claude Code sandbox block into `<project>/.claude/settings.local.json` that keeps Bash writes in this project and the model cache, and gives Bash a network allow-list of the hosts TMB needs plus the host of each of the repo's HTTPS remotes. On a fresh onboard the question defaults to `Yes (Recommended)` only on the platform the recorded sandbox probe measured (macOS today) and only when no git remote uses SSH; otherwise it defaults to `No`. `yes` also sets `env` entries `npm_config_cache` and `BUN_INSTALL_CACHE_DIR` pointing under the plugin state dir's `cache/`, and on macOS only `sandbox.enableWeakerNetworkIsolation`, which slightly weakens isolation so Go tools such as `gh` can reach the TLS trust service.
+Call `onboard_get_questions(agent='bro', round='sandbox')` and feed the returned question into `AskUserQuestion`. Store the answer as `sandbox_enforcement` (default: the question's first option). The Yes/No question itself names `<project>/.claude/settings.local.json` and the keys it writes, so the Human consents to that exact edit. `yes` writes a Claude Code sandbox block into that file that keeps Bash writes in this project and the model cache, and gives Bash a network allow-list of the hosts TMB needs plus the host of each of the repo's HTTPS remotes. On a fresh onboard the question defaults to `Yes (Recommended)` only on the platform the recorded sandbox probe measured (macOS today) and only when no git remote uses SSH; otherwise it defaults to `No`. `yes` also sets `env` entries `npm_config_cache` and `BUN_INSTALL_CACHE_DIR` pointing under the plugin state dir's `cache/`, and on macOS only `sandbox.enableWeakerNetworkIsolation`, which slightly weakens isolation so Go tools such as `gh` can reach the TLS trust service. When TMB creates `settings.local.json` in a git work tree, it adds the file to `.gitignore`.
 
 ## 3. Apply (transactional)
 
 Per-repo branching + PR target are already applied in Round 2 (one `onboard_apply(shape=<shape>, repo=<name>, ...)` per repo, each writing only that repo's row).
 
-The final apply is workspace-level: call `onboard_apply(agent='bro', shape=<shape>, ...)` with **no** `repo` to write the global `issue_sync` answer, `headless_enforcement`, `sandbox_enforcement`, and the `onboarded` marker, plus `remove_stray_dbs` from Round 0 when the Human chose any. `shape` is required on every apply except the Round 0 ones (`standalone=true` alone, or `remove_stray_dbs` alone). Omit `branching_model` / `pr_target` on this call so it sets only these workspace answers and leaves per-repo policy intact.
+The final apply is workspace-level: call `onboard_apply(agent='bro', shape=<shape>, ...)` with **no** `repo` to write the global `issue_sync` answer, `sandbox_enforcement`, and the `onboarded` marker, plus `remove_stray_dbs` from Round 0 when the Human chose any. `shape` is required on every apply except the Round 0 ones (`standalone=true` alone, or `remove_stray_dbs` alone). Omit `branching_model` / `pr_target` on this call so it sets only these workspace answers and leaves per-repo policy intact.
 
 The server accepts both option wire values and their labels. Pass `Keep "<current>"` answers by omitting that field — the server treats omission as "no change". Each apply recomputes protected branches and wraps its writes in a transaction.
 
-Returns `{ ok: true, stray_dbs?: { removed, refused }, applied: { onboarded: true, branching_model, pr_target, protected_branches, remotes, issue_sync, headless_enforcement, headless_shim, sandbox_enforcement, sandbox } }`.
+Returns `{ ok: true, stray_dbs?: { removed, refused }, applied: { onboarded: true, branching_model, pr_target, protected_branches, remotes, issue_sync, headless_enforcement, headless_shim, sandbox_enforcement, sandbox } }`. `headless_enforcement` is not asked during onboarding and stays `no` unless enabled on request (see below).
 
 The apply never touches the project's `CLAUDE.md`: bro's persona loads from the plugin through its persona hooks. `onboard_apply` takes no `persona` argument and rejects one with `persona_input_removed`.
 
+## Headless runs (on request)
+
+Plugin hooks do not fire in non-interactive `claude -p` runs. When the Human mentions `claude -p`, `claude --print`, headless, non-interactive or CI runs, the `headless-intent` hint fires on bro's turn. Bro asks ONE AskUserQuestion consent that names `<project>/.claude/settings.local.json` and the number of PreToolUse hook entries it writes:
+
+- **Yes** — call `onboard_apply(agent='bro', headless_enforcement='yes')`. The server accepts it alone on an onboarded project and refuses it before `/onboard`.
+- **No** — write nothing.
+
+`TMB_DISABLE_HEADLESS_HINT=1` silences the hint.
+
 ## 4. Confirm to the Human
 
-Render a short summary — project shape, then per repo its branching model, PR target, and protected branches, plus the workspace remotes, the global issue sync, headless enforcement, and the Bash sandbox — then close with "Tell me what you want to work on."
+Render a short summary — project shape, then per repo its branching model, PR target, and protected branches, plus the workspace remotes, the global issue sync, and the Bash sandbox — then close with "Tell me what you want to work on."
 
 ## Error handling
 

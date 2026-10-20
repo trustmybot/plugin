@@ -2,9 +2,10 @@
 # Tests for scripts/hooks/prompt-intent-hints.sh
 # Covers positive (fires) and negative (false-positive guard) cases for
 # every pattern class: consultant-spawn, search-grounding, concerns-protocol,
-# push-intent, reonboard-intent, resume-intent, adr-required, audit-intent.
+# push-intent, reonboard-intent, headless-intent, resume-intent, adr-required,
+# audit-intent.
 #
-# DB-backed classes (push-intent, reonboard-intent, resume-intent,
+# DB-backed classes (push-intent, reonboard-intent, headless-intent, resume-intent,
 # consultant-spawn named-role) are tested without a live DB — the hook must
 # exit silently (no additionalContext) when the DB is absent or the query
 # returns nothing.
@@ -29,6 +30,7 @@ run_hook() {
       TMB_DISABLE_CONCERNS_HINT=0 \
       TMB_DISABLE_PUSH_INTENT_HINT=0 \
       TMB_DISABLE_REONBOARD_HINT=0 \
+      TMB_DISABLE_HEADLESS_HINT=0 \
       TMB_DISABLE_RESUME_HINT=0 \
       TMB_DISABLE_ADR_HINT=0 \
       TMB_DISABLE_AUDIT_HINT=0 \
@@ -445,6 +447,34 @@ assert_contains "$out" "reonboard-intent hint" "PR-target change fires"
 test_case "reonboard-intent: 'gitflow is a popular model' does NOT fire"
 out=$(run_hook_db "gitflow is a popular model")
 assert_not_contains "$out" "reonboard-intent hint" "no verb phrase, no hint"
+
+test_case "headless-intent: 'claude -p' on an onboarded project → consent hint names the settings file"
+out=$(run_hook_db 'how do I run this under `claude -p` in CI?')
+assert_contains "$out" "headless-intent hint" "claude -p fires"
+assert_contains "$out" ".claude/settings.local.json" "CTX names the file the shim writes"
+assert_contains "$out" "headless_enforcement='yes'" "CTX names the apply call"
+
+test_case "headless-intent: TMB_DISABLE_HEADLESS_HINT=1 suppresses"
+out=$(
+  payload=$(jq -cn '{prompt:"run it with claude -p"}')
+  cd "$HINT_TMP" || exit 1
+  printf '%s' "$payload" | TMB_DISABLE_HEADLESS_HINT=1 TRAJECTORY_DB_PATH="$HINT_DB" bash "$HOOK" 2>&1 || true
+)
+assert_not_contains "$out" "headless-intent hint" "TMB_DISABLE_HEADLESS_HINT=1 must suppress"
+
+test_case "headless-intent: a /onboard prompt is silent"
+out=$(run_hook_db "/onboard — I want gates in headless runs too")
+assert_not_contains "$out" "headless-intent hint" "/onboard prompt must be skipped"
+
+test_case "headless-intent: 'the main circuit' does NOT fire (whole words)"
+out=$(run_hook_db "the main circuit board")
+assert_not_contains "$out" "headless-intent hint" "in ci needs word boundaries"
+
+test_case "headless-intent: headless_enforcement already yes → silent"
+sqlite3 "$HINT_DB" "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('headless_enforcement', '\"yes\"');" >/dev/null
+out=$(run_hook_db "run it with claude -p")
+assert_not_contains "$out" "headless-intent hint" "an enabled project needs no hint"
+sqlite3 "$HINT_DB" "INSERT OR REPLACE INTO plugin_config (key, value_json) VALUES ('headless_enforcement', '\"no\"');" >/dev/null
 
 test_case "GH 1199: quoted 'skip validation' → no concerns hint; unquoted → hint"
 out=$(run_hook 'the log line "skip validation: off" confused me')

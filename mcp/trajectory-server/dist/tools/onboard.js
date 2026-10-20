@@ -25,7 +25,7 @@ import { repoRowPath, resolveSoleRepoPath } from '../utils/repo-paths.js';
 import { remotesView, repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
 import { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
-import { countShimEntries, removeProjectEnforcementShim, writeProjectEnforcementShim, } from './onboard-hooks-shim.js';
+import { removeProjectEnforcementShim, writeProjectEnforcementShim, } from './onboard-hooks-shim.js';
 import { isSshRemote, removeProjectSandbox, sandboxRecommended, writeProjectSandbox, } from './onboard-sandbox.js';
 import { scanWorkspace } from './onboard-scan.js';
 // Resolve the installed plugin's source root: prefer CLAUDE_PLUGIN_ROOT (must
@@ -353,40 +353,18 @@ function issueSyncQuestion(currentSync, isReonboard, authedAtLeastOne) {
         default_index: 0,
     };
 }
-function headlessQuestion(current, isReonboard, entries) {
-    const options = [];
-    if (isReonboard && current !== null) {
-        options.push({ label: `Keep "${current}"`, description: 'No change.', wire: KEEP_SENTINEL });
-    }
-    options.push({
-        label: 'No',
-        description: 'Gates run in interactive sessions only.',
-        wire: 'no',
-    }, {
-        label: 'Yes',
-        description: `Also gate headless \`claude -p\` runs. Writes ${entries} PreToolUse entries to this project's .claude/settings.local.json.`,
-        wire: 'yes',
-    });
-    return {
-        question: `Also enforce TMB gates in non-interactive \`claude -p\` runs? Writes ${entries} PreToolUse entries to this project's .claude/settings.local.json.`,
-        header: 'Headless',
-        multiSelect: false,
-        options,
-        default_index: options.findIndex((o) => o.wire === 'no'),
-    };
-}
 function sandboxQuestion(current, isReonboard, remoteUrls, platform) {
     const keep = isReonboard && current !== null;
     const recommended = !keep && sandboxRecommended(remoteUrls, platform);
     const ssh = remoteUrls.some(isSshRemote);
     const no = {
         label: 'No',
-        description: "Bash writes follow Claude Code's defaults; the containment hook still guards.",
+        description: "Bash keeps Claude Code's defaults; TMB's containment hook still guards.",
         wire: 'no',
     };
     const yes = {
         label: recommended ? SANDBOX_YES_RECOMMENDED : 'Yes',
-        description: 'Bash may write only in this project and the model cache, and reach only GitHub, the npm registry and your HTTPS remotes.' +
+        description: 'Bash can only write inside this project and the model cache, and can only reach GitHub, the npm registry and your HTTPS git remotes.' +
             (platform === 'darwin' ? " gh needs macOS's TLS trust service, which slightly weakens isolation." : '') +
             (ssh ? ' Git over SSH bypasses the sandbox proxy, so your SSH remote fails: switch it to HTTPS.' : ''),
         wire: 'yes',
@@ -397,7 +375,7 @@ function sandboxQuestion(current, isReonboard, remoteUrls, platform) {
             ? [yes, no]
             : [no, yes];
     return {
-        question: "Confine Bash to this project and an allow-list of hosts with Claude Code's sandbox? Writes a sandbox block to this project's .claude/settings.local.json.",
+        question: "Turn on Claude Code's Bash sandbox? Writes .claude/settings.local.json in this project: sandbox.enabled, sandbox.filesystem.allowWrite, sandbox.network.allowedDomains, sandbox.enableWeakerNetworkIsolation (macOS only), env.npm_config_cache and env.BUN_INSTALL_CACHE_DIR. When TMB creates that file in a git work tree, it also adds it to .gitignore.",
         header: 'Sandbox',
         multiSelect: false,
         options,
@@ -472,8 +450,8 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     },
                     round: {
                         type: 'string',
-                        enum: ['shape', 'main', 'sync', 'headless', 'sandbox'],
-                        description: "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only — issue_sync). 'headless' = headless_enforcement (any shape; default No). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep).",
+                        enum: ['shape', 'main', 'sync', 'sandbox'],
+                        description: "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only — issue_sync). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep).",
                     },
                     repo: {
                         type: 'string',
@@ -485,14 +463,14 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
         },
         {
             name: 'onboard_apply',
-            description: 'Persist /onboard answers in one transaction. Derives pr_target + protected_branches from branching_model, writes onboarded marker. Accepts wire values or human-readable labels (case-insensitive). Keep options omit the key. Round 0: standalone=true alone makes the nested session dir its own project; remove_stray_dbs (alone or with shape) deletes empty stray DBs.',
+            description: 'Persist /onboard answers in one transaction. Derives pr_target + protected_branches from branching_model, writes onboarded marker. Accepts wire values or human-readable labels (case-insensitive). Keep options omit the key. Round 0: standalone=true alone makes the nested session dir its own project; remove_stray_dbs (alone or with shape) deletes empty stray DBs. headless_enforcement alone (after onboarding) turns headless enforcement on or off on request.',
             inputSchema: {
                 type: 'object',
                 properties: {
                     shape: {
                         type: 'string',
                         enum: ['local', 'remote'],
-                        description: 'Required for the onboarding answers. Omit only for a Round-0-only call (standalone, or remove_stray_dbs alone).',
+                        description: 'Required for the onboarding answers. Omit only for a Round-0-only call (standalone, or remove_stray_dbs alone) or for headless_enforcement alone on an onboarded project.',
                     },
                     standalone: {
                         type: 'boolean',
@@ -522,7 +500,7 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     headless_enforcement: {
                         type: 'string',
                         enum: ['yes', 'no'],
-                        description: "Optional. 'yes' writes TMB's PreToolUse gates into the project's .claude/settings.local.json so they also fire in headless `claude -p` runs; 'no' removes them. Omit to keep the stored answer (default 'no').",
+                        description: "Optional. 'yes' writes TMB's PreToolUse gates into the project's .claude/settings.local.json so they also fire in headless `claude -p` runs; 'no' removes them. Omit to keep the stored answer (default 'no'). Not an /onboard round: set on request, alone (no shape) once the project is onboarded.",
                     },
                     sandbox_enforcement: {
                         type: 'string',
@@ -575,6 +553,40 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
         pluginRoot: shimEnv.pluginRoot !== undefined ? shimEnv.pluginRoot : resolvePluginRoot(),
         projectRoot: projectRoot(),
     });
+    const resolveHeadless = (raw) => {
+        const stored = readConfig(db, 'headless_enforcement') ?? 'no';
+        let value = stored;
+        let answered = false;
+        if (raw !== undefined) {
+            const resolved = resolveOption(raw, HEADLESS_OPTIONS);
+            if (resolved !== KEEP_SENTINEL) {
+                value = resolved ?? raw;
+                answered = true;
+            }
+        }
+        if (value !== 'yes' && value !== 'no') {
+            throw new Error(`headless_enforcement must be 'yes' or 'no' (got '${value}')`);
+        }
+        return { value, stored, answered };
+    };
+    // Headless enforcement is opt-in: 'yes' writes the shim into the project's
+    // .claude/settings.local.json; an explicit 'no' (or a stored 'yes' flipped
+    // to 'no') removes it. An apply that leaves the answer unset at 'no'
+    // touches nothing. Best-effort — a failure is reported but never fails the
+    // apply.
+    const applyHeadlessShim = (h) => {
+        try {
+            if (h.value === 'yes') {
+                return { ...writeProjectEnforcementShim({ ...shimOptions(), headlessEnforcement: h.value }) };
+            }
+            if (h.answered || h.stored === 'yes')
+                return { ...removeProjectEnforcementShim(shimOptions()) };
+            return { skipped: 'headless_enforcement_off' };
+        }
+        catch (e) {
+            return { reason: e.message };
+        }
+    };
     // Round 0: where the session sits relative to the project the DB walk
     // resolved, and every other trajectory DB around it. A DB outside the
     // <root>/.claude/<plugin>/ layout (or in memory) has no nesting to report.
@@ -732,11 +744,6 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     questions: [sandboxQuestion(current, readOnboardedFlag(db), knownRemoteUrls(detected), shimEnv.platform ?? process.platform)],
                 });
             }
-            if (round === 'headless') {
-                const current = readConfig(db, 'headless_enforcement');
-                const entries = countShimEntries(shimOptions().pluginRoot);
-                return ok({ questions: [headlessQuestion(current, readOnboardedFlag(db), entries)] });
-            }
             // Per-repo path: branching + pr_target questions seeded from THAT repos
             // row. Only valid on round='main', shape='remote'. The Keep options
             // reflect the repo's current target_branch/branching_model; the remote
@@ -811,6 +818,21 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
             const strayPaths = rawStray;
             if (strayPaths !== undefined && args['shape'] === undefined) {
                 return ok({ ok: true, stray_dbs: removeStrayDbs(strayPaths) });
+            }
+            if (args['shape'] === undefined && args['headless_enforcement'] !== undefined) {
+                const others = Object.keys(args).filter((k) => k !== 'headless_enforcement' && k !== 'agent' && args[k] !== undefined);
+                if (others.length > 0) {
+                    throw new Error(`headless_enforcement without shape is applied alone — drop ${others.join(', ')}, or pass shape for the full apply`);
+                }
+                if (!readOnboardedFlag(db)) {
+                    throw new Error('headless_enforcement alone needs an onboarded project — run /onboard first');
+                }
+                const headless = resolveHeadless(args['headless_enforcement']);
+                writeConfig(db, 'headless_enforcement', headless.value);
+                return ok({
+                    ok: true,
+                    applied: { headless_enforcement: headless.value, headless_shim: applyHeadlessShim(headless) },
+                });
             }
             const shape = args['shape'];
             if (shape !== 'local' && shape !== 'remote') {
@@ -990,18 +1012,8 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     warning = `remote URL not detected for ${origin.provider}; issues will not sync — check the repo's git remote`;
                 }
             }
-            const rawHeadless = args['headless_enforcement'];
-            const storedHeadless = readConfig(db, 'headless_enforcement') ?? 'no';
-            let headless_enforcement = storedHeadless;
-            const headlessAnswered = rawHeadless !== undefined && resolveOption(rawHeadless, HEADLESS_OPTIONS) !== KEEP_SENTINEL;
-            if (rawHeadless !== undefined) {
-                const resolved = resolveOption(rawHeadless, HEADLESS_OPTIONS);
-                if (resolved !== KEEP_SENTINEL)
-                    headless_enforcement = resolved ?? rawHeadless;
-            }
-            if (headless_enforcement !== 'yes' && headless_enforcement !== 'no') {
-                throw new Error(`headless_enforcement must be 'yes' or 'no' (got '${headless_enforcement}')`);
-            }
+            const headless = resolveHeadless(args['headless_enforcement']);
+            const headless_enforcement = headless.value;
             const rawSandbox = args['sandbox_enforcement'];
             let sandbox_enforcement = readConfig(db, 'sandbox_enforcement') ?? 'no';
             if (rawSandbox !== undefined) {
@@ -1060,23 +1072,7 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     upsertRepoRemotes(db, row.name, effRemotes);
                 }
             });
-            // Headless enforcement is opt-in: 'yes' writes the shim into the
-            // project's .claude/settings.local.json; an explicit 'no' (or a stored
-            // 'yes' flipped to 'no') removes it. An apply that leaves the answer
-            // unset at 'no' touches nothing. Best-effort — a failure is reported but
-            // never fails onboarding.
-            let headless_shim = { skipped: 'headless_enforcement_off' };
-            try {
-                if (headless_enforcement === 'yes') {
-                    headless_shim = { ...writeProjectEnforcementShim({ ...shimOptions(), headlessEnforcement: headless_enforcement }) };
-                }
-                else if (headlessAnswered || storedHeadless === 'yes') {
-                    headless_shim = { ...removeProjectEnforcementShim(shimOptions()) };
-                }
-            }
-            catch (e) {
-                headless_shim = { reason: e.message };
-            }
+            const headless_shim = applyHeadlessShim(headless);
             // Native sandbox (Tier 0): 'yes' merges the sandbox block (filesystem
             // allowWrite + network allowedDomains) into the project's settings.local.json; 'no' removes exactly what TMB added
             // (plugin_config.sandbox_settings). Best-effort, like the shim.
@@ -1100,6 +1096,7 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                         ...(result.allowed_domains ? { allowed_domains: result.allowed_domains } : {}),
                         ...(result.env ? { env: result.env } : {}),
                         ...(result.weaker_network_isolation !== undefined ? { weaker_network_isolation: result.weaker_network_isolation } : {}),
+                        ...(result.gitignore_appended !== undefined ? { gitignore_appended: result.gitignore_appended } : {}),
                         ...(result.reason ? { reason: result.reason } : {}),
                     };
                 }

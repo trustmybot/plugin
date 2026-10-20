@@ -25,6 +25,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { serverLog } from '../logger.js';
+import { ensureLocalSettingsIgnored } from './onboard-sandbox.js';
 const RESOLVER_NAME = 'resolve-hook.sh';
 // Canonical resolver authored in the plugin, relative to the plugin root.
 const CANONICAL_RESOLVER_REL = ['scripts', 'lib', RESOLVER_NAME];
@@ -212,14 +213,17 @@ function preToolUseOf(settings) {
     return { hooks, pre };
 }
 function writeSettings(path, settings) {
+    const created = !existsSync(path);
     try {
         mkdirSync(dirname(path), { recursive: true });
         writeFileSync(path, JSON.stringify(settings, null, 2) + '\n');
-        return null;
     }
     catch (e) {
         return `settings.local.json write failed: ${e.message}`;
     }
+    if (created)
+        ensureLocalSettingsIgnored(dirname(dirname(path)));
+    return null;
 }
 function skip(event, reason, result) {
     serverLog({ event, reason });

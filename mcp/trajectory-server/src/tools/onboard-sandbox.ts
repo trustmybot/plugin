@@ -18,8 +18,13 @@
 // `excludedCommands`. What it added is returned as a record (stored in
 // plugin_config.sandbox_settings) so answering no removes exactly that —
 // never a key, path, domain or env value the user set.
+//
+// When a TMB writer creates settings.local.json in a git work tree that does
+// not already ignore it, ensureLocalSettingsIgnored appends the path to the
+// project's .gitignore: Claude Code ignores the file only when it creates it.
 
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { TMB_MODEL_CACHE_DIR } from '../embeddings/model.js';
 import { serverLog } from '../logger.js';
@@ -46,6 +51,7 @@ export interface SandboxWriteResult {
   readonly env?: Readonly<Record<string, string>>;
   readonly weaker_network_isolation?: boolean;
   readonly record?: SandboxRecord;
+  readonly gitignore_appended?: boolean;
   readonly reason?: string;
 }
 
@@ -76,14 +82,40 @@ function readSettings(path: string): { settings: Json } | { reason: string } {
   }
 }
 
-function writeSettings(path: string, settings: Json): string | null {
+const LOCAL_SETTINGS_REL = '.claude/settings.local.json';
+
+/**
+ * Append `.claude/settings.local.json` to `<projectRoot>/.gitignore` when the
+ * root is inside a git work tree that does not already ignore that path.
+ */
+export function ensureLocalSettingsIgnored(projectRoot: string): { appended: boolean } {
+  const opts = { encoding: 'utf8' as const, timeout: 3000 };
+  const inTree = spawnSync('git', ['-C', projectRoot, 'rev-parse', '--is-inside-work-tree'], opts);
+  if (inTree.status !== 0 || (inTree.stdout ?? '').trim() !== 'true') return { appended: false };
+  const ignored = spawnSync('git', ['-C', projectRoot, 'check-ignore', '-q', LOCAL_SETTINGS_REL], opts);
+  if (ignored.status !== 1) return { appended: false };
+  const gitignore = join(projectRoot, '.gitignore');
+  try {
+    const current = existsSync(gitignore) ? readFileSync(gitignore, 'utf8') : '';
+    const lead = current.length > 0 && !current.endsWith('\n') ? '\n' : '';
+    appendFileSync(gitignore, `${lead}${LOCAL_SETTINGS_REL}\n`);
+  } catch (e) {
+    serverLog({ event: 'onboard_gitignore_skip', reason: (e as Error).message });
+    return { appended: false };
+  }
+  serverLog({ event: 'onboard_gitignore_appended', gitignore });
+  return { appended: true };
+}
+
+function writeSettings(path: string, settings: Json): { failure: string } | { gitignore_appended: boolean } {
+  const created = !existsSync(path);
   try {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, JSON.stringify(settings, null, 2) + '\n');
-    return null;
   } catch (e) {
-    return `settings.local.json write failed: ${(e as Error).message}`;
+    return { failure: `settings.local.json write failed: ${(e as Error).message}` };
   }
+  return { gitignore_appended: created && ensureLocalSettingsIgnored(dirname(dirname(path))).appended };
 }
 
 function projectUsable(projectRoot: string | null): projectRoot is string {
@@ -245,10 +277,10 @@ export function writeProjectSandbox(opts: {
   settings['sandbox'] = sandbox;
   settings['env'] = env;
 
-  const failure = writeSettings(path, settings);
-  if (failure) {
-    serverLog({ event: 'onboard_sandbox_skip', reason: failure });
-    return { written: false, reason: failure };
+  const write = writeSettings(path, settings);
+  if ('failure' in write) {
+    serverLog({ event: 'onboard_sandbox_skip', reason: write.failure });
+    return { written: false, reason: write.failure };
   }
   const record: SandboxRecord = {
     enabled_set: enabledSet,
@@ -266,6 +298,7 @@ export function writeProjectSandbox(opts: {
     env: wantedEnv,
     weaker_network_isolation: sandbox['enableWeakerNetworkIsolation'] === true,
     record,
+    gitignore_appended: write.gitignore_appended,
   };
 }
 
@@ -313,8 +346,8 @@ export function removeProjectSandbox(opts: {
     if (Object.keys(env).length === 0) delete settings['env'];
   }
 
-  const failure = writeSettings(path, settings);
-  if (failure) return { removed: false, reason: failure };
+  const write = writeSettings(path, settings);
+  if ('failure' in write) return { removed: false, reason: write.failure };
   serverLog({ event: 'onboard_sandbox_removed', settingsPath: path });
   return { removed: true, settings_path: path };
 }
