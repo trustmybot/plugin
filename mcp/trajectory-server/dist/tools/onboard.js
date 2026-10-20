@@ -22,7 +22,7 @@ import { SUBPROCESS_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS } from '../utils/timeouts.
 import { liveCliBlockReason } from '../utils/live-cli-guard.js';
 import { classifyUrl } from '../utils/classify-url.js';
 import { repoRowPath, resolveSoleRepoPath } from '../utils/repo-paths.js';
-import { remotesView, repoRemotes, upsertRepoRemotes } from '../repos/remotes.js';
+import { remotesView, repoRemotes, setRemoteSync, syncRemotes, upsertRepoRemotes, } from '../repos/remotes.js';
 import { TrajectoryDB } from '../db.js';
 import { requireRoles } from '../middleware/agent-scope.js';
 import { removeProjectEnforcementShim, writeProjectEnforcementShim, } from './onboard-hooks-shim.js';
@@ -480,6 +480,26 @@ const REMOTE_OPTIONS = [
     { label: 'GitLab', description: '', wire: 'gitlab' },
     { label: 'GitLab (CLI not installed)', description: '', wire: 'gitlab' },
 ];
+// The Remote answer as provider IDs: an array (the multiSelect answer) or a
+// legacy single string, each entry a wire value or a label.
+function parseRemoteAnswer(raw) {
+    const entries = Array.isArray(raw)
+        ? raw.filter((s) => typeof s === 'string')
+        : typeof raw === 'string'
+            ? [raw]
+            : [];
+    return entries.map((r) => {
+        const resolved = resolveOption(r, REMOTE_OPTIONS) ?? r;
+        if (resolved !== 'github' && resolved !== 'gitlab') {
+            throw new Error(`remote entries must be 'github' or 'gitlab' (got '${resolved}')`);
+        }
+        return resolved;
+    });
+}
+// Record the Remote choice on one repo; a warning for each chosen provider it has no remote for.
+function applyRemoteChoice(db, repo, providers) {
+    return setRemoteSync(db, repo, providers).map((p) => `no ${p} remote on repo "${repo}"; issues for it will not sync to ${HOST_NAMES[p]}`);
+}
 const ISSUE_SYNC_OPTIONS = [
     { label: 'Auto — sync to the remote you picked', description: '', wire: 'auto' },
     { label: 'Off — issues stay on this computer', description: '', wire: 'off' },
@@ -514,8 +534,8 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     },
                     round: {
                         type: 'string',
-                        enum: ['shape', 'main', 'sync', 'sandbox'],
-                        description: "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'sync' = Round 3 (remote shape only — issue_sync). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep).",
+                        enum: ['shape', 'main', 'remote', 'sync', 'sandbox'],
+                        description: "'shape' = Round 1 (project shape — Local-only vs Remote-tracked; probe-derived default_index). 'main' = Round 2 questions (branching, plus pr_target/remote on remote shape). 'remote' = the Remote question alone (remote shape only), asked once after the per-repo Round 2 loop. 'sync' = Round 3 (remote shape only — issue_sync). 'sandbox' = sandbox_enforcement (any shape; a fresh onboard defaults to Yes only on the platform where the recorded sandbox network probe passed and when no remote is SSH, else No; re-onboard defaults to Keep).",
                     },
                     repo: {
                         type: 'string',
@@ -554,7 +574,7 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     remote: {
                         type: 'array',
                         items: { type: 'string', enum: ['github', 'gitlab'] },
-                        description: 'Optional when shape=remote. Array of provider IDs (multiSelect AUQ answer). Single-element ["github"] or ["gitlab"], or ["github","gitlab"] for dual-host. Omitted or empty: each repo\'s GitHub/GitLab remotes are probed from its git tree, with a warning when none has one. Ignored on local.',
+                        description: 'The Remote answer when shape=remote: array of provider IDs (multiSelect AUQ answer). Single-element ["github"] or ["gitlab"], or ["github","gitlab"] for dual-host. Issue and milestone sync reach only the chosen providers: per repo, one remote of each (the primary when it has that provider) is marked sync and every other remote is not, with a warning for a chosen provider a repo has no remote for. With repo: recorded on that repo only. Omitted or empty: each repo\'s git remotes are still recorded and its sync choice is left as it is. Ignored on local.',
                     },
                     issue_sync: {
                         type: 'string',
@@ -573,7 +593,7 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     },
                     repo: {
                         type: 'string',
-                        description: "Optional. Scope the write to a single repos row: only that row's target_branch/branching_model/protected_branches are updated; other repos rows, remotes, issue_sync, and the onboarded marker are NOT touched. Must match an existing repos.name. Omit for the workspace-wide apply, which never changes a populated row's branching_model/target_branch/protected_branches.",
+                        description: "Optional. Scope the write to a single repos row: only that row's target_branch/branching_model/protected_branches are updated, plus its Remote choice when remote is passed on shape=remote; other repos rows, issue_sync, and the onboarded marker are NOT touched. Must match an existing repos.name. Omit for the workspace-wide apply, which never changes a populated row's branching_model/target_branch/protected_branches.",
                     },
                 },
             },
@@ -810,9 +830,9 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
             }
             // Per-repo path: branching + pr_target questions seeded from THAT repos
             // row, for either shape. Only valid on round='main'. Each Keep option
-            // appears only when that field holds a stored value; the remote
-            // provider (git-derived) and issue_sync (global, sync round) stay out
-            // of the per-repo path.
+            // appears only when that field holds a stored value; the Remote
+            // question (round='remote', asked once after the loop) and issue_sync
+            // (global, sync round) stay out of the per-repo path.
             if (repo !== undefined) {
                 if (round !== 'main') {
                     throw new Error(`repo param is only valid with round='main' (got '${round}')`);
@@ -850,6 +870,12 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     questions.push(remoteQuestion(gh.installed, glab.installed, remoteAdvice(git.origin_kind, scan)));
                 }
                 // shape=local + first-run yields questions=[] — skill skips AUQ Round 2.
+            }
+            else if (round === 'remote') {
+                if (shape !== 'remote') {
+                    throw new Error(`round='remote' only valid for shape='remote' (got '${String(shape)}')`);
+                }
+                questions.push(remoteQuestion(gh.installed, glab.installed, remoteAdvice(git.origin_kind, scanWorkspace(db))));
             }
             else if (round === 'sync') {
                 if (shape !== 'remote') {
@@ -901,9 +927,10 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                 throw new Error(`shape must be 'local' or 'remote' (got '${shape}')`);
             }
             // Per-repo path: write branching_model + derived protected_branches +
-            // target_branch to ONLY this repos row. Other repos rows, remotes,
-            // issue_sync, and the onboarded marker are untouched. Keep sentinels
-            // read from the repos row, not the global config.
+            // target_branch to ONLY this repos row, plus its Remote choice when
+            // `remote` is passed on shape=remote. Other repos rows, issue_sync,
+            // and the onboarded marker are untouched. Keep sentinels read from the
+            // repos row, not the global config.
             const repo = args['repo'];
             if (repo !== undefined) {
                 const repoRow = readRepoRow(db, repo);
@@ -946,14 +973,23 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     prTargetRepo = repoRow.target_branch ?? derivePrTargetDefault(branchingRepo);
                 }
                 const protectedRepo = deriveProtectedBranches(branchingRepo, prTargetRepo);
-                db.run(`UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`, [prTargetRepo, branchingRepo, JSON.stringify(protectedRepo), repo]);
+                const remoteRepo = shape === 'remote' ? parseRemoteAnswer(args['remote']) : [];
+                let repoWarnings = [];
+                db.transaction(() => {
+                    db.run(`UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`, [prTargetRepo, branchingRepo, JSON.stringify(protectedRepo), repo]);
+                    if (remoteRepo.length > 0)
+                        repoWarnings = applyRemoteChoice(db, repo, remoteRepo);
+                });
+                const repoWarning = repoWarnings.length > 0 ? repoWarnings.join('; ') : undefined;
                 return ok({
                     ok: true,
+                    ...(repoWarning ? { warning: repoWarning } : {}),
                     applied: {
                         repo,
                         branching_model: branchingRepo,
                         pr_target: prTargetRepo,
                         protected_branches: protectedRepo,
+                        ...(remoteRepo.length > 0 ? { remote: remoteRepo } : {}),
                     },
                 });
             }
@@ -989,31 +1025,10 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     pr_target = resolved ?? rawPrTarget;
                 }
             }
-            let remotes = [];
             let issue_sync = 'off';
-            let warning;
             let remoteList = [];
             if (shape === 'remote') {
-                const rawRemote = args['remote'];
-                // Accept array (canonical, post-multiSelect) or string (legacy/single).
-                if (Array.isArray(rawRemote)) {
-                    remoteList = rawRemote.filter((s) => typeof s === 'string');
-                }
-                else if (typeof rawRemote === 'string') {
-                    remoteList = [rawRemote];
-                }
-                // Resolve each entry — accept wire value or label.
-                remoteList = remoteList.map((r) => {
-                    const resolved = resolveOption(r, REMOTE_OPTIONS);
-                    if (resolved !== null)
-                        return resolved;
-                    return r;
-                });
-                for (const r of remoteList) {
-                    if (r !== 'github' && r !== 'gitlab') {
-                        throw new Error(`remote entries must be 'github' or 'gitlab' (got '${r}')`);
-                    }
-                }
+                remoteList = parseRemoteAnswer(args['remote']);
                 // Resolve issue_sync — accept wire value or label; Keep → use existing.
                 const rawSync = args['issue_sync'];
                 if (rawSync !== undefined) {
@@ -1032,38 +1047,9 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                     throw new Error(`issue_sync must be 'auto' or 'off' (got '${String(issue_sync)}')`);
                 }
             }
-            // Build the chosen-provider remotes from a given repo's own git tree;
-            // with no `remote` answer, every GitHub/GitLab remote that tree has.
-            // Stable order: github first, then gitlab. The first entry uses
-            // name='origin'; if both are present the second uses the provider name.
-            const remotesForPath = (path) => {
-                const detected = probeGit(path).detected_remotes;
-                const findUrl = (p) => detected.find((r) => r.provider === p)?.url ?? '';
-                const wanted = remoteList.length > 0 ? remoteList : ['github', 'gitlab'].filter((p) => findUrl(p).length > 0);
-                const out = [];
-                const wantedGh = wanted.includes('github');
-                const wantedGl = wanted.includes('gitlab');
-                if (wantedGh)
-                    out.push({ name: 'origin', provider: 'github', url: findUrl('github') });
-                if (wantedGl) {
-                    out.push({ name: wantedGh ? 'gitlab' : 'origin', provider: 'gitlab', url: findUrl('gitlab') });
-                }
-                return out;
-            };
-            // The `applied` payload reflects the managed (probe) repo's resolution
-            // for backward compatibility with the single-repo summary that callers
-            // already consume.
-            if (shape === 'remote') {
-                remotes = remotesForPath(probeDir());
-                // Defensive: if the origin remote's URL is still blank after the
-                // probe, issue-sync will silently skip (blank_remote_url). Surface a
-                // warning so the operator can fix the repo's git remote rather than
-                // discover the silent skip later (#675).
-                const origin = remotes.find((r) => r.name === 'origin');
-                if (origin && origin.url.length === 0) {
-                    warning = `remote URL not detected for ${origin.provider}; issues will not sync — check the repo's git remote`;
-                }
-            }
+            // The managed (probe) repo's real git remotes: the fallback for a repo
+            // whose own tree can't be probed, and the sandbox's known remote hosts.
+            const managedRemotes = shape === 'remote' ? probeGit(probeDir()).detected_remotes : [];
             const headless = resolveHeadless(args['headless_enforcement']);
             const headless_enforcement = headless.value;
             const rawSandbox = args['sandbox_enforcement'];
@@ -1091,7 +1077,8 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                 }
                 return { model: branching_model, target };
             };
-            let anyRemote = remotes.some((r) => r.url.length > 0);
+            let anyRemote = false;
+            const remoteWarnings = [];
             db.transaction(() => {
                 // Mark project as onboarded via plugin_config (#2876).
                 // The legacy `identity` table is dropped by the v1→v2 migration in db.ts on first boot after upgrade.
@@ -1101,16 +1088,20 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                 writeConfig(db, 'sandbox_enforcement', sandbox_enforcement);
                 // The repos table is the sole source of truth for the four repo-scoped
                 // keys (#980). Populated rows keep their per-repo policy; only NULL
-                // rows are seeded. Remotes are probed from each repo's own path so
-                // scan-captured per-repo remotes (#979) survive; a repo whose git
-                // tree can't be probed gets the managed repo's remotes.
+                // rows are seeded. Each repo's real git remotes are probed from its
+                // own path, the same set scan records (#979); a repo whose git tree
+                // can't be probed gets the managed repo's remotes. The Remote answer
+                // then marks which of them issue and milestone sync reach.
                 const rows = db.all(`SELECT name, path, branching_model FROM repos`);
                 for (const row of rows) {
                     let repoPath = row.path;
                     let inGit = false;
+                    let detected = [];
                     try {
                         repoPath = repoRowPath(db, row.path);
-                        inGit = probeGit(repoPath).in_git;
+                        const probe = probeGit(repoPath);
+                        inGit = probe.in_git;
+                        detected = probe.detected_remotes;
                     }
                     catch {
                         inGit = false;
@@ -1125,23 +1116,23 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                         }
                         db.run(`UPDATE repos SET target_branch = ?, branching_model = ?, protected_branches = ? WHERE name = ?`, [seed.target, seed.model, JSON.stringify(deriveProtectedBranches(seed.model, seed.target)), row.name]);
                     }
-                    let effRemotes = shape === 'remote' ? remotes : [];
-                    if (shape === 'remote' && inGit) {
-                        try {
-                            effRemotes = remotesForPath(repoPath);
-                        }
-                        catch {
-                            effRemotes = remotes;
-                        }
-                    }
-                    if (effRemotes.some((r) => r.url.length > 0))
+                    const effRemotes = shape === 'remote' ? (inGit ? detected : managedRemotes) : [];
+                    if (effRemotes.length > 0)
                         anyRemote = true;
                     upsertRepoRemotes(db, row.name, effRemotes);
+                    if (remoteList.length > 0)
+                        remoteWarnings.push(...applyRemoteChoice(db, row.name, remoteList));
                 }
             });
-            if (shape === 'remote' && !anyRemote && !warning) {
+            let warning;
+            if (shape === 'remote' && !anyRemote) {
                 warning = "no git remote detected on any repo; issues will not sync — check each repo's git remote";
             }
+            else if (remoteWarnings.length > 0) {
+                warning = remoteWarnings.join('; ');
+            }
+            const representative = db.get(`SELECT name FROM repos ORDER BY name LIMIT 1`);
+            const remotes = representative ? remotesView(syncRemotes(db, representative.name)) : [];
             const managed = readRepoPolicy(db);
             const appliedModel = managed.branching_model ?? branching_model ?? 'github-flow';
             const appliedTarget = managed.pr_target ?? pr_target ?? derivePrTargetDefault(appliedModel);
@@ -1158,7 +1149,7 @@ export function onboardTools(db, dbPath = '', shimEnv = {}) {
                 if (sandbox_enforcement === 'yes') {
                     const result = writeProjectSandbox({
                         projectRoot: sandboxProjectRoot(),
-                        remoteUrls: knownRemoteUrls(remotes.map((r) => r.url)),
+                        remoteUrls: knownRemoteUrls(managedRemotes.map((r) => r.url)),
                         toolCacheDir: join(dirname(dbPath), 'cache'),
                         platform: shimEnv.platform ?? process.platform,
                         previous: record,

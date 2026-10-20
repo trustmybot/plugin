@@ -12,7 +12,10 @@ export interface Remote {
   provider: RemoteProvider;
   url: string;
   is_primary: boolean;
+  sync: boolean;
 }
+
+export type SyncProvider = 'github' | 'gitlab';
 
 export interface RemoteInput {
   name: string;
@@ -87,28 +90,67 @@ export function parseLegacyRemotes(raw: string): LegacyRemotesParse {
   return { ok: true, entries: remotes, dropped };
 }
 
+type RemoteRow = { name: string; provider: RemoteProvider; url: string; is_primary: number; sync: number };
+
+function toRemote(r: RemoteRow): Remote {
+  return { name: r.name, provider: r.provider, url: r.url, is_primary: r.is_primary === 1, sync: r.sync === 1 };
+}
+
 // A repo's remotes, primary first, then in the order they were recorded.
 export function repoRemotes(db: TrajectoryDB, repo: string): Remote[] {
   return db
-    .all<{ name: string; provider: RemoteProvider; url: string; is_primary: number }>(
-      `SELECT name, provider, url, is_primary FROM repo_remotes WHERE repo = ? ORDER BY is_primary DESC, rowid`,
+    .all<RemoteRow>(
+      `SELECT name, provider, url, is_primary, sync FROM repo_remotes WHERE repo = ? ORDER BY is_primary DESC, rowid`,
       [repo],
     )
-    .map((r) => ({ name: r.name, provider: r.provider, url: r.url, is_primary: r.is_primary === 1 }));
+    .map(toRemote);
+}
+
+// The remotes issue and milestone sync reach: the sync = 1 rows, primary first.
+export function syncRemotes(db: TrajectoryDB, repo: string): Remote[] {
+  return db
+    .all<RemoteRow>(
+      `SELECT name, provider, url, is_primary, sync FROM repo_remotes WHERE repo = ? AND sync = 1 ORDER BY is_primary DESC, rowid`,
+      [repo],
+    )
+    .map(toRemote);
+}
+
+// Record the onboard Remote choice: one row per chosen provider gets sync = 1
+// (the primary when it has that provider, else that provider's first row) and
+// every other row of the repo sync = 0. Returns the chosen providers the repo
+// has no remote for. Runs inside the caller's transaction.
+export function setRemoteSync(db: TrajectoryDB, repo: string, providers: ReadonlyArray<SyncProvider>): SyncProvider[] {
+  const remotes = repoRemotes(db, repo);
+  const chosen = new Set<string>();
+  const missing: SyncProvider[] = [];
+  for (const provider of new Set(providers)) {
+    const pick = remotes.find((r) => r.provider === provider);
+    if (pick) chosen.add(pick.name);
+    else missing.push(provider);
+  }
+  db.run(
+    `UPDATE repo_remotes SET sync = CASE WHEN name IN (SELECT value FROM json_each(?)) THEN 1 ELSE 0 END WHERE repo = ?`,
+    [JSON.stringify([...chosen]), repo],
+  );
+  return missing;
 }
 
 export function primaryRemote(db: TrajectoryDB, repo: string): Remote | null {
   return repoRemotes(db, repo).find((r) => r.is_primary) ?? null;
 }
 
-// The {name, provider, url} list tool results expose for a repo's remotes.
-export function remotesView(remotes: ReadonlyArray<Remote>): Array<{ name: string; provider: RemoteProvider; url: string }> {
-  return remotes.map(({ name, provider, url }) => ({ name, provider, url }));
+// The {name, provider, url, sync} list tool results expose for a repo's remotes.
+export function remotesView(
+  remotes: ReadonlyArray<Remote>,
+): Array<{ name: string; provider: RemoteProvider; url: string; sync: boolean }> {
+  return remotes.map(({ name, provider, url, sync }) => ({ name, provider, url, sync }));
 }
 
 // Replace a repo's remote set with `remotes`: rows for names no longer present
-// go, the rest are upserted keeping their created_at, and the primary is
-// re-chosen. Runs inside the caller's transaction.
+// go, the rest are upserted keeping their created_at and sync, and the primary
+// is re-chosen. A new row starts at sync = is_primary. Runs inside the caller's
+// transaction.
 export function upsertRepoRemotes(db: TrajectoryDB, repo: string, remotes: ReadonlyArray<RemoteInput>): void {
   const unique: RemoteInput[] = [];
   const seen = new Set<string>();
@@ -124,9 +166,9 @@ export function upsertRepoRemotes(db: TrajectoryDB, repo: string, remotes: Reado
   );
   unique.forEach((r, i) => {
     db.run(
-      `INSERT INTO repo_remotes (repo, name, provider, url, is_primary) VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO repo_remotes (repo, name, provider, url, is_primary, sync) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(repo, name) DO UPDATE SET provider = excluded.provider, url = excluded.url, is_primary = excluded.is_primary`,
-      [repo, r.name, remoteProvider(r.url, r.provider), r.url, i === primary ? 1 : 0],
+      [repo, r.name, remoteProvider(r.url, r.provider), r.url, i === primary ? 1 : 0, i === primary ? 1 : 0],
     );
   });
 }

@@ -6,7 +6,7 @@ import { resolveBackend } from '../sync/backend.js';
 import { repoSlugFromRemoteUrl } from '../sync/issue_sync.js';
 import { closeRemoteMilestone, createRemoteMilestone, fetchRemoteMilestones, } from '../sync/milestone_sync.js';
 import { resolveRepoForSync } from '../utils/repo-paths.js';
-import { repoRemotes } from '../repos/remotes.js';
+import { syncRemotes } from '../repos/remotes.js';
 import { insertAudit } from './audit.js';
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -42,8 +42,8 @@ function auditMilestone(db, eventType, summary, content) {
 }
 // The remotes a repo's milestones may be read from / written to, under the same
 // gate as issue sync: plugin_config.issue_sync='off' or TMB_DISABLE_REMOTE_SYNC
-// yields `gated: false` and no remote is touched. Each target needs a configured
-// remote of its provider with a parseable slug.
+// yields `gated: false` and no remote is touched. Each target needs a sync = 1
+// remote of its provider (the onboard Remote choice) with a parseable slug.
 export function resolveMilestoneTargets(db, repoName, spawnFn) {
     const resolved = resolveRepoForSync(db, repoName);
     if (!resolved)
@@ -59,7 +59,7 @@ export function resolveMilestoneTargets(db, repoName, spawnFn) {
         }
     }
     const slugFor = (provider) => {
-        const entry = repoRemotes(db, resolved.name).find((r) => r.provider === provider);
+        const entry = syncRemotes(db, resolved.name).find((r) => r.provider === provider);
         return entry ? repoSlugFromRemoteUrl(entry.url) : null;
     };
     const ghSlug = slugFor('github');
@@ -78,6 +78,20 @@ export function resolveMilestoneTargets(db, repoName, spawnFn) {
 }
 function failureContent(f) {
     return { backend: f.backend, reason: f.reason, exit_code: f.exit_code, stderr: f.stderr, message: f.message };
+}
+const PROVIDER_LABEL = { gh: 'GitHub', glab: 'GitLab' };
+// A milestone the remote never had is nothing to close: `not_found` is skipped, not failed.
+function remoteCloseResult(target, result) {
+    const base = { backend: target.backend, slug: target.slug };
+    if (result.ok)
+        return { ...base, status: 'closed' };
+    const message = result.message ?? result.stderr;
+    return {
+        ...base,
+        status: result.reason === 'not_found' ? 'skipped' : 'failed',
+        reason: result.reason,
+        ...(message ? { message } : {}),
+    };
 }
 // Import a repo's remote milestones into `milestones`, carrying the remote state.
 // A milestone open on any remote stays open. Returns whether every remote read
@@ -312,31 +326,40 @@ export function milestoneTools(db) {
             db.run(`UPDATE milestones SET state = 'closed' WHERE name = ? AND repo = ?`, [name, repo]);
             const spawnFn = args['_spawnFn'];
             const gate = resolveMilestoneTargets(db, repo, spawnFn);
+            const remoteResults = [];
             const failures = [];
-            if (gate.gated) {
-                for (const target of gate.targets) {
-                    const closed = closeRemoteMilestone(target, name, spawnFn);
-                    if (!closed.ok)
-                        failures.push(failureContent(closed));
-                }
+            for (const target of gate.gated ? gate.targets : []) {
+                const closed = closeRemoteMilestone(target, name, spawnFn);
+                const result = remoteCloseResult(target, closed);
+                remoteResults.push(result);
+                if (result.status === 'failed' && !closed.ok)
+                    failures.push(closed);
             }
-            const remoteClosed = gate.gated && gate.targets.length > 0 && failures.length === 0;
+            const failed = remoteResults.filter((r) => r.status === 'failed');
+            const remoteClosed = gate.gated && remoteResults.length > 0 && failed.length === 0;
             const content = {
                 name,
                 repo,
                 forced: force && openIssues > 0,
                 open_issues: openIssues,
                 remote_closed: remoteClosed,
+                remote_results: remoteResults,
             };
-            if (failures.length > 0)
-                content['remote_failures'] = failures;
             auditMilestone(db, 'milestone_closed', `milestone ${name} closed for ${repo}`, content);
-            const payload = { name, repo, state: 'closed', open_issues: openIssues, remote_closed: remoteClosed };
-            if (failures.length > 0) {
+            const payload = {
+                name,
+                repo,
+                state: 'closed',
+                open_issues: openIssues,
+                remote_closed: remoteClosed,
+                remote_results: remoteResults,
+            };
+            if (failed.length > 0) {
+                const where = failed.map((r) => PROVIDER_LABEL[r.backend]).join(' and ');
                 payload['_sync'] = {
                     sync_failed: true,
-                    failures,
-                    hint: 'The local milestone is closed; close it on the remote manually.',
+                    failures: failures.map(failureContent),
+                    hint: `The local milestone is closed; close it on ${where} manually.`,
                 };
             }
             return ok(payload);

@@ -6,7 +6,7 @@ import { assertV36Shape } from './v36-shape.js';
 /** Every v37 DDL item (plus all of v29–v36), asserted identically on fresh and migrated DBs. */
 export function assertV37Shape(db: TrajectoryDB): void {
   const meta = db.get<{ schema_version: number }>('SELECT schema_version FROM plugin_meta LIMIT 1');
-  assert.equal(meta!.schema_version, 40, 'schema_version must be 40');
+  assert.equal(meta!.schema_version, 41, 'schema_version must be 41');
 
   assertV36Shape(db);
 

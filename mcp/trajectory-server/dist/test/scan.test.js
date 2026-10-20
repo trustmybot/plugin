@@ -8,7 +8,7 @@ import { pinScanEnv, runGraphScript, tempDB } from './helpers.js';
 import { TrajectoryDB } from '../db.js';
 import { scanTools, runScanWithScript, upsertDiscoveredCheatcode } from '../tools/scan.js';
 import { renameRepo } from '../tools/repos.js';
-import { remotesView, repoRemotes } from '../repos/remotes.js';
+import { remotesView, repoRemotes, setRemoteSync } from '../repos/remotes.js';
 // scan.sh never spawns `claude` here: pinScanEnv sets TMB_FORBID_LIVE_SYNC=1 and
 // points TRAJECTORY_DB_PATH at an empty DB (no cheatcodes table) so resource
 // discovery writes nowhere unless a test supplies its own DB; the plugin
@@ -284,7 +284,7 @@ describe('scan_run — per-repo git remotes into repo_remotes (#979)', () => {
             assert.ok(row, 'app repo row should exist');
             const remotes = row;
             assert.deepEqual(remotes, [
-                { name: 'origin', provider: 'github', url: 'git@github.com:acme/app.git' },
+                { name: 'origin', provider: 'github', url: 'git@github.com:acme/app.git', sync: true },
             ]);
             db.close();
         }
@@ -323,10 +323,10 @@ describe('scan_run — per-repo git remotes into repo_remotes (#979)', () => {
             const appRow = remotesView(repoRemotes(db, 'app'));
             const libRow = remotesView(repoRemotes(db, 'lib'));
             assert.deepEqual(appRow, [
-                { name: 'origin', provider: 'github', url: 'https://github.com/acme/app.git' },
+                { name: 'origin', provider: 'github', url: 'https://github.com/acme/app.git', sync: true },
             ]);
             assert.deepEqual(libRow, [
-                { name: 'origin', provider: 'gitlab', url: 'https://gitlab.com/acme/lib.git' },
+                { name: 'origin', provider: 'gitlab', url: 'https://gitlab.com/acme/lib.git', sync: true },
             ]);
             db.close();
         }
@@ -348,8 +348,35 @@ describe('scan_run — per-repo git remotes into repo_remotes (#979)', () => {
             await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
             const after = remotesView(repoRemotes(db, 'app'));
             assert.deepEqual(after, [
-                { name: 'origin', provider: 'github', url: 'https://github.com/acme/app.git' },
+                { name: 'origin', provider: 'github', url: 'https://github.com/acme/app.git', sync: true },
             ]);
+            db.close();
+        }
+        finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+    it('keeps the onboard Remote choice: a re-scan that updates or re-adds the unchosen gitlab remote leaves it unsynced (GH 1590)', async () => {
+        const ws = mkdtempSync(join(tmpdir(), 'scan-remotes-sync-'));
+        try {
+            const root = mkRepo(ws, 'app', { 'README.md': 'a\n' });
+            execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/acme/app.git'], { cwd: root });
+            execFileSync('git', ['remote', 'add', 'mirror', 'https://gitlab.com/acme/app.git'], { cwd: root });
+            const db = tempDB();
+            const tools = scanTools(db, null);
+            const syncOf = () => repoRemotes(db, 'app').map((r) => [r.name, r.sync]);
+            await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+            setRemoteSync(db, 'app', ['github']);
+            assert.deepEqual(syncOf(), [['origin', true], ['mirror', false]]);
+            execFileSync('git', ['remote', 'set-url', 'mirror', 'https://gitlab.com/acme/app-moved.git'], { cwd: root });
+            await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+            assert.deepEqual(syncOf(), [['origin', true], ['mirror', false]]);
+            assert.equal(repoRemotes(db, 'app')[1].url, 'https://gitlab.com/acme/app-moved.git');
+            execFileSync('git', ['remote', 'remove', 'mirror'], { cwd: root });
+            await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+            execFileSync('git', ['remote', 'add', 'mirror', 'https://gitlab.com/acme/app.git'], { cwd: root });
+            await call(tools.handlers, 'scan_run', { agent: 'bro', session_dir: ws });
+            assert.deepEqual(syncOf(), [['origin', true], ['mirror', false]]);
             db.close();
         }
         finally {

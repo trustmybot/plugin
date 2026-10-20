@@ -359,6 +359,10 @@ Schema enforces via `CHECK (source IN ('gate','manual'))`.
 
 `1` on the remote named `origin`, else on the first remote recorded; `0` on the rest. `CHECK (is_primary IN (0,1))`.
 
+### `repo_remotes.sync`
+
+`1` on the remotes issue and milestone sync reach — one per provider the Human chose at onboard; `0` on the rest. A new row starts at its `is_primary`; `scan_run` never changes it. `CHECK (sync IN (0,1))`.
+
 ---
 
 ## How to add a new ENUM value

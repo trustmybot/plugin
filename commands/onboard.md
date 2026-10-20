@@ -54,6 +54,8 @@ Branching model and PR target are per-repo. Enumerate repos with `repos_list(age
 - Name the repo in chat, quote that repo's own `evidence` lines and `recommended_reason`, then feed the returned branching + PR-target questions into `AskUserQuestion`.
 - Call `onboard_apply(agent='bro', shape=<shape>, repo=<name>, branching_model=<answer>, pr_target=<answer>)` — writes only that repo's row.
 
+After the loop, if `shape == 'remote'`, call `onboard_get_questions(agent='bro', shape='remote', round='remote')` and ask its Remote question once for the workspace.
+
 `shape` is required on each apply (the value resolved in Round 1). The per-repo questions run for either shape and are branching + PR target only.
 
 When the round returns no questions, skip its AUQ. The server puts the recommended option first and pre-selects it, keeps `Keep "<current>"` first on re-onboard, and disables unavailable CLI options.
@@ -70,7 +72,7 @@ Call `onboard_get_questions(agent='bro', round='sandbox')` and feed the returned
 
 Per-repo branching + PR target are already applied in Round 2 (one `onboard_apply(shape=<shape>, repo=<name>, ...)` per repo, each writing only that repo's row).
 
-The final apply is workspace-level: call `onboard_apply(agent='bro', shape=<shape>, ...)` with **no** `repo` to write `remote` (the Round 2 Remote answer; on the per-repo path omit `remote` and the server probes each repo's git remotes, warning when none has one), the global `issue_sync` answer, `sandbox_enforcement`, and the `onboarded` marker, plus `remove_stray_dbs` from Round 0 when the Human chose any. `shape` is required on every apply except the Round 0 ones (`standalone=true` alone, or `remove_stray_dbs` alone). Omit `branching_model` / `pr_target` on this call: it sets only these workspace answers, never changes a repo's Round 2 policy, and gives a repo that has none yet GitHub Flow and its default branch.
+The final apply is workspace-level: call `onboard_apply(agent='bro', shape=<shape>, ...)` with **no** `repo` to write `remote` (the Remote answer; always pass it on remote shape — issue and milestone sync reach only the chosen providers, and the server warns about a repo with no remote of a chosen one), the global `issue_sync` answer, `sandbox_enforcement`, and the `onboarded` marker, plus `remove_stray_dbs` from Round 0 when the Human chose any. `shape` is required on every apply except the Round 0 ones (`standalone=true` alone, or `remove_stray_dbs` alone). Omit `branching_model` / `pr_target` on this call: it sets only these workspace answers, never changes a repo's Round 2 policy, and gives a repo that has none yet GitHub Flow and its default branch.
 
 The server accepts both option wire values and their labels. Pass `Keep "<current>"` answers by omitting that field — the server treats omission as "no change". Each apply recomputes protected branches and wraps its writes in a transaction.
 
