@@ -1131,9 +1131,25 @@ _tmb_cmd_interp_writes() {
 # node callback; anything else makes the call `$()` (unresolvable), as does a
 # process function or module the program reaches some other way
 # (`f = subprocess.run`, getattr(os, …), __import__, a dynamic import) and a
-# string it evaluates (exec / eval, new Function). A chdir (os.chdir,
-# process.chdir, perl chdir, Dir.chdir) makes every process call and every
-# relative path the program writes unresolvable. A program a read only names (open(p),
+# string it evaluates (exec / eval, new Function). A python call that runs a
+# code string (cProfile / profile run / runctx, pdb run / runeval / runctx,
+# timeit timeit / repeat stmt and setup, compile) writes what that code
+# writes, scanned as the program's own (nested to depth 3), while every code
+# string is a plain literal, and is `$()` otherwise (a timeit lambda is no
+# code string, a bare name is `$()`; dump_stats(p) writes p, as does the
+# filename of cProfile / profile run / runctx). A profiler, tracer, debugger
+# or Timer object is always `$()`: any reference to trace.Trace /
+# cProfile.Profile / profile.Profile / pdb.Pdb / bdb.Bdb / timeit.Timer,
+# called, chained or not, since the object reaches its runner unseen
+# (Profile().run returns the profiler, type(t) is Timer); the module-level
+# functions are the way to use them. With a code-string runner, a write the scan
+# cannot resolve (fail-closed, below) adds `$()`, since the code can rebind
+# any variable. builtins / __builtins__ reached as a value, a .__self__, the
+# string literal 'builtins' or '__self__' itself (a computed key such as
+# sys.modules['built' + 'ins'] is not caught) and exec / eval / compile
+# referenced without a call or through an alias are `$()`. A chdir (os.chdir, process.chdir, perl chdir, Dir.chdir)
+# makes every process call and every relative path the program writes
+# unresolvable. A program a read only names (open(p),
 # json.load(open(p)), os.listdir(p), sys.path.insert(0, p)) adds nothing.
 # Fail-closed — every path-like string literal not only read (open(p) /
 # open(p, 'r'), readFileSync, read_text, perl '<') — when a write call's path
@@ -1150,11 +1166,12 @@ _tmb_cmd_interp_writes() {
 # `operands`, a program that writes but names no literal prints `-` so the
 # caller still judges its operands.
 _tmb_cmd_prog_writes() {
-  local lang="${1:-}" prog="${2:-}" q="['\"]" sp="[[:space:]]*" reads writes fn scan out="" fail=0 lit src="" cd=0 raw=""
-  scan=$(_tmb_cmd_prog_calls "$lang" "$prog")
+  local lang="${1:-}" prog="${2:-}" q="['\"]" sp="[[:space:]]*" reads writes fn scan out="" fail=0 lit src="" cd=0 raw="" run=0
+  scan=$(_tmb_cmd_prog_scan "$lang" "$prog")
   case $'\n'"$scan"$'\n' in *$'\n'A$'\n'*|*$'\n'F$'\n'*) fail=1 ;; esac
   case $'\n'"$scan"$'\n' in *$'\n'C$'\n'*) cd=1 ;; esac
-  fn="writeFileSync|appendFileSync|writeFile|appendFile|createWriteStream|mkdirSync|renameSync|rmSync|rmdirSync|unlinkSync|copyFileSync|cpSync|fs\.(mkdir|rename|rm|rmdir|unlink|copyFile|cp)|makedirs|rmtree|(File|IO)\.(bin)?write|os\.(remove|unlink|mkdir|rename|replace|rmdir)|shutil\.(copy|copyfile|copy2|copytree|move)"
+  case $'\n'"$scan"$'\n' in *$'\n'R$'\n'*) run=1 ;; esac
+  fn="writeFileSync|appendFileSync|writeFile|appendFile|createWriteStream|mkdirSync|renameSync|rmSync|rmdirSync|unlinkSync|copyFileSync|cpSync|fs\.(mkdir|rename|rm|rmdir|unlink|copyFile|cp)|makedirs|rmtree|dump_stats|(File|IO)\.(bin)?write|os\.(remove|unlink|mkdir|rename|replace|rmdir)|shutil\.(copy|copyfile|copy2|copytree|move)"
   case $'\n'"$scan"$'\n' in
     *$'\n'W$'\n'*) ;;
     *)
@@ -1178,10 +1195,25 @@ _tmb_cmd_prog_writes() {
     reads=$(printf '%s\n' "$prog" | grep -oE "open${sp}\(${sp}${q}[^'\"]+${q}${sp}(,${sp}${q}r[bt]?${q}${sp})?\)|(readFileSync|readFile|createReadStream|existsSync|statSync)${sp}\(${sp}${q}[^'\"]+${q}|Path${sp}\(${sp}${q}[^'\"]+${q}${sp}\)${sp}\.${sp}(read_text|read_bytes|exists)" | grep -oE "${q}[^'\"]+${q}" || true)
     writes=$(printf '%s\n' "$writes" | grep -oE "^[^'\"]*${q}[^'\"]+${q}" | grep -oE "${q}[^'\"]+${q}\$" || true)
     out="${out}$(_tmb_cmd_prog_literals "$src" "$reads" "$writes" "$raw")"
+    [ "$run" = 0 ] || out="${out}"$'\n'"\$()"
   fi
   [ "$cd" = 0 ] || out=$(printf '%s' "$out" | awk 'NF { print (/^[\/~$]/ ? "" : "$()/") $0 }')
   out=$(printf '%s' "$out" | awk 'NF && !seen[$0]++')
   if [ -n "$out" ]; then printf '%s\n' "$out"; elif [ "${3:-}" = "operands" ]; then printf -- '-\n'; fi
+}
+
+# _tmb_cmd_prog_scan <py|node|perl|ruby> <program> [depth]
+# _tmb_cmd_prog_calls' lines for <program>, each `R<TAB><code>` replaced by
+# `R` and the scan of <code> itself, nested to depth 3; deeper is `W` and `U`.
+_tmb_cmd_prog_scan() {
+  local depth="${3:-0}" line
+  if [ "$depth" -gt 3 ]; then printf 'W\nU\n'; return 0; fi
+  while IFS= read -r line; do
+    case "$line" in
+      R$'\t'*) printf 'R\n'; _tmb_cmd_prog_scan "$1" "$(printf '%s' "${line#R$'\t'}" | tr '\037' '\n')" $((depth + 1)) ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done < <(_tmb_cmd_prog_calls "$1" "${2:-}")
 }
 
 # _tmb_cmd_prog_calls <py|node|perl|ruby> <program>
@@ -1194,9 +1226,24 @@ _tmb_cmd_prog_writes() {
 # \037) and `W` when every part it is judged on is a plain literal (an
 # allowlist per argument and option key: see keyrole / slotstart), else `W`
 # and `U`; so does a process function or module referenced some way the scan
-# cannot resolve, and an exec / eval of a string. `C` for a chdir. Import
-# aliases (import subprocess as sp, from subprocess / os import f as g, node
-# require / import of child_process) resolve to the module's own names.
+# cannot resolve, and an exec / eval of a string. A python code-string runner
+# (see _tmb_cmd_prog_writes; a method on an unknown receiver is none) prints
+# `R<TAB><code>` (the program's imports, then the code, newlines as \037) for
+# each code-string argument when all are plain string literals (a timeit
+# lambda is none; a bare name is not a literal) and no code string aliases a
+# module the scan tracks, else `W` and `U`; so does any reference to a runner
+# class, trace.Trace / cProfile.Profile / profile.Profile / pdb.Pdb /
+# bdb.Bdb / timeit.Timer, or its attributes, under any import alias (called,
+# chained or not); a runner or exec / eval / compile referenced without a call or
+# through an alias, builtins / __builtins__ or an imported runner module used
+# as a value or through a dunder attribute, a string literal exactly
+# 'builtins' / '__builtins__' / '__self__' (not a computed one) or a
+# .__self__ attribute, and an __import__ / import_module of builtins or a
+# runner module. The filename of cProfile / profile run (2nd) / runctx (4th)
+# and dump_stats are write paths. `C` for a chdir. Import
+# aliases (import subprocess as sp, from subprocess / os / builtins / runner
+# modules import f as g, node require / import of child_process) resolve to
+# the module's own names.
 # `Q<TAB><quoted literal>` for each string literal outside the data a write
 # call writes. `A` when the program does not parse (an unterminated string,
 # unbalanced brackets).
@@ -1208,10 +1255,10 @@ _tmb_cmd_prog_calls() {
       if (k == "L") alit[t] = v; else aoth[t] = 1
     }
     function oth() { if (d > 0) aoth[fid[d]] = 1 }
-    function resetarg(t) { atok[t] = 0; aoth[t] = 0; alit[t] = ""; akw[t] = "" }
+    function resetarg(t) { atok[t] = 0; aoth[t] = 0; alit[t] = ""; akw[t] = ""; acode[t] = ""; alam[t] = 0 }
     function opn(type, cl, name, rk, rv) {
       d++; fid[d] = ++nf; ftype[d] = type; fclose[d] = cl
-      fname[nf] = name; frecv[nf] = rk; frecvv[nf] = rv; np[nf] = 0
+      fname[nf] = name; frecv[nf] = rk; frecvv[nf] = rv; np[nf] = 0; frun[nf] = ""; fout[nf] = 0
       resetarg(nf)
       fcs[nf] = (type == "group") ? 0 : contentstart(name, rk)
       isopt[d] = 0
@@ -1343,16 +1390,54 @@ _tmb_cmd_prog_calls() {
       bt(v, (lang == "perl") ? (o != q1 && v ~ /[$@]/) : (index(v, "#{") > 0))
       tok("E", "")
     }
-    function canon(nm,   f, r) {
+    function canon(nm,   f, r, g) {
       if (nm in fal) return fal[nm]
       if (!match(nm, /^[A-Za-z_$][A-Za-z0-9_$]*/)) return nm
       f = substr(nm, 1, RLENGTH); r = substr(nm, RLENGTH + 1)
       if (f in mal) return mal[f] r
+      if (lang == "py" && (f in fal) && fal[f] ~ clsre) return fal[f] r
+      if (lang == "py" && r != "") for (g in star) if ((g "." f) ~ clsre) return g "." f r
       if (lang == "py" && r == "") {
         if (("subprocess" in star) && nm ~ /^(run|call|check_call|check_output|Popen|getoutput|getstatusoutput)$/) return "subprocess." nm
         if (("os" in star) && (nm ~ procos || nm ~ /^f?chdir$/)) return "os." nm
+        for (f in star) if ((f "." nm) ~ runre || (f "." nm) ~ clsre) return f "." nm
       }
       return nm
+    }
+    function unesc(v,   o, i, ch) {
+      o = ""
+      while ((i = index(v, "\\")) > 0) {
+        ch = substr(v, i + 1, 1)
+        if (ch == "n") ch = "\n"; else if (ch == "t") ch = "\t"; else if (ch == "\n") ch = ""
+        else if (ch != "\\" && ch != q1 && ch != "\"") return "\001"
+        o = o substr(v, 1, i - 1) ch; v = substr(v, i + 2)
+      }
+      return o v
+    }
+    function pyref(cn, ch, k, st,   b, m) {
+      if (ch == "=" && substr(s, k + 1, 1) != "=") return
+      b = cn; sub(/^(builtins|__builtins__)[.]/, "", b)
+      m = cn; sub(/[.].*$/, "", m)
+      if ((cn ~ /^(builtins|__builtins__)$/ || cn ~ /(^|[.])__self__([.]|$)/ || cn ~ clsre || cn ~ /^(builtins|__builtins__)[.]__/ || ((m in impd) && (cn == m || cn ~ /^[^.]+[.]__/)) || (b ~ /^(exec|eval|compile)([.]|$)/ && (ch != "(" || b ~ /[.]/)) || (cn ~ runre && ch != "(")) && !inimport(st)) unres()
+    }
+    function runner(cn) {
+      if (cn ~ runre) return (cn ~ /^timeit[.]/) ? "t" : "c"
+      if (cn ~ /^((builtins|__builtins__)[.])?compile$/) return "c"
+      return ""
+    }
+    function runcode(k, v, lam, kind) {
+      if (kind == "t" && lam) return
+      if (k != "L" || v == "\001" || v ~ aliasre) rbad = 1; else rc[++nrc] = v
+    }
+    function runjudge(t, kind,   i, n, a, j, p, v) {
+      rbad = 0; nrc = 0
+      for (i = 1; i <= np[t] && i <= (kind == "t" ? 2 : 1); i++) runcode(pk[t, i], pcd[t, i], plam[t, i], kind)
+      n = split("statement cmd expression expr stmt setup source", a, " ")
+      for (j = 1; j <= n; j++) if ((t, a[j]) in kk) runcode(kk[t, a[j]], kcd[t, a[j]], klam[t, a[j]], kind)
+      if (rbad) { unres(); return }
+      p = ""
+      for (j = 1; j <= nimp; j++) p = p substr(s, ims[j], ime[j] - ims[j]) "\n"
+      for (j = 1; j <= nrc; j++) { v = p rc[j]; gsub(/\n/, "\037", v); print "R\t" v }
     }
     function procref(cn) {
       splitname(cn)
@@ -1368,12 +1453,14 @@ _tmb_cmd_prog_calls() {
       sub(/^[\n; \t]+/, "", m)
       if (m ~ /^from/) {
         mod = m; sub(/^from[ \t]+/, "", mod); sub(/[ \t].*$/, "", mod)
-        if (mod != "subprocess" && mod != "os") return
+        if (mod !~ pymods && m !~ /[^A-Za-z0-9_]compile([^A-Za-z0-9_]|$)/) return
         x = m; sub(/^from[ \t]+[^ \t]+[ \t]+import[ \t]*/, "", x); gsub(/[()\\\n]/, " ", x)
         n = split(x, a, ",")
         for (j = 1; j <= n; j++) {
           nm = trim(a[j]); al = nm
           if (nm ~ /[ \t]as[ \t]/) { sub(/^.*[ \t]as[ \t]+/, "", al); sub(/[ \t].*$/, "", nm) }
+          if (mod !~ pymods) { if (al == "compile") fal[al] = mod "." nm; continue }
+          if (mod == "builtins" && nm ~ /^(exec|eval|compile)$/ && al != nm) unres()
           if (nm == "*") star[mod] = 1; else if (nm != "") fal[al] = mod "." nm
         }
         return
@@ -1381,10 +1468,10 @@ _tmb_cmd_prog_calls() {
       x = m; sub(/^import[ \t]+/, "", x)
       n = split(x, a, ",")
       for (j = 1; j <= n; j++) {
-        nm = trim(a[j])
-        if (nm !~ /[ \t]as[ \t]/) continue
-        al = nm; sub(/^.*[ \t]as[ \t]+/, "", al); sub(/[ \t].*$/, "", nm)
-        if (nm == "subprocess" || nm == "os") mal[al] = nm
+        nm = trim(a[j]); al = nm
+        if (nm ~ /[ \t]as[ \t]/) { sub(/^.*[ \t]as[ \t]+/, "", al); sub(/[ \t].*$/, "", nm) }
+        if (nm ~ pymods && nm !~ /^(subprocess|os|builtins)$/) impd[nm] = 1
+        if (al != nm && nm ~ pymods) mal[al] = nm
       }
     }
     function nodeimport(m,   x, n, a, j, nm, al) {
@@ -1442,8 +1529,8 @@ _tmb_cmd_prog_calls() {
     function endarg(t,   k) {
       if (atok[t] == 0 && !aoth[t] && akw[t] == "") return
       k = (atok[t] == 1 && !aoth[t]) ? "L" : "E"
-      if (akw[t] != "") { kk[t, akw[t]] = k; kv[t, akw[t]] = alit[t] }
-      else { np[t]++; pk[t, np[t]] = k; pv[t, np[t]] = alit[t] }
+      if (akw[t] != "") { kk[t, akw[t]] = k; kv[t, akw[t]] = alit[t]; kcd[t, akw[t]] = acode[t]; klam[t, akw[t]] = alam[t] }
+      else { np[t]++; pk[t, np[t]] = k; pv[t, np[t]] = alit[t]; pcd[t, np[t]] = acode[t]; plam[t, np[t]] = alam[t] }
       resetarg(t)
     }
     function endone(   t, ty) {
@@ -1457,6 +1544,8 @@ _tmb_cmd_prog_calls() {
         if (ty == "call" && fname[t] ~ /(^|\.)(Path|PurePath|PosixPath|WindowsPath)$/) {
           lastk = (np[t] == 1 && pk[t, 1] == "L") ? "P" : "PE"; lastv = pv[t, 1]
         }
+        if (frun[t] != "") runjudge(t, frun[t])
+        if (fout[t] && (np[t] >= fout[t] || (t, "filename") in kk)) arg(t, fout[t], "filename")
       }
       tok("E", "")
     }
@@ -1544,7 +1633,7 @@ _tmb_cmd_prog_calls() {
         arg(t, 1, "file")
         return
       }
-      if (last ~ /^(writeFileSync|appendFileSync|writeFile|appendFile|createWriteStream|mkdirSync|rmSync|rmdirSync|unlinkSync|truncateSync|makedirs|removedirs|rmtree|mkdtemp|mkdtempSync|mkfifo|mkpath|make_path|remove_tree|mkdir_p|rm_rf|rm_r|rm_f)$/) { arg(t, 1, "path name file"); return }
+      if (last ~ /^(writeFileSync|appendFileSync|writeFile|appendFile|createWriteStream|mkdirSync|rmSync|rmdirSync|unlinkSync|truncateSync|makedirs|removedirs|rmtree|mkdtemp|mkdtempSync|mkfifo|mkpath|make_path|remove_tree|mkdir_p|rm_rf|rm_r|rm_f|dump_stats)$/) { arg(t, 1, "path name file"); return }
       if ((last == "write" || last == "binwrite") && pre ~ /(^|[.:])(File|IO)$/) { arg(t, 1, ""); return }
       if (last == "write_text" || last == "write_bytes") { hit("E", ""); return }
       if (last ~ /^(mkdir|rmdir|unlink|rm|touch)$/ || (last == "remove" && pre ~ /(^|\.)os$/) || (last == "delete" && pre ~ /(^|[.:])File$/)) { arg(t, 1, "path name"); return }
@@ -1567,15 +1656,17 @@ _tmb_cmd_prog_calls() {
       if (lang == "perl" && (qc == "\"" || qc == "`") && v ~ /[$@]/) interp = 1
       if (lang == "ruby" && (qc == "\"" || qc == "`") && index(v, "#{")) interp = 1
       if (lang == "node" && qc == "`" && index(v, "${")) interp = 1
-      if (lang == "py" && d > 0 && fname[fid[d]] ~ /(^|[.])(__import__|import_module)$/ && v ~ /^(os|subprocess)$/) unres()
+      if (lang == "py" && d > 0 && fname[fid[d]] ~ /(^|[.])(__import__|import_module)$/ && v ~ pymods) unres()
+      if (lang == "py" && (v ~ /^(__builtins__|builtins|__self__)$/)) unres()
       if (!incontent()) { qv = v; gsub(/\n/, " ", qv); print "Q\t" qc qv qc }
       tok(interp ? "E" : "L", v)
+      if (lang == "py" && d > 0 && !interp) acode[fid[d]] = (pfx ~ /[rR]/) ? v : unesc(v)
       ip = j; pc = 0
       if (qc == "`" && (lang == "perl" || lang == "ruby")) bt(v, interp)
       else if (spx && role[d] == "key") skey(v)
       else satom(interp ? "I" : "S", v)
     }
-    function name(rk, rv, pfx,   j, n, ch, nm, k, t, st, cn) {
+    function name(rk, rv, pfx,   j, n, ch, nm, k, t, st, cn, rn) {
       n = length(s); j = ip + 1; st = ip
       while (j <= n) {
         ch = substr(s, j, 1)
@@ -1592,9 +1683,15 @@ _tmb_cmd_prog_calls() {
       if (lang == "perl" && nm == "qx" && ch != "" && index("()[]{}<>/|!~^%+@:-\"" q1, ch)) { qlike(k); return }
       cn = (lang == "py") ? canon(nm) : nm
       if (lang ~ /^(py|node)$/ && !inimport(st) && procref(canon(nm)) && !(ch == "(" && isproc(canon(nm)))) unres()
-      if ((lang == "py" && ch == "(" && nm ~ /^(builtins[.])?(exec|eval)$/) || (lang == "node" && ((nm == "eval" && ch == "(") || nm == "Function")) || (lang == "perl" && nm == "eval" && ch != "{") || (lang == "ruby" && nm == "eval")) unres()
+      if (lang == "py") pyref(cn, ch, k, st)
+      if ((lang == "py" && ch == "(" && cn ~ /^((builtins|__builtins__)[.])?(exec|eval)$/) || (lang == "node" && ((nm == "eval" && ch == "(") || nm == "Function")) || (lang == "perl" && nm == "eval" && ch != "{") || (lang == "ruby" && nm == "eval")) unres()
       if ((lang == "py" && cn ~ /^os[.]f?chdir$/) || (lang == "node" && nm == "process.chdir") || (lang == "perl" && nm == "chdir") || (lang == "ruby" && nm ~ /^(Dir[.]chdir|FileUtils[.](cd|chdir))$/)) print "C"
-      if (ch == "(") { opn("call", ")", nm, rk, rv); ip = k + 1; return }
+      if (ch == "(") {
+        rn = (lang == "py") ? runner(cn) : ""
+        opn("call", ")", nm, rk, rv); frun[nf] = rn
+        if (lang == "py") fout[nf] = (cn ~ /^(cProfile|profile)[.]run$/) ? 2 : ((cn ~ /^(cProfile|profile)[.]runctx$/) ? 4 : 0)
+        ip = k + 1; return
+      }
       if (ch == "=" && substr(s, k + 1, 1) != "=" && d > 0 && ftype[d] == "call" && nm ~ /^[A-Za-z_][A-Za-z0-9_]*$/) {
         t = fid[d]
         if (atok[t] == 0 && !aoth[t] && akw[t] == "") {
@@ -1616,6 +1713,7 @@ _tmb_cmd_prog_calls() {
         else if (lang == "py" && cn ~ /^(os[.](environ|P_[A-Z]+)|subprocess[.](PIPE|STDOUT|DEVNULL))$/) satom("K", cn)
         else spbad = 1
       }
+      if (lang == "py" && nm == "lambda" && d > 0 && atok[fid[d]] == 0 && !aoth[fid[d]]) alam[fid[d]] = 1
       tok("E", "")
     }
     { s = s (NR > 1 ? "\n" : "") $0 }
@@ -1623,6 +1721,10 @@ _tmb_cmd_prog_calls() {
       q1 = sprintf("%c", 39); n = length(s); ip = 1; d = 0; pc = 0; anom = 0
       spx = 0; nimp = 0
       procos = "^(system|popen|exec[lv]p?e?|spawn[lv]p?e?|posix_spawnp?)$"
+      pymods = "^(subprocess|os|builtins|cProfile|profile|pdb|trace|timeit|bdb)$"
+      runre = "^((cProfile|profile)[.](run|runctx)|pdb[.](run|runeval|runctx)|timeit[.](timeit|repeat))$"
+      clsre = "^(trace[.]Trace|(cProfile|profile)[.]Profile|pdb[.]Pdb|bdb[.]Bdb|timeit[.]Timer)([.]|$)"
+      aliasre = "from[ \t]+(subprocess|os|builtins|cProfile|profile|pdb|trace|timeit|bdb)[ \t]+import|import([ \t][^\n;]*)?[ \t,](subprocess|os|builtins|cProfile|profile|pdb|trace|timeit|bdb)[ \t]+as[ \t]"
       prescan()
       while (ip <= n && !anom) {
         c = substr(s, ip, 1)

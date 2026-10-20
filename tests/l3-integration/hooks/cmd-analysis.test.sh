@@ -668,6 +668,92 @@ assert_eq "/etc/x" "$(wpaths "$(heredoc 'python3 -' "$(printf '%s\n' "p = '/etc/
 assert_eq "/w/o.txt" "$(wpaths "$(heredoc 'node -' "require('fs').writeFileSync('o.txt', \"$CONTENT\")")" /w)" "node writeFileSync data"
 assert_eq "/etc,/x" "$(wpaths "$(heredoc 'python3 -' "d = '/etc'; open(d + '/x', 'w').write('hi')")" /w)" "a computed path still fails closed"
 
+test_case "tmb_cmd_write_paths: code-string runners and dynamic builtins (GH 1569)"
+assert_contains "$(pyw 'import cProfile' "cProfile.run('p = \"/etc/evil\"')" "open(p, 'w')")" "$U" "a code string can rebind a variable write path"
+assert_contains "$(pyw 'import cProfile' "cProfile.run('open(\"/etc/evil\", \"w\")')" "open('out.txt', 'w')")" "/etc/evil" "a write inside the code string"
+assert_eq "/etc/evil" "$(pyw 'import cProfile' "cProfile.run('import os\\nos.system(\"rm -rf /etc/evil\")')")" "a process call inside the code string"
+assert_eq "$U/a.txt" "$(pyw 'import cProfile' "cProfile.run('import os; os.chdir(\"..\")')" "open('a.txt', 'w')")" "a chdir inside the code string"
+assert_eq "$U" "$(pyw 'import trace' "trace.Trace(count=0, trace=0).run('open(\"/etc/evil\", \"w\")')")" "trace.Trace().run chained on the constructor"
+assert_eq "$U" "$(pyw 'import timeit' "timeit.Timer('x = 1', setup='open(\"/etc/evil\", \"w\")')")" "a literal timeit.Timer"
+assert_eq "/etc/evil" "$(pyw 'import timeit' "timeit.timeit('x = 1', setup='open(\"/etc/evil\", \"w\")')")" "timeit setup="
+assert_eq "/etc/evil" "$(pyw 'from timeit import timeit' "timeit('open(\"/etc/evil\", \"w\")')")" "from timeit import timeit"
+assert_eq "/etc/evil" "$(pyw 'import cProfile as cp' "cp.run('open(\"/etc/evil\", \"w\")')")" "import cProfile as cp"
+assert_eq "/etc/evil" "$(pyw 'from cProfile import run' "run('open(\"/etc/evil\", \"w\")')")" "from cProfile import run"
+assert_eq "/etc/evil" "$(pyw 'import subprocess as q, pdb' "pdb.run(\"q.run(['rm', '-rf', '/etc/evil'])\")")" "the program's import aliases hold inside the code string"
+for prog in 'import timeit|timeit.timeit(s)' "import timeit|timeit.timeit(stmt='x = 1', setup=s)" "import cProfile|cProfile.run('p=%r' % '/etc/evil')" \
+  "compile(s, 'f', 'exec')" 'from timeit import timeit|timeit(s)' 'import cProfile as cp|cp.run(s)' 'import trace|t = trace.Trace()|t.run(s)' \
+  "import cProfile|cProfile.run('\\x6fpen(\"/etc/evil\", \"w\")')" "import cProfile|cProfile.run('import subprocess as q')|q.run(['rm', '-rf', '..'])" \
+  'import cProfile|f = cProfile.run' "import builtins|getattr(builtins, 'ex' + 'ec')(s)" 'getattr(__builtins__, name)(s)' \
+  "import builtins|vars(builtins)['exec'](s)" "import builtins|builtins.__dict__['exec'](s)" "globals()['__builtins__']['exec'](s)" \
+  "__import__('builtins')" 'e = exec|e(s)' 'from builtins import exec as e|e(s)' 'import builtins as b|b.exec(s)'; do
+  IFS='|' read -r -a lines <<< "$prog"
+  assert_eq "$U" "$(pyw "${lines[@]}")" "unresolvable: $prog"
+done
+pyq() { printf "'%s'" "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e "s/'/\\\\'/g")"; }
+deep="open('/etc/evil', 'w')"
+for _ in 1 2 3; do deep="compile($(pyq "$deep"), 'f', 'exec')"; done
+assert_eq "/etc/evil" "$(pyw "$deep")" "code strings nest to depth 3"
+deep="compile($(pyq "$deep"), 'f', 'exec')"
+assert_eq "$U" "$(pyw "$deep")" "deeper is unresolvable"
+assert_eq "" "$(pyw 'import cProfile' "cProfile.run('sum(range(9))')")" "benign cProfile.run"
+assert_eq "" "$(pyw 'import timeit' "timeit.timeit('sum(range(9))', number=10)")" "benign timeit.timeit"
+assert_eq "" "$(pyw 'import timeit' 'timeit.timeit(lambda: 1)')" "a timeit lambda is not a code string"
+assert_eq "" "$(pyw 'import timeit' 'def f(): pass' 'timeit.timeit(lambda: f(), number=10)')" "a timeit lambda calling a defined function"
+assert_eq "/w/wt/out.txt" "$(pyw 'import cProfile' "cProfile.run('main()')" "open('out.txt', 'w')")" "cProfile.run beside a literal write"
+assert_eq "" "$(pyw 'import timeit' "timeit.repeat('sum(range(9))', repeat=3, number=10)")" "benign timeit.repeat"
+assert_eq "" "$(pyw 'import pdb' "pdb.run('sum(range(9))')")" "benign pdb.run"
+for prog in "import cProfile, sys|s = sys.argv[1]|cProfile.Profile().run('pass').run(s)" \
+  "import cProfile|cProfile.Profile().run('pass').run('o' + 'pen(\"/et\" + \"c/x\", \"w\")')" \
+  "import cProfile, sys|pr = cProfile.Profile().run('pass')|pr.runctx(sys.argv[1], globals(), None)" \
+  "import profile, sys|s = sys.argv[1]|profile.Profile().run('pass').run(s)" \
+  "import profile, sys|pr = profile.Profile().run('pass')|pr.runctx(sys.argv[1], globals(), None)" \
+  "import cProfile|cProfile.Profile().run('pass')" "import pdb|pdb.Pdb().run('pass')" "import bdb|bdb.Bdb().run('pass')" \
+  "import timeit, sys|t = timeit.Timer('pass'); type(t)(sys.argv[1]).timeit(1)" "import timeit|type(timeit.Timer('pass'))(s).timeit()" \
+  "import timeit|t = timeit.Timer('pass'); t.__class__(s)" "from timeit import Timer as T|T('pass').timeit()" "from timeit import *|Timer('pass')"; do
+  IFS='|' read -r -a lines <<< "$prog"
+  assert_eq "$U" "$(pyw "${lines[@]}")" "a runner object is unresolvable: $prog"
+done
+assert_eq "" "$(pyw 'import re' "re.compile(r'x')")" "re.compile is not a runner"
+assert_eq "" "$(pyw 'import builtins' 'builtins.print(1)')" "builtins.<other name>"
+assert_eq "$U" "$(pyw 'import cProfile' 'with cProfile.Profile() as pr:' '    sum(range(9))' 'pr.print_stats()')" "with cProfile.Profile() as pr: no unchained constructor is exempt"
+assert_eq "$U" "$(pyw 'import cProfile' 'pr = cProfile.Profile(); pr.enable(); sum(range(9)); pr.disable()')" "Profile enable / disable"
+assert_eq "$U" "$(pyw 'import timeit' 'def f(): pass' 'timeit.timeit(f, number=10)')" "a timeit function the program defines is a bare name"
+assert_eq "$U" "$(pyw 'import timeit' 'timeit.timeit(f, number=10)')" "a timeit name the program does not define"
+assert_eq "$U" "$(pyw 'import cProfile' 'pr = cProfile.Profile(); pr.run(s)')" "an unchained constructor beside a .run call"
+assert_eq "$U" "$(pyw 'import cProfile' 'pr = cProfile.Profile()' "getattr(pr, 'run')(code)")" "an unchained constructor beside getattr"
+assert_eq "$U" "$(pyw 'import cProfile' 'pr = cProfile.Profile()' 'm = pr.run' 'm(code)')" "an unchained constructor beside a .run reference"
+assert_eq "$U" "$(pyw 'import cProfile, inspect' 'pr = cProfile.Profile()' "inspect.getattr_static(pr, 'run')(pr, code)")" "an unchained constructor beside inspect.getattr_static"
+assert_eq "$U" "$(pyw 'import cProfile, inspect' 'pr = cProfile.Profile()' "dict(inspect.getmembers(pr))['run'](code)")" "an unchained constructor beside inspect.getmembers"
+assert_eq "$U" "$(pyw 'import cProfile' 'pr = cProfile.Profile()' '(pr.' ' run)(code)')" "a .run split across lines in parens"
+assert_eq "$U" "$(pyw 'import cProfile' 'pr = cProfile.Profile()' 'pr.\' 'run(code)')" "a .run split by a backslash continuation"
+assert_eq "$U" "$(pyw 'import cProfile, inspect' "dict(inspect.getmembers(cProfile.Profile()))['run'](code)")" "a constructor not bound to a name"
+assert_eq "$U" "$(pyw 'import cProfile' 'pr = cProfile.Profile()' 'pr.enable()' 'print(pr)')" "a bound constructor passed to print"
+assert_contains "$(pyw 'import cProfile' "cProfile.run('sum(range(9))', '/etc/evil')")" "/etc/evil" "cProfile.run filename"
+assert_eq "/w/wt/out.prof" "$(pyw 'import cProfile' "cProfile.run('main()', 'out.prof')")" "cProfile.run filename relative"
+assert_contains "$(pyw 'import profile' "profile.run('main()', filename='/etc/evil')")" "/etc/evil" "profile.run filename="
+assert_contains "$(pyw 'import cProfile' "cProfile.runctx('main()', {}, {}, '/etc/evil')")" "/etc/evil" "cProfile.runctx 4th positional filename"
+assert_contains "$(pyw 'import cProfile' "cProfile.run('main()', fn)")" "$U" "a non-literal cProfile.run filename"
+for imp in 'import cProfile|cProfile.Profile' 'from cProfile import Profile|Profile' 'from cProfile import Profile as P|P' 'import cProfile as c|c.Profile'; do
+  assert_contains "$(pyw "${imp%%|*}" "p = 'out.txt'" "${imp#*|}.runctx(o, 'p = \"/etc/evil\"', globals(), None)" "open(p, 'w')")" "$U" "a runner method reached through the class: ${imp%%|*}"
+done
+assert_eq "$U" "$(pyw 'import pdb' 'pdb.Pdb.run(o, s)')" "pdb.Pdb.run through the class"
+assert_eq "$U" "$(pyw 'import timeit' 'timeit.Timer.timeit(o)')" "timeit.Timer.timeit through the class"
+assert_eq "$U" "$(pyw 'import cProfile' 'f = cProfile.Profile.run')" "a class method referenced without a call"
+assert_contains "$(pyw 'import cProfile' 'pr = cProfile.Profile()' "globals()['p' + 'r'].run('p = \"/etc/evil\"')" "open(p, 'w')")" "$U" "a bound constructor beside globals()"
+assert_contains "$(pyw 'import cProfile, sys' 'pr = cProfile.Profile()' "getattr(sys, 'mod' + 'ules')['__ma' + 'in__'].pr.run('p = \"/etc/evil\"')" "open(p, 'w')")" "$U" "a bound constructor reached through a computed sys.modules"
+assert_contains "$(pyw 'import cProfile, sys' 'pr = cProfile.Profile()' "getattr(getattr(sys, 'mod' + 'ules')['__ma' + 'in__'], 'p' + 'r').run('p = \"/etc/evil\"')" "open(p, 'w')")" "$U" "a bound constructor reached by a computed getattr name"
+assert_eq "$U" "$(pyw 'import cProfile' 'def main(): pass' 'if __name__ == "__main__":' '    with cProfile.Profile() as pr:' '        main()' '    pr.print_stats()')" "a with-bound profiler under the __main__ guard"
+assert_eq "$U" "$(pyw 'import sys' "sys.modules.get('builtins')")" "sys.modules.get('builtins')"
+assert_eq "$U" "$(pyw 'import sys' "b = sys.modules['builtins']")" "sys.modules['builtins']"
+assert_eq "$U" "$(pyw "getattr(len.__self__, 'ex' + 'ec')(s)")" ".__self__ of a builtin"
+assert_eq "$U" "$(pyw 'import timeit' 'def f(): pass' "f = 'open(p, \"w\")'" 'timeit.timeit(f)')" "a timeit name rebound after its def"
+assert_eq "$U" "$(pyw 'import timeit' 'def f(): pass' "for f in ['x = 1']:" '    timeit.timeit(f)')" "a timeit name bound by for"
+assert_eq "$U" "$(pyw 'import timeit' "def d(fn): return 'open(p, \"w\")'" '@d' 'def f(): pass' 'timeit.timeit(f)')" "a decorated timeit function"
+assert_eq "$U" "$(pyw 'import timeit' 'def f(): pass' 'f()' 'timeit.timeit(f)' 'timeit.repeat(f)')" "a defined timeit function called and timed twice"
+assert_contains "$(pyw 'import cProfile' 'pr = cProfile.Profile()' "pr.dump_stats('/etc/evil')")" "/etc/evil" "dump_stats writes its path"
+assert_contains "$(pyw 'import cProfile' "open('out.txt', 'w')" 'pr = cProfile.Profile()' "pr.dump_stats('/etc/evil')")" "/etc/evil" "dump_stats beside a literal write"
+assert_eq "$U,/w/wt/out.prof" "$(pyw 'import cProfile' 'pr = cProfile.Profile()' "pr.dump_stats('out.prof')")" "dump_stats of a relative path"
+
 test_case "tmb_agent_role reads identity only"
 assert_eq "swe" "$(tmb_agent_role '{"agent_type":"tmb:swe","cwd":"/r"}')" "prefixed agent_type"
 assert_eq "bro" "$(tmb_agent_role '{"cwd":"/r/.claude/worktrees/x"}')" "no agent_type is the main thread, whatever the cwd"
