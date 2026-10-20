@@ -1,0 +1,2 @@
+### Added
+- **Dev-channel builds carry their own version** (GH 1604): every dev-channel install reported the stable version, so `/plugin update` never picked up new dev commits and nobody could tell which build they ran. Each push to `dev` is now stamped `X.Y.Z-dev.<n>.gh<PR>` (e.g. `1.2.0-dev.1.gh1594`) and published on the `dev-build` branch that `tmb@trustmybot-dev` serves; `n` orders builds and `gh<PR>` names the PR that produced it. CONTRIBUTING documents the dev channel and how to switch to it.

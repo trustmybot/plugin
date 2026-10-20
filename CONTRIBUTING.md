@@ -52,7 +52,30 @@ Direct commits to `dev` and `main` are blocked by `scripts/hooks/git-guards.sh` 
 |---|---|---|
 | `main` | stable tip; version tags live here | `tmb@trustmybot` (catalog `trustmybot/marketplace`) |
 | `rc` | fast-forwarded to the `vX.Y.Z-rc.N` tag under validation | `tmb@trustmybot-rc` (catalog `trustmybot/marketplace-rc`) |
-| `dev` | integration trunk; all PRs land here first | — (not published) |
+| `dev` | integration trunk; all PRs land here first | `tmb@trustmybot-dev` (catalog `trustmybot/marketplace-dev`, ref `dev-build`) |
+| `dev-build` | CI-stamped copy of `dev` ([Dev builds](#dev-builds)); never edited by hand | served to `tmb@trustmybot-dev` |
+
+### Dev builds
+
+Every push to `dev` runs `.github/workflows/dev-build.yml`, which stamps the manifests with a version of the form `X.Y.Z-dev.<n>.gh<PR>` (e.g. `1.2.0-dev.7.gh1594`) and force-pushes the result to `dev-build`:
+
+- `X.Y.Z` is the release `dev` is heading for: the lowest open `vX.Y.Z` milestone above the latest stable release (the highest stable `vX.Y.Z` tag), else that release with the minor bumped. It must be above the latest release; the build fails otherwise.
+- `<n>` counts the commits merged to `dev` since the latest stable release (first-parent commits on `dev` not yet in that release; rc tags don't count), so it grows by one per merged PR and resets after each release. `n` orders builds.
+- `gh<PR>` names the PR whose merge produced the build. It is a label only; it says nothing about order. A direct dispatch with no PR omits it.
+
+**Is a fix in my build?** Find the build that shipped the fix's PR (its `gh<PR>` label, or the dev-build commit `Built from <sha>`), and compare `n`: your build has the fix when its `n` is ≥ that build's `n` (same `X.Y.Z`).
+
+**Dev channel or rc?** Use the dev channel to try merged work as it lands; it is unvalidated beyond the per-PR checks. Cut an rc (Release, Phase B) when you have a candidate you intend to ship — only an rc goes through the release gate.
+
+**Switching to the dev channel:**
+
+```
+/plugin marketplace add trustmybot/marketplace-dev
+/plugin disable tmb@trustmybot
+/plugin install tmb@trustmybot-dev
+```
+
+Then restart Claude Code. Keep only one TMB copy enabled — two enabled copies silently drop one copy's hooks ([UPGRADE.md — Two enabled TMB copies](docs/reference/UPGRADE.md#two-enabled-tmb-copies--gates-silently-missing)).
 
 ### Branching & merging
 
@@ -70,6 +93,8 @@ Direct commits to `dev` and `main` are blocked by `scripts/hooks/git-guards.sh` 
 
 `.github/workflows/release-gate.yml` is **not** wired to dev pushes or PRs — it runs only on:
 - **rc tags (`vX.Y.Z-rc.N`) + manual dispatch** → L1–L4 **+ L6 chain** (`tests/l5-l6/run-l6-chain.sh`) **+ L0 docker install-smoke**. Stable tags do not fire the gate; the stable cut consumes the promoted rc's verdict.
+
+`.github/workflows/dev-build.yml` runs on every push to `dev` (and on dispatch from `dev`): it stamps the dev-build version and force-pushes to the `dev-build` branch ([Dev builds](#dev-builds)). It publishes; it is not a gate.
 
 Per-PR validation to `dev` is the **local L0–L4 sweep (`tests/run-all.sh`) + pr-reviewer** — there is no automatic PR-CI on `dev`. CI-affecting changes additionally run a `workflow_dispatch` release-gate on the feature branch before merge (rule 6 above).
 

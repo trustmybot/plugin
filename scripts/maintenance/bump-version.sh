@@ -6,9 +6,12 @@
 #
 # Usage:
 #   bash scripts/maintenance/bump-version.sh [--dry-run] [--date YYYY-MM-DD] <new-version>
+#   bash scripts/maintenance/bump-version.sh --version-only <new-version>
 #
-#   --dry-run   print the CHANGELOG section the release would get; change nothing
-#   --date      release date in the section header (default: today, UTC)
+#   --dry-run       print the CHANGELOG section the release would get; change nothing
+#   --date          release date in the section header (default: today, UTC)
+#   --version-only  update files 1-5 only; CHANGELOG.md and changelog.d/ are left
+#                   alone, fragments are not validated (CI dev builds)
 #
 # Operates on the checkout holding this script, whatever the cwd.
 #
@@ -32,20 +35,26 @@
 set -euo pipefail
 
 DRY_RUN=0
+VERSION_ONLY=0
 RELEASE_DATE=""
 NEW_VERSION=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY_RUN=1; shift ;;
+    --version-only) VERSION_ONLY=1; shift ;;
     --date) RELEASE_DATE="${2:-}"; shift 2 || { echo "Error: --date needs a value" >&2; exit 1; } ;;
-    -*) echo "Usage: $0 [--dry-run] [--date YYYY-MM-DD] <new-version>" >&2; exit 1 ;;
-    *) [ -z "$NEW_VERSION" ] || { echo "Usage: $0 [--dry-run] [--date YYYY-MM-DD] <new-version>" >&2; exit 1; }
+    -*) echo "Usage: $0 [--dry-run] [--date YYYY-MM-DD] [--version-only] <new-version>" >&2; exit 1 ;;
+    *) [ -z "$NEW_VERSION" ] || { echo "Usage: $0 [--dry-run] [--date YYYY-MM-DD] [--version-only] <new-version>" >&2; exit 1; }
        NEW_VERSION="$1"; shift ;;
   esac
 done
 
 if [ -z "$NEW_VERSION" ]; then
-  echo "Usage: $0 [--dry-run] [--date YYYY-MM-DD] <new-version>" >&2
+  echo "Usage: $0 [--dry-run] [--date YYYY-MM-DD] [--version-only] <new-version>" >&2
+  exit 1
+fi
+if [ "$VERSION_ONLY" -eq 1 ] && { [ "$DRY_RUN" -eq 1 ] || [ -n "$RELEASE_DATE" ]; }; then
+  echo "Error: --version-only takes no --dry-run or --date" >&2
   exit 1
 fi
 
@@ -73,95 +82,97 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 # ---- CHANGELOG assembly ------------------------------------------------------
 
 FRAGMENTS=()
-while IFS= read -r f; do FRAGMENTS+=("$f"); done < <(tmb_fragment_list changelog.d)
-
-malformed=0
-for f in ${FRAGMENTS[@]+"${FRAGMENTS[@]}"}; do
-  tmb_fragment_validate "$f" >&2 || malformed=1
-done
-if [ "$malformed" -ne 0 ]; then
-  echo "Error: malformed changelog.d/ fragment(s) above — fix them (changelog.d/README.md); nothing was changed" >&2
-  exit 1
-fi
-
-[ -f CHANGELOG.md ] || { echo "Error: missing CHANGELOG.md" >&2; exit 1; }
-
-# Split the Unreleased block into a preamble and one file per section heading.
-SEC_DIR="$TMP_DIR/sections"
-mkdir -p "$SEC_DIR"
-: > "$SEC_DIR/.order"
-: > "$SEC_DIR/.preamble"
-awk -v dir="$SEC_DIR" '
-  /^## / { inblock = ($0 ~ /^## Unreleased[[:space:]]*$/); next }
-  !inblock { next }
-  /^### / {
-    name = substr($0, 5); sub(/[[:space:]]+$/, "", name)
-    out = dir "/" name ".unreleased"
-    if (!(name in seen)) { seen[name] = 1; print name >> (dir "/.order") }
-    next
-  }
-  { print >> (out == "" ? dir "/.preamble" : out) }
-' CHANGELOG.md
-
-for f in ${FRAGMENTS[@]+"${FRAGMENTS[@]}"}; do
-  tmb_fragment_body "$f" >> "$SEC_DIR/$(tmb_fragment_section "$f").fragments"
-done
-
-trim_blank() {
-  awk 'NF { started = 1 } started { lines[++n] = $0 }
-       END { while (n > 0 && lines[n] ~ /^[[:space:]]*$/) n--; for (i = 1; i <= n; i++) print lines[i] }' "$@"
-}
-
-ORDER="$TMP_DIR/order"
-for s in $TMB_FRAGMENT_SECTIONS; do printf '%s\n' "$s"; done > "$ORDER"
-while IFS= read -r s; do
-  grep -qxF -- "$s" "$ORDER" || printf '%s\n' "$s" >> "$ORDER"
-done < "$SEC_DIR/.order"
-
-BLOCK_BODY="$TMP_DIR/block-body"
-: > "$BLOCK_BODY"
-preamble="$(trim_blank "$SEC_DIR/.preamble")"
-[ -z "$preamble" ] || printf '%s\n\n' "$preamble" >> "$BLOCK_BODY"
-while IFS= read -r s; do
-  entries=""
-  [ -f "$SEC_DIR/$s.unreleased" ] && entries="$(trim_blank "$SEC_DIR/$s.unreleased")"
-  if [ -f "$SEC_DIR/$s.fragments" ]; then
-    frag="$(cat "$SEC_DIR/$s.fragments")"
-    entries="${entries:+$entries
-}$frag"
-  fi
-  [ -n "$entries" ] || continue
-  printf '### %s\n%s\n\n' "$s" "$entries" >> "$BLOCK_BODY"
-done < "$ORDER"
-
-BLOCK="$TMP_DIR/block"
 HAVE_CHANGELOG_WORK=0
-if [ -s "$BLOCK_BODY" ]; then
-  HAVE_CHANGELOG_WORK=1
-  { printf '## v%s — %s\n\n' "$NEW_VERSION" "$RELEASE_DATE"; cat "$BLOCK_BODY"; } > "$BLOCK"
-fi
+if [ "$VERSION_ONLY" -eq 0 ]; then
+  while IFS= read -r f; do FRAGMENTS+=("$f"); done < <(tmb_fragment_list changelog.d)
 
-if [ "$DRY_RUN" -eq 1 ]; then
-  if [ "$HAVE_CHANGELOG_WORK" -eq 1 ]; then
-    cat "$BLOCK"
-  else
-    echo "Nothing to assemble: no changelog.d/ fragments and no Unreleased entries." >&2
-  fi
-  exit 0
-fi
-
-if [ "$HAVE_CHANGELOG_WORK" -eq 1 ]; then
-  if grep -q "^## v${NEW_VERSION} " CHANGELOG.md; then
-    echo "Error: CHANGELOG.md already has a '## v${NEW_VERSION}' section; refusing to add a second one" >&2
+  malformed=0
+  for f in ${FRAGMENTS[@]+"${FRAGMENTS[@]}"}; do
+    tmb_fragment_validate "$f" >&2 || malformed=1
+  done
+  if [ "$malformed" -ne 0 ]; then
+    echo "Error: malformed changelog.d/ fragment(s) above — fix them (changelog.d/README.md); nothing was changed" >&2
     exit 1
   fi
-  awk -v block="$BLOCK" '
-    function emit() { while ((getline l < block) > 0) print l; close(block); done = 1 }
-    /^## Unreleased[[:space:]]*$/ && !done { emit(); skip = 1; next }
-    /^## / { skip = 0; if (!done) emit() }
-    !skip { print }
-    END { if (!done) { print ""; emit() } }
-  ' CHANGELOG.md > "$TMP_DIR/CHANGELOG.md"
+
+  [ -f CHANGELOG.md ] || { echo "Error: missing CHANGELOG.md" >&2; exit 1; }
+
+  # Split the Unreleased block into a preamble and one file per section heading.
+  SEC_DIR="$TMP_DIR/sections"
+  mkdir -p "$SEC_DIR"
+  : > "$SEC_DIR/.order"
+  : > "$SEC_DIR/.preamble"
+  awk -v dir="$SEC_DIR" '
+    /^## / { inblock = ($0 ~ /^## Unreleased[[:space:]]*$/); next }
+    !inblock { next }
+    /^### / {
+      name = substr($0, 5); sub(/[[:space:]]+$/, "", name)
+      out = dir "/" name ".unreleased"
+      if (!(name in seen)) { seen[name] = 1; print name >> (dir "/.order") }
+      next
+    }
+    { print >> (out == "" ? dir "/.preamble" : out) }
+  ' CHANGELOG.md
+
+  for f in ${FRAGMENTS[@]+"${FRAGMENTS[@]}"}; do
+    tmb_fragment_body "$f" >> "$SEC_DIR/$(tmb_fragment_section "$f").fragments"
+  done
+
+  trim_blank() {
+    awk 'NF { started = 1 } started { lines[++n] = $0 }
+         END { while (n > 0 && lines[n] ~ /^[[:space:]]*$/) n--; for (i = 1; i <= n; i++) print lines[i] }' "$@"
+  }
+
+  ORDER="$TMP_DIR/order"
+  for s in $TMB_FRAGMENT_SECTIONS; do printf '%s\n' "$s"; done > "$ORDER"
+  while IFS= read -r s; do
+    grep -qxF -- "$s" "$ORDER" || printf '%s\n' "$s" >> "$ORDER"
+  done < "$SEC_DIR/.order"
+
+  BLOCK_BODY="$TMP_DIR/block-body"
+  : > "$BLOCK_BODY"
+  preamble="$(trim_blank "$SEC_DIR/.preamble")"
+  [ -z "$preamble" ] || printf '%s\n\n' "$preamble" >> "$BLOCK_BODY"
+  while IFS= read -r s; do
+    entries=""
+    [ -f "$SEC_DIR/$s.unreleased" ] && entries="$(trim_blank "$SEC_DIR/$s.unreleased")"
+    if [ -f "$SEC_DIR/$s.fragments" ]; then
+      frag="$(cat "$SEC_DIR/$s.fragments")"
+      entries="${entries:+$entries
+}$frag"
+    fi
+    [ -n "$entries" ] || continue
+    printf '### %s\n%s\n\n' "$s" "$entries" >> "$BLOCK_BODY"
+  done < "$ORDER"
+
+  BLOCK="$TMP_DIR/block"
+  if [ -s "$BLOCK_BODY" ]; then
+    HAVE_CHANGELOG_WORK=1
+    { printf '## v%s — %s\n\n' "$NEW_VERSION" "$RELEASE_DATE"; cat "$BLOCK_BODY"; } > "$BLOCK"
+  fi
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    if [ "$HAVE_CHANGELOG_WORK" -eq 1 ]; then
+      cat "$BLOCK"
+    else
+      echo "Nothing to assemble: no changelog.d/ fragments and no Unreleased entries." >&2
+    fi
+    exit 0
+  fi
+
+  if [ "$HAVE_CHANGELOG_WORK" -eq 1 ]; then
+    if grep -q "^## v${NEW_VERSION} " CHANGELOG.md; then
+      echo "Error: CHANGELOG.md already has a '## v${NEW_VERSION}' section; refusing to add a second one" >&2
+      exit 1
+    fi
+    awk -v block="$BLOCK" '
+      function emit() { while ((getline l < block) > 0) print l; close(block); done = 1 }
+      /^## Unreleased[[:space:]]*$/ && !done { emit(); skip = 1; next }
+      /^## / { skip = 0; if (!done) emit() }
+      !skip { print }
+      END { if (!done) { print ""; emit() } }
+    ' CHANGELOG.md > "$TMP_DIR/CHANGELOG.md"
+  fi
 fi
 
 # ---- manifests ---------------------------------------------------------------
