@@ -10,11 +10,13 @@ Bro orchestrates an AskUserQuestion ceremony in 3-5 rounds — Round 0 runs only
 
 ## 1. Read state (one MCP call)
 
-Call `onboard_state_get(agent='bro')`. Returns `{ first_run, current, probe, nesting }`. The server re-probes internally on each call, so bro never feeds the probe back — read `state.probe` only to spot a shape/remote conflict in Round 1, and `state.nesting` for Round 0.
+Call `onboard_state_get(agent='bro')`. Returns `{ first_run, current, probe, nesting, scan }`. The server re-probes internally on each call, so bro never feeds the probe back — read `state.probe` only to spot a shape/remote conflict in Round 1, `state.nesting` for Round 0, and `state.scan` for Round 2. `scan` is the offline pre-onboard scan of every registered repo: `scan.summary` (`repo_count`, `hosts`, `with_dev_branch`, `main_only`, `uniform`) and one `scan.repos[]` entry per repo with its evidence and recommendation.
 
 ## 2. Ask the questions
 
 Run the AskUserQuestion ceremony in up to five rounds.
+
+Every question from `onboard_get_questions` carries `evidence` (short facts from the scan) and `recommended_reason` (why the option marked `recommended: true` comes first, or `null` when the evidence picks none). Before each AskUserQuestion, write that round's `evidence` lines in chat as a short list, each line once, then each question's `recommended_reason` as one sentence. They stay in chat prose: feed the option labels and descriptions to AskUserQuestion exactly as the server built them. The Human confirms what the scan found instead of guessing.
 
 ### Round 0 — Which project (only when nested)
 
@@ -28,7 +30,7 @@ Otherwise explain in chat first: this session opened in `session_dir`, but the T
 
 ### Round 1 — Project shape
 
-Call `onboard_get_questions(agent='bro', round='shape')`. Feed the returned questions into `AskUserQuestion`. When a round returns no questions, skip its AUQ.
+Call `onboard_get_questions(agent='bro', round='shape')`. Open the round with the scan summary sentence — the question's first `evidence` line, built from `state.scan.summary` ("Found N git repositories under this folder; …") — and its `recommended_reason`, then feed the returned questions into `AskUserQuestion`. When a round returns no questions, skip its AUQ.
 
 Store the answer as `shape` ∈ `{local, remote}`.
 
@@ -40,21 +42,21 @@ Only when the user picks `Local-only` but `state.probe.origin_kind` showed `gith
 
 Re-render Round 1 once. Trust the user's second answer.
 
-### Round 2 — Branching + PR target (per repo)
+### Round 2 — Branching + PR target
 
 Branching model and PR target are per-repo. Enumerate repos with `repos_list(agent='bro')`.
 
-**One repo** — single pass. Call `onboard_get_questions(agent='bro', shape=<shape>, round='main')`, feed into `AskUserQuestion`, no per-repo framing.
+**Once** — when there is one repo or `state.scan.summary.uniform` is true (every repo points the same way). Call `onboard_get_questions(agent='bro', shape=<shape>, round='main')`, show its evidence lines and reasons, and feed the questions into `AskUserQuestion`. Then call `onboard_apply(agent='bro', shape=<shape>, repo=<name>, branching_model=<answer>, pr_target=<answer>)` once per repo with the same answers.
 
-**Multiple repos** — loop. For each repo `<name>`:
+**Per repo** — otherwise. For each repo `<name>`:
 
 - Call `onboard_get_questions(agent='bro', shape=<shape>, round='main', repo=<name>)`.
-- Feed the returned branching + PR-target questions into `AskUserQuestion`, framed for `<name>`.
-- Call `onboard_apply(agent='bro', shape=<shape>, repo=<name>, branching_model=<answer>, pr_target=<answer>)` — writes only that repo's row. `shape` is required (the value resolved in Round 1).
+- Name the repo in chat, quote that repo's own `evidence` lines and `recommended_reason`, then feed the returned branching + PR-target questions into `AskUserQuestion`.
+- Call `onboard_apply(agent='bro', shape=<shape>, repo=<name>, branching_model=<answer>, pr_target=<answer>)` — writes only that repo's row.
 
-The remote/provider is git-derived (scan), not asked per repo — Round 2 asks only branching + PR target.
+`shape` is required on each apply (the value resolved in Round 1). The per-repo questions are branching + PR target only; the remote provider comes from the scan (`state.scan.summary.hosts`).
 
-When the round returns no questions, skip its AUQ. The server pre-selects the right option, supplies the correct `Keep "<current>"` options on re-onboard, and disables unavailable CLI options.
+When the round returns no questions, skip its AUQ. The server puts the recommended option first and pre-selects it, keeps `Keep "<current>"` first on re-onboard, and disables unavailable CLI options.
 
 ### Round 3 — Issue sync (remote shape only)
 
@@ -68,7 +70,7 @@ Call `onboard_get_questions(agent='bro', round='sandbox')` and feed the returned
 
 Per-repo branching + PR target are already applied in Round 2 (one `onboard_apply(shape=<shape>, repo=<name>, ...)` per repo, each writing only that repo's row).
 
-The final apply is workspace-level: call `onboard_apply(agent='bro', shape=<shape>, ...)` with **no** `repo` to write the global `issue_sync` answer, `sandbox_enforcement`, and the `onboarded` marker, plus `remove_stray_dbs` from Round 0 when the Human chose any. `shape` is required on every apply except the Round 0 ones (`standalone=true` alone, or `remove_stray_dbs` alone). Omit `branching_model` / `pr_target` on this call so it sets only these workspace answers and leaves per-repo policy intact.
+The final apply is workspace-level: call `onboard_apply(agent='bro', shape=<shape>, ...)` with **no** `repo` to write `remote` (the Round 2 Remote answer, or the GitHub/GitLab entries of `state.scan.summary.hosts` on the per-repo path), the global `issue_sync` answer, `sandbox_enforcement`, and the `onboarded` marker, plus `remove_stray_dbs` from Round 0 when the Human chose any. `shape` is required on every apply except the Round 0 ones (`standalone=true` alone, or `remove_stray_dbs` alone). Omit `branching_model` / `pr_target` on this call so it sets only these workspace answers and leaves per-repo policy intact.
 
 The server accepts both option wire values and their labels. Pass `Keep "<current>"` answers by omitting that field — the server treats omission as "no change". Each apply recomputes protected branches and wraps its writes in a transaction.
 
