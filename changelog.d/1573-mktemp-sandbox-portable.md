@@ -1,2 +1,0 @@
-### Fixed
-- **The local test suite now runs under the macOS Bash sandbox** (GH 1573): tests and scripts called bare `mktemp -d` / `mktemp -t`, which BSD `mktemp` places outside `TMPDIR` where the sandbox denies writes, so lints like `hooks-doc-fresh.sh` failed with `Operation not permitted`. Every call now passes an explicit template under `$TMPDIR` with its trailing slash stripped, the new `no-bare-mktemp.sh` lint keeps it that way, and `INSTALL.md` documents sandbox support per OS (macOS supported, Linux not yet validated, Windows through WSL 2 only).
