@@ -69,10 +69,12 @@ Every push to `dev` runs `.github/workflows/dev-build.yml`, which stamps the man
 
 **Switching to the dev channel:**
 
+From the project root, at local scope ([INSTALL.md — Recommended scope](docs/reference/INSTALL.md#recommended-scope-project-or-local)):
+
 ```
-/plugin marketplace add trustmybot/marketplace-dev
-/plugin disable tmb@trustmybot
-/plugin install tmb@trustmybot-dev
+claude plugin marketplace add trustmybot/marketplace-dev --scope local
+claude plugin disable tmb@trustmybot --scope local
+claude plugin install tmb@trustmybot-dev --scope local
 ```
 
 Then restart Claude Code. Keep only one TMB copy enabled — two enabled copies silently drop one copy's hooks ([UPGRADE.md — Two enabled TMB copies](docs/reference/UPGRADE.md#two-enabled-tmb-copies--gates-silently-missing)).
@@ -81,7 +83,7 @@ Then restart Claude Code. Keep only one TMB copy enabled — two enabled copies 
 
 ```
 claude plugin marketplace update trustmybot-dev
-claude plugin update tmb@trustmybot-dev
+claude plugin update tmb@trustmybot-dev --scope local
 ```
 
 Then restart Claude Code. Each dev build comments its version and these commands on the PR that produced it.

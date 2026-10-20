@@ -1,14 +1,26 @@
 # Installing TMB
 
-## Recommended scope: project
+## Recommended scope: project or local
 
-TMB keeps all of its state inside the project it runs in, so install it per project:
+TMB keeps all of its state inside the project it runs in, so install it per project, at one of two scopes:
+
+- **project** — a team install, shared through the project's `.claude/settings.json`.
+- **local** — a personal install, kept in `.claude/settings.local.json`. Use this for the dev and rc channels.
+
+**User scope is not recommended.** TMB still writes nothing outside the project, but a user-scope install loads TMB's hooks into every project you open, and SessionStart recommends `--scope project` once per session.
+
+`claude plugin install` defaults to user scope and `claude plugin update` picks one on its own, so always pass `--scope`. Run these from the project root, with `<s>` set to `project` or `local`:
 
 ```bash
-claude plugin install tmb@trustmybot --scope project
+claude plugin marketplace add trustmybot/marketplace --scope <s>
+claude plugin install tmb@trustmybot --scope <s>
+claude plugin update tmb@trustmybot --scope <s>
+claude plugin marketplace update trustmybot   # no scope flag
 ```
 
-Inside Claude Code, `/plugin install tmb@trustmybot` asks for the scope; pick **project**. A user-scope install also works — TMB still writes nothing outside the project — but it loads TMB's hooks into every project you open, and SessionStart recommends `--scope project` once per session.
+For another channel, swap in its marketplace: `trustmybot/marketplace-rc` with `tmb@trustmybot-rc`, or `trustmybot/marketplace-dev` with `tmb@trustmybot-dev`.
+
+Inside Claude Code, `/plugin install` asks for the scope; pick **project** or **local**.
 
 Installing at both scopes is safe. Each project uses exactly one install: its own project (or local) install when there is one, else the user-scope install; with two project installs the newest wins. Every hook registration runs through `scripts/hooks/dispatch.sh`, which executes that install's gate once per event however many registrations fire, so a user-scope or stale install never runs a second copy of a gate or an older version of it. SessionStart says once per session when a user-scope install is ignored in favour of the project's. See [`../architecture/CONTAINMENT.md`](../architecture/CONTAINMENT.md).
 

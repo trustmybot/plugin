@@ -46,7 +46,7 @@ After CC reports the plugin updated, **fully quit Claude Code and relaunch it** 
 
 If the SessionStart "newer plugin version … restart to apply" banner is showing, this is the step that clears it.
 
-`/plugin marketplace update trustmybot` forces CC to re-check the marketplace immediately rather than waiting for its periodic poll.
+`claude plugin marketplace update trustmybot` forces CC to re-check the marketplace immediately rather than waiting for its periodic poll.
 
 ### Pruning stale cached versions
 
@@ -61,10 +61,12 @@ Step C is safe to re-run: once only active + previous remain it reports nothing 
 
 ### Switching channels (stable ↔ RC)
 
+From the project root; rc takes `--scope local`, stable `--scope project` ([INSTALL.md — Recommended scope](./INSTALL.md#recommended-scope-project-or-local)):
+
 ```
-/plugin uninstall tmb
-/plugin marketplace add trustmybot/marketplace-rc   # or trustmybot/marketplace for stable
-/plugin install tmb@trustmybot-rc                    # or tmb@trustmybot
+claude plugin uninstall tmb@trustmybot --scope project            # or tmb@trustmybot-rc --scope local
+claude plugin marketplace add trustmybot/marketplace-rc --scope local   # or trustmybot/marketplace --scope project for stable
+claude plugin install tmb@trustmybot-rc --scope local                    # or tmb@trustmybot --scope project
 ```
 
 The trajectory DB is per-project and unaffected by the channel switch — your data carries over.
@@ -197,17 +199,17 @@ After a `/plugin disable` → re-enable cycle, or after CC's auto-update lands a
    ```
    The CC log will show `clearPluginCache: invalidating loadAllPlugins cache (preAction: --plugin-dir inline plugins)` followed by the MCP server registration.
 
-2. **Uninstall + reinstall through `/plugin`:**
+2. **Uninstall + reinstall:**
    ```
-   /plugin uninstall tmb@trustmybot-rc
+   claude plugin uninstall tmb@trustmybot-rc --scope local
    ```
-   Quit CC fully (⌘Q), relaunch, then `/plugin install tmb@trustmybot-rc`.
+   Quit CC fully (⌘Q), relaunch, then run `claude plugin install tmb@trustmybot-rc --scope local` from the project root.
 
 3. **Manual cache nuke + reinstall.** Use the bundled helper, which previews what it will remove, prompts for confirmation, and preserves every other plugin's entry in `installed_plugins.json`:
    ```bash
    bash <plugin-source>/scripts/maintenance/heal-mcp-cache.sh
    ```
-   Then relaunch CC and `/plugin install tmb@trustmybot-rc`.
+   Then run `claude plugin install tmb@trustmybot-rc --scope local` from the project root and relaunch CC.
 
 This is an upstream CC bug — the plugin cannot patch it from inside. The defenses we ship: `activation-routine.sh` checks the server at every bro prompt and tells bro to halt (with a `tmb_recovery` §C pointer) when it is not running, and the `heal-mcp-cache.sh` helper above. Track at issue #2888.
 
@@ -351,15 +353,16 @@ rm -rf "$TEST_PROJ"
 **Recipe B — through the real marketplace (smoke-tests CC's update mechanism too).** Slower; depends on what versions are actually published.
 
 ```bash
-# Inside CC:
-/plugin marketplace add trustmybot/marketplace-rc
-/plugin install tmb@trustmybot-rc                # whatever the marketplace currently ships
+# From the project root:
+claude plugin marketplace add trustmybot/marketplace-rc --scope local
+claude plugin install tmb@trustmybot-rc --scope local   # whatever the marketplace currently ships
 ```
 
 Use the plugin in a real project — accumulate issues, tasks, run `/onboard`. Then point the marketplace at the in-development source by switching channels or by updating the marketplace ref:
 
 ```bash
-/plugin marketplace update trustmybot
+claude plugin marketplace update trustmybot-rc
+claude plugin update tmb@trustmybot-rc --scope local
 # Restart the CC session (Cmd+R) so the MCP server reboots with new code.
 ```
 

@@ -95,11 +95,11 @@ jobs:
             echo
             echo "Built from \`$DEV_SHA\`, pushed to \`dev-build\`."
             echo
-            echo "Upgrade an existing \`tmb@trustmybot-dev\` install, then restart Claude Code:"
+            echo "Upgrade an existing \`tmb@trustmybot-dev\` install (run from the project root), then restart Claude Code:"
             echo
             echo '```'
             echo 'claude plugin marketplace update trustmybot-dev'
-            echo 'claude plugin update tmb@trustmybot-dev'
+            echo 'claude plugin update tmb@trustmybot-dev --scope local'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -116,11 +116,11 @@ jobs:
           BODY="$(printf '%s\n' \
             "Dev build \`$VERSION\` is on \`dev-build\` (commit $BUILD_SHA)." \
             '' \
-            "Upgrade an existing \`tmb@trustmybot-dev\` install, then restart Claude Code:" \
+            "Upgrade an existing \`tmb@trustmybot-dev\` install (run from the project root), then restart Claude Code:" \
             '' \
             '```' \
             'claude plugin marketplace update trustmybot-dev' \
-            'claude plugin update tmb@trustmybot-dev' \
+            'claude plugin update tmb@trustmybot-dev --scope local' \
             '```')"
           if ! gh pr comment "$PR" --repo "$REPO" --body "$BODY"; then
             echo "::warning::Could not comment dev build $VERSION on PR #$PR; the build itself succeeded."
