@@ -36,7 +36,7 @@ run_step() {
 # Stubs and tool caches (bun, mise state) live in one run-scoped temp dir that
 # goes when the run ends; the real mise installs on PATH (and their config)
 # stay resolvable under any HOME. A run started with an empty HOME
-# (`HOME=$(mktemp -d "$TMPDIR/home.XXXXXX") bash tests/run-all.sh`) must end with that HOME holding
+# (`HOME=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/home.XXXXXX") bash tests/run-all.sh`) must end with that HOME holding
 # nothing but the embedding model cache, .cache/huggingface.
 _run_tmp=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-run-all.XXXXXX")
 trap 'rm -rf "$_run_tmp"' EXIT
