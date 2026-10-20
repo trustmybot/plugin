@@ -3,7 +3,7 @@ LOG="${TMPDIR:-/tmp}/tmb-kuzu-install.log"
 echo x > "$LOG"
 cat /tmp/tmb-out.log
 grep foo /tmp/a.log > "$TMPDIR/b"
-WS="$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-good.XXXXXX")"
+WS="$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-good.XXXXXX")"
 mkdir -p "$WS/sub"
 cp /tmp/source.txt "$WS/dest.txt"
 echo "use /tmp sparingly" > "$WS/note"

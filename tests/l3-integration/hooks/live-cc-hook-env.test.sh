@@ -23,7 +23,7 @@ if [ "${TMB_L3_LIVE_CC:-0}" != "1" ] || ! command -v claude >/dev/null 2>&1 || [
   exit 0
 fi
 
-T=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-live-cc-hook-env.XXXXXX")
+T=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-live-cc-hook-env.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/home" "$T/proj/.claude" "$T/plug/.claude-plugin" "$T/plug/hooks"
 PROJ=$(cd "$T/proj" && pwd -P)

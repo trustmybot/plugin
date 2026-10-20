@@ -10,7 +10,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../.." && pwd)"
 
-D="$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-live-db-shim-parent-layout.XXXXXX")"
+D="$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-live-db-shim-parent-layout.XXXXXX")"
 trap 'rm -rf "$D"' EXIT
 
 fail=0

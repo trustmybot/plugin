@@ -13,7 +13,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/session-start-persona.sh"
 
-TMPDIR=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-session-start-persona.XXXXXX")
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-session-start-persona.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
 FIXTURE_PLUGIN="$TMPDIR/plugin"

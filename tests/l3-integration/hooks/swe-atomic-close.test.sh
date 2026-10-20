@@ -12,7 +12,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/swe-atomic-close.sh"
 
-TMPDIR=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-swe-atomic-close.XXXXXX")
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-swe-atomic-close.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
 # Step out of the plugin checkout before any git work so a stray bare git call

@@ -99,7 +99,7 @@ check_golden() {
 # Test setup: minimal DBs / stubs for each hook
 # ---------------------------------------------------------------------------
 
-TMPDIR_ROOT=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-hook-content-preservation.XXXXXX")
+TMPDIR_ROOT=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-hook-content-preservation.XXXXXX")
 # Sandbox HOME so hooks (mcp-health-check et al.) touch a throwaway state/log
 # dir, never the developer's real ~/.claude/tmb.
 export HOME="$TMPDIR_ROOT/home"

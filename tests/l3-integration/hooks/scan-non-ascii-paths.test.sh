@@ -8,7 +8,7 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 
 command -v jq >/dev/null 2>&1 || { printf "SKIP jq not found\n"; exit 0; }
 
-WORKSPACE=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-scan-non-ascii-paths.XXXXXX")
+WORKSPACE=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-scan-non-ascii-paths.XXXXXX")
 trap 'rm -rf "$WORKSPACE"' EXIT
 
 # Scan shells out to `claude plugin list`; a stub keeps the run hermetic (the

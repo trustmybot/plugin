@@ -25,7 +25,7 @@ _L5_SMOKE_DB_DIR=""
 # Idempotent: reuses the same throwaway across all smokes in one process.
 _l5_smoke_isolate_db() {
   if [ -n "$_L5_SMOKE_DB_DIR" ]; then return 0; fi
-  _L5_SMOKE_DB_DIR=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/l5-smoke-db.XXXXXX")
+  _L5_SMOKE_DB_DIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/l5-smoke-db.XXXXXX")
   mkdir -p "$_L5_SMOKE_DB_DIR/.claude/tmb"
   export TRAJECTORY_DB_PATH="$_L5_SMOKE_DB_DIR/.claude/tmb/trajectory.db"
   trap '_l5_smoke_cleanup_db' EXIT

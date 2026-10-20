@@ -12,7 +12,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/no-source-edit-from-main.sh"
 
-TMPDIR=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-no-source-edit-from-main.XXXXXX")
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-no-source-edit-from-main.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 DB="$TMPDIR/trajectory.db"
 TRANSCRIPT_BRO="$TMPDIR/bro.jsonl"

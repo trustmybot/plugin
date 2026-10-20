@@ -20,7 +20,7 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/git-push-guard.sh"
 
 setup_bro_skip_repo() {
   local dir
-  dir=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-bro-skip-XXXXXX")
+  dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-bro-skip-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b dev

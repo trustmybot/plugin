@@ -241,7 +241,7 @@ assert_eq 'UNRESOLVED:OLDPWD:$OLDPWD/f' "$(wpaths 'cd x; echo y > "$OLDPWD/f"' /
 assert_eq 'UNRESOLVED:OLDPWD:$OLDPWD/f' "$(wpaths 'cd x && true; echo y > "$OLDPWD/f"' /w)" "outside the cd's && chain"
 assert_eq "/w/f" "$(wpaths '(cd x; cd y); cd z && echo y > "$OLDPWD/f"' /w)" "a subshell's cd does not leak"
 
-LR=$(cd "$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-cmd-analysis.XXXXXX")" && pwd -P)
+LR=$(cd "$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-cmd-analysis.XXXXXX")" && pwd -P)
 mkdir -p "$LR/tests" "$LR/a"
 lpaths() { tmb_cmd_write_paths "$1" "${2:-$LR}" "" "$LR" | sed "s|$LR|@|g" | paste -sd',' - ; }
 
@@ -372,7 +372,7 @@ done
 for p in src/agents/x.md docs/templates/a.md myskills/x.md src/rules/r.md; do
   if tmb_is_prompt_surface_path "$p"; then _fail "$p is not a prompt surface"; else _pass; fi
 done
-SURF=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-cmd-analysis.XXXXXX")
+SURF=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-cmd-analysis.XXXXXX")
 git init -q "$SURF"
 mkdir -p "$SURF/src/agents" "$SURF/agents" "$SURF/.claude/worktrees/t/agents"
 if tmb_is_prompt_surface_path "$SURF/src/agents/x.md"; then _fail "<repo>/src/agents/x.md is not a prompt surface"; else _pass; fi
@@ -384,7 +384,7 @@ if tmb_is_prompt_surface_path "/nonexistent/agents/x.md"; then _pass; else _fail
 rm -rf "$SURF"
 
 test_case "tmb_path_canonical"
-TMP=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-cmd-analysis.XXXXXX")
+TMP=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-cmd-analysis.XXXXXX")
 trap 'rm -rf "$TMP" "$LR"' EXIT
 REAL=$(cd -P "$TMP" && pwd -P)
 mkdir -p "$TMP/a"

@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/session-log-capture.sh"
 
-TMPDIR=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-session-log-capture.XXXXXX")
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-session-log-capture.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
 setup_workspace() {
@@ -89,8 +89,8 @@ fi
 
 test_case "silent no-op when workspace not detected (no DB)"
 unset TRAJECTORY_DB_PATH
-isolated_home=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-session-log-capture.XXXXXX")
-isolated_cwd=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-session-log-capture.XXXXXX")
+isolated_home=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-session-log-capture.XXXXXX")
+isolated_cwd=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-session-log-capture.XXXXXX")
 trap 'rm -rf "$isolated_home" "$isolated_cwd"' RETURN
 
 out=$(HOME="$isolated_home" bash -c "cd '$isolated_cwd' && echo '{\"prompt\":\"lost\"}' | bash '$HOOK' 2>&1 || true")

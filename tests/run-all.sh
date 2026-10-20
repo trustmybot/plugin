@@ -38,7 +38,7 @@ run_step() {
 # stay resolvable under any HOME. A run started with an empty HOME
 # (`HOME=$(mktemp -d "$TMPDIR/home.XXXXXX") bash tests/run-all.sh`) must end with that HOME holding
 # nothing but the embedding model cache, .cache/huggingface.
-_run_tmp=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-run-all.XXXXXX")
+_run_tmp=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-run-all.XXXXXX")
 trap 'rm -rf "$_run_tmp"' EXIT
 _home_isolated=0
 [ -z "$(ls -A "$HOME" 2>/dev/null)" ] && _home_isolated=1

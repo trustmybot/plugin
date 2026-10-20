@@ -22,7 +22,7 @@ for caller in \
   fi
 done
 
-tmpdir=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-bundle-whitespace-safety.XXXXXX")
+tmpdir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-bundle-whitespace-safety.XXXXXX")
 trap 'rm -rf "$tmpdir"' EXIT
 
 # This fixture models dependency source embedded in a generated template

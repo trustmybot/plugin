@@ -21,7 +21,7 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 DISPATCH="$PLUGIN_ROOT/scripts/hooks/dispatch.sh"
 STOP_HOOK="$PLUGIN_ROOT/scripts/hooks/swe-atomic-close.sh"
 
-TMPDIR=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-swe-run-identity.XXXXXX")
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-swe-run-identity.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
 cd "$TMPDIR"

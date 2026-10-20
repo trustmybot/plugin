@@ -11,7 +11,7 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 
 HOOK_RTS="$PLUGIN_ROOT/scripts/hooks/require-task-spec.sh"
 
-TMPDIR_RTS=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-normalize-role-prefix.XXXXXX")
+TMPDIR_RTS=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-normalize-role-prefix.XXXXXX")
 trap 'rm -rf "$TMPDIR_RTS"' EXIT
 DB_RTS="$TMPDIR_RTS/trajectory.db"
 sqlite3 "$DB_RTS" "

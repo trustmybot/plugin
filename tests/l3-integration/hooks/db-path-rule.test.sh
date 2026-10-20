@@ -21,7 +21,7 @@ HOOKS="$PLUGIN_ROOT/scripts/hooks"
 command -v sqlite3 >/dev/null 2>&1 || { echo "SKIP: sqlite3 not installed"; exit 0; }
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not installed"; exit 0; }
 
-BASE=$(cd "$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-db-path-rule.XXXXXX")" && pwd -P)
+BASE=$(cd "$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-db-path-rule.XXXXXX")" && pwd -P)
 trap 'chmod -R u+rw "$BASE" 2>/dev/null; rm -rf "$BASE"' EXIT
 unset CLAUDE_PROJECT_DIR TRAJECTORY_DB_PATH CLAUDE_PLUGIN_ROOT
 

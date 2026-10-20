@@ -23,7 +23,7 @@ scratch_dirs() {
   } | sort -u
 }
 
-TMP=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-no-scratch-XXXXXX")
+TMP=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-no-scratch-XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
 mkdir -p "$TMP/.tmp-probe"

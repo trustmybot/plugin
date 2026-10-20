@@ -16,7 +16,7 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/attribution-footer.sh"
 
 # Pin the project so the hook never resolves one by walking up from the cwd.
-PROJECT="$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-attribution-footer.XXXXXX")"
+PROJECT="$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-attribution-footer.XXXXXX")"
 trap 'rm -rf "$PROJECT"' EXIT
 export CLAUDE_PROJECT_DIR="$PROJECT"
 
@@ -52,7 +52,7 @@ assert_contains "$PLAIN" "$TMB_FOOTER" "TMB footer appended to plain body"
 assert_contains "$PLAIN" "Just a description." "original body text preserved"
 
 # ── full hook end-to-end with stubbed gh/glab ────────────────────────────────
-STUB_DIR=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-attribution-footer.XXXXXX")
+STUB_DIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-attribution-footer.XXXXXX")
 EDIT_LOG="$STUB_DIR/edit.log"
 trap 'rm -rf "$STUB_DIR" "$PROJECT"' EXIT
 

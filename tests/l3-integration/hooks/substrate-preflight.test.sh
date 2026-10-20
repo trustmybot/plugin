@@ -19,7 +19,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/substrate-preflight.sh"
 
-STUB_DIR=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-substrate-preflight.XXXXXX")
+STUB_DIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-substrate-preflight.XXXXXX")
 trap 'rm -rf "$STUB_DIR"' EXIT
 
 _make_stub_dir_with() {

@@ -4,9 +4,9 @@
 # or `mktemp -d -t X` under DARWIN_USER_TEMP_DIR and ignores TMPDIR, which the
 # Bash sandbox does not let a command write; GNU mktemp honours TMPDIR. A
 # template is honoured by both. macOS's TMPDIR ends in a slash, so the parent
-# drops it; a raw `${TMPDIR:-/tmp}/` parent yields a `//` that hooks normalise
-# away and path comparisons then miss:
-#   D=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-<name>.XXXXXX")
+# drops every trailing slash; a raw `${TMPDIR:-/tmp}/` parent yields a `//` that
+# hooks normalise away and path comparisons then miss:
+#   D=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-<name>.XXXXXX")
 #   D=$(mktemp -d "$(tmp_footprint_parent)/tmb-<name>.XXXXXX")   # tests/lib/tmp-footprint.sh sourced
 #
 # A call is a mktemp in command position (line start, after `$(`, a backtick,
@@ -131,7 +131,7 @@ OUT=$(scan "$ALLOWLIST" "${FILES[@]}")
 status=$?
 
 if [ "$status" -ne 0 ]; then
-  printf 'No-bare-mktemp: FAIL — mktemp without a slash-stripped path template (BSD mktemp ignores TMPDIR and the sandbox denies its default dir; a raw ${TMPDIR:-/tmp}/ parent doubles macOS'"'"'s trailing slash).\nUse: D=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%%/}/tmb-<name>.XXXXXX") (or "$(tmp_footprint_parent)/..." where tests/lib/tmp-footprint.sh is sourced)\n%s\n' "$OUT" >&2
+  printf 'No-bare-mktemp: FAIL — mktemp without a slash-stripped path template (BSD mktemp ignores TMPDIR and the sandbox denies its default dir; a raw ${TMPDIR:-/tmp}/ parent doubles macOS'"'"'s trailing slash).\nUse: D=$(mktemp -d "$(printf %%s "${TMPDIR:-/tmp}" | sed '"'"'s|/*$||'"'"')/tmb-<name>.XXXXXX") (or "$(tmp_footprint_parent)/..." where tests/lib/tmp-footprint.sh is sourced)\n%s\n' "$OUT" >&2
   exit 1
 fi
 printf 'No-bare-mktemp: PASS (%d files)\n' "${#FILES[@]}"

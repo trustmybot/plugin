@@ -18,8 +18,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SKILLS_DIR="$ROOT/skills"
 SCHEMA="$ROOT/mcp/trajectory-server/src/schema.sql"
 
-DISK_FILE=$(_t=${TMPDIR:-/tmp}; mktemp "${_t%/}/tmb-skill-catalog-sync.XXXXXX")
-SEED_FILE=$(_t=${TMPDIR:-/tmp}; mktemp "${_t%/}/tmb-skill-catalog-sync.XXXXXX")
+DISK_FILE=$(mktemp "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-skill-catalog-sync.XXXXXX")
+SEED_FILE=$(mktemp "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-skill-catalog-sync.XXXXXX")
 trap 'rm -f "$DISK_FILE" "$SEED_FILE"' EXIT
 
 # Disk set: every skills/<name>/ that ships a SKILL.md.

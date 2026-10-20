@@ -34,7 +34,7 @@ commit_file() {
 #   same     — the task's exact a.txt change (a rebase drops the task commit)
 setup() {
   local move="$1" verification="${2:-$PASSING}"
-  REPO=$(cd "$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-integrate-XXXXXX")" && pwd -P)
+  REPO=$(cd "$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-integrate-XXXXXX")" && pwd -P)
   g init -q -b main
   g config user.email test@example.com
   g config user.name Test

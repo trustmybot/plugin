@@ -17,7 +17,7 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/require-spawn-effort.sh"
 DISPATCHER="$PLUGIN_ROOT/scripts/hooks/agent-spawn-dispatch.sh"
 
-TMPDIR=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-require-spawn-effort.XXXXXX")
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-require-spawn-effort.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 cd "$TMPDIR"
 

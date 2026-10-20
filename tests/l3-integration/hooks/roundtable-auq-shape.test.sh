@@ -62,7 +62,7 @@ setup_db() {
   "
 }
 
-DB=$(_t=${TMPDIR:-/tmp}; mktemp "${_t%/}/tmb-roundtable-auq-shape.XXXXXX")
+DB=$(mktemp "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-roundtable-auq-shape.XXXXXX")
 trap 'rm -f "$DB"' EXIT
 export TRAJECTORY_DB_PATH="$DB"
 setup_db "$DB"

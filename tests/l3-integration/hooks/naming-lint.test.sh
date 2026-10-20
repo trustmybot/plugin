@@ -9,7 +9,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/naming-lint.sh"
 
-TMPDIR_NL=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-naming-lint.XXXXXX")
+TMPDIR_NL=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-naming-lint.XXXXXX")
 trap 'rm -rf "$TMPDIR_NL"' EXIT
 # Pin the project so the hook never resolves one by walking up from the cwd.
 export CLAUDE_PROJECT_DIR="$TMPDIR_NL"

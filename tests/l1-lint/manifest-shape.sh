@@ -244,7 +244,7 @@ if ! command -v claude >/dev/null 2>&1 || [ -n "${TMB_FORBID_LIVE_SYNC:-}" ] || 
 else
   # The CLI writes .claude.json under its config dir; a throwaway one keeps the
   # Human's untouched.
-  strict_home=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-manifest-shape.XXXXXX")
+  strict_home=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-manifest-shape.XXXXXX")
   strict_rc=0
   strict_out=$(HOME="$strict_home" CLAUDE_CONFIG_DIR="$strict_home/.claude" claude plugin validate --strict "$ROOT" 2>&1) || strict_rc=$?
   rm -rf "$strict_home"

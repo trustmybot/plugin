@@ -39,7 +39,7 @@ l5_init_state_dir() {
 # initializes git, sets test identity. Returns the absolute path on stdout.
 l5_setup_scratch_project() {
   local dir
-  dir=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-l5-XXXXXX")
+  dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-l5-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b main

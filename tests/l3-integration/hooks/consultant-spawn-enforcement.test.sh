@@ -26,7 +26,7 @@ SCHEMA="$PLUGIN_ROOT/mcp/trajectory-server/src/schema.sql"
 command -v sqlite3 >/dev/null 2>&1 || { echo "FAIL: sqlite3 unavailable — required dependency for this security-gate test"; exit 1; }
 command -v jq     >/dev/null 2>&1 || { echo "FAIL: jq unavailable — required dependency for this security-gate test"; exit 1; }
 
-TMPDIR_CS=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-consultant-spawn-enforcement.XXXXXX")
+TMPDIR_CS=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-consultant-spawn-enforcement.XXXXXX")
 trap 'rm -rf "$TMPDIR_CS"' EXIT
 cd "$TMPDIR_CS" || exit 1
 
@@ -101,7 +101,7 @@ assert_contains "$out" "consultant-spawn enforcement" "advisory nudge still emit
 # ========================================================
 
 test_case "consultant nudge resolves DB via walk-up (no env var) and writes the row"
-WALK_ROOT=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-cs-walk-XXXXXX")
+WALK_ROOT=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-cs-walk-XXXXXX")
 WALK_DB="$WALK_ROOT/.claude/tmb/trajectory.db"
 mkdir -p "$(dirname "$WALK_DB")"
 sqlite3 "$WALK_DB" < "$SCHEMA" >/dev/null

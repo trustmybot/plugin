@@ -37,7 +37,7 @@ check_nonempty() {
   fi
 }
 
-TMPDIR_ST="$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-selftest.XXXXXX")"
+TMPDIR_ST="$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-selftest.XXXXXX")"
 trap 'rm -rf "$TMPDIR_ST"' EXIT
 
 printf '=== codex-agent-materialization.mjs ===\n'

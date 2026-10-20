@@ -11,7 +11,7 @@ export PLUGIN_ROOT
 set -e
 
 export HOME
-HOME=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-flow-helpers.XXXXXX")
+HOME=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-flow-helpers.XXXXXX")
 SCRATCH=()
 cleanup() {
   rm -rf "$HOME" "${SCRATCH[@]}"
@@ -53,7 +53,7 @@ test_case "reonboard hook: composed remote-setup prompt on an onboarded DB emits
 if ! command -v sqlite3 >/dev/null 2>&1; then
   _pass "skipped: sqlite3 not installed"
 else
-  REONBOARD_PROJECT=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-flow-helpers.XXXXXX")
+  REONBOARD_PROJECT=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-flow-helpers.XXXXXX")
   SCRATCH+=("$REONBOARD_PROJECT")
   mkdir -p "$REONBOARD_PROJECT/.claude/tmb"
   REONBOARD_DB="$REONBOARD_PROJECT/.claude/tmb/trajectory.db"

@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-D=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-good.XXXXXX")
-F=$(_t=${TMPDIR:-/tmp}; mktemp "${_t%/}/tmb-good.XXXXXX")
+D=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-good.XXXXXX")
+F=$(mktemp "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-good.XXXXXX")
 P=$(mktemp -d "$(tmp_footprint_parent)/tmb-good.XXXXXX")
 W=$(mktemp "$WORK/err.XXXXXX")
-E=$(cd "$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-good.XXXXXX")" && pwd -P)
+E=$(cd "$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-good.XXXXXX")" && pwd -P)
 mk() {
-  local _t=${TMPDIR:-/tmp}
-  mktemp -d "${_t%/}/tmb-good.XXXXXX"
+  mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-good.XXXXXX"
 }
 # D=$(mktemp -d)
 LOG="${TMPDIR:-/tmp}/tmb-good.log"

@@ -23,7 +23,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/orphan-scan.sh"
 
-TMPDIR_BASE=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-orphan-scan.XXXXXX")
+TMPDIR_BASE=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-orphan-scan.XXXXXX")
 PIDS_TO_KILL=()
 cleanup() {
   for p in "${PIDS_TO_KILL[@]:-}"; do

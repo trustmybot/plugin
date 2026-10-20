@@ -17,7 +17,7 @@ PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/swe-verification-gate.sh"
 . "$HERE/fixtures/wal-no-holder.sh"
 
-TMPDIR=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-swe-verification-gate.XXXXXX")
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-swe-verification-gate.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
 # The gate's toolchain resolution may invoke mise, which keeps its own state

@@ -23,7 +23,7 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/git-push-guard.sh"
 # Sets globals: REPO_PATH, FEATURE_SHA
 setup_first_push_repo() {
   local dir
-  dir=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-first-push-XXXXXX")
+  dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-first-push-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b dev
@@ -184,7 +184,7 @@ db=$(setup_db "$REPO_PATH")
 set_pr_target "$db" "dev"
 insert_task "$db" 1 "$FEATURE_SHA"
 # Run from a DIFFERENT cwd; the cd prefix names the real repo.
-ELSEWHERE=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-first-push-elsewhere.XXXXXX")
+ELSEWHERE=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-first-push-elsewhere.XXXXXX")
 out=$( (cd "$ELSEWHERE" && echo "$(jq -cn --arg c "cd $REPO_PATH && git push -u origin feat/my-feature" '{tool_input:{command:$c}}')" | TRAJECTORY_DB_PATH="$db" bash "$HOOK" 2>&1 || true) )
 assert_contains "$out" '"permissionDecision":"deny"' "cd target must be resolved for the first-push base"
 assert_contains "$out" "task_id=1" "block message must list the unsigned task"
@@ -196,7 +196,7 @@ cleanup
 # feature branch adds C (task 1). Target dev gates {C}; target main gates {D, C}.
 setup_two_base_repo() {
   local dir
-  dir=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-first-push-XXXXXX")
+  dir=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-first-push-XXXXXX")
   (
     cd "$dir" || exit 1
     git init -q -b dev

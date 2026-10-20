@@ -19,7 +19,7 @@ if [ ! -f "$SERVER_DIST" ]; then
   }
 fi
 
-WORKSPACE=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-cheatcode-activate.XXXXXX")
+WORKSPACE=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-cheatcode-activate.XXXXXX")
 trap 'rm -rf "$WORKSPACE"' EXIT
 
 FIXTURE="$WORKSPACE/install.json"

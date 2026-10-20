@@ -17,7 +17,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/cleanup-worktree-on-task-close.sh"
 
-TMPDIR=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-cleanup-worktree-on-task-close.XXXXXX")
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-cleanup-worktree-on-task-close.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
 REPO="$TMPDIR/repo"
@@ -108,7 +108,7 @@ out=$(run_hook "$(input 'mcp__plugin_tmb-rc_trajectory-server__task_update_statu
 echo "  rc-channel tool name handled"
 
 test_case "#169 nested-repo shape: workspace DB + tasks.repo=plugin + repo-rooted worktree → worktree removed"
-WORKSPACE_TMP=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-ws-XXXXXX")
+WORKSPACE_TMP=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-ws-XXXXXX")
 INNER="$WORKSPACE_TMP/plugin"
 mkdir -p "$INNER"
 cd "$INNER"

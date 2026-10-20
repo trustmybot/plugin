@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 HOOK="$PLUGIN_ROOT/scripts/hooks/branch-up-to-date-with-remote.sh"
 
-TMPDIR=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-branch-up-to-date-with-remote.XXXXXX")
+TMPDIR=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-branch-up-to-date-with-remote.XXXXXX")
 trap 'rm -rf "$TMPDIR"' EXIT
 
 # Set up an "origin" bare repo + a clone with a TMB DB.

@@ -19,7 +19,7 @@ HOOK="$PLUGIN_ROOT/scripts/hooks/cheatcode-install-approval.sh"
 
 command -v jq >/dev/null 2>&1 || { printf "FAIL jq not found — required dependency for this security-gate test\n"; exit 1; }
 
-WORKSPACE=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-cheatcode-install.XXXXXX")
+WORKSPACE=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-cheatcode-install.XXXXXX")
 trap 'rm -rf "$WORKSPACE"' EXIT
 export TMB_PROJECT_ROOT="$WORKSPACE/project"
 mkdir -p "$TMB_PROJECT_ROOT"

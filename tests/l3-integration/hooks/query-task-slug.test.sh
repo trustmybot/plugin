@@ -12,7 +12,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$HERE/../../.." && pwd)"
 . "$PLUGIN_ROOT/scripts/hooks/lib/query-task.sh"
 
-TMP=$(_t=${TMPDIR:-/tmp}; mktemp -d "${_t%/}/tmb-query-task-slug.XXXXXX")
+TMP=$(mktemp -d "$(printf %s "${TMPDIR:-/tmp}" | sed 's|/*$||')/tmb-query-task-slug.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 TMP=$(cd "$TMP" && pwd -P)
 REPO="$TMP/repo"
