@@ -1,2 +1,0 @@
-### Changed
-- **The sandbox network probe is recorded per platform** (GH 1576): `SANDBOX_NETWORK_PROBES` keeps one probe record per OS, so a Linux run can be recorded next to the macOS one. The macOS default is unchanged; Linux has no record yet, so a fresh onboard there still defaults the sandbox question to No. `sandbox-network-probe.sh --check-recorded` compares against the current platform's record and counts every failure when it has none.
