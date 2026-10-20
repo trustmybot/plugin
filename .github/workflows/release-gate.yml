@@ -1,8 +1,8 @@
 name: release-gate
 on:
-  # Release gate: fires ONLY on rc tags + manual dispatch.
-  # The stable tag is functionally identical to the green rc, so it isn't re-gated.
-  # rc/main-only: never dispatched on feature branches or dev; dev merges never wait on it.
+  # Release gate, rc/main-only: fires ONLY on rc tags + manual dispatch from rc or main
+  # (ref-guard refuses any other ref). The stable tag is functionally identical to the
+  # green rc, so it isn't re-gated. Dev merges never wait on it.
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+'
@@ -25,8 +25,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  ref-guard:
+    name: Refuse refs other than rc/main
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Allow rc tags and dispatch from rc or main only
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          case "$EVENT:$REF" in
+            push:refs/tags/v*-rc.*|workflow_dispatch:refs/heads/rc|workflow_dispatch:refs/heads/main)
+              echo "release-gate allowed for $EVENT on $REF."
+              ;;
+            *)
+              echo "::error::release-gate is rc/main-only and refuses $EVENT on $REF. Dispatch it from rc instead: gh workflow run release-gate.yml --ref rc (see CONTRIBUTING, Release Phase B)."
+              exit 1
+              ;;
+          esac
+
   verdict-check:
     name: Same-SHA verdict check
+    needs: ref-guard
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
