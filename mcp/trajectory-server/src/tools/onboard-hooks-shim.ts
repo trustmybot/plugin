@@ -26,6 +26,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { serverLog } from '../logger.js';
+import { ensureLocalSettingsIgnored } from './onboard-sandbox.js';
 
 interface HookCommand {
   type: string;
@@ -261,13 +262,15 @@ function preToolUseOf(settings: Record<string, unknown>): { hooks: Record<string
 }
 
 function writeSettings(path: string, settings: Record<string, unknown>): string | null {
+  const created = !existsSync(path);
   try {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, JSON.stringify(settings, null, 2) + '\n');
-    return null;
   } catch (e) {
     return `settings.local.json write failed: ${(e as Error).message}`;
   }
+  if (created) ensureLocalSettingsIgnored(dirname(dirname(path)));
+  return null;
 }
 
 function skip<T extends object>(event: string, reason: string, result: T): T {

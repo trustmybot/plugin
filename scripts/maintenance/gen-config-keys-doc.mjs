@@ -56,7 +56,7 @@ export const KEYS = [
     name: 'headless_enforcement',
     type: 'string: `yes` \\| `no`',
     defaultText: 'unset (read as `no`)',
-    setBy: '`/onboard` (`onboard_apply`)',
+    setBy: '`onboard_apply`, on request: the `headless-intent` hint asks the Human first',
     effect: '`yes` writes the plugin\'s PreToolUse gates into the project\'s `.claude/settings.local.json` so they fire in headless `claude -p` runs; `no` removes them.',
   },
   {

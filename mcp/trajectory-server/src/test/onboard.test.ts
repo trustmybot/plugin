@@ -1375,16 +1375,69 @@ describe('onboard tools', () => {
       return { base, pluginRoot, project, dbPath, settings };
     }
 
-    it('round=headless returns one question, default No, N entries quoted', async () => {
+    it("round='headless' is not an /onboard round", async () => {
       const db = tempDB();
       const { base, pluginRoot, dbPath } = sandbox();
       const tools = onboardTools(db, dbPath, { pluginRoot });
-      const data = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'headless' }));
-      const questions = data.questions as Array<{ header: string; question: string; options: Array<{ wire: string }>; default_index: number }>;
-      assert.equal(questions.length, 1);
-      assert.equal(questions[0].header, 'Headless');
-      assert.match(questions[0].question, /Writes 2 PreToolUse entries to this project's \.claude\/settings\.local\.json/);
-      assert.equal(questions[0].options[questions[0].default_index].wire, 'no');
+      const result = (await call(tools.handlers, 'onboard_get_questions', { round: 'headless' })) as { isError?: boolean };
+      assert.equal(result.isError, true);
+      assert.match(String(parse(result).error), /unknown round 'headless'/);
+      const def = tools.definitions.find((d) => d.name === 'onboard_get_questions');
+      const roundSchema = (def?.inputSchema.properties as Record<string, { enum: string[] }>)['round'];
+      assert.deepEqual(roundSchema.enum, ['shape', 'main', 'sync', 'sandbox']);
+      rmSync(base, { recursive: true, force: true });
+      db.close();
+    });
+
+    it('headless_enforcement alone on an onboarded project writes the row and the shim', async () => {
+      const db = tempDB();
+      const { base, pluginRoot, dbPath, settings } = sandbox();
+      const tools = onboardTools(db, dbPath, { pluginRoot });
+      await call(tools.handlers, 'onboard_apply', { shape: 'local' });
+      const data = parse(await call(tools.handlers, 'onboard_apply', { headless_enforcement: 'yes' }));
+      const applied = data.applied as Record<string, unknown>;
+      assert.equal(applied.headless_enforcement, 'yes');
+      assert.equal((applied.headless_shim as Record<string, unknown>).written, true);
+      const state = parse(await call(tools.handlers, 'onboard_state_get', {}));
+      assert.equal((state.current as Record<string, unknown>).headless_enforcement, 'yes');
+      const entries = JSON.parse(readFileSync(settings, 'utf8')).hooks.PreToolUse.flatMap((g: { hooks: unknown[] }) => g.hooks);
+      assert.equal(entries.length, 2);
+      rmSync(base, { recursive: true, force: true });
+      db.close();
+    });
+
+    it('headless_enforcement alone before onboarding is refused, naming /onboard', async () => {
+      const db = tempDB();
+      const { base, pluginRoot, dbPath, settings } = sandbox();
+      const tools = onboardTools(db, dbPath, { pluginRoot });
+      const result = (await call(tools.handlers, 'onboard_apply', { headless_enforcement: 'yes' })) as { isError?: boolean };
+      assert.equal(result.isError, true);
+      assert.match(String(parse(result).error), /\/onboard/);
+      assert.equal(db.get(`SELECT 1 AS one FROM plugin_config WHERE key = 'headless_enforcement'`), undefined);
+      assert.ok(!existsSync(settings));
+      rmSync(base, { recursive: true, force: true });
+      db.close();
+    });
+
+    it('the sandbox question names the settings file and the keys it writes', async () => {
+      const db = tempDB();
+      const { base, pluginRoot, dbPath } = sandbox();
+      const tools = onboardTools(db, dbPath, { pluginRoot, platform: 'linux' });
+      const data = parse(await call(tools.handlers, 'onboard_get_questions', { round: 'sandbox' }));
+      const q = (data.questions as Array<{ question: string; options: Array<{ wire: string; description: string }> }>)[0];
+      for (const key of [
+        '.claude/settings.local.json',
+        'sandbox.enabled',
+        'sandbox.filesystem.allowWrite',
+        'sandbox.network.allowedDomains',
+        'sandbox.enableWeakerNetworkIsolation',
+        'env.npm_config_cache',
+        'env.BUN_INSTALL_CACHE_DIR',
+        '.gitignore',
+      ]) {
+        assert.ok(q.question.includes(key), `question names ${key}`);
+      }
+      for (const o of q.options) assert.doesNotMatch(o.description, /allow-list|egress|seatbelt/i);
       rmSync(base, { recursive: true, force: true });
       db.close();
     });
