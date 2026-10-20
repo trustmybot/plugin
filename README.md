@@ -22,14 +22,18 @@ That structure earns its keep on **long-horizon, multi-task work** — a codebas
 
 Requires **Claude Code 2.1.295 or later** (`claude --version`): TMB registers its gates with `"onFailure": "block"`, which earlier versions ignore: there a gate that times out lets the action through.
 
+From the project root:
+
 ```bash
-/plugin marketplace add trustmybot/marketplace
-/plugin install tmb@trustmybot
+claude plugin marketplace add trustmybot/marketplace --scope project
+claude plugin install tmb@trustmybot --scope project
 ```
 
-Use `trustmybot/marketplace-rc` + `tmb@trustmybot-rc` for the rc channel (pre-promotion testing — tolerate occasional breakage). Pick one channel per CC install; to switch, `/plugin uninstall tmb` then add the other.
+Install at project or local scope, never user scope; [INSTALL.md](docs/reference/INSTALL.md#recommended-scope-project-or-local) explains why and lists the update commands.
 
-Refresh after upstream changes: `/plugin marketplace update trustmybot`.
+Use `trustmybot/marketplace-rc` + `tmb@trustmybot-rc` with `--scope local` for the rc channel (pre-promotion testing — tolerate occasional breakage). Pick one channel per CC install; to switch, run `claude plugin uninstall tmb@trustmybot --scope project` (or `claude plugin uninstall tmb@trustmybot-rc --scope local`), then add the other.
+
+Refresh after upstream changes: `claude plugin marketplace update trustmybot`, then `claude plugin update tmb@trustmybot --scope project` (rc: `claude plugin marketplace update trustmybot-rc`, then `claude plugin update tmb@trustmybot-rc --scope local`).
 
 ---
 
